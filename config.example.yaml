@@ -1,0 +1,55 @@
+# Variables to tune the functionality
+distFromEvent: 5.0 # distance radius from event, in Km
+minBeforeP: 1.0 # minutes before a P wave arrival
+minAfterP: 3.0 # minutes after a P wave arrival
+
+# channels (identifies broadband, short period, accelerometers but also broad band):
+channels: # sampling rate (hight to low) / type of data (broadband etcetera)
+ chanH:
+  - "HH?"
+  - 'SH?'
+  - 'BH?'  
+ chanN:
+  - 'HN?'
+  - 'SN?'
+  - 'BN?'
+# chanL:
+#  - 'HL?'
+#  - 'SL?'
+#  - 'BL?'
+
+# Include only two datacentres to test. You can change to the full
+# set of datacentres as soon as you think it's working.
+datacenters:
+ GFZ: 'http://geofon.gfz-potsdam.de/fdsnws'
+ ETH: 'http://arclink.ethz.ch/fdsnws'
+# ODC: 'http://www.orfeus-eu.org/fdsnws'
+# RESIF: 'http://ws.resif.fr/fdsnws'
+# INGV: 'http://webservices.rm.ingv.it/fdsnws'
+# BGR: 'http://eida.bgr.de/fdsnws'
+# LMU: 'http://erde.geophysik.uni-muenchen.de/fdsnws'
+# IPGP: 'http://eida.ipgp.fr/fdsnws'
+# NIEP: 'http://eida-sc3.infp.ro/fdsnws'
+# KOERI: 'http://eida.koeri.boun.edu.tr/fdsnws'
+
+# others vars:
+eventws: 'http://seismicportal.eu/fdsnws/event/1/'
+minmag: 3.0
+minlat: 30.0
+maxlat: 80.0
+minlon: -10.0
+maxlon: 60.0
+outpath: '/tmp/mseeds/'
+# Set verbosity (for details see https://docs.python.org/2/library/logging.html#levels)
+# Note that a level of N will display all M<=N messages,
+# So setting 2 WILL DISPLAY EVERYTHING EXCEPT DEBUG MESSAGES
+verbosity: 0 #3: DEBUG, 2: INFO, 1: WARNING, 0: ERROR
+
+# start: 2015-01-01
+# end:   2015-02-01
+
+#search radius parameters
+radius_minmag: 3
+radius_maxmag: 7
+radius_mindist: 1
+radius_maxdist: 5
