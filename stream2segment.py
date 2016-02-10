@@ -25,7 +25,7 @@ import datetime as dt
 from stream2segment.utils import saveWaveforms
 
 
-def main():
+def main(): 
     # Version of this software
     version = '0.1a1'
     # load config file. This might be better implemented in the near future
