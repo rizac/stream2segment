@@ -25,7 +25,7 @@ import datetime as dt
 from stream2segment.utils import saveWaveforms
 
 
-def main(): 
+def main():
     # Version of this software
     version = '0.1a1'
     # load config file. This might be better implemented in the near future
@@ -38,11 +38,9 @@ def main():
     parser.add_argument('-e', '--eventws',
                         help='Event WS to use in queries.',
                         default=cfg_dict['eventws'])
-
     parser.add_argument('--minmag',
                         help='Minimum magnitude.', type=float,
                         default=cfg_dict['minmag'])
-
     parser.add_argument('--minlat',
                         help='Minimum latitude.', type=float,
                         default=cfg_dict['minlat'])

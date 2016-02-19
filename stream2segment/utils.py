@@ -16,23 +16,28 @@
    :License:
        To be decided!
 """
+
+# standard imports:
 import os
 import logging
 from datetime import datetime
 from datetime import timedelta
+# Python 3 compatibility
+# try:
+#     import urllib.request as ul
+# except ImportError:
+#     import urllib2 as ul
+
+import urllib2 as ul
+
+# third party imports:
 from obspy.taup.taup import getTravelTimes
 from obspy.geodetics.base import locations2degrees
 # FIXME: this should be the import! but pydev trhows unwanted errors:
 # from obspy.core.util import locations2degrees
 
-# Python 3 compatibility
-try:
-    import urllib.request as ul
-except ImportError:
-    import urllib2 as ul
 
-
-def getArrivalTime(dist, depth, model='ak135'):
+def getArrivalTime(dist, depth, model='ak135'):  # FIXME: better!
     """
         Assess and return the arrival time of P phases.
         Uses obspy.getTravelTimes
@@ -43,17 +48,24 @@ def getArrivalTime(dist, depth, model='ak135'):
         :param model: Either ``'iasp91'`` or ``'ak135'`` velocity model.
          Defaults to 'ak135'.
         :type model: str, optional
+        :return the number of seconds of the assessed arrival time, or None in case of error
     """
     tt = getTravelTimes(delta=dist, depth=depth, model=model)
-    return min((ele['time'] for ele in tt if ele.get('phase_name') in ['Pg', 'Pn', 'Pb']))
+    try:
+        return min((ele['time'] for ele in tt if (ele.get('phase_name') or ' ')[0] == 'P'))
+    except ValueError:
+        logging.error("Unable to find arrival time. Phase names (dist=%s, depth=%s, model=%s):\n%s",
+                      str(dist), str(depth), str(model),
+                      ','.join(ele.get('phase_name') for ele in tt))
+        return None
     # ttsel=[ele for ele in tt if ele.get('phase_name') in ['Pg','Pn','Pb']]
     # ttime=[ele['time'] for ele in ttsel]
     # arrtime=min(ttime)
     # return arrtime
 
 
-def getSearchRadius(mag, mmin=3, mmax=7, dmin=1, dmax=5):
-    """From a given magnitude, determines and returns tha max radius (in degrees).
+def getSearchRadius(mag, mmin=3, mmax=7, dmin=1, dmax=5):  #FIXME: better!
+    """From a given magnitude, determines and returns the max radius (in degrees).
         Given dmin and dmax and mmin and mmax (FIXME: TO BE CALIBRATED!),
         this function returns D from the f below:
 
@@ -106,9 +118,9 @@ def getEvents(**kwargs):
             minlat (float): the event min latitude
             maxlat (float): the event max latitude
     """
-    eventQuery = '%(eventws)squery?minmagnitude=%(minmag)1.1f&start=%(start)s' \
-        + '&minlon=%(minlon)s&maxlon=%(maxlon)s&end=%(end)s' \
-        + '&minlat=%(minlat)s&maxlat=%(maxlat)s&format=text' % kwargs
+    eventQuery = ('%(eventws)squery?minmagnitude=%(minmag)1.1f&start=%(start)s'
+                  '&minlon=%(minlon)s&maxlon=%(maxlon)s&end=%(end)s'
+                  '&minlat=%(minlat)s&maxlat=%(maxlat)s&format=text') % kwargs
 
     result = url_read(eventQuery, 'Event WS')
 
@@ -120,21 +132,15 @@ def getEvents(**kwargs):
             logging.error("Couldn't convert origTime parameter (%s).", splEv[1])
             continue
 
-#         try:
-#             splEv[1] = splEv[1].replace('-', ' ').replace('T', ' ')
-#             splEv[1] = splEv[1].replace(':', ' ').replace('.', ' ')
-#             splEv[1] = splEv[1].replace('Z', '').split()
-#             splEv[1] = datetime(*map(int, splEv[1]))
-#         except (TypeError, ValueError):
-#             logging.error("Couldn't convert origTime parameter (%s).", splEv[1])
-#             continue
+        try:
+            splEv[2] = float(splEv[2])
+            splEv[3] = float(splEv[3])
+            splEv[4] = float(splEv[4])
+            splEv[10] = float(splEv[10])
 
-        splEv[2] = float(splEv[2])
-        splEv[3] = float(splEv[3])
-        splEv[4] = float(splEv[4])
-        splEv[10] = float(splEv[10])
-
-        listResult.append(splEv)
+            listResult.append(splEv)
+        except (ValueError, IndexError) as err_:
+            logging.error(str(err_))
 
     return listResult
 
@@ -157,8 +163,6 @@ def getStations(dc, listCha, origTime, lat, lon, dist):
         :type dist: float
         :return: the list of stations
     """
-    stationQuery = '%s/station/1/query?latitude=%3.3f&longitude=%3.3f&' + \
-        'maxradius=%3.3f&start=%s&end=%s&channel=%s&format=text&level=station'
 
     listResult = list()
     try:
@@ -167,6 +171,9 @@ def getStations(dc, listCha, origTime, lat, lon, dist):
     except TypeError:
         logging.error('Cannot convert origTime parameter (%s).', origTime)
         return listResult
+
+    stationQuery = ('%s/station/1/query?latitude=%3.3f&longitude=%3.3f&'
+                    'maxradius=%3.3f&start=%s&end=%s&channel=%s&format=text&level=station')
 
     aux = stationQuery % (dc, lat, lon, dist, start.isoformat(),
                           endt.isoformat(), ','.join(listCha))
@@ -179,23 +186,9 @@ def getStations(dc, listCha, origTime, lat, lon, dist):
         if splSt[6] is None:
             logging.error("Couldn't convert start time attribute (%s).", splSt[6])
             continue
-#         try:
-#             splSt[6] = splSt[6].replace('-', ' ').replace('T', ' ')
-#             splSt[6] = splSt[6].replace(':', ' ').replace('.', ' ')
-#             splSt[6] = splSt[6].replace('Z', '').split()
-#             splSt[6] = datetime(*map(int, splSt[6]))
-#         except (AttributeError, IndexError):
-#             logging.error("Couldn't convert start time attribute (%s).", splSt[6])
-#             continue
 
+        # FIXME: why shouldn't this log any error?
         splSt[7] = to_datetime(splSt[7])
-#         try:
-#             splSt[7] = splSt[7].replace('-', ' ').replace('T', ' ')
-#             splSt[7] = splSt[7].replace(':', ' ').replace('.', ' ')
-#             splSt[7] = splSt[7].replace('Z', '').split()
-#             splSt[7] = datetime(*map(int, splSt[7]))
-#         except (AttributeError, IndexError):
-#             splSt[7] = None
 
         splSt[2] = float(splSt[2])
         splSt[3] = float(splSt[3])
@@ -285,7 +278,8 @@ def getTimeRange(origTime, days=0, hours=0, minutes=0, seconds=0):
 
 def url_read(url, name, blockSize=1024*1024):
     """
-        Reads and return data from the given url.
+        Reads and return data from the given url. Note that in case of IOException, the  data
+        read until the exception is returned
         :param url: a valid url
         :type url: string
         :param name: the name of the request (will be displayed in errors, as of january 2016
@@ -301,44 +295,52 @@ def url_read(url, name, blockSize=1024*1024):
     dcResult = ''
     logging.debug('Querying %s', url)
     req = ul.Request(url)
+    urlopen_ = None
 
     try:
-        u = ul.urlopen(req)
-
-        # Read the data in blocks of predefined size
-        try:
-            buf = u.read(blockSize)
-        except:
-            logging.error('Error while querying the %s', name)
-
-        if not len(buf):
-            logging.debug('Error code: %s', u.getcode())
-
-        while len(buf):
-            dcBytes += len(buf)
-            # Return one block of data
-            dcResult += buf
-            try:
-                buf = u.read(blockSize)
-            except:
-                logging.error('Error while querying the %s', name)
-            logging.debug('%s bytes from %s', dcBytes, url)
-
-        # Close the connection to avoid overloading the server
-        logging.debug('%s bytes from %s', dcBytes, url)
-        u.close()
-
-    except ul.URLError as e:
+        urlopen_ = ul.urlopen(req)
+    except (IOError, OSError) as e:
+        # note: urllib2 raises urllib2.URLError (subclass of IOError),
+        # in python3 raises urllib.errorURLError (subclass of OSError)
+        # in both cases there might be a reason or code attributes, which we
+        # want to print
+        str_ = ''
         if hasattr(e, 'reason'):
-            logging.error('%s - Reason: %s', url, e.reason)
+            str_ = '%s (Reason: %s)' % (e.__class__.__name__, e.reason)
         elif hasattr(e, 'code'):
-            logging.error('The server couldn\'t fulfill the request')
-            logging.error('Error code: %s', e.code)  # pylint:disable=E1103
+            str_ = '%s (The server couldn\'t fulfill the request. Error code: %s)' % \
+                    (e.__class__.__name__, e.code)
+        else:
+            str_ = '%s (%s)' % (e.__class__.__name__, str(e))
+
+        logging.error('%s - %s', url, str_)
 
     except (TypeError, ValueError) as e:
         # see https://docs.python.org/2/howto/urllib2.html#handling-exceptions
         logging.error('%s', e)
 
+    if urlopen_ is None:
+        return dcResult
+
+    # Read the data in blocks of predefined size
+    while True:
+        try:
+            buf = urlopen_.read(blockSize)
+        except IOError:  # urlopen behaves as a file-like obj.
+            # Thus we catch the file-like exception IOError,
+            # see https://docs.python.org/2.4/lib/bltin-file-objects.html
+            logging.error('Error while querying the %s', name)
+            buf = ''  # for safety (break the loop here below)
+
+        if not buf:
+            break
+        dcBytes += len(buf)
+        dcResult += buf
+
+    # Close the connection to avoid overloading the server
+    urlopen_.close()
+
+    logging.debug('%s bytes read from %s', dcBytes, url)
     return dcResult
 
 
@@ -421,6 +423,8 @@ def saveWaveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, distFromEvent
                     # added info for the tau-p
                     dista = locations2degrees(ev[2], ev[3], st[2], st[3])
                     arrtime = getArrivalTime(dista, ev[4])
+                    if arrtime is None:
+                        continue
                     origTime = ev[1] + timedelta(seconds=float(arrtime))
                     # shall we avoid numpy? before was: timedelta(seconds=numpy.float64(arrtime))
                     cha, wav = getWaveforms(dc, st[1], chList, origTime, minBeforeP, minAfterP)
