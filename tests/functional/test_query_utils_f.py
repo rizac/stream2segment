@@ -10,13 +10,13 @@ from mock import patch
 import pytest
 from mock import Mock
 from datetime import datetime, timedelta
-from stream2segment.utils import getWaveforms, getTimeRange, getStations, getEvents, to_datetime,\
+from stream2segment.query_utils import getWaveforms, getTimeRange, getStations, getEvents, to_datetime,\
     getArrivalTime, getSearchRadius, getEvents, url_read, saveWaveforms
 from StringIO import StringIO
 from obspy.taup.taup import getTravelTimes
 
 
-@patch('stream2segment.utils.getTravelTimes')
+@patch('stream2segment.query_utils.getTravelTimes')
 def test_get_arrival_times(mock_get_tt):
     pass
 

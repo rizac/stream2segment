@@ -10,13 +10,14 @@ from mock import patch
 import pytest
 from mock import Mock
 from datetime import datetime, timedelta
-from stream2segment.utils import getWaveforms, getTimeRange, getStations, getEvents, to_datetime,\
+from stream2segment.query_utils import getWaveforms, getTimeRange, getStations, getEvents,\
     getArrivalTime, getSearchRadius, getEvents, url_read, saveWaveforms
+from stream2segment.utils import to_datetime
 from StringIO import StringIO
 import stream2segment
 
 
-@patch('stream2segment.utils.getTravelTimes', return_value = 'a')
+@patch('stream2segment.query_utils.getTravelTimes', return_value = 'a')
 def test_get_arrival_times(mock_get_tt):
 
     with pytest.raises(AttributeError):
@@ -56,40 +57,137 @@ def test_getSearchRadius(mag, args, expected_val):
         args.insert(0, mag)
         assert getSearchRadius(*args) == expected_val
 
+@pytest.mark.parametrize('inargs, expected_dt',
+                         [
+                           ((56,True,True), 56),
+                           ((56,False,True), 56),
+                           ((56,True,False), 56),
+                           ((56,False,False), 56),
+                           (('56',True,True), '56'),
+                           (('56',False,True), '56'),
+                           (('56',True,False), '56'),
+                           (('56',False,False), '56'),
+                           (('a sd ',True,True), 'aTsdT'),
+                           (('a sd ',False,True), 'aTsdT'),
+                           (('a sd ',True,False), 'a sd '),
+                           (('a sd ',False,False), 'a sd '),
+                           (('a sd Z',True,True), 'aTsdT'),
+                           (('a sd Z',False,True), 'aTsdTZ'),
+                           (('a sd Z',True,False), 'a sd '),
+                           (('a sd Z',False,False), 'a sd Z'),
+                           (('2015-01-03 22:22:22Z',True,True), '2015-01-03T22:22:22'),
+                           (('2015-01-03 22:22:22Z',False,True), '2015-01-03T22:22:22Z'),
+                           (('2015-01-03 22:22:22Z',True,False), '2015-01-03 22:22:22'),
+                           (('2015-01-03 22:22:22Z',False,False), '2015-01-03 22:22:22Z'),
+                           ]
+                         )
+def test_normalize_datestr(inargs, expected_dt):
+    from stream2segment.utils import normalize_datestr
+    assert normalize_datestr(*inargs) == expected_dt
 
+
+@pytest.mark.parametrize('normalize_datestr_return_value, strptime_callcount, expected_dt',
+                         [
+                          (56, 1, None),
+                          ('abc', 3, None),
+                          ("2006", 3, None),
+                          ("2006-06", 3, None),
+                          ("2006-06-06", 2, datetime(2006,6,6)),
+                          ("2006-06-06T", 3, None),
+                          ("2006-06-06T03", 3, None),
+                          ("2006-06-06T03:22", 3, None),
+                          ("2006-06-06T03:22:12", 1, datetime(2006,6,6, 3,22,12)),
+                          ("2006-06-06T03:22:12.45", 3, datetime(2006,6,6, 3,22,12,450000)),
+                          ]
+                         )
 # for side effect below
 # see https://docs.python.org/3/library/unittest.mock-examples.html#partial-mocking
-@patch('stream2segment.utils.datetime', side_effect=lambda *args, **kw: datetime(*args, **kw))
-def test_to_datetime(mock_datetime):
-    mock_datetime.reset_mock()
-    dt = to_datetime("asd")  # invalid date (string)
-    assert dt is None
-    assert not mock_datetime.called
+@patch('stream2segment.utils.dt.datetime', side_effect=lambda *args, **kw: datetime(*args, **kw))
+@patch('stream2segment.utils.normalize_datestr')
+def test_to_datetime_crap(mock_normalize_datestr, mock_datetime, normalize_datestr_return_value,
+                          strptime_callcount, expected_dt):
+    mock_datetime.strptime = Mock()
+    mock_datetime.strptime.side_effect = lambda *args, **kw: datetime.strptime(*args, **kw)
 
-    mock_datetime.reset_mock()
-    dt = to_datetime("-45")  # invalid date (invalid number)
-    assert dt is None
-    mock_datetime.assert_called_with(45)
+    mock_normalize_datestr.return_value = normalize_datestr_return_value
 
-    mock_datetime.reset_mock()
-    dt = to_datetime("6-46-6")
-    assert dt is None
-    mock_datetime.assert_called_with(6, 46, 6)
-
-    mock_datetime.reset_mock()
-    dt = to_datetime("2006-6-6")
-    assert dt == datetime(2006, 6, 6)
-    mock_datetime.assert_called_with(2006, 6, 6)
-
-    mock_datetime.reset_mock()
-    dt = to_datetime("1995-07-14T00:00:00")
-    assert dt == datetime(1995, 7, 14)
-    mock_datetime.assert_called_with(1995, 7, 14, 0, 0, 0)
+    inarg = "x"
+    dt = to_datetime(inarg)
+    assert dt == expected_dt
+    mock_normalize_datestr.assert_called_once_with(inarg, True, True)
+    first_args_to_strptime = [c[0][0] for c in mock_datetime.strptime.call_args_list]
+    assert all(x == normalize_datestr_return_value for x in first_args_to_strptime)
+    assert mock_datetime.strptime.call_count == strptime_callcount
 
 
-# @patch('stream2segment.utils.ul.Request', return_value='Request')
-# @patch('stream2segment.utils.ul.urlopen', return_value=Urlopen('read'))
-@patch('stream2segment.utils.url_read', return_value='url_read')
+# @pytest.mark.parametrize('inarg, callcount, expected_dt',
+#                          [("asd", 3, None), ("-45", 3, None),
+#                           ("-45T", 3, None), ("-45 ", 3, None),
+#                           ("-45T ", 3, None), ("6-46-6", 3, None),
+#                           ("2006-6-6T", 3, None), ("2006-6-6 ", 3, None),
+#                           ("2006-6-6T ", 3, None),
+#                           ("2006-6-6", 2, datetime(2006,6,6)), 
+#                           ("1995-07-14T00:00:00", 1, datetime(1995, 7, 14)),
+#                           ("1995-07-14T00:00:00.45", 3, datetime(1995, 7, 14,0,0,0,450000)),
+#                           ("1995-07-14T00:00:00Z", 1, datetime(1995, 7, 14)),
+#                           ("1995-07-14T00:00:00.45Z", 3, datetime(1995, 7, 14,0,0,0,450000)),])
+# # for side effect below
+# # see https://docs.python.org/3/library/unittest.mock-examples.html#partial-mocking
+# @patch('stream2segment.utils.dt.datetime', side_effect=lambda *args, **kw: datetime(*args, **kw))
+# def test_to_datetime(mock_datetime, inarg, callcount, expected_dt):
+#     mock_datetime.strptime = Mock()
+#     mock_datetime.strptime.side_effect = lambda *args, **kw: datetime.strptime(*args, **kw)
+#     
+#     # replacing internal custom to datetime function
+#     def get_inarg_as_passed_to_strptime(inarg, ignore_z, allow_space):
+#         if ignore_z and inarg[-1] == 'Z':
+#             inarg = inarg[:-1]
+#         if allow_space:
+#             inarg = inarg.replace(' ', 'T')
+#         return inarg
+#     
+#     for ignore_z, allow_spaces in [(True, True), (True, False), (False, True), (False, False)]:
+#         mock_datetime.strptime.reset_mock()
+#         dt = to_datetime(inarg, ignore_z, allow_spaces)
+#         assert dt == expected_dt
+#         inarg_as_passed_to_strptime = get_inarg_as_passed_to_strptime(inarg, ignore_z, allow_spaces)
+#         first_args_to_strptime = [c[0][0] for c in mock_datetime.strptime.call_args_list]
+#         assert all(x == inarg_as_passed_to_strptime for x in first_args_to_strptime)
+#         assert mock_datetime.strptime.call_count == callcount
+
+# # for side effect below
+# # see https://docs.python.org/3/library/unittest.mock-examples.html#partial-mocking
+# @patch('stream2segment.utils.dt.datetime', side_effect=lambda *args, **kw: datetime(*args, **kw))
+# def test_to_datetime(mock_datetime):
+#     mock_datetime.reset_mock()
+#     dt = to_datetime("asd")  # invalid date (string)
+#     assert dt is None
+#     assert not mock_datetime.called
+# 
+#     mock_datetime.reset_mock()
+#     dt = to_datetime("-45")  # invalid date (invalid number)
+#     assert dt is None
+#     mock_datetime.assert_called_with(45)
+# 
+#     mock_datetime.reset_mock()
+#     dt = to_datetime("6-46-6")
+#     assert dt is None
+#     mock_datetime.assert_called_with(6, 46, 6)
+# 
+#     mock_datetime.reset_mock()
+#     dt = to_datetime("2006-6-6")
+#     assert dt == datetime(2006, 6, 6)
+#     mock_datetime.assert_called_with(2006, 6, 6)
+# 
+#     mock_datetime.reset_mock()
+#     dt = to_datetime("1995-07-14T00:00:00")
+#     assert dt == datetime(1995, 7, 14)
+#     mock_datetime.assert_called_with(1995, 7, 14, 0, 0, 0)
+
+
+# @patch('stream2segment.query_utils.ul.Request', return_value='Request')
+# @patch('stream2segment.query_utils.ul.urlopen', return_value=Urlopen('read'))
+@patch('stream2segment.query_utils.url_read', return_value='url_read')
 def test_get_events(mock_url_read):  # , mock_urlopen, mock_request):
     with pytest.raises(KeyError):
         getEvents()
@@ -134,7 +232,7 @@ def test_get_events(mock_url_read):  # , mock_urlopen, mock_request):
     assert mock_url_read.called
 
 
-@patch('stream2segment.utils.url_read', return_value='url_read')
+@patch('stream2segment.query_utils.url_read', return_value='url_read')
 def test_get_waveforms(mock_url_read):
     mock_url_read.reset_mock()
     a, b = getWaveforms('a', 'b', 'c', 'd', '3', '5')
@@ -146,7 +244,7 @@ def test_get_waveforms(mock_url_read):
     assert not a and not b
     assert not mock_url_read.called
 
-    with patch('stream2segment.utils.getTimeRange') as mock_get_tr:
+    with patch('stream2segment.query_utils.getTimeRange') as mock_get_tr:
         mock_url_read.reset_mock()
         d1 = datetime.now()
         d2 = d1 + timedelta(seconds=1)
@@ -176,7 +274,7 @@ def test_get_waveforms(mock_url_read):
         mock_get_tr.assert_called_with('d', minutes=('3','5'))
 
 
-@patch('stream2segment.utils.url_read', return_value='url_read')
+@patch('stream2segment.query_utils.url_read', return_value='url_read')
 def test_get_stations(mock_url_read):
     mock_url_read.reset_mock()
     lst = getStations('a', 'b', 'c', 'd', '5', '6')
@@ -193,7 +291,7 @@ def test_get_stations(mock_url_read):
     assert not lst
     assert mock_url_read.called
 
-    with patch('stream2segment.utils.getTimeRange') as mock_get_timerange:
+    with patch('stream2segment.query_utils.getTimeRange') as mock_get_timerange:
         mock_url_read.reset_mock()
         mock_get_timerange.return_value = (datetime.now(), datetime.now()+timedelta(seconds=1))
         d = datetime.now()
@@ -236,7 +334,7 @@ def test_get_stations(mock_url_read):
         assert lst[0][7] == d2
 
 
-@patch('stream2segment.utils.timedelta', side_effect=lambda *args, **kw: timedelta(*args, **kw))
+@patch('stream2segment.query_utils.timedelta', side_effect=lambda *args, **kw: timedelta(*args, **kw))
 def test_get_timerange(mock_timedelta):
     mock_timedelta.reset_mock()
     d = datetime.utcnow()
@@ -285,7 +383,7 @@ def test_get_timerange(mock_timedelta):
 #     print res
 #     assert res == 'resp2'
 
-@patch('stream2segment.utils.ul')
+@patch('stream2segment.query_utils.ul')
 def test_url_read(mock_ul):  # mock_ul_urlopen, mock_ul_request, mock_ul):
     blockSize=1024*1024
     
@@ -350,7 +448,7 @@ def test_url_read(mock_ul):  # mock_ul_urlopen, mock_ul_request, mock_ul):
 #     mock_ul.urlopen.read.side_effect = excp
 #     assert url_read(val, "name") == ''
     
-# @patch('stream2segment.utils.ul.urlopen')
+# @patch('stream2segment.query_utils.ul.urlopen')
 # def test_url_read(mock_ul_urlopen):  # mock_ul_urlopen, mock_ul_request, mock_ul):
 #     a = Mock()
 #     a.read.side_effect = ['resp1', 'resp2']
@@ -364,34 +462,34 @@ def test_url_read(mock_ul):  # mock_ul_urlopen, mock_ul_request, mock_ul):
 #     pass
 
 
-@patch('stream2segment.utils.locations2degrees', return_value = 'l2d')
-@patch('stream2segment.utils.getArrivalTime')
-@patch('stream2segment.utils.getEvents')
-@patch('stream2segment.utils.getStations')
-@patch('stream2segment.utils.getWaveforms')
-@patch('stream2segment.utils.os.path.exists', return_value=False)
+@patch('stream2segment.query_utils.locations2degrees', return_value = 'l2d')
+@patch('stream2segment.query_utils.getArrivalTime')
+@patch('stream2segment.query_utils.getEvents')
+@patch('stream2segment.query_utils.getStations')
+@patch('stream2segment.query_utils.getWaveforms')
+@patch('stream2segment.query_utils.os.path.exists', return_value=False)
 def test_save_waveforms_nopath(mock_os_path_exists, mock_gw, mock_gs, mock_ge, mock_gat, mock_ltd):
     mock_os_path_exists.side_effect = lambda arg: False
     saveWaveforms('eventws', 'minmag', 'minlat', 'maxlat', 'minlon', 'maxlon', 
                   'distFromEvent', 'datacenters_dict',
-                  'channelList', 'start', 'end', 'minBeforeP', 'minAfterP', 'outpath')
+                  'channelList', 'start', 'end', ('minBeforeP', 'minAfterP'), 'outpath')
     mock_os_path_exists.assert_called_with('outpath')
     assert not mock_ge.called and not mock_gs.called and not mock_gw.called and \
         not mock_gat.called and not mock_ltd.called
 
 
-@patch('stream2segment.utils.locations2degrees', return_value = 'l2d')
-@patch('stream2segment.utils.getArrivalTime')
-@patch('stream2segment.utils.getEvents')
-@patch('stream2segment.utils.getStations')
-@patch('stream2segment.utils.getWaveforms')
-@patch('stream2segment.utils.os.path.exists', return_value=True)
+@patch('stream2segment.query_utils.locations2degrees', return_value = 'l2d')
+@patch('stream2segment.query_utils.getArrivalTime')
+@patch('stream2segment.query_utils.getEvents')
+@patch('stream2segment.query_utils.getStations')
+@patch('stream2segment.query_utils.getWaveforms')
+@patch('stream2segment.query_utils.os.path.exists', return_value=True)
 def test_save_waveforms_getevents_returns_empty(mock_os_path_exists, mock_gw, mock_gs, mock_ge, mock_gat, mock_ltd):
 
     mock_ge.side_effect = lambda **args: []
     saveWaveforms('eventws', 'minmag', 'minlat', 'maxlat', 'minlon', 'maxlon', 
                   'distFromEvent', 'datacenters_dict',
-                  'channelList', 'start', 'end', 'minBeforeP', 'minAfterP', 'outpath')
+                  'channelList', 'start', 'end', ('minBeforeP', 'minAfterP'), 'outpath')
     mock_os_path_exists.assert_called_with('outpath')
     mock_ge.assert_called_with(**{"eventws": "eventws",
                                   "minmag": "minmag",
@@ -408,34 +506,35 @@ def test_save_waveforms_getevents_returns_empty(mock_os_path_exists, mock_gw, mo
 # global vars (FIXME: check if good!)
 dcs = {'dc1' : 'www.dc1'}
 channels = [['a', 'b' , 'c']]
+search_radius_args = ['1', None, '4' ,'5']
 
-
-@patch('stream2segment.utils.locations2degrees', return_value='l2d')
-@patch('stream2segment.utils.getArrivalTime')
-@patch('stream2segment.utils.getEvents', return_value=[[str(i) for i in xrange(12)]])
-@patch('stream2segment.utils.getStations')
-@patch('stream2segment.utils.getWaveforms')
-@patch('stream2segment.utils.os.path.exists', return_value=True)
+@patch('stream2segment.query_utils.locations2degrees', return_value='l2d')
+@patch('stream2segment.query_utils.getArrivalTime')
+@patch('stream2segment.query_utils.getEvents', return_value=[[str(i) for i in xrange(12)]])
+@patch('stream2segment.query_utils.getStations')
+@patch('stream2segment.query_utils.getWaveforms')
+@patch('stream2segment.query_utils.os.path.exists', return_value=True)
 def test_save_waveforms_indexerr_on_getevents(mock_os_path_exists, mock_gw, mock_gs, mock_ge,
                                               mock_gat, mock_ltd):
     with pytest.raises(IndexError):
         saveWaveforms('eventws', 'minmag', 'minlat', 'maxlat', 'minlon', 'maxlon',
-                      'distFromEvent', dcs,
-                      channels, 'start', 'end', 'minBeforeP', 'minAfterP', 'outpath')
+                      search_radius_args, dcs,
+                      channels, 'start', 'end', ('minBeforeP', 'minAfterP'), 'outpath')
 
 
-@patch('stream2segment.utils.locations2degrees', return_value='l2d')
-@patch('stream2segment.utils.getArrivalTime')
-@patch('stream2segment.utils.getEvents', return_value=[[str(i) for i in xrange(13)]])
-@patch('stream2segment.utils.getStations', return_value=[])
-@patch('stream2segment.utils.getWaveforms')
-@patch('stream2segment.utils.os.path.exists', return_value=True)
-def test_save_waveforms_getstations_returns_empty(mock_os_path_exists, mock_gw, mock_gs, mock_ge,
+@patch('stream2segment.query_utils.locations2degrees', return_value='l2d')
+@patch('stream2segment.query_utils.getArrivalTime')
+@patch('stream2segment.query_utils.getEvents', return_value=[[str(i) for i in xrange(13)]])
+@patch('stream2segment.query_utils.getStations', return_value=[])
+@patch('stream2segment.query_utils.getWaveforms')
+@patch('stream2segment.query_utils.os.path.exists', return_value=True)
+@patch('stream2segment.query_utils.getSearchRadius', return_value='gsr')
+def test_save_waveforms_getstations_returns_empty(mock_gsr, mock_os_path_exists, mock_gw, mock_gs, mock_ge,
                                                   mock_gat, mock_ltd):
 
     saveWaveforms('eventws', 'minmag', 'minlat', 'maxlat', 'minlon', 'maxlon',
-                  'distFromEvent', dcs,
-                  channels, 'start', 'end', 'minBeforeP', 'minAfterP', 'outpath')
+                  search_radius_args, dcs,
+                  channels, 'start', 'end', ('minBeforeP', 'minAfterP'), 'outpath')
     mock_os_path_exists.assert_called_with('outpath')
     mock_ge.assert_called_with(**{"eventws": "eventws",
                                   "minmag": "minmag",
@@ -448,36 +547,39 @@ def test_save_waveforms_getstations_returns_empty(mock_os_path_exists, mock_gw, 
                                   "outpath": "outpath"})
 
     ev = mock_ge.return_value[0]
+    mock_gsr.assert_called_once_with(ev[10], search_radius_args[0], search_radius_args[1],
+                                     search_radius_args[2], search_radius_args[3])
     mock_gs.assert_called_with(dcs.values()[0], channels[0], ev[1], ev[2], ev[3],
-                               'distFromEvent')
+                               mock_gsr.return_value)
     assert not mock_gw.called
 
 
-@patch('stream2segment.utils.locations2degrees', return_value='l2d')
-@patch('stream2segment.utils.getArrivalTime')
-@patch('stream2segment.utils.getEvents', return_value=[[str(i) for i in xrange(13)]])
-@patch('stream2segment.utils.getStations', return_value=[[str(i) for i in xrange(3)]])
-@patch('stream2segment.utils.getWaveforms')
-@patch('stream2segment.utils.os.path.exists', return_value=True)
+@patch('stream2segment.query_utils.locations2degrees', return_value='l2d')
+@patch('stream2segment.query_utils.getArrivalTime')
+@patch('stream2segment.query_utils.getEvents', return_value=[[str(i) for i in xrange(13)]])
+@patch('stream2segment.query_utils.getStations', return_value=[[str(i) for i in xrange(3)]])
+@patch('stream2segment.query_utils.getWaveforms')
+@patch('stream2segment.query_utils.os.path.exists', return_value=True)
 def test_save_waveforms_indexerr_on_getstations(mock_os_path_exists, mock_gw, mock_gs, mock_ge,
                                                 mock_gat, mock_ltd):
     with pytest.raises(IndexError):
         saveWaveforms('eventws', 'minmag', 'minlat', 'maxlat', 'minlon', 'maxlon',
                       'distFromEvent', dcs,
-                      channels, 'start', 'end', 'minBeforeP', 'minAfterP', 'outpath')
+                      channels, 'start', 'end', ('minBeforeP', 'minAfterP'), 'outpath')
 
 
-@patch('stream2segment.utils.locations2degrees', return_value='l2d')
-@patch('stream2segment.utils.getArrivalTime', return_value=None)
-@patch('stream2segment.utils.getEvents', return_value=[[str(i) for i in xrange(13)]])
-@patch('stream2segment.utils.getStations', return_value=[[str(i) for i in xrange(4)]])
-@patch('stream2segment.utils.getWaveforms')
-@patch('stream2segment.utils.os.path.exists', return_value=True)
-def test_save_waveforms_get_arrival_time_none(mock_os_path_exists, mock_gw, mock_gs, mock_ge,
+@patch('stream2segment.query_utils.locations2degrees', return_value='l2d')
+@patch('stream2segment.query_utils.getArrivalTime', return_value=None)
+@patch('stream2segment.query_utils.getEvents', return_value=[[str(i) for i in xrange(13)]])
+@patch('stream2segment.query_utils.getStations', return_value=[[str(i) for i in xrange(4)]])
+@patch('stream2segment.query_utils.getWaveforms')
+@patch('stream2segment.query_utils.os.path.exists', return_value=True)
+@patch('stream2segment.query_utils.getSearchRadius', return_value='gsr')
+def test_save_waveforms_get_arrival_time_none(mock_gsr, mock_os_path_exists, mock_gw, mock_gs, mock_ge,
                                               mock_gat, mock_ltd):
     saveWaveforms('eventws', 'minmag', 'minlat', 'maxlat', 'minlon', 'maxlon',
-                  'distFromEvent', dcs,
-                  channels, 'start', 'end', 'minBeforeP', 'minAfterP', 'outpath')
+                  search_radius_args, dcs,
+                  channels, 'start', 'end', ('minBeforeP', 'minAfterP'), 'outpath')
     mock_os_path_exists.assert_called_with('outpath')
     mock_ge.assert_called_with(**{"eventws": "eventws",
                                   "minmag": "minmag",
@@ -490,71 +592,34 @@ def test_save_waveforms_get_arrival_time_none(mock_os_path_exists, mock_gw, mock
                                   "outpath": "outpath"})
     ev = mock_ge.return_value[0]
     st = mock_gs.return_value[0]
+    mock_gsr.assert_called_once_with(ev[10], search_radius_args[0], search_radius_args[1],
+                                     search_radius_args[2], search_radius_args[3])
     mock_gs.assert_called_with(dcs.values()[0], channels[0], ev[1], ev[2], ev[3],
-                               'distFromEvent')
+                               mock_gsr.return_value)
     mock_ltd.assert_called_with(ev[2], ev[3], st[2], st[3])
     mock_gat.assert_called_with(mock_ltd.return_value, ev[4])
     assert not mock_gw.called
 
 
 @patch('__builtin__.open')
-@patch('stream2segment.utils.locations2degrees', return_value='l2d')
-@patch('stream2segment.utils.getArrivalTime', return_value=5)
-@patch('stream2segment.utils.getEvents', return_value=[[str(i) for i in xrange(13)]])
-@patch('stream2segment.utils.getStations', return_value=[[str(i) for i in xrange(4)]])
-@patch('stream2segment.utils.getWaveforms', return_value=('', ''))
-@patch('stream2segment.utils.os.path.exists', return_value=True)
-@patch('stream2segment.utils.os.path.join', return_value='joined')
-def test_save_waveforms_get_arrival_time_no_wav(mock_os_path_join, mock_os_path_exists, mock_gw,
-                                                mock_gs, mock_ge,
-                                                mock_gat, mock_ltd, mock_open):
-    d = datetime.now()
-    evz = mock_ge.return_value
-    evz[0][1] = d
-    mock_ge.return_value = evz
-    saveWaveforms('eventws', 'minmag', 'minlat', 'maxlat', 'minlon', 'maxlon',
-                  'distFromEvent', dcs,
-                  channels, 'start', 'end', 'minBeforeP', 'minAfterP', 'outpath')
-    mock_os_path_exists.assert_called_with('outpath')
-    mock_ge.assert_called_with(**{"eventws": "eventws",
-                                  "minmag": "minmag",
-                                  "minlat": "minlat",
-                                  "maxlat": "maxlat",
-                                  "minlon": "minlon",
-                                  "maxlon": "maxlon",
-                                  "start": "start",
-                                  "end": "end",
-                                  "outpath": "outpath"})
-    ev = mock_ge.return_value[0]
-    st = mock_gs.return_value[0]
-    mock_gs.assert_called_with(dcs.values()[0], channels[0], ev[1], ev[2], ev[3],
-                               'distFromEvent')
-    mock_ltd.assert_called_with(ev[2], ev[3], st[2], st[3])
-    mock_gat.assert_called_with(mock_ltd.return_value, ev[4])
-    origTime = ev[1] + timedelta(seconds=float(mock_gat.return_value))
-    mock_gw.assert_called_with(dcs.values()[0], st[1], channels[0], origTime, 'minBeforeP',
-                               'minAfterP')
-    assert not mock_os_path_join.called
-    assert not mock_open.called
-
-
-@patch('__builtin__.open')
-@patch('stream2segment.utils.locations2degrees', return_value='l2d')
-@patch('stream2segment.utils.getArrivalTime', return_value=5)
-@patch('stream2segment.utils.getEvents', return_value=[[str(i) for i in xrange(13)]])
-@patch('stream2segment.utils.getStations', return_value=[[str(i) for i in xrange(4)]])
-@patch('stream2segment.utils.getWaveforms', return_value=('', 'wav'))
-@patch('stream2segment.utils.os.path.exists', return_value=True)
-@patch('stream2segment.utils.os.path.join', return_value='joined')
-def test_save_waveforms_get_arrival_time(mock_os_path_join, mock_os_path_exists, mock_gw, mock_gs,
-                                         mock_ge, mock_gat, mock_ltd, mock_open):
+@patch('stream2segment.query_utils.locations2degrees', return_value='l2d')
+@patch('stream2segment.query_utils.getArrivalTime', return_value=5)
+@patch('stream2segment.query_utils.getEvents', return_value=[[str(i) for i in xrange(13)]])
+@patch('stream2segment.query_utils.getStations', return_value=[[str(i) for i in xrange(4)]])
+@patch('stream2segment.query_utils.getWaveforms', return_value=('', ''))
+@patch('stream2segment.query_utils.os.path.exists', return_value=True)
+@patch('stream2segment.query_utils.getSearchRadius', return_value='gsr')
+@patch('stream2segment.query_utils.os.path.join', return_value='joined')
+def test_save_waveforms_get_arrival_time_no_wav(mock_os_path_join, mock_gsr, mock_os_path_exists,
+                                                mock_gw, mock_gs, mock_ge, mock_gat, mock_ltd,
+                                                mock_open):
     d = datetime.now()
     evz = mock_ge.return_value
     evz[0][1] = d
     mock_ge.return_value = evz
 
     saveWaveforms('eventws', 'minmag', 'minlat', 'maxlat', 'minlon', 'maxlon',
-                  'distFromEvent', dcs, channels, 'start', 'end', 'minBeforeP', 'minAfterP',
+                  search_radius_args, dcs, channels, 'start', 'end', ('minBeforeP', 'minAfterP'),
                   'outpath')
     mock_os_path_exists.assert_called_with('outpath')
     mock_ge.assert_called_with(**{"eventws": "eventws",
@@ -568,7 +633,54 @@ def test_save_waveforms_get_arrival_time(mock_os_path_join, mock_os_path_exists,
                                   "outpath": "outpath"})
     ev = mock_ge.return_value[0]
     st = mock_gs.return_value[0]
-    mock_gs.assert_called_with(dcs.values()[0], channels[0], ev[1], ev[2], ev[3], 'distFromEvent')
+    mock_gsr.assert_called_once_with(ev[10], search_radius_args[0], search_radius_args[1],
+                                     search_radius_args[2], search_radius_args[3])
+    mock_gs.assert_called_with(dcs.values()[0], channels[0], ev[1], ev[2], ev[3],
+                               mock_gsr.return_value)
+    mock_ltd.assert_called_with(ev[2], ev[3], st[2], st[3])
+    mock_gat.assert_called_with(mock_ltd.return_value, ev[4])
+    origTime = ev[1] + timedelta(seconds=float(mock_gat.return_value))
+    mock_gw.assert_called_with(dcs.values()[0], st[1], channels[0], origTime, 'minBeforeP',
+                               'minAfterP')
+    assert not mock_os_path_join.called
+    assert not mock_open.called
+
+
+@patch('__builtin__.open')
+@patch('stream2segment.query_utils.locations2degrees', return_value='l2d')
+@patch('stream2segment.query_utils.getArrivalTime', return_value=5)
+@patch('stream2segment.query_utils.getEvents', return_value=[[str(i) for i in xrange(13)]])
+@patch('stream2segment.query_utils.getStations', return_value=[[str(i) for i in xrange(4)]])
+@patch('stream2segment.query_utils.getWaveforms', return_value=('', 'wav'))
+@patch('stream2segment.query_utils.os.path.exists', return_value=True)
+@patch('stream2segment.query_utils.getSearchRadius', return_value='gsr')
+@patch('stream2segment.query_utils.os.path.join', return_value='joined')
+def test_save_waveforms_get_arrival_time(mock_os_path_join, mock_gsr, mock_os_path_exists, mock_gw, mock_gs,
+                                         mock_ge, mock_gat, mock_ltd, mock_open):
+    d = datetime.now()
+    evz = mock_ge.return_value
+    evz[0][1] = d
+    mock_ge.return_value = evz
+
+    saveWaveforms('eventws', 'minmag', 'minlat', 'maxlat', 'minlon', 'maxlon',
+                  search_radius_args, dcs, channels, 'start', 'end', ('minBeforeP', 'minAfterP'),
+                  'outpath')
+    mock_os_path_exists.assert_called_with('outpath')
+    mock_ge.assert_called_with(**{"eventws": "eventws",
+                                  "minmag": "minmag",
+                                  "minlat": "minlat",
+                                  "maxlat": "maxlat",
+                                  "minlon": "minlon",
+                                  "maxlon": "maxlon",
+                                  "start": "start",
+                                  "end": "end",
+                                  "outpath": "outpath"})
+    ev = mock_ge.return_value[0]
+    st = mock_gs.return_value[0]
+    mock_gsr.assert_called_once_with(ev[10], search_radius_args[0], search_radius_args[1],
+                                     search_radius_args[2], search_radius_args[3])
+    mock_gs.assert_called_with(dcs.values()[0], channels[0], ev[1], ev[2], ev[3],
+                               mock_gsr.return_value)
     mock_ltd.assert_called_with(ev[2], ev[3], st[2], st[3])
     mock_gat.assert_called_with(mock_ltd.return_value, ev[4])
     origTime = ev[1] + timedelta(seconds=float(mock_gat.return_value))
