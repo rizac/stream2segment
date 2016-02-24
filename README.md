@@ -17,8 +17,7 @@ sudo apt-get install git python-pip python2.7-dev libpng-dev libfreetype6-dev \
 	build-essential gfortran libatlas-base-dev libxml2-dev libxslt-dev
 ```
 
-*
-For a reference on numpy problems later (like "Cannot compile 'Python.h'") then
+*For a reference on numpy problems later (like "Cannot compile 'Python.h'") then
 see http://stackoverflow.com/questions/18785063/install-numpy-in-python-virtualenv
 
 Additional libraries info:
@@ -30,8 +29,7 @@ build-essential gfortran libatlas-base-dev are required for scipy
 (see http://stackoverflow.com/questions/2213551/installing-scipy-with-pip/3865521#3865521)
 
 libxml2-dev libxslt-dev are required for lxml
-(see here: http://lxml.de/installation.html)
-*
+(see here: http://lxml.de/installation.html)*
 
 We strongly recomend to use python virtual environment. Install python virtual environment
 ```
