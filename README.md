@@ -6,6 +6,60 @@ This software has been createed on Mac OS El Capitan and tested under Ubuntu14.0
 As of February 2016, the installation instructions refer to the latter. 
 
 ## Installation on Ubuntu14.04
+
+### Short installation (not tested, it's a summary of the more verbose one described below)
+
+```
+# Prerequisites for all packages to work:
+sudo apt-get update
+# to avoid numpy problems later (like "Cannot compile 'Python.h'") then:
+# (see http://stackoverflow.com/questions/18785063/install-numpy-in-python-virtualenv)
+sudo apt-get upgrade gcc
+# install all packages required for the python libraries to run:
+sudo apt-get install git python-pip python2.7-dev libpng-dev libfreetype6-dev \
+	build-essential gfortran libatlas-base-dev libxml2-dev libxslt-dev
+	
+# libpng-dev libfreetype6-dev are required for matplotlib
+# (see http://stackoverflow.com/questions/25593512/cant-install-matplotlib-using-pip
+# and http://stackoverflow.com/questions/28914202/pip-install-matplotlib-fails-cannot-build-package-freetype-python-setup-py-e)
+
+# build-essential gfortran libatlas-base-dev are required for scipy
+# (see http://stackoverflow.com/questions/2213551/installing-scipy-with-pip/3865521#3865521)
+
+# libxml2-dev libxslt-dev are required for lxml
+# (see here: http://lxml.de/installation.html)
+
+# clone repository to a specific folder $F
+git clone https://github.com/rizac/stream2segment.git
+# (now you have $F/stream2segment)
+
+# install python virtual environment
+sudo pip install virtualenv
+# activate virtualenv:
+cd stream2segment
+# make virtual environment in an $F/env directory (env is a convention, but it's ignored by git commits so keep it)
+virtualenv env
+# activate it: (THIS TO  BE DONE EACH TIME THE SCRIPT IS RUN)
+source env/bin/activate
+# to check you are in the right env, type:
+which pip
+# you should see it's pointing inside the env folder
+
+# install numpy, to be done first of all
+pip install numpy==1.10.4
+
+# install the current package
+pip install -e .
+
+# copy default config to a config file (not included in git commit):
+cp config.example.yaml config.yaml
+
+#run script
+stream2segment
+```
+
+### Long installation (true report of the tested installation)
+
 ```
 # install git if not installed
 sudo apt-get install git
@@ -21,7 +75,7 @@ sudo apt-get install python-pip
 sudo apt-get update
 # and repeat python-pip install
 
-# activate a virtual environment
+# install python virtual environment
 sudo pip install virtualenv
 
 # activate virtualenv:
@@ -66,3 +120,4 @@ cp config.example.yaml config.yaml
 #run script
 stream2segment
 ```
+
