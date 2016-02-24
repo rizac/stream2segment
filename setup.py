@@ -86,7 +86,12 @@ setup(
     # your project is installed. For an analysis of "install_requires" vs pip's
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['numpy', 'obspy'],
+    # Note: dependancies are NOT honoured. providing, e.g.:
+    # install_requires=['numpy', 'obspy'],
+    # it apparently downloads numpy, then obspy, THEN INSTALLS both
+    # so that, since obspy requires numpy, it complains that's not installed.
+    # numpy must be therefore installed separately, and we write:
+    install_requires=['obspy', 'pyyaml'],
 
     # List additional groups of dependencies here (e.g. development
     # dependencies). You can install these using the following syntax,
