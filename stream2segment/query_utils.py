@@ -53,7 +53,8 @@ def getArrivalTime(dist, depth, model='ak135'):  # FIXME: better!
     """
     tt = getTravelTimes(delta=dist, depth=depth, model=model)
     try:
-        return min((ele['time'] for ele in tt if (ele.get('phase_name') or ' ')[0] == 'P'))
+        # return min((ele['time'] for ele in tt if (ele.get('phase_name') or ' ')[0] == 'P'))
+        return min((ele['time'] for ele in tt))
     except ValueError:
         logging.error("Unable to find arrival time. Phase names (dist=%s, depth=%s, model=%s):\n%s",
                       str(dist), str(depth), str(model),
@@ -402,7 +403,7 @@ def saveWaveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius
 
         for DCID, dc in datacenters_dict.iteritems():
             logging.info('Querying %s', str(DCID))
-            for chList in channelList:
+            for chName, chList in channelList.iteritems():
                 # try with all channels in channelList
                 logging.info('(Querying %s channels)', str(chList))
 

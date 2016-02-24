@@ -148,3 +148,6 @@ def main():
 
 if __name__ == '__main__':
     main()
+    # TODO: store arrival time in file name or mseed see obspy read
+    # data[0].stats data[1].stats
+    # see docs.obspy.org/packages/obspy.signal.html
