@@ -17,26 +17,21 @@ sudo apt-get install git python-pip python2.7-dev libpng-dev libfreetype6-dev \
 	build-essential gfortran libatlas-base-dev libxml2-dev libxslt-dev
 ```
 
-*For a reference on numpy problems later (like "Cannot compile 'Python.h'") then
-see http://stackoverflow.com/questions/18785063/install-numpy-in-python-virtualenv
+*Some useful infos and links:*
+*For a reference on numpy problems later (like "Cannot compile 'Python.h'") then see http://stackoverflow.com/questions/18785063/install-numpy-in-python-virtualenv*
 
-Additional libraries info:
-libpng-dev libfreetype6-dev are required for matplotlib
-(see http://stackoverflow.com/questions/25593512/cant-install-matplotlib-using-pip
-and http://stackoverflow.com/questions/28914202/pip-install-matplotlib-fails-cannot-build-package-freetype-python-setup-py-e)
+*libpng-dev libfreetype6-dev are required for matplotlib (see http://stackoverflow.com/questions/25593512/cant-install-matplotlib-using-pip and http://stackoverflow.com/questions/28914202/pip-install-matplotlib-fails-cannot-build-package-freetype-python-setup-py-e)*
 
-build-essential gfortran libatlas-base-dev are required for scipy
-(see http://stackoverflow.com/questions/2213551/installing-scipy-with-pip/3865521#3865521)
+*build-essential gfortran libatlas-base-dev are required for scipy (see http://stackoverflow.com/questions/2213551/installing-scipy-with-pip/3865521#3865521)*
 
-libxml2-dev libxslt-dev are required for lxml
-(see here: http://lxml.de/installation.html)*
+*libxml2-dev libxslt-dev are required for lxml (see here: http://lxml.de/installation.html)*
 
 We strongly recomend to use python virtual environment. Install python virtual environment
 ```
 sudo pip install virtualenv
 ```
 
-Clone repository to a specific folder $F
+Clone repository to a specific folder of your choice (`cd` into that folder first)
 ```
 git clone https://github.com/rizac/stream2segment.git
 ```
@@ -53,11 +48,7 @@ and activate it: (THIS TO  BE DONE EACH TIME THE SCRIPT IS RUN)
 source env/bin/activate
 ```
 
-*
-To check you are in the right env, type:
-which pip
-you should see it's pointing inside the env folder
-*
+*Check: To check you are in the right env, type: `which pip` and you should see it's pointing inside the env folder*
 
 Install numpy, to be done first of all
 ```
