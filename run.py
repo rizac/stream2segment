@@ -151,3 +151,5 @@ if __name__ == '__main__':
     # TODO: store arrival time in file name or mseed see obspy read
     # data[0].stats data[1].stats
     # see docs.obspy.org/packages/obspy.signal.html
+    # FIXME: getTravelTime deprecated!!!
+    # fix bug non existing folder
