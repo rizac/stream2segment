@@ -71,7 +71,9 @@ Move to the stream2segment folder, activate the virtual environment
 ```
 source env/bin/activate
 ```
-and run
+Edit config.yaml file if needed.
+
+Eventually run
 ```
 stream2segment
 ```
