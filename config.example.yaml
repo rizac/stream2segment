@@ -1,7 +1,4 @@
 # Variables to tune the functionality
-distFromEvent: 5.0 # distance radius from event, in Km
-minBeforeP: 1.0 # minutes before a P wave arrival
-minAfterP: 3.0 # minutes after a P wave arrival
 
 # channels (identifies broadband, short period, accelerometers but also broad band):
 channels: # sampling rate (hight to low) / type of data (broadband etcetera)
@@ -32,24 +29,37 @@ datacenters:
 # NIEP: 'http://eida-sc3.infp.ro/fdsnws'
 # KOERI: 'http://eida.koeri.boun.edu.tr/fdsnws'
 
-# others vars:
+# other sesmic specific parameters
 eventws: 'http://seismicportal.eu/fdsnws/event/1/'
 minmag: 3.0
 minlat: 30.0
 maxlat: 80.0
 minlon: -10.0
 maxlon: 60.0
+ptimespan:
+ - 1.0 # minutes before a P wave arrival
+ - 3.0 # minutes after a P wave arrival
+#search radius parameters (mag_min, max_max, dist_min, dist_max)
+search_radius_args:
+ - 3 # min magnitude
+ - 7 # max magnitude
+ - 1 # min distance (km)
+ - 5 # max distance (km)
+
+# these are optional, missing defaults to start:yesterday at midnight, today at midnight
+# start: 2015-01-01
+# end:   2015-02-01
+
+# program specific parameters:
 outpath: '/tmp/mseeds/'
 # Set verbosity (for details see https://docs.python.org/2/library/logging.html#levels)
 # Note that a level of N will display all M<=N messages,
 # So setting 2 WILL DISPLAY EVERYTHING EXCEPT DEBUG MESSAGES
-verbosity: 0 #3: DEBUG, 2: INFO, 1: WARNING, 0: ERROR
+verbosity: 3 #3: DEBUG, 2: INFO, 1: WARNING, 0: ERROR
 
-# start: 2015-01-01
-# end:   2015-02-01
-
-#search radius parameters
-radius_minmag: 3
-radius_maxmag: 7
-radius_mindist: 1
-radius_maxdist: 5
+# unused / old parameters:
+# distFromEvent: 5.0 # distance radius from event, in Km
+# radius_minmag: 3
+# radius_maxmag: 7
+# radius_mindist: 1
+# radius_maxdist: 5

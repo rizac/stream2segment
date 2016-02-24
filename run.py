@@ -24,44 +24,43 @@ import argparse
 import datetime as dt
 from stream2segment.query_utils import saveWaveforms
 from stream2segment.utils import to_datetime
-import dateutil.parser as dparser
 
-def main():
-    # Version of this software
-    version = '0.1a1'
 
-#     # load yaml config file with two default values for 'start' and 'end' (if missing from yaml)
-#     cfg_dict = yaml2dict('config.yaml',
-#                          start=lambda: (dt.date.today() - dt.timedelta(days=1)).isoformat(),
-#                          end=dt.date.today().isoformat())
+def existing_directory(string):
+    if not string:
+        raise argparse.ArgumentTypeError(" not specified")
 
+    path_ = string
+    if not os.path.isabs(string):
+        string = os.path.abspath(os.path.join(os.path.dirname(__file__), string))
+
+    if not os.path.exists(string):
+        os.makedirs(string)
+        logging.warning('"%s" newly created (did not exist)', string)
+
+    if not os.path.isdir(string):
+        raise argparse.ArgumentTypeError(path_ + " is not an existing directory")
+    return string
+
+
+def valid_date(string):
+    """does a check on string to see if it's a valid datetime string.
+    Returns the string on success, throws an ArgumentTypeError otherwise"""
+    if to_datetime(string) is None:
+        raise argparse.ArgumentTypeError(str(string) + " " + str(type(str)) +
+                                         " is not a valid date")
+    return string
+
+
+def load_def_cfg(filepath='config.yaml'):
     # load config file. This might be better implemented in the near future
-    with open('config.yaml', 'r') as stream:
+    with open(filepath, 'r') as stream:
         cfg_dict = yaml.load(stream)
+    return cfg_dict
 
-    def existing_directory(string):
-        if not string:
-            raise argparse.ArgumentTypeError(" not specified")
 
-        path_ = string
-        if not os.path.isabs(string):
-            string = os.path.abspath(os.path.join(os.path.dirname(__file__), string))
+def parse_args(description=sys.argv[0], args=sys.argv[1:], cfg_dict=load_def_cfg()):
 
-        if not os.path.exists(string):
-            os.makedirs(string)
-            logging.warning('"%s" newly created (did not exist)', string)
-
-        if not os.path.isdir(string):
-            raise argparse.ArgumentTypeError(path_ + " is not an existing directory")
-        return string
-
-    def valid_date(string):
-        if to_datetime(string) is None:
-            raise argparse.ArgumentTypeError(str(string) + " " + str(type(str)) +
-                                             " is not a valid date")
-        return string
-
-    description = 'First draft to download waveforms related to events'
     parser = argparse.ArgumentParser(description=description)
 
     parser.add_argument('-e', '--eventws',
@@ -82,8 +81,8 @@ def main():
     parser.add_argument('--maxlon',
                         help='Maximum longitude.', type=float,
                         default=cfg_dict['maxlon'])
-    parser.add_argument('--ptimespan', nargs=2,
-                        help='Minutes to account for before and after the P arrival time.', type=float,
+    parser.add_argument('--ptimespan', nargs=2, type=float,
+                        help='Minutes to account for before and after the P arrival time.',
                         default=cfg_dict['ptimespan'])
     parser.add_argument('--search_radius_args', nargs=4,
                         help=('arguments to the function returning the search radius R whereby all '
@@ -108,33 +107,28 @@ def main():
                         default=cfg_dict.get('end', dtn.strftime("%Y-%m-%d")),
                         help='Limit to events on or before the specified end time.')
 
-    parser.add_argument('--version', action='version',
-                        version='event2wav %s' % version)
-    args = parser.parse_args()
+#     parser.add_argument('--version', action='version',
+#                         version='event2wav %s' % version)
+    args = parser.parse_args(args)
+    return args
 
+
+def config_logging(verbosity=3):
     # Limit the maximum verbosity to 3 (DEBUG)
-    verbNum = 3 if args.verbosity >= 3 else args.verbosity
+    # see http://stackoverflow.com/questions/2557168/how-do-i-change-the-default-format-of-log-messages-in-python-app-engine
+    verbNum = max(0, min(3, verbosity))
     lvl = 40 - verbNum * 10
-    logging.basicConfig(level=lvl, 
-#                         format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',)
+    logging.basicConfig(level=lvl,
                         format='%(levelname)-8s %(message)s',)
-#     if __name__ == "__main__":
-#         # enable printing to stdout if called as script
-#         # logging.basicConfig(stream=sys.stdout)
-#         # create console handler and set level to debug
-#         ch = logging.StreamHandler()
-#         ch.setLevel(lvl)
-# 
-#         # create formatter
-#         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-# 
-#         # add formatter to ch
-#         ch.setFormatter(formatter)
-# 
-#         # add ch to logger
-#         logging.getLogger('').addHandler(ch)
-#     else:
-    logging.basicConfig(level=lvl)
+
+
+def main():
+    # Version of this software
+    cfg_dict = load_def_cfg()
+    args = parse_args(description='First draft to download waveforms related to events',
+                      cfg_dict=cfg_dict)
+
+    config_logging(args.verbosity)
 
     try:
         # add last two parameters not customizable via arguments
@@ -145,7 +139,6 @@ def main():
         # remove unwanted args:
         vars_args.pop('verbosity', None)
         vars_args.pop('version', None)
-
         saveWaveforms(**vars_args)
         sys.exit(0)
     except ValueError as verr:
