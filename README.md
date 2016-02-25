@@ -46,9 +46,8 @@ and activate it:
  source env/bin/activate
  ```
 
-<sub>*Notes*</sub>
- - <sub>Activation needs to be done __each time__ we will run the program. See section [Usage](###usage) below</sub>
- - <sub>Check: To check you are in the right env, type: `which pip` and you should see it's pointing inside the env folder</sub>
+> <sub>Activation needs to be done __each time__ we will run the program. See section [Usage](###usage) below</sub>
+> <sub>Check: To check you are in the right env, type: `which pip` and you should see it's pointing inside the env folder</sub>
 
 
 ### Install and config packages
@@ -75,10 +74,10 @@ Move (`cd` on a terminal) to the stream2segment folder and, if you work in a pyt
 ```
 source env/bin/activate
 ```
-<sub>*Notes:*</sub>
- - <sub>When you're finished, type `deactivate` on the terminal to deactivate the current pythoin virtual environment and return to the global system defined Python</sub>
 
-Edit config.yaml file if needed, or type ```stream2segment --help``` for command line options (which by default, if given, will override the default options on config.yaml)
+> <sub>When you're finished, type `deactivate` on the terminal to deactivate the current pythoin virtual environment and return to the global system defined Python</sub>
+
+Edit config.yaml file if needed, or type ```stream2segment --help``` for command line options (parameter options in config.yaml are the default. If given, command line options will override the defaults)
 
 Eventually run
 ```
