@@ -70,14 +70,14 @@ and edit it if you whish
 
 ## Usage
 
-Move (`cd` on a terminal) to the stream2segment folder and, if you work in a python virtual environment, **activate the virtual environment first**:
+Move (`cd` on a terminal) to the stream2segment folder. If you installed and activated a python virtual environment during installation (hopefully you did), **activate the virtual environment first**:
 ```
 source env/bin/activate
 ```
 
 > <sub>When you're finished, type `deactivate` on the terminal to deactivate the current pythoin virtual environment and return to the global system defined Python</sub>
 
-Edit config.yaml file if needed, or type ```stream2segment --help``` for command line options (parameter options in config.yaml are the default. If given, command line options will override the defaults)
+Edit config.yaml file if needed, or type ```stream2segment --help``` for command line options (options in config.yaml are the default. If given, command line options will override the defaults)
 
 Eventually run
 ```
