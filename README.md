@@ -4,7 +4,7 @@ A python project to download seismic waveforms related to events
 
 ## Installation (tested on Ubuntu14.04 - Ubuntu 12.10)
 
-This program has been written on Mac OS El Capitan, but a fresh installation test could be done on Ubuntu only. Mac users can safely follow the instructions below (skipping the [Prerequisites](###-Prerequisites) section), but in case of problems we did not keep track (yet) of the solutions here
+This program has been written on Mac OS El Capitan, but a fresh installation test could be done on Ubuntu only. Mac users can safely follow the instructions below (skipping the [Prerequisites](### Prerequisites) section), but in case of problems we did not keep track (yet) of the solutions here
 
 ### Prerequisites
 The following system packages are required: `git python-pip python2.7-dev libpng-dev libfreetype6-dev 
@@ -17,7 +17,7 @@ sudo apt-get install git python-pip python2.7-dev libpng-dev libfreetype6-dev \
 	build-essential gfortran libatlas-base-dev libxml2-dev libxslt-dev
 ```
 However, you can also skip this section and get back here in case of problems
-(see also the section [Installation Notes](###-Installation-Notes))
+(see also the section [Installation Notes](## Installation Notes))
 
 ### Python tools and dependencies
 We strongly recomend to use python virtual environment. Why? Because by isolating all python packages we are about to install, we won't create conflicts with already installed packages. However feel free to skip this part (at your own risk, but you might know what you're doing). To install python virtual environment
