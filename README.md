@@ -46,7 +46,7 @@ and activate it:
  source env/bin/activate
  ```
 
-> <sub>Activation needs to be done __each time__ we will run the program. See section [Usage](###usage) below</sub>
+> <sub>Activation needs to be done __each time__ we will run the program. See section [Usage](##usage) below</sub>
 > <sub>Check: To check you are in the right env, type: `which pip` and you should see it's pointing inside the env folder</sub>
 
 
