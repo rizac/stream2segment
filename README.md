@@ -4,7 +4,7 @@ A python project to download seismic waveforms related to events
 
 ## Installation (tested on Ubuntu14.04 - Ubuntu 12.10)
 
-This program has been written on Mac OS El Capitan, but a fresh installation test could be done on Ubuntu only. Mac users can safely follow the instructions below (skipping the Prerequisites section), but in case of problems we did not keep track (yet) of the solutions here
+This program has been written on Mac OS El Capitan, but a fresh installation test could be done on Ubuntu only. Mac users can safely follow the instructions below (skipping the [Prerequisites](###-Prerequisites) section), but in case of problems we did not keep track (yet) of the solutions here
 
 ### Prerequisites
 The following system packages are required: `git python-pip python2.7-dev libpng-dev libfreetype6-dev 
@@ -17,10 +17,10 @@ sudo apt-get install git python-pip python2.7-dev libpng-dev libfreetype6-dev \
 	build-essential gfortran libatlas-base-dev libxml2-dev libxslt-dev
 ```
 However, you can also skip this section and get back here in case of problems
-(see also the section Installation Notes)
+(see also the section [Installation Notes](###-Installation-Notes))
 
 ### Python tools and dependencies
-We strongly recomend to use python virtual environment. Install python virtual environment
+We strongly recomend to use python virtual environment. Why? Because by isolating all python packages we are about to install, we won't create conflicts with already installed packages. However feel free to skip this part (at your own risk, but you might know what you're doing). To install python virtual environment
 ```
 sudo pip install virtualenv
 ```
@@ -33,16 +33,17 @@ and move into package folder:
 ```
 cd stream2segment
 ```
-Make virtual environment in an stream2segment/env directory (env is a convention, but it's ignored by git commits so keep it)
-```
-virtualenv env
-```
-and activate it: (THIS TO  BE DONE EACH TIME THE SCRIPT IS RUN)
-```
-source env/bin/activate
-```
+If you work in a python virtual environment:
+- Make virtual environment in an stream2segment/env directory (env is a convention, but it's ignored by git commits so keep it)
+ ```
+ virtualenv env
+ ```
+ and activate it: (THIS TO  BE DONE EACH TIME THE SCRIPT IS RUN)
+ ```
+ source env/bin/activate
+ ```
 
-<sub>*Check: To check you are in the right env, type: `which pip` and you should see it's pointing inside the env folder*</sub>
+ <sub>*Check: To check you are in the right env, type: `which pip` and you should see it's pointing inside the env folder*</sub>
 
 Install numpy, to be done first of all
 ```
@@ -64,7 +65,7 @@ and edit it if you whish
 
 ## Usage
 
-Move to the stream2segment folder, activate the virtual environment
+Move to the stream2segment folder and, if you work in a python virtual environment, activate the virtual environment
 ```
 source env/bin/activate
 ```
