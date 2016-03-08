@@ -119,7 +119,7 @@ def config_logging(verbosity=3):
     verbNum = max(0, min(3, verbosity))
     lvl = 40 - verbNum * 10
     logging.basicConfig(level=lvl,
-                        format='%(levelname)-8s %(message)s',)
+                        format='%(levelname)-7s %(message)s',)
 
 
 def main():

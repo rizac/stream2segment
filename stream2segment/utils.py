@@ -4,6 +4,7 @@ Created on Feb 19, 2016
 @author: riccardo
 '''
 # import yaml
+import inspect
 import datetime as dt
 # import dateutil.parser as dparser
 
@@ -17,7 +18,17 @@ import datetime as dt
 #         dtm_str = dtm_str[:-1]
 
 
-def normalize_datestr(string, ignore_z=True, allow_space=True):
+def prepare_datestr(string, ignore_z=True, allow_space=True):
+    """
+        "Prepares" string trying to make it datetime iso standard. This method basically gives the
+        opportunity to remove the 'Z' at the end (denoting the zulu timezone) and replaces spaces
+        with 'T'. NOTE: this methods returns the same string argument if any TypeError, IndexError
+        or AttributeError is found.
+        :param ignore_z: if True (the default), removes any 'Z' at the end of string, as 'Z' denotes
+            the "zulu" timezone
+        :param allow_spaces: if True (the default) all spaces of string will be replaced with 'T'.
+        :return a new string according to the arguments or the same string object
+    """
     # kind of redundant but allows unit testing
     try:
         if ignore_z and string[-1] == 'Z':
@@ -45,7 +56,7 @@ def to_datetime(string, ignore_z=True, allow_space=True):
         to_datetime("2016-06-01")
     """
     dtm = None
-    string = normalize_datestr(string, ignore_z, allow_space)
+    string = prepare_datestr(string, ignore_z, allow_space)
 
     array = ['%Y-%m-%dT%H:%M:%S', '%Y-%m-%d', '%Y-%m-%dT%H:%M:%S.%f']
 
@@ -59,6 +70,32 @@ def to_datetime(string, ignore_z=True, allow_space=True):
             return None
 
     return dtm
+
+
+# def getfargs():
+#     """
+#         Returns a dict of arguments and values of the function calling this function
+#     """
+#     thisframe = inspect.currentframe()
+#     frame = inspect.getouterframes(thisframe)[1][0]
+#     args, _, _, values = inspect.getargvalues(frame)
+# #     print 'function name "%s"' % inspect.getframeinfo(frame)[2]
+# #     for i in args:
+# #         print "    %s = %s" % (i, values[i])
+# #    return [(i, values[i]) for i in args]
+#     return {i: values[i] for i in args}
+
+
+def estremttime(time_in_seconds, iteration_number, total_iterations, approx_to_seconds=True):
+    remaining_seconds = (total_iterations - iteration_number) * (time_in_seconds / iteration_number)
+    dttd = dt.timedelta(seconds=remaining_seconds)
+    if approx_to_seconds:
+        if dttd.microseconds >= 500000:
+            dttd = dt.timedelta(days=dttd.days, seconds=dttd.seconds+1)
+        else:
+            dttd = dt.timedelta(days=dttd.days, seconds=dttd.seconds)
+    return dttd
+
 
 # # Original function
 # def to_datetime(date_str):

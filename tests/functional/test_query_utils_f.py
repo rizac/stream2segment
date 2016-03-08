@@ -16,9 +16,9 @@ from StringIO import StringIO
 from obspy.taup.taup import getTravelTimes
 
 
-@patch('stream2segment.query_utils.getTravelTimes')
-def test_get_arrival_times(mock_get_tt):
-    pass
+#@patch('stream2segment.query_utils.getTravelTimes')
+#def test_get_arrival_times(mock_get_tt):
+#    pass
 
 
 def test_to_datetime():

@@ -1,2 +1,2 @@
 -e git+https://github.com/obspy/obspy.git@61e297ef1dc6246322c3dc5bc36a9e270ebcd9c0#egg=obspy
-# -e git+https://github.com/gem/oq-hazardlib.git@a74d152d818ea1ca578b26c5276d1dfa5892988a#egg=openquake.hazardlib
+PyYAML==3.11

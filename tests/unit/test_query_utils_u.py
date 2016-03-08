@@ -17,32 +17,39 @@ from StringIO import StringIO
 import stream2segment
 
 
-@patch('stream2segment.query_utils.getTravelTimes', return_value = 'a')
-def test_get_arrival_times(mock_get_tt):
+@patch('stream2segment.query_utils.TauPyModel')
+def test_get_arrival_times(mock_taup):
+    
+    
+    a = getArrivalTime('d', 'q', 'g')
+    assert a is None
+    mock_taup.assert_called_once_with('g')
+    
+    model = 'ak135'
+    
+    from obspy.taup.tau import TauPyModel
+    realtpm = TauPyModel(model)
+    abc = Mock()
+    abc.get_travel_times.side_effect = lambda *args, **kw: realtpm.get_travel_times(*args, **kw) 
+    # gettt.side_effect = abc
+    mock_taup.return_value = abc
 
-    with pytest.raises(AttributeError):
-        _ = getArrivalTime('d', 'q', 'g')
-
-    from obspy.taup.taup import getTravelTimes as gtt
-
-    mock_get_tt.side_effect = lambda *args, **kw: gtt(*args, **kw)
-
-    with pytest.raises(IOError):
-        _ = getArrivalTime('d', 'q', 'g')
-
-    tt = getArrivalTime(dist=52.474, depth=611.0, model='ak135')
+#     with pytest.raises(IOError):
+#         _ = getArrivalTime('d', 'q', 'g')
+    mock_taup.reset_mock()
+    tt = getArrivalTime(distance_in_degree=52.474, source_depth_in_km=611.0, model=model)
     # check for the value (account for round errors):
     assert tt > 497.525385547 and tt < 497.525385548
+    mock_taup.assert_called_once_with(model)
+    abc.get_travel_times.assert_called_once_with(611.0, 52.474)
 
-    def gtt2(*args, **kw):
-        ret = gtt(*args, **kw)
-        for r in ret:
-            if 'phase_name' in r:
-                r['phase_name'] = ''
-        return ret
 
-    mock_get_tt.side_effect = gtt2
-    a = getArrivalTime(dist=52.474, depth=611.0, model='ak135')
+    mock_taup.reset_mock()
+#     abc.get_travel_times.reset_mock()
+    abc.get_travel_times.side_effect = lambda *args, **kw: []
+    a = getArrivalTime(distance_in_degree=52.2, source_depth_in_km=611.0, model=model)
+    mock_taup.assert_called_once_with(model)
+    abc.get_travel_times.assert_called_once_with(611.0, 52.2)
     assert a is None
 
 
@@ -81,12 +88,12 @@ def test_getSearchRadius(mag, args, expected_val):
                            (('2015-01-03 22:22:22Z',False,False), '2015-01-03 22:22:22Z'),
                            ]
                          )
-def test_normalize_datestr(inargs, expected_dt):
-    from stream2segment.utils import normalize_datestr
-    assert normalize_datestr(*inargs) == expected_dt
+def test_prepare_datestr(inargs, expected_dt):
+    from stream2segment.utils import prepare_datestr
+    assert prepare_datestr(*inargs) == expected_dt
 
 
-@pytest.mark.parametrize('normalize_datestr_return_value, strptime_callcount, expected_dt',
+@pytest.mark.parametrize('prepare_datestr_return_value, strptime_callcount, expected_dt',
                          [
                           (56, 1, None),
                           ('abc', 3, None),
@@ -103,20 +110,20 @@ def test_normalize_datestr(inargs, expected_dt):
 # for side effect below
 # see https://docs.python.org/3/library/unittest.mock-examples.html#partial-mocking
 @patch('stream2segment.utils.dt.datetime', side_effect=lambda *args, **kw: datetime(*args, **kw))
-@patch('stream2segment.utils.normalize_datestr')
-def test_to_datetime_crap(mock_normalize_datestr, mock_datetime, normalize_datestr_return_value,
+@patch('stream2segment.utils.prepare_datestr')
+def test_to_datetime_crap(mock_prepare_datestr, mock_datetime, prepare_datestr_return_value,
                           strptime_callcount, expected_dt):
     mock_datetime.strptime = Mock()
     mock_datetime.strptime.side_effect = lambda *args, **kw: datetime.strptime(*args, **kw)
 
-    mock_normalize_datestr.return_value = normalize_datestr_return_value
+    mock_prepare_datestr.return_value = prepare_datestr_return_value
 
     inarg = "x"
     dt = to_datetime(inarg)
     assert dt == expected_dt
-    mock_normalize_datestr.assert_called_once_with(inarg, True, True)
+    mock_prepare_datestr.assert_called_once_with(inarg, True, True)
     first_args_to_strptime = [c[0][0] for c in mock_datetime.strptime.call_args_list]
-    assert all(x == normalize_datestr_return_value for x in first_args_to_strptime)
+    assert all(x == prepare_datestr_return_value for x in first_args_to_strptime)
     assert mock_datetime.strptime.call_count == strptime_callcount
 
 
@@ -505,7 +512,7 @@ def test_save_waveforms_getevents_returns_empty(mock_os_path_exists, mock_gw, mo
 
 # global vars (FIXME: check if good!)
 dcs = {'dc1' : 'www.dc1'}
-channels = [['a', 'b' , 'c']]
+channels = {'chan': ['a', 'b' , 'c']}
 search_radius_args = ['1', None, '4' ,'5']
 
 @patch('stream2segment.query_utils.locations2degrees', return_value='l2d')
@@ -549,7 +556,7 @@ def test_save_waveforms_getstations_returns_empty(mock_gsr, mock_os_path_exists,
     ev = mock_ge.return_value[0]
     mock_gsr.assert_called_once_with(ev[10], search_radius_args[0], search_radius_args[1],
                                      search_radius_args[2], search_radius_args[3])
-    mock_gs.assert_called_with(dcs.values()[0], channels[0], ev[1], ev[2], ev[3],
+    mock_gs.assert_called_with(dcs.values()[0], channels.values()[0], ev[1], ev[2], ev[3],
                                mock_gsr.return_value)
     assert not mock_gw.called
 
@@ -594,10 +601,10 @@ def test_save_waveforms_get_arrival_time_none(mock_gsr, mock_os_path_exists, moc
     st = mock_gs.return_value[0]
     mock_gsr.assert_called_once_with(ev[10], search_radius_args[0], search_radius_args[1],
                                      search_radius_args[2], search_radius_args[3])
-    mock_gs.assert_called_with(dcs.values()[0], channels[0], ev[1], ev[2], ev[3],
+    mock_gs.assert_called_with(dcs.values()[0], channels.values()[0], ev[1], ev[2], ev[3],
                                mock_gsr.return_value)
     mock_ltd.assert_called_with(ev[2], ev[3], st[2], st[3])
-    mock_gat.assert_called_with(mock_ltd.return_value, ev[4])
+    mock_gat.assert_called_with(ev[4], mock_ltd.return_value)
     assert not mock_gw.called
 
 
@@ -635,12 +642,12 @@ def test_save_waveforms_get_arrival_time_no_wav(mock_os_path_join, mock_gsr, moc
     st = mock_gs.return_value[0]
     mock_gsr.assert_called_once_with(ev[10], search_radius_args[0], search_radius_args[1],
                                      search_radius_args[2], search_radius_args[3])
-    mock_gs.assert_called_with(dcs.values()[0], channels[0], ev[1], ev[2], ev[3],
+    mock_gs.assert_called_with(dcs.values()[0], channels.values()[0], ev[1], ev[2], ev[3],
                                mock_gsr.return_value)
     mock_ltd.assert_called_with(ev[2], ev[3], st[2], st[3])
-    mock_gat.assert_called_with(mock_ltd.return_value, ev[4])
+    mock_gat.assert_called_with(ev[4], mock_ltd.return_value)
     origTime = ev[1] + timedelta(seconds=float(mock_gat.return_value))
-    mock_gw.assert_called_with(dcs.values()[0], st[1], channels[0], origTime, 'minBeforeP',
+    mock_gw.assert_called_with(dcs.values()[0], st[1], channels.values()[0], origTime, 'minBeforeP',
                                'minAfterP')
     assert not mock_os_path_join.called
     assert not mock_open.called
@@ -679,12 +686,12 @@ def test_save_waveforms_get_arrival_time(mock_os_path_join, mock_gsr, mock_os_pa
     st = mock_gs.return_value[0]
     mock_gsr.assert_called_once_with(ev[10], search_radius_args[0], search_radius_args[1],
                                      search_radius_args[2], search_radius_args[3])
-    mock_gs.assert_called_with(dcs.values()[0], channels[0], ev[1], ev[2], ev[3],
+    mock_gs.assert_called_with(dcs.values()[0], channels.values()[0], ev[1], ev[2], ev[3],
                                mock_gsr.return_value)
     mock_ltd.assert_called_with(ev[2], ev[3], st[2], st[3])
-    mock_gat.assert_called_with(mock_ltd.return_value, ev[4])
+    mock_gat.assert_called_with( ev[4], mock_ltd.return_value)
     origTime = ev[1] + timedelta(seconds=float(mock_gat.return_value))
-    mock_gw.assert_called_with(dcs.values()[0], st[1], channels[0], origTime, 'minBeforeP',
+    mock_gw.assert_called_with(dcs.values()[0], st[1], channels.values()[0], origTime, 'minBeforeP',
                                'minAfterP')
     mock_os_path_join.assert_called_with('outpath', 'ev-%s-%s-%s.mseed' % (ev[0], st[1], mock_gw.return_value[0]))
     mock_open.assert_called_with(mock_os_path_join.return_value, 'wb')

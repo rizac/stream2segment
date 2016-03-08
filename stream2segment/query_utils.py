@@ -5,8 +5,6 @@
 # <XXXXXXX@gfz-potsdam.de>
 #
 # ----------------------------------------------------------------------
-
-
 """utils: utilities of the package
 
    :Platform:
@@ -20,9 +18,11 @@
 # standard imports:
 import os
 import logging
+import time
 # from datetime import datetime
 from datetime import timedelta
-from stream2segment.utils import to_datetime
+from stream2segment.utils import to_datetime, estremttime
+
 # Python 3 compatibility
 # try:
 #     import urllib.request as ul
@@ -32,32 +32,33 @@ from stream2segment.utils import to_datetime
 import urllib2 as ul
 
 # third party imports:
-from obspy.taup.taup import getTravelTimes
+# from obspy.taup.taup import getTravelTimes
+from obspy.taup import TauPyModel
 from obspy.geodetics import locations2degrees
-# FIXME: this should be the import! but pydev trhows unwanted errors:
-# from obspy.core.util import locations2degrees
+from obspy.taup.helper_classes import TauModelError
 
 
-def getArrivalTime(dist, depth, model='ak135'):  # FIXME: better!
+def getArrivalTime(source_depth_in_km, distance_in_degree, model='ak135'):  # FIXME: better!
     """
         Assess and return the arrival time of P phases.
         Uses obspy.getTravelTimes
-        :param dist: Distance in degrees.
-        :type dist: float
-        :param depth: Depth in kilometer.
-        :type depth: float
+        :param source_depth_in_km: Depth in kilometer.
+        :type source_depth_in_km: float
+        :param distance_in_degree: Distance in degrees.
+        :type distance_in_degree: float
         :param model: Either ``'iasp91'`` or ``'ak135'`` velocity model.
          Defaults to 'ak135'.
         :type model: str, optional
         :return the number of seconds of the assessed arrival time, or None in case of error
     """
-    tt = getTravelTimes(delta=dist, depth=depth, model=model)
+    taupmodel = TauPyModel(model)
     try:
+        tt = taupmodel.get_travel_times(source_depth_in_km, distance_in_degree)
         # return min((ele['time'] for ele in tt if (ele.get('phase_name') or ' ')[0] == 'P'))
-        return min((ele['time'] for ele in tt))
-    except ValueError:
+        return min((ele.time for ele in tt))
+    except (TauModelError, ValueError):
         logging.error("Unable to find arrival time. Phase names (dist=%s, depth=%s, model=%s):\n%s",
-                      str(dist), str(depth), str(model),
+                      str(distance_in_degree), str(source_depth_in_km), str(model),
                       ','.join(ele.get('phase_name') for ele in tt))
         return None
     # ttsel=[ele for ele in tt if ele.get('phase_name') in ['Pg','Pn','Pb']]
@@ -182,8 +183,6 @@ def getStations(dc, listCha, origTime, lat, lon, dist):
 
         listResult.append(splSt)
 
-    logging.info('%s stations found', len(listResult))
-
     return listResult
 
 
@@ -220,7 +219,6 @@ def getWaveforms(dc, st, listCha, origTime, minBeforeP, minAfterP):
         dcResult = url_read(aux, 'Dataselect WS')
 
         if dcResult:
-            logging.info('Data found from channel %s', cha)
             return cha.replace('*', 'X').replace('?', 'X'), dcResult
 
     return '', ''
@@ -279,7 +277,7 @@ def url_read(url, name, blockSize=1024*1024):
     """
     dcBytes = 0
     dcResult = ''
-    logging.info('Querying %s', url)
+    logging.debug('Reading url: %s', url)
     req = ul.Request(url)
     urlopen_ = None
 
@@ -326,7 +324,7 @@ def url_read(url, name, blockSize=1024*1024):
     # Close the connection to avoid overloading the server
     urlopen_.close()
 
-    logging.debug('%s bytes read from %s', dcBytes, url)
+    # logging.debug('%s bytes read from %s', dcBytes, url)
     return dcResult
 
 
@@ -373,7 +371,18 @@ def saveWaveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius
     if not os.path.exists(outpath):
         logging.error('"%s" does not exist', outpath)
         return
+
+    # print local vars:
+    logging.info("Arguments:")
+    for arg, varg in dict(locals()).iteritems():
+        # Note: locals() might be updated inside the loop and throw an
+        # error, as it stores all local variables.
+        # Thus the need of dict(locals())
+        logging.info("   %s = %s", str(arg), str(varg))
+
     # a little bit hacky, but convert to dict as the function gets dictionaries
+    # Note: we might want to use dict(locals()) as above but that does NOT
+    # preserve order and tests should be rewritten. It's topo pain for the moment
     args = {"eventws": eventws,
             "minmag": minmag,
             "minlat": minlat,
@@ -388,10 +397,24 @@ def saveWaveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius
     events = getEvents(**args)
 
     logging.info('%s events found', len(events))
-    logging.debug('%s', events)
+    logging.debug('Events: %s', events)
 
+    evtCounter = 1
+    est_rt = 'unknown'
+    written_files = 0
+    start_time = time.time()
     for ev in events:
-        logging.info('Processing event %s (%s) %s', ev[10], ev[0], ev[12])
+        evtMsg = 'Processing event %s %s %s (%d of %d, est.rem.time %s)' % (ev[10],
+                                                                            ev[0],
+                                                                            ev[12],
+                                                                            evtCounter,
+                                                                            len(events),
+                                                                            est_rt,
+                                                                            )
+        evtCounter += 1
+        strh = '=' * len(evtMsg)
+        logging.info(strh)
+        logging.info(evtMsg)
 
         # FIXME: this does not need anymore to be a parameter right?!!
         # use ev[10], that is the magnitude, to determine the radius distFromEvent
@@ -402,34 +425,55 @@ def saveWaveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius
                                         search_radius_args[3])
 
         for DCID, dc in datacenters_dict.iteritems():
-            logging.info('Querying %s', str(DCID))
+            # logging.info('Querying %s', str(DCID))
             for chName, chList in channelList.iteritems():
                 # try with all channels in channelList
-                logging.info('(Querying %s channels)', str(chList))
+                stMsg = 'Querying data-center %s (channels=%s) for stations' % (str(DCID), str(chList))
+
+                logging.info('-' * len(stMsg))
+                logging.info(stMsg)
 
                 stations = getStations(dc, chList, ev[1], ev[2], ev[3], distFromEvent)
 
-                logging.debug('stations: %s', stations)
+                logging.info('%d stations found', len(stations))
+                logging.debug('Stations: %s', stations)
 
                 for st in stations:
-                    logging.info('Processing station %s', st[1])
+                    logging.info('Querying data-center %s (station=%s) for data',
+                                 str(DCID), st[1])
 
                     # added info for the tau-p
                     dista = locations2degrees(ev[2], ev[3], st[2], st[3])
-                    arrtime = getArrivalTime(dista, ev[4])
+                    arrtime = getArrivalTime(ev[4], dista)
                     if arrtime is None:
                         continue
                     origTime = ev[1] + timedelta(seconds=float(arrtime))
                     # shall we avoid numpy? before was: timedelta(seconds=numpy.float64(arrtime))
-                    cha, wav = getWaveforms(dc, st[1], chList, origTime, ptimespan[0], ptimespan[1])
+                    cha, wav = getWaveforms(dc,
+                                            st[1],
+                                            chList,
+                                            origTime,
+                                            ptimespan[0],
+                                            ptimespan[1])
 
                     # FIXME Here ev[1] must be replaced for the tau-p
                     # cha, wav = getWaveforms(dc, st[1], chList, ev[1])
 
+                    # logging.info('%s, channel %s: %s', st[1], origCha, 'Data found' if len(wav) else "No data found")
+                    if len(wav):
+                        logging.info('Data found on channel %s', cha)
+                    else:
+                        logging.info("No data found")
+
+                    # logging.debug('stations: %s', stations)
                     if len(wav):
                         complete_path = os.path.join(outpath,
                                                      'ev-%s-%s-%s.mseed' % (ev[0], st[1], cha))
-                        logging.debug('Writing to %s', complete_path)
+                        logging.debug('Writing wav to %s', complete_path)
                         fout = open(complete_path, 'wb')
                         fout.write(wav)
                         fout.close()
+                        written_files += 1
+        elapsed = time.time() - start_time
+        est_rt = str(estremttime(elapsed, evtCounter, len(events)))
+    logging.info("DONE: %d waveforms (mseed files) written to '%s'", written_files, outpath)
