@@ -4,6 +4,7 @@ Created on Feb 25, 2016
 @author: riccardo
 '''
 import os
+import re
 import sys
 from os import listdir
 from os.path import isfile, join, basename, isdir
@@ -20,6 +21,8 @@ NavigationToolbar2.forward = lambda self, *args, **kwargs: plot_other(self, 1)
 # NavigationToolbar2.toolitems[0][1] = 'Plot first mseed'  # home tooltip
 # NavigationToolbar2.toolitems[0][2] = 'Plot next mseed'  # back tooltip
 # NavigationToolbar2.toolitems[0][3] = 'Plot previous mseed'  # forward tooltip
+
+origtime_re = re.compile("origtime_(\\d*(?:\\.\\d+)?)")  # match a float following origtime
 
 curr_pos = 0
 fig = plt.figure()
@@ -38,13 +41,28 @@ def plot(canvas, index):
     data = None
     canvas.figure.clear()
     try:
-        data = read(files[index])  # + ("h" if index==1 else "") )
+        data = read(files[index])
     except (IOError, TypeError) as ioerr:
         canvas.figure.suptitle(str(ioerr))
         canvas.draw()
         return
+
     data.plot(fig=fig)  # , block=True)
     canvas.set_window_title(basename(files[index] + " (%d of %d)" % (index+1, len(files))))
+
+    mobj = origtime_re.search(files[index])
+    if mobj and len(mobj.groups()) == 1:
+        try:
+            datenum = float(mobj.group(1))
+            for axes in fig.get_axes():
+                ylim = axes.get_ylim()
+                # axes.vlines(datenum, ylim[0], ylim[1], color='#00ee00', label='origTime')
+                axes.plot([datenum, datenum], ylim, color='#00ee00', label='origTime')
+                # print "origtime: " + str(datenum)
+        except (TypeError, ValueError) as exc:
+            print str(exc)
+
+    canvas.draw()
 
 
 if __name__ == '__main__':
