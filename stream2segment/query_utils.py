@@ -17,8 +17,10 @@
 
 # standard imports:
 import os
+import calendar
 import logging
 import time
+from matplotlib.dates import date2num
 # from datetime import datetime
 from datetime import timedelta
 from stream2segment.utils import to_datetime, estremttime
@@ -328,6 +330,13 @@ def url_read(url, name, blockSize=1024*1024):
     return dcResult
 
 
+def timestamp(utc_dt):
+    """Returns matplotlib.dates.date2num(utc-dt), where the argument is
+    an utc datetime"""
+#     return calendar.timegm(utc_dt.utctimetuple())
+    return date2num(utc_dt)
+
+
 def saveWaveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius_args,
                   datacenters_dict, channelList, start, end, ptimespan, outpath):
     """
@@ -399,11 +408,12 @@ def saveWaveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius
     logging.info('%s events found', len(events))
     logging.debug('Events: %s', events)
 
-    evtCounter = 1
+    evtCounter = 0
     est_rt = 'unknown'
     written_files = 0
     start_time = time.time()
     for ev in events:
+        evtCounter += 1
         evtMsg = 'Processing event %s %s %s (%d of %d, est.rem.time %s)' % (ev[10],
                                                                             ev[0],
                                                                             ev[12],
@@ -411,7 +421,6 @@ def saveWaveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius
                                                                             len(events),
                                                                             est_rt,
                                                                             )
-        evtCounter += 1
         strh = '=' * len(evtMsg)
         logging.info(strh)
         logging.info(evtMsg)
@@ -468,7 +477,9 @@ def saveWaveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius
                     # logging.debug('stations: %s', stations)
                     if len(wav):
                         complete_path = os.path.join(outpath,
-                                                     'ev-%s-%s-%s.mseed' % (ev[0], st[1], cha))
+                                                     'ev-%s-%s-%s-origtime_%s.mseed' %
+                                                     (ev[0], st[1], cha, str(timestamp(origTime)))
+                                                     )
                         logging.debug('Writing wav to %s', complete_path)
                         fout = open(complete_path, 'wb')
                         fout.write(wav)

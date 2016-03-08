@@ -43,8 +43,8 @@ ptimespan:
 search_radius_args:
  - 3 # min magnitude
  - 7 # max magnitude
- - 1 # min distance (km)
- - 5 # max distance (km)
+ - 1 # min distance (deg)
+ - 5 # max distance (deg)
 
 # these are optional, missing defaults to start:yesterday at midnight, today at midnight
 # start: 2015-01-01
@@ -52,10 +52,19 @@ search_radius_args:
 
 # program specific parameters:
 outpath: '/tmp/mseeds/'
+
 # Set verbosity (for details see https://docs.python.org/2/library/logging.html#levels)
 # Note that a level of N will display all M<=N messages,
 # So setting 2 WILL DISPLAY EVERYTHING EXCEPT DEBUG MESSAGES
-verbosity: 3 #3: DEBUG, 2: INFO, 1: WARNING, 0: ERROR
+log_verbosity: 2 #3: DEBUG, 2: INFO, 1: WARNING, 0: ERROR
+# optional parameters:
+# see https://docs.python.org/2/library/logging.html#logging.basicConfig
+# log_filename='/tmp/mseeds/logfile.log'  # if missing, prints to stdout
+# log_filemode='a'  # only used if the parameter above is specified
+# log_datefmt  # format for datetimes
+log_format: '%(levelname)-7s %(message)s' # format for messages
+
+# ========================================================
 
 # unused / old parameters:
 # distFromEvent: 5.0 # distance radius from event, in Km
