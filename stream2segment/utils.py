@@ -6,6 +6,8 @@ Created on Feb 19, 2016
 # import yaml
 import inspect
 import datetime as dt
+import time
+import bisect
 # import dateutil.parser as dparser
 
 # # good: dateutil.parser parses strings into datetime
@@ -85,15 +87,122 @@ def to_datetime(string, ignore_z=True, allow_space=True):
 # #    return [(i, values[i]) for i in args]
 #     return {i: values[i] for i in args}
 
+class EstRemTimer():
+    """
+        An object used to calculate the estimated remaining time in loops. For a simple usage
+        (print estimated remaining time, ert) just print this object, example:
 
-def estremttime(time_in_seconds, iteration_number, total_iterations, approx_to_seconds=True):
-    remaining_seconds = (total_iterations - iteration_number) * (time_in_seconds / iteration_number)
-    dttd = dt.timedelta(seconds=remaining_seconds)
-    if approx_to_seconds:
-        if dttd.microseconds >= 500000:
-            dttd = dt.timedelta(days=dttd.days, seconds=dttd.seconds+1)
-        else:
-            dttd = dt.timedelta(days=dttd.days, seconds=dttd.seconds)
+            etr = EstRemTimer(N)
+            for i in xrange(N):
+                etr.get()   # returns the estimated remaining time (first time returns None)
+                            # and increments the internal counter. Call get(False) not to
+                            # increment the counter (returns the last ert)
+                etr.done    # returns the numbers of iterations done (first time 0)
+                etr.total   # returns N
+                ... code here ...
+    """
+    def __init__(self, total_iterations, approx_to_seconds=True, use="median"):
+        """
+            Initializes an EstRemTimer for calculating the estimated remaining time (ert)
+            :param: total_iterations the total iterations this object is assumed to use for 
+            calculate the ert
+            :type: total_iterations integer
+            :param: approx_to_seconds: when True (the default) approximate the ert
+            (timedelta object) to seconds
+            :type: approx_to_seconds: boolean
+            :param: use: if 'median' (case insensitive) calculates the estimated remaining time
+            using the median of all durations of the iterations done. For any other string,
+            use the mean. The default is "median" because it is less sensitive to skewed
+            distributions, so basically iterations which take far more (or less) time than the
+            average weight less in the computation of the ert.
+        """
+        self.total = total_iterations
+        self.done = 0
+        self._start_time = None  # time.time()
+        self.ert = None
+        self.approx_to_seconds = approx_to_seconds
+        self._times = [] if use.lower() == "median" else None
+
+    def get(self, increment=True, approx_to_seconds=None):
+        """
+            Gets the estimated remaing time etr. If increment is True, the returned object is None
+            the first time this method is called, at subsequent calls it will be a timedelta object.
+            If increment is False, returns the last calculated ert (which might be None)
+            :param: increment: (True by default) returns the ert and increments the internal counter
+            :type: increment: boolean
+            :param: approx_to_seconds: sets whether the ert is approximated to seconds. If None (the
+            default) the value of the argument approx_to_seconds passed in the constructor (True
+            by default) is used
+            :type: approx_to_seconds: boolean, or None
+            :return: the estimated remaining time, or None
+            :rtype: timedelta object, or None
+        """
+        if self._start_time is None:
+            self._start_time = time.time()  # start now timing
+            # first iteration, leave done to zero so that user can query the 'done' attribute
+            # and it correctly displays the done iteration
+        elif increment:
+            self.done += 1
+            if approx_to_seconds is None:
+                approx_to_seconds = self.approx_to_seconds
+            if self.done >= self.total:
+                ret = dt.timedelta()
+            else:
+                elapsed_time = time.time() - self._start_time
+                if self._times is not None:  # use median
+                    # Find rightmost value less than or equal to ret:
+                    i = bisect.bisect_right(self._times, elapsed_time)
+                    self._times.insert(i, elapsed_time)
+                    idx = len(self._times) / 2
+                    ret = self._times[idx] if len(self._times) % 2 == 1 else \
+                        (self._times[idx] + self._times[idx-1]) / 2
+                    ret *= (self.total - self.done)
+                    ret = dt.timedelta(seconds=int(ret + 0.5) if approx_to_seconds else ret)
+                    self._start_time = time.time()  # re-start timer (for next iteration)
+                else:
+                    ret = estremttime(elapsed_time, self.done, self.total, approx_to_seconds)
+            self.ert = ret
+        return self.ert
+
+
+def estremttime(elapsed_time, iteration_number, total_iterations, approx_to_seconds=True):
+    """Called within a set of N=total_iterations "operations" (usually in a for loop) started since
+    elapsed_time, this method returns a timedelta object representing the ESTIMATED remaining time
+    when the iteration_number-th operation has been finished.
+    Estimated means that the remaining time is calculated as if each of the remaining operations
+    will take in average the average time taken for the operations done, which might not always be
+    the case
+    :Example:
+    import time
+    start_time = time.time()
+    for i, elm in enumerate(events):  # events being e.g., a list / tuple or whatever
+        elapsed = time.time() - start_time
+        est_rt = str(estremttime(elapsed, i, len(events))) if i > 0 else "unwknown"
+        ... your code here ...
+
+    :param: elapsed_time: the time elapsed since the first operation (operation 0) started
+    :type: elapsed_time a timedelta object, or any type castable to float (int, floats, numeric
+        strings)
+    :param: iteration_number: the number of operations done
+    :type: iteration_number: a positive int
+    :param: total_iterations: self-explanatory, specifies the total number of operations expected
+    :type: total_iterations: a positive int greater or equal than iteration_number
+    :param: approx_to_seconds: True by default if missing, returns the remaining time aproximated
+        to seconds, which is sufficient for the typical use case of a process remaining time
+        which must be shown to the user
+    :type: approx_to_seconds: boolean
+    :return: the estimated remaining time according to elapsed_time, which is the time taken to
+        process iteration_number operations of a total number of total_iterations operations
+    :rtype: timedelta object. Note that it's string value (str function) can be called to display
+    the text of the estimated remaining time
+    """
+    if isinstance(elapsed_time, dt.timedelta):
+        elapsed_time = elapsed_time.total_seconds()  # is a float
+    else:
+        elapsed_time = float(elapsed_time)  # to avoid rounding below (FIXME: use true division?)
+    remaining_seconds = (total_iterations - iteration_number) * (elapsed_time / iteration_number)
+    dttd = dt.timedelta(seconds=int(remaining_seconds+0.5)
+                        if approx_to_seconds else remaining_seconds)
     return dttd
 
 

@@ -23,8 +23,10 @@ import time
 from matplotlib.dates import date2num
 # from datetime import datetime
 from datetime import timedelta
-from stream2segment.utils import to_datetime, estremttime
-
+from stream2segment.utils import to_datetime, estremttime, EstRemTimer
+from stream2segment import io as s2sio
+import numpy as np
+import pandas as pd
 # Python 3 compatibility
 # try:
 #     import urllib.request as ul
@@ -40,9 +42,9 @@ from obspy.geodetics import locations2degrees
 from obspy.taup.helper_classes import TauModelError
 
 
-def getArrivalTime(source_depth_in_km, distance_in_degree, model='ak135'):  # FIXME: better!
+def getTravelTime(source_depth_in_km, distance_in_degree, model='ak135'):  # FIXME: better!
     """
-        Assess and return the arrival time of P phases.
+        Assess and return the travel time of P phases.
         Uses obspy.getTravelTimes
         :param source_depth_in_km: Depth in kilometer.
         :type source_depth_in_km: float
@@ -113,25 +115,53 @@ def getEvents(**kwargs):
 
     result = url_read(eventQuery, 'Event WS')
 
-    listResult = list()
-    for ev in result.splitlines()[1:]:
-        splEv = ev.split('|')
-        splEv[1] = to_datetime(splEv[1])
-        if splEv[1] is None:
-            logging.error("Couldn't convert origTime parameter (%s).", splEv[1])
+    return evt_to_dframe(result)
+#     listResult = list()
+#     for ev in result.splitlines()[1:]:
+#         splEv = ev.split('|')
+#         splEv[1] = to_datetime(splEv[1])
+#         if splEv[1] is None:
+#             logging.error("Couldn't convert origTime parameter (%s).", splEv[1])
+#             continue
+# 
+#         try:
+#             splEv[2] = float(splEv[2])
+#             splEv[3] = float(splEv[3])
+#             splEv[4] = float(splEv[4])
+#             splEv[10] = float(splEv[10])
+# 
+#             listResult.append(splEv)
+#         except (ValueError, IndexError) as err_:
+#             logging.error(str(err_))
+# 
+#     return listResult
+
+def evt_to_dframe(event_query_result):
+    if not event_query_result:
+        return pd.DataFrame()
+
+    events = event_query_result.splitlines()
+    dframe = pd.DataFrame(index=np.arange(0, len(events)-1),
+                          columns=(e.strip() for e in events[0].split("|")))
+    for i, ev in enumerate(events[1:]):
+        evt_list = ev.split('|')
+        evt_list[1] = to_datetime(evt_list[1])
+        if evt_list[1] is None:
+            logging.error("Couldn't convert origTime parameter (%s).", evt_list[1])
             continue
 
         try:
-            splEv[2] = float(splEv[2])
-            splEv[3] = float(splEv[3])
-            splEv[4] = float(splEv[4])
-            splEv[10] = float(splEv[10])
-
-            listResult.append(splEv)
+            evt_list[2] = float(evt_list[2])
+            evt_list[3] = float(evt_list[3])
+            evt_list[4] = float(evt_list[4])
+            evt_list[10] = float(evt_list[10])
+            # http://stackoverflow.com/questions/10715965/add-one-row-in-a-pandas-dataframe:
+            # loc or iloc both work here since the index is natural numbers
+            dframe.loc[i] = evt_list
         except (ValueError, IndexError) as err_:
             logging.error(str(err_))
 
-    return listResult
+    return dframe
 
 
 def getStations(dc, listCha, origTime, lat, lon, dist):
@@ -169,23 +199,53 @@ def getStations(dc, listCha, origTime, lat, lon, dist):
 
     dcResult = url_read(aux, 'Station WS')
 
-    for st in dcResult.splitlines()[1:]:
+    return station_to_dframe(dcResult)
+#     for st in dcResult.splitlines()[1:]:
+#         splSt = st.split('|')
+#         splSt[6] = to_datetime(splSt[6])
+#         if splSt[6] is None:
+#             logging.error("Couldn't convert start time attribute (%s).", splSt[6])
+#             continue
+# 
+#         # FIXME: why shouldn't this log any error?
+#         splSt[7] = to_datetime(splSt[7])
+# 
+#         splSt[2] = float(splSt[2])
+#         splSt[3] = float(splSt[3])
+#         splSt[4] = float(splSt[4])
+# 
+#         listResult.append(splSt)
+# 
+#     return listResult
+
+
+def station_to_dframe(stations_query_result):
+    if not stations_query_result:
+        return pd.DataFrame()
+
+    stations = stations_query_result.splitlines()
+    dframe = pd.DataFrame(index=np.arange(0, len(stations)-1),
+                          columns=(e.strip() for e in stations[0].split("|")))
+
+    for i, st in enumerate(stations[1:]):
         splSt = st.split('|')
-        splSt[6] = to_datetime(splSt[6])
+        splSt[6] = to_datetime(splSt[6])  # parse start time
         if splSt[6] is None:
-            logging.error("Couldn't convert start time attribute (%s).", splSt[6])
+            logging.error("Could not convert start time attribute (%s).", splSt[6])
             continue
 
-        # FIXME: why shouldn't this log any error?
-        splSt[7] = to_datetime(splSt[7])
+        # parse end time, it can be None ()
+        splSt[7] = to_datetime(splSt[7]) or ''
 
         splSt[2] = float(splSt[2])
         splSt[3] = float(splSt[3])
         splSt[4] = float(splSt[4])
 
-        listResult.append(splSt)
+        # http://stackoverflow.com/questions/10715965/add-one-row-in-a-pandas-dataframe
+        # loc or iloc both work here since the index is natural numbers
+        dframe.loc[i] = splSt
 
-    return listResult
+    return dframe
 
 
 def getWaveforms(dc, st, listCha, origTime, minBeforeP, minAfterP):
@@ -224,6 +284,111 @@ def getWaveforms(dc, st, listCha, origTime, minBeforeP, minAfterP):
             return cha.replace('*', 'X').replace('?', 'X'), dcResult
 
     return '', ''
+
+
+def get_wav_dframe_FIXME(dc, st, listCha, arrivalTime, minBeforeP, minAfterP, dframe=None):
+    """
+        Returns the tuple w,c where w is the waveform from the given parameters, and c is the
+        relative channel
+        :param dc: the datacenter to query from
+        :type dc: string
+        :param st: the station to query from
+        :type st: string
+        :param listCha: the list of channels, e.g. ['HL?', 'SL?', 'BL?']. The function iterates
+            over the given channels and returns the first available data
+        :type listCha: iterable (e.g., list)
+        :param arrivalTime: the query time. The request will be built with a time start and end of
+            +-minBeforeP (see below) minutes from arrivalTime
+        :type arrivalTime: date or datetime
+        :param minBeforeP: the minutes before P wave arrivalTime
+        :type minBeforeP: float
+        :param minAfterP: the minutes after P wave arrivalTime
+        :type minAfterP: float
+        :return: the tuple data, channel (bytes and string)
+    """
+    if dframe is None:
+        dframe = pd.DataFrame(  # index=np.array(xrange(len(listCha))),
+                              # Note above: np array or list, the former has more flexibility
+                              # if we want to modify it later
+                              columns=('dataCenter', 'channel', 'arrivalTime',
+                                       'startTime', 'endTime', 'queryStr'))
+
+    dsQuery = '%s/dataselect/1/query?station=%s&channel=%s&start=%s&end=%s'
+
+    try:
+        start, endt = getTimeRange(arrivalTime, minutes=(minBeforeP, minAfterP))
+    except TypeError:
+        logging.error('Cannot convert arrivalTime parameter (%s).', arrivalTime)
+        return dframe
+
+    for cha in listCha:
+        query_str = dsQuery % (dc, st, cha, start.isoformat(), endt.isoformat())
+        datalist = [dc, cha, arrivalTime, start.isoformat(), endt.isoformat(), query_str]
+        datadict = {dframe.columns[i]: datalist[i] for i in xrange(len(datalist))}
+        dframe = dframe.append(datadict, ignore_index=True)
+
+    return dframe
+
+
+def get_wav_queries_FIXME(dc, st, listCha, start_time, end_time):
+    """
+        Returns the tuple w,c where w is the waveform from the given parameters, and c is the
+        relative channel
+        :param dc: the datacenter to query from
+        :type dc: string
+        :param st: the station to query from
+        :type st: string
+        :param listCha: the list of channels, e.g. ['HL?', 'SL?', 'BL?']. The function iterates
+            over the given channels and returns the first available data
+        :type listCha: iterable (e.g., list)
+        :param arrivalTime: the query time. The request will be built with a time start and end of
+            +-minBeforeP (see below) minutes from arrivalTime
+        :type arrivalTime: date or datetime
+        :param minBeforeP: the minutes before P wave arrivalTime
+        :type minBeforeP: float
+        :param minAfterP: the minutes after P wave arrivalTime
+        :type minAfterP: float
+        :return: the tuple data, channel (bytes and string)
+    """
+
+    qry = '%s/dataselect/1/query?station=%s&channel=%s&start=%s&end=%s'
+    return [qry % (dc, st, cha, start_time.isoformat(), end_time.isoformat()) for cha in listCha]
+# 
+#     for cha in listCha:
+#         query_str = dsQuery % (dc, st, cha, start_time.isoformat(), end_time.isoformat())
+#         yield query_str
+
+
+def get_arrival_time(distance_in_degrees, ev_depth_km, ev_time):
+    """
+        Returns the tuple w,c where w is the waveform from the given parameters, and c is the
+        relative channel
+        :param distance_in_degrees: the distance in degrees
+        :type distance_in_degrees: float. See obspy.locations2degrees
+        :param dc: the datacenter to query from
+        :type dc: string
+        :param st: the station to query from
+        :type st: string
+        :param listCha: the list of channels, e.g. ['HL?', 'SL?', 'BL?']. The function iterates
+            over the given channels and returns the first available data
+        :type listCha: iterable (e.g., list)
+        :param arrivalTime: the query time. The request will be built with a time start and end of
+            +-minBeforeP (see below) minutes from arrivalTime
+        :type arrivalTime: date or datetime
+        :param minBeforeP: the minutes before P wave arrivalTime
+        :type minBeforeP: float
+        :param minAfterP: the minutes after P wave arrivalTime
+        :type minAfterP: float
+        :return: the tuple data, channel (bytes and string)
+    """
+    # added info for the tau-p
+    travel_time = getTravelTime(ev_depth_km, distance_in_degrees)
+    if travel_time is None:
+        return None
+    arrivalTime = ev_time + timedelta(seconds=float(travel_time))
+    # shall we avoid numpy? before was: timedelta(seconds=numpy.float64(travel_time))
+
+    return arrivalTime
 
 
 def getTimeRange(origTime, days=0, hours=0, minutes=0, seconds=0):
@@ -337,6 +502,69 @@ def timestamp(utc_dt):
     return date2num(utc_dt)
 
 
+def get_wav_dframe(stations_dataframe, dc,
+                   chList, ev_id, ev_lat, ev_lon, ev_depth_km, ev_time, ptimespan, column='id'):
+    data = []
+    if not stations_dataframe.empty:
+        # first of all get the network and station index for building the data id later
+        # Do it once here. Use index defined in python lists cause googling seems not easy to get
+        # a relative method (if exists) on the dataframe columns
+        stations_col_list = list(stations_dataframe.columns)
+        network_index = stations_col_list.index(u'#Network')
+        station_index = stations_col_list.index(u'Station')
+
+        qry = '%s/dataselect/1/query?station=%s&channel=%s&start=%s&end=%s'
+
+        for st in stations_dataframe.values:
+            st_name = st[1]
+            st_lat = st[2]
+            st_lon = st[3]
+
+            # FIXME: move this message below
+            # logging.info('Querying data-center (station=%s) for data', st_name)
+
+            dista = locations2degrees(ev_lat, ev_lon, st_lat, st_lon)
+            arrivalTime = get_arrival_time(dista, ev_depth_km, ev_time)
+            if arrivalTime is None:
+                logging.info('arrival time is None, skipping')
+                continue
+
+            try:
+                start_time, end_time = getTimeRange(arrivalTime,
+                                                    minutes=(ptimespan[0], ptimespan[1]))
+            except TypeError:
+                logging.error('Cannot convert arrivalTime parameter (%s).', arrivalTime)
+                continue
+
+            # wav_queries = get_wav_queries(dc, st_name, chList, start_time, end_time)
+
+            # now build the data frames
+            for cha in chList:
+                wav_query = qry % (dc, st_name, cha, start_time.isoformat(), end_time.isoformat())
+                data_ = [None, ev_id, cha, "", start_time, end_time, dc,  dista, arrivalTime,
+                         wav_query, buffer('')]
+                data_.extend(st)
+                # make id. FIXME: very very prone to errors!!!!
+                data_[0] = "|". join([ev_id, st[network_index], st[station_index], "",
+                                     cha, start_time.isoformat(), end_time.isoformat()])
+                try:
+                    data_ = [d.decode('utf8') if isinstance(d, basestring) else d for d in data_]
+                    data.append(data_)
+                    # FIXME: raise logging error!
+                except Exception:
+                    g = 9
+
+                # wav_dframe = wav_dframe.append([data])
+
+    colz = ['Id', '#EventID_fk', 'Channel', 'Location',
+            'StartTime',
+            'EndTime', 'DataCenter',
+            'Distance/deg', 'ArrivalTime', 'QueryStr', 'Data']
+    colz.extend(['Station_' + s for s in stations_dataframe.columns])
+    wav_dframe = pd.DataFrame(columns=colz) if not data else pd.DataFrame(columns=colz, data=data)
+    return wav_dframe
+
+
 def saveWaveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius_args,
                   datacenters_dict, channelList, start, end, ptimespan, outpath):
     """
@@ -387,7 +615,7 @@ def saveWaveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius
         # Note: locals() might be updated inside the loop and throw an
         # error, as it stores all local variables.
         # Thus the need of dict(locals())
-        logging.info("   %s = %s", str(arg), str(varg))
+        logging.info("\t%s = %s", str(arg), str(varg))
 
     # a little bit hacky, but convert to dict as the function gets dictionaries
     # Note: we might want to use dict(locals()) as above but that does NOT
@@ -403,88 +631,235 @@ def saveWaveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius
             "outpath": outpath}
 
     # Get events in text format. '|' separated values
+    logging.info("Querying events:")
     events = getEvents(**args)
-
     logging.info('%s events found', len(events))
     logging.debug('Events: %s', events)
 
-    evtCounter = 0
-    est_rt = 'unknown'
-    written_files = 0
-    start_time = time.time()
-    for ev in events:
-        evtCounter += 1
-        evtMsg = 'Processing event %s %s %s (%d of %d, est.rem.time %s)' % (ev[10],
-                                                                            ev[0],
-                                                                            ev[12],
-                                                                            evtCounter,
-                                                                            len(events),
-                                                                            est_rt,
-                                                                            )
-        strh = '=' * len(evtMsg)
-        logging.info(strh)
-        logging.info(evtMsg)
+    db_handler = s2sio.DbHandler()
+    new_events = db_handler.purge(events, "events", '#EventID')
+    db_handler.write(new_events, 'events', '#EventID')
+
+    wav_dframe = None
+    ert = EstRemTimer(len(events))
+
+    for ev in events.values:  # itertuples(index=False, name=None):
+        ev_mag = ev[10]
+        ev_id = ev[0]
+        ev_loc_name = ev[12]
+        ev_time = ev[1]
+        ev_lat = ev[2]
+        ev_lon = ev[3]
+        ev_depth_km = ev[4]
+        remtime = ert.get()
+        evtMsg = 'Processing event %s %s (mag=%s)' % (
+                                                      ev_id,
+                                                      ev_loc_name,
+                                                      ev_mag,
+                                                      )
+        etr_msg = '%d%% Done. Est. remaining time: %s' % (
+                                                          round(100*float(ert.done)/ert.total),
+                                                          "unknown" if remtime is None else str(remtime),
+                                                          )
+        # dec_ = ('=' * max(3, len(evtMsg) - len(etr_msg) -3))
+        # strh = "[" + etr_msg + "] "
+        # logging.info("")
+        # logging.info(strh)
+        strmsg = "[" + etr_msg + "] " + evtMsg
+        logging.info("")  # "-" * len(strmsg))
+        logging.info(strmsg)
 
         # FIXME: this does not need anymore to be a parameter right?!!
         # use ev[10], that is the magnitude, to determine the radius distFromEvent
-        distFromEvent = getSearchRadius(ev[10],
+        distFromEvent = getSearchRadius(ev_mag,
                                         search_radius_args[0],
                                         search_radius_args[1],
                                         search_radius_args[2],
                                         search_radius_args[3])
 
+#         stMsg = ('Querying '
+#                  'data-centers %s (channels %s)') % (str(datacenters_dict.keys()),
+#                                                      str(channelList.keys()))
+#         logging.info(stMsg)
+        logging.info(('Querying selected data-centers and channels'
+                      ' for stations within %s degrees:') % distFromEvent)
         for DCID, dc in datacenters_dict.iteritems():
             # logging.info('Querying %s', str(DCID))
             for chName, chList in channelList.iteritems():
                 # try with all channels in channelList
-                stMsg = 'Querying data-center %s (channels=%s) for stations' % (str(DCID), str(chList))
+                # stMsg = 'Querying data-center %s (channels=%s) for stations' % (str(DCID),
+                #                                                                str(chList))
 
-                logging.info('-' * len(stMsg))
-                logging.info(stMsg)
+                # logging.info('-' * len(stMsg))
+                # logging.info(stMsg)
 
-                stations = getStations(dc, chList, ev[1], ev[2], ev[3], distFromEvent)
+                stations = getStations(dc, chList, ev_time, ev_lat, ev_lon, distFromEvent)
 
-                logging.info('%d stations found', len(stations))
+                if len(stations):
+                    logging.info('%d stations found (data center: %s, channel: %s)', len(stations),
+                                 str(DCID), str(chList))
                 logging.debug('Stations: %s', stations)
 
-                for st in stations:
-                    logging.info('Querying data-center %s (station=%s) for data',
-                                 str(DCID), st[1])
+                wdf = get_wav_dframe(stations, dc, chList, ev_id, ev_lat, ev_lon, ev_depth_km,
+                                     ev_time, ptimespan)
+
+                # indices are not increasing automatically, so when iterating over iloc for
+                # instance we night have problem. We can thus pass ignore_index=True in the append
+                # function but this shuffles the columns order. Thus we will 
+                # skip the ignore_index argument here and call reset_index later
+                wav_dframe = wdf if wav_dframe is None else wav_dframe.append(wdf)
+                                                                              #,ignore_index=True)
+
+#                 for st in stations.values:
+#                     st_name = st[1]
+#                     st_lat = st[2]
+#                     st_lon = st[3]
+# 
+#                     # FIXME: move this message below
+#                     logging.info('Querying data-center %s (station=%s) for data',
+#                                  str(DCID), st_name)
+# 
+#                     dista = locations2degrees(ev_lat, ev_lon, st_lat, st_lon)
+#                     arrivalTime = get_arrival_time(dista, 
+#                                                    ev_depth_km,
+#                                                    ev_time)
+#                     if arrivalTime is None:
+#                         logging.info('arrival time is None, skipping')
+#                         continue
+# 
+#                     try:
+#                         start_time, end_time = getTimeRange(arrivalTime,
+#                                                             minutes=(ptimespan[0], ptimespan[1]))
+#                     except TypeError:
+#                         logging.error('Cannot convert arrivalTime parameter (%s).', arrivalTime)
+#                         continue
+# 
+#                     wav_queries = get_wav_queries(dc, st_name, chList, start_time, end_time)
+# 
+#                     # now build the data frames
+#                     if wav_dframe is None:
+#                         colz = ['fk_' + events.columns[0], 'Channel', 'Location',
+#                                 'StartTime',
+#                                 'EndTime', 'DataCenter',
+#                                 'Distance/deg', 'ArrivalTime/sec', 'QueryStr']
+#                         colz.extend(['Station_' + s for s in stations.columns])
+#                         wav_dframe = pd.DataFrame(columns=colz)
+#
+#                     data = []
+#                     for wqu, cha in zip(wav_queries, chList):
+#                         data_ = [ev_id, cha, "", start_time, end_time, dc,  dista, arrivalTime, wqu]
+#                         data_.extend(st)
+#                         data.append(data_)
+#                         # wav_dframe = wav_dframe.append([data])
+#
+#                     wav_dframe = wav_dframe.append(pd.DataFrame(data=data, columns=wav_dframe.columns))
 
                     # added info for the tau-p
-                    dista = locations2degrees(ev[2], ev[3], st[2], st[3])
-                    arrtime = getArrivalTime(ev[4], dista)
-                    if arrtime is None:
-                        continue
-                    origTime = ev[1] + timedelta(seconds=float(arrtime))
-                    # shall we avoid numpy? before was: timedelta(seconds=numpy.float64(arrtime))
-                    cha, wav = getWaveforms(dc,
-                                            st[1],
-                                            chList,
-                                            origTime,
-                                            ptimespan[0],
-                                            ptimespan[1])
+#                     dista = locations2degrees(ev_lat, ev_lon, st_lat, st_lon)
+#                     travel_time = getTravelTime(ev_depth_km, dista)
+#                     if travel_time is None:
+#                         continue
+#                     arrivalTime = ev_time + timedelta(seconds=float(travel_time))
+                    # shall we avoid numpy? before was: timedelta(seconds=numpy.float64(travel_time))
+
+                    # HERE WE ARE!!!!
+
+#                     wav_dframe = get_wav_dframe(dc,
+#                                                 st_name,
+#                                                 chList,
+#                                                 arrivalTime,
+#                                                 ptimespan[0],
+#                                                 ptimespan[1],
+#                                                 wav_dframe)
+
+#                cha, wav = "", []
+#                     cha, wav = getWaveforms(dc,
+#                                             st_name,
+#                                             chList,
+#                                             arrivalTime,
+#                                             ptimespan[0],
+#                                             ptimespan[1])
 
                     # FIXME Here ev[1] must be replaced for the tau-p
                     # cha, wav = getWaveforms(dc, st[1], chList, ev[1])
 
                     # logging.info('%s, channel %s: %s', st[1], origCha, 'Data found' if len(wav) else "No data found")
-                    if len(wav):
-                        logging.info('Data found on channel %s', cha)
-                    else:
-                        logging.info("No data found")
+#                 if len(wav):
+#                     logging.info('Data found on channel %s', cha)
+#                 else:
+#                     logging.info("No data found")
+# 
+#                 # logging.debug('stations: %s', stations)
+#                 if len(wav):
+#                     complete_path = os.path.join(outpath,
+#                                                  'ev-%s-%s-%s-origtime_%s.mseed' %
+#                                                  (ev_id, st_name, cha, str(timestamp(arrivalTime)))
+#                                                  )
+#                     logging.debug('Writing wav to %s', complete_path)
+#                     fout = open(complete_path, 'wb')
+#                     fout.write(wav)
+#                     fout.close()
+#                     written_files += 1
 
-                    # logging.debug('stations: %s', stations)
-                    if len(wav):
-                        complete_path = os.path.join(outpath,
-                                                     'ev-%s-%s-%s-origtime_%s.mseed' %
-                                                     (ev[0], st[1], cha, str(timestamp(origTime)))
-                                                     )
-                        logging.debug('Writing wav to %s', complete_path)
-                        fout = open(complete_path, 'wb')
-                        fout.write(wav)
-                        fout.close()
-                        written_files += 1
-        elapsed = time.time() - start_time
-        est_rt = str(estremttime(elapsed, evtCounter, len(events)))
-    logging.info("DONE: %d waveforms (mseed files) written to '%s'", written_files, outpath)
+
+
+#     wav_dframe.reset_index(drop=True, inplace=True)  # drop: remove old index (otherwise we will have
+#     # a new index column
+#     wav_data = dbh.purge(wav_dframe, 'data', 'Id')
+
+    # WRONG: calls url_read with a series object
+    # wav_data["data"] = url_read(wav_data['QueryStr'], 'Dataselect WS')
+
+#     def readurl(row):
+#         try:
+#             row.set_value('data', buffer(url_read(row['QueryStr'], 'Dataselect WS')))
+#         except Exception as exc:
+#             g = 9
+# 
+# #     wav_data["data"] = wav_data.apply(readurl,
+# #                                       axis=1)
+
+#     def f(row):
+#         return buffer(url_read(row['QueryStr'], 'Dataselect WS'))
+#         # return "c{}n{}".format(row["condition"], row["no"])
+# 
+#     wav_data["Data"] = wav_data.apply(f, axis=1)
+
+    # wav_data["data"] = wav_data.apply(lambda row: row.set_value('data', buffer(url_read(row['QueryStr'], 'Dataselect WS'))))
+
+#     from sqlite3 import Binary
+#     for i in xrange(len(wav_data)):
+#         data = buffer(url_read(wav_data.iloc[i]['QueryStr'], 'Dataselect WS'))
+#         print str(len(data)) + " " +wav_data.iloc[i]['QueryStr']
+#         wav_data = wav_data.set_value(i, 'Data', data)
+        
+    
+#     def func(arg):
+#         arg['data'] = url_read(arg['QueryStr'], 'Dataselect WS')
+#         j = 9
+#         
+#     wav_data.apply(func, axis=1)
+#     for i in len(wav_data):
+#         querystr = wav_data.iloc[i]['QueryStr']
+#         dcResult = url_read(querystr, 'Dataselect WS')
+#         wav_data.iloc[i]['mseed'] = bytes(dcResult)
+
+#     k = 9
+#     dbh.write(wav_data, 'data', 'id')
+    written = 0
+    if wav_dframe is not None:
+        wav_dframe.reset_index(drop=True, inplace=True)  # drop: remove old index (otherwise we will have
+        # a new index column
+
+        # wav_dframe = wav_dframe[1:2]
+        wav_data = db_handler.purge(wav_dframe, 'data', 'Id')
+
+#         def f(row):
+#             return url_read(row['QueryStr'], 'Dataselect WS')
+            # return "c{}n{}".format(row["condition"], row["no"])
+
+        wav_data.loc[:, "Data"] = \
+            wav_data.apply(lambda row: url_read(row['QueryStr'], 'Dataselect WS'), axis=1)
+        db_handler.write(wav_data, 'data', 'Id')
+        written = len(wav_data)
+    logging.info("DONE: %d waveforms (mseed files) written to '%s'", written, outpath)

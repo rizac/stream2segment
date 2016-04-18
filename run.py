@@ -185,7 +185,7 @@ def main():
         sys.exit(0)
     except ValueError as verr:
         logging.error('Error while saving waveforms %s' % str(verr))
-
+       
     sys.exit(1)
 
 if __name__ == '__main__':
