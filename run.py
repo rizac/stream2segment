@@ -22,8 +22,8 @@ import yaml
 import logging
 import argparse
 import datetime as dt
-from stream2segment.query_utils import saveWaveforms
-from stream2segment.utils import to_datetime
+from stream2segment.query_utils import save_waveforms
+from stream2segment.utils import datetime
 
 
 def existing_directory(string):
@@ -46,7 +46,7 @@ def existing_directory(string):
 def valid_date(string):
     """does a check on string to see if it's a valid datetime string.
     Returns the string on success, throws an ArgumentTypeError otherwise"""
-    if to_datetime(string) is None:
+    if datetime(string, on_err_return_none=True) is None:
         raise argparse.ArgumentTypeError(str(string) + " " + str(type(str)) +
                                          " is not a valid date")
     return string
@@ -181,11 +181,11 @@ def main():
         vars_args['datacenters_dict'] = cfg_dict['datacenters']
         # remove unwanted args:
         vars_args.pop('version', None)
-        saveWaveforms(**vars_args)
+        save_waveforms(**vars_args)
         sys.exit(0)
     except ValueError as verr:
         logging.error('Error while saving waveforms %s' % str(verr))
-       
+
     sys.exit(1)
 
 if __name__ == '__main__':

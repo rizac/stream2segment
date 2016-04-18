@@ -1,26 +1,440 @@
-'''
-Created on Feb 19, 2016
+try:
+    import numpy as np
 
-@author: riccardo
-'''
-# import yaml
-import inspect
+    def isnumpy(val):
+        """
+        :return: True if val is a numpy object (regarldess of its shape and dimension)
+        """
+        return type(val).__module__ == np.__name__
+except ImportError as ierr:
+    def isnumpy(val):
+        raise ierr
+
+import shutil
+import sys
 import datetime as dt
+import re
+import errno
+from os import strerror
+import os
 import time
 import bisect
-# import dateutil.parser as dparser
 
-# # good: dateutil.parser parses strings into datetime
-# # bad: dateutil.parser checks the "Z" at the end as UTC timezone, and prints it in isoformat
-# # bad: dateutil.parser returns everything as datetime, maybe sometimes we want a date
-# def str2isodate(string):
-#     dtm = dparser.parse(string, yearfirst=True, dayfirst=False, ignoretz=True)
-#     dtm_str = dtm.isoformat()
-#     if dtm_str[-1] == 'Z':
-#         dtm_str = dtm_str[:-1]
+# Python 2 and 3: alternative 4
+# see here:
+# http://python-future.org/compatible_idioms.html
+try:
+    from urllib.parse import urlparse, urlencode
+    from urllib.request import urlopen, Request
+    from urllib.error import HTTPError
+except ImportError:
+    from urlparse import urlparse
+    from urllib import urlencode
+    from urllib2 import urlopen, Request, HTTPError
+
+if 2 <= sys.version_info[0] < 3:
+    def ispy2():
+        """:return: True if the current python version is 2"""
+        return True
+
+    def ispy3():
+        """:return: True if the current python version is 3"""
+        return False
+elif 3 <= sys.version_info[0] < 4:
+    def ispy2():
+        """:return: True if the current python version is 2"""
+        return False
+
+    def ispy3():
+        """:return: True if the current python version is 3"""
+        return True
+else:
+    def ispy2():
+        """:return: True if the current python version is 2"""
+        return False
+
+    def ispy3():
+        """:return: True if the current python version is 3"""
+        return False
 
 
-def prepare_datestr(string, ignore_z=True, allow_space=True):
+def isstr(val):
+    """
+    Returns if val is a string. Python 2-3 compatible function
+    :return: True if val denotes a string (`basestring` in python < 3 and `str` otherwise)
+    """
+    if ispy2():
+        return isinstance(val, basestring)
+    else:
+        return isinstance(val, str)
+
+
+def isunicode(val):
+    """
+    Returns if val is a unicode string. Python 2-3 compatible function (Note that in Python 3 this
+    method is equivalent to `isstr`)
+    :return: True if val denotes a unicode string (`unicode` in python < 3 and `str` otherwise)
+    """
+    if ispy2():
+        return isinstance(val, unicode)
+    else:
+        return isinstance(val, str)
+
+
+def isbytes(val):
+    """
+    Returns if val is a bytes object. Python 2-3 compatible function (Note that in Python 2 this
+    method is equivalent to `isstr`)
+    :return: True if val denotes a byte string (`bytes` in both python 2 and 3)
+    """
+    return isinstance(val, bytes)
+
+
+def tobytes(unicodestr, encoding='utf-8'):
+    """
+        Converts unicodestr to a byte string, with the given encoding. Python 2-3 compatible.
+        Remember that
+            ======= ============ ===============
+                    byte strings unicode strings
+            ======= ============ ===============
+            Python2 "abc" [*]    u"abc"
+            Python3 b"abc"       "abc" [*]
+            ======= ============ =================
+
+         [*]=default string object for the given python version
+
+        :param unicodestr: a unicode string. If already byte string, this method returns it
+            immediately
+        :param encoding: the encoding used. Defaults to 'utf-8' when missing
+        :return: a bytes class (same as str in python2) resulting from encoding unicodestr
+    """
+    if isbytes(unicodestr):
+        return unicodestr
+    return unicodestr.encode(encoding)
+
+
+def tounicode(bytestr, decoding='utf-8'):
+    """
+        Converts bytestr to unicode string, with the given decoding. Python 2-3 compatible.
+        Remember that
+            ======= ============ ===============
+                    byte strings unicode strings
+            ======= ============ ===============
+            Python2 "abc" [*]    u"abc"
+            Python3 b"abc"       "abc" [*]
+            ======= ============ =================
+
+         [*]=default string object for the given python version
+
+        :param bytestr: a bytes object (same as str in python2). If unicode string,
+            this method returns it immediately
+        :param decoding: the decoding used. Defaults to 'utf-8' when missing
+        :return: a string (unicode string in python2) resulting from decoding bytestr
+    """
+    if isstr(bytestr):
+        return bytestr
+    return bytestr.decode(decoding)
+
+
+def isre(val):
+    """Returns true if val is a compiled regular expression"""
+    return isinstance(val, re.compile(".").__class__)
+
+
+def regex(arg, retval_if_none=re.compile(".*")):
+    """Returns a regular expression built as follows:
+        - if arg is already a regular expression, returns it
+        - if arg is None, returns retval_if_none, which by default is ".*" (matches everything)
+        - Returns the regular expression escaping str(arg) EXCEPT "?" and "*" which will be
+        converted to their regexp equivalent (thus arg might be a string with wildcards, as in many
+        string processing arguments)
+        :return: A regular expression from arg
+    """
+    if isre(arg):
+        return arg
+
+    if arg is None:
+        return retval_if_none
+
+    return re.compile(re.escape(str(arg)).replace("\\?", ".").replace("\\*", ".*"))
+
+
+def oserr_(errnotype, msg=''):  # FIXME: check msg
+    """
+        Returns an OSError raised by the file argument.
+        :param errnotype: the error type, see errno package for details (e.g., errno.ENOENT)
+        :param file: the file
+    """
+    return OSError(strerror(errnotype) + " " + str(msg))
+
+
+def _ensure(filepath, mode, mkdirs=False, errmsgfunc=None):
+    """checks for filepath according to mode, raises an OSError if check is false
+    :param mode: either 'd', 'dir', 'r', 'fr', 'w', 'fw' (case insensitive). Checks if file_name is,
+        respectively:
+            - 'd' or 'dir': an existing directory
+            - 'fr', 'r': file for reading (an existing file)
+            - 'fw', 'w': file for writing (a file whose dirname exists)
+    :param mkdirs: boolean indicating, when mode is 'file_w' or 'dir', whether to attempt to
+        create the necessary path. Ignored when mode is 'r'
+    :param errmsgfunc: None by default, it indicates a custom function which returns the string
+        error to be displayed in case of OSError's. Usually there's no need to implement a custom
+        one, but in case the function accepts two arguments, filepath and mode (the latter is
+        either 'r', 'w' or 'd') and returns the relative error message as string
+    :raises: SyntaxError if some argument is invalid, or OSError if filepath is not valid according
+        to mode and mkdirs
+    """
+    # to see OsError error numbers, see here
+    # https://docs.python.org/2/library/errno.html#module-errno
+    # Here we use two:
+    # errno.EINVAL ' invalid argument'
+    # errno.errno.ENOENT 'no such file or directory'
+    if not isstr(filepath) or not filepath:
+        raise SyntaxError("{0}: '{1}' ({2})".format(strerror(errno.EINVAL),
+                                                    str(filepath),
+                                                    str(type(filepath))
+                                                    )
+                          )
+
+    keys = ('fw', 'w', 'fr', 'r', 'd', 'dir')
+
+    # normalize the mode argument:
+    if mode.lower() in keys[2:4]:
+        mode = 'r'
+    elif mode.lower() in keys[:2]:
+        mode = 'w'
+    elif mode.lower() in keys[4:]:
+        mode = 'd'
+    else:
+        raise SyntaxError('mode argument must be in ' + str(keys))
+
+    if errmsgfunc is None:  # build custom errormsgfunc if None
+        def errmsgfunc(filepath, mode):
+            if mode == 'w' or (mode == 'r' and not os.path.isdir(os.path.dirname(filepath))):
+                return "{0}: '{1}' ({2}: '{3}')".format(strerror(errno.ENOENT),
+                                                        os.path.basename(filepath),
+                                                        strerror(errno.ENOTDIR),
+                                                        os.path.dirname(filepath)
+                                                        )
+            elif mode == 'd':
+                return "{0}: '{1}'".format(strerror(errno.ENOTDIR), filepath)
+            elif mode == 'r':
+                return "{0}: '{1}'".format(strerror(errno.ENOENT), filepath)
+
+    if mode == 'w':
+        to_check = os.path.dirname(filepath)
+        func = os.path.isdir
+        mkdir_ = mkdirs
+    elif mode == 'd':
+        to_check = filepath
+        func = os.path.isdir
+        mkdir_ = mkdirs
+    else:  # mode == 'r':
+        to_check = filepath
+        func = os.path.isfile
+        mkdir_ = False
+
+    exists_ = func(to_check)
+    if not func(to_check):
+        if mkdir_:
+            os.makedirs(to_check)
+            exists_ = func(to_check)
+
+    if not exists_:
+        raise OSError(errmsgfunc(filepath, mode))
+
+
+def load_module(filepath, name=None):
+    """
+        Loads a python module indicated by filepath, returns an object where global variables
+        and classes can be accessed as attributes
+        See: http://stackoverflow.com/questions/67631/how-to-import-a-module-given-the-full-path
+        :param filepath: the path of the module
+        :param name: defaults to None (implying that the filepath basename, without extension, will
+            be taken) and it's only used to set the .__name__ of the returned module. It doesn't
+            affect loading
+    """
+    if name is None:
+        name = os.path.splitext(os.path.basename(filepath))[0]
+    # name only sets the .__name__ of the returned module. it doesn't effect loading
+
+    if ispy2():  # python 2
+        import imp
+        return imp.load_source(name, filepath)
+    elif ispy3() and sys.version_info[1] >= 5:  # Python 3.5+:
+        import importlib.util  # @UnresolvedImport
+        spec = importlib.util.spec_from_file_location(name, filepath)
+        modul = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modul)
+        return modul
+    else:  # actually, for Python 3.3 and 3.4, but we assume is the case also for 3.2 3.1 etcetera
+        from importlib.machinery import SourceFileLoader  # @UnresolvedImport
+        return SourceFileLoader(name, filepath).load_module()
+        # (Although this has been deprecated in Python 3.4.)
+
+    # raise SystemError("unsupported python version: "+ str(sys.version_info))
+
+
+def ensurefiler(filepath):
+    """Checks that filepath denotes a valid file, raises an OSError if not.
+    In many cases it's more convenient to simply call the equivalent
+        os.path.isfile(filepath)
+    except that this function raises a meaningful OSError in case of non-existing parent directory
+    (hopefully saving useless browsing time)
+    :param filepath: a file path
+    :type filepath: string
+    :return: nothing
+    :raises: OSError if filepath does not denote an existing file
+    """
+    _ensure(filepath, 'r', False)  # last arg ignored, set to False for safety
+
+
+def ensurefilew(filepath, mkdirs=True):
+    """Checks that filepath denotes a valid file for writing, i.e., if its parent directory D
+    exists. Raises an OSError if not.
+    :param filepath: a file path
+    :type filepath: string
+    :param mkdirs: True by default, if D does not exists will try to build it via mkdirs before
+        re-checking again its existence
+    :return: nothing
+    :raises: OSError if filepath directory does not denote an existing directory
+    """
+    _ensure(filepath, 'w', mkdirs)
+
+
+def ensuredir(filepath, mkdirs=True):
+    """Checks that filepath denotes a valid existing directory. Raises an OSError if not.
+    In many cases it's more convenient to simply call the equivalent
+        os.path.isdir(filepath)
+    except that this function has the optional mkdirs argument which will try to build filepath if
+    not existing
+    :param filepath: a file path
+    :type filepath: string
+    :param mkdirs: True by default, if D does not exists will try to build it via mkdirs before
+        re-checking again its existence
+    :return: nothing
+    :raises: OSError if filepath directory does not denote an existing directory
+    """
+    _ensure(filepath, 'd', mkdirs)
+
+
+def rsync(source, dest, update=True, modify_window=1):
+    """
+    Copies source to dest emulating a simple rsync unix command
+    :param source: the source file. If it does not exist, an OSError is raised
+    :param dest: the destination file. According to shutil.copy2, if dest is a directory then
+    the destination file will be os.path.join(dest, os.basename(source)
+    :param update: If True (the default), the copy will be skipped for a file which exists on
+        the destination and has a modified time that is newer than the source file.
+        (If an existing destination file has a modification time equal to the source file's,
+        it will be updated if the sizes are different.)
+    :param modify_window: (1 by default). This argument is ignored if update is False. Otherwise,
+        when comparing two timestamps, this function treats the timestamps as being equal if they
+        differ by no more than the modify-window value. This is normally 0 (for an exact match),
+        but it defaults to 1 as (quoting from rsync docs):
+        "In particular, when transferring to or from an MS Windows FAT filesystem
+         (which represents times with a 2-second resolution), --modify-window=1 is useful
+         (allowing times to differ by up to 1 second).
+        If update is a float, or any object parsable to float (e.g. "4.5"), it will be rounded to
+        integer
+    :return: the tuple (destination_file, copied), where the first item is the destination file
+    (which might not be the dest argument, if the latter is a directory) and a boolean denoting if
+    the copy has been performed. Note that it is not guaranteed that the returned file exists (the
+    user has to check for it)
+    """
+    if not os.path.isfile(source):
+        raise OSError(strerror(errno.ENOENT) + ": '" + source + "'")
+
+    if os.path.isdir(dest):
+        dest = os.path.join(dest, os.path.basename(source))
+
+    if update and os.path.isfile(dest):
+        st1, st2 = os.stat(source), os.stat(dest)
+        # st# = (mode, ino, dev, nlink, uid, gid, size, atime, mtime, ctime)
+        mtime_src, mtime_dest = st1[8], st2[8]
+        # ignore if
+        # 1) dest is newer than source OR
+        # 2) times are equal (i.e. within the specified interval) AND sizes are equal (sizes are
+        # the stats elements at index 6)
+        if mtime_dest > mtime_src + update or \
+                (mtime_src - update <= mtime_dest <= mtime_src + update and st1[6] == st2[6]):
+            return dest, False
+
+    shutil.copy2(source, dest)
+    return dest, True
+
+
+def url_read(url, blockSize=1024*1024, decoding=None):
+    """
+        Reads and return data from the given url. Note that in case of IOException, the  data
+        read until the exception is returned
+        :param url: a valid url
+        :type url: string
+        :param blockSize: the block size while reading, defaults to 1024 ** 2
+            (at most in chunks of 1 MB)
+        :type blockSize: integer
+        :param: decoding: the string used for decoding to string (e.g., 'utf8'). If None
+        (the default), the result is returned as it is (byte string, note that in Python2 this is
+        equivalent to string), otherwise as unicode string
+        :type: decoding: string, or None
+        :return the data read, or empty string if None
+        :rtype bytes of data (equivalent to string in python2), or unicode string
+        :raise: IOError, ValueError or TypeError in case of errors
+    """
+    dcResult = b''
+
+    try:
+        urlopen_ = urlopen(Request(url))
+    except (IOError, OSError) as e:
+        # note: urllib2 raises urllib2.URLError (subclass of IOError),
+        # in python3 raises urllib.errorURLError (subclass of OSError)
+        # in both cases there might be a reason or code attributes, which we
+        # want to print
+        str_ = ''
+        if hasattr(e, 'reason'):
+            str_ = '%s (Reason: %s)' % (e.__class__.__name__, e.reason)  # pylint:disable=E1103
+        elif hasattr(e, 'code'):
+            str_ = '%s (The server couldn\'t fulfill the request. Error code: %s)' % \
+                    (e.__class__.__name__, e.code)  # pylint:disable=E1103
+        else:
+            str_ = '%s (%s)' % (e.__class__.__name__, str(e))
+
+        raise IOError(str_)
+
+    except (TypeError, ValueError) as e:
+        # see https://docs.python.org/2/howto/urllib2.html#handling-exceptions
+        raise
+
+    # Read the data in blocks of predefined size
+    # Note the read() method, if the size argument is omitted or negative, may not read until the
+    # end of the data stream; there is no good way to determine that the entire stream from a socket
+    # has been read in the general case.
+    # See https://docs.python.org/2/library/urllib.html
+    exc = None
+    while True:
+        try:
+            buf = urlopen_.read(blockSize)
+        except IOError as ioexc:  # urlopen behaves as a file-like obj.
+            # Thus we catch the file-like exception IOError,
+            # see https://docs.python.org/2.4/lib/bltin-file-objects.html
+            exc = ioexc
+            buf = ''  # for safety (break the loop here below)
+
+        if not buf:
+            break
+        dcResult += buf
+
+    # Close the connection to avoid overloading the server
+    urlopen_.close()
+
+    if exc is not None:
+        raise exc
+
+    # logging.debug('%s bytes read from %s', dcBytes, url)
+    return tounicode(dcResult, decoding) if decoding is not None else dcResult
+
+
+def prepare_datestr(string, ignore_z=True, allow_spaces=True):
     """
         "Prepares" string trying to make it datetime iso standard. This method basically gives the
         opportunity to remove the 'Z' at the end (denoting the zulu timezone) and replaces spaces
@@ -36,7 +450,7 @@ def prepare_datestr(string, ignore_z=True, allow_space=True):
         if ignore_z and string[-1] == 'Z':
             string = string[:-1]
 
-        if allow_space:
+        if allow_spaces:
             string = string.replace(' ', 'T')
     except (TypeError, IndexError, AttributeError):
         pass
@@ -44,48 +458,54 @@ def prepare_datestr(string, ignore_z=True, allow_space=True):
     return string
 
 
-def to_datetime(string, ignore_z=True, allow_space=True):
+def datetime(string, ignore_z=True, allow_spaces=True,
+             formats=['%Y-%m-%dT%H:%M:%S', '%Y-%m-%d', '%Y-%m-%dT%H:%M:%S.%f'],
+             on_err_return_none=False):
     """
         Converts a date in string format (as returned by a fdnsws query) into
         a datetime python object. The inverse can be obtained by calling
         dt.isoformat() (which returns 'T' as date time separator, and optionally microseconds
         if they are not zero)
-        Example:
+        :param: string: if a datetime object, returns it. If date object, converts to datetime
+        and returns it. Otherwise must be a string representing a datetime
+        :type: string: a string, a date or a datetime object
+        :param ignore_z: if True (the default), removes any 'Z' at the end of string, as 'Z' denotes
+            the "zulu" timezone
+        :type: ignore_z: boolean
+        :param allow_spaces: if True (the default) all spaces of string will be replaced with 'T'.
+        :type: allow_spaces: boolean
+        :param: on_err_return_none: if True, does what it says (None is returned). Otherwise raises
+        either a ValueError or a TypeError
+        :type: on_err_return_none: boolean
+        :return: a datetime object
+        :Example:
         to_datetime("2016-06-01T09:04:00.5600Z")
         to_datetime("2016-06-01T09:04:00.5600")
         to_datetime("2016-06-01 09:04:00.5600Z")
         to_datetime("2016-06-01 09:04:00.5600Z")
         to_datetime("2016-06-01")
     """
-    dtm = None
-    string = prepare_datestr(string, ignore_z, allow_space)
+    if isinstance(string, dt.datetime):
+        return string
+    elif isinstance(string, dt.date):
+        return dt.datetime(year=string.year, month=string.month, day=string.day)
 
-    array = ['%Y-%m-%dT%H:%M:%S', '%Y-%m-%d', '%Y-%m-%dT%H:%M:%S.%f']
+    string = prepare_datestr(string, ignore_z, allow_spaces)
 
-    for dtformat in array:
+    for dtformat in formats:
         try:
-            dtm = dt.datetime.strptime(string, dtformat)
-            break
+            return dt.datetime.strptime(string, dtformat)
         except ValueError:  # as exce:
             pass
         except TypeError:  # as terr:
-            return None
+            if on_err_return_none:
+                return None
+            raise
 
-    return dtm
+    if on_err_return_none:
+        return None
+    raise ValueError("time data '%s' does not match any of the given formats" % string)
 
-
-# def getfargs():
-#     """
-#         Returns a dict of arguments and values of the function calling this function
-#     """
-#     thisframe = inspect.currentframe()
-#     frame = inspect.getouterframes(thisframe)[1][0]
-#     args, _, _, values = inspect.getargvalues(frame)
-# #     print 'function name "%s"' % inspect.getframeinfo(frame)[2]
-# #     for i in args:
-# #         print "    %s = %s" % (i, values[i])
-# #    return [(i, values[i]) for i in args]
-#     return {i: values[i] for i in args}
 
 class EstRemTimer():
     """
@@ -97,14 +517,19 @@ class EstRemTimer():
                 etr.get()   # returns the estimated remaining time (first time returns None)
                             # and increments the internal counter. Call get(False) not to
                             # increment the counter (returns the last ert)
-                etr.done    # returns the numbers of iterations done (first time 0)
+                etr.done    # returns the numbers of iterations done (if get() has not been called
+                            # at least TWICE, returns 0)
                 etr.total   # returns N
+                etr.progress(None)  # returns a float representing the percent done
+                                    # (see note of etr.done)
+                etr.progress()      # returns the formatted string of the percent done, e.g.
+                                    # "  1%", " 15%", "100%"
                 ... code here ...
     """
     def __init__(self, total_iterations, approx_to_seconds=True, use="median"):
         """
             Initializes an EstRemTimer for calculating the estimated remaining time (ert)
-            :param: total_iterations the total iterations this object is assumed to use for 
+            :param: total_iterations the total iterations this object is assumed to use for
             calculate the ert
             :type: total_iterations integer
             :param: approx_to_seconds: when True (the default) approximate the ert
@@ -123,6 +548,23 @@ class EstRemTimer():
         self.approx_to_seconds = approx_to_seconds
         self._times = [] if use.lower() == "median" else None
 
+    def percent(self, formatstr="{:>3.0f}%"):
+        """
+            Returns the percent done according to the internal counter (which is incremented by
+            calling self.get(). I.e., calling this method several times returns always the same
+            value until get() is called again).
+            :param: format: if None, returns the float representing the percent done (in [0,1]).
+            If string, returns a formatted string of the percent done (float within [0,1]). By
+            default is "{:>3.0f}%", which means the percent done is rounded to the int in [0, 100]
+            and displayed as, e.g., "  2%", " 58%", "100%" etcetera.
+            :return: the percent done
+            :rtype: string or float in [0,1] according to the argument (default: string)
+        """
+        num = float(self.done) / self.total
+        if formatstr is None:
+            return num
+        return formatstr.format(100 * num)
+
     def get(self, increment=True, approx_to_seconds=None):
         """
             Gets the estimated remaing time etr. If increment is True, the returned object is None
@@ -137,31 +579,32 @@ class EstRemTimer():
             :return: the estimated remaining time, or None
             :rtype: timedelta object, or None
         """
-        if self._start_time is None:
-            self._start_time = time.time()  # start now timing
-            # first iteration, leave done to zero so that user can query the 'done' attribute
-            # and it correctly displays the done iteration
-        elif increment:
-            self.done += 1
-            if approx_to_seconds is None:
-                approx_to_seconds = self.approx_to_seconds
-            if self.done >= self.total:
-                ret = dt.timedelta()
+        if increment:
+            if self._start_time is None:
+                self._start_time = time.time()  # start now timing
+                # first iteration, leave done to zero so that user can query the 'done' attribute
+                # and it correctly displays the done iteration
             else:
-                elapsed_time = time.time() - self._start_time
-                if self._times is not None:  # use median
-                    # Find rightmost value less than or equal to ret:
-                    i = bisect.bisect_right(self._times, elapsed_time)
-                    self._times.insert(i, elapsed_time)
-                    idx = len(self._times) / 2
-                    ret = self._times[idx] if len(self._times) % 2 == 1 else \
-                        (self._times[idx] + self._times[idx-1]) / 2
-                    ret *= (self.total - self.done)
-                    ret = dt.timedelta(seconds=int(ret + 0.5) if approx_to_seconds else ret)
-                    self._start_time = time.time()  # re-start timer (for next iteration)
+                self.done += 1
+                if approx_to_seconds is None:
+                    approx_to_seconds = self.approx_to_seconds
+                if self.done >= self.total:
+                    ret = dt.timedelta()
                 else:
-                    ret = estremttime(elapsed_time, self.done, self.total, approx_to_seconds)
-            self.ert = ret
+                    elapsed_time = time.time() - self._start_time
+                    if self._times is not None:  # use median
+                        # Find rightmost value less than or equal to ret:
+                        i = bisect.bisect_right(self._times, elapsed_time)
+                        self._times.insert(i, elapsed_time)
+                        idx = len(self._times) / 2
+                        ret = self._times[idx] if len(self._times) % 2 == 1 else \
+                            (self._times[idx] + self._times[idx-1]) / 2
+                        ret *= (self.total - self.done)
+                        ret = dt.timedelta(seconds=int(ret + 0.5) if approx_to_seconds else ret)
+                        self._start_time = time.time()  # re-start timer (for next iteration)
+                    else:
+                        ret = estremttime(elapsed_time, self.done, self.total, approx_to_seconds)
+                self.ert = ret
         return self.ert
 
 
@@ -204,105 +647,3 @@ def estremttime(elapsed_time, iteration_number, total_iterations, approx_to_seco
     dttd = dt.timedelta(seconds=int(remaining_seconds+0.5)
                         if approx_to_seconds else remaining_seconds)
     return dttd
-
-
-# # Original function
-# def to_datetime(date_str):
-#     """
-#         Converts a date in string format (as returned by a fdnsws query) into
-#         a datetime python object
-#         Example:
-#         to_datetime("2016-06-01T09:04:00.5600Z")
-#         to_datetime("2016-06-01T09:04:00.5600")
-#         to_datetime("2016-06-01 09:04:00.5600Z")
-#         to_datetime("2016-06-01 09:04:00.5600Z")
-#         to_datetime("2016-06-01")
-#     """
-#     # Note: dateutil.parser.parse(string, yearfirst=True, dayfirst=False, ignoretz=True)
-#     # does ALMOST the same except that:
-#     # ignoretz ignores all timezones, we want to ignore only Z
-#     # '00-09-03 20:56:35.450686Z' is converted to datetime.datetime(2000, 9, 3, 20, 56, 35, 450686)
-#     # whereas:
-#     # datetime.datetime(0, 9, 3, 20, 56, 35, 450686) raises a ValueError which we want to have
-#     # Thus, this function
-#     try:
-#         date_str = date_str.replace('-', ' ').replace('T', ' ')\
-#             .replace(':', ' ').replace('.', ' ').replace('Z', '').split()
-#         return dt.datetime(*(int(value) for value in date_str))
-#     except (AttributeError, IndexError, ValueError, TypeError):
-#         return None
-# 
-# # Original function stricter. Tries to be like a python parser BUT as fast as to_datetime above
-# def to_datetime2(date_str, ignore_z=True, allow_space=True):
-#     """
-#         Converts a date in string format (as returned by a fdnsws query) into
-#         a datetime python object
-#         Example:
-#         to_datetime("2016-06-01T09:04:00.5600Z")
-#         to_datetime("2016-06-01T09:04:00.5600")
-#         to_datetime("2016-06-01 09:04:00.5600Z")
-#         to_datetime("2016-06-01 09:04:00.5600Z")
-#         to_datetime("2016-06-01")
-#     """
-#     # Note: dateutil.parser.parse(string, yearfirst=True, dayfirst=False, ignoretz=True)
-#     # does ALMOST the same except that:
-#     # ignoretz ignores all timezones, we want to ignore only Z
-#     # '00-09-03 20:56:35.450686Z' is converted to datetime.datetime(2000, 9, 3, 20, 56, 35, 450686)
-#     # whereas:
-#     # datetime.datetime(0, 9, 3, 20, 56, 35, 450686) raises a ValueError which we want to have
-#     # Thus, this function
-#     if ignore_z and date_str[-1] == 'Z':
-#         date_str = date_str[:-1]
-# 
-#     if allow_space:
-#         date_str = date_str.replace(' ', 'T')
-#     dsplit = date_str.split('T')
-# 
-#     try:
-#         assert len(dsplit) in (1, 2)
-#         split1 = dsplit[0].split("-")
-#         if len(dsplit) == 2:
-#             split2 = dsplit[1].split(":")
-#             split1.extend(split2[:-1])
-#             split1.extend(split2[-1].split('.'))
-#         return dt.datetime(*(int(value) for value in split1))
-#     except (AssertionError, AttributeError, IndexError, ValueError, TypeError):
-#         return None
-
-
-# import time
-# 
-# if __name__ == "__main__":
-#     import os
-#     print os.path.abspath("seed")
-#     
-#     date_ = "2006-01-05" # "2006-01-05 12:34:56Z"
-#     N = 10000
-#     clock_ = time.clock()
-#     for i in xrange(N):
-#         str2isodate(date_)
-# 
-#     c1 = str(time.clock() - clock_)
-#     print "str2isodate " + str(c1)
-# 
-#     clock_ = time.clock()
-#     for i in xrange(N):
-#         str2isodate_(date_)
-# 
-#     c1 = str(time.clock() - clock_)
-#     print "str2isodate_ " + str(c1)
-    
-#     clock_ = time.clock()
-#     for i in xrange(N):
-#         to_datetime(date_)
-# 
-#     c1 = str(time.clock() - clock_)
-#     print "to_datetime: " + str(c1)
-    
-#     clock_ = time.clock()
-#     for i in xrange(N):
-#         to_datetime2(date_)
-# 
-#     c1 = str(time.clock() - clock_)
-#     print "to_datetime2: " + str(c1)
-#  

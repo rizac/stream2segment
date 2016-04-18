@@ -1,30 +1,33 @@
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine
-import pandas as pd
-import numpy as np
 import pandas.io.sql as pdsql
 from sqlalchemy.exc import OperationalError
-# import sqlalchemy.types as sql_types
-from sqlalchemy import BLOB
-from pandas.io.sql import SQLTable
+# from sqlalchemy import BLOB
+# from pandas.io.sql import SQLTable
 
 fileout = "sqlite:///./mydb.db"
 
 
 class DbHandler(object):
-    def __init__(self, db_uri=fileout, init_db=False):
+    def __init__(self, db_uri=fileout):
+        """
+            :param: db_uri: the database uri, e.g. "sqlite:///" + filename
+        """
         self.db_uri = db_uri
-        if init_db:
-            self.init_db()
 
     def init_db(self):
-
+        """
+            Initializes the database connection retrieving automatically the tables stored there
+            (those with primary keys) and storing in a class attribute tables (dict of table
+            names mapped to relative sqlalchemy table)
+        """
+        # Code copied from here:
+        # http://docs.sqlalchemy.org/en/latest/orm/extensions/automap.html#basic-use
         Base = automap_base()
 
-        # engine, suppose it has two tables 'user' and 'address' set up
+        # engine, initialize once
         if not hasattr(self, 'engine'):
-            # engine, suppose it has two tables 'user' and 'address' set up
             self. engine = create_engine(self.db_uri)
 
         # reflect the tables
@@ -33,30 +36,25 @@ class DbHandler(object):
 
         # mapped classes are now created with names by default
         # matching that of the table name.
-        # User = Base.classes.user
-        # Address = Base.classes.address
-
-        # self.session = Session(self.engine)
-
-        # rudimentary relationships are produced
-        # session.add(Address(email_address="foo@bar.com", user=User(name="foo")))
-        # session.commit()
-
-        # collection-based relationships are by default named
-        # "<classname>_collection"
-        # print (u1.address_collection)
+        # User = Base.classes.events
+        # Address = Base.classes.data
+        # store them in an attribute (dict of table_name [string]: sqlalchemy table)
+        # It might be empty if database does not exist
         self.tables = Base.classes._data
 
-    def write(self, dframe, table_name, pkey_name, index=False, if_exists='append'):
-        if not dframe.empty:
-            self.init_db()
-            self.init_table(dframe, table_name, pkey_name)
-            dframe.to_sql(table_name, self.engine, index=index, if_exists=if_exists, 
-                          # index_label = pkey
-                          dtype={'Data': BLOB})
-    # , index=True, index_label=None, chunksize=None, dtype=None)
-
     def purge(self, dframe, table_name, pkey_name):
+        """
+            Purges the given DataFrame of data already written on the database.
+            :param: dframe: the DataFrame
+            :type: dframe: pandas DataFrame
+            :param: table_name: the name of the table mapped to the given DataFrame
+            :type: table_name: string
+            :pkey_name: the private key whereby to check if data is already on the database
+            :type: pkey_name: string. Must be a column of the given DataFrame. FIXME: not
+            implemented the case where the index is the primary key
+            :return: a new DataFrame with the data not stored to the datbase according to pkey_name
+            :rtype: pandas DataFrame
+        """
         self.init_db()
         tables = self.tables
         if table_name in tables:
@@ -68,109 +66,84 @@ class DbHandler(object):
 
         return dframe
 
-    def init_table(self, dframe, table_name, pkey_name):
+    def write(self, dframe, table_name, pkey_name, index=False, if_exists='append', dtype=None):
+        """
+            Writes the given pandas data frame to the table with given table_name. If such a table
+            does not exist, and the argument if_exist='append' (the default), then
+            the table will be first created
+            :param dframe: the pandas DataFrame whose table must be created
+            :param: dframe: pandas DataFrame
+            :param: table_name: the name of the table mapped to dframe. Its existence will be
+            checked and if not found, a table with the given name reflecting the data frame types
+            will be created
+            :type: table_name: string
+            :param: pkey_name: a name of one of the DataFrame columns to be used as table primary
+            key. FIXME: what if we want to specify the index? write "index" here? to be checked
+            :type: pkey_name: string
+            :param: if_exists: {'fail', 'replace', 'append'}, default 'append'
+                - fail: If table exists, do nothing.
+                - replace: If table exists, drop it, recreate it, and insert data.
+                - append: If table exists, insert data. Create if does not exist.
+            If append, then the table will be created if it does not exist
+            :type: if_exists: string
+            :param: index : boolean, default False. Write DataFrame index as a column.
+            :type: index: boolean
+            :param: dtype: dict of column name to SQL type, default None. Optional specifying the
+            datatype for columns. The SQL type should be a SQLAlchemy type, or a string for sqlite3
+            fallback connection. Example: dtype={'data': sqlalchemy.BLOB}
+            :type: dtype: dict or None
+            :return: the sqlalchemy table or a KeyError is raised if such a table could not be
+            created
+        """
+        if not dframe.empty:
+            if if_exists == 'append':
+                self._init_table(dframe, table_name, pkey_name, dtype)
+            else:
+                self.init_db()  # in case it was not called (_init_table above does it)
+            dframe.to_sql(table_name, self.engine, index=index, if_exists=if_exists,
+                          index_label=pkey_name, dtype=dtype)
+
+    def _init_table(self, dframe, table_name, pkey_name, dtype=None):
+        """
+            Re-updates the internal tables attribute by creating the given table if a table with a
+            given table_name does not exist on the database
+            :param dframe: the pandas DataFrame whose table must be created. Basically, column
+            information and types are transferred to their Sql equivalent
+            :param: dframe: pandas DataFrame
+            :param: table_name: the name of the table mapped to dframe. Its existence will be
+            checked and if not found, a table with the given name reflecting the data frame types
+            will be created
+            :type: table_name: string
+            :param: pkey_name: a name of one of the DataFrame columns to be used as table primary
+            key. FIXME: what if we want to specify the index? write "index" here? to be checked
+            :type: pkey_name: string
+            :param: dtype: dict of column name to SQL type, default None. Optional specifying the
+            datatype for columns. The SQL type should be a SQLAlchemy type, or a string for sqlite3
+            fallback connection. Example: dtype={'data': sqlalchemy.BLOB}
+            :type: dtype: dict or None
+            :return: the sqlalchemy table or a KeyError is raised if such a table could not be
+            created
+        """
         self.init_db()
         engine, tables = self.engine, self.tables
         if table_name not in tables:
             # problem: pandas does not have a direct way to assign a primary key
             # so the hack (waiting for this feature to be implemented, surely) is taken from:
             # http://stackoverflow.com/questions/30867390/python-pandas-to-sql-how-to-create-a-table-with-a-primary-key
-            schema = pdsql.get_schema(dframe,
-                                      table_name,
-                                      con=engine,
+            schema = pdsql.get_schema(frame=dframe,
+                                      name=table_name,
+                                      con=self.engine,  # Using SQLAlchemy makes it possible to use
+                                      # any DB supported by that library
                                       keys=[pkey_name],
-                                      dtype={'Data': BLOB})
-            # uncomment this line, we shouldn't have a table UNLESS we wrote it
-            # without the workaround above
+                                      dtype=dtype)
+            # the following is for safety, we shouldn't have a table UNLESS we wrote it
+            # without the workaround above:
             try:
                 engine.execute('DROP TABLE ' + table_name + ';')
-            except OperationalError as _:
+            except OperationalError as _:  # table does not exist? whatever error? pass
                 pass
+            # execute the schema (CREATE TABLE etcetera)
             engine.execute(schema)
             self.init_db()  # updates the tables
 
         return self.tables[table_name]
-
-    def purge_old(self, dframe, table_name, pkey_name):
-        self.init_db()
-        session, engine, tables = self.session, self.engine, self.tables
-        if table_name not in tables:
-            # problem: pandas does not have a direct way to assign a primary key
-            # so the hack (waiting for this feature to be implemented, surely) is taken from:
-            # http://stackoverflow.com/questions/30867390/python-pandas-to-sql-how-to-create-a-table-with-a-primary-key
-            schema = pdsql.get_schema(dframe,
-                                      table_name,
-                                      con=engine,
-                                      keys=[pkey_name],
-                                      dtype={'Data': BLOB})
-            # uncomment this line, we shouldn't have a table UNLESS we wrote it
-            # without the workaround above
-            try:
-                engine.execute('DROP TABLE ' + table_name + ';')
-            except OperationalError as oerr:
-                pass
-            engine.execute(schema)
-        else:
-            column = getattr(tables[table_name], pkey_name)
-            ids = session.query(column).filter(column.in_(dframe[pkey_name].values)).all()
-            dframe = dframe[~dframe[pkey_name].isin([i[0] for i in ids])]
-
-        return dframe
-
-#     def write_dframe(engine, dframe, table_name):
-#         if not dframe.empty:
-#             dframe.to_sql(table_name, engine, index=False, if_exists='append')
-# 
-# 
-# 
-# def get_connection():
-#     engine = create_engine('sqlite:///'+fileout)
-#     connection = engine.connect()
-#     return connection
-# 
-# 
-# def db_check(database_uri, table_name=None):
-#     db = create_engine(database_uri)
-#     try:
-#         db.connect()
-#         db.execute("SELECT 1;")
-#         return True
-#     except OperationalError:
-#         # Switch database component of the uri
-#         return False
-#
-# def write_events(dframe, **kwargs):
-#     write_data(dframe, "events", '#EventID', **kwargs)
-# 
-# 
-# def write_wavs(dframe, **kwargs):
-#     write_data(dframe, "data", 'id', **kwargs)
-# 
-# 
-# def purge_data(dframe, table_name, pkey_name):
-#     session, engine, classes = get_session()
-#     if table_name not in classes:
-#         # problem: pandas does not have a direct way to assign a primary key
-#         # so the hack (waiting for this feature to be implemented, surely) is taken from:
-#         # http://stackoverflow.com/questions/30867390/python-pandas-to-sql-how-to-create-a-table-with-a-primary-key
-#         schema = pdsql.get_schema(dframe,
-#                                   table_name,
-#                                   con=engine,
-#                                   keys=[pkey_name])
-#         # uncomment this line, we shouldn't have a table UNLESS we wrote it
-#         # without the workaround above
-#         engine.execute('DROP TABLE ' + table_name + ';')
-#         engine.execute(schema)
-#     else:
-#         column = getattr(classes[table_name], pkey_name)
-#         ids = session.query(column).filter(column.in_(dframe[pkey_name].values)).all()
-#         dframe = dframe[~dframe[pkey_name].isin([i[0] for i in ids])]
-# 
-#     if not dframe.empty:
-#         dframe.to_sql(table_name, engine, index=False, if_exists='append')
-
-#     if connection is None:
-#         connection = get_connection()
-#     result = connection.execute("select * from events")
-#     for row in result:
-#         j = 9
