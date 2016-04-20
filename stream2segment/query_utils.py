@@ -210,6 +210,8 @@ def getWaveforms(dc, st, listCha, origTime, minBeforeP, minAfterP):
     """
     dsQuery = '%s/dataselect/1/query?station=%s&channel=%s&start=%s&end=%s'
 
+    chas = []
+    wavs = []
     try:
         start, endt = getTimeRange(origTime, minutes=(minBeforeP, minAfterP))
     except TypeError:
@@ -221,9 +223,10 @@ def getWaveforms(dc, st, listCha, origTime, minBeforeP, minAfterP):
         dcResult = url_read(aux, 'Dataselect WS')
 
         if dcResult:
-            return cha.replace('*', 'X').replace('?', 'X'), dcResult
+            chas.append(cha.replace('*', 'X').replace('?', 'X'))
+            wavs.append(dcResult)
 
-    return '', ''
+    return chas, wavs
 
 
 def getTimeRange(origTime, days=0, hours=0, minutes=0, seconds=0):
@@ -458,24 +461,24 @@ def saveWaveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius
                         continue
                     origTime = ev[1] + timedelta(seconds=float(arrtime))
                     # shall we avoid numpy? before was: timedelta(seconds=numpy.float64(arrtime))
-                    cha, wav = getWaveforms(dc,
-                                            st[1],
-                                            chList,
-                                            origTime,
-                                            ptimespan[0],
-                                            ptimespan[1])
+                    chas, wavs = getWaveforms(dc,
+                                              st[1],
+                                              chList,
+                                              origTime,
+                                              ptimespan[0],
+                                              ptimespan[1])
 
                     # FIXME Here ev[1] must be replaced for the tau-p
                     # cha, wav = getWaveforms(dc, st[1], chList, ev[1])
 
                     # logging.info('%s, channel %s: %s', st[1], origCha, 'Data found' if len(wav) else "No data found")
-                    if len(wav):
-                        logging.info('Data found on channel %s', cha)
+                    if len(wavs):
+                        logging.info('Data found on channels %s', str(chas))
                     else:
                         logging.info("No data found")
 
                     # logging.debug('stations: %s', stations)
-                    if len(wav):
+                    for cha, wav in zip(chas, wavs):
                         complete_path = os.path.join(outpath,
                                                      'ev-%s-%s-%s-origtime_%s.mseed' %
                                                      (ev[0], st[1], cha, str(timestamp(origTime)))

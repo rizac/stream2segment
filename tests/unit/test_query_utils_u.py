@@ -257,13 +257,13 @@ def test_get_waveforms(mock_url_read):
         d2 = d1 + timedelta(seconds=1)
         mock_get_tr.return_value = d1, d2
         a, b = getWaveforms('a', 'b', 'c', 'd', '3', '5')
-        assert a == 'c' and b == mock_url_read.return_value
+        assert a == ['c'] and b == [mock_url_read.return_value]
         assert mock_url_read.called
         mock_get_tr.assert_called_with('d', minutes=('3','5'))
 
         mock_url_read.reset_mock()
         a, b = getWaveforms('a', 'b', 'c*', 'd', '3', '5')
-        assert a == 'c' and b == mock_url_read.return_value
+        assert a == ['c', 'X'] and b == [mock_url_read.return_value, mock_url_read.return_value]
         assert mock_url_read.called
         mock_get_tr.assert_called_with('d', minutes=('3','5'))
 
@@ -658,11 +658,12 @@ def test_save_waveforms_get_arrival_time_no_wav(mock_os_path_join, mock_gsr, moc
 @patch('stream2segment.query_utils.getArrivalTime', return_value=5)
 @patch('stream2segment.query_utils.getEvents', return_value=[[str(i) for i in xrange(13)]])
 @patch('stream2segment.query_utils.getStations', return_value=[[str(i) for i in xrange(4)]])
-@patch('stream2segment.query_utils.getWaveforms', return_value=('', 'wav'))
+@patch('stream2segment.query_utils.getWaveforms', return_value=([''], ['wav']))
 @patch('stream2segment.query_utils.os.path.exists', return_value=True)
 @patch('stream2segment.query_utils.getSearchRadius', return_value='gsr')
 @patch('stream2segment.query_utils.os.path.join', return_value='joined')
-def test_save_waveforms_get_arrival_time(mock_os_path_join, mock_gsr, mock_os_path_exists, mock_gw, mock_gs,
+@patch('stream2segment.query_utils.timestamp', return_value='timestamp')
+def test_save_waveforms_get_arrival_time(mock_timestamp, mock_os_path_join, mock_gsr, mock_os_path_exists, mock_gw, mock_gs,
                                          mock_ge, mock_gat, mock_ltd, mock_open):
     d = datetime.now()
     evz = mock_ge.return_value
@@ -693,5 +694,8 @@ def test_save_waveforms_get_arrival_time(mock_os_path_join, mock_gsr, mock_os_pa
     origTime = ev[1] + timedelta(seconds=float(mock_gat.return_value))
     mock_gw.assert_called_with(dcs.values()[0], st[1], channels.values()[0], origTime, 'minBeforeP',
                                'minAfterP')
-    mock_os_path_join.assert_called_with('outpath', 'ev-%s-%s-%s.mseed' % (ev[0], st[1], mock_gw.return_value[0]))
+    mock_os_path_join.assert_called_with('outpath', 
+                                         'ev-%s-%s-%s-origtime_%s.mseed' %
+                                                     (ev[0], st[1], mock_gw.return_value[0][0], mock_timestamp.return_value))
+    
     mock_open.assert_called_with(mock_os_path_join.return_value, 'wb')
