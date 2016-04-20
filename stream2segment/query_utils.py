@@ -25,7 +25,7 @@ from stream2segment import io as s2sio
 import numpy as np
 import pandas as pd
 from sqlalchemy import BLOB
-
+from pandas.core import indexing
 # third party imports:
 # from obspy.taup.taup import getTravelTimes
 from obspy.taup import TauPyModel
@@ -33,7 +33,7 @@ from obspy.geodetics import locations2degrees
 from obspy.taup.helper_classes import TauModelError
 
 
-def get_travel_time(source_depth_in_km, distance_in_degree, model='ak135'):  # FIXME: better!
+def get_min_travel_time(source_depth_in_km, distance_in_degree, model='ak135'):  # FIXME: better!
     """
         Assess and return the travel time of P phases.
         Uses obspy.getTravelTimes
@@ -45,163 +45,18 @@ def get_travel_time(source_depth_in_km, distance_in_degree, model='ak135'):  # F
          Defaults to 'ak135'.
         :type model: str, optional
         :return the number of seconds of the assessed arrival time, or None in case of error
+        :raises: ValueError (wrapping TauModel error in case)
     """
     taupmodel = TauPyModel(model)
     try:
         tt = taupmodel.get_travel_times(source_depth_in_km, distance_in_degree)
         # return min((ele['time'] for ele in tt if (ele.get('phase_name') or ' ')[0] == 'P'))
         return min((ele.time for ele in tt))
-    except (TauModelError, ValueError):
-        logging.error("Unable to find arrival time. Phase names (dist=%s, depth=%s, model=%s):\n%s",
-                      str(distance_in_degree), str(source_depth_in_km), str(model),
-                      ','.join(ele.get('phase_name') for ele in tt))
-        return None
-    # ttsel=[ele for ele in tt if ele.get('phase_name') in ['Pg','Pn','Pb']]
-    # ttime=[ele['time'] for ele in ttsel]
-    # arrtime=min(ttime)
-    # return arrtime
-
-
-def get_search_radius(mag, mmin=3, mmax=7, dmin=1, dmax=5):  # FIXME: better!
-    """From a given magnitude, determines and returns the max radius (in degrees).
-        Given dmin and dmax and mmin and mmax (FIXME: TO BE CALIBRATED!),
-        this function returns D from the f below:
-
-             |
-        dmax +                oooooooooooo
-             |              o
-             |            o
-             |          o
-        dmin + oooooooo
-             |
-             ---------+-------+------------
-                    mmin     mmax
-
-    """
-    if mag < mmin:
-        radius = dmin
-    elif mag > mmax:
-        radius = dmax
-    else:
-        radius = dmin + (dmax - dmin) / (mmax - mmin) * (mag - mmin)
-    return radius
-
-
-def get_events(**kwargs):
-    """
-        Return the events resulting from a query in a list
-        :param kwargs: a variable length list of arguments, including:
-            eventws (string): the event web service
-            minmag (float): the minimum magnitude
-            start (string): the event start, in string format (e.g., datetime.isoformat())
-            end (string): the event end, in string format (e.g., datetime.isoformat())
-            minlon (float): the event min longitude
-            maxlon (float): the event max longitude
-            minlat (float): the event min latitude
-            maxlat (float): the event max latitude
-    """
-    eventQuery = ('%(eventws)squery?minmagnitude=%(minmag)1.1f&start=%(start)s'
-                  '&minlon=%(minlon)s&maxlon=%(maxlon)s&end=%(end)s'
-                  '&minlat=%(minlat)s&maxlat=%(maxlat)s&format=text') % kwargs
-
-    result = url_read(eventQuery, decoding='utf8')
-
-    return evt_to_dframe(result)
-
-
-def evt_to_dframe(event_query_result):
-    if not event_query_result:
-        return pd.DataFrame()
-
-    events = event_query_result.splitlines()
-    dframe = pd.DataFrame(index=np.arange(0, len(events)-1),
-                          columns=(e.strip() for e in events[0].split("|")))
-    for i, ev in enumerate(events[1:]):
-        evt_list = ev.split('|')
-        evt_list[1] = dtime(evt_list[1], on_err_return_none=True)
-        if evt_list[1] is None:
-            logging.error("Couldn't convert origTime parameter (%s).", evt_list[1])
-            continue
-
-        try:
-            evt_list[2] = float(evt_list[2])
-            evt_list[3] = float(evt_list[3])
-            evt_list[4] = float(evt_list[4])
-            evt_list[10] = float(evt_list[10])
-            # http://stackoverflow.com/questions/10715965/add-one-row-in-a-pandas-dataframe:
-            # loc or iloc both work here since the index is natural numbers
-            dframe.loc[i] = evt_list
-        except (ValueError, IndexError) as err_:
-            logging.error(str(err_))
-
-    return dframe
-
-
-def get_stations(dc, listCha, origTime, lat, lon, dist):
-    """
-        Returns the list of stations from a specified arguments:
-        :param dc: the datacenter
-        :type dc: string
-        :param listCha: the list of channels, e.g. ['HL?', 'SL?', 'BL?'].
-        :type listCha: iterable (e.g., list)
-        :param origTime: the origin time. The request will be built with a time start and end of +-1
-            day from origTime
-        :type origTime: date or datetime
-        :param lat: the latitude
-        :type lat: float
-        :param lon: the longitude
-        :type lon: float
-        :param dist: the radius distance from lat and lon, in km
-        :type dist: float
-        :return: the list of stations
-    """
-
-    listResult = list()
-    try:
-        # start, endt = get_time_range(origTime, timedelta(days=1))
-        start, endt = get_time_range(origTime, days=1)
-    except TypeError:
-        logging.error('Cannot convert origTime parameter (%s).', origTime)
-        return listResult
-
-    stationQuery = ('%s/station/1/query?latitude=%3.3f&longitude=%3.3f&'
-                    'maxradius=%3.3f&start=%s&end=%s&channel=%s&format=text&level=station')
-
-    aux = stationQuery % (dc, lat, lon, dist, start.isoformat(),
-                          endt.isoformat(), ','.join(listCha))
-
-    dcResult = url_read(aux, decoding='utf8')
-
-    return station_to_dframe(dcResult)
-
-
-def station_to_dframe(stations_query_result):
-    if not stations_query_result:
-        return pd.DataFrame()
-
-    stations = stations_query_result.splitlines()
-    dframe = pd.DataFrame(index=np.arange(0, len(stations)-1),
-                          columns=(e.strip() for e in stations[0].split("|")))
-
-    for i, st in enumerate(stations[1:]):
-        splSt = st.split('|')
-        splSt[6] = dtime(splSt[6], on_err_return_none=True)
-        if splSt[6] is None:
-            logging.error("Could not convert start time attribute (%s).", splSt[6])
-            continue
-
-        # parse end time, it can be None ()
-        splSt[7] = dtime(splSt[7], on_err_return_none=True) or ''
-
-        splSt[2] = float(splSt[2])
-        splSt[3] = float(splSt[3])
-        splSt[4] = float(splSt[4])
-
-        # http://stackoverflow.com/questions/10715965/add-one-row-in-a-pandas-dataframe
-        # loc or iloc both work here since the index is natural numbers
-        dframe.loc[i] = splSt
-
-    return dframe
+    except (TauModelError, ValueError) as err:
+        raise ValueError(("Unable to find minimum travel time (dist=%s, depth=%s, model=%s). "
+                          "Source error: %s: %s"),
+                         str(distance_in_degree), str(source_depth_in_km), str(model),
+                         err.__class__.__name__, str(err))
 
 
 def get_arrival_time(distance_in_degrees, ev_depth_km, ev_time):
@@ -225,14 +80,10 @@ def get_arrival_time(distance_in_degrees, ev_depth_km, ev_time):
         :param minAfterP: the minutes after P wave arrivalTime
         :type minAfterP: float
         :return: the tuple data, channel (bytes and string)
+        :raises: ValueError
     """
-    # added info for the tau-p
-    travel_time = get_travel_time(ev_depth_km, distance_in_degrees)
-    if travel_time is None:
-        return None
+    travel_time = get_min_travel_time(ev_depth_km, distance_in_degrees)
     arrivalTime = ev_time + timedelta(seconds=float(travel_time))
-    # shall we avoid numpy? before was: timedelta(seconds=numpy.float64(travel_time))
-
     return arrivalTime
 
 
@@ -278,6 +129,170 @@ def get_time_range(origTime, days=0, hours=0, minutes=0, seconds=0):
     return start, endt
 
 
+def get_search_radius(mag, mmin=3, mmax=7, dmin=1, dmax=5):  # FIXME: better!
+    """From a given magnitude, determines and returns the max radius (in degrees).
+        Given dmin and dmax and mmin and mmax (FIXME: TO BE CALIBRATED!),
+        this function returns D from the f below:
+
+             |
+        dmax +                oooooooooooo
+             |              o
+             |            o
+             |          o
+        dmin + oooooooo
+             |
+             ---------+-------+------------
+                    mmin     mmax
+
+    """
+    if mag < mmin:
+        radius = dmin
+    elif mag > mmax:
+        radius = dmax
+    else:
+        radius = dmin + (dmax - dmin) / (mmax - mmin) * (mag - mmin)
+    return radius
+
+
+def get_events(**kwargs):
+    """
+        Returns a tuple of two elements: the first one is the DataFrame representing the stations
+        read from the specified arguments. The second is the the number of rows (denoting stations)
+        which where dropped from the url query due to errors in parsing
+        :param kwargs: a variable length list of arguments, including:
+            eventws (string): the event web service
+            minmag (float): the minimum magnitude
+            start (string): the event start, in string format (e.g., datetime.isoformat())
+            end (string): the event end, in string format (e.g., datetime.isoformat())
+            minlon (float): the event min longitude
+            maxlon (float): the event max longitude
+            minlat (float): the event min latitude
+            maxlat (float): the event max latitude
+        :raise: ValueError, TypeError, IOError
+    """
+    eventQuery = ('%(eventws)squery?minmagnitude=%(minmag)1.1f&start=%(start)s'
+                  '&minlon=%(minlon)s&maxlon=%(maxlon)s&end=%(end)s'
+                  '&minlat=%(minlat)s&maxlat=%(maxlat)s&format=text') % kwargs
+
+    result = url_read(eventQuery, decoding='utf8')
+
+    return evt_to_dframe(result)
+
+
+def evt_to_dframe(event_query_result):
+    """
+        :return: the tuple dataframe, dropped_rows (int >=0)
+        raises: ValueError
+    """
+    dfr = query2dframe(event_query_result)
+    oldlen = len(dfr)
+    if not dfr.empty:
+        for key, cast_func in {'Time': pd.to_datetime,
+                               'Depth/km': pd.to_numeric,
+                               'Latitude': pd.to_numeric,
+                               'Longitude': pd.to_numeric,
+                               'Magnitude': pd.to_numeric,
+                               }.iteritems():
+            dfr[key] = cast_func(dfr[key], errors='coerce')
+
+        dfr.dropna(inplace=True)
+
+    return dfr, oldlen - len(dfr)
+
+
+def get_stations(dc, listCha, origTime, lat, lon, max_radius):
+    """
+        Returns a tuple of two elements: the first one is the DataFrame representing the stations
+        read from the specified arguments. The second is the the number of rows (denoting stations)
+        which where dropped from the url query due to errors in parsing
+        :param dc: the datacenter
+        :type dc: string
+        :param listCha: the list of channels, e.g. ['HL?', 'SL?', 'BL?'].
+        :type listCha: iterable (e.g., list)
+        :param origTime: the origin time. The request will be built with a time start and end of +-1
+            day from origTime
+        :type origTime: date or datetime
+        :param lat: the latitude
+        :type lat: float
+        :param lon: the longitude
+        :type lon: float
+        :param max_radius: the radius distance from lat and lon, in degrees FIXME: check!
+        :type max_radius: float
+        :return: the DataFrame representing the stations, and the stations dropped (int)
+        :raise: ValueError, TypeError, IOError
+    """
+
+    dcResult = ''
+    try:
+        # start, endt = get_time_range(origTime, timedelta(days=1))
+        start, endt = get_time_range(origTime, days=1)
+    except TypeError:
+        logging.error('Cannot convert origTime parameter (%s).', origTime)
+    else:
+        stationQuery = ('%s/station/1/query?latitude=%3.3f&longitude=%3.3f&'
+                        'maxradius=%3.3f&start=%s&end=%s&channel=%s&format=text&level=station')
+        aux = stationQuery % (dc, lat, lon, max_radius, start.isoformat(),
+                              endt.isoformat(), ','.join(listCha))
+        dcResult = url_read(aux, decoding='utf8')
+
+    return station_to_dframe(dcResult)
+
+
+def station_to_dframe(stations_query_result):
+    """
+        :return: the tuple dataframe, dropped_rows (int >=0)
+        raises: ValueError
+    """
+    dfr = query2dframe(stations_query_result)
+    oldlen = len(dfr)
+    if not dfr.empty:
+        for key, cast_func in {'StartTime': pd.to_datetime,
+                               'Elevation': pd.to_numeric,
+                               'Latitude': pd.to_numeric,
+                               'Longitude': pd.to_numeric,
+                               }.iteritems():
+            dfr[key] = cast_func(dfr[key], errors='coerce')
+
+        dfr.dropna(inplace=True)
+        dfr['EndTime'] = pd.to_datetime(dfr['EndTime'], errors='coerce')
+
+    return dfr, oldlen - len(dfr)
+
+
+def query2dframe(query_result_str):
+    """
+        Returns a pandas dataframne fro the given query_result_str
+        :param: query_result_str
+        :raise: ValueError in case of errors
+    """
+    if not query_result_str:
+        return pd.DataFrame()
+
+    events = query_result_str.splitlines()
+
+    data = None
+    columns = [e.strip() for e in events[0].split("|")]
+    for ev in events[1:]:
+        evt_list = ev.split('|')
+        # Use numpy and then build the dataframe
+        # For info on other solutions:
+        # http://stackoverflow.com/questions/10715965/add-one-row-in-a-pandas-dataframe:
+        if data is None:
+            data = [evt_list]
+        else:
+            data = np.append(data, [evt_list], axis=0)
+
+    if data is not None:
+        # check that data rows and columns have the same length
+        # cause DataFrame otherwise might do some weird stuff (e.g., one
+        # column and rows of N>1 elemens, the DataFrame is built with
+        # a single column packing those N elements as list in it)
+        # Note that if we are here we are sure data rows are the same length
+        np.append(data, [columns], axis=0)
+
+    return pd.DataFrame(data=data, columns=columns)
+
+
 def get_wav_id(event_id, network, station, location, channel, start_time, end_time):
     """
         Returns a unique id from the given arguments. The hash of the tuple built from the
@@ -298,8 +313,8 @@ def get_wav_id(event_id, network, station, location, channel, start_time, end_ti
         :param: end_time: the wav end time, or a string representing a datetime
             (e.g. datetime.isoformat())
         :type: end_time: datetime object
-        :return: a unique integer denoting the given wav. Two wavs with the same argument have the
-        same id
+        :return: a unique integer denoting the given wav.
+        Two wavs with the same argument have the same id
         :rtype: integer
     """
     val = (event_id, network, station, channel, location, dtime(start_time), dtime(end_time))
@@ -322,14 +337,15 @@ def get_wav_dframe(stations_dataframe, dc,
             st_location = ''  # FIXME: ask
 
             dista = locations2degrees(ev_lat, ev_lon, st_lat, st_lon)
-            arrivalTime = get_arrival_time(dista, ev_depth_km, ev_time)
-            if arrivalTime is None:
-                logging.info('arrival time is None, skipping')
+            try:
+                arrivalTime = get_arrival_time(dista, ev_depth_km, ev_time)
+            except ValueError as verr:
+                logging.info('arrival time error: %s' % str(verr))
                 continue
 
             try:
                 start_time, end_time = get_time_range(arrivalTime,
-                                                    minutes=(ptimespan[0], ptimespan[1]))
+                                                      minutes=(ptimespan[0], ptimespan[1]))
             except TypeError:
                 logging.error('Cannot convert arrivalTime parameter (%s).', arrivalTime)
                 continue
@@ -338,11 +354,11 @@ def get_wav_dframe(stations_dataframe, dc,
             for cha in chList:
                 wav_query = qry % (dc, st_name, cha, start_time.isoformat(), end_time.isoformat())
                 data_row = [None, ev_id, cha, "", start_time, end_time, dc,  dista, arrivalTime,
-                            wav_query, buffer('')]
+                            wav_query, b'']
                 data_row.extend(st)
                 data_row[0] = get_wav_id(ev_id, st_network, st_name, st_location, cha,
                                          start_time, end_time)
-                data.eppend(data_row)
+                data.append(data_row)
 
     colz = ['Id', '#EventID_fk', 'Channel', 'Location', 'StartTime', 'EndTime', 'DataCenter',
             'Distance/deg', 'ArrivalTime', 'QueryStr', 'Data']
@@ -351,17 +367,12 @@ def get_wav_dframe(stations_dataframe, dc,
     return wav_dframe
 
 
-def read_wav(row, ert=None):
-    if ert is not None:
-        remtime_last = ert.get(False)
-        remtime = ert.get()
-        msg = " (%s)" % row['QueryStr']
-        if remtime != remtime_last:
-            etr_msg = ('%s done. '
-                       'Est. remaining time: '
-                       '%s' + msg) % (ert.percent(), remtime)
-            logging.info(etr_msg)
-    return url_read(row['QueryStr'])
+def read_wav_data(query_str):
+    try:
+        return url_read(query_str)
+    except (IOError, ValueError, TypeError) as exc:
+        # logging.warning(str(exc))
+        return None
 
 
 def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius_args,
@@ -428,10 +439,14 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
     # Get events in text format. '|' separated values
     logging.info("Querying Event WS:")
     try:
-        events = get_events(**args)
+        events, skipped = get_events(**args)
     except (IOError, ValueError, TypeError) as err:
         logging.error(str(err))
         return
+    else:
+        if skipped > 0:
+            logging.warning(("%d events skipped (possible cause: bad formatting, "
+                             "e.g. invalid datetimes or numbers") % skipped)
 
     logging.info('%s events found', len(events))
     logging.debug('Events: %s', events)
@@ -462,28 +477,38 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         logging.info("")
         logging.info(strmsg)
 
-        distFromEvent = get_search_radius(ev_mag,
-                                          search_radius_args[0],
-                                          search_radius_args[1],
-                                          search_radius_args[2],
-                                          search_radius_args[3])
+        max_radius = get_search_radius(ev_mag,
+                                       search_radius_args[0],
+                                       search_radius_args[1],
+                                       search_radius_args[2],
+                                       search_radius_args[3])
 
         logging.info(('Querying Station WS (selected data-centers and channels)'
-                      ' for stations within %s degrees:') % distFromEvent)
+                      ' for stations within %s degrees:') % max_radius)
 
         for DCID, dc in datacenters_dict.iteritems():
             for chName, chList in channelList.iteritems():
                 try:
-                    stations = get_stations(dc, chList, ev_time, ev_lat, ev_lon, distFromEvent)
+                    stations, skipped = get_stations(dc, chList, ev_time, ev_lat, ev_lon,
+                                                     max_radius)
                 except (IOError, ValueError, TypeError) as exc:
                     logging.warning(str(exc))
                     continue
 
-                if len(stations):
-                    logging.info('%d stations found (data center: %s, channel: %s)', len(stations),
-                                 str(DCID), str(chList))
+                if not stations.empty:
+                    logging.info('%d stations found (data center: %s, channel: %s)',
+                                 len(stations), str(DCID), str(chList))
+
+                if skipped > 0:
+                    logging.warning(("%d stations skipped (possible cause: bad formatting, "
+                                     "e.g. invalid datetimes or numbers") % skipped)
+
+                if stations.empty:
+                    continue
+
                 logging.debug('Stations: %s', stations)
 
+                # get distance
                 wdf = get_wav_dframe(stations, dc, chList, ev_id, ev_lat, ev_lon, ev_depth_km,
                                      ev_time, ptimespan)
 
@@ -493,9 +518,12 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
                     wav_dframe = wdf if wav_dframe is None else wav_dframe.append(wdf,
                                                                                   ignore_index=True)
 
-    written = 0
+    total = 0
+    skipped_error = 0
+    skipped_empty = 0
+    skipped_already_saved = 0
     if wav_dframe is not None:
-
+        total = len(wav_dframe)
         data_table_name = "data"
         data_pkey = "Id"
         data_dtype = {'Data': BLOB}
@@ -506,7 +534,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         wav_dframe = wav_dframe[wdf.columns]
 
         wav_data = db_handler.purge(wav_dframe, data_table_name, data_pkey)
-
+        skipped_already_saved = total - len(wav_data)
         logging.info("")
         logging.info(("Querying Datacenter WS: downloading and saving %d of %d waveforms"
                       "(%d already saved)") %
@@ -514,20 +542,40 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
 
         ert = EstRemTimer(len(wav_data))
 
-        def readmseed(row, ert):
-            try:
-                return read_wav(row['QueryStr'], ert)
-            except (IOError, ValueError, TypeError) as exc:
-                logging.warning(str(exc))
-                return None
+        # it turns out that now wav_data is a COPY of wav_dframe
+        # any further operation on it raises a SettingWithCopyWarning, thus avoid issuing it:
+        # http://stackoverflow.com/questions/23688307/settingwithcopywarning-even-when-using-loc
+        wav_data.is_copy = False
 
-        wav_data.loc[:, "Data"] = wav_data.apply(readmseed, axis=1, ert=ert)
-        wav_data = wav_data[~wav_data['Data'] is None]
+        # do a loop on the index. Inefficient, but in any case we need to perform
+        # url queries so the benefits of using pandas methods such as e.g. apply might vanish
+        # (therefore avoid premature optimization, a test scenario should be built)
+        for i in wav_data.index:
+            query_str = wav_data.loc[i, 'QueryStr']
+            etr_msg = ('%s done. '
+                       'Est. remaining time: '
+                       '%s (%s)') % (ert.percent(), remtime, query_str)
+            logging.info(etr_msg)
+            data = read_wav_data(query_str)
+            wav_data.loc[i, 'Data'] = data
+
+        # purge stuff which is not good:
+        wav_data.dropna(subset=['Data'], inplace=True)
+        skipped_error = (total - skipped_already_saved) - len(wav_data)
+        wav_data = wav_data[wav_data['Data'] != b'']
+        skipped_empty = (total - skipped_already_saved - skipped_error) - len(wav_data)
         db_handler.write(wav_data, data_table_name, data_pkey, dtype=data_dtype)
-        written = len(wav_data)
 
     logging.info("")
-    logging.info("DONE: %d waveforms (mseed files) written to '%s'", written, outpath)
+    logging.info(("DONE: %d of %d waveforms (mseed files) written to '%s', "
+                  "%d skipped (%d already saved, %d due to url error, %d empty)"),
+                 total-skipped_empty-skipped_error-skipped_already_saved,
+                 total,
+                 outpath,
+                 skipped_empty+skipped_error+skipped_already_saved,
+                 skipped_already_saved,
+                 skipped_error,
+                 skipped_empty)
 
 
 # Event WS

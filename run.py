@@ -23,7 +23,7 @@ import logging
 import argparse
 import datetime as dt
 from stream2segment.query_utils import save_waveforms
-from stream2segment.utils import datetime
+from stream2segment.utils import datetime as dtime
 
 
 def existing_directory(string):
@@ -46,7 +46,7 @@ def existing_directory(string):
 def valid_date(string):
     """does a check on string to see if it's a valid datetime string.
     Returns the string on success, throws an ArgumentTypeError otherwise"""
-    if datetime(string, on_err_return_none=True) is None:
+    if dtime(string, on_err_return_none=True) is None:
         raise argparse.ArgumentTypeError(str(string) + " " + str(type(str)) +
                                          " is not a valid date")
     return string

@@ -1,3 +1,9 @@
+"""
+    Some utilities which share common functions which I often re-use across projects. 
+    This includes several type checking (for worshippers of duck-typing might be blaspheme, but
+    the variety of circumstances in life make things sometimes harder to be enclosed in simple -
+    although reasonable - rules.
+"""
 try:
     import numpy as np
 
@@ -106,7 +112,7 @@ def tobytes(unicodestr, encoding='utf-8'):
         :param unicodestr: a unicode string. If already byte string, this method returns it
             immediately
         :param encoding: the encoding used. Defaults to 'utf-8' when missing
-        :return: a bytes class (same as str in python2) resulting from encoding unicodestr
+        :return: a bytes class (same as str in python2) resulting from encoding unicode string
     """
     if isbytes(unicodestr):
         return unicodestr
@@ -159,13 +165,35 @@ def regex(arg, retval_if_none=re.compile(".*")):
     return re.compile(re.escape(str(arg)).replace("\\?", ".").replace("\\*", ".*"))
 
 
-def oserr_(errnotype, msg=''):  # FIXME: check msg
+def load_module(filepath, name=None):
     """
-        Returns an OSError raised by the file argument.
-        :param errnotype: the error type, see errno package for details (e.g., errno.ENOENT)
-        :param file: the file
+        Loads a python module indicated by filepath, returns an object where global variables
+        and classes can be accessed as attributes
+        See: http://stackoverflow.com/questions/67631/how-to-import-a-module-given-the-full-path
+        :param filepath: the path of the module
+        :param name: defaults to None (implying that the filepath basename, without extension, will
+            be taken) and it's only used to set the .__name__ of the returned module. It doesn't
+            affect loading
     """
-    return OSError(strerror(errnotype) + " " + str(msg))
+    if name is None:
+        name = os.path.splitext(os.path.basename(filepath))[0]
+    # name only sets the .__name__ of the returned module. it doesn't effect loading
+
+    if ispy2():  # python 2
+        import imp
+        return imp.load_source(name, filepath)
+    elif ispy3() and sys.version_info[1] >= 5:  # Python 3.5+:
+        import importlib.util  # @UnresolvedImport
+        spec = importlib.util.spec_from_file_location(name, filepath)
+        modul = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modul)
+        return modul
+    else:  # actually, for Python 3.3 and 3.4, but we assume is the case also for 3.2 3.1 etcetera
+        from importlib.machinery import SourceFileLoader  # @UnresolvedImport
+        return SourceFileLoader(name, filepath).load_module()
+        # (Although this has been deprecated in Python 3.4.)
+
+    # raise SystemError("unsupported python version: "+ str(sys.version_info))
 
 
 def _ensure(filepath, mode, mkdirs=False, errmsgfunc=None):
@@ -183,6 +211,7 @@ def _ensure(filepath, mode, mkdirs=False, errmsgfunc=None):
         either 'r', 'w' or 'd') and returns the relative error message as string
     :raises: SyntaxError if some argument is invalid, or OSError if filepath is not valid according
         to mode and mkdirs
+    :return: True if mkdir has been called
     """
     # to see OsError error numbers, see here
     # https://docs.python.org/2/library/errno.html#module-errno
@@ -235,52 +264,26 @@ def _ensure(filepath, mode, mkdirs=False, errmsgfunc=None):
         mkdir_ = False
 
     exists_ = func(to_check)
+    mkdirdone = False
     if not func(to_check):
         if mkdir_:
+            mkdirdone = True
             os.makedirs(to_check)
             exists_ = func(to_check)
 
     if not exists_:
         raise OSError(errmsgfunc(filepath, mode))
 
-
-def load_module(filepath, name=None):
-    """
-        Loads a python module indicated by filepath, returns an object where global variables
-        and classes can be accessed as attributes
-        See: http://stackoverflow.com/questions/67631/how-to-import-a-module-given-the-full-path
-        :param filepath: the path of the module
-        :param name: defaults to None (implying that the filepath basename, without extension, will
-            be taken) and it's only used to set the .__name__ of the returned module. It doesn't
-            affect loading
-    """
-    if name is None:
-        name = os.path.splitext(os.path.basename(filepath))[0]
-    # name only sets the .__name__ of the returned module. it doesn't effect loading
-
-    if ispy2():  # python 2
-        import imp
-        return imp.load_source(name, filepath)
-    elif ispy3() and sys.version_info[1] >= 5:  # Python 3.5+:
-        import importlib.util  # @UnresolvedImport
-        spec = importlib.util.spec_from_file_location(name, filepath)
-        modul = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(modul)
-        return modul
-    else:  # actually, for Python 3.3 and 3.4, but we assume is the case also for 3.2 3.1 etcetera
-        from importlib.machinery import SourceFileLoader  # @UnresolvedImport
-        return SourceFileLoader(name, filepath).load_module()
-        # (Although this has been deprecated in Python 3.4.)
-
-    # raise SystemError("unsupported python version: "+ str(sys.version_info))
+    return mkdirdone
 
 
 def ensurefiler(filepath):
-    """Checks that filepath denotes a valid file, raises an OSError if not.
-    In many cases it's more convenient to simply call the equivalent
-        os.path.isfile(filepath)
-    except that this function raises a meaningful OSError in case of non-existing parent directory
-    (hopefully saving useless browsing time)
+    """Checks that filepath denotes a valid file, raises an OSError if not. This function is mostly
+    useful for initializing filepaths given as input argument (e.g. command line) also in conjunction
+    with libraries such as e.g. click, OptionParser or ArgumentParser.
+    For instance, it raises a meaningful OSError in case of non-existing parent directory (hopefully
+    saving useless browsing time). For any other case, it might be more convenient to simply call the
+    almost equivalent os.path.isfile(filepath)
     :param filepath: a file path
     :type filepath: string
     :return: nothing
@@ -291,7 +294,9 @@ def ensurefiler(filepath):
 
 def ensurefilew(filepath, mkdirs=True):
     """Checks that filepath denotes a valid file for writing, i.e., if its parent directory D
-    exists. Raises an OSError if not.
+    exists. Raises an OSError if not. This function is mostly useful for initializing filepaths given as
+    input argument (e.g. command line) also in conjunction with libraries such as e.g. click,
+    OptionParser or ArgumentParser.
     :param filepath: a file path
     :type filepath: string
     :param mkdirs: True by default, if D does not exists will try to build it via mkdirs before
@@ -303,11 +308,11 @@ def ensurefilew(filepath, mkdirs=True):
 
 
 def ensuredir(filepath, mkdirs=True):
-    """Checks that filepath denotes a valid existing directory. Raises an OSError if not.
-    In many cases it's more convenient to simply call the equivalent
-        os.path.isdir(filepath)
-    except that this function has the optional mkdirs argument which will try to build filepath if
-    not existing
+    """Checks that filepath denotes a valid existing directory. Raises an OSError if not. This
+    function is mostly useful for initializing filepaths given as input argument (e.g. command line)
+    also in conjunction with libraries such as e.g. click, OptionParser or ArgumentParser.
+    For any other case, it might be more convenient to
+    call the almost equivalent os.path.isdir(filepath)
     :param filepath: a file path
     :type filepath: string
     :param mkdirs: True by default, if D does not exists will try to build it via mkdirs before
@@ -458,6 +463,13 @@ def prepare_datestr(string, ignore_z=True, allow_spaces=True):
     return string
 
 
+# these methods are implemented to avoid complex workarounds in testing.
+# See http://blog.xelnor.net/python-mocking-datetime/
+_datetime_now = dt.datetime.now
+_datetime_utcnow = dt.datetime.utcnow
+_datetime_strptime = dt.datetime.strptime
+
+
 def datetime(string, ignore_z=True, allow_spaces=True,
              formats=['%Y-%m-%dT%H:%M:%S', '%Y-%m-%d', '%Y-%m-%dT%H:%M:%S.%f'],
              on_err_return_none=False):
@@ -494,7 +506,7 @@ def datetime(string, ignore_z=True, allow_spaces=True,
 
     for dtformat in formats:
         try:
-            return dt.datetime.strptime(string, dtformat)
+            return _datetime_strptime(string, dtformat)
         except ValueError:  # as exce:
             pass
         except TypeError:  # as terr:
@@ -509,22 +521,22 @@ def datetime(string, ignore_z=True, allow_spaces=True,
 
 class EstRemTimer():
     """
-        An object used to calculate the estimated remaining time in loops. For a simple usage
-        (print estimated remaining time, ert) just print this object, example:
-
-            etr = EstRemTimer(N)
+        An object used to calculate the estimated remaining time (ert) in loops.
+        :Example:
+            etr = EstRemTimer(N)  # N number of iterations
             for i in xrange(N):
-                etr.get()   # returns the estimated remaining time (first time returns None)
-                            # and increments the internal counter. Call get(False) not to
-                            # increment the counter (returns the last ert)
-                etr.done    # returns the numbers of iterations done (if get() has not been called
+                etr.get()   # returns the ert as timedelta object (the first time jsut starts the
+                            # internal timer returning None)
+                            # and increments the internal counter. Call get(False) to return
+                            # the last ert without incrementing the counter
+                etr.done    # returns the number of iterations done (if get() has not been called
                             # at least TWICE, returns 0)
                 etr.total   # returns N
                 etr.progress(None)  # returns a float representing the percent done
                                     # (see note of etr.done)
                 etr.progress()      # returns the formatted string of the percent done, e.g.
                                     # "  1%", " 15%", "100%"
-                ... code here ...
+                ... loop code here ...
     """
     def __init__(self, total_iterations, approx_to_seconds=True, use="median"):
         """
