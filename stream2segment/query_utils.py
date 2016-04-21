@@ -1,11 +1,7 @@
-#!/usr/bin/python
-# event2wav: First draft to download waveforms related to events
-#
-# (c) 2015 Deutsches GFZ Potsdam
-# <XXXXXXX@gfz-potsdam.de>
-#
-# ----------------------------------------------------------------------
-"""utils: utilities of the package
+# -*- coding: utf-8 -*-
+# from __future__ import print_function
+
+"""query_utils: utilities of the package
 
    :Platform:
        Mac OSX, Linux
@@ -16,16 +12,19 @@
 """
 
 # standard imports:
+from StringIO import StringIO
+import sys
 import logging
-from matplotlib.dates import date2num
+# import logging
+# from matplotlib.dates import date2num
 # from datetime import datetime
-from datetime import timedelta
-from stream2segment.utils import datetime as dtime, EstRemTimer, url_read
+from datetime import timedelta, datetime
+from stream2segment.utils import EstRemTimer, url_read, tounicode  # datetime as dtime,
 from stream2segment import io as s2sio
 import numpy as np
 import pandas as pd
 from sqlalchemy import BLOB
-from pandas.core import indexing
+# from pandas.core import indexing
 # third party imports:
 # from obspy.taup.taup import getTravelTimes
 from obspy.taup import TauPyModel
@@ -222,19 +221,12 @@ def get_stations(dc, listCha, origTime, lat, lon, max_radius):
         :raise: ValueError, TypeError, IOError
     """
 
-    dcResult = ''
-    try:
-        # start, endt = get_time_range(origTime, timedelta(days=1))
-        start, endt = get_time_range(origTime, days=1)
-    except TypeError:
-        logging.error('Cannot convert origTime parameter (%s).', origTime)
-    else:
-        stationQuery = ('%s/station/1/query?latitude=%3.3f&longitude=%3.3f&'
-                        'maxradius=%3.3f&start=%s&end=%s&channel=%s&format=text&level=station')
-        aux = stationQuery % (dc, lat, lon, max_radius, start.isoformat(),
-                              endt.isoformat(), ','.join(listCha))
-        dcResult = url_read(aux, decoding='utf8')
-
+    start, endt = get_time_range(origTime, days=1)
+    stationQuery = ('%s/station/1/query?latitude=%3.3f&longitude=%3.3f&'
+                    'maxradius=%3.3f&start=%s&end=%s&channel=%s&format=text&level=station')
+    aux = stationQuery % (dc, lat, lon, max_radius, start.isoformat(),
+                          endt.isoformat(), ','.join(listCha))
+    dcResult = url_read(aux, decoding='utf8')
     return station_to_dframe(dcResult)
 
 
@@ -317,62 +309,139 @@ def get_wav_id(event_id, network, station, location, channel, start_time, end_ti
         Two wavs with the same argument have the same id
         :rtype: integer
     """
-    val = (event_id, network, station, channel, location, dtime(start_time), dtime(end_time))
+    start_time = start_time.isoformat()
+    end_time = end_time.isoformat()
+    val = (event_id, network, station, channel, location, start_time, end_time)
     if None in val:
         raise ValueError("No None value in get_wav_id")
     return hash(val)
 
 
-def get_wav_dframe(stations_dataframe, dc,
-                   chList, ev_id, ev_lat, ev_lon, ev_depth_km, ev_time, ptimespan):
-    data = []
+def get_wav_ids(event_id_series, network_series, station_series, location_series, channel_series,
+                start_time_series, end_time_series):
+    val = np.array([event_id_series.values, network_series.values, station_series.values,
+                    location_series.values, channel_series.values, start_time_series.values,
+                    end_time_series.values])
+
+    def getwid(arg):
+        return get_wav_id(*arg)
+    ret_val = np.apply_along_axis(getwid, axis=0, arr=val)
+    return pd.Series(ret_val)
+
+
+def get_wav_query(dc, channel, station_name, start_time, end_time):
     qry = '%s/dataselect/1/query?station=%s&channel=%s&start=%s&end=%s'
+    return qry % (dc, station_name, channel, start_time.isoformat(), end_time.isoformat())
 
-    if not stations_dataframe.empty:
-        for st in stations_dataframe.values:
-            st_name = st[1]
-            st_lat = st[2]
-            st_lon = st[3]
-            st_network = st[0]
-            st_location = ''  # FIXME: ask
 
-            dista = locations2degrees(ev_lat, ev_lon, st_lat, st_lon)
-            try:
-                arrivalTime = get_arrival_time(dista, ev_depth_km, ev_time)
-            except ValueError as verr:
-                logging.info('arrival time error: %s' % str(verr))
-                continue
+def get_wav_queries(dc_series, channel_series, station_name_series, start_time_series,
+                    end_time_series):
+    val = np.array([dc_series.values, channel_series.values, station_name_series.values,
+                    start_time_series.values, end_time_series.values])
 
-            try:
-                start_time, end_time = get_time_range(arrivalTime,
-                                                      minutes=(ptimespan[0], ptimespan[1]))
-            except TypeError:
-                logging.error('Cannot convert arrivalTime parameter (%s).', arrivalTime)
-                continue
+    def getwq(arg):
+        return get_wav_query(*arg)
+    ret_val = np.apply_along_axis(getwq, axis=0, arr=val)
+    return pd.Series(ret_val)
 
-            # now build the data frames
-            for cha in chList:
-                wav_query = qry % (dc, st_name, cha, start_time.isoformat(), end_time.isoformat())
-                data_row = [None, ev_id, cha, "", start_time, end_time, dc,  dista, arrivalTime,
-                            wav_query, b'']
-                data_row.extend(st)
-                data_row[0] = get_wav_id(ev_id, st_network, st_name, st_location, cha,
-                                         start_time, end_time)
-                data.append(data_row)
 
-    colz = ['Id', '#EventID_fk', 'Channel', 'Location', 'StartTime', 'EndTime', 'DataCenter',
-            'Distance/deg', 'ArrivalTime', 'QueryStr', 'Data']
-    colz.extend(['Station_' + s for s in stations_dataframe.columns])
-    wav_dframe = pd.DataFrame(columns=colz) if not data else pd.DataFrame(columns=colz, data=data)
-    return wav_dframe
+def get_distances(latitude_series, longitude_series, ev_lat, ev_lon):
+    """returns a Series object """
+    return pd.DataFrame({'lat': latitude_series,
+                         'lon': longitude_series}).apply(lambda row: locations2degrees(ev_lat,
+                                                                                       ev_lon,
+                                                                                       row['lat'],
+                                                                                       row['lon']),
+                                                         axis=1)
+
+
+def get_arrival_times(distances_series, ev_depth_km, ev_time, col_name=None):
+    """returns a Series object """
+    def atime(dista):
+        try:
+            return get_arrival_time(dista, ev_depth_km, ev_time)
+        except ValueError:
+            return None
+            # logging.info('arrival time error: %s' % str(verr))
+            # continue
+    return distances_series.apply(atime)
+
+
+def get_time_ranges(arrival_times_series, days=0, hours=0, minutes=0, seconds=0):
+    """returns a DataFrame object with fields 'StartTime' 'EndTime' """
+
+    # initialize two numpy arrays
+    start_t = np.copy(arrival_times_series.values)
+    end_t = np.copy(arrival_times_series.values)
+
+    # the series above is initialized with Nones
+    for i, atm in enumerate(arrival_times_series):
+        stm, etm = None, None
+        try:
+            stm, etm = get_time_range(atm, days=days, hours=hours, minutes=minutes, seconds=seconds)
+        except TypeError:
+            pass
+        start_t[i] = stm
+        end_t[i] = etm
+    return pd.Series(start_t), pd.Series(end_t)
 
 
 def read_wav_data(query_str):
     try:
         return url_read(query_str)
-    except (IOError, ValueError, TypeError) as exc:
-        # logging.warning(str(exc))
+    except (IOError, ValueError, TypeError) as _:
         return None
+
+
+def pd_str(dframe):
+    with pd.option_context('display.max_rows', len(dframe),
+                           'display.max_columns', len(dframe.columns),
+                           'max_colwidth', 50, 'expand_frame_repr', False):
+        return str(dframe)
+
+
+class LoggerHandler(object):
+
+    def __init__(self, out=sys.stdout):
+        rootLogger = logging.getLogger()
+        rootLogger.setLevel(10)
+        stringio = StringIO()
+        fileHandler = logging.StreamHandler(stringio)  # stream=StringIO())
+        # fileHandler.setLevel(10)
+        rootLogger.addHandler(fileHandler)
+        consoleHandler = logging.StreamHandler(out)
+        consoleHandler.setLevel(20)
+        rootLogger.addHandler(consoleHandler)
+        self.rootlogger = rootLogger
+        self.errors = 0
+        self.warnings = 0
+        self.stringio = stringio
+
+    def info(self, *args, **kw):
+        self.rootlogger.info(*args, **kw)
+
+    def debug(self, *args, **kw):
+        self.rootlogger.debug(*args, **kw)
+
+    def warning(self, *args, **kw):
+        args = list(args)  # it's a tuple ... 
+        args[0] = "WARNING: " + args[0]
+        self.warnings += 1
+        self.rootlogger.debug(*args, **kw)
+
+    def error(self, *args, **kw):
+        self.errors += 1
+        self.rootlogger.error(*args, **kw)
+
+    def save(self, db_handler):
+        db_handler.write(pd.DataFrame([
+                                       [datetime.utcnow(),
+                                        tounicode(self.stringio.getvalue()),
+                                        self.warnings,
+                                        self.errors]
+                                       ],
+                                      columns=["run_time", "log", "warnings", "errors"]),
+                         "logs", "run_time")
 
 
 def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius_args,
@@ -414,18 +483,21 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         :param outpath: path where to store mseed files E.g. '/tmp/mseeds'
         :type outpath: string
     """
+    logger = LoggerHandler()
 
     # print local vars:
-    logging.info("Arguments:")
+    logger.info("Arguments:")
     for arg, varg in dict(locals()).iteritems():
-        # Note: locals() might be updated inside the loop and throw an
-        # error, as it stores all local variables.
-        # Thus the need of dict(locals())
-        logging.info("\t%s = %s", str(arg), str(varg))
+        # Note: dict(locals()) avoids problems with vars
+        # created inside this loop
+        if arg == 'logger' or arg == "stringio":
+            continue
+        msg = "\t%s = %s" % (str(arg), str(varg))
+        logger.info(msg)
 
     # a little bit hacky, but convert to dict as the function gets dictionaries
     # Note: we might want to use dict(locals()) as above but that does NOT
-    # preserve order and tests should be rewritten. It's topo pain for the moment
+    # preserve order and tests should be rewritten. It's too much pain for the moment
     args = {"eventws": eventws,
             "minmag": minmag,
             "minlat": minlat,
@@ -436,31 +508,40 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
             "end": end,
             "outpath": outpath}
 
-    # Get events in text format. '|' separated values
-    logging.info("Querying Event WS:")
-    try:
-        events, skipped = get_events(**args)
-    except (IOError, ValueError, TypeError) as err:
-        logging.error(str(err))
-        return
-    else:
-        if skipped > 0:
-            logging.warning(("%d events skipped (possible cause: bad formatting, "
-                             "e.g. invalid datetimes or numbers") % skipped)
-
-    logging.info('%s events found', len(events))
-    logging.debug('Events: %s', events)
+    logger.debug("")
+    logger.info("Querying Event WS:")
 
     db_handler = s2sio.DbHandler()
+
+    try:
+        events, skipped = get_events(**args)
+        # raise ValueError()
+    except (IOError, ValueError, TypeError) as err:
+        logger.error(str(err))
+        logger.save(db_handler)
+        return 1
+    else:
+        if skipped > 0:
+            logger.warning(("%d events skipped (possible cause: bad formatting, "
+                          "e.g. invalid datetimes or numbers") % skipped)
+
+    logger.info('%s events found', len(events))
+    logger.debug('Events: %s', pd_str(events))
+
+    # FIXME: save at the end??
     events_table_name = "events"
     events_pkey = '#EventID'
     new_events = db_handler.purge(events, events_table_name, events_pkey)
-    db_handler.write(new_events, events_table_name, events_pkey)
 
     wav_dframe = None
-    ert = EstRemTimer(len(events))
 
-    for ev in events.values:
+    ert = EstRemTimer(len(events) * len(datacenters_dict) * len(channelList))
+
+    logger.debug("")
+    msg = "Querying Station WS:"
+    logger.info(msg)
+
+    for ev in events.values:  # FIXME: use str labels?
         ev_mag = ev[10]
         ev_id = ev[0]
         ev_loc_name = ev[12]
@@ -468,61 +549,128 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         ev_lat = ev[2]
         ev_lon = ev[3]
         ev_depth_km = ev[4]
-        remtime = ert.get()
-        evtMsg = 'Processing event %s %s (mag=%s)' % (ev_id, ev_loc_name, ev_mag)
-        etr_msg = ('%s done. '
-                   'Est. remaining time: '
-                   '%s') % (ert.percent(), "unknown" if remtime is None else str(remtime))
-        strmsg = etr_msg + ". " + evtMsg
-        logging.info("")
-        logging.info(strmsg)
 
         max_radius = get_search_radius(ev_mag,
                                        search_radius_args[0],
                                        search_radius_args[1],
                                        search_radius_args[2],
                                        search_radius_args[3])
-
-        logging.info(('Querying Station WS (selected data-centers and channels)'
-                      ' for stations within %s degrees:') % max_radius)
+#
+#         logging.info(('Querying Station WS (selected data-centers and channels)'
+#                       ' for stations within %s degrees:') % max_radius)
 
         for DCID, dc in datacenters_dict.iteritems():
             for chName, chList in channelList.iteritems():
+
+                msg = "Event: %s (%s), Station: %s (channels: %s, radius: %f deg.)" % \
+                    (ev_id, ev_loc_name, DCID, str(chList), max_radius)
+
+                logger.debug("")
+                logger.debug(msg)
+                ert.print_progress(epilog=msg)
+
                 try:
                     stations, skipped = get_stations(dc, chList, ev_time, ev_lat, ev_lon,
                                                      max_radius)
                 except (IOError, ValueError, TypeError) as exc:
-                    logging.warning(str(exc))
+                    logger.warning(exc.__class__.__name__ + ": " + str(exc))
                     continue
 
-                if not stations.empty:
-                    logging.info('%d stations found (data center: %s, channel: %s)',
-                                 len(stations), str(DCID), str(chList))
+                logger.debug('%d stations found (data center: %s, channel: %s)',
+                             len(stations), str(DCID), str(chList))
 
                 if skipped > 0:
-                    logging.warning(("%d stations skipped (possible cause: bad formatting, "
-                                     "e.g. invalid datetimes or numbers") % skipped)
+                    logger.warning(("%d stations skipped (possible cause: bad formatting, "
+                                    "e.g. invalid datetimes or numbers") % skipped)
 
                 if stations.empty:
                     continue
 
-                logging.debug('Stations: %s', stations)
+                logger.debug("Downloaded stations:")
+                logger.debug(pd_str(stations))
 
-                # get distance
-                wdf = get_wav_dframe(stations, dc, chList, ev_id, ev_lat, ev_lon, ev_depth_km,
-                                     ev_time, ptimespan)
+                # Do the core calculation now...
+                # Calculate distances, arrival times and time ranges
+                distances = get_distances(stations['Latitude'], stations['Longitude'], ev_lat,
+                                          ev_lon)
+                arr_times = get_arrival_times(distances, ev_depth_km, ev_time)
+                start_times, end_times = get_time_ranges(arr_times, minutes=ptimespan)
+                # concat all together:
+                atime_col = "ArrivalTime"
+                dist_col = "Distance_Event_Station/deg"
+                stime_col = "DataStartTime"
+                etime_col = "DataEndTime"
+                # FIXME: do not use ignore_index otherwise column names are lost
+                # BUT: what if we have the same index? check!
+                wdf = pd.concat([pd.DataFrame(start_times, columns=[stime_col]),
+                                 pd.DataFrame(end_times, columns=[etime_col]),
+                                 pd.DataFrame(arr_times, columns=[atime_col]),
+                                 pd.DataFrame(distances, columns=[dist_col]),
+                                 stations], axis=1)  # , ignore_index=True)
+                # dropna D from distances, arr_times, time_ranges which are na
+                # FIXME: print to debug the removed dframe? do the same for stations and events df?
+                for subset, reason in {(dist_col,): "station-event distance",
+                                       (atime_col,): "arrival time",
+                                       (stime_col, etime_col): "time-range around arrival time"}.iteritems():
+                    _l_ = len(wdf)
+                    wdf.dropna(subset=subset, inplace=True)
+                    _l_ -= len(wdf)
+                    if _l_ > 0:
+                        logger.warning("%d stations removed (reason %s)" % (_l_, reason))
 
+                # create channel column: expand D by 3, in such a way that for each row R at
+                # position i, two new rows (copy of R) are inserted at i+1 and i+2
+                wdf = pd.DataFrame(np.repeat(wdf.values, len(chList), axis=0), columns=wdf.columns)
+                wdf.reset_index(inplace=True, drop=True)
+                # add channels column at position 0 (first one for the moment):
+                wdf.insert(0, 'Channel', '')
+                # populate channels column. Assuming channels is ['a', 'B'], then the newly created
+                # channel column values (from top to bottom) should be: a,B,a,B,a,B,...
+                for i in xrange(len(chList)):
+                    wdf.loc[wdf.index % len(chList) == i, 'Channel'] = chList[i]
+
+                # create Location column (location of the station right? FIXME: ASK)
+                wdf.insert(4, 'Location', ev_id)
+
+                # create dc column as fourth column (assuming it's not so relevant so when
+                # inspecting the table with some tool the relevant ones are first)
+                wdf.insert(4, 'DataCenter', dc)
+
+                # TBD: Data QueryStr EventID Id Location
+
+                # add at position 4 the query string
+                wdf.insert(4, 'QueryStr', get_wav_queries(wdf['DataCenter'], wdf['Channel'],
+                                                          wdf['Station'], wdf['DataStartTime'],
+                                                          wdf['DataEndTime']))
+                # we could have done like this: df.loc[:, 'QueryStr'] = wdf.apply...
+                # but we do not want to append at the end
+
+                # create dc column as fourth column (assuming it's not so relevant so when
+                # inspecting the table with some tool the relevant ones are first)
+                wdf.insert(0, '#EventID', ev_id)
+                # insert binary data (empty)
+                wdf.insert(0, 'Data', b'')
+                # create and insert ids (will be used with the db to check if item already exists)
+                wdf.insert(0, 'Id', get_wav_ids(wdf['#EventID'], wdf['#Network'], wdf['Station'],
+                                                wdf['Location'], wdf['Channel'],
+                                                wdf['DataStartTime'], wdf['DataEndTime']))
                 # skip when the dataframe is empty. Moreover, this apparently avoids shuffling
                 # column order
                 if not wdf.empty:
                     wav_dframe = wdf if wav_dframe is None else wav_dframe.append(wdf,
                                                                                   ignore_index=True)
 
+    ert.print_progress(epilog="Done")
+
+    logger.debug("")
+    logger.info("Querying Datacenter WS")
+
     total = 0
     skipped_error = 0
     skipped_empty = 0
     skipped_already_saved = 0
     if wav_dframe is not None:
+
         total = len(wav_dframe)
         data_table_name = "data"
         data_pkey = "Id"
@@ -535,10 +683,10 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
 
         wav_data = db_handler.purge(wav_dframe, data_table_name, data_pkey)
         skipped_already_saved = total - len(wav_data)
-        logging.info("")
-        logging.info(("Querying Datacenter WS: downloading and saving %d of %d waveforms"
-                      "(%d already saved)") %
-                     (len(wav_data), len(wav_dframe), len(wav_dframe) - len(wav_data)))
+
+        logger.debug("Downloading and saving %d of %d waveforms (%d already saved)",
+                     len(wav_data), len(wav_dframe), len(wav_dframe) - len(wav_data)
+                     )
 
         ert = EstRemTimer(len(wav_data))
 
@@ -547,37 +695,51 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         # http://stackoverflow.com/questions/23688307/settingwithcopywarning-even-when-using-loc
         wav_data.is_copy = False
 
+        logger.debug("")
+        logger.debug("Segments ready to be downloaded (one row per segment) "
+                     "after processing and purging invalid data:")
+        # print dframe except two verbose columns
+        # (Data which is byte and QueryStr is much data to be printed and in any case
+        # we will print it later)
+        logger.debug(pd_str(wav_data[list(c for c in wav_data.columns
+                                          if c not in ("QueryStr", "Data"))]))
+        logger.debug("")
+
         # do a loop on the index. Inefficient, but in any case we need to perform
         # url queries so the benefits of using pandas methods such as e.g. apply might vanish
         # (therefore avoid premature optimization, a test scenario should be built)
-        for i in wav_data.index:
+        for i in wav_data.index:  # FIXME: correct way to do it?
             query_str = wav_data.loc[i, 'QueryStr']
-            etr_msg = ('%s done. '
-                       'Est. remaining time: '
-                       '%s (%s)') % (ert.percent(), remtime, query_str)
-            logging.info(etr_msg)
             data = read_wav_data(query_str)
             wav_data.loc[i, 'Data'] = data
+            msg = "%d: %d bytes downloaded from: %s" % (i, len(data), query_str)
+            logger.debug(msg)
+            ert.print_progress(epilog=msg)
 
         # purge stuff which is not good:
         wav_data.dropna(subset=['Data'], inplace=True)
         skipped_error = (total - skipped_already_saved) - len(wav_data)
         wav_data = wav_data[wav_data['Data'] != b'']
         skipped_empty = (total - skipped_already_saved - skipped_error) - len(wav_data)
+
+    ert.print_progress(epilog="Done")
+    logger.debug("")
+    if logger.warnings:
+        print "%d warnings (check log for details)" % logger.warnings
+    logger.info(("%d of %d waveforms (mseed files) written to '%s', "
+                 "%d skipped (%d already saved, %d due to url error, %d empty)"),
+                total-skipped_empty-skipped_error-skipped_already_saved,
+                total,
+                outpath,
+                skipped_empty+skipped_error+skipped_already_saved,
+                skipped_already_saved,
+                skipped_error,
+                skipped_empty)
+
+    # write events:
+    db_handler.write(new_events, events_table_name, events_pkey)
+    if wav_dframe is not None:
         db_handler.write(wav_data, data_table_name, data_pkey, dtype=data_dtype)
 
-    logging.info("")
-    logging.info(("DONE: %d of %d waveforms (mseed files) written to '%s', "
-                  "%d skipped (%d already saved, %d due to url error, %d empty)"),
-                 total-skipped_empty-skipped_error-skipped_already_saved,
-                 total,
-                 outpath,
-                 skipped_empty+skipped_error+skipped_already_saved,
-                 skipped_already_saved,
-                 skipped_error,
-                 skipped_empty)
-
-
-# Event WS
-# Station WS
-# Dataselect WS
+    logger.save(db_handler)
+    return 0

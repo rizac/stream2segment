@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+from __future__ import print_function, unicode_literals
 """
     Some utilities which share common functions which I often re-use across projects. 
     This includes several type checking (for worshippers of duck-typing might be blaspheme, but
@@ -538,7 +540,7 @@ class EstRemTimer():
                                     # "  1%", " 15%", "100%"
                 ... loop code here ...
     """
-    def __init__(self, total_iterations, approx_to_seconds=True, use="median"):
+    def __init__(self, total_iterations, start_now=False, approx_to_seconds=True, use="median"):
         """
             Initializes an EstRemTimer for calculating the estimated remaining time (ert)
             :param: total_iterations the total iterations this object is assumed to use for
@@ -555,7 +557,7 @@ class EstRemTimer():
         """
         self.total = total_iterations
         self.done = 0
-        self._start_time = None  # time.time()
+        self._start_time = None if not start_now else time.time()
         self.ert = None
         self.approx_to_seconds = approx_to_seconds
         self._times = [] if use.lower() == "median" else None
@@ -618,6 +620,31 @@ class EstRemTimer():
                         ret = estremttime(elapsed_time, self.done, self.total, approx_to_seconds)
                 self.ert = ret
         return self.ert
+
+    def print_progress(self, length=12, empty_fill='∙', fill='█', bar_prefix='|',
+                       bar_fuffix='|', out=sys.stdout, show_percentage=True, show_ert=True,
+                       preamble='', epilog='', clear_cursor=True):
+        if clear_cursor:
+            print('\x1b[?25l', end='', file=out)
+        print('\r\x1b[K', end='', file=out)  # clear line
+        self.get()
+        percent = self.percent(None)
+        fill_len = max(0, min(length, int(percent * length + 0.5)))
+        empty_len = length - fill_len
+        line = '' if not preamble else preamble + " "
+        line += bar_prefix + (fill * fill_len) + (empty_fill * empty_len) + bar_fuffix
+        if show_percentage:
+            line += self.percent()
+        if show_ert:
+            line += " " + ("?" if self.ert is None else str(self.ert)) + "s"
+        if epilog:
+            line += " " + epilog
+        print(line, end='', file=out)
+        out.flush()
+        if self.done >= self.total:
+            print(file=out)  # print new line
+            if clear_cursor:
+                print('\x1b[?25h', end='', file=out)  # show cursor
 
 
 def estremttime(elapsed_time, iteration_number, total_iterations, approx_to_seconds=True):
