@@ -12,6 +12,7 @@ https://github.com/pypa/sampleproject
 
 # Always prefer setuptools over distutils
 from setuptools import setup, find_packages
+from stream2segment import __version__
 # To use a consistent encoding
 from codecs import open
 from os import path
@@ -28,7 +29,7 @@ setup(
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
-    version='0.1.0',
+    version=str(__version__),
 
     description='A python project to download seismic waveforms related to events',
     long_description=long_description,

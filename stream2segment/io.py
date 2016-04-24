@@ -3,18 +3,32 @@ from sqlalchemy.orm import Session
 from sqlalchemy import create_engine
 import pandas.io.sql as pdsql
 from sqlalchemy.exc import OperationalError
-# from sqlalchemy import BLOB
-# from pandas.io.sql import SQLTable
+import pandas as pd
+import numpy as np
+from utils import parsedb
+from utils.io import ensure
+from sqlalchemy import BLOB
 
-fileout = "sqlite:///./mydb.db"
-
+"""
+ This module holds the DbHandler class, which manages the synchronization between db and data saving
+ only the necessary stuff, and creating tables if they do not exist. This class uses sql alchemy's
+ automap_base which does not require any ORM declaration in a separate python module (nor its
+ maintainance), nor migration scripts: it simply looks at the database stored at the given location
+ and returns the tables in form of slq alchemy objects (if any): just specify the path and
+ everything is fine.
+ Drawbacks: foreign keys and complex stuff cannot be declared
+"""
+        
 
 class DbHandler(object):
-    def __init__(self, db_uri=fileout):
+    def __init__(self, db_uri):
         """
             :param: db_uri: the database uri, e.g. "sqlite:///" + filename
         """
         self.db_uri = db_uri
+#         self.is_sqlite = db_uri[:10] == "sqlite:///"
+#         if not self.is_sqlite:
+#             ensuredir()
 
     def init_db(self):
         """
@@ -95,7 +109,7 @@ class DbHandler(object):
             :return: the sqlalchemy table or a KeyError is raised if such a table could not be
             created
         """
-        if not dframe.empty:
+        if dframe is not None and not dframe.empty:
             if if_exists == 'append':
                 self._init_table(dframe, table_name, pkey_name, dtype)
             else:
@@ -147,3 +161,72 @@ class DbHandler(object):
             self.init_db()  # updates the tables
 
         return self.tables[table_name]
+
+    tbl_events = type("events", (object,), {'pkey': '#EventID'})
+    tbl_data = type("data", (object,), {'pkey': 'Id', 'dtype': {'Data': BLOB}})
+    tbl_logs = type("logs", (object,), {'pkey': 'Time'})
+
+    def purge_df(self, table, dframe):
+        if self.check_df(table, dframe):
+            return self.purge(dframe, table.__name__, table.pkey)
+
+    def write_df(self, table, dframe):
+        if self.check_df(table, dframe):
+            dtype = getattr(table, 'dtype', None)
+            self.write(dframe, table.__name__, table.pkey, dtype=dtype)
+
+    def check_df(self, table, dframe):
+        if table == self.tbl_data:
+            pkey = table.pkey
+            if pkey not in dframe.columns:
+                dframe.insert(0, pkey, self.get_wav_ids(dframe['#EventID'], dframe['#Network'],
+                                                        dframe['Station'], dframe['Location'],
+                                                        dframe['Channel'], dframe['DataStartTime'],
+                                                        dframe['DataEndTime']))
+            return True
+
+        return table in (self.tbl_events, self.tbl_logs)
+
+    @staticmethod
+    def get_wav_id(event_id, network, station, location, channel, start_time, end_time):
+        """
+            Returns a unique id from the given arguments. The hash of the tuple built from the
+            arguments will be returned. No argument can be None
+            :param: event_id: the event_id
+            :type: event_id: string
+            :param: network: the station network
+            :type: network: string
+            :param: station: the given station
+            :type: station: string
+            :param: location: the given location
+            :type: location: string
+            :param: channel: the given channel
+            :type: channel: string
+            :param: start_time: the wav start time
+            :type: start_time: datetime object, or a string representing a datetime
+                (e.g. datetime.isoformat())
+            :param: end_time: the wav end time, or a string representing a datetime
+                (e.g. datetime.isoformat())
+            :type: end_time: datetime object
+            :return: a unique integer denoting the given wav.
+            Two wavs with the same argument have the same id
+            :rtype: integer
+        """
+        start_time = start_time.isoformat()
+        end_time = end_time.isoformat()
+        val = (event_id, network, station, channel, location, start_time, end_time)
+        if None in val:
+            raise ValueError("No None value in get_wav_id")
+        return hash(val)
+
+    @staticmethod
+    def get_wav_ids(event_id_series, network_series, station_series, location_series, channel_series,
+                    start_time_series, end_time_series):
+        val = np.array([event_id_series.values, network_series.values, station_series.values,
+                        location_series.values, channel_series.values, start_time_series.values,
+                        end_time_series.values])
+
+        def getwid(arg):
+            return DbHandler.get_wav_id(*arg)
+        ret_val = np.apply_along_axis(getwid, axis=0, arr=val)
+        return pd.Series(ret_val)

@@ -1,10 +1,22 @@
 # -*- coding: utf-8 -*-
+
 from __future__ import print_function, unicode_literals
 """
-    Some utilities which share common functions which I often re-use across projects. 
-    This includes several type checking (for worshippers of duck-typing might be blaspheme, but
-    the variety of circumstances in life make things sometimes harder to be enclosed in simple -
-    although reasonable - rules.
+    Some utilities which share common functions which I often re-use across projects. Most of the
+    functions here are already implemented in many libraries, but none of which has all of them.
+    NOTES:
+      - Concerning type checking, for worshippers of duck-typing this might be blaspheme, but life
+        is to complex let handle all its circumstances in few rules
+      - Several functions are checking for string types and doing string conversion (a big complex
+        matter when migrating from python2 to 3). As a reminder, we write it here once:
+            ======= ============ ===============
+                    byte strings unicode strings
+            ======= ============ ===============
+            Python2 "abc" [*]    u"abc"
+            Python3 b"abc"       "abc" [*]
+            ======= ============ =================
+
+         [*]=default string object for the given python version
 """
 try:
     import numpy as np
@@ -18,7 +30,6 @@ except ImportError as ierr:
     def isnumpy(val):
         raise ierr
 
-import shutil
 import sys
 import datetime as dt
 import re
@@ -68,8 +79,7 @@ else:
 
 def isstr(val):
     """
-    Returns if val is a string. Python 2-3 compatible function
-    :return: True if val denotes a string (`basestring` in python < 3 and `str` otherwise)
+    :return: True if val denotes a string (`basestring` in python < 3 and `str` otherwise).
     """
     if ispy2():
         return isinstance(val, basestring)
@@ -79,10 +89,9 @@ def isstr(val):
 
 def isunicode(val):
     """
-    Returns if val is a unicode string. Python 2-3 compatible function (Note that in Python 3 this
-    method is equivalent to `isstr`)
     :return: True if val denotes a unicode string (`unicode` in python < 3 and `str` otherwise)
     """
+    isstr
     if ispy2():
         return isinstance(val, unicode)
     else:
@@ -91,30 +100,18 @@ def isunicode(val):
 
 def isbytes(val):
     """
-    Returns if val is a bytes object. Python 2-3 compatible function (Note that in Python 2 this
-    method is equivalent to `isstr`)
-    :return: True if val denotes a byte string (`bytes` in both python 2 and 3)
+    :return: True if val denotes a byte string (`bytes` in both python 2 and 3). In py3, this means
+    val is a sequence of bytes (not necessarily to be treated as string)
     """
     return isinstance(val, bytes)
 
 
 def tobytes(unicodestr, encoding='utf-8'):
     """
-        Converts unicodestr to a byte string, with the given encoding. Python 2-3 compatible.
-        Remember that
-            ======= ============ ===============
-                    byte strings unicode strings
-            ======= ============ ===============
-            Python2 "abc" [*]    u"abc"
-            Python3 b"abc"       "abc" [*]
-            ======= ============ =================
-
-         [*]=default string object for the given python version
-
-        :param unicodestr: a unicode string. If already byte string, this method returns it
-            immediately
+        Converts unicodestr to a byte sequence, with the given encoding. Python 2-3 compatible.
+        :param unicodestr: a unicode string. If already byte string, this method just returns it
         :param encoding: the encoding used. Defaults to 'utf-8' when missing
-        :return: a bytes class (same as str in python2) resulting from encoding unicode string
+        :return: a `bytes` object (same as `str` in python2) resulting from encoding unicodestr
     """
     if isbytes(unicodestr):
         return unicodestr
@@ -124,20 +121,9 @@ def tobytes(unicodestr, encoding='utf-8'):
 def tounicode(bytestr, decoding='utf-8'):
     """
         Converts bytestr to unicode string, with the given decoding. Python 2-3 compatible.
-        Remember that
-            ======= ============ ===============
-                    byte strings unicode strings
-            ======= ============ ===============
-            Python2 "abc" [*]    u"abc"
-            Python3 b"abc"       "abc" [*]
-            ======= ============ =================
-
-         [*]=default string object for the given python version
-
-        :param bytestr: a bytes object (same as str in python2). If unicode string,
-            this method returns it immediately
+        :param bytestr: a `bytes` object. If already unicode string, this method just returns it
         :param decoding: the decoding used. Defaults to 'utf-8' when missing
-        :return: a string (unicode string in python2) resulting from decoding bytestr
+        :return: a string (`unicode` string in python2) resulting from decoding bytestr
     """
     if isstr(bytestr):
         return bytestr
@@ -196,179 +182,6 @@ def load_module(filepath, name=None):
         # (Although this has been deprecated in Python 3.4.)
 
     # raise SystemError("unsupported python version: "+ str(sys.version_info))
-
-
-def _ensure(filepath, mode, mkdirs=False, errmsgfunc=None):
-    """checks for filepath according to mode, raises an OSError if check is false
-    :param mode: either 'd', 'dir', 'r', 'fr', 'w', 'fw' (case insensitive). Checks if file_name is,
-        respectively:
-            - 'd' or 'dir': an existing directory
-            - 'fr', 'r': file for reading (an existing file)
-            - 'fw', 'w': file for writing (a file whose dirname exists)
-    :param mkdirs: boolean indicating, when mode is 'file_w' or 'dir', whether to attempt to
-        create the necessary path. Ignored when mode is 'r'
-    :param errmsgfunc: None by default, it indicates a custom function which returns the string
-        error to be displayed in case of OSError's. Usually there's no need to implement a custom
-        one, but in case the function accepts two arguments, filepath and mode (the latter is
-        either 'r', 'w' or 'd') and returns the relative error message as string
-    :raises: SyntaxError if some argument is invalid, or OSError if filepath is not valid according
-        to mode and mkdirs
-    :return: True if mkdir has been called
-    """
-    # to see OsError error numbers, see here
-    # https://docs.python.org/2/library/errno.html#module-errno
-    # Here we use two:
-    # errno.EINVAL ' invalid argument'
-    # errno.errno.ENOENT 'no such file or directory'
-    if not isstr(filepath) or not filepath:
-        raise SyntaxError("{0}: '{1}' ({2})".format(strerror(errno.EINVAL),
-                                                    str(filepath),
-                                                    str(type(filepath))
-                                                    )
-                          )
-
-    keys = ('fw', 'w', 'fr', 'r', 'd', 'dir')
-
-    # normalize the mode argument:
-    if mode.lower() in keys[2:4]:
-        mode = 'r'
-    elif mode.lower() in keys[:2]:
-        mode = 'w'
-    elif mode.lower() in keys[4:]:
-        mode = 'd'
-    else:
-        raise SyntaxError('mode argument must be in ' + str(keys))
-
-    if errmsgfunc is None:  # build custom errormsgfunc if None
-        def errmsgfunc(filepath, mode):
-            if mode == 'w' or (mode == 'r' and not os.path.isdir(os.path.dirname(filepath))):
-                return "{0}: '{1}' ({2}: '{3}')".format(strerror(errno.ENOENT),
-                                                        os.path.basename(filepath),
-                                                        strerror(errno.ENOTDIR),
-                                                        os.path.dirname(filepath)
-                                                        )
-            elif mode == 'd':
-                return "{0}: '{1}'".format(strerror(errno.ENOTDIR), filepath)
-            elif mode == 'r':
-                return "{0}: '{1}'".format(strerror(errno.ENOENT), filepath)
-
-    if mode == 'w':
-        to_check = os.path.dirname(filepath)
-        func = os.path.isdir
-        mkdir_ = mkdirs
-    elif mode == 'd':
-        to_check = filepath
-        func = os.path.isdir
-        mkdir_ = mkdirs
-    else:  # mode == 'r':
-        to_check = filepath
-        func = os.path.isfile
-        mkdir_ = False
-
-    exists_ = func(to_check)
-    mkdirdone = False
-    if not func(to_check):
-        if mkdir_:
-            mkdirdone = True
-            os.makedirs(to_check)
-            exists_ = func(to_check)
-
-    if not exists_:
-        raise OSError(errmsgfunc(filepath, mode))
-
-    return mkdirdone
-
-
-def ensurefiler(filepath):
-    """Checks that filepath denotes a valid file, raises an OSError if not. This function is mostly
-    useful for initializing filepaths given as input argument (e.g. command line) also in conjunction
-    with libraries such as e.g. click, OptionParser or ArgumentParser.
-    For instance, it raises a meaningful OSError in case of non-existing parent directory (hopefully
-    saving useless browsing time). For any other case, it might be more convenient to simply call the
-    almost equivalent os.path.isfile(filepath)
-    :param filepath: a file path
-    :type filepath: string
-    :return: nothing
-    :raises: OSError if filepath does not denote an existing file
-    """
-    _ensure(filepath, 'r', False)  # last arg ignored, set to False for safety
-
-
-def ensurefilew(filepath, mkdirs=True):
-    """Checks that filepath denotes a valid file for writing, i.e., if its parent directory D
-    exists. Raises an OSError if not. This function is mostly useful for initializing filepaths given as
-    input argument (e.g. command line) also in conjunction with libraries such as e.g. click,
-    OptionParser or ArgumentParser.
-    :param filepath: a file path
-    :type filepath: string
-    :param mkdirs: True by default, if D does not exists will try to build it via mkdirs before
-        re-checking again its existence
-    :return: nothing
-    :raises: OSError if filepath directory does not denote an existing directory
-    """
-    _ensure(filepath, 'w', mkdirs)
-
-
-def ensuredir(filepath, mkdirs=True):
-    """Checks that filepath denotes a valid existing directory. Raises an OSError if not. This
-    function is mostly useful for initializing filepaths given as input argument (e.g. command line)
-    also in conjunction with libraries such as e.g. click, OptionParser or ArgumentParser.
-    For any other case, it might be more convenient to
-    call the almost equivalent os.path.isdir(filepath)
-    :param filepath: a file path
-    :type filepath: string
-    :param mkdirs: True by default, if D does not exists will try to build it via mkdirs before
-        re-checking again its existence
-    :return: nothing
-    :raises: OSError if filepath directory does not denote an existing directory
-    """
-    _ensure(filepath, 'd', mkdirs)
-
-
-def rsync(source, dest, update=True, modify_window=1):
-    """
-    Copies source to dest emulating a simple rsync unix command
-    :param source: the source file. If it does not exist, an OSError is raised
-    :param dest: the destination file. According to shutil.copy2, if dest is a directory then
-    the destination file will be os.path.join(dest, os.basename(source)
-    :param update: If True (the default), the copy will be skipped for a file which exists on
-        the destination and has a modified time that is newer than the source file.
-        (If an existing destination file has a modification time equal to the source file's,
-        it will be updated if the sizes are different.)
-    :param modify_window: (1 by default). This argument is ignored if update is False. Otherwise,
-        when comparing two timestamps, this function treats the timestamps as being equal if they
-        differ by no more than the modify-window value. This is normally 0 (for an exact match),
-        but it defaults to 1 as (quoting from rsync docs):
-        "In particular, when transferring to or from an MS Windows FAT filesystem
-         (which represents times with a 2-second resolution), --modify-window=1 is useful
-         (allowing times to differ by up to 1 second).
-        If update is a float, or any object parsable to float (e.g. "4.5"), it will be rounded to
-        integer
-    :return: the tuple (destination_file, copied), where the first item is the destination file
-    (which might not be the dest argument, if the latter is a directory) and a boolean denoting if
-    the copy has been performed. Note that it is not guaranteed that the returned file exists (the
-    user has to check for it)
-    """
-    if not os.path.isfile(source):
-        raise OSError(strerror(errno.ENOENT) + ": '" + source + "'")
-
-    if os.path.isdir(dest):
-        dest = os.path.join(dest, os.path.basename(source))
-
-    if update and os.path.isfile(dest):
-        st1, st2 = os.stat(source), os.stat(dest)
-        # st# = (mode, ino, dev, nlink, uid, gid, size, atime, mtime, ctime)
-        mtime_src, mtime_dest = st1[8], st2[8]
-        # ignore if
-        # 1) dest is newer than source OR
-        # 2) times are equal (i.e. within the specified interval) AND sizes are equal (sizes are
-        # the stats elements at index 6)
-        if mtime_dest > mtime_src + update or \
-                (mtime_src - update <= mtime_dest <= mtime_src + update and st1[6] == st2[6]):
-            return dest, False
-
-    shutil.copy2(source, dest)
-    return dest, True
 
 
 def url_read(url, blockSize=1024*1024, decoding=None):
@@ -441,28 +254,28 @@ def url_read(url, blockSize=1024*1024, decoding=None):
     return tounicode(dcResult, decoding) if decoding is not None else dcResult
 
 
-def prepare_datestr(string, ignore_z=True, allow_spaces=True):
-    """
-        "Prepares" string trying to make it datetime iso standard. This method basically gives the
-        opportunity to remove the 'Z' at the end (denoting the zulu timezone) and replaces spaces
-        with 'T'. NOTE: this methods returns the same string argument if any TypeError, IndexError
-        or AttributeError is found.
-        :param ignore_z: if True (the default), removes any 'Z' at the end of string, as 'Z' denotes
-            the "zulu" timezone
-        :param allow_spaces: if True (the default) all spaces of string will be replaced with 'T'.
-        :return a new string according to the arguments or the same string object
-    """
-    # kind of redundant but allows unit testing
-    try:
-        if ignore_z and string[-1] == 'Z':
-            string = string[:-1]
-
-        if allow_spaces:
-            string = string.replace(' ', 'T')
-    except (TypeError, IndexError, AttributeError):
-        pass
-
-    return string
+# def prepare_datestr(string, ignore_z=True, allow_spaces=True):
+#     """
+#         "Prepares" string trying to make it datetime iso standard. This method basically gives the
+#         opportunity to remove the 'Z' at the end (denoting the zulu timezone) and replaces spaces
+#         with 'T'. NOTE: this methods returns the same string argument if any TypeError, IndexError
+#         or AttributeError is found.
+#         :param ignore_z: if True (the default), removes any 'Z' at the end of string, as 'Z' denotes
+#             the "zulu" timezone
+#         :param allow_spaces: if True (the default) all spaces of string will be replaced with 'T'.
+#         :return a new string according to the arguments or the same string object
+#     """
+#     # kind of redundant but allows unit testing
+#     try:
+#         if ignore_z and string[-1] == 'Z':
+#             string = string[:-1]
+# 
+#         if allow_spaces:
+#             string = string.replace(' ', 'T')
+#     except (TypeError, IndexError, AttributeError):
+#         pass
+# 
+#     return string
 
 
 # these methods are implemented to avoid complex workarounds in testing.
@@ -472,21 +285,25 @@ _datetime_utcnow = dt.datetime.utcnow
 _datetime_strptime = dt.datetime.strptime
 
 
-def datetime(string, ignore_z=True, allow_spaces=True,
-             formats=['%Y-%m-%dT%H:%M:%S', '%Y-%m-%d', '%Y-%m-%dT%H:%M:%S.%f'],
-             on_err_return_none=False):
+def datetime(string, ignore_z=True,
+             formats=['%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%d',
+                      '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M:%S.%f'],
+             on_err=ValueError):
     """
-        Converts a date in string format (as returned by a fdnsws query) into
+        Converts a date in string format into
         a datetime python object. The inverse can be obtained by calling
         dt.isoformat() (which returns 'T' as date time separator, and optionally microseconds
-        if they are not zero)
+        if they are not zero). This method is mainly used in argparser from command line and it's
+        not intended to be optimized for performance
         :param: string: if a datetime object, returns it. If date object, converts to datetime
         and returns it. Otherwise must be a string representing a datetime
         :type: string: a string, a date or a datetime object
         :param ignore_z: if True (the default), removes any 'Z' at the end of string, as 'Z' denotes
             the "zulu" timezone
         :type: ignore_z: boolean
-        :param allow_spaces: if True (the default) all spaces of string will be replaced with 'T'.
+        :param allow_spaces: if True (the default) for each string in formats an attempt will be done
+        by replacing all 'T' with 
+        all spaces of string will be replaced with 'T'.
         :type: allow_spaces: boolean
         :param: on_err_return_none: if True, does what it says (None is returned). Otherwise raises
         either a ValueError or a TypeError
@@ -501,24 +318,32 @@ def datetime(string, ignore_z=True, allow_spaces=True,
     """
     if isinstance(string, dt.datetime):
         return string
-    elif isinstance(string, dt.date):
-        return dt.datetime(year=string.year, month=string.month, day=string.day)
 
-    string = prepare_datestr(string, ignore_z, allow_spaces)
+    if ignore_z and string[-1] == 'Z':
+        string = string[:-1]
 
     for dtformat in formats:
         try:
             return _datetime_strptime(string, dtformat)
         except ValueError:  # as exce:
             pass
-        except TypeError:  # as terr:
-            if on_err_return_none:
-                return None
-            raise
+        except TypeError as terr:
+            try:
+                raise on_err(str(terr))
+            except TypeError:
+                return on_err
 
-    if on_err_return_none:
-        return None
-    raise ValueError("time data '%s' does not match any of the given formats" % string)
+    try:
+        raise on_err("%s: invalid date time" % string)
+    except TypeError:
+        return on_err
+
+
+def parsedb(string):
+    p = re.compile(r'^(?P<dialect>.*?)(?:\+(?P<driver>.*?))?\:\/\/(?:(?P<username>.*?)\:'
+                   '(?P<password>.*?)\@(?P<host>.*?)\:(?P<port>.*?))?\/(?P<database>.*?)$')
+    m = p.match(string)
+    return m
 
 
 class EstRemTimer():
@@ -546,6 +371,9 @@ class EstRemTimer():
             :param: total_iterations the total iterations this object is assumed to use for
             calculate the ert
             :type: total_iterations integer
+            :param: start_now: False by default, set to True if the object methods get or
+            print_progress are called at the end of the loop (i.e., when the first loop work has
+            already been done)
             :param: approx_to_seconds: when True (the default) approximate the ert
             (timedelta object) to seconds
             :type: approx_to_seconds: boolean
@@ -624,7 +452,7 @@ class EstRemTimer():
     def print_progress(self, length=12, empty_fill='∙', fill='█', bar_prefix='|',
                        bar_fuffix='|', out=sys.stdout, show_percentage=True, show_ert=True,
                        preamble='', epilog='', clear_cursor=True):
-        if clear_cursor:
+        if clear_cursor and (self._start_time is None or self.done == 0):  # first round
             print('\x1b[?25l', end='', file=out)
         print('\r\x1b[K', end='', file=out)  # clear line
         self.get()
@@ -636,7 +464,7 @@ class EstRemTimer():
         if show_percentage:
             line += self.percent()
         if show_ert:
-            line += " " + ("?" if self.ert is None else str(self.ert)) + "s"
+            line += (" unknown time " if self.ert is None else " ≈"+str(self.ert)) + "s remaining."
         if epilog:
             line += " " + epilog
         print(line, end='', file=out)

@@ -22,34 +22,34 @@ import yaml
 import logging
 import argparse
 import datetime as dt
-from stream2segment.query_utils import save_waveforms
+from stream2segment.query import save_waveforms
 from stream2segment.utils import datetime as dtime
 
 
-def existing_directory(string):
-    if not string:
-        raise argparse.ArgumentTypeError(" not specified")
-
-    path_ = string
-    if not os.path.isabs(string):
-        string = os.path.abspath(os.path.join(os.path.dirname(__file__), string))
-
-    if not os.path.exists(string):
-        os.makedirs(string)
-        logging.warning('"%s" newly created (did not exist)', string)
-
-    if not os.path.isdir(string):
-        raise argparse.ArgumentTypeError(path_ + " is not an existing directory")
+def existing_directory(string):  # FIXME: remove!!
+#     p = utils.parsedb(string)
+#     
+#     if not string:
+#         raise argparse.ArgumentTypeError(" not specified")
+# 
+#     path_ = string
+#     if not os.path.isabs(string):
+#         string = os.path.abspath(os.path.join(os.path.dirname(__file__), string))
+# 
+#     if not os.path.exists(string):
+#         os.makedirs(string)
+#         logging.warning('"%s" newly created (did not exist)', string)
+# 
+#     if not os.path.isdir(string):
+#         raise argparse.ArgumentTypeError(path_ + " is not an existing directory")
     return string
 
 
 def valid_date(string):
     """does a check on string to see if it's a valid datetime string.
     Returns the string on success, throws an ArgumentTypeError otherwise"""
-    if dtime(string, on_err_return_none=True) is None:
-        raise argparse.ArgumentTypeError(str(string) + " " + str(type(str)) +
-                                         " is not a valid date")
-    return string
+    return dtime(string, on_err=argparse.ArgumentTypeError)
+    # return string
 
 
 def load_def_cfg(filepath='config.yaml'):
@@ -108,13 +108,14 @@ def parse_args(description=sys.argv[0], args=sys.argv[1:], cfg_dict=load_def_cfg
     parser.add_argument('-o', '--outpath', type=existing_directory,
                         help='Path where to store waveforms.',
                         default=cfg_dict.get('outpath', ''))
-    dtn = dt.datetime.utcnow()
+    _now = dt.datetime.utcnow()
+    dtn = dt.datetime(_now.year, _now.month, _now.day, 0, 0, 0)  # set to today at midnight
     parser.add_argument('-f', '--start', type=valid_date,
                         default=cfg_dict.get('start',
-                                             dtn-dt.timedelta(days=1)).strftime("%Y-%m-%d"),
+                                             dtn-dt.timedelta(days=1)),
                         help='Limit to events on or after the specified start time.')
     parser.add_argument('-t', '--end', type=valid_date,
-                        default=cfg_dict.get('end', dtn.strftime("%Y-%m-%d")),
+                        default=cfg_dict.get('end', dtn),
                         help='Limit to events on or before the specified end time.')
 
 #     parser.add_argument('--version', action='version',
@@ -168,7 +169,7 @@ def parse_args(description=sys.argv[0], args=sys.argv[1:], cfg_dict=load_def_cfg
 def main():
 
     cfg_dict = load_def_cfg()
-    args = parse_args(description='First draft to download waveforms related to events',
+    args = parse_args(description='Download waveforms related to events',
                       cfg_dict=cfg_dict)
 
     vars_args = vars(args)
@@ -177,7 +178,7 @@ def main():
     vars_args['channelList'] = cfg_dict['channels']
     vars_args['datacenters_dict'] = cfg_dict['datacenters']
     # remove unwanted args:
-    vars_args.pop('version', None)
+    # vars_args.pop('version', None)
     sys.exit(save_waveforms(**vars_args))
 
 
