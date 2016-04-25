@@ -8,6 +8,7 @@ import numpy as np
 from utils import parsedb
 from utils.io import ensure
 from sqlalchemy import BLOB
+import os
 
 """
  This module holds the DbHandler class, which manages the synchronization between db and data saving
@@ -18,7 +19,7 @@ from sqlalchemy import BLOB
  everything is fine.
  Drawbacks: foreign keys and complex stuff cannot be declared
 """
-        
+
 
 class DbHandler(object):
     def __init__(self, db_uri):
@@ -42,7 +43,7 @@ class DbHandler(object):
 
         # engine, initialize once
         if not hasattr(self, 'engine'):
-            self. engine = create_engine(self.db_uri)
+            self.engine = create_engine(self.db_uri)
 
         # reflect the tables
         # Note: ONLY TABLES WITH PRIMARY KEYS will be mapped!
@@ -162,9 +163,16 @@ class DbHandler(object):
 
         return self.tables[table_name]
 
-    tbl_events = type("events", (object,), {'pkey': '#EventID'})
-    tbl_data = type("data", (object,), {'pkey': 'Id', 'dtype': {'Data': BLOB}})
-    tbl_logs = type("logs", (object,), {'pkey': 'Time'})
+    tbl_events = type("events", (object,), {'pkey': '#EventID',
+                                            'parse_dates': ['DataStartTime', 'DataEndTime',
+                                                            'StartTime', 'EndTime', 'ArrivalTime']
+                                            })
+    tbl_data = type("data", (object,), {'pkey': 'Id',
+                                        'dtype': {'Data': BLOB},
+                                        'parse_dates': ['Time']
+                                        })
+    tbl_logs = type("logs", (object,), {'pkey': 'Time',
+                                        'parse_dates': ['Time']})
 
     def purge_df(self, table, dframe):
         if self.check_df(table, dframe):
@@ -220,8 +228,11 @@ class DbHandler(object):
         return hash(val)
 
     @staticmethod
-    def get_wav_ids(event_id_series, network_series, station_series, location_series, channel_series,
-                    start_time_series, end_time_series):
+    def get_wav_ids(event_id_series, network_series, station_series, location_series,
+                    channel_series, start_time_series, end_time_series):
+        """
+            Same as get_wav_id but called on pandas series
+        """
         val = np.array([event_id_series.values, network_series.values, station_series.values,
                         location_series.values, channel_series.values, start_time_series.values,
                         end_time_series.values])
@@ -230,3 +241,73 @@ class DbHandler(object):
             return DbHandler.get_wav_id(*arg)
         ret_val = np.apply_along_axis(getwid, axis=0, arr=val)
         return pd.Series(ret_val)
+
+    def read(self, table_name, coerce_float=True, index_col=None, parse_dates=None, columns=None,
+             chunksize=None):
+        """
+            Read SQL database table into a DataFrame. Calls pandas read_sql_table
+            :type table_name: string
+            :param table_name: Name of SQL table in database
+
+            :type index_col: string or list of strings, optional, default: None
+            :param index_col: Column(s) to set as index(MultiIndex)
+            :type coerce_float: boolean, default True
+            :param  coerce_float: Attempt to convert values to non-string, non-numeric objects (like
+            decimal.Decimal) to floating point. Can result in loss of Precision.
+            :type parse_dates: list or dict, default: None
+            :param  parse_dates:
+                - List of column names to parse as dates
+                - Dict of {column_name: format string} where format string is strftime compatible in
+                case of parsing string times or is one of (D, s, ns, ms, us) in case of parsing
+                integer timestamps
+                - Dict of {column_name: arg dict}, where the arg dict corresponds to the keyword
+                arguments of pandas.to_datetime() Especially useful with databases without native
+                Datetime support, such as SQLite
+            :type columns: list, default: None
+            :param columns: List of column names to select from sql table
+            :type chunksize: int, default None
+            :param chunksize: If specified, return an iterator where chunksize is the number of rows
+            to include in each chunk.
+            :return a pandas DataFrame (empty in case table not found)
+        """
+        self.init_db()
+        tables = self.tables
+        if table_name not in tables:
+            return pd.DataFrame()
+        return pd.read_sql_table(table_name, self.engine, None, index_col, coerce_float,
+                                 parse_dates, columns, chunksize)
+
+    def read_df(self, table, chunksize=None):
+        """
+         Read SQL database table into a DataFrame. Calls pandas read_sql_table
+         :param table: one of the class attributes of this class starting with "tbl_" and
+         identifying a specific datbase table (with all necessary settings stored and thus not
+         to be remembered as in self.read): E.g., tbl_logs, tbl_data, tbl_events
+         """
+        if table not in (self.tbl_data, self.tbl_events, self.tbl_logs):
+            return pd.DataFrame()
+        obj = self.read(table.__name__, coerce_float=True,
+                        # use table pkey as index key only if data table (then remove it):
+                        index_col=table.pkey if table == self.tbl_data else None,
+                        parse_dates=getattr(table, 'parse_dates', None),
+                        columns=None,
+                        chunksize=chunksize)  # FIXME!! parse dates!
+        if table == self.tbl_data:  # remove ids as they are useless
+            if chunksize is None:
+                obj.reset_index(drop=True, inplace=True)
+            else:
+                def func():
+                    for o in obj:
+                        o.reset_index(drop=True, inplace=True)
+                        yield o
+                obj = func()
+            return obj
+
+
+if __name__ == "__main__":
+    os.chdir(os.path.dirname(os.path.dirname(__file__)))
+    dbio = DbHandler('sqlite:///./mydb.db')  # 'sqlite:///./mydb.db'
+    dbio.init_db()
+    obj = dbio.read_df(dbio.tbl_data, chunksize=40)
+    for o in obj:
+        print "chunksize"

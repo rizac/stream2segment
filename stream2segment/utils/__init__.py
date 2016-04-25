@@ -339,6 +339,70 @@ def datetime(string, ignore_z=True,
         return on_err
 
 
+def datetime2(string, formats=None, on_err=ValueError):
+    """
+        Converts a date in string format into a datetime python object. The inverse can be obtained
+        by calling dt.isoformat() (which returns 'T' as date time separator, and optionally
+        microseconds if they are not zero). This method is mainly used in argument parser from
+        command line emulating an easy version of dateutil.parser.parse (without the need of that
+        dependency) and assuming string is an iso-like datetime format (e.g. fdnsws standard)
+        :param: string: if a datetime object, returns it. If date object, converts to datetime
+        and returns it. Otherwise must be a string representing a datetime
+        :type: string: a string, a date or a datetime object (in that case just returns it)
+        :param formats: if list or iterable, it holds the strings denoting the formats to be used
+        to convert string (in the order they are declared). If None (the default), the datetime
+        format will be guessed from the string length among the following:
+           - '%Y-%m-%dT%H:%M:%S.%fZ'
+           - '%Y-%m-%dT%H:%M:%SZ'
+           - '%Y-%m-%dZ'
+        Note: once a candidate format is chosen, 'T' might be replaced by ' ' if string does not
+        have 'T', and ''Z' (the zulu timezone) will be appended if string ends with 'Z'
+        :param: on_err: if subclass of Exception, raises it in case of failure. Otherwise it is the
+        return value in case of failure (e.g., on_err=ValueError, on_err=None)
+        :type: on_err_return_none: object or Exception
+        :return: a datetime object
+        :Example:
+        to_datetime("2016-06-01T09:04:00.5600Z")
+        to_datetime("2016-06-01T09:04:00.5600")
+        to_datetime("2016-06-01 09:04:00.5600Z")
+        to_datetime("2016-06-01 09:04:00.5600Z")
+        to_datetime("2016-06-01")
+    """
+    if isinstance(string, dt.datetime):
+        return string
+
+    if formats is None:
+        len_ = len(string)
+        if len_ <= 9:
+            formats = []  # alias as: raiseon_err or return it
+        else:
+            # string search is faster: try to guess the format instead of looping
+            end_ = 'Z' if string[-1] == 'Z' else ''
+            sep_ = 'T' if 'T' in string else ' '
+            if len_ > 19:
+                formats = ['%Y-%m-%d' + sep_ + '%H:%M:%S.%f' + end_]
+            elif len_ > 10:
+                formats = ['%Y-%m-%d' + sep_ + '%H:%M:%S' + end_]
+            else:
+                formats = ['%Y-%m-%d' + end_]
+
+    for dtformat in formats:
+        try:
+            return _datetime_strptime(string, dtformat)
+        except ValueError:  # as exce:
+            pass
+        except TypeError as terr:
+            try:
+                raise on_err(str(terr))
+            except TypeError:
+                return on_err
+
+    try:
+        raise on_err("%s: invalid date time" % string)
+    except TypeError:
+        return on_err
+
+
 def parsedb(string):
     p = re.compile(r'^(?P<dialect>.*?)(?:\+(?P<driver>.*?))?\:\/\/(?:(?P<username>.*?)\:'
                    '(?P<password>.*?)\@(?P<host>.*?)\:(?P<port>.*?))?\/(?P<database>.*?)$')
@@ -514,3 +578,44 @@ def estremttime(elapsed_time, iteration_number, total_iterations, approx_to_seco
     dttd = dt.timedelta(seconds=int(remaining_seconds+0.5)
                         if approx_to_seconds else remaining_seconds)
     return dttd
+
+
+if __name__ == "__main__":
+    
+    dates = ["2006-01-01", 
+             "2006-01-0g", 
+             "2006-01-02 11:34:56",
+             "2006-01-02T11:34:56",
+             "2006-01-02 11:34:56.123",
+             "2006-01-02T11:34:56.123"
+             "2006-01-02 11:34:56Z",
+             "2006-01-02T11:34:56Z",
+             "2006-01-02 11:34:56.123Z",
+             "2006-01-02T11:34:56.123Z"
+             "2006-01-02Tsdf11:34:56.123Z"]
+    
+    C = 500
+    import time
+    import numpy as np
+    
+    print("datetime:")
+    timez1 = []
+    for d in dates:
+        t = time.time()
+        for i in xrange(C):
+            datetime(d, ignore_z=True, on_err=None)
+        timez1.append(time.time()-t)
+        print("%s: %f" % (d, timez1[-1]))
+        
+    print("datetime2:")
+    timez2 = []
+    for d in dates:
+        t = time.time()
+        for i in xrange(C):
+            datetime2(d, on_err=None)
+        timez2.append(time.time()-t)
+        print("%s: %f" % (d, timez2[-1]))
+                
+    print("datetime: %f" % np.mean(timez1))
+    print("datetime2: %f" % np.mean(timez2))
+    

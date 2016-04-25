@@ -90,18 +90,6 @@ def parse_args(description=sys.argv[0], args=sys.argv[1:], cfg_dict=load_def_cfg
                         type=float,
                         default=cfg_dict['search_radius_args'])
 
-    # logging stuff
-#     parser.add_argument('-v', '--log_verbosity', action="count", default=cfg_dict['log_verbosity'],
-#                         help='Increase the verbosity level in log')
-#     parser.add_argument('-l', '--log_filename', default=cfg_dict.pop('log_filename', None),
-#                         help='log filename (if missing the program prints log to standard output)')
-#     parser.add_argument('--log_filemode', default=cfg_dict.get('log_filemode', None),
-#                         help='log filemode. Defaults to "a". Ignored if log_filename is missing')
-#     parser.add_argument('--log_format', default=cfg_dict.get('log_format', None),
-#                         help='log message format')
-#     parser.add_argument('--log_datefmt', default=cfg_dict.get('log_datefmt', None),
-#                         help='log message datetime format')
-
     # set the file, finally:
     # note that the relative parser are called if the argument is a string. If not supplied, i.e.
     # None, the parser won't be called. Thus, we supply a default argument
@@ -122,48 +110,6 @@ def parse_args(description=sys.argv[0], args=sys.argv[1:], cfg_dict=load_def_cfg
 #                         version='event2wav %s' % version)
     args = parser.parse_args(args)
     return args
-
-
-# def config_logging(**kwargs):
-#     # see here: https://docs.python.org/2/library/logging.html#logging.basicConfig
-# 
-#     # Limit the maximum verbosity to 3 (DEBUG)
-#     # see http://stackoverflow.com/questions/2557168/how-do-i-change-the-default-format-of-log-messages-in-python-app-engine
-# 
-#     """configures the logging from kwargs. Argument are the same as logging.basicConfig
-#         with a "log_" prefix with two exceptions: 
-#         "log_verbosity" is "level" in baseConfig BUT goes from 0 to 3 in inverse order
-#             (0=error, 3=debug)
-#         "log_filename" and "log_stream", if not specified or None, default to stream=sys.stdout
-#         The other parameters:
-#         "log_filename", "log_filemode", "log_format", "log_datefmt"
-#         behaves like in logging.baseConfig
-#         :return: the input dictionary WITHOUT the keys used for configuruing logging
-#     """
-# 
-#     logging_dict = {}
-# 
-#     for key, val in {'log_format': 'format',
-#                      'log_datefmt': 'datefmt',
-#                      'log_verbosity': 'level',
-#                      'log_filename': 'filename',
-#                      'log_filemode': 'filemode'}.iteritems():
-#         var = kwargs.pop(key, None)
-#         if var is not None:
-#             logging_dict[val] = var
-# 
-#     if 'level' in logging_dict:
-#         verbNum = max(0, min(3, logging_dict['level']))
-#         lvl = 40 - verbNum * 10
-#         logging_dict['level'] = lvl
-# 
-#     if 'filename' not in logging_dict:
-#         logging_dict.pop('filemode', None)
-#         logging_dict['stream'] = sys.stdout
-# 
-#     logging.basicConfig(**logging_dict)
-# 
-#     return kwargs
 
 
 def main():
