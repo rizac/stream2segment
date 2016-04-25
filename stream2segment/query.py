@@ -419,13 +419,21 @@ class LoggerHandler(object):
         self.errors += 1
         self.rootlogger.error(*args, **kw)
 
-    def save(self, db_handler):
+    def to_df(self, seg_found, seg_written, close_stream=True):
         """Saves the logger informatuon to database"""
-        db_handler.write(pd.DataFrame([[datetime.utcnow(), tounicode(self.stringio.getvalue()),
-                                        self.warnings, self.errors, str(program_version)]],
-                                      columns=["Time", "Log", "Warnings", "Errors",
-                                               "ProgramVersion"]
-                                      ), "logs", "Time")
+#         db_handler.write(pd.DataFrame([[datetime.utcnow(), tounicode(self.stringio.getvalue()),
+#                                         self.warnings, self.errors, str(program_version)]],
+#                                       columns=["Time", "Log", "Warnings", "Errors",
+#                                                "ProgramVersion"]
+#                                       ), "logs", "Time")
+        pddf = pd.DataFrame([[datetime.utcnow(), tounicode(self.stringio.getvalue()), self.warnings,
+                              self.errors, seg_found, seg_written, seg_found - seg_written,
+                              ".".join(str(v) for v in program_version)]],
+                            columns=["Time", "Log", "Warnings", "Errors", "SegmentsFound",
+                                     "SegmentsWritten", "SegmentsSkipped", "ProgramVersion"])
+        if close_stream:
+            self.stringio.close()
+        return pddf
 
 
 def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius_args,
@@ -582,8 +590,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
                 dist_col = "Distance_Event_Station/deg"
                 stime_col = "DataStartTime"
                 etime_col = "DataEndTime"
-                # FIXME: do not use ignore_index otherwise column names are lost
-                # BUT: what if we have the same index? check!
+
                 # NOTE: start_times and end_times are NAMED series. Thus this sets a dataframe of
                 # empty values:
                 # pd.DataFrame(start_times, columns=[stime_col]) if stime_col name is different
@@ -595,11 +602,15 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
                                  pd.DataFrame({atime_col: arr_times}),
                                  pd.DataFrame({dist_col: distances}),
                                  stations], axis=1)  # , ignore_index=True)
+                # NOTE ABOVE: FIXME: do not use ignore_index otherwise column names are lost
+                # BUT: what if we have the same index? check!
+
                 # dropna D from distances, arr_times, time_ranges which are na
                 # FIXME: print to debug the removed dframe? do the same for stations and events df?
-                for subset, reason in {(dist_col,): "station-event distance",
-                                       (atime_col,): "arrival time",
-                                       (stime_col, etime_col): "time-range around arrival time"}.iteritems():
+                dict_ = {(dist_col,): "station-event distance",
+                         (atime_col,): "arrival time",
+                         (stime_col, etime_col): "time-range around arrival time"}
+                for subset, reason in dict_.iteritems():
                     _l_ = len(wdf)
                     wdf.dropna(subset=subset, inplace=True)
                     _l_ -= len(wdf)
@@ -617,25 +628,22 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
                 for i in xrange(len(chList)):
                     wdf.loc[wdf.index % len(chList) == i, 'Channel'] = chList[i]
 
-                # create Location column (location of the station right? FIXME: ASK)
-                wdf.insert(4, 'Location', '')
-
-                # create dc column as fourth column (assuming it's not so relevant so when
-                # inspecting the table with some tool the relevant ones are first)
-                wdf.insert(4, 'DataCenter', dc)
-
-                # TBD: Data QueryStr EventID Id Location
-
-                # add at position 4 the query string
-                wdf.insert(4, 'QueryStr', get_wav_queries(wdf['DataCenter'], wdf['Channel'],
-                                                          wdf['Station'], wdf['DataStartTime'],
-                                                          wdf['DataEndTime']))
-                # we could have done like this: df.loc[:, 'QueryStr'] = wdf.apply...
-                # but we do not want to append at the end
-
-                # create dc column as fourth column (assuming it's not so relevant so when
-                # inspecting the table with some tool the relevant ones are first)
+                # add event id column at position 0
                 wdf.insert(0, '#EventID', ev_id)
+
+                colpos = len(wdf.columns) - len(stations.columns)
+                # set a column position from which to add next columns
+                # Basically from here on append them at the end so that
+                # inspecting the table with some tool the relevant ones are first)
+                # add single valued columns:
+                for col_name, col_val in [('DataCenter', dc), ('Location', ''), ('ClassLabel', '')]:
+                    wdf.insert(colpos, col_name, col_val)
+                    colpos += 1
+
+                # add the query string
+                wdf.insert(colpos, 'QueryStr', get_wav_queries(wdf['DataCenter'], wdf['Channel'],
+                                                               wdf['Station'], wdf['DataStartTime'],
+                                                               wdf['DataEndTime']))
 
                 # skip when the dataframe is empty. Moreover, this apparently avoids shuffling
                 # column order
@@ -662,7 +670,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         wav_dframe = wav_dframe[wdf.columns]
 
         # purge wav_data (this creates a column id primary key):
-        wav_data = db_handler.purge_df(db_handler.tbl_data, wav_dframe)
+        wav_data = db_handler.purge_df(db_handler.tables.data, wav_dframe)
         skipped_already_saved = total - len(wav_data)
 
         logger.debug("Downloading and saving %d of %d waveforms (%d already saved)",
@@ -699,22 +707,25 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
     if logger.warnings:
         print "%d warnings (check log for details)" % logger.warnings
 
-    logger.info(("%d of %d waveforms (mseed files) written to '%s', "
+    seg_written = total-skipped_empty-skipped_error-skipped_already_saved
+    logger.info(("%d of %d segments written to '%s', "
                  "%d skipped (%d already saved, %d due to url error, %d empty)"),
-                total-skipped_empty-skipped_error-skipped_already_saved,
+                seg_written,
                 total,
                 outpath,
-                skipped_empty+skipped_error+skipped_already_saved,
+                total - seg_written,
                 skipped_already_saved,
                 skipped_error,
                 skipped_empty)
 
     # write events:
     # first purge them then write
-    new_events = db_handler.purge_df(db_handler.tbl_events, events)
-    db_handler.write_df(db_handler.tbl_events, new_events)
+    new_events = db_handler.purge_df(db_handler.tables.events, events)
+    db_handler.write_df(db_handler.tables.events, new_events)
     # write data:
-    db_handler.write_df(db_handler.tbl_data, wav_data)
+    db_handler.write_df(db_handler.tables.data, wav_data)
     # write log:
-    logger.save(db_handler)
+    log_dframe = logger.to_df(seg_found=total, seg_written=seg_written)
+    db_handler.write_df(db_handler.tables.logs, log_dframe)
+
     return 0

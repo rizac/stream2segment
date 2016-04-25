@@ -4,9 +4,6 @@ from sqlalchemy import create_engine
 import pandas.io.sql as pdsql
 from sqlalchemy.exc import OperationalError
 import pandas as pd
-import numpy as np
-from utils import parsedb
-from utils.io import ensure
 from sqlalchemy import BLOB
 import os
 
@@ -27,9 +24,37 @@ class DbHandler(object):
             :param: db_uri: the database uri, e.g. "sqlite:///" + filename
         """
         self.db_uri = db_uri
-#         self.is_sqlite = db_uri[:10] == "sqlite:///"
-#         if not self.is_sqlite:
-#             ensuredir()
+        # initialize self.tables, a dict
+
+        class MyDict(dict):  # allow self.tables to have attributes (see below)
+            pass
+        self.tables = MyDict()
+
+        # self.tables will be populated inside initdb when needed (i.e, lazily) with our
+        # sqlAlchemy table objects (using sqlAlchemy auto-mapping): this allows us to be free of
+        # implementing our Base class and ORM in python, with the pain of keeping it updated with db
+        # migrations.
+        # However, a complete automation is not entirely possible. Pandas sql IO operations have to
+        # be hacked to account for e.g., primary keys and other parameters.
+        # These parameters are saved here below and they will be used when calling read_df, purge_df
+        # and write_df, which are shorthand function for read, purge and write
+        self.tables._metadata = {"events": {'pkey': '#EventID',
+                                            'parse_dates': ['DataStartTime', 'DataEndTime',
+                                                            'StartTime', 'EndTime', 'ArrivalTime']
+                                            },
+                                 "data": {'pkey': 'Id',
+                                          'dtype': {'Data': BLOB},
+                                          'parse_dates': ['Time']
+                                          },
+                                 "logs": {'pkey': 'Time',
+                                          'parse_dates': ['Time']
+                                          }
+                                 }
+        # Now, we want to use read_df, purge_df, write_df with simplicity, for instance:
+        # dbhandler.purge_df(dbhandler.tables.data), dbhandler.purge_df(dbhandler.tables.events)...
+        # To do that, we define custom attributes on self.tables (we can, as we override dict)
+        for table_name in self.tables._metadata:
+            setattr(self.tables, table_name, table_name)
 
     def init_db(self):
         """
@@ -39,11 +64,12 @@ class DbHandler(object):
         """
         # Code copied from here:
         # http://docs.sqlalchemy.org/en/latest/orm/extensions/automap.html#basic-use
-        Base = automap_base()
 
         # engine, initialize once
         if not hasattr(self, 'engine'):
             self.engine = create_engine(self.db_uri)
+
+        Base = automap_base()
 
         # reflect the tables
         # Note: ONLY TABLES WITH PRIMARY KEYS will be mapped!
@@ -55,7 +81,8 @@ class DbHandler(object):
         # Address = Base.classes.data
         # store them in an attribute (dict of table_name [string]: sqlalchemy table)
         # It might be empty if database does not exist
-        self.tables = Base.classes._data
+
+        self.tables.update(Base.classes._data)  # overwriting existing keys
 
     def purge(self, dframe, table_name, pkey_name):
         """
@@ -163,37 +190,40 @@ class DbHandler(object):
 
         return self.tables[table_name]
 
-    tbl_events = type("events", (object,), {'pkey': '#EventID',
-                                            'parse_dates': ['DataStartTime', 'DataEndTime',
-                                                            'StartTime', 'EndTime', 'ArrivalTime']
-                                            })
-    tbl_data = type("data", (object,), {'pkey': 'Id',
-                                        'dtype': {'Data': BLOB},
-                                        'parse_dates': ['Time']
-                                        })
-    tbl_logs = type("logs", (object,), {'pkey': 'Time',
-                                        'parse_dates': ['Time']})
+    def purge_df(self, table_name, dframe):
+        """Writes dframe to database, using internal settings (so that arguments of self.write
+        default to internal settings according to table)"""
+        dframe = self._prepare_df(table_name, dframe)
+        return self.purge(dframe, table_name, self.get_metadata(table_name)['pkey'])
 
-    def purge_df(self, table, dframe):
-        if self.check_df(table, dframe):
-            return self.purge(dframe, table.__name__, table.pkey)
+    def write_df(self, table_name, dframe):
+        dframe = self._prepare_df(table_name, dframe)
+        pkey = self.get_metadata(table_name)['pkey']
+        dtype = self.get_metadata(table_name).get('dtype', None)
+        self.write(dframe, table_name, pkey, dtype=dtype)
 
-    def write_df(self, table, dframe):
-        if self.check_df(table, dframe):
-            dtype = getattr(table, 'dtype', None)
-            self.write(dframe, table.__name__, table.pkey, dtype=dtype)
+    def _prepare_df(self, table_name, dframe):
+        if table_name == self.tables.data:
+            pkey = self.get_metadata(table_name)['pkey']
+            recalc = pkey not in dframe.columns
+            if recalc:
+                dframe.insert(0, pkey, None)
+            else:
+                recalc = pd.isnull(dframe[pkey]).any()
 
-    def check_df(self, table, dframe):
-        if table == self.tbl_data:
-            pkey = table.pkey
-            if pkey not in dframe.columns:
-                dframe.insert(0, pkey, self.get_wav_ids(dframe['#EventID'], dframe['#Network'],
-                                                        dframe['Station'], dframe['Location'],
-                                                        dframe['Channel'], dframe['DataStartTime'],
-                                                        dframe['DataEndTime']))
-            return True
+            if recalc:
+                def myfunc(row):
+                    if pd.isnull(row[pkey]):
+                        row[pkey] = self.get_wav_id(row['#EventID'], row['#Network'],
+                                                    row['Station'], row['Location'], row['Channel'],
+                                                    row['DataStartTime'], row['DataEndTime'])
+                    return row
+                dframe.apply(myfunc, axis=1)
 
-        return table in (self.tbl_events, self.tbl_logs)
+        return dframe
+
+    def get_metadata(self, table_name):
+        return self.tables._metadata.get(table_name, {})
 
     @staticmethod
     def get_wav_id(event_id, network, station, location, channel, start_time, end_time):
@@ -226,21 +256,6 @@ class DbHandler(object):
         if None in val:
             raise ValueError("No None value in get_wav_id")
         return hash(val)
-
-    @staticmethod
-    def get_wav_ids(event_id_series, network_series, station_series, location_series,
-                    channel_series, start_time_series, end_time_series):
-        """
-            Same as get_wav_id but called on pandas series
-        """
-        val = np.array([event_id_series.values, network_series.values, station_series.values,
-                        location_series.values, channel_series.values, start_time_series.values,
-                        end_time_series.values])
-
-        def getwid(arg):
-            return DbHandler.get_wav_id(*arg)
-        ret_val = np.apply_along_axis(getwid, axis=0, arr=val)
-        return pd.Series(ret_val)
 
     def read(self, table_name, coerce_float=True, index_col=None, parse_dates=None, columns=None,
              chunksize=None):
@@ -277,37 +292,38 @@ class DbHandler(object):
         return pd.read_sql_table(table_name, self.engine, None, index_col, coerce_float,
                                  parse_dates, columns, chunksize)
 
-    def read_df(self, table, chunksize=None):
+    def read_df(self, table_name, chunksize=None):
         """
          Read SQL database table into a DataFrame. Calls pandas read_sql_table
          :param table: one of the class attributes of this class starting with "tbl_" and
          identifying a specific datbase table (with all necessary settings stored and thus not
          to be remembered as in self.read): E.g., tbl_logs, tbl_data, tbl_events
          """
-        if table not in (self.tbl_data, self.tbl_events, self.tbl_logs):
-            return pd.DataFrame()
-        obj = self.read(table.__name__, coerce_float=True,
-                        # use table pkey as index key only if data table (then remove it):
-                        index_col=table.pkey if table == self.tbl_data else None,
-                        parse_dates=getattr(table, 'parse_dates', None),
-                        columns=None,
-                        chunksize=chunksize)  # FIXME!! parse dates!
-        if table == self.tbl_data:  # remove ids as they are useless
-            if chunksize is None:
-                obj.reset_index(drop=True, inplace=True)
-            else:
-                def func():
-                    for o in obj:
-                        o.reset_index(drop=True, inplace=True)
-                        yield o
-                obj = func()
-            return obj
+        return self.read(table_name, coerce_float=True,
+                         index_col=None,
+                         parse_dates=self.get_metadata(table_name).get('parse_dates', None),
+                         columns=None,
+                         chunksize=chunksize)  # FIXME!! parse dates!
+
+    # implement mutable sequence: dbhandler.get(table_name), for table_name in dbhandler: ...
+
+    def __len__(self):
+        return self.tables.__len__()
+
+    def __getitem__(self, table_name):
+        return self.tables.__getitem__(table_name)
+
+    def __iter__(self):
+        return self.tables.__iter__()
+
+    def __contains__(self, table_name):
+        return self.tables.__contains__(table_name)
 
 
 if __name__ == "__main__":
     os.chdir(os.path.dirname(os.path.dirname(__file__)))
     dbio = DbHandler('sqlite:///./mydb.db')  # 'sqlite:///./mydb.db'
     dbio.init_db()
-    obj = dbio.read_df(dbio.tbl_data, chunksize=40)
+    obj = dbio.read_df(dbio.tables.data)
     for o in obj:
         print "chunksize"
