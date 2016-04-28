@@ -20,7 +20,7 @@ import logging
 # from datetime import datetime
 from datetime import timedelta, datetime
 from stream2segment.utils import EstRemTimer, url_read, tounicode
-from stream2segment import io as s2sio
+from stream2segment.io import db
 from stream2segment import __version__ as program_version
 import numpy as np
 import pandas as pd
@@ -29,6 +29,8 @@ import pandas as pd
 from obspy.taup import TauPyModel
 from obspy.geodetics import locations2degrees
 from obspy.taup.helper_classes import TauModelError
+
+from stream2segment.classification import UNKNOWN_CLASS_ID
 
 
 def get_min_travel_time(source_depth_in_km, distance_in_degree, model='ak135'):  # FIXME: better!
@@ -505,7 +507,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
 
     # initialize our Database handler:
     try:
-        db_handler = s2sio.DbHandler(outpath)
+        db_handler = db.DbHandler(outpath)
     except IOError as err:
         logger.error(str(err))
         logger.save(db_handler)
@@ -587,7 +589,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
                 start_times, end_times = get_time_ranges(arr_times, minutes=ptimespan)
                 # concat all together:
                 atime_col = "ArrivalTime"
-                dist_col = "Distance_Event_Station/deg"
+                dist_col = "EventStationDistance/deg"
                 stime_col = "DataStartTime"
                 etime_col = "DataEndTime"
 
@@ -636,7 +638,9 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
                 # Basically from here on append them at the end so that
                 # inspecting the table with some tool the relevant ones are first)
                 # add single valued columns:
-                for col_name, col_val in [('DataCenter', dc), ('Location', ''), ('ClassLabel', '')]:
+                for col_name, col_val in [('DataCenter', dc), ('Location', ''),
+                                          ('ClassId', UNKNOWN_CLASS_ID),
+                                          ('AnnotatedClassId', UNKNOWN_CLASS_ID)]:
                     wdf.insert(colpos, col_name, col_val)
                     colpos += 1
 
@@ -670,7 +674,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         wav_dframe = wav_dframe[wdf.columns]
 
         # purge wav_data (this creates a column id primary key):
-        wav_data = db_handler.purge_df(db_handler.tables.data, wav_dframe)
+        wav_data = db_handler.purge(wav_dframe, db_handler.tables.data)
         skipped_already_saved = total - len(wav_data)
 
         logger.debug("Downloading and saving %d of %d waveforms (%d already saved)",
@@ -720,12 +724,12 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
 
     # write events:
     # first purge them then write
-    new_events = db_handler.purge_df(db_handler.tables.events, events)
-    db_handler.write_df(db_handler.tables.events, new_events)
+    new_events = db_handler.purge(events, db_handler.tables.events)
+    db_handler.write(new_events, db_handler.tables.events)
     # write data:
-    db_handler.write_df(db_handler.tables.data, wav_data)
+    db_handler.write(wav_data, db_handler.tables.data)
     # write log:
     log_dframe = logger.to_df(seg_found=total, seg_written=seg_written)
-    db_handler.write_df(db_handler.tables.logs, log_dframe)
+    db_handler.write(log_dframe, db_handler.tables.logs)
 
     return 0
