@@ -52,11 +52,11 @@ def valid_date(string):
     # return string
 
 
-def load_def_cfg(filepath='config.yaml'):
-    # load config file. This might be better implemented in the near future
+def load_def_cfg(filepath='config.yaml', raw=False):
     with open(filepath, 'r') as stream:
-        cfg_dict = yaml.load(stream)
-    return cfg_dict
+        ret = yaml.load(stream) if not raw else stream.read()
+    # load config file. This might be better implemented in the near future
+    return ret
 
 
 def parse_args(description=sys.argv[0], args=sys.argv[1:], cfg_dict=load_def_cfg()):
@@ -123,6 +123,7 @@ def main():
 
     vars_args['channelList'] = cfg_dict['channels']
     vars_args['datacenters_dict'] = cfg_dict['datacenters']
+
     # remove unwanted args:
     # vars_args.pop('version', None)
     sys.exit(save_waveforms(**vars_args))

@@ -31,7 +31,7 @@ from obspy.geodetics import locations2degrees
 from obspy.taup.helper_classes import TauModelError
 
 from stream2segment.classification import UNKNOWN_CLASS_ID
-
+import yaml
 
 def get_min_travel_time(source_depth_in_km, distance_in_degree, model='ak135'):  # FIXME: better!
     """
@@ -421,7 +421,7 @@ class LoggerHandler(object):
         self.errors += 1
         self.rootlogger.error(*args, **kw)
 
-    def to_df(self, seg_found, seg_written, close_stream=True):
+    def to_df(self, seg_found, seg_written, config_text=None, close_stream=True):
         """Saves the logger informatuon to database"""
 #         db_handler.write(pd.DataFrame([[datetime.utcnow(), tounicode(self.stringio.getvalue()),
 #                                         self.warnings, self.errors, str(program_version)]],
@@ -430,9 +430,10 @@ class LoggerHandler(object):
 #                                       ), "logs", "Time")
         pddf = pd.DataFrame([[datetime.utcnow(), tounicode(self.stringio.getvalue()), self.warnings,
                               self.errors, seg_found, seg_written, seg_found - seg_written,
+                              tounicode(config_text) if config_text else tounicode(""),
                               ".".join(str(v) for v in program_version)]],
                             columns=["Time", "Log", "Warnings", "Errors", "SegmentsFound",
-                                     "SegmentsWritten", "SegmentsSkipped", "ProgramVersion"])
+                                     "SegmentsWritten", "SegmentsSkipped", "Config", "ProgramVersion"])
         if close_stream:
             self.stringio.close()
         return pddf
@@ -484,10 +485,10 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
     logger = LoggerHandler()
 
     # print local vars:
+    yaml_content = StringIO()
+    yaml_content.write(yaml.dump(_args_, default_flow_style=False))
     logger.info("Arguments:")
-    for arg, varg in _args_.iteritems():
-        msg = "\t%s = %s" % (str(arg), str(varg))
-        logger.info(msg)
+    logger.info(yaml_content.getvalue())
 
     # a little bit hacky, but convert to dict as the function gets dictionaries
     # Note: we might want to use dict(locals()) as above but that does NOT
@@ -729,7 +730,8 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
     # write data:
     db_handler.write(wav_data, db_handler.tables.data)
     # write log:
-    log_dframe = logger.to_df(seg_found=total, seg_written=seg_written)
+    log_dframe = logger.to_df(seg_found=total, seg_written=seg_written,
+                              config_text=yaml_content.getvalue())
     db_handler.write(log_dframe, db_handler.tables.logs)
 
     return 0

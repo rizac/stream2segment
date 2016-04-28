@@ -1,4 +1,5 @@
 '''
+Program to annotate classes of mseeds previously downloaded with this program
 Created on Feb 25, 2016
 
 @author: riccardo
@@ -6,21 +7,21 @@ Created on Feb 25, 2016
 # import matplotlib
 # matplotlib.use('Qt4Agg')
 import sys
-from stream2segment.io.mseeds import Reader
+from stream2segment.io.data import DataManager
 import re
 import matplotlib.pyplot as plt
-from matplotlib.widgets import RadioButtons, CheckButtons, Button
-from matplotlib.backend_bases import NavigationToolbar2
+from matplotlib.widgets import RadioButtons
 
 # Overriding default buttons behaviour:
+from matplotlib.backend_bases import NavigationToolbar2
 NavigationToolbar2.home = lambda self, *args, **kwargs: plot_other(self, None)
 NavigationToolbar2.back = lambda self, *args, **kwargs: plot_other(self, -1)
 NavigationToolbar2.forward = lambda self, *args, **kwargs: plot_other(self, 1)
 
 # global vars:
 curr_pos = 0
-fig = plt.figure(figsize=(16, 10), dpi=80)
-reader = None
+fig = plt.figure(figsize=(16, 9), dpi=80)
+data_manager = None
 # keep a reference to the figure title so that we do not need to create one every time
 # (avoiding checking for titles etcetera)
 infotext = fig.suptitle("", multialignment='left', fontsize=11, family='monospace',
@@ -33,42 +34,29 @@ infotext = fig.suptitle("", multialignment='left', fontsize=11, family='monospac
 # the different lines are left, center or right justified
 
 # some global variables for axes and controls dimensions:
-h_margin = 0.05
-legend_width = 0.3
+fig_padding = 0.025
+legend_width = 0.35
 
 # these variables are global so that we can make them interactive
-rax = None  # the axes housing the radiobuttons
-radiobuttons = None  # the radiobuttons widget
+# the axes housing the radiobuttons:
+rax = plt.axes([0.95, 0.3, legend_width, legend_width],  # axisbg='lightgoldenrodyellow',
+               aspect='equal')  # the last one makes radio buttons circles and not ellipses
+# the radiobuttons widget:
+radiobuttons = None
 
 
 def setclassfunc(label):
-    classes_df = reader.classes_dataframe
+    classes_df = data_manager.get_classes()
     label_ = re.sub("\\s+\\(\\s*\\d+\\s*\\)\\s*$", "", label)
     class_id = classes_df[classes_df['Label'] == label_].iloc[0]['Id']
-    reader.set_class(curr_pos, class_id)
+    data_manager.set_class(curr_pos, class_id)
     update_radio_buttons(update_active=False)
-
-
-# radiobuttons.on_clicked(hzfunc)
-rax = plt.axes([0.95, 0.3, legend_width, legend_width], # axisbg='lightgoldenrodyellow',
-               aspect='equal')  # the last one makes radio buttons circles and not ellipses
-
-# mouse events and buttons. Widgets RadioButtons are not working and apparently there is not much
-# documentation on internet. So we use texts and an event attached to a figure along the lines of:
-# http://matplotlib.org/users/event_handling.html
-# classlabel_texts = []
-# def onclick(event):
-#     if event.artist in classlabel_texts:
-#         print str(event.artist)
-#     # print 'button=%d, x=%d, y=%d, xdata=%f, ydata=%f'%(
-#     #    event.button, event.x, event.y, event.xdata, event.ydata)
-# cid = fig.canvas.mpl_connect('button_press_event', onclick)
 
 
 def plot_other(self, key=0):  # key = None: home (print first plot), +1: print next, -1: print prev.
     global curr_pos
     old_curr_pos = curr_pos
-    curr_pos = 0 if key is None else (curr_pos + key) % len(reader)
+    curr_pos = 0 if key is None else (curr_pos + key) % len(data_manager)
     if old_curr_pos != curr_pos:
         plot(self.canvas, curr_pos)
 
@@ -106,7 +94,7 @@ def getinfotext(metadata):
 
 def plot(canvas, index):
 
-    canvas.set_window_title("%s: FILE %d OF %d" % (reader.dbh.db_uri, index+1, len(reader)))
+    canvas.set_window_title("%s: FILE %d OF %d" % (data_manager.db_uri, index+1, len(data_manager)))
     data = None
     # canvas.figure.clear() this is BAD cause the radiobuttons do not work anymore. Then
     # clear only axes of interest:
@@ -115,7 +103,7 @@ def plot(canvas, index):
             fig.delaxes(a)
 
     try:
-        data = reader.get(index)
+        data = data_manager.get_data(index)
     except (IOError, TypeError) as ioerr:
         canvas.figure.suptitle(str(ioerr))
         canvas.draw()
@@ -123,25 +111,28 @@ def plot(canvas, index):
     data.plot(fig=fig, draw=False)  # , block=True)
 
     axez = sorted(mseed_axes_iterator(fig), key=lambda ax: ax.get_position().y0)
-    ypos = h_margin
-    height = (1.0 - 2*(h_margin)) / len(axez)
-    width = (1.0 - 3*(h_margin) - legend_width)
+    ypos = fig_padding
+    # fig_padding does not include axis ticks. For the vertical ones is ok, as they are
+    # a single line height, for the horizontal one we add a bit more space:
+    additional_left_margin = 0.03
+    height = (1.0 - 2*(fig_padding)) / len(axez)
+    width = (1.0 - 3*(fig_padding) - additional_left_margin - legend_width)
     for axs in axez:
         # testing: do we really set the ypos on the right axes?
         # print str(axs.get_position().y0) + " " + str(ypos)
-        axs.set_position([h_margin, ypos, width, height])
+        axs.set_position([fig_padding + additional_left_margin, ypos, width, height])
         ypos += height
 
     # Set info text on the figure title (NOTE: it is placed on the right)
-    infotext.set_text(getinfotext(reader.get_metadata(index)))
+    infotext.set_text(getinfotext(data_manager.get_metadata(index)))
 
     # adjust dimensions:
-    xxx = 1-legend_width-1.5*h_margin
+    xxx = 1 - legend_width - fig_padding
     # infotext:
-    infotext.set_position((xxx, 1-h_margin))
+    infotext.set_position((xxx, 1-fig_padding))
     # set radiobuttons position:
     rax_pos = rax.get_position()
-    rax.set_position([xxx, h_margin, legend_width, rax_pos.height])
+    rax.set_position([xxx, fig_padding, legend_width, rax_pos.height])
     # update the selected radio button
     update_radio_buttons(update_texts=False)
 
@@ -154,9 +145,9 @@ def update_radio_buttons(update_texts=True, update_active=True):
         SET TO FALSE IF CALLING THIS FROM WITHIN A MOUSE CLICK ON ONE RADIO BUTTON TO AVOID
         INFINITE LOOPS
     """
-    global radiobuttons, reader
+    global radiobuttons, data_manager
+    classes_df = data_manager.get_classes()
     if update_texts:
-        classes_df = reader.classes_dataframe
         clbls = classes_df['Label'].tolist()
         counts = classes_df['Count'].tolist()
         radiolabels = ["%s (%d)" % (s, v) for s, v in zip(clbls, counts)]
@@ -167,9 +158,8 @@ def update_radio_buttons(update_texts=True, update_active=True):
                 text.set_text(label)
 
     if update_active:
-        class_id = reader.get_class(curr_pos)
-        radiobuttonindex = reader.classes_dataframe[reader.classes_dataframe['Id'] ==
-                                                    class_id].index[0]
+        class_id = data_manager.get_class(curr_pos)
+        radiobuttonindex = classes_df[classes_df['Id'] == class_id].index[0]
         radiobuttons.set_active(radiobuttonindex)
 
 
@@ -181,7 +171,7 @@ if __name__ == '__main__':
 
     path_ = sys.argv[1]
     # files = [join(dir_, f) for f in listdir(dir_) if isfile(join(dir_, f))]
-    reader = Reader(path_)
+    data_manager = DataManager(path_)
 
     update_radio_buttons()
 
