@@ -63,6 +63,11 @@ def parse_args(description=sys.argv[0], args=sys.argv[1:], cfg_dict=load_def_cfg
 
     parser = argparse.ArgumentParser(description=description)
 
+    parser.add_argument('--gui',
+                        help='Launch GUI editor to annotate class ids on '
+                             'pre-saved data (using this tool)',
+                        action='store_true',
+                        default=cfg_dict['eventws'])
     parser.add_argument('-e', '--eventws',
                         help='Event WS to use in queries.',
                         default=cfg_dict['eventws'])
@@ -94,7 +99,8 @@ def parse_args(description=sys.argv[0], args=sys.argv[1:], cfg_dict=load_def_cfg
     # note that the relative parser are called if the argument is a string. If not supplied, i.e.
     # None, the parser won't be called. Thus, we supply a default argument
     parser.add_argument('-o', '--outpath', type=existing_directory,
-                        help='Path where to store waveforms.',
+                        help='Db path where to store waveforms, or db path from where to read the'
+                             ' waveforms, if --gui is specified.',
                         default=cfg_dict.get('outpath', ''))
     _now = dt.datetime.utcnow()
     dtn = dt.datetime(_now.year, _now.month, _now.day, 0, 0, 0)  # set to today at midnight
@@ -117,6 +123,11 @@ def main():
     cfg_dict = load_def_cfg()
     args = parse_args(description='Download waveforms related to events',
                       cfg_dict=cfg_dict)
+
+    if args.gui:
+        from scripts import plot
+        plot.main(args.outpath)
+        sys.exit(0)
 
     vars_args = vars(args)
     # vars_args = config_logging(**vars_args)  # this also removes unwanted keys in saveWaveform

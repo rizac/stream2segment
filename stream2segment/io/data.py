@@ -12,9 +12,14 @@ from stream2segment.io import db
 
 class DataManager(object):
     """
-        Class managing all data (mseed files) stored in a given database, and their classes.
-        An object of this class is initialized with a database URI: r= Reader(db_uri) and returns
-        the mseed read from the given database.
+        Class managing the downloaded data.
+        An object of this class is initialized with a database URI: r= Reader(db_uri) and stores
+        internally each item (=table row) as a list of ids mapped to the relative table rows.
+        Each item (table row) holds some "data" (collection of one or more mseed files)
+        and associated "metadata" (classId, AnnotatedClassId, Station, Network etcetera).
+        This object is an iterable and supports the len function. For each entry, data
+        and metadata can be accessed via get_data, get_metadata, class id get/set via get_class,
+        set_class
         :Example:
         .. code:
             r= Reader(db_uri)
@@ -39,13 +44,17 @@ class DataManager(object):
     class_id_colname = 'ClassId'
 
     def __init__(self, db_uri):
+        """
+            Initializes a new DataManager via a given db_uri
+            :param db_uri: the database uri, e.g. sqlite:///path_to_my_sqlite_file
+        """
         self.db_uri = db_uri
         dbh = db.DbHandler(db_uri)
         iterator = dbh.read(dbh.tables.data, chunksize=10)
         id_col_name = self.id_colname
         files = None  # do NOT instantiate a new DataFrame, otherwise append below coerces to
-        # the type of files (object) and we want to preserve the db type (so first iteration
-        # files is the first chunk read)
+        # the type of the files DataFrame (object) and we want to preserve the db type (so first
+        # iteration files is the first chunk read)
         for data in iterator:
             data = pd.DataFrame({id_col_name: data[id_col_name]})
             if files is None:
@@ -65,38 +74,41 @@ class DataManager(object):
         self._update_classes(self.session(), close_session=True)
 
     def session(self):
+        """Returns a session to be used as argument for calling several IO methods
+        class (e.g., get_data, get_metadata)"""
         return self.dbh.session()
 
     def __len__(self):
         return len(self.files)
 
     def __iter__(self):
+        # FIXME: NOTE TESTED!!!
         return (i for i in xrange(len(self)))
 
     def get_data_table(self):
         return self.dbh.tables[self.dbh.tables.data]
 
     def get_classes(self):
-        """Returns the pandas DataFrame representing the classes. The dataframe is read once
+        """Returns the pandas DataFrame representing the classes. The DataFrame is read once
         in the constructor and updated here with a column 'Count' which counts the instances per
-        class"""
+        class. Column names might vary across versions but in principle their names are 'Id',
+        'Label' and 'Description' (plus the aforementioned 'Count')"""
         return self._classes_dataframe
 
     def get_id(self, index):
-        """Returns the database ID of the index-th mseed"""
+        """Returns the database ID of the index-th item (=db table row)"""
         return self.files.iloc[index][self.id_colname]
 
     def get_row(self, index, session=None):
         """
+            Returns index-th database table row, as SqlAlchemy object
+            :param index: the data (mseed) index
+            :param index: integer in [0, len(self)-1]
             :param session: either None (the default) in which case a session will be opened and
-            closed before returning, or a sql alchemy session object (see self.session()). In
-            the latter case the session must be closed manually
-            :param columns:
-            :return: the database row identified by the index-th mseed (in the order returned when
-            reading all entries for the data table in the constructor). For accessing its values
-            use getattr(row, column_name). For listing the database columns, use a loop on
-            row.__dict__ but remember that sqlalchemy stores internal attributes (those starting
-            with underscore for instance)
+            closed before returning, or self.session() (which returns an sql alchemy session
+            object). In the latter case the session must be closed manually (session.close())
+            :type session: None (the default) or a SqlAlchemy session object as returned from
+            self.session()
         """
         sess = self.session() if session is None else session
         table = self.get_data_table()
@@ -107,9 +119,15 @@ class DataManager(object):
 
     def get_data(self, index, raw=False, session=None):
         """
-            Returns the data of the index-th mseed
-            :param index: the index
-            :param raw: (defaults True) whether to return a raw sequence of bytes
+            Returns the mseed data of the index-th item (=db table row)
+            :param index: the entry index
+            :param index: integer in [0, len(self)-1]
+            :param session: either None (the default) in which case a session will be opened and
+            closed before returning, or self.session() (which returns an sql alchemy session
+            object). In the latter case the session must be closed manually (session.close())
+            :type session: None (the default) or a SqlAlchemy session object as returned from
+            self.session()
+            :param raw: (defaults to False) whether to return a raw sequence of bytes
             (string in python2) or an obspy stream (the default)
         """
         row = self.get_row(index, session)
@@ -120,9 +138,17 @@ class DataManager(object):
 
     def get_metadata(self, index, session=None):
         """
-            Returns the metadata (all columns except 'Data' column) of the index-th mseed
-            :param index: the mseed index
-            :return: a dict with keys reflecting the database table columns
+            Returns as dict the metadata of the index-th item (=db table row). The metadata are
+            considered all columns EXCEPT the miniseed binary data ('Data' column). Also,
+            sql-alchemy specific columns (i.e. those starting with "_") will be ignored and not
+            returned
+            :param index: the entry index
+            :param index: integer in [0, len(self)-1]
+            :param session: either None (the default) in which case a session will be opened and
+            closed before returning, or self.session() (which returns an sql alchemy session
+            object). In the latter case the session must be closed manually (session.close())
+            :type session: None (the default) or a SqlAlchemy session object as returned from
+            self.session()
         """
         row = self.get_row(index, session)
         ret = {}
@@ -132,10 +158,11 @@ class DataManager(object):
         return ret
 
     def get_class(self, index, as_annotated_class=True, session=None):
-        """Returns the class id (integer) of the index-th mseed.
-        :param as_annotated_class: if True (the default) returns the value of the column
-        of the annotated class id (i.e., manually annotated), otherwise the column specifying the
-        class id (usually as result from some algorithm, e.g. statistical classifier)
+        """Returns the class id (integer) of the index-th item (=db table row).
+        :param as_annotated_class: if True (the default), returns the value of the column
+            of the annotated class id (representing the manually annotated class), otherwise the
+            column specifying the class id (representing the class id as the result of some
+            algorithm, e.g. statistical classifier)
         """
         row = self.get_row(index, session)
         att_name = self.annotated_class_id_colname if as_annotated_class else self.class_id_colname
@@ -143,15 +170,14 @@ class DataManager(object):
 
     def set_class(self, index, class_id, as_annotated_class=True, session=None):
         """
-            Sets the class of the index-th mseed file. Note: the column of the mseed which will be
-            modified is 'AnnotatedClassId', not 'ClassId' (the latter is supposed to be used as
-            a classifier outcome)
+            Sets the class of the index-th item (=db table row)
             :param index: the mseed index
             :param class_id: one of the classes id. To get them, call self.get_classes()['Id']
             (returns a pandas Series object)
             :param as_annotated_class: if True (the default), sets the value of the column
-            of the annotated class id (i.e., manually annotated), otherwise the column specifying
-            the class id (usually as result from some algorithm, e.g. statistical classifier)
+            of the annotated class id (representing the manually annotated class), otherwise the
+            column specifying the class id (representing the class id as the result of some
+            algorithm, e.g. statistical classifier)
         """
         sess = session
         if sess is None:

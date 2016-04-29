@@ -14,7 +14,29 @@ from matplotlib.widgets import RadioButtons
 
 # Overriding default buttons behaviour:
 from matplotlib.backend_bases import NavigationToolbar2
-NavigationToolbar2.home = lambda self, *args, **kwargs: plot_other(self, None)
+
+# set here left or right:
+plot_position = 'left'
+
+# Rewrite tooltiptexts for back and forward buttons (we copy the whole tuple defined in
+# NavigatorToolbar2 although it's quite inefficient because it's easier than modifying a tuple of
+# tuples
+NavigationToolbar2.toolitems = toolitems = (
+        ('Home', 'Reset original view', 'home', 'home'),
+        ('Back', 'Back to  previous plot', 'back', 'back'),
+        ('Forward', 'Forward to next plot', 'forward', 'forward'),
+        (None, None, None, None),
+        ('Pan', 'Pan axes with left mouse, zoom with right', 'move', 'pan'),
+        ('Zoom', 'Zoom to rectangle', 'zoom_to_rect', 'zoom'),
+        (None, None, None, None),
+        ('Subplots', 'Configure subplots', 'subplots', 'configure_subplots'),
+        ('Save', 'Save the figure', 'filesave', 'save_figure'),
+      )
+# titems_lst = list(NavigationToolbar2.toolitems)
+# titems_lst.insert(4, ('Home', 'Reset original view', 'stock_refresh', 'home'))
+# NavigationToolbar2.toolitems = tuple(titems_lst)
+
+# NavigationToolbar2.home = new_home
 NavigationToolbar2.back = lambda self, *args, **kwargs: plot_other(self, -1)
 NavigationToolbar2.forward = lambda self, *args, **kwargs: plot_other(self, 1)
 
@@ -39,7 +61,10 @@ legend_width = 0.35
 
 # these variables are global so that we can make them interactive
 # the axes housing the radiobuttons:
-rax = plt.axes([0.95, 0.3, legend_width, legend_width],  # axisbg='lightgoldenrodyellow',
+# Note: the position (0.95, 0.3) will be RESET later, here only elements 3 and 4 (width and height)
+# are set!
+rax = plt.axes([0.95, 0.3, legend_width, legend_width*0.75],  # axisbg='lightgoldenrodyellow',
+               title=DataManager.annotated_class_id_colname,
                aspect='equal')  # the last one makes radio buttons circles and not ellipses
 # the radiobuttons widget:
 radiobuttons = None
@@ -72,7 +97,7 @@ def mseed_axes_iterator(fig):
 def getinfotext(metadata):
     """Returns a nicely formatted string from the mseed metadata read from db"""
     first_col_chars = max(len(str(key)) for key in metadata.keys())
-    max_second_col_chars = 35
+    max_second_col_chars = 42
 
     # custom str function replacement for the dict values:
     def ztr(data):
@@ -87,8 +112,11 @@ def getinfotext(metadata):
 
     # print the metadata on the figure title. Set the format string:
     frmt_str = "{0:" + str(first_col_chars) + "} {1}"
+    # first remove the annotated class id cause we will use the editor for that:
+    metadata.pop(DataManager.annotated_class_id_colname, None)
     # set the string:
-    title_str = "\n".join(frmt_str.format(str(k), ztr(v)) for k, v in metadata.iteritems())
+    sorted_keys = sorted(metadata)
+    title_str = "\n".join(frmt_str.format(str(k), ztr(metadata[k])) for k in sorted_keys)
     return title_str
 
 
@@ -105,8 +133,10 @@ def plot(canvas, index):
     try:
         data = data_manager.get_data(index)
     except (IOError, TypeError) as ioerr:
-        canvas.figure.suptitle(str(ioerr))
-        canvas.draw()
+        # canvas.figure.suptitle(str(ioerr))
+        errmsg = "Unable to show data plot(s):\n%s: %s" % (str(ioerr.__class__.__name__), str(ioerr))
+        infotext.set_text(errmsg)
+        # canvas.draw()
         return
     data.plot(fig=fig, draw=False)  # , block=True)
 
@@ -117,17 +147,20 @@ def plot(canvas, index):
     additional_left_margin = 0.03
     height = (1.0 - 2*(fig_padding)) / len(axez)
     width = (1.0 - 3*(fig_padding) - additional_left_margin - legend_width)
+    axez_x = fig_padding + additional_left_margin if plot_position == 'left' else \
+        legend_width + 2*fig_padding + additional_left_margin
     for axs in axez:
         # testing: do we really set the ypos on the right axes?
         # print str(axs.get_position().y0) + " " + str(ypos)
-        axs.set_position([fig_padding + additional_left_margin, ypos, width, height])
+        axs.set_position([axez_x, ypos, width, height])
         ypos += height
 
     # Set info text on the figure title (NOTE: it is placed on the right)
     infotext.set_text(getinfotext(data_manager.get_metadata(index)))
 
     # adjust dimensions:
-    xxx = 1 - legend_width - fig_padding
+    xxx = 1 - legend_width - fig_padding if plot_position == 'left' else \
+        fig_padding
     # infotext:
     infotext.set_position((xxx, 1-fig_padding))
     # set radiobuttons position:
@@ -163,15 +196,9 @@ def update_radio_buttons(update_texts=True, update_active=True):
         radiobuttons.set_active(radiobuttonindex)
 
 
-if __name__ == '__main__':
-    # global files
-    if len(sys.argv) < 2:
-        print "please specify a valid directory of mseed files"
-        sys.exit(1)
-
-    path_ = sys.argv[1]
-    # files = [join(dir_, f) for f in listdir(dir_) if isfile(join(dir_, f))]
-    data_manager = DataManager(path_)
+def main(db_uri):
+    global data_manager
+    data_manager = DataManager(db_uri)
 
     update_radio_buttons()
 
@@ -182,9 +209,22 @@ if __name__ == '__main__':
     radiobuttons.on_clicked(setclassfunc)  # set this after 'update_radio_buttons' above
 
     plot(fig.canvas, 0)
-    # plt.show(block=True)
+    
+    plt.show(True)
 
-plt.show(True)
+
+if __name__ == '__main__':
+    # global files
+    if len(sys.argv) < 2:
+        print "please specify a valid directory of mseed files"
+        sys.exit(1)
+
+    path_ = sys.argv[1]
+    # files = [join(dir_, f) for f in listdir(dir_) if isfile(join(dir_, f))]
+        # plt.show(block=True)
+    
+    main(path_)
+
 
 # SOME INFOS FOUND BROWSING INTERNET (SEOM OF THEM USED ABOVE):
 

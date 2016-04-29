@@ -212,7 +212,7 @@ def evt_to_dframe(event_query_result):
     return dfr, oldlen - len(dfr)
 
 
-def get_stations(dc, listCha, origTime, lat, lon, max_radius):
+def get_stations(dc, listCha, origTime, lat, lon, max_radius, level='channel'):
     """
         Returns a tuple of two elements: the first one is the DataFrame representing the stations
         read from the specified arguments. The second is the the number of rows (denoting stations)
@@ -236,10 +236,12 @@ def get_stations(dc, listCha, origTime, lat, lon, max_radius):
 
     start, endt = get_time_range(origTime, days=1)
     stationQuery = ('%s/station/1/query?latitude=%3.3f&longitude=%3.3f&'
-                    'maxradius=%3.3f&start=%s&end=%s&channel=%s&format=text&level=station')
+                    'maxradius=%3.3f&start=%s&end=%s&channel=%s&format=text&level=%s')
     aux = stationQuery % (dc, lat, lon, max_radius, start.isoformat(),
-                          endt.isoformat(), ','.join(listCha))
+                          endt.isoformat(), ','.join(listCha), level)
     dcResult = url_read(aux, decoding='utf8')
+    if dcResult:
+        h = 9
     return station_to_dframe(dcResult)
 
 
@@ -305,13 +307,24 @@ def get_wav_query(dc, channel, station_name, start_time, end_time):
 
 def get_wav_queries(dc_series, channel_series, station_name_series, start_time_series,
                     end_time_series):
-    val = np.array([dc_series.values, channel_series.values, station_name_series.values,
-                    start_time_series.values, end_time_series.values])
+#     val = np.array([dc_series.values, channel_series.values, station_name_series.values,
+#                     start_time_series.values, end_time_series.values])
+# 
+#     def getwq(arg):
+#         return get_wav_query(*arg)
+#     ret_val = np.apply_along_axis(getwq, axis=0, arr=val)
+#     return pd.Series(ret_val)
 
-    def getwq(arg):
-        return get_wav_query(*arg)
-    ret_val = np.apply_along_axis(getwq, axis=0, arr=val)
-    return pd.Series(ret_val)
+    pddf = pd.DataFrame({'dc': dc_series, 'channel': channel_series,
+                         'station_name': station_name_series, 'start_time': start_time_series,
+                         'end_time': end_time_series})
+
+    def func(row):
+        return get_wav_query(row['dc'], row['channel'], row['station_name'], row['start_time'],
+                             row['end_time'])
+
+    query_series = pddf.apply(func, axis=1)
+    return query_series
 
 
 def get_distances(latitude_series, longitude_series, ev_lat, ev_lon):
@@ -590,7 +603,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
                 start_times, end_times = get_time_ranges(arr_times, minutes=ptimespan)
                 # concat all together:
                 atime_col = "ArrivalTime"
-                dist_col = "EventStationDistance/deg"
+                dist_col = "EventDistance/deg"
                 stime_col = "DataStartTime"
                 etime_col = "DataEndTime"
 
@@ -600,10 +613,10 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
                 # than start_times name (it is the case)
                 # this works (reassign the label):
                 # pd.DataFrame(stime_col: start_times)
-                wdf = pd.concat([pd.DataFrame({stime_col: start_times}),
-                                 pd.DataFrame({etime_col: end_times}),
+                wdf = pd.concat([pd.DataFrame({dist_col: distances}),
                                  pd.DataFrame({atime_col: arr_times}),
-                                 pd.DataFrame({dist_col: distances}),
+                                 pd.DataFrame({stime_col: start_times}),
+                                 pd.DataFrame({etime_col: end_times}),
                                  stations], axis=1)  # , ignore_index=True)
                 # NOTE ABOVE: FIXME: do not use ignore_index otherwise column names are lost
                 # BUT: what if we have the same index? check!
@@ -620,16 +633,8 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
                     if _l_ > 0:
                         logger.warning("%d stations removed (reason %s)" % (_l_, reason))
 
-                # create channel column: expand D by 3, in such a way that for each row R at
-                # position i, two new rows (copy of R) are inserted at i+1 and i+2
-                wdf = pd.DataFrame(np.repeat(wdf.values, len(chList), axis=0), columns=wdf.columns)
+                # reset index so that we have nonnegative ordered natural numbers 0, ... N:
                 wdf.reset_index(inplace=True, drop=True)
-                # add channels column at position 0 (first one for the moment):
-                wdf.insert(0, 'Channel', '')
-                # populate channels column. Assuming channels is ['a', 'B'], then the newly created
-                # channel column values (from top to bottom) should be: a,B,a,B,a,B,...
-                for i in xrange(len(chList)):
-                    wdf.loc[wdf.index % len(chList) == i, 'Channel'] = chList[i]
 
                 # add event id column at position 0
                 wdf.insert(0, '#EventID', ev_id)
@@ -639,8 +644,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
                 # Basically from here on append them at the end so that
                 # inspecting the table with some tool the relevant ones are first)
                 # add single valued columns:
-                for col_name, col_val in [('DataCenter', dc), ('Location', ''),
-                                          ('ClassId', UNKNOWN_CLASS_ID),
+                for col_name, col_val in [('DataCenter', dc), ('ClassId', UNKNOWN_CLASS_ID),
                                           ('AnnotatedClassId', UNKNOWN_CLASS_ID)]:
                     wdf.insert(colpos, col_name, col_val)
                     colpos += 1
