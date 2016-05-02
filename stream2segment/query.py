@@ -33,6 +33,7 @@ from obspy.taup.helper_classes import TauModelError
 from stream2segment.classification import UNKNOWN_CLASS_ID
 import yaml
 
+
 def get_min_travel_time(source_depth_in_km, distance_in_degree, model='ak135'):  # FIXME: better!
     """
         Assess and return the travel time of P phases.
@@ -240,8 +241,6 @@ def get_stations(dc, listCha, origTime, lat, lon, max_radius, level='channel'):
     aux = stationQuery % (dc, lat, lon, max_radius, start.isoformat(),
                           endt.isoformat(), ','.join(listCha), level)
     dcResult = url_read(aux, decoding='utf8')
-    if dcResult:
-        h = 9
     return station_to_dframe(dcResult)
 
 
@@ -307,14 +306,6 @@ def get_wav_query(dc, channel, station_name, start_time, end_time):
 
 def get_wav_queries(dc_series, channel_series, station_name_series, start_time_series,
                     end_time_series):
-#     val = np.array([dc_series.values, channel_series.values, station_name_series.values,
-#                     start_time_series.values, end_time_series.values])
-# 
-#     def getwq(arg):
-#         return get_wav_query(*arg)
-#     ret_val = np.apply_along_axis(getwq, axis=0, arr=val)
-#     return pd.Series(ret_val)
-
     pddf = pd.DataFrame({'dc': dc_series, 'channel': channel_series,
                          'station_name': station_name_series, 'start_time': start_time_series,
                          'end_time': end_time_series})
@@ -446,14 +437,15 @@ class LoggerHandler(object):
                               tounicode(config_text) if config_text else tounicode(""),
                               ".".join(str(v) for v in program_version)]],
                             columns=["Time", "Log", "Warnings", "Errors", "SegmentsFound",
-                                     "SegmentsWritten", "SegmentsSkipped", "Config", "ProgramVersion"])
+                                     "SegmentsWritten", "SegmentsSkipped", "Config",
+                                     "ProgramVersion"])
         if close_stream:
             self.stringio.close()
         return pddf
 
 
 def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius_args,
-                   datacenters_dict, channelList, start, end, ptimespan, outpath):
+                   datacenters_dict, channels, start, end, ptimespan, outpath):
     """
         Downloads waveforms related to events to a specific path
         :param eventws: Event WS to use in queries. E.g. 'http://seismicportal.eu/fdsnws/event/1/'
@@ -475,16 +467,17 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         :param datacenters_dict: a dict of data centers as a dictionary of the form
             {name1: url1, ..., nameN: urlN} where url1, url2,... are strings
         :type datacenters_dict dict of key: string entries
-        :param channelList: iterable (e.g. list) of channels. Each channels is in turn an iterable
-            of strings, e.g. ['HH?', 'SH?', 'BH?']
-            Thus, channelList might be [['HH?', 'SH?', 'BH?'], ['HN?', 'SN?', 'BN?']]
-        :type channelList: iterable of iterables of strings
+        :param channels: iterable (e.g. list) of channels (as strings), e.g.
+            ['HH?', 'SH?', 'BH?', 'HN?', 'SN?', 'BN?']
+        :type channels: iterable of strings
         :param start: Limit to events on or after the specified start time
             E.g. (date.today() - timedelta(days=1))
-        :type start: datetime or string, as returned from datetime.isoformat() FIXME: STRING NOT IMPLEMENTED!
+        :type start: datetime or string, as returned from datetime.isoformat()
+        FIXME: STRING NOT IMPLEMENTED!
         :param end: Limit to events on or before the specified end time
             E.g. date.today().isoformat()
-        :type end: datetime or string, as returned from datetime.isoformat() FIXME: STRING NOT IMPLEMENTED!
+        :type end: datetime or string, as returned from datetime.isoformat()
+        FIXME: STRING NOT IMPLEMENTED!
         :param ptimespan: the minutes before and after P wave arrival for the waveform query time
             span
         :type ptimespan: iterable of two float
@@ -501,7 +494,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
     yaml_content = StringIO()
     yaml_content.write(yaml.dump(_args_, default_flow_style=False))
     logger.info("Arguments:")
-    logger.info(yaml_content.getvalue())
+    logger.info(yaml_content.getvalue().replace("\n", "\n   "))
 
     # a little bit hacky, but convert to dict as the function gets dictionaries
     # Note: we might want to use dict(locals()) as above but that does NOT
@@ -517,7 +510,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
             "outpath": outpath}
 
     logger.debug("")
-    logger.info("Querying Event WS:")
+    logger.info("|STEP 1 OF 3| Querying Event WS:")
 
     # initialize our Database handler:
     try:
@@ -544,10 +537,10 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
 
     wav_dframe = None
 
-    ert = EstRemTimer(len(events) * len(datacenters_dict) * len(channelList))
+    ert = EstRemTimer(len(events) * len(datacenters_dict))
 
     logger.debug("")
-    msg = "Querying Station WS:"
+    msg = "|STEP 2 OF 3| Querying Station WS:"
     logger.info(msg)
 
     for ev in events.values:  # FIXME: use str labels?
@@ -566,104 +559,103 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
                                        search_radius_args[3])
 
         for DCID, dc in datacenters_dict.iteritems():
-            for chName, chList in channelList.iteritems():
 
-                msg = "Event %s (%s): querying stations within %f deg. to %s (channels: %s))" % \
-                    (ev_id, ev_loc_name, max_radius, DCID, str(chList))
+            msg = "Event %s (%s): querying stations within %f deg. to %s (channels: %s))" % \
+                (ev_id, ev_loc_name, max_radius, DCID, str(channels))
 
-                logger.debug("")
-                logger.debug(msg)
-                ert.print_progress(epilog=msg)
+            logger.debug("")
+            logger.debug(msg)
+            ert.print_progress(epilog=msg)
 
-                try:
-                    stations, skipped = get_stations(dc, chList, ev_time, ev_lat, ev_lon,
-                                                     max_radius)
-                except (IOError, ValueError, TypeError) as exc:
-                    logger.warning(exc.__class__.__name__ + ": " + str(exc))
-                    continue
+            try:
+                stations, skipped = get_stations(dc, channels, ev_time, ev_lat, ev_lon,
+                                                 max_radius)
+            except (IOError, ValueError, TypeError) as exc:
+                logger.warning(exc.__class__.__name__ + ": " + str(exc))
+                continue
 
-                logger.debug('%d stations found (data center: %s, channel: %s)',
-                             len(stations), str(DCID), str(chList))
+            logger.debug('%d stations found (data center: %s, channel: %s)',
+                         len(stations), str(DCID), str(channels))
 
-                if skipped > 0:
-                    logger.warning(("%d stations skipped (possible cause: bad formatting, "
-                                    "e.g. invalid datetimes or numbers") % skipped)
+            if skipped > 0:
+                logger.warning(("%d stations skipped (possible cause: bad formatting, "
+                                "e.g. invalid datetimes or numbers") % skipped)
 
-                if stations.empty:
-                    continue
+            if stations.empty:
+                continue
 
-                logger.debug("Downloaded stations:")
-                logger.debug(pd_str(stations))
+            logger.debug("Downloaded stations:")
+            logger.debug(pd_str(stations))
 
-                # Do the core calculation now...
-                # Calculate distances, arrival times and time ranges
-                distances = get_distances(stations['Latitude'], stations['Longitude'], ev_lat,
-                                          ev_lon)
-                arr_times = get_arrival_times(distances, ev_depth_km, ev_time)
-                start_times, end_times = get_time_ranges(arr_times, minutes=ptimespan)
-                # concat all together:
-                atime_col = "ArrivalTime"
-                dist_col = "EventDistance/deg"
-                stime_col = "DataStartTime"
-                etime_col = "DataEndTime"
+            # Do the core calculation now...
+            # Calculate distances, arrival times and time ranges
+            distances = get_distances(stations['Latitude'], stations['Longitude'], ev_lat,
+                                      ev_lon)
+            arr_times = get_arrival_times(distances, ev_depth_km, ev_time)
+            start_times, end_times = get_time_ranges(arr_times, minutes=ptimespan)
+            # concat all together:
+            atime_col = "ArrivalTime"
+            dist_col = "EventDistance/deg"
+            stime_col = "DataStartTime"
+            etime_col = "DataEndTime"
 
-                # NOTE: start_times and end_times are NAMED series. Thus this sets a dataframe of
-                # empty values:
-                # pd.DataFrame(start_times, columns=[stime_col]) if stime_col name is different
-                # than start_times name (it is the case)
-                # this works (reassign the label):
-                # pd.DataFrame(stime_col: start_times)
-                wdf = pd.concat([pd.DataFrame({dist_col: distances}),
-                                 pd.DataFrame({atime_col: arr_times}),
-                                 pd.DataFrame({stime_col: start_times}),
-                                 pd.DataFrame({etime_col: end_times}),
-                                 stations], axis=1)  # , ignore_index=True)
-                # NOTE ABOVE: FIXME: do not use ignore_index otherwise column names are lost
-                # BUT: what if we have the same index? check!
+            # NOTE: start_times and end_times are NAMED series. Thus this sets a dataframe of
+            # empty values:
+            # pd.DataFrame(start_times, columns=[stime_col]) if stime_col name is different
+            # than start_times name (it is the case)
+            # this works (reassign the label):
+            # pd.DataFrame(stime_col: start_times)
+            wdf = pd.concat([pd.DataFrame({dist_col: distances}),
+                             pd.DataFrame({atime_col: arr_times}),
+                             pd.DataFrame({stime_col: start_times}),
+                             pd.DataFrame({etime_col: end_times}),
+                             stations], axis=1)  # , ignore_index=True)
+            # NOTE ABOVE: FIXME: do not use ignore_index otherwise column names are lost
+            # BUT: what if we have the same index? check!
 
-                # dropna D from distances, arr_times, time_ranges which are na
-                # FIXME: print to debug the removed dframe? do the same for stations and events df?
-                dict_ = {(dist_col,): "station-event distance",
-                         (atime_col,): "arrival time",
-                         (stime_col, etime_col): "time-range around arrival time"}
-                for subset, reason in dict_.iteritems():
-                    _l_ = len(wdf)
-                    wdf.dropna(subset=subset, inplace=True)
-                    _l_ -= len(wdf)
-                    if _l_ > 0:
-                        logger.warning("%d stations removed (reason %s)" % (_l_, reason))
+            # dropna D from distances, arr_times, time_ranges which are na
+            # FIXME: print to debug the removed dframe? do the same for stations and events df?
+            dict_ = {(dist_col,): "station-event distance",
+                     (atime_col,): "arrival time",
+                     (stime_col, etime_col): "time-range around arrival time"}
+            for subset, reason in dict_.iteritems():
+                _l_ = len(wdf)
+                wdf.dropna(subset=subset, inplace=True)
+                _l_ -= len(wdf)
+                if _l_ > 0:
+                    logger.warning("%d stations removed (reason %s)" % (_l_, reason))
 
-                # reset index so that we have nonnegative ordered natural numbers 0, ... N:
-                wdf.reset_index(inplace=True, drop=True)
+            # reset index so that we have nonnegative ordered natural numbers 0, ... N:
+            wdf.reset_index(inplace=True, drop=True)
 
-                # add event id column at position 0
-                wdf.insert(0, '#EventID', ev_id)
+            # add event id column at position 0
+            wdf.insert(0, '#EventID', ev_id)
 
-                colpos = len(wdf.columns) - len(stations.columns)
-                # set a column position from which to add next columns
-                # Basically from here on append them at the end so that
-                # inspecting the table with some tool the relevant ones are first)
-                # add single valued columns:
-                for col_name, col_val in [('DataCenter', dc), ('ClassId', UNKNOWN_CLASS_ID),
-                                          ('AnnotatedClassId', UNKNOWN_CLASS_ID)]:
-                    wdf.insert(colpos, col_name, col_val)
-                    colpos += 1
+            colpos = len(wdf.columns) - len(stations.columns)
+            # set a column position from which to add next columns
+            # Basically from here on append them at the end so that
+            # inspecting the table with some tool the relevant ones are first)
+            # add single valued columns:
+            for col_name, col_val in [('DataCenter', dc), ('ClassId', UNKNOWN_CLASS_ID),
+                                      ('AnnotatedClassId', UNKNOWN_CLASS_ID)]:
+                wdf.insert(colpos, col_name, col_val)
+                colpos += 1
 
-                # add the query string
-                wdf.insert(colpos, 'QueryStr', get_wav_queries(wdf['DataCenter'], wdf['Channel'],
-                                                               wdf['Station'], wdf['DataStartTime'],
-                                                               wdf['DataEndTime']))
+            # add the query string
+            wdf.insert(colpos, 'QueryStr', get_wav_queries(wdf['DataCenter'], wdf['Channel'],
+                                                           wdf['Station'], wdf['DataStartTime'],
+                                                           wdf['DataEndTime']))
 
-                # skip when the dataframe is empty. Moreover, this apparently avoids shuffling
-                # column order
-                if not wdf.empty:
-                    wav_dframe = wdf if wav_dframe is None else wav_dframe.append(wdf,
-                                                                                  ignore_index=True)
+            # skip when the dataframe is empty. Moreover, this apparently avoids shuffling
+            # column order
+            if not wdf.empty:
+                wav_dframe = wdf if wav_dframe is None else wav_dframe.append(wdf,
+                                                                              ignore_index=True)
 
     ert.print_progress(epilog="Done")
 
     logger.debug("")
-    logger.info("Querying Datacenter WS")
+    logger.info("|STEP 3 OF 3| Querying Datacenter WS")
 
     total = 0
     skipped_error = 0
@@ -717,15 +709,16 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         print "%d warnings (check log for details)" % logger.warnings
 
     seg_written = total-skipped_empty-skipped_error-skipped_already_saved
-    logger.info(("%d of %d segments written to '%s', "
-                 "%d skipped (%d already saved, %d due to url error, %d empty)"),
+    logger.info(("%d segments written to '%s', "
+                 "%d skipped (%d already saved, %d due to url error, %d empty). "
+                 "Total number of segments found: %d"),
                 seg_written,
-                total,
                 outpath,
                 total - seg_written,
                 skipped_already_saved,
                 skipped_error,
-                skipped_empty)
+                skipped_empty,
+                total)
 
     # write events:
     # first purge them then write

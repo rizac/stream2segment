@@ -66,8 +66,7 @@ def parse_args(description=sys.argv[0], args=sys.argv[1:], cfg_dict=load_def_cfg
     parser.add_argument('--gui',
                         help='Launch GUI editor to annotate class ids on '
                              'pre-saved data (using this tool)',
-                        action='store_true',
-                        default=cfg_dict['eventws'])
+                        action='store_true')
     parser.add_argument('-e', '--eventws',
                         help='Event WS to use in queries.',
                         default=cfg_dict['eventws'])
@@ -132,11 +131,11 @@ def main():
     vars_args = vars(args)
     # vars_args = config_logging(**vars_args)  # this also removes unwanted keys in saveWaveform
 
-    vars_args['channelList'] = cfg_dict['channels']
+    vars_args['channels'] = cfg_dict['channels']
     vars_args['datacenters_dict'] = cfg_dict['datacenters']
 
     # remove unwanted args:
-    # vars_args.pop('version', None)
+    vars_args.pop('gui', None)
     sys.exit(save_waveforms(**vars_args))
 
 

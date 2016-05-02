@@ -429,7 +429,7 @@ class EstRemTimer():
                                     # "  1%", " 15%", "100%"
                 ... loop code here ...
     """
-    def __init__(self, total_iterations, start_now=False, approx_to_seconds=True, use="median"):
+    def __init__(self, total_iterations, start_now=False, approx_to_seconds=True, use="mean"):
         """
             Initializes an EstRemTimer for calculating the estimated remaining time (ert)
             :param: total_iterations the total iterations this object is assumed to use for
