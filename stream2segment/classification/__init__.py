@@ -15,11 +15,12 @@ class_labels_df = pd.DataFrame(
                                          '(e.g., unknown artifacts, bad formats etcetera)')],
                                        [UNKNOWN_CLASS_ID, 'Unknown',
                                         ('Segment which is either: not annotated or unclassified')],
-                                       [0, 'Ok', 'Segment with no artifact ("standard" or "normal" in plain english)'],
-                                       [1, 'Clipped', "Segments is clipped"],
-                                       [2, 'InstrProblem', 'Segments has instrumental problems'],
+                                       [0, 'Ok', 'Segment with no artifact'],
+                                       [1, 'Clipped', "Segment is clipped"],
+                                       [2, 'InstrProblem', 'Segment has instrumental problems'],
                                        [3, "LowS2N", "Segment has a low signal-to-noise ratio"],
-                                       [4, "MultiEvent", "Overlapping multi-events recorded"],
+                                       [4, ("MultiEvent", "Segment with overlapping "
+                                            "multi-events recorded")],
                                        [5, "NoSigAll", "Signal is not present in all channels"],
                                        [6, "Gaps", "Signal with gaps"]
                                        ],

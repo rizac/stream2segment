@@ -34,7 +34,7 @@ class DbHandler(object):
     - self.write(dataFrame, table_name)
     where table_name is one of the following:
     - self.tables.events
-    - self.tables.data
+    - self.tables.segments
     - self.tables.logs
 
     Those methods get default settings stored for those default tables, and then pass them to two
@@ -84,17 +84,17 @@ class DbHandler(object):
                                             'parse_dates': ['DataStartTime', 'DataEndTime',
                                                             'StartTime', 'EndTime', 'ArrivalTime']
                                             },
-                                 "data": {'pkey': 'Id',
-                                          'dtype': {'Data': BLOB},
-                                          'parse_dates': ['Time']
-                                          },
+                                 "segments": {'pkey': 'Id',
+                                              'dtype': {'Data': BLOB},
+                                              'parse_dates': ['Time']
+                                              },
                                  "logs": {'pkey': 'Time',
                                           'parse_dates': ['Time']
                                           },
                                  "classes": {'pkey': 'Id'}
                                  }
         # Now, we want to use read_df, purge_df, write_df with simplicity, for instance:
-        # dbhandler.purge_df(dbhandler.tables.data), dbhandler.purge_df(dbhandler.tables.events)...
+        # dbhandler.purge_df(dbhandler.tables.segments), dbhandler.purge_df(dbhandler.tables.events)...
         # To do that, we define custom attributes on self.tables (we can, as we override dict)
         for table_name in self.tables._metadata:
             setattr(self.tables, table_name, table_name)
@@ -131,7 +131,7 @@ class DbHandler(object):
         # mapped classes are now created with names by default
         # matching that of the table name.
         # User = Base.classes.events
-        # Address = Base.classes.data
+        # Address = Base.classes.segments
         # store them in an attribute (dict of table_name [string]: sqlalchemy table)
         # It might be empty if database does not exist
 
@@ -159,7 +159,7 @@ class DbHandler(object):
             :pkey_name: the private key whereby to check if data is already on the database
             :type: pkey_name: string. Must be a column of the given DataFrame. NOTE **If table_name
             is one of the default tables registered on this object (as of April 2015,
-            self.tables.data, self.tables.events, self.tables.logs) and pkey_name is None or
+            self.tables.segments, self.tables.events, self.tables.logs) and pkey_name is None or
             missing, it will be retrieved from internal settings. Otherwise it must be spceified
             explicitly**. FIXME: not implemented the case where the index is the primary key
             :return: a new DataFrame with the data not stored to the datbase according to pkey_name
@@ -308,7 +308,7 @@ class DbHandler(object):
     def write(self, dframe, table_name, if_exists='append'):
         """
         Calls self.to_sql(dframe, table_name). NOTE: **table_name must be one of the default tables
-        registered on this class (as of April 2015, self.tables.data, self.tables.events,
+        registered on this class (as of April 2015, self.tables.segments, self.tables.events,
         self.tables.logs)**
         """
         dframe = self._prepare_df(table_name, dframe)
@@ -319,10 +319,10 @@ class DbHandler(object):
     def _prepare_df(self, table_name, dframe):
         """
             Prepares a default frame for purging or writing. Basically it creates an Id for
-            all null Id's if table_name == self.tables.data, and modifies the data frame.
+            all null Id's if table_name == self.tables.segments, and modifies the data frame.
             Returns the input dataframe at the end (potentially unmodified)
         """
-        if table_name == self.tables.data:
+        if table_name == self.tables.segments:
             pkey = self.get_metadata(table_name)['pkey']
             recalc = pkey not in dframe.columns
             if recalc:
@@ -412,7 +412,7 @@ class DbHandler(object):
     def read(self, table_name, chunksize=None):
         """
         Calls self.read_sql(table_name). NOTE: **table_name must be one of the default tables
-        registered on this class (as of April 2015, self.tables.data, self.tables.events,
+        registered on this class (as of April 2015, self.tables.segments, self.tables.events,
         self.tables.logs)**
         :param table_name: Name of SQL table in database
         :type table_name: string
@@ -448,6 +448,6 @@ class DbHandler(object):
 if __name__ == "__main__":
     os.chdir(os.path.dirname(os.path.dirname(__file__)))
     dbio = DbHandler('sqlite:///./mydb.db')  # 'sqlite:///./mydb.db'
-    obj = dbio.read_df(dbio.tables.data)
+    obj = dbio.read_df(dbio.tables.segments)
     for o in obj:
         print "chunksize"

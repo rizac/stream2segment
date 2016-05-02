@@ -52,8 +52,13 @@ def get_min_travel_time(source_depth_in_km, distance_in_degree, model='ak135'): 
     try:
         tt = taupmodel.get_travel_times(source_depth_in_km, distance_in_degree)
         # return min((ele['time'] for ele in tt if (ele.get('phase_name') or ' ')[0] == 'P'))
-        return min((ele.time for ele in tt))
-    except (TauModelError, ValueError) as err:
+
+        # Arrivals are returned already sorted by time!
+        return tt[0].time
+
+        # return min(tt, key=lambda x: x.time).time
+        # return min((ele.time for ele in tt))
+    except (TauModelError, ValueError, AttributeError) as err:
         raise ValueError(("Unable to find minimum travel time (dist=%s, depth=%s, model=%s). "
                           "Source error: %s: %s"),
                          str(distance_in_degree), str(source_depth_in_km), str(model),
@@ -346,7 +351,7 @@ def get_time_ranges(arrival_times_series, days=0, hours=0, minutes=0, seconds=0)
     # The Series name will be assigned automatically in many cases, in particular when taking 1D
     # slices of DataFrame (as it is now). Problem: the constructor
     # (pd.DataFrame(series, columns=[new_col]) will produce a DataFrame with  NaN data in it if
-    # new_col is not the same as series name. Solution 1: use pd.dataFrame({'new_name':series}) but
+    # new_col is not the same as series name. Solution 1: use pd.DataFrame({'new_name':series}) but
     # for safety there is also the rename method:
     return retval['start'].rename(None), retval['end'].rename(None)
 
@@ -362,8 +367,7 @@ def read_wavs_data(query_series, logger=None, ert=None):
     def func_dwav(query_str):
         data = read_wav_data(query_str)
         if logger is not None or ert is not None:
-            num = ("%d: " % ert.done) if ert else ""
-            msg = "%s%d bytes downloaded from: %s" % (num, len(data), query_str)
+            msg = "%6d bytes downloaded from: %s" % (len(data), query_str)
             if logger is not None:
                 logger.debug(msg)
             if ert is not None:
@@ -510,7 +514,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
             "outpath": outpath}
 
     logger.debug("")
-    logger.info("|STEP 1 OF 3| Querying Event WS:")
+    logger.info("STEP 1/3: Querying Event WS")
 
     # initialize our Database handler:
     try:
@@ -525,7 +529,9 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         # raise ValueError()
     except (IOError, ValueError, TypeError) as err:
         logger.error(str(err))
-        logger.save(db_handler)
+        log_dframe = logger.to_df(seg_found=0, seg_written=0,
+                                  config_text=yaml_content.getvalue())
+        db_handler.write(log_dframe, db_handler.tables.logs)
         return 1
     else:
         if skipped > 0:
@@ -540,7 +546,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
     ert = EstRemTimer(len(events) * len(datacenters_dict))
 
     logger.debug("")
-    msg = "|STEP 2 OF 3| Querying Station WS:"
+    msg = "STEP 2/3: Querying Station WS"
     logger.info(msg)
 
     for ev in events.values:  # FIXME: use str labels?
@@ -584,34 +590,63 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
             if stations.empty:
                 continue
 
-            logger.debug("Downloaded stations:")
-            logger.debug(pd_str(stations))
-
-            # Do the core calculation now...
-            # Calculate distances, arrival times and time ranges
-            distances = get_distances(stations['Latitude'], stations['Longitude'], ev_lat,
-                                      ev_lon)
-            arr_times = get_arrival_times(distances, ev_depth_km, ev_time)
-            start_times, end_times = get_time_ranges(arr_times, minutes=ptimespan)
-            # concat all together:
+            # Do the core calculation of times and distances now...
+            # First define column names once (avoid typos):
             atime_col = "ArrivalTime"
             dist_col = "EventDistance/deg"
             stime_col = "DataStartTime"
             etime_col = "DataEndTime"
+            lat_col = 'Latitude'
+            lon_col = 'Longitude'
+            # Now calculate. As arrival_times is computationally expensive. We might have DUPLICATED
+            # stations so we select only those unique according to Latitude and longitude
+            stations_unique = stations.drop_duplicates(subset=(lat_col, lon_col))
+            # NOTE: the function above calculates duplicated if ALL subset(s) are equal, if any
+            # is equal then does not drop them (what we want)
 
-            # NOTE: start_times and end_times are NAMED series. Thus this sets a dataframe of
-            # empty values:
-            # pd.DataFrame(start_times, columns=[stime_col]) if stime_col name is different
-            # than start_times name (it is the case)
-            # this works (reassign the label):
-            # pd.DataFrame(stime_col: start_times)
-            wdf = pd.concat([pd.DataFrame({dist_col: distances}),
-                             pd.DataFrame({atime_col: arr_times}),
-                             pd.DataFrame({stime_col: start_times}),
-                             pd.DataFrame({etime_col: end_times}),
-                             stations], axis=1)  # , ignore_index=True)
-            # NOTE ABOVE: FIXME: do not use ignore_index otherwise column names are lost
-            # BUT: what if we have the same index? check!
+            # set stations_unique as "not a copy" to suppress pandas warning, as that warning does
+            # tell us that we are not modifying the original stations dataframe, which is what we
+            # are aware of
+            stations_unique.is_copy = False  # suppress warning
+
+            # add a column distances, arrival times etcetera to stations_unique
+            stations_unique.loc[:, dist_col] = get_distances(stations_unique[lat_col],
+                                                             stations_unique[lon_col],
+                                                             ev_lat, ev_lon)
+            stations_unique.loc[:, atime_col] = get_arrival_times(stations_unique[dist_col],
+                                                                  ev_depth_km, ev_time)
+            stations_unique.loc[:, stime_col], \
+                stations_unique.loc[:, etime_col] = get_time_ranges(stations_unique[atime_col],
+                                                                    minutes=ptimespan)
+
+            # print stations unique. It has infos about times and distances, we drop all channel
+            # info (this might speed up rendering for long DataFrame and make things more
+            # readable)
+            logger.debug("Downloaded stations (unique, i.e. no 'Channel' column shown):")
+            sts = stations_unique[stations_unique.columns[stations_unique.columns != 'Channel']]
+            logger.debug(pd_str(sts))
+
+            # build our DataFrame (extension of stations DataFrame):
+            # it's important to initialize to na (None NaT or NaN) as we will drop those values
+            # later (na means some error, thus warn in the log)
+            wdf = stations
+            wdf.insert(0, atime_col, pd.NaT)
+            wdf.insert(1, dist_col, np.NaN)
+            wdf.insert(2, stime_col, pd.NaT)
+            wdf.insert(3, etime_col, pd.NaT)
+
+            # populate our dataframe with the unique values, copying to all values with same
+            # lat and lon as stations_unique:
+            def func(stations_unique_row):
+                # this is generally faster than iterrows
+                row_selector_df = (wdf[lat_col] == stations_unique_row[lat_col]) & \
+                    (wdf[lon_col] == stations_unique_row[lon_col])
+                wdf.loc[row_selector_df, atime_col] = stations_unique_row[atime_col]
+                wdf.loc[row_selector_df, stime_col] = stations_unique_row[stime_col]
+                wdf.loc[row_selector_df, etime_col] = stations_unique_row[etime_col]
+                wdf.loc[row_selector_df, dist_col] = stations_unique_row[dist_col]
+
+            stations_unique.apply(func, axis=1)
 
             # dropna D from distances, arr_times, time_ranges which are na
             # FIXME: print to debug the removed dframe? do the same for stations and events df?
@@ -655,7 +690,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
     ert.print_progress(epilog="Done")
 
     logger.debug("")
-    logger.info("|STEP 3 OF 3| Querying Datacenter WS")
+    logger.info("STEP 3/3: Querying Datacenter WS")
 
     total = 0
     skipped_error = 0
@@ -671,7 +706,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         wav_dframe = wav_dframe[wdf.columns]
 
         # purge wav_data (this creates a column id primary key):
-        wav_data = db_handler.purge(wav_dframe, db_handler.tables.data)
+        wav_data = db_handler.purge(wav_dframe, db_handler.tables.segments)
         skipped_already_saved = total - len(wav_data)
 
         logger.debug("Downloading and saving %d of %d waveforms (%d already saved)",
@@ -684,13 +719,23 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         # http://stackoverflow.com/questions/23688307/settingwithcopywarning-even-when-using-loc
         wav_data.is_copy = False
 
-        logger.debug("")
-        logger.debug("Segments ready to be downloaded (one row per segment) "
-                     "after processing and purging invalid data:")
-        # print dframe except two verbose columns
-        # (Data which is byte and QueryStr is much data to be printed and in any case
-        # we will print it later). Note: Data is not in the dataframe anymore (will ba added later)
-        logger.debug(pd_str(wav_data[[c for c in wav_data.columns if c not in ("QueryStr", "Id")]]))
+#         logger.debug("")
+#         logger.debug("Segments ready to be downloaded (one row per segment) "
+#                      "after processing and purging invalid data:")
+#         # print dframe (only significant column, do not repeat station info)
+#         # (Data which is byte and QueryStr is much data to be printed and in any case
+#         # we will print it later). Note: Data is not in the dataframe anymore (will ba added later)
+#         logger.debug(pd_str(wav_data[[c for c in wav_data.columns if c in set(["QueryStr",
+#                                                                                "#EventID",
+#                                                                                "EventDistance/deg",
+#                                                                                "ArrivalTime",
+#                                                                                "DataStartTime",
+#                                                                                "DataEndTime"])
+#                                       ]
+#                                      ]
+#                             )
+#                      )
+
         logger.debug("")
 
         # insert binary data (empty)
@@ -725,7 +770,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
     new_events = db_handler.purge(events, db_handler.tables.events)
     db_handler.write(new_events, db_handler.tables.events)
     # write data:
-    db_handler.write(wav_data, db_handler.tables.data)
+    db_handler.write(wav_data, db_handler.tables.segments)
     # write log:
     log_dframe = logger.to_df(seg_found=total, seg_written=seg_written,
                               config_text=yaml_content.getvalue())

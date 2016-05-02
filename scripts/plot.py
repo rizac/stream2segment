@@ -7,7 +7,7 @@ Created on Feb 25, 2016
 # import matplotlib
 # matplotlib.use('Qt4Agg')
 import sys
-from stream2segment.io.data import DataManager
+from stream2segment.io.segments import DataManager
 import re
 import matplotlib.pyplot as plt
 from matplotlib.widgets import RadioButtons
@@ -16,7 +16,7 @@ from matplotlib.widgets import RadioButtons
 from matplotlib.backend_bases import NavigationToolbar2
 
 # set here left or right:
-plot_position = 'left'
+plot_position = 'right'
 
 # Rewrite tooltiptexts for back and forward buttons (we copy the whole tuple defined in
 # NavigatorToolbar2 although it's quite inefficient because it's easier than modifying a tuple of
@@ -56,6 +56,8 @@ infotext = fig.suptitle("", multialignment='left', fontsize=11, family='monospac
 # the different lines are left, center or right justified
 
 # some global variables for axes and controls dimensions:
+# padding around figure. This is the padding of the shorter axes, usually the y one
+# (the other one will be adjusted accordingly)
 fig_padding = 0.025
 legend_width = 0.35
 
@@ -131,7 +133,7 @@ def plot(canvas, index):
             fig.delaxes(a)
 
     try:
-        data = data_manager.get_data(index)
+        data = data_manager.get_segment(index)
     except (IOError, TypeError) as ioerr:
         # canvas.figure.suptitle(str(ioerr))
         errmsg = "Unable to show data plot(s):\n%s: %s" % (str(ioerr.__class__.__name__), str(ioerr))
@@ -141,14 +143,23 @@ def plot(canvas, index):
     data.plot(fig=fig, draw=False)  # , block=True)
 
     axez = sorted(mseed_axes_iterator(fig), key=lambda ax: ax.get_position().y0)
-    ypos = fig_padding
-    # fig_padding does not include axis ticks. For the vertical ones is ok, as they are
+
+    # calculate fig padding:
+    # NOTE: fig_padding does not include axis ticks. For the vertical ones is ok, as they are
     # a single line height, for the horizontal one we add a bit more space:
+    fig_padding_h, fig_padding_w = fig_padding, fig_padding
+    sizez = fig.get_size_inches()
+    if sizez[0] > sizez[1]:
+        fig_padding_w *= sizez[1] / sizez[0]
+    elif sizez[1] > sizez[0]:
+        fig_padding_h *= sizez[0] / sizez[1]
+
+    ypos = fig_padding_h
     additional_left_margin = 0.03
-    height = (1.0 - 2*(fig_padding)) / len(axez)
-    width = (1.0 - 3*(fig_padding) - additional_left_margin - legend_width)
-    axez_x = fig_padding + additional_left_margin if plot_position == 'left' else \
-        legend_width + 2*fig_padding + additional_left_margin
+    height = (1.0 - 2*(fig_padding_h)) / len(axez)
+    width = (1.0 - 3*(fig_padding_w) - additional_left_margin - legend_width)
+    axez_x = fig_padding_w + additional_left_margin if plot_position == 'left' else \
+        legend_width + 2*fig_padding_w + additional_left_margin
     for axs in axez:
         # testing: do we really set the ypos on the right axes?
         # print str(axs.get_position().y0) + " " + str(ypos)
@@ -159,13 +170,13 @@ def plot(canvas, index):
     infotext.set_text(getinfotext(data_manager.get_metadata(index)))
 
     # adjust dimensions:
-    xxx = 1 - legend_width - fig_padding if plot_position == 'left' else \
-        fig_padding
+    xxx = 1 - legend_width - fig_padding_w if plot_position == 'left' else \
+        fig_padding_w
     # infotext:
-    infotext.set_position((xxx, 1-fig_padding))
+    infotext.set_position((xxx, 1-fig_padding_h))
     # set radiobuttons position:
     rax_pos = rax.get_position()
-    rax.set_position([xxx, fig_padding, legend_width, rax_pos.height])
+    rax.set_position([xxx, fig_padding_h, legend_width, rax_pos.height])
     # update the selected radio button
     update_radio_buttons(update_texts=False)
 

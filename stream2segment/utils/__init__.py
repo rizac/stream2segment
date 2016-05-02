@@ -527,8 +527,8 @@ class EstRemTimer():
         line += bar_prefix + (fill * fill_len) + (empty_fill * empty_len) + bar_fuffix
         if show_percentage:
             line += self.percent()
-        if show_ert:
-            line += (" calculating time " if self.ert is None else " ≈"+str(self.ert)+"s") + " remaining."
+        if show_ert and self.ert is not None:
+            line += " ≈ %ss remaining." % str(self.ert)
         if epilog:
             line += " " + epilog
         print(line, end='', file=out)
