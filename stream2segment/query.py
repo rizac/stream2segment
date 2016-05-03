@@ -498,7 +498,8 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
     yaml_content = StringIO()
     yaml_content.write(yaml.dump(_args_, default_flow_style=False))
     logger.info("Arguments:")
-    logger.info(yaml_content.getvalue().replace("\n", "\n   "))
+    tab = "   "
+    logger.info(tab + yaml_content.getvalue().replace("\n", "\n%s" % tab))
 
     # a little bit hacky, but convert to dict as the function gets dictionaries
     # Note: we might want to use dict(locals()) as above but that does NOT
@@ -546,7 +547,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
     ert = EstRemTimer(len(events) * len(datacenters_dict))
 
     logger.debug("")
-    msg = "STEP 2/3: Querying Station WS"
+    msg = "STEP 2/3: Querying Station WS (level=channel)"
     logger.info(msg)
 
     for ev in events.values:  # FIXME: use str labels?
@@ -566,8 +567,8 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
 
         for DCID, dc in datacenters_dict.iteritems():
 
-            msg = "Event %s (%s): querying stations within %f deg. to %s (channels: %s))" % \
-                (ev_id, ev_loc_name, max_radius, DCID, str(channels))
+            msg = ("Event %s (%s): querying stations within %5.3f deg. "
+                   "to %s") % (ev_id, ev_loc_name, max_radius, DCID)
 
             logger.debug("")
             logger.debug(msg)
@@ -635,8 +636,8 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
             wdf.insert(2, stime_col, pd.NaT)
             wdf.insert(3, etime_col, pd.NaT)
 
-            # populate our dataframe with the unique values, copying to all values with same
-            # lat and lon as stations_unique:
+            # populate our dataframe with the unique values, acounting for duplicates stations
+            # due to different channels:
             def func(stations_unique_row):
                 # this is generally faster than iterrows
                 row_selector_df = (wdf[lat_col] == stations_unique_row[lat_col]) & \
@@ -718,23 +719,6 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         # any further operation on it raises a SettingWithCopyWarning, thus avoid issuing it:
         # http://stackoverflow.com/questions/23688307/settingwithcopywarning-even-when-using-loc
         wav_data.is_copy = False
-
-#         logger.debug("")
-#         logger.debug("Segments ready to be downloaded (one row per segment) "
-#                      "after processing and purging invalid data:")
-#         # print dframe (only significant column, do not repeat station info)
-#         # (Data which is byte and QueryStr is much data to be printed and in any case
-#         # we will print it later). Note: Data is not in the dataframe anymore (will ba added later)
-#         logger.debug(pd_str(wav_data[[c for c in wav_data.columns if c in set(["QueryStr",
-#                                                                                "#EventID",
-#                                                                                "EventDistance/deg",
-#                                                                                "ArrivalTime",
-#                                                                                "DataStartTime",
-#                                                                                "DataEndTime"])
-#                                       ]
-#                                      ]
-#                             )
-#                      )
 
         logger.debug("")
 

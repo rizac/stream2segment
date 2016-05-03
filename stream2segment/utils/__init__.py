@@ -515,7 +515,7 @@ class EstRemTimer():
 
     def print_progress(self, length=12, empty_fill='∙', fill='█', bar_prefix='|',
                        bar_fuffix='|', out=sys.stdout, show_percentage=True, show_ert=True,
-                       preamble='', epilog='', clear_cursor=True):
+                       preamble='', epilog='', clear_cursor=False):
         if clear_cursor and (self._start_time is None or self.done == 0):  # first round
             print('\x1b[?25l', end='', file=out)
         print('\r\x1b[K', end='', file=out)  # clear line
@@ -531,6 +531,12 @@ class EstRemTimer():
             line += " ≈ %ss remaining." % str(self.ert)
         if epilog:
             line += " " + epilog
+        # calculate the number of columns otherwise the line is NOT properly deleted
+        cols = get_terminal_cols()
+        if cols is not None and cols < len(line):
+            line = line[:max(0, cols-3)]
+            if line:
+                line += "..."
         print(line, end='', file=out)
         out.flush()
         if self.done >= self.total:
@@ -579,6 +585,35 @@ def estremttime(elapsed_time, iteration_number, total_iterations, approx_to_seco
                         if approx_to_seconds else remaining_seconds)
     return dttd
 
+
+def get_terminal_size():
+    return [get_terminal_rows(), get_terminal_cols()]
+
+
+def get_terminal_cols():
+    try:
+        columns = int(os.popen('tput cols', 'r').read().strip())
+        return columns
+    except ValueError:
+        try:
+            _, columns = os.popen('rstty size', 'r').read().split()
+            return int(columns)
+        except ValueError:
+            pass
+    return None
+
+
+def get_terminal_rows():
+    try:
+        rows = int(os.popen('tput lines', 'r').read().strip())
+        return rows
+    except ValueError:
+        try:
+            rows, _ = os.popen('rstty size', 'r').read().split()
+            return int(rows)
+        except ValueError:
+            pass
+    return None
 
 if __name__ == "__main__":
     
