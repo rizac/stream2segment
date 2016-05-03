@@ -7,7 +7,7 @@ Created on Feb 25, 2016
 # import matplotlib
 # matplotlib.use('Qt4Agg')
 import sys
-from stream2segment.io.segments import DataManager
+from stream2segment.io.db import Reader
 import re
 import matplotlib.pyplot as plt
 from matplotlib.widgets import RadioButtons
@@ -43,7 +43,7 @@ NavigationToolbar2.forward = lambda self, *args, **kwargs: plot_other(self, 1)
 # global vars:
 curr_pos = 0
 fig = plt.figure(figsize=(16, 9), dpi=80)
-data_manager = None
+dbreader = None
 # keep a reference to the figure title so that we do not need to create one every time
 # (avoiding checking for titles etcetera)
 infotext = fig.suptitle("", multialignment='left', fontsize=11, family='monospace',
@@ -66,24 +66,24 @@ legend_width = 0.35
 # Note: the position (0.95, 0.3) will be RESET later, here only elements 3 and 4 (width and height)
 # are set!
 rax = plt.axes([0.95, 0.3, legend_width, legend_width*0.75],  # axisbg='lightgoldenrodyellow',
-               title=DataManager.annotated_class_id_colname,
+               title=Reader.annotated_class_id_colname,
                aspect='equal')  # the last one makes radio buttons circles and not ellipses
 # the radiobuttons widget:
 radiobuttons = None
 
 
 def setclassfunc(label):
-    classes_df = data_manager.get_classes()
+    classes_df = dbreader.get_classes()
     label_ = re.sub("\\s+\\(\\s*\\d+\\s*\\)\\s*$", "", label)
     class_id = classes_df[classes_df['Label'] == label_].iloc[0]['Id']
-    data_manager.set_class(curr_pos, class_id)
+    dbreader.set_class(curr_pos, class_id)
     update_radio_buttons(update_active=False)
 
 
 def plot_other(self, key=0):  # key = None: home (print first plot), +1: print next, -1: print prev.
     global curr_pos
     old_curr_pos = curr_pos
-    curr_pos = 0 if key is None else (curr_pos + key) % len(data_manager)
+    curr_pos = 0 if key is None else (curr_pos + key) % dbreader.seg_count()
     if old_curr_pos != curr_pos:
         plot(self.canvas, curr_pos)
 
@@ -115,7 +115,7 @@ def getinfotext(metadata):
     # print the metadata on the figure title. Set the format string:
     frmt_str = "{0:" + str(first_col_chars) + "} {1}"
     # first remove the annotated class id cause we will use the editor for that:
-    metadata.pop(DataManager.annotated_class_id_colname, None)
+    metadata.pop(Reader.annotated_class_id_colname, None)
     # set the string:
     sorted_keys = sorted(metadata)
     title_str = "\n".join(frmt_str.format(str(k), ztr(metadata[k])) for k in sorted_keys)
@@ -124,7 +124,7 @@ def getinfotext(metadata):
 
 def plot(canvas, index):
 
-    canvas.set_window_title("%s: FILE %d OF %d" % (data_manager.db_uri, index+1, len(data_manager)))
+    canvas.set_window_title("%s: FILE %d OF %d" % (dbreader.db_uri, index+1, len(dbreader)))
     data = None
     # canvas.figure.clear() this is BAD cause the radiobuttons do not work anymore. Then
     # clear only axes of interest:
@@ -133,7 +133,7 @@ def plot(canvas, index):
             fig.delaxes(a)
 
     try:
-        data = data_manager.get_segment(index)
+        data = dbreader.get_segment(index)
     except (IOError, TypeError) as ioerr:
         # canvas.figure.suptitle(str(ioerr))
         errmsg = "Unable to show data plot(s):\n%s: %s" % (str(ioerr.__class__.__name__), str(ioerr))
@@ -167,7 +167,7 @@ def plot(canvas, index):
         ypos += height
 
     # Set info text on the figure title (NOTE: it is placed on the right)
-    infotext.set_text(getinfotext(data_manager.get_metadata(index)))
+    infotext.set_text(getinfotext(dbreader.get_metadata(index)))
 
     # adjust dimensions:
     xxx = 1 - legend_width - fig_padding_w if plot_position == 'left' else \
@@ -189,8 +189,8 @@ def update_radio_buttons(update_texts=True, update_active=True):
         SET TO FALSE IF CALLING THIS FROM WITHIN A MOUSE CLICK ON ONE RADIO BUTTON TO AVOID
         INFINITE LOOPS
     """
-    global radiobuttons, data_manager
-    classes_df = data_manager.get_classes()
+    global radiobuttons, dbreader
+    classes_df = dbreader.get_classes()
     if update_texts:
         clbls = classes_df['Label'].tolist()
         counts = classes_df['Count'].tolist()
@@ -202,14 +202,14 @@ def update_radio_buttons(update_texts=True, update_active=True):
                 text.set_text(label)
 
     if update_active:
-        class_id = data_manager.get_class(curr_pos)
+        class_id = dbreader.get_class(curr_pos)
         radiobuttonindex = classes_df[classes_df['Id'] == class_id].index[0]
         radiobuttons.set_active(radiobuttonindex)
 
 
 def main(db_uri):
-    global data_manager
-    data_manager = DataManager(db_uri)
+    global dbreader
+    dbreader = Reader(db_uri)
 
     update_radio_buttons()
 

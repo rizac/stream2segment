@@ -15,23 +15,20 @@
 from StringIO import StringIO
 import sys
 import logging
-# import logging
-# from matplotlib.dates import date2num
-# from datetime import datetime
 from datetime import timedelta, datetime
-from stream2segment.utils import EstRemTimer, url_read, tounicode
-from stream2segment.io import db
-from stream2segment import __version__ as program_version
+
+# third party imports:
 import numpy as np
 import pandas as pd
-# third party imports:
-# from obspy.taup.taup import getTravelTimes
+import yaml
 from obspy.taup import TauPyModel
 from obspy.geodetics import locations2degrees
 from obspy.taup.helper_classes import TauModelError
 
+from stream2segment.utils import EstRemTimer, url_read, tounicode
+from stream2segment.io import db
+from stream2segment import __version__ as program_version
 from stream2segment.classification import UNKNOWN_CLASS_ID
-import yaml
 
 
 def get_min_travel_time(source_depth_in_km, distance_in_degree, model='ak135'):  # FIXME: better!
@@ -519,10 +516,10 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
 
     # initialize our Database handler:
     try:
-        db_handler = db.DbHandler(outpath)
+        dbwriter = db.Writer(outpath)
     except IOError as err:
         logger.error(str(err))
-        logger.save(db_handler)
+        logger.save(dbwriter)
         return 1
 
     try:
@@ -532,7 +529,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         logger.error(str(err))
         log_dframe = logger.to_df(seg_found=0, seg_written=0,
                                   config_text=yaml_content.getvalue())
-        db_handler.write(log_dframe, db_handler.tables.logs)
+        dbwriter.write(log_dframe, dbwriter.tables.logs)
         return 1
     else:
         if skipped > 0:
@@ -697,6 +694,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
     skipped_error = 0
     skipped_empty = 0
     skipped_already_saved = 0
+    wav_data = None
     if wav_dframe is not None:
 
         total = len(wav_dframe)
@@ -707,7 +705,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         wav_dframe = wav_dframe[wdf.columns]
 
         # purge wav_data (this creates a column id primary key):
-        wav_data = db_handler.purge(wav_dframe, db_handler.tables.segments)
+        wav_data = dbwriter.purge(wav_dframe, dbwriter.tables.segments)
         skipped_already_saved = total - len(wav_data)
 
         logger.debug("Downloading and saving %d of %d waveforms (%d already saved)",
@@ -751,13 +749,13 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
 
     # write events:
     # first purge them then write
-    new_events = db_handler.purge(events, db_handler.tables.events)
-    db_handler.write(new_events, db_handler.tables.events)
+    new_events = dbwriter.purge(events, dbwriter.tables.events)
+    dbwriter.write(new_events, dbwriter.tables.events)
     # write data:
-    db_handler.write(wav_data, db_handler.tables.segments)
+    dbwriter.write(wav_data, dbwriter.tables.segments)
     # write log:
     log_dframe = logger.to_df(seg_found=total, seg_written=seg_written,
                               config_text=yaml_content.getvalue())
-    db_handler.write(log_dframe, db_handler.tables.logs)
+    dbwriter.write(log_dframe, dbwriter.tables.logs)
 
     return 0

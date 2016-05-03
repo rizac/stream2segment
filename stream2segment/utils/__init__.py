@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import print_function, unicode_literals
+from __future__ import print_function # , unicode_literals
 """
     Some utilities which share common functions which I often re-use across projects. Most of the
     functions here are already implemented in many libraries, but none of which has all of them.
@@ -46,6 +46,7 @@ try:
     from urllib.parse import urlparse, urlencode
     from urllib.request import urlopen, Request
     from urllib.error import HTTPError
+    raise ImportError()
 except ImportError:
     from urlparse import urlparse
     from urllib import urlencode
@@ -466,7 +467,7 @@ class EstRemTimer():
             :return: the percent done
             :rtype: string or float in [0,1] according to the argument (default: string)
         """
-        num = float(self.done) / self.total
+        num = 1 if not self.total else float(self.done) / self.total
         if formatstr is None:
             return num
         return formatstr.format(100 * num)
