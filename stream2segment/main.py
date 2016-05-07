@@ -26,25 +26,6 @@ from stream2segment.query import save_waveforms
 from stream2segment.utils import datetime as dtime
 
 
-def existing_directory(string):  # FIXME: remove!!
-#     p = utils.parsedb(string)
-#     
-#     if not string:
-#         raise argparse.ArgumentTypeError(" not specified")
-# 
-#     path_ = string
-#     if not os.path.isabs(string):
-#         string = os.path.abspath(os.path.join(os.path.dirname(__file__), string))
-# 
-#     if not os.path.exists(string):
-#         os.makedirs(string)
-#         logging.warning('"%s" newly created (did not exist)', string)
-# 
-#     if not os.path.isdir(string):
-#         raise argparse.ArgumentTypeError(path_ + " is not an existing directory")
-    return string
-
-
 def valid_date(string):
     """does a check on string to see if it's a valid datetime string.
     Returns the string on success, throws an ArgumentTypeError otherwise"""
@@ -97,7 +78,7 @@ def parse_args(description=sys.argv[0], args=sys.argv[1:], cfg_dict=load_def_cfg
     # set the file, finally:
     # note that the relative parser are called if the argument is a string. If not supplied, i.e.
     # None, the parser won't be called. Thus, we supply a default argument
-    parser.add_argument('-o', '--outpath', type=existing_directory,
+    parser.add_argument('-o', '--outpath',  # type=existing_directory,
                         help='Db path where to store waveforms, or db path from where to read the'
                              ' waveforms, if --gui is specified.',
                         default=cfg_dict.get('outpath', ''))
@@ -124,7 +105,7 @@ def main():
                       cfg_dict=cfg_dict)
 
     if args.gui:
-        from scripts import plot
+        from stream2segment.gui import plot
         plot.main(args.outpath)
         sys.exit(0)
 
@@ -136,8 +117,11 @@ def main():
 
     # remove unwanted args:
     vars_args.pop('gui', None)
-    sys.exit(save_waveforms(**vars_args))
-
+    try:
+        sys.exit(save_waveforms(**vars_args))
+    except KeyboardInterrupt:
+        print "wow"
+        return 1
 
 if __name__ == '__main__':
     main()

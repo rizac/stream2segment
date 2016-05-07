@@ -16,19 +16,20 @@ from StringIO import StringIO
 import sys
 import logging
 from datetime import timedelta, datetime
-
 # third party imports:
 import numpy as np
 import pandas as pd
 import yaml
-from obspy.taup import TauPyModel
-from obspy.geodetics import locations2degrees
-from obspy.taup.helper_classes import TauModelError
 
-from stream2segment.utils import EstRemTimer, url_read, tounicode
+from stream2segment.utils import Progress, url_read, tounicode
 from stream2segment.io import db
 from stream2segment import __version__ as program_version
 from stream2segment.classification import UNKNOWN_CLASS_ID
+
+# IMPORT OBSPY AT END! IT MESSES UP WITH IMPORTS!
+from obspy.taup import TauPyModel
+from obspy.geodetics import locations2degrees
+from obspy.taup.helper_classes import TauModelError
 
 
 def get_min_travel_time(source_depth_in_km, distance_in_degree, model='ak135'):  # FIXME: better!
@@ -359,19 +360,18 @@ def read_wav_data(query_str):
     except (IOError, ValueError, TypeError) as _:
         return None
 
-
-def read_wavs_data(query_series, logger=None, ert=None):
-    def func_dwav(query_str):
-        data = read_wav_data(query_str)
-        if logger is not None or ert is not None:
-            msg = "%6d bytes downloaded from: %s" % (len(data), query_str)
-            if logger is not None:
-                logger.debug(msg)
-            if ert is not None:
-                ert.print_progress(epilog=msg)
-        return data
-
-    return query_series.apply(func_dwav)
+# def read_wavs_data(query_series, logger=None, progress=None):
+#     def func_dwav(query_str):
+#         data = read_wav_data(query_str)
+#         if logger is not None or progress is not None:
+#             msg = "%6d bytes downloaded from: %s" % (len(data), query_str)
+#             if logger is not None:
+#                 logger.debug(msg)
+#             if progress is not None:
+#                 progress.echo(epilog=msg)
+#         return data
+# 
+#     return query_series.apply(func_dwav)
 
 
 def pd_str(dframe):
@@ -541,7 +541,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
 
     wav_dframe = None
 
-    ert = EstRemTimer(len(events) * len(datacenters_dict))
+    progress = Progress(len(events) * len(datacenters_dict))
 
     logger.debug("")
     msg = "STEP 2/3: Querying Station WS (level=channel)"
@@ -569,7 +569,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
 
             logger.debug("")
             logger.debug(msg)
-            ert.print_progress(epilog=msg)
+            progress.echo(epilog=msg)
 
             try:
                 stations, skipped = get_stations(dc, channels, ev_time, ev_lat, ev_lon,
@@ -685,7 +685,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
                 wav_dframe = wdf if wav_dframe is None else wav_dframe.append(wdf,
                                                                               ignore_index=True)
 
-    ert.print_progress(epilog="Done")
+    progress.echo(epilog="Done")
 
     logger.debug("")
     logger.info("STEP 3/3: Querying Datacenter WS")
@@ -711,7 +711,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         logger.debug("Downloading and saving %d of %d waveforms (%d already saved)",
                      len(wav_data), len(wav_dframe), len(wav_dframe) - len(wav_data))
 
-        ert = EstRemTimer(len(wav_data))
+        progress = Progress(len(wav_data))
 
         # it turns out that now wav_data is a COPY of wav_dframe
         # any further operation on it raises a SettingWithCopyWarning, thus avoid issuing it:
@@ -721,8 +721,17 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         logger.debug("")
 
         # insert binary data (empty)
-        bin_data_series = read_wavs_data(wav_data['QueryStr'], logger, ert)
-        wav_data.insert(1, 'Data', bin_data_series)
+        def func_dwav(query_str):
+            data = read_wav_data(query_str)
+            msg = "%7d bytes downloaded from: %s" % (len(data), query_str)
+            logger.debug(msg)
+            progress.echo(epilog=msg)
+            return data
+
+        binary_data_series = wav_data['QueryStr'].apply(func_dwav)
+#         binary_data_series = read_wavs_data(wav_data['QueryStr'], logger, progress)
+
+        wav_data.insert(1, 'Data', binary_data_series)
 
         # purge stuff which is not good:
         wav_data.dropna(subset=['Data'], inplace=True)
@@ -730,7 +739,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         wav_data = wav_data[wav_data['Data'] != b'']
         skipped_empty = (total - skipped_already_saved - skipped_error) - len(wav_data)
 
-    ert.print_progress(epilog="Done")
+    progress.echo(epilog="Done")
     logger.debug("")
     if logger.warnings:
         print "%d warnings (check log for details)" % logger.warnings

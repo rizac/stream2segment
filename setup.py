@@ -122,7 +122,7 @@ setup(
     # pip to create the appropriate form of executable for the target platform.
     entry_points={
         'console_scripts': [
-            'stream2segment=run:main',
+            'stream2segment=stream2segment.main:main',
         ],
     },
 )

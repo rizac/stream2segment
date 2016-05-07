@@ -71,13 +71,17 @@ rax = plt.axes([0.95, 0.3, legend_width, legend_width*0.75],  # axisbg='lightgol
 # the radiobuttons widget:
 radiobuttons = None
 
+_pass_set_flag = False  # this flag is set in updateradiobuttons and used in setclass
 
-def setclassfunc(label):
+
+def setclass(label):
+    if _pass_set_flag:
+        return
     classes_df = dbreader.get_classes()
     label_ = re.sub("\\s+\\(\\s*\\d+\\s*\\)\\s*$", "", label)
     class_id = classes_df[classes_df['Label'] == label_].iloc[0]['Id']
     dbreader.set_class(curr_pos, class_id)
-    update_radio_buttons(update_active=False)
+    update_radio_buttons()
 
 
 def plot_other(self, key=0):  # key = None: home (print first plot), +1: print next, -1: print prev.
@@ -124,7 +128,7 @@ def getinfotext(metadata):
 
 def plot(canvas, index):
 
-    canvas.set_window_title("%s: FILE %d OF %d" % (dbreader.db_uri, index+1, len(dbreader)))
+    canvas.set_window_title("%s: FILE %d OF %d" % (dbreader.db_uri, index+1, dbreader.seg_count()))
     data = None
     # canvas.figure.clear() this is BAD cause the radiobuttons do not work anymore. Then
     # clear only axes of interest:
@@ -181,7 +185,7 @@ def plot(canvas, index):
     update_radio_buttons(update_texts=False)
 
 
-def update_radio_buttons(update_texts=True, update_active=True):
+def update_radio_buttons(update_texts=True):
     """
         Updates the radio buttons
         :param update_texts: updates the label texts (with the counts for each class label)
@@ -191,36 +195,36 @@ def update_radio_buttons(update_texts=True, update_active=True):
     """
     global radiobuttons, dbreader
     classes_df = dbreader.get_classes()
-    if update_texts:
+
+    if update_texts or radiobuttons is None:
         clbls = classes_df['Label'].tolist()
         counts = classes_df['Count'].tolist()
         radiolabels = ["%s (%d)" % (s, v) for s, v in zip(clbls, counts)]
         if radiobuttons is None:
             radiobuttons = RadioButtons(rax, radiolabels)
+            # Resize all radio buttons in `r` collection by fractions `f`"
+            for circle in radiobuttons.circles:
+                circle.set_radius(circle.get_radius() * .75)
+
+            radiobuttons.on_clicked(setclass)  # set this after 'update_radio_buttons' above
         else:
             for text, label in zip(radiobuttons.labels, radiolabels):
                 text.set_text(label)
 
-    if update_active:
-        class_id = dbreader.get_class(curr_pos)
-        radiobuttonindex = classes_df[classes_df['Id'] == class_id].index[0]
-        radiobuttons.set_active(radiobuttonindex)
+    global _pass_set_flag
+    _pass_set_flag = True
+    class_id = dbreader.get_class(curr_pos)
+    radiobuttonindex = classes_df[classes_df['Id'] == class_id].index[0]
+    radiobuttons.set_active(radiobuttonindex)
+    _pass_set_flag = False
 
 
 def main(db_uri):
     global dbreader
     dbreader = Reader(db_uri)
 
-    update_radio_buttons()
-
-    # Resize all radio buttons in `r` collection by fractions `f`"
-    for circle in radiobuttons.circles:
-        circle.set_radius(circle.get_radius() * .75)
-
-    radiobuttons.on_clicked(setclassfunc)  # set this after 'update_radio_buttons' above
-
     plot(fig.canvas, 0)
-    
+
     plt.show(True)
 
 

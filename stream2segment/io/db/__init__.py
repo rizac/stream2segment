@@ -1,31 +1,47 @@
+import os
+from StringIO import StringIO
 from contextlib import contextmanager
+
 from sqlalchemy.orm import Session
 from sqlalchemy.engine.base import Engine
 from sqlalchemy import create_engine
 from sqlalchemy.ext.automap import automap_base
-import pandas.io.sql as pdsql
 from sqlalchemy.exc import OperationalError
-import pandas as pd
-import numpy as np
 from sqlalchemy import BLOB
-import os
-from StringIO import StringIO
+import pandas as pd
+import pandas.io.sql as pdsql
+import numpy as np
+
 from obspy import read
 
 
 class SessionScope(object):
     """
         Class handling sqlalchemy sessions. Initialize this object with an sqlalchemy engine
-        and then
-        Call self.session() to get an sqlalchemy session, or use a with statement which handles
-        commit and rollback when exiting:
-        with self.session_scope() as session:
-            ... do something with the session ...
-        NOTE: the with statement sets also the returned session as class attribute
-        self._open_session, so that subclasses might use it like this:
+        or database uri (string) and then use it inside a `with` statement:
+        ```with self.session_scope() as session:
+            ... do something with the session ...```
+        Within the with statement, this class sets the attribute _open_session and returns it
+        (variable session above). The methods:
+        self.session()
+        return the underlying _open_session if the latter is not None, or a new Session otherwise.
+        So one could also safely call self.session() from within a with statement:
+        ```with self.session_scope():
+            session = self.session()
+            ... do something with the session ...```
 
-        def do_something(self, ...):
-            if self._open_session:
+        Notes for objects subclassing this class:
+        This class is intended to be the base class for IO database operation. If you subclass this
+        class, there might be method for which you do not want to force a with statement each time.
+        In that case, as stated above you could instantiate a session with
+        ```session=self.session()```
+        and then close it safely with
+        ```self.close(session)```
+        or commit safely with
+        ```self.commit(session)```
+        The two methods above do their job ONLY if the session argument is not self._open_session,
+        i.e. we are not within a with statement (in which case, the with statement takes care of
+        committing when exiting the statement)
     """
     def __init__(self, sql_alchemy_engine_or_dburl):
         if isinstance(sql_alchemy_engine_or_dburl, Engine):
@@ -139,7 +155,9 @@ class DbHandler(SessionScope):
         SessionScope.__init__(self, db_uri)
 
         class MyDict(dict):  # allow self.tables to have attributes (see below)
-            pass
+            def get_cfg_dict(self, table_name):
+                return self._metadata.get(table_name, {})
+
         self.tables = MyDict()
 
         # self.tables will be populated inside initdb when needed (i.e, lazily) with our
@@ -223,9 +241,6 @@ class DbHandler(SessionScope):
             self.tables[table_name].drop(self.engine)
             self.automap()
 
-    def get_metadata(self, table_name):
-        return self.tables._metadata.get(table_name, {})
-
 
 class Writer(DbHandler):
     """
@@ -300,7 +315,7 @@ class Writer(DbHandler):
             if table_name in self.tables._metadata:  # one of the default tables:
                 dframe = self._prepare_df(table_name, dframe)
                 if pkey_name is None:  # use default one:
-                    pkey_name = self.get_metadata(table_name)['pkey']
+                    pkey_name = self.tables.get_cfg_dict(table_name)['pkey']
 
             session = self.session()
             column = getattr(tables[table_name], pkey_name)
@@ -439,8 +454,8 @@ class Writer(DbHandler):
         if dframe is None or dframe.empty:
             return
         dframe = self._prepare_df(table_name, dframe)
-        pkey = self.get_metadata(table_name)['pkey']
-        dtype = self.get_metadata(table_name).get('dtype', None)
+        pkey = self.tables.get_cfg_dict(table_name)['pkey']
+        dtype = self.tables.get_cfg_dict(table_name).get('dtype', None)
         self.to_sql(dframe, table_name, pkey, if_exists=if_exists, dtype=dtype)
 
     def _prepare_df(self, table_name, dframe):
@@ -450,7 +465,7 @@ class Writer(DbHandler):
             Returns the input dataframe at the end (potentially unmodified)
         """
         if table_name == self.tables.segments:
-            pkey = self.get_metadata(table_name)['pkey']
+            pkey = self.tables.get_cfg_dict(table_name)['pkey']
             recalc = pkey not in dframe.columns
             if recalc:
                 dframe.insert(0, pkey, None)
@@ -562,9 +577,9 @@ class Reader(DbHandler):
         self._classes_dataframe.insert(len(self._classes_dataframe.columns), 'Count', 0)
         self.update_classes()
 
-    def seg_ccount(self):
+    def seg_count(self):
         """returns the number of segments read from the segments table"""
-        return len(self.files)
+        return len(self.mseed_ids)
 
 #     def __iter__(self):
 #         # FIXME: NOTE TESTED!!!
@@ -626,18 +641,18 @@ class Reader(DbHandler):
                 ret[attr_name] = getattr(row, attr_name)
         return ret
 
-    def get_class(self, index, as_annotated_class=True, session=None):
+    def get_class(self, index, as_annotated_class=True):
         """Returns the class id (integer) of the index-th item (=db table row).
         :param as_annotated_class: if True (the default), returns the value of the column
             of the annotated class id (representing the manually annotated class), otherwise the
             column specifying the class id (representing the class id as the result of some
             algorithm, e.g. statistical classifier)
         """
-        row = self.get_row(index, session)
+        row = self.get_row(index)
         att_name = self.annotated_class_id_colname if as_annotated_class else self.class_id_colname
         return getattr(row, att_name)
 
-    def set_class(self, index, class_id, as_annotated_class=True, session=None):
+    def set_class(self, index, class_id, as_annotated_class=True):
         """
             Sets the class of the index-th item (=db table row). **IMPORTANT: call
             self._update_classes() after exiting if using this method within a with statement:
@@ -652,13 +667,17 @@ class Reader(DbHandler):
             column specifying the class id (representing the class id as the result of some
             algorithm, e.g. statistical classifier)
         """
+        if self._open_session:
+            raise ValueError("This method is not allowed within a 'with' statement. This"
+                             "problem will be fixed soon, sorry!")
         # store the old class id and the new one:
-        sess = self.session()
-        row = self.get_row(index, sess)
-        att_name = self.annotated_class_id_colname if as_annotated_class else self.class_id_colname
-        setattr(row, att_name, class_id)
-        if self.commit(sess):  # i.e., we are NOT in a with statement
-            self.update_classes()
+        # NOTE: we absolutely need a with statement to keep the session open
+        with self.session_scope():
+            row = self.get_row(index)
+            att_name = self.annotated_class_id_colname if as_annotated_class else \
+                self.class_id_colname
+            setattr(row, att_name, class_id)
+        self.update_classes()
 
     # get the list [(class_id, class_label, count), ...]
     def update_classes(self):
@@ -719,7 +738,8 @@ class Reader(DbHandler):
         """
         return self.read_sql(table_name, coerce_float=True,
                              index_col=None,
-                             parse_dates=self.get_metadata(table_name).get('parse_dates', None),
+                             parse_dates=self.tables.get_cfg_dict(table_name).get('parse_dates',
+                                                                                  None),
                              columns=None,
                              chunksize=chunksize)  # FIXME!! parse dates!
     # implement mutable sequence: dbhandler.get(table_name), for table_name in dbhandler: ...
