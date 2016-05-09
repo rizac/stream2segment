@@ -68,6 +68,10 @@ cp config.example.yaml config.yaml
 ```
 and edit it if you whish
 
+Last setting with matplotlib: use a backedn which is able to show figures (for `stream2segment --gui` options). Create the file (if it does not exist) `$HOME/.config/matplotlib/matplotlibrc`, oopen it and add the line:
+```backend: TkAgg```
+You can also create a `matplotlibrc` in the stream2segment directory. Advantage: it can be used for specific customizations that you do not want to apply elsewhere (if you have other matplotlib settings). Drawbacks: you need to cd to stream2segment for making the program work
+
 ## Usage
 
 Move (`cd` on a terminal) to the stream2segment folder. If you installed and activated a python virtual environment during installation (hopefully you did), **activate the virtual environment first**:
