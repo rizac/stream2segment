@@ -10,19 +10,20 @@ import pytest
 import argparse
 from itertools import combinations
 
-# @pytest.mark.parametrize('verbosity, expected_level',
-#                          [(-1, 40), (0, 40), (1, 30), (2, 20), (3, 10), (4, 10),])
-# @mock.patch('run.logging.basicConfig')
-# def test_config_logging(mock_logging_basicconfig, verbosity, expected_level):
-#     config_logging(verbosity)
-#     assert len(mock_logging_basicconfig.call_args_list) == 1
-#     basicconfigcall = mock_logging_basicconfig.call_args_list[0]
-#     assert len(basicconfigcall) == 2 # w=FIXME: check why?!!
-#     logging_level = basicconfigcall[1]['level']
-#     assert logging_level == expected_level
+
+@pytest.mark.parametrize('verbosity, expected_level',
+                         [(-1, 40), (0, 40), (1, 30), (2, 20), (3, 10), (4, 10),])
+@mock.patch('run.logging.basicConfig')
+def test_config_logging(mock_logging_basicconfig, verbosity, expected_level):
+    config_logging(log_verbosity=verbosity)
+    assert len(mock_logging_basicconfig.call_args_list) == 1
+    basicconfigcall = mock_logging_basicconfig.call_args_list[0]
+    assert len(basicconfigcall) == 2 # w=FIXME: check why?!!
+    logging_level = basicconfigcall[1]['level']
+    assert logging_level == expected_level
 
 
-@mock.patch('run.to_datetime')
+@mock.patch('run.dtime')
 def test_valid_date(mock_to_datetime):
     from run import valid_date
     mock_to_datetime.return_value = None

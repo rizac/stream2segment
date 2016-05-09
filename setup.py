@@ -28,7 +28,7 @@ setup(
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
-    version='0.1.0',
+    version="2.2.0",
 
     description='A python project to download seismic waveforms related to events',
     long_description=long_description,
@@ -49,7 +49,7 @@ setup(
         #   3 - Alpha
         #   4 - Beta
         #   5 - Production/Stable
-        'Development Status :: 3 - Alpha',
+        'Development Status :: 4 - Beta',
 
         # Indicate who your project is intended for
         'Intended Audience :: Science/Research',
@@ -91,7 +91,7 @@ setup(
     # it apparently downloads numpy, then obspy, THEN INSTALLS both
     # so that, since obspy requires numpy, it complains that's not installed.
     # numpy must be therefore installed separately, and we write:
-    install_requires=['obspy', 'pyyaml'],
+    install_requires=['obspy', 'pyyaml', 'pandas'],
 
     # List additional groups of dependencies here (e.g. development
     # dependencies). You can install these using the following syntax,
@@ -122,7 +122,9 @@ setup(
     # pip to create the appropriate form of executable for the target platform.
     entry_points={
         'console_scripts': [
-            'stream2segment=run:main',
+            'stream2segment=stream2segment.main:main',
         ],
     },
 )
+
+print str(find_packages(exclude=['contrib', 'docs', 'tests', 'htmlcov']))

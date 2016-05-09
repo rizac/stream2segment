@@ -10,8 +10,9 @@ from mock import patch
 import pytest
 from mock import Mock
 from datetime import datetime, timedelta
-from stream2segment.query_utils import getWaveforms, getTimeRange, getStations, getEvents, to_datetime,\
-    getArrivalTime, getSearchRadius, getEvents, url_read, saveWaveforms
+from stream2segment.query_utils import get_time_range, get_stations, get_events, get_arrival_time,\
+get_search_radius, get_events, save_waveforms
+from stream2segment.utils import datetime as dtime
 from StringIO import StringIO
 from obspy.taup.taup import getTravelTimes
 
