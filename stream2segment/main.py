@@ -44,10 +44,12 @@ def parse_args(description=sys.argv[0], args=sys.argv[1:], cfg_dict=load_def_cfg
 
     parser = argparse.ArgumentParser(description=description)
 
-    parser.add_argument('--gui',
+    parser.add_argument('--gui', nargs='*',  # zero or more arguments
+                        required=False, type=int,
                         help='Launch GUI editor to annotate class ids on '
-                             'pre-saved data (using this tool)',
-                        action='store_true')
+                             'pre-saved data (using this tool). You can also provide optional '
+                             'class labels to be shown after --gui, '
+                             'e.g.: stream2segment --gui -1 0')
     parser.add_argument('-e', '--eventws',
                         help='Event WS to use in queries.',
                         default=cfg_dict['eventws'])
@@ -71,7 +73,8 @@ def parse_args(description=sys.argv[0], args=sys.argv[1:], cfg_dict=load_def_cfg
                         default=cfg_dict['ptimespan'])
     parser.add_argument('--search_radius_args', nargs=4,
                         help=('arguments to the function returning the search radius R whereby all '
-                              'stations within R will be queried from given event location'),
+                              'stations within R will be queried from given event location. '
+                              'args are: min_mag max_mag min_distance_deg max_distance_deg'),
                         type=float,
                         default=cfg_dict['search_radius_args'])
 
@@ -104,9 +107,9 @@ def main():
     args = parse_args(description='Download waveforms related to events',
                       cfg_dict=cfg_dict)
 
-    if args.gui:
+    if args.gui is not None:
         from stream2segment.gui import plot
-        plot.main(args.outpath)
+        plot.main(args.outpath, args.gui)
         sys.exit(0)
 
     vars_args = vars(args)

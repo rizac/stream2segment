@@ -61,6 +61,9 @@ infotext = fig.suptitle("", multialignment='left', fontsize=11, family='monospac
 fig_padding = 0.025
 legend_width = 0.35
 
+# ids shown (empty means show all):
+shown_filters = []
+
 # these variables are global so that we can make them interactive
 # the axes housing the radiobuttons:
 # Note: the position (0.95, 0.3) will be RESET later, here only elements 3 and 4 (width and height)
@@ -201,11 +204,16 @@ def update_radio_buttons(update_texts=True):
     classes_df = dbreader.get_classes()
 
     if update_texts or radiobuttons is None:
+        ids = classes_df['Id'].tolist()
         clbls = classes_df['Label'].tolist()
         counts = classes_df['Count'].tolist()
-        radiolabels = ["%s (%d)" % (s, v) for s, v in zip(clbls, counts)]
+        radiolabels = ["%d: %s (%d)" % (i, s, v) for i, s, v in zip(ids, clbls, counts)]
         if radiobuttons is None:
             radiobuttons = RadioButtons(rax, radiolabels)
+            if len(shown_filters):
+                for i, text in enumerate(radiobuttons.labels):
+                    if ids[i] not in shown_filters:
+                        text.set_color('#bbbbbb')
             # Resize all radio buttons in `r` collection by fractions `f`"
             for circle in radiobuttons.circles:
                 circle.set_radius(circle.get_radius() * .75)
@@ -223,9 +231,18 @@ def update_radio_buttons(update_texts=True):
     _pass_set_flag = False
 
 
-def main(db_uri):
+def main(db_uri, class_ids):
     global dbreader
-    dbreader = Reader(db_uri)
+    global shown_filters
+
+    def filter_func(dframe):
+        return dframe
+    if class_ids:
+        shown_filters = class_ids
+        def filter_func(dframe):
+            return dframe[dframe['AnnotatedClassId'].isin(class_ids)]
+
+    dbreader = Reader(db_uri, filter_func=filter_func)
 
     plot(fig.canvas, 0)
 
@@ -242,7 +259,7 @@ if __name__ == '__main__':
     # files = [join(dir_, f) for f in listdir(dir_) if isfile(join(dir_, f))]
         # plt.show(block=True)
     
-    main(path_)
+    main(path_, [])
 
 
 # SOME INFOS FOUND BROWSING INTERNET (SEOM OF THEM USED ABOVE):

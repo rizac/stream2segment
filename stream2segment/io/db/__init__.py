@@ -551,10 +551,12 @@ class Reader(DbHandler):
     # the db column name of the (classified) class_id:
     class_id_colname = 'ClassId'
 
-    def __init__(self, db_uri):
+    def __init__(self, db_uri, filter_func=None):
         """
             Initializes a new DataManager via a given db_uri
             :param db_uri: the database uri, e.g. sqlite:///path_to_my_sqlite_file
+            :param filter_func: a filter function taking as argument the DataFrame of segments
+            read and returning a filtered DataFrame
         """
         DbHandler.__init__(self, db_uri)
         # check if database exists:
@@ -571,6 +573,8 @@ class Reader(DbHandler):
         # the type of the files DataFrame (object) and we want to preserve the db type (so first
         # iteration files is the first chunk read)
         for data in iterator:
+            if filter_func:
+                data = filter_func(data)
             data = pd.DataFrame({id_col_name: data[id_col_name]})
             if files is None:
                 files = data
