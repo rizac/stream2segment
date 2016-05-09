@@ -1,19 +1,22 @@
-# Variables to tune the functionality
+###################################################################
+# stream2segment config file to tune the functionality.
+# IMPORTANT: THIS IS A YAML FILE, IF YOU ARE NEW TO IT BEFORE EDITING SEE e.g.:
+# http://symfony.com/doc/current/components/yaml/yaml_format.html
+# or
+# http://docs.ansible.com/ansible/YAMLSyntax.html
+###################################################################
 
-# channels (identifies broadband, short period, accelerometers but also broad band):
+# channels (identifies short period, accelerometers but also broad band):
 channels: # sampling rate (hight to low) / type of data (broadband etcetera)
- chanH:
-  - "HH?"
-  - 'SH?'
-  - 'BH?'  
- chanN:
-  - 'HN?'
-  - 'SN?'
-  - 'BN?'
-# chanL:
-#  - 'HL?'
-#  - 'SL?'
-#  - 'BL?'
+ - "HH?"
+ - 'SH?'
+ - 'BH?'
+ - 'HN?'
+ - 'SN?'
+ - 'BN?'
+# - 'HL?'
+# - 'SL?'
+# - 'BL?'
 
 # Include only two datacentres to test. You can change to the full
 # set of datacentres as soon as you think it's working.
@@ -37,8 +40,8 @@ maxlat: 80.0
 minlon: -10.0
 maxlon: 60.0
 ptimespan:
- - 1.0 # minutes before a P wave arrival
- - 3.0 # minutes after a P wave arrival
+ - 1.0 # minutes before a P wave arrival time
+ - 3.0 # minutes after a P wave arrival time
 #search radius parameters (mag_min, max_max, dist_min, dist_max)
 search_radius_args:
  - 3 # min magnitude
@@ -47,28 +50,15 @@ search_radius_args:
  - 5 # max distance (deg)
 
 # these are optional, missing defaults to start:yesterday at midnight, today at midnight
-# start: 2015-01-01
-# end:   2015-02-01
+#start: 2016-04-23T00:00:00
+#end: 2016-04-23T11:00:00
 
 # program specific parameters:
-outpath: '/tmp/mseeds/'
 
-# Set verbosity (for details see https://docs.python.org/2/library/logging.html#levels)
-# Note that a level of N will display all M<=N messages,
-# So setting 2 WILL DISPLAY EVERYTHING EXCEPT DEBUG MESSAGES
-log_verbosity: 2 #3: DEBUG, 2: INFO, 1: WARNING, 0: ERROR
-# optional parameters:
-# see https://docs.python.org/2/library/logging.html#logging.basicConfig
-# log_filename='/tmp/mseeds/logfile.log'  # if missing, prints to stdout
-# log_filemode='a'  # only used if the parameter above is specified
-# log_datefmt  # format for datetimes
-log_format: '%(levelname)-7s %(message)s' # format for messages
-
-# ========================================================
-
-# unused / old parameters:
-# distFromEvent: 5.0 # distance radius from event, in Km
-# radius_minmag: 3
-# radius_maxmag: 7
-# radius_mindist: 1
-# radius_maxdist: 5
+# outpath: specify a database file name
+# Usually, it is a sqlite database, in which case just write the path to your local file
+# PREPENED with 'sqlite:///' (e.g., 'sqlite:////home/my_folder/db.sqlite')
+# Otherwise, the syntax is:
+# dialect+driver://username:password@host:port/database
+# (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)
+outpath: 'sqlite:///./mydb11.sqlite'  # '/tmp/mseeds/'

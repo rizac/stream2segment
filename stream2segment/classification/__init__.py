@@ -20,8 +20,8 @@ class_labels_df = pd.DataFrame(
                                        [1, 'Clipped', "Segment is clipped"],
                                        [2, 'InstrProblem', 'Segment has instrumental problems'],
                                        [3, "LowS2N", "Segment has a low signal-to-noise ratio"],
-                                       [4, ("MultiEvent", "Segment with overlapping "
-                                            "multi-events recorded")],
+                                       [4, "MultiEvent", ("Segment with overlapping "
+                                                          "multi-events recorded")],
                                        [5, "NoSigAll", "Signal is not present in all channels"],
                                        [6, "Gaps", "Signal with gaps"]
                                        ],

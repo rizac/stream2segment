@@ -302,20 +302,20 @@ def query2dframe(query_result_str):
     return pd.DataFrame(data=data, columns=columns)
 
 
-def get_wav_query(dc, channel, station_name, start_time, end_time):
-    qry = '%s/dataselect/1/query?station=%s&channel=%s&start=%s&end=%s'
-    return qry % (dc, station_name, channel, start_time.isoformat(), end_time.isoformat())
+def get_wav_query(dc, network, station_name, channel, start_time, end_time):
+    qry = '%s/dataselect/1/query?network=%s&station=%s&channel=%s&start=%s&end=%s'
+    return qry % (dc, network, station_name, channel, start_time.isoformat(), end_time.isoformat())
 
 
-def get_wav_queries(dc_series, channel_series, station_name_series, start_time_series,
-                    end_time_series):
-    pddf = pd.DataFrame({'dc': dc_series, 'channel': channel_series,
+def get_wav_queries(dc_series, network_series, station_name_series, channel_series,
+                    start_time_series, end_time_series):
+    pddf = pd.DataFrame({'dc': dc_series, 'channel': channel_series, 'network': network_series,
                          'station_name': station_name_series, 'start_time': start_time_series,
                          'end_time': end_time_series})
 
     def func(row):
-        return get_wav_query(row['dc'], row['channel'], row['station_name'], row['start_time'],
-                             row['end_time'])
+        return get_wav_query(row['dc'], row['network'], row['station_name'], row['channel'],
+                             row['start_time'], row['end_time'])
 
     query_series = pddf.apply(func, axis=1)
     return query_series
@@ -426,18 +426,21 @@ class LoggerHandler(object):
         self.errors += 1
         self.rootlogger.error(*args, **kw)
 
-    def to_df(self, seg_found, seg_written, config_text=None, close_stream=True):
+    def to_df(self, seg_found, seg_written, config_text=None, close_stream=True,
+              datetime_now=None):
         """Saves the logger informatuon to database"""
 #         db_handler.write(pd.DataFrame([[datetime.utcnow(), tounicode(self.stringio.getvalue()),
 #                                         self.warnings, self.errors, str(program_version)]],
 #                                       columns=["Time", "Log", "Warnings", "Errors",
 #                                                "ProgramVersion"]
 #                                       ), "logs", "Time")
-        pddf = pd.DataFrame([[datetime.utcnow(), tounicode(self.stringio.getvalue()), self.warnings,
+        if datetime_now is None:
+            datetime_now = datetime.utcnow()
+        pddf = pd.DataFrame([[datetime_now, tounicode(self.stringio.getvalue()), self.warnings,
                               self.errors, seg_found, seg_written, seg_found - seg_written,
                               tounicode(config_text) if config_text else tounicode(""),
                               ".".join(str(v) for v in program_version)]],
-                            columns=["Time", "Log", "Warnings", "Errors", "SegmentsFound",
+                            columns=["Id", "Log", "Warnings", "Errors", "SegmentsFound",
                                      "SegmentsWritten", "SegmentsSkipped", "Config",
                                      "ProgramVersion"])
         if close_stream:
@@ -529,7 +532,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         logger.error(str(err))
         log_dframe = logger.to_df(seg_found=0, seg_written=0,
                                   config_text=yaml_content.getvalue())
-        dbwriter.write(log_dframe, dbwriter.tables.logs)
+        dbwriter.write(log_dframe, dbwriter.tables.runs)
         return 1
     else:
         if skipped > 0:
@@ -625,13 +628,20 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
             logger.debug(pd_str(sts))
 
             # build our DataFrame (extension of stations DataFrame):
-            # it's important to initialize to na (None NaT or NaN) as we will drop those values
-            # later (na means some error, thus warn in the log)
             wdf = stations
-            wdf.insert(0, atime_col, pd.NaT)
-            wdf.insert(1, dist_col, np.NaN)
-            wdf.insert(2, stime_col, pd.NaT)
-            wdf.insert(3, etime_col, pd.NaT)
+            # add specific segments columns
+            # it's important to initialize some to na (None NaT or NaN) as we will drop those values
+            # later (na means some error, thus warn in the log)
+            wdf.insert(0, '#EventID', ev_id)
+            wdf.insert(1, atime_col, pd.NaT)
+            wdf.insert(2, dist_col, np.NaN)
+            wdf.insert(3, stime_col, pd.NaT)
+            wdf.insert(4, etime_col, pd.NaT)
+            wdf.insert(5, 'QueryStr', dc)  # this is the Datacenter (for the moment) later the 
+            # query string (see below)
+            wdf.insert(6, 'ClassId', UNKNOWN_CLASS_ID)
+            wdf.insert(7, 'AnnotatedClassId', UNKNOWN_CLASS_ID)
+            wdf.insert(8, 'RunId', pd.NaT)
 
             # populate our dataframe with the unique values, acounting for duplicates stations
             # due to different channels:
@@ -661,23 +671,10 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
             # reset index so that we have nonnegative ordered natural numbers 0, ... N:
             wdf.reset_index(inplace=True, drop=True)
 
-            # add event id column at position 0
-            wdf.insert(0, '#EventID', ev_id)
-
-            colpos = len(wdf.columns) - len(stations.columns)
-            # set a column position from which to add next columns
-            # Basically from here on append them at the end so that
-            # inspecting the table with some tool the relevant ones are first)
-            # add single valued columns:
-            for col_name, col_val in [('DataCenter', dc), ('ClassId', UNKNOWN_CLASS_ID),
-                                      ('AnnotatedClassId', UNKNOWN_CLASS_ID)]:
-                wdf.insert(colpos, col_name, col_val)
-                colpos += 1
-
-            # add the query string
-            wdf.insert(colpos, 'QueryStr', get_wav_queries(wdf['DataCenter'], wdf['Channel'],
-                                                           wdf['Station'], wdf['DataStartTime'],
-                                                           wdf['DataEndTime']))
+            wdf.loc[:, 'QueryStr'] = get_wav_queries(wdf['QueryStr'], wdf['#Network'],
+                                                     wdf['Station'], wdf['Channel'],
+                                                     wdf['DataStartTime'],
+                                                     wdf['DataEndTime'])
 
             # skip when the dataframe is empty. Moreover, this apparently avoids shuffling
             # column order
@@ -761,10 +758,14 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
     new_events = dbwriter.purge(events, dbwriter.tables.events)
     dbwriter.write(new_events, dbwriter.tables.events)
     # write data:
+    now_ = datetime.utcnow()  # set a common datetime now for runs and data
+    if not wav_data.empty:
+        wav_data.is_copy = False  # FIXME: why is the warning raised?!!!
+        wav_data['RunId'] = now_
     dbwriter.write(wav_data, dbwriter.tables.segments)
     # write log:
     log_dframe = logger.to_df(seg_found=total, seg_written=seg_written,
-                              config_text=yaml_content.getvalue())
-    dbwriter.write(log_dframe, dbwriter.tables.logs)
+                              config_text=yaml_content.getvalue(), datetime_now=now_)
+    dbwriter.write(log_dframe, dbwriter.tables.runs)
 
     return 0

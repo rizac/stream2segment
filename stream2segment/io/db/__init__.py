@@ -170,14 +170,15 @@ class DbHandler(SessionScope):
         # and write_df, which are shorthand function for read, purge and write
         self.tables._metadata = {"events": {'pkey': '#EventID',
                                             'parse_dates': ['DataStartTime', 'DataEndTime',
-                                                            'StartTime', 'EndTime', 'ArrivalTime']
+                                                            'StartTime', 'EndTime', 'ArrivalTime',
+                                                            'RunId']
                                             },
                                  "segments": {'pkey': 'Id',
                                               'dtype': {'Data': BLOB},
                                               'parse_dates': ['Time']
                                               },
-                                 "logs": {'pkey': 'Time',
-                                          'parse_dates': ['Time']
+                                 "runs": {'pkey': 'Id',
+                                          'parse_dates': ['Id']
                                           },
                                  "classes": {'pkey': 'Id'}
                                  }
