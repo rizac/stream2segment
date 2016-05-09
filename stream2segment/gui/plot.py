@@ -138,6 +138,10 @@ def plot(canvas, index):
 
     try:
         data = dbreader.get_segment(index)
+        # apply filter
+        # filtered_data = data.filter('highpass', freq=0.1, corners=2, zerophase=False)
+        # data.traces.append(filtered_data.traces[0])
+        # data = filtered_data
     except (IOError, TypeError) as ioerr:
         # canvas.figure.suptitle(str(ioerr))
         errmsg = "Unable to show data plot(s):\n%s: %s" % (str(ioerr.__class__.__name__), str(ioerr))
