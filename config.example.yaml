@@ -61,4 +61,4 @@ search_radius_args:
 # Otherwise, the syntax is:
 # dialect+driver://username:password@host:port/database
 # (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)
-outpath: 'sqlite:///./mydb11.sqlite'  # '/tmp/mseeds/'
+outpath: 'sqlite:///./mydb.sqlite'  # '/tmp/mseeds/'
