@@ -195,12 +195,6 @@ class DbHandler(SessionScope):
         # create tables from db (if any):
         self.automap()
 
-        if "classes" not in self.tables:
-            from stream2segment.classification import class_labels_df
-            # write the class labels:
-            # well, it should exist, but for practical reasons let's be sure: if_exist is specified
-            self.write(class_labels_df, "classes", if_exists='fail')  # fail means: do nothing
-
     def automap(self):
         """
         Automatically maps tables on the database with tables (sql alchemy object) stored here. The
@@ -291,6 +285,13 @@ class Writer(DbHandler):
     is needed. That is why the "write_df", "purg_df" and "read_df" exist: for those tables we store
     settings internally so taht the user does not need to pass them all the time.
 """
+    def __init__(self, db_uri):
+        DbHandler.__init__(self, db_uri)
+        if "classes" not in self.tables:
+            from stream2segment.classification import class_labels_df
+            # write the class labels:
+            # well, it should exist, but for practical reasons let's be sure: if_exist is specified
+            self.write(class_labels_df, "classes", if_exists='fail')  # fail means: do nothing
 
     def purge(self, dframe, table_name, pkey_name=None):
         """
@@ -556,6 +557,14 @@ class Reader(DbHandler):
             :param db_uri: the database uri, e.g. sqlite:///path_to_my_sqlite_file
         """
         DbHandler.__init__(self, db_uri)
+        # check if database exists:
+        try:
+            connection = self.engine.connect()
+            connection.execute("SELECT * from segments;")
+            connection.close()
+        except OperationalError as oerr:
+            raise ValueError(str(oerr) + "\nDoes the database exist?")
+
         iterator = self.read(self.tables.segments, chunksize=10)
         id_col_name = self.id_colname
         files = None  # do NOT instantiate a new DataFrame, otherwise append below coerces to
@@ -581,10 +590,6 @@ class Reader(DbHandler):
     def seg_count(self):
         """returns the number of segments read from the segments table"""
         return len(self.mseed_ids)
-
-#     def __iter__(self):
-#         # FIXME: NOTE TESTED!!!
-#         return (i for i in xrange(len(self)))
 
     def get_segments_table(self):
         return self.tables[self.tables.segments]
