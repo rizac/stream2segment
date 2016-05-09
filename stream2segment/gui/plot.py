@@ -80,9 +80,16 @@ _pass_set_flag = False  # this flag is set in updateradiobuttons and used in set
 def setclass(label):
     if _pass_set_flag:
         return
+    idx = -1
+    for i, txt in enumerate(radiobuttons.labels):
+        # inefficient but it is independent of label caption
+        if txt.get_text() == label:
+            idx = i
+            break
+    if idx < 0:
+        return
     classes_df = dbreader.get_classes()
-    label_ = re.sub("\\s+\\(\\s*\\d+\\s*\\)\\s*$", "", label)
-    class_id = classes_df[classes_df['Label'] == label_].iloc[0]['Id']
+    class_id = classes_df.iloc[idx]['Id']
     dbreader.set_class(curr_pos, class_id)
     update_radio_buttons()
 
