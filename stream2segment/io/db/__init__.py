@@ -16,6 +16,7 @@ from obspy import read
 from stream2segment.classification import class_labels_df
 from sqlalchemy.sql.expression import select
 
+
 class SessionScope(object):
     """
         Class handling sqlalchemy sessions. Initialize this object with an sqlalchemy engine
@@ -230,6 +231,7 @@ class DbHandler(SessionScope):
             raise ValueError("No such table: '%s'" % table_name)
 
     def drop_table(self, table_name):
+        """Drops the table identified by the given table name"""
         try:
             self.table(table_name).drop(self.engine)
             self.automap()
@@ -614,7 +616,7 @@ class Reader(DbHandler):
             table_name = tseg
 
         if table_name != tseg:
-            series = pddf.iloc[0]
+            series = pddf.iloc[0]  # pylint: disable=no-member
             table = self.tables[table_name]
             if table_name == Reader.T_EVT:
                 att = "#EventID"
@@ -630,7 +632,7 @@ class Reader(DbHandler):
         if as_pd_series and len(pddf) != 1:
             raise ValueError("Expected 1 row, found %d" % len(pddf))
 
-        return pddf if not as_pd_series else pddf.iloc[0]
+        return pddf if not as_pd_series else pddf.iloc[0]  # pylint: disable=no-member
 
     def select(self, table_names, where):
         tables = []
@@ -653,24 +655,33 @@ class Reader(DbHandler):
         """Returns the database ID of the index-th item (=db table row)"""
         return self.mseed_ids.iloc[index][self.id_colname]
 
-    def get_segment(self, index, raw=False):
-        """
-            Returns the mseed data of the index-th item (=db table row)
-            :param index: the entry index
-            :type index: integer in [0, self.seg_count()-1]
-            :param raw: (defaults to False) whether to return a raw sequence of bytes
-            (string in python2) or an obspy stream (the default)
-        """
-        row = self.get_row(index)
-        bytez = row.Data
-        if raw:
-            return bytes
-        return self.mseed(bytez)
+#     def get_segment(self, index, raw=False):
+#         """
+#             Returns the mseed data of the index-th item (=db table row)
+#             :param index: the entry index
+#             :type index: integer in [0, self.seg_count()-1]
+#             :param raw: (defaults to False) whether to return a raw sequence of bytes
+#             (string in python2) or an obspy stream (the default)
+#         """
+#         row = self.get_row(index)
+#         bytez = row.Data
+#         if raw:
+#             return bytes
+#         return self.mseed(bytez)
 
     @staticmethod
-    def mseed(rawdata):
-        """Returns an obspy stream object from the rawdata (bytes data)"""
-        return read(StringIO(rawdata))
+    def mseed(obj):
+        """Returns an obspy stream object from the rawdata (bytes data)
+        :param obj: a pandas Series with the 'Data' attriubte, a dict with the 'Data' key
+        or a byte string representing the mseed data
+        """
+        try:
+            return read(StringIO(obj.Data))
+        except AttributeError:
+            try:
+                return read(StringIO(obj['Data']))
+            except KeyError:
+                return read(StringIO(obj))
 
 #     def get_metadata(self, index, include_event_info=True):
 #         """

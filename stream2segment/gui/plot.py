@@ -158,6 +158,7 @@ def plot(canvas, index):
 
         other_components = dbreader.read(dbreader.T_SEG, filter_func=filter_func)
 
+#  # optionally also:
 #         tseg = dbreader.T_SEG
 #         col = dbreader.column
 #         where = and_(col(tseg, "#Network") == segment_series['#Network'],
@@ -166,15 +167,15 @@ def plot(canvas, index):
 #                      col(tseg, 'DataStartTime') == segment_series['DataStartTime'],
 #                      col(tseg, 'DataEndTime') == segment_series['DataEndTime'])  #,
 #                      # col(tseg, 'Channel')[:2] == sss['Channel'][:2])
-#         other_c = dbreader.select([tseg], where)
-        
+#         other_components = dbreader.select([tseg], where)
+
         for _, row in other_components.iterrows():
-            if row.Id ==segment_series['Id']:
+            if row.Id == segment_series['Id']:
                 continue
             if other_components_data is None:
-                other_components_data = dbreader.mseed(row.Data)
+                other_components_data = dbreader.mseed(row)
             else:
-                dta = dbreader.mseed(row.Data)
+                dta = dbreader.mseed(row)
                 other_components_data.traces.append(dta.traces[0])
 
         # apply filter
@@ -296,19 +297,16 @@ def main(db_uri, class_ids):
     global dbreader
     global shown_filters
 
-    def filter_func(dframe):
-        return dframe
     if class_ids:
         shown_filters = class_ids
 
         def filter_func(dframe):
             return dframe[dframe['AnnotatedClassId'].isin(class_ids)]
 
-    dbreader = ClassHandler(db_uri, filter_func=filter_func,
-                            sort_columns=["#EventID", "EventDistance/deg"], sort_ascending=[True, True])
-
+    dbreader = ClassHandler(db_uri, filter_func=None if not class_ids else filter_func,
+                            sort_columns=["#EventID", "EventDistance/deg"], sort_ascending=[True,
+                                                                                            True])
     plot(fig.canvas, 0)
-
     plt.show(True)
 
 
