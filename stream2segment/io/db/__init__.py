@@ -13,7 +13,8 @@ import pandas.io.sql as pdsql
 import numpy as np
 
 from obspy import read
-
+from stream2segment.classification import class_labels_df
+from sqlalchemy.sql.expression import select
 
 class SessionScope(object):
     """
@@ -148,49 +149,42 @@ class DbHandler(SessionScope):
     is needed. That is why the "write_df", "purg_df" and "read_df" exist: for those tables we store
     settings internally so taht the user does not need to pass them all the time.
 """
+
+    # initialize here the default table names:
+    T_RUN = "runs"
+    T_EVT = "events"
+    T_SEG = "segments"
+    T_CLS = "classes"
+
     def __init__(self, db_uri):
         """
             :param: db_uri: the database uri, e.g. "sqlite:///" + filename
         """
         SessionScope.__init__(self, db_uri)
 
-        class MyDict(dict):  # allow self.tables to have attributes (see below)
-            def get_cfg_dict(self, table_name):
-                return self._metadata.get(table_name, {})
-
-        self.tables = MyDict()
-
-        # self.tables will be populated inside initdb when needed (i.e, lazily) with our
-        # sqlAlchemy table objects (using sqlAlchemy auto-mapping): this allows us to be free of
-        # implementing our Base class and ORM in python, with the pain of keeping it updated with db
-        # migrations.
-        # However, a complete automation is not entirely possible. Pandas sql IO operations have to
-        # be hacked to account for e.g., primary keys and other parameters.
-        # These parameters are saved here below and they will be used when calling read_df, purge_df
-        # and write_df, which are shorthand function for read, purge and write
-        self.tables._metadata = {"events": {'pkey': '#EventID',
-                                            'parse_dates': ['DataStartTime', 'DataEndTime',
-                                                            'StartTime', 'EndTime', 'ArrivalTime',
-                                                            'RunId']
-                                            },
-                                 "segments": {'pkey': 'Id',
-                                              'dtype': {'Data': BLOB},
-                                              'parse_dates': ['Time']
-                                              },
-                                 "runs": {'pkey': 'Id',
-                                          'parse_dates': ['Id']
+        # Using sqlAlchemy auto-mapping (see self.automap below) we can get rid of
+        # implementing and maintaining our Base class and ORM in Python, and columns type
+        # conversions between pandas DataFrames and db tables. The drawback is that some settings
+        # have to be specified here for IO operations. See Writer.purge, Writer.write Writer.read
+        # for examples using this (in subclasses)
+        # NOTE: when adding a new table, add also AT LEAST its primary key here
+        self.table_settings = {"events": {'pkey': '#EventID',
+                                          'parse_dates': ['Time']
                                           },
-                                 "classes": {'pkey': 'Id'}
-                                 }
-        # Now, we want to use read_df, purge_df, write_df with simplicity, for instance:
-        # dbhandler.purge_df(dbhandler.tables.segments),
-        # dbhandler.purge_df(dbhandler.tables.events)...
-        # To do that, we define custom attributes on self.tables (we can, as we override dict)
-        for table_name in self.tables._metadata:
-            setattr(self.tables, table_name, table_name)
+                               "segments": {'pkey': 'Id',
+                                            'dtype': {'Data': BLOB},
+                                            'parse_dates': ['DataStartTime', 'DataEndTime', 'RunId',
+                                                            'StartTime', 'EndTime', 'ArrivalTime']
+                                            },
+                               "runs": {'pkey': 'Id',
+                                        'parse_dates': ['Id']
+                                        },
+                               "classes": {'pkey': 'Id'}
+                               }
 
         # engine, initialize once (already done in superclass)
         # self.engine = create_engine(self.db_uri)
+        self.tables = {}
 
         # create tables from db (if any):
         self.automap()
@@ -222,19 +216,25 @@ class DbHandler(SessionScope):
 
         self.tables.update(Base.classes._data)  # overwriting existing keys
 
+    def table(self, table_name):
+        return self.tables[table_name]
+
     def column(self, table_name, column_name):
-        if table_name in self.tables:
-            table = self.tables[table_name]
+        try:
+            table = self.table(table_name)
             try:
                 return getattr(table, column_name)
             except AttributeError:
                 raise ValueError("No such column '%s'" % column_name)
-        raise ValueError("no such table: '%s'" % table_name)
+        except KeyError:
+            raise ValueError("No such table: '%s'" % table_name)
 
     def drop_table(self, table_name):
-        if table_name in self.tables:
-            self.tables[table_name].drop(self.engine)
+        try:
+            self.table(table_name).drop(self.engine)
             self.automap()
+        except KeyError:
+            pass
 
 
 class Writer(DbHandler):
@@ -288,7 +288,6 @@ class Writer(DbHandler):
     def __init__(self, db_uri):
         DbHandler.__init__(self, db_uri)
         if "classes" not in self.tables:
-            from stream2segment.classification import class_labels_df
             # write the class labels:
             # well, it should exist, but for practical reasons let's be sure: if_exist is specified
             self.write(class_labels_df, "classes", if_exists='fail')  # fail means: do nothing
@@ -312,18 +311,16 @@ class Writer(DbHandler):
         if dframe is None or dframe.empty:
             return dframe
 
-        tables = self.tables
-        if table_name in tables:
-            if table_name in self.tables._metadata:  # one of the default tables:
-                dframe = self._prepare_df(table_name, dframe)
-                if pkey_name is None:  # use default one:
-                    pkey_name = self.tables.get_cfg_dict(table_name)['pkey']
+        dframe = self._prepare_df(table_name, dframe)
+        if table_name in self.table_settings:  # one of the default tables:
+            if pkey_name is None:  # use default pkey:
+                pkey_name = self.table_settings[table_name]['pkey']
 
-            session = self.session()
-            column = getattr(tables[table_name], pkey_name)
-            ids = session.query(column).filter(column.in_(dframe[pkey_name].values)).all()
-            dframe = dframe[~dframe[pkey_name].isin([i[0] for i in ids])]
-            self.close(session)
+        session = self.session()
+        column = self.column(table_name, pkey_name)
+        ids = session.query(column).filter(column.in_(dframe[pkey_name].values)).all()
+        dframe = dframe[~dframe[pkey_name].isin([i[0] for i in ids])]
+        self.close(session)
 
         return dframe
 
@@ -456,8 +453,8 @@ class Writer(DbHandler):
         if dframe is None or dframe.empty:
             return
         dframe = self._prepare_df(table_name, dframe)
-        pkey = self.tables.get_cfg_dict(table_name)['pkey']
-        dtype = self.tables.get_cfg_dict(table_name).get('dtype', None)
+        pkey = self.table_settings[table_name]['pkey']
+        dtype = self.table_settings[table_name].get('dtype', None)
         self.to_sql(dframe, table_name, pkey, if_exists=if_exists, dtype=dtype)
 
     def _prepare_df(self, table_name, dframe):
@@ -466,8 +463,8 @@ class Writer(DbHandler):
             all null Id's if table_name == self.tables.segments, and modifies the data frame.
             Returns the input dataframe at the end (potentially unmodified)
         """
-        if table_name == self.tables.segments:
-            pkey = self.tables.get_cfg_dict(table_name)['pkey']
+        if table_name == self.T_SEG:
+            pkey = self.table_settings[table_name]['pkey']
             recalc = pkey not in dframe.columns
             if recalc:
                 dframe.insert(0, pkey, None)
@@ -544,19 +541,21 @@ class Reader(DbHandler):
                 r.get_classes()  # get dataframe of all classes, with columns 'Id' 'Label',
                                      # 'Description', 'Count'
     """
-    # the db column name of the Id:
+    # the db column name of the Id of the segments table:
     id_colname = 'Id'
-    # the db column name of the annotated class_id:
-    annotated_class_id_colname = 'AnnotatedClassId'
-    # the db column name of the (classified) class_id:
-    class_id_colname = 'ClassId'
 
-    def __init__(self, db_uri, filter_func=None):
+    def __init__(self, db_uri, filter_func=None, sort_columns=None, sort_ascending=None):
         """
             Initializes a new DataManager via a given db_uri
             :param db_uri: the database uri, e.g. sqlite:///path_to_my_sqlite_file
-            :param filter_func: a filter function taking as argument the DataFrame of segments
-            read and returning a filtered DataFrame
+            :param filter_func: a filter function taking as argument the DataFrame of *segments*
+            read and returning a filtered DataFrame. NOTE: If filter_func is not None, it should
+            not filter out (remove) `self.id_colname` or any of the columns specified in
+            sort_columns, if any
+            sort_columns: same as pandas DataFrame sort_value's by arg.
+            Example: 'A', ['A', 'B'], ...
+            sort_ascending: same aas pandas DataFrame sort_values's 'ascending' argument.
+            Example: True, [True, False], ...
         """
         DbHandler.__init__(self, db_uri)
         # check if database exists:
@@ -567,59 +566,92 @@ class Reader(DbHandler):
         except OperationalError as oerr:
             raise ValueError(str(oerr) + "\nDoes the database exist?")
 
-        iterator = self.read(self.tables.segments, chunksize=10)
-        id_col_name = self.id_colname
+        iterator = self.read(self.T_SEG, chunksize=30, filter_func=filter_func)
+        id_colname = self.id_colname
         files = None  # do NOT instantiate a new DataFrame, otherwise append below coerces to
         # the type of the files DataFrame (object) and we want to preserve the db type (so first
         # iteration files is the first chunk read)
+        columns = [id_colname] if sort_columns is None else list(sort_columns)
+        if id_colname not in columns:
+            columns.insert(0, id_colname)
+
         for data in iterator:
-            if filter_func:
-                data = filter_func(data)
-            data = pd.DataFrame({id_col_name: data[id_col_name]})
+            # remove Data column (avoid too much data in memory, get it with get_segment)
+            # data.drop('Data', axis=1, inplace=True)
+            # only use ids:
+            data = pd.DataFrame({k: data[k] for k in columns})
             if files is None:
                 files = data
             else:
                 files = files.append(data)
 
+        if files is not None and not files.empty and sort_columns:
+            files.sort_values(by=sort_columns, ascending=sort_ascending, inplace=True)
+
         if files is None:
-            files = pd.DataFrame(columns=[id_col_name])
+            files = pd.DataFrame(columns=[id_colname])
         else:
+            files = files[[id_colname]]
             files.reset_index(drop=True, inplace=True)
+        # files.info()
         self.mseed_ids = files
-        classes_table_name = self.tables.classes
-        self._classes_dataframe = self.read(classes_table_name)
-        self._classes_dataframe.insert(len(self._classes_dataframe.columns), 'Count', 0)
-        self.update_classes()
+
+    def get(self, index, table_name=None, as_pd_series=True):
+        """gets the row of the index-th segment from the relative table
+        :param: table_name either self.T_SEG (default when missing) or self.T_EVT or self.T_RUN
+        :return a pandas Series if as_series is True (the default), raising a ValueError if
+        the DataFrame resulting from the db query has not 1 element, or a pandas DataFrame otherwise
+        """
+        tseg = Reader.T_SEG
+        table = self.tables[tseg]
+        where = getattr(table, Reader.id_colname) == self.get_id(index)
+        pddf = self.select([tseg], where)
+
+        if len(pddf) != 1:
+            raise ValueError("Expected 1 row in '%s', found %d" % (tseg, len(pddf)))
+
+        if table_name is None:
+            table_name = tseg
+
+        if table_name != tseg:
+            series = pddf.iloc[0]
+            table = self.tables[table_name]
+            if table_name == Reader.T_EVT:
+                att = "#EventID"
+                where = getattr(table, att) == series[att]
+            elif table_name == Reader.T_RUN:
+                att = "Id"
+                # equality below works also between sqlalchemy and pandas timestamps
+                where = getattr(table, att) == series["RunId"]
+            else:
+                raise ValueError("Unrecognized table name '%s'" % table_name)
+            pddf = self.select([table_name], where)
+
+        if as_pd_series and len(pddf) != 1:
+            raise ValueError("Expected 1 row, found %d" % len(pddf))
+
+        return pddf if not as_pd_series else pddf.iloc[0]
+
+    def select(self, table_names, where):
+        tables = []
+        for tbl in table_names:
+            tables.append(self.tables[tbl])
+
+        selectable = select(tables).where(where)
+        parse_dates = []
+        for table_name in table_names:
+            parse_dates.extend(self.table_settings[table_name].get("parse_dates", []))
+
+        return pd.read_sql_query(selectable, self.engine,
+                                 parse_dates=None if not parse_dates else parse_dates)
 
     def seg_count(self):
         """returns the number of segments read from the segments table"""
         return len(self.mseed_ids)
 
-    def get_segments_table(self):
-        return self.tables[self.tables.segments]
-
-    def get_classes(self):
-        """Returns the pandas DataFrame representing the classes. The DataFrame is read once
-        in the constructor and updated here with a column 'Count' which counts the instances per
-        class. Column names might vary across versions but in principle their names are 'Id',
-        'Label' and 'Description' (plus the aforementioned 'Count')"""
-        return self._classes_dataframe
-
     def get_id(self, index):
         """Returns the database ID of the index-th item (=db table row)"""
         return self.mseed_ids.iloc[index][self.id_colname]
-
-    def get_row(self, index):
-        """
-            Returns index-th database table row, as SqlAlchemy object
-            :param index: the data (mseed) index
-            :type index: integer in [0, self.seg_count()-1]
-        """
-        sess = self.session()
-        table = self.get_segments_table()
-        row = sess.query(table).filter(table.Id == int(self.get_id(index))).first()
-        self.close(sess)
-        return row
 
     def get_segment(self, index, raw=False):
         """
@@ -633,74 +665,36 @@ class Reader(DbHandler):
         bytez = row.Data
         if raw:
             return bytes
-        return read(StringIO(bytez))
+        return self.mseed(bytez)
 
-    def get_metadata(self, index):
-        """
-            Returns as dict the metadata of the index-th item (=db table row). The metadata are
-            considered all columns EXCEPT the miniseed binary data ('Data' column). Also,
-            sql-alchemy specific columns (i.e. those starting with "_") will be ignored and not
-            returned
-            :param index: the entry index
-            :param index: integer in [0, self.seg_count()-1]
-        """
-        row = self.get_row(index)
-        ret = {}
-        for attr_name in row.__dict__:
-            if attr_name[0] != "_" and attr_name != "Data":
-                ret[attr_name] = getattr(row, attr_name)
-        return ret
+    @staticmethod
+    def mseed(rawdata):
+        """Returns an obspy stream object from the rawdata (bytes data)"""
+        return read(StringIO(rawdata))
 
-    def get_class(self, index, as_annotated_class=True):
-        """Returns the class id (integer) of the index-th item (=db table row).
-        :param as_annotated_class: if True (the default), returns the value of the column
-            of the annotated class id (representing the manually annotated class), otherwise the
-            column specifying the class id (representing the class id as the result of some
-            algorithm, e.g. statistical classifier)
-        """
-        row = self.get_row(index)
-        att_name = self.annotated_class_id_colname if as_annotated_class else self.class_id_colname
-        return getattr(row, att_name)
-
-    def set_class(self, index, class_id, as_annotated_class=True):
-        """
-            Sets the class of the index-th item (=db table row). **IMPORTANT: call
-            self._update_classes() after exiting if using this method within a with statement:
-            `with self.session_scope():`
-                ...
-            reader.update_classes()
-            :param index: the mseed index
-            :param class_id: one of the classes id. To get them, call self.get_classes()['Id']
-            (returns a pandas Series object)
-            :param as_annotated_class: if True (the default), sets the value of the column
-            of the annotated class id (representing the manually annotated class), otherwise the
-            column specifying the class id (representing the class id as the result of some
-            algorithm, e.g. statistical classifier)
-        """
-        if self._open_session:
-            raise ValueError("This method is not allowed within a 'with' statement. This"
-                             "problem will be fixed soon, sorry!")
-        # store the old class id and the new one:
-        # NOTE: we absolutely need a with statement to keep the session open
-        with self.session_scope():
-            row = self.get_row(index)
-            att_name = self.annotated_class_id_colname if as_annotated_class else \
-                self.class_id_colname
-            setattr(row, att_name, class_id)
-        self.update_classes()
-
-    # get the list [(class_id, class_label, count), ...]
-    def update_classes(self):
-        session = self.session()
-        classes_dataframe = self.get_classes()
-        table = self.get_segments_table()
-
-        def countfunc(row):
-            row['Count'] = session.query(table).filter(table.AnnotatedClassId == row['Id']).count()
-            return row
-
-        self._classes_dataframe = classes_dataframe.apply(countfunc, axis=1)
-        self.close(session)
+#     def get_metadata(self, index, include_event_info=True):
+#         """
+#             Returns as dict the metadata of the index-th item (=db table row). The metadata are
+#             considered all columns EXCEPT the miniseed binary data ('Data' column). Also,
+#             sql-alchemy specific columns (i.e. those starting with "_") will be ignored and not
+#             returned
+#             :param index: the entry index
+#             :param index: integer in [0, self.seg_count()-1]
+#         """
+#         row = self.get_row(index)
+#         ret = {}
+#         for attr_name in row.__dict__:
+#             if attr_name[0] != "_" and attr_name != "Data":
+#                 ret[attr_name] = getattr(row, attr_name)
+#         if include_event_info:
+#             session = self.session()
+#             evt = self.table(self.T_EVT)
+#             r = session.query(evt).filter(getattr(evt, '#EventID') ==
+#                                           getattr(row, '#EventID')).first()
+#             for attr_name in r.__dict__:
+#                 if attr_name[0] != "_":  # and attr_name != "Data":
+#                     ret[attr_name] = getattr(r, attr_name)
+#         return ret
 
     def read_sql(self, table_name, coerce_float=True, index_col=None, parse_dates=None,
                  columns=None, chunksize=None):
@@ -729,13 +723,12 @@ class Reader(DbHandler):
             :type chunksize: int, default None
             :return a pandas DataFrame (empty in case table not found)
         """
-        tables = self.tables
-        if table_name not in tables:
+        if table_name not in self.tables:
             return pd.DataFrame()
         return pd.read_sql_table(table_name, self.engine, None, index_col, coerce_float,
                                  parse_dates, columns, chunksize)
 
-    def read(self, table_name, chunksize=None):
+    def read(self, table_name, chunksize=None, columns=None, filter_func=None):
         """
         Calls self.read_sql(table_name). NOTE: **table_name must be one of the default tables
         registered on this class (as of April 2015, self.tables.segments, self.tables.events,
@@ -746,11 +739,131 @@ class Reader(DbHandler):
         to include in each chunk.
         :type chunksize: int, default None
         """
-        return self.read_sql(table_name, coerce_float=True,
-                             index_col=None,
-                             parse_dates=self.tables.get_cfg_dict(table_name).get('parse_dates',
-                                                                                  None),
-                             columns=None,
-                             chunksize=chunksize)  # FIXME!! parse dates!
+        # if chunksize is None and filter func is not None, we might do filter on a big dataframe
+        # which is what we do NOT want. Thus read per chunks
+        filter_here = chunksize is None and filter_func is not None
+        if filter_here:  # we might have overflows on filters, thus do iteration here:
+            chunksize = 30
+
+        ret = self.read_sql(table_name, coerce_float=True,
+                            index_col=None,
+                            parse_dates=self.table_settings[table_name].get('parse_dates', None),
+                            columns=columns,
+                            chunksize=chunksize)
+
+        if filter_here:
+            _tmp = None
+            for r in ret:
+                r = filter_func(r)
+                _tmp = r if _tmp is None else _tmp.append(r, ignore_index=True)
+            return _tmp
+
+        if filter_func is None:
+            return ret
+
+        return (filter_func(r) for r in ret) if chunksize is not None else filter_func(ret)
     # implement mutable sequence: dbhandler.get(table_name), for table_name in dbhandler: ...
 
+
+class ClassHandler(Reader):
+    """
+        Class managing the downloaded data.
+        An object of this class is initialized with a database URI: r= Reader(db_uri) and stores
+        internally each item (=table row) as a list of ids mapped to the relative table rows.
+        Each item (table row) holds some "data" (collection of one or more mseed files)
+        and associated "metadata" (classId, AnnotatedClassId, Station, Network etcetera).
+        This object is an iterable and supports the len function. For each entry, data
+        and metadata can be accessed via get_segment, get_metadata, class id get/set via get_class,
+        set_class
+        :Example:
+        .. code:
+            r= Reader(db_uri)
+            for i in xrange(len(r)):
+                r.get(i)  # returns an obspy stream object on which you can call several methods,
+                          # e.g. r.get(i).plot()
+                r.get_segment(i, raw=True)  # returns raw bytes (string in python2)
+                r.get_segment(i)  # returns the obspy stream object
+                r.set_class(i, j) # sets the class of the i-th instance
+                # j must be one of the values of the 'Id' columns of
+                r.set_class(i, j, as_annotated_class=False) # sets the class of the i-th instance
+                # but under the column 'class id' not 'annotated class id'
+                # j must be one of the values of the 'Id' columns of
+                r.get_classes()  # get dataframe of all classes, with columns 'Id' 'Label',
+                                     # 'Description', 'Count'
+    """
+    # the db column name of the annotated class_id:
+    annotated_class_id_colname = 'AnnotatedClassId'
+    # the db column name of the (classified) class_id:
+    class_id_colname = 'ClassId'
+
+    def __init__(self, *args, **kwargs):
+        """
+            Initializes a new DataManager via a given db_uri
+            :param db_uri: the database uri, e.g. sqlite:///path_to_my_sqlite_file
+            :param filter_func: a filter function taking as argument the DataFrame of segments
+            read and returning a filtered DataFrame
+        """
+        Reader.__init__(self, *args, **kwargs)
+        self._classes_dataframe = self.read(self.T_CLS)
+        self._classes_dataframe.insert(len(self._classes_dataframe.columns), 'Count', 0)
+        self.update_classes()
+
+    def get_classes_df(self):
+        """Returns the pandas DataFrame representing the classes. The DataFrame is read once
+        in the constructor and updated here with a column 'Count' which counts the instances per
+        class. Column names might vary across versions but in principle their names are 'Id',
+        'Label' and 'Description' (plus the aforementioned 'Count')"""
+        return self._classes_dataframe
+
+    def get_class(self, index, as_annotated_class=True):
+        """Returns the class id (integer) of the index-th item (=db table row).
+        :param as_annotated_class: if True (the default), returns the value of the column
+            of the annotated class id (representing the manually annotated class), otherwise the
+            column specifying the class id (representing the class id as the result of some
+            algorithm, e.g. statistical classifier)
+        """
+        row = self.get(index)
+        att_name = self.annotated_class_id_colname if as_annotated_class else self.class_id_colname
+        return getattr(row, att_name)
+
+    def set_class(self, index, class_id, as_annotated_class=True):
+        """
+            Sets the class of the index-th item (=db table row). **IMPORTANT: call
+            self._update_classes() after exiting if using this method within a with statement:
+            `with self.session_scope():`
+                ...
+            reader.update_classes()
+            :param index: the mseed index
+            :param class_id: one of the classes id. To get them, call self.get_classes()['Id']
+            (returns a pandas Series object)
+            :param as_annotated_class: if True (the default), sets the value of the column
+            of the annotated class id (representing the manually annotated class), otherwise the
+            column specifying the class id (representing the class id as the result of some
+            algorithm, e.g. statistical classifier)
+        """
+        if self._open_session:
+            raise ValueError("This method is not allowed within a 'with' statement. This"
+                             "problem will be fixed soon, sorry!")
+        # store the old class id and the new one:
+        # NOTE: we absolutely need a with statement to keep the session open
+        with self.session_scope() as session:
+            row = session.query(self.tables[self.T_SEG]).filter(self.column(self.T_SEG, "Id") == 
+                                                          self.get_id(index)).first()
+            # row = self.get_row(index)
+            att_name = self.annotated_class_id_colname if as_annotated_class else \
+                self.class_id_colname
+            setattr(row, att_name, class_id)
+        self.update_classes()
+
+    # get the list [(class_id, class_label, count), ...]
+    def update_classes(self):
+        session = self.session()
+        classes_dataframe = self.get_classes_df()
+        table = self.table(self.T_SEG)
+
+        def countfunc(row):
+            row['Count'] = session.query(table).filter(table.AnnotatedClassId == row['Id']).count()
+            return row
+
+        self._classes_dataframe = classes_dataframe.apply(countfunc, axis=1)
+        self.close(session)

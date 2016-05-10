@@ -7,11 +7,12 @@ Created on Feb 25, 2016
 # import matplotlib
 # matplotlib.use('Qt4Agg')
 import sys
-from stream2segment.io.db import Reader
-import re
+from stream2segment.io.db import ClassHandler
+import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.widgets import RadioButtons
-
+from sqlalchemy import and_
+from collections import OrderedDict as odict
 # Overriding default buttons behaviour:
 from matplotlib.backend_bases import NavigationToolbar2
 
@@ -69,7 +70,7 @@ shown_filters = []
 # Note: the position (0.95, 0.3) will be RESET later, here only elements 3 and 4 (width and height)
 # are set!
 rax = plt.axes([0.95, 0.3, legend_width, legend_width*0.75],  # axisbg='lightgoldenrodyellow',
-               title=Reader.annotated_class_id_colname,
+               title=ClassHandler.annotated_class_id_colname,
                aspect='equal')  # the last one makes radio buttons circles and not ellipses
 # the radiobuttons widget:
 radiobuttons = None
@@ -81,17 +82,13 @@ def setclass(label):
     if _pass_set_flag:
         return
     idx = -1
-    for i, txt in enumerate(radiobuttons.labels):
+    for idx, txt in enumerate(radiobuttons.labels):
         # inefficient but it is independent of label caption
         if txt.get_text() == label:
-            idx = i
-            break
-    if idx < 0:
-        return
-    classes_df = dbreader.get_classes()
-    class_id = classes_df.iloc[idx]['Id']
-    dbreader.set_class(curr_pos, class_id)
-    update_radio_buttons()
+            classes_df = dbreader.get_classes_df()
+            class_id = classes_df.iloc[idx]['Id']
+            dbreader.set_class(curr_pos, class_id)
+            update_radio_buttons()
 
 
 def plot_other(self, key=0):  # key = None: home (print first plot), +1: print next, -1: print prev.
@@ -110,9 +107,9 @@ def mseed_axes_iterator(fig):
             yield a
 
 
-def getinfotext(metadata):
+def getinfotext(metadata_list):
     """Returns a nicely formatted string from the mseed metadata read from db"""
-    first_col_chars = max(len(str(key)) for key in metadata.keys())
+    first_col_chars = max(len(str(key[0])) for key in metadata_list)
     max_second_col_chars = 42
 
     # custom str function replacement for the dict values:
@@ -128,11 +125,7 @@ def getinfotext(metadata):
 
     # print the metadata on the figure title. Set the format string:
     frmt_str = "{0:" + str(first_col_chars) + "} {1}"
-    # first remove the annotated class id cause we will use the editor for that:
-    metadata.pop(Reader.annotated_class_id_colname, None)
-    # set the string:
-    sorted_keys = sorted(metadata)
-    title_str = "\n".join(frmt_str.format(str(k), ztr(metadata[k])) for k in sorted_keys)
+    title_str = "\n".join(frmt_str.format(str(k[0]), ztr(k[1])) for k in metadata_list)
     return title_str
 
 
@@ -146,12 +139,49 @@ def plot(canvas, index):
         if a != rax:
             fig.delaxes(a)
 
+    # mdt = dbreader.get(index).iloc[0]['Data']
+    # mdt = dbreader.read(index)
+    other_components_data = None  # we need to separate the other components as we CANNOT
+    # retrieve which is the current plotted data from obspy plot
+
     try:
-        data = dbreader.get_segment(index)
+        segment_series = dbreader.get(index)
+        data = dbreader.mseed(segment_series['Data'])
+
+        def filter_func(df):
+            return df[(df['#Network'] == segment_series['#Network']) &
+                      (df['Station'] == segment_series['Station']) &
+                      (df['Location'] == segment_series['Location']) &
+                      (df['DataStartTime'] == segment_series['DataStartTime']) &
+                      (df['DataEndTime'] == segment_series['DataEndTime']) &
+                      (df['Channel'].str[:2] == segment_series['Channel'][:2])]
+
+        other_components = dbreader.read(dbreader.T_SEG, filter_func=filter_func)
+
+#         tseg = dbreader.T_SEG
+#         col = dbreader.column
+#         where = and_(col(tseg, "#Network") == segment_series['#Network'],
+#                      col(tseg, "Station") == segment_series['Station'],
+#                      col(tseg, "Location") == segment_series['Location'],
+#                      col(tseg, 'DataStartTime') == segment_series['DataStartTime'],
+#                      col(tseg, 'DataEndTime') == segment_series['DataEndTime'])  #,
+#                      # col(tseg, 'Channel')[:2] == sss['Channel'][:2])
+#         other_c = dbreader.select([tseg], where)
+        
+        for _, row in other_components.iterrows():
+            if row.Id ==segment_series['Id']:
+                continue
+            if other_components_data is None:
+                other_components_data = dbreader.mseed(row.Data)
+            else:
+                dta = dbreader.mseed(row.Data)
+                other_components_data.traces.append(dta.traces[0])
+
         # apply filter
         # filtered_data = data.filter('highpass', freq=0.1, corners=2, zerophase=False)
         # data.traces.append(filtered_data.traces[0])
         # data = filtered_data
+
     except (IOError, TypeError) as ioerr:
         # canvas.figure.suptitle(str(ioerr))
         errmsg = "Unable to show data plot(s):\n%s: %s" % (str(ioerr.__class__.__name__), str(ioerr))
@@ -159,6 +189,21 @@ def plot(canvas, index):
         # canvas.draw()
         return
     data.plot(fig=fig, draw=False)  # , block=True)
+
+    xlim = None  # drawback: by adding other_components_data we can know which is the currently
+    # selected plot (i.e., the ones in the 'data' variable) BUT axis align is messed up. Do it here:
+    def_axez = []
+    for a in mseed_axes_iterator(fig):
+        xlim = a.get_xlim()
+        def_axez.append(a)
+
+    if other_components_data is not None:
+        other_components_data.plot(fig=fig, color='#cccccc', draw=False)
+        if xlim:
+            for a in mseed_axes_iterator(fig):
+                if a not in def_axez:
+                    a.set_xlim(xlim)
+                    a.set_xticklabels([])
 
     axez = sorted(mseed_axes_iterator(fig), key=lambda ax: ax.get_position().y0)
 
@@ -185,7 +230,16 @@ def plot(canvas, index):
         ypos += height
 
     # Set info text on the figure title (NOTE: it is placed on the right)
-    infotext.set_text(getinfotext(dbreader.get_metadata(index)))
+
+    # set only labels of interest
+    event_series = dbreader.get(index, ClassHandler.T_EVT)
+    # run_df = dbreader.get(index, ClassHandler.T_RUN)
+    mdt = pd.concat([segment_series, event_series])
+    mdt_ = []  # preserve order
+    for k in ("#EventID", "EventDistance/deg", "Magnitude", "", "DataStartTime", "ArrivalTime",
+              "DataEndTime", "", "#Network", "Station", "Location", "Channel", "", "RunId"):
+        mdt_.append(("", "") if not k else (k, mdt[k]))
+    infotext.set_text(getinfotext(mdt_))
 
     # adjust dimensions:
     xxx = 1 - legend_width - fig_padding_w if plot_position == 'left' else \
@@ -208,7 +262,7 @@ def update_radio_buttons(update_texts=True):
         INFINITE LOOPS
     """
     global radiobuttons, dbreader
-    classes_df = dbreader.get_classes()
+    classes_df = dbreader.get_classes_df()
 
     if update_texts or radiobuttons is None:
         ids = classes_df['Id'].tolist()
@@ -246,10 +300,12 @@ def main(db_uri, class_ids):
         return dframe
     if class_ids:
         shown_filters = class_ids
+
         def filter_func(dframe):
             return dframe[dframe['AnnotatedClassId'].isin(class_ids)]
 
-    dbreader = Reader(db_uri, filter_func=filter_func)
+    dbreader = ClassHandler(db_uri, filter_func=filter_func,
+                            sort_columns=["#EventID", "EventDistance/deg"], sort_ascending=[True, True])
 
     plot(fig.canvas, 0)
 
