@@ -31,6 +31,8 @@ from obspy.taup import TauPyModel
 from obspy.geodetics import locations2degrees
 from obspy.taup.helper_classes import TauModelError
 
+from stream2segment.classification import class_labels_df
+
 
 def get_min_travel_time(source_depth_in_km, distance_in_degree, model='ak135'):  # FIXME: better!
     """
@@ -244,6 +246,15 @@ def get_stations(dc, listCha, origTime, lat, lon, max_radius, level='channel'):
     aux = stationQuery % (dc, lat, lon, max_radius, start.isoformat(),
                           endt.isoformat(), ','.join(listCha), level)
     dcResult = url_read(aux, decoding='utf8')
+
+    # TEST (FIXME: remove)
+#     x, _ = station_to_dframe(dcResult)
+#     x2 = x
+#     if len(x):
+#         x2 = x.dropna(subset=['EndTime'])
+#     if len(x2):
+#         f = 9
+
     return station_to_dframe(dcResult)
 
 
@@ -302,20 +313,21 @@ def query2dframe(query_result_str):
     return pd.DataFrame(data=data, columns=columns)
 
 
-def get_wav_query(dc, network, station_name, channel, start_time, end_time):
-    qry = '%s/dataselect/1/query?network=%s&station=%s&channel=%s&start=%s&end=%s'
-    return qry % (dc, network, station_name, channel, start_time.isoformat(), end_time.isoformat())
+def get_wav_query(datacenter, network, station_name, location, channel, start_time, end_time):
+    qry = '%s/dataselect/1/query?network=%s&station=%s&location=%s&channel=%s&start=%s&end=%s'
+    return qry % (datacenter, network, station_name, location, channel, start_time.isoformat(),
+                  end_time.isoformat())
 
 
-def get_wav_queries(dc_series, network_series, station_name_series, channel_series,
+def get_wav_queries(dc_series, network_series, station_name_series, location_series, channel_series,
                     start_time_series, end_time_series):
     pddf = pd.DataFrame({'dc': dc_series, 'channel': channel_series, 'network': network_series,
-                         'station_name': station_name_series, 'start_time': start_time_series,
-                         'end_time': end_time_series})
+                         'station_name': station_name_series, 'location': location_series,
+                         'start_time': start_time_series, 'end_time': end_time_series})
 
     def func(row):
-        return get_wav_query(row['dc'], row['network'], row['station_name'], row['channel'],
-                             row['start_time'], row['end_time'])
+        return get_wav_query(row['dc'], row['network'], row['station_name'], row['location'],
+                             row['channel'], row['start_time'], row['end_time'])
 
     query_series = pddf.apply(func, axis=1)
     return query_series
@@ -520,12 +532,6 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
     # initialize our Database handler:
     try:
         dbwriter = db.Writer(outpath)
-    except IOError as err:
-        logger.error(str(err))
-        logger.save(dbwriter)
-        return 1
-
-    try:
         events, skipped = get_events(**args)
         # raise ValueError()
     except (IOError, ValueError, TypeError) as err:
@@ -623,7 +629,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
             # print stations unique. It has infos about times and distances, we drop all channel
             # info (this might speed up rendering for long DataFrame and make things more
             # readable)
-            logger.debug("Downloaded stations (unique, i.e. no 'Channel' column shown):")
+            logger.debug("Downloaded stations (unique, i.e. showing with level=station):")
             sts = stations_unique[stations_unique.columns[stations_unique.columns != 'Channel']]
             logger.debug(pd_str(sts))
 
@@ -671,9 +677,10 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
             # reset index so that we have nonnegative ordered natural numbers 0, ... N:
             wdf.reset_index(inplace=True, drop=True)
 
+            # NOTE: wdf['QueryStr'] is the data center (will be filled with the query string below)
             wdf.loc[:, 'QueryStr'] = get_wav_queries(wdf['QueryStr'], wdf['#Network'],
-                                                     wdf['Station'], wdf['Channel'],
-                                                     wdf['DataStartTime'],
+                                                     wdf['Station'], wdf['Location'],
+                                                     wdf['Channel'], wdf['DataStartTime'],
                                                      wdf['DataEndTime'])
 
             # skip when the dataframe is empty. Moreover, this apparently avoids shuffling
@@ -702,7 +709,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         wav_dframe = wav_dframe[wdf.columns]
 
         # purge wav_data (this creates a column id primary key):
-        wav_data = dbwriter.purge(wav_dframe, dbwriter.tables.segments)
+        wav_data = dbwriter.purge(wav_dframe, dbwriter.T_SEG)
         skipped_already_saved = total - len(wav_data)
 
         logger.debug("Downloading and saving %d of %d waveforms (%d already saved)",
@@ -753,19 +760,21 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
                 skipped_empty,
                 total)
 
+    # write the class labels:
+    dbwriter.write(class_labels_df, dbwriter.T_CLS, if_exists='skip')  # fail means: do nothing
     # write events:
     # first purge them then write
-    new_events = dbwriter.purge(events, dbwriter.tables.events)
-    dbwriter.write(new_events, dbwriter.tables.events)
+    new_events = dbwriter.purge(events, dbwriter.T_EVT)
+    dbwriter.write(new_events, dbwriter.T_EVT)
     # write data:
     now_ = datetime.utcnow()  # set a common datetime now for runs and data
     if not wav_data.empty:
         wav_data.is_copy = False  # FIXME: why is the warning raised?!!!
         wav_data['RunId'] = now_
-    dbwriter.write(wav_data, dbwriter.tables.segments)
+    dbwriter.write(wav_data, dbwriter.T_SEG)
     # write log:
     log_dframe = logger.to_df(seg_found=total, seg_written=seg_written,
                               config_text=yaml_content.getvalue(), datetime_now=now_)
-    dbwriter.write(log_dframe, dbwriter.tables.runs)
+    dbwriter.write(log_dframe, dbwriter.T_RUN)
 
     return 0

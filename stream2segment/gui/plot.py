@@ -145,8 +145,9 @@ def plot(canvas, index):
     # retrieve which is the current plotted data from obspy plot
 
     try:
-        segment_series = dbreader.get(index)
-        data = dbreader.mseed(segment_series['Data'])
+        segment_data = dbreader.get(index, [dbreader.T_SEG, dbreader.T_EVT, dbreader.T_CLS])
+        segment_series = segment_data[dbreader.T_SEG]
+        data = dbreader.mseed(segment_series)
 
         def filter_func(df):
             return df[(df['#Network'] == segment_series['#Network']) &
@@ -154,7 +155,8 @@ def plot(canvas, index):
                       (df['Location'] == segment_series['Location']) &
                       (df['DataStartTime'] == segment_series['DataStartTime']) &
                       (df['DataEndTime'] == segment_series['DataEndTime']) &
-                      (df['Channel'].str[:2] == segment_series['Channel'][:2])]
+                      (df['Channel'].str[:2] == segment_series['Channel'][:2]) &
+                      (df['Channel'] != segment_series['Channel'])]
 
         other_components = dbreader.read(dbreader.T_SEG, filter_func=filter_func)
 
@@ -170,8 +172,6 @@ def plot(canvas, index):
 #         other_components = dbreader.select([tseg], where)
 
         for _, row in other_components.iterrows():
-            if row.Id == segment_series['Id']:
-                continue
             if other_components_data is None:
                 other_components_data = dbreader.mseed(row)
             else:
@@ -194,17 +194,17 @@ def plot(canvas, index):
     xlim = None  # drawback: by adding other_components_data we can know which is the currently
     # selected plot (i.e., the ones in the 'data' variable) BUT axis align is messed up. Do it here:
     def_axez = []
-    for a in mseed_axes_iterator(fig):
-        xlim = a.get_xlim()
-        def_axez.append(a)
+    for axs in mseed_axes_iterator(fig):
+        xlim = axs.get_xlim()
+        def_axez.append(axs)
 
     if other_components_data is not None:
         other_components_data.plot(fig=fig, color='#cccccc', draw=False)
         if xlim:
-            for a in mseed_axes_iterator(fig):
-                if a not in def_axez:
-                    a.set_xlim(xlim)
-                    a.set_xticklabels([])
+            for axs in mseed_axes_iterator(fig):
+                if axs not in def_axez:
+                    axs.set_xlim(xlim)
+                    axs.set_xticklabels([])
 
     axez = sorted(mseed_axes_iterator(fig), key=lambda ax: ax.get_position().y0)
 
@@ -232,15 +232,13 @@ def plot(canvas, index):
 
     # Set info text on the figure title (NOTE: it is placed on the right)
 
-    # set only labels of interest
-    event_series = dbreader.get(index, ClassHandler.T_EVT)
-    # run_df = dbreader.get(index, ClassHandler.T_RUN)
-    mdt = pd.concat([segment_series, event_series])
-    mdt_ = []  # preserve order
+    infodata = []  # preserve order
     for k in ("#EventID", "EventDistance/deg", "Magnitude", "", "DataStartTime", "ArrivalTime",
               "DataEndTime", "", "#Network", "Station", "Location", "Channel", "", "RunId"):
-        mdt_.append(("", "") if not k else (k, mdt[k]))
-    infotext.set_text(getinfotext(mdt_))
+        value = "" if not k else \
+            segment_series[k] if k in segment_series else segment_data[dbreader.T_EVT][k]
+        infodata.append((k, value))
+    infotext.set_text(getinfotext(infodata))
 
     # adjust dimensions:
     xxx = 1 - legend_width - fig_padding_w if plot_position == 'left' else \

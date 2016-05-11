@@ -14,8 +14,9 @@ import numpy as np
 
 from obspy import read
 from stream2segment.classification import class_labels_df
-from sqlalchemy.sql.expression import select
-
+from sqlalchemy.sql.expression import select, join
+from sqlalchemy.orm.attributes import InstrumentedAttribute
+from pandas import MultiIndex
 
 class SessionScope(object):
     """
@@ -289,10 +290,10 @@ class Writer(DbHandler):
 """
     def __init__(self, db_uri):
         DbHandler.__init__(self, db_uri)
-        if "classes" not in self.tables:
-            # write the class labels:
-            # well, it should exist, but for practical reasons let's be sure: if_exist is specified
-            self.write(class_labels_df, "classes", if_exists='fail')  # fail means: do nothing
+#         if "classes" not in self.tables:
+#             # write the class labels:
+#             # well, it should exist, but for practical reasons let's be sure: if_exist is specified
+#             self.write(class_labels_df, "classes", if_exists='fail')  # fail means: do nothing
 
     def purge(self, dframe, table_name, pkey_name=None):
         """
@@ -310,7 +311,7 @@ class Writer(DbHandler):
             :return: a new DataFrame with the data not stored to the datbase according to pkey_name
             :rtype: pandas DataFrame
         """
-        if dframe is None or dframe.empty:
+        if dframe is None or dframe.empty or table_name not in self.tables:
             return dframe
 
         dframe = self._prepare_df(table_name, dframe)
@@ -345,6 +346,7 @@ class Writer(DbHandler):
             :param: if_exists: {'fail', 'replace', 'append'}, default 'append'
                 - fail: If table exists, raises ValueError (note: pandas doc states "do nothing".
                     FALSE! have a look at source code in v.0.18)
+                - skip: (self-explanatory, exit silently. Added functionality not present in pandas)
                 - replace: If table exists, drop it, recreate it, and insert data.
                 - append: If table exists, insert data. Create if does not exist.
             If append, then the table will be created if it does not exist
@@ -379,11 +381,12 @@ class Writer(DbHandler):
         #
         # 'append'   <same as right>           <same as above>
         #
-        #
+        # NOTe: skip is easy, just check if exists and skip (see below)
         #
 
         table_exists = table_name in self.tables
-
+        if if_exists == 'skip' and table_exists:
+            return
         if if_exists == 'replace' and table_exists:
             try:
                 self.drop_table(table_name)
@@ -598,7 +601,7 @@ class Reader(DbHandler):
         # files.info()
         self.mseed_ids = files
 
-    def get(self, index, table_name=None, as_pd_series=True):
+    def getold(self, index, table_name=None, as_pd_series=True):
         """gets the row of the index-th segment from the relative table
         :param: table_name either self.T_SEG (default when missing) or self.T_EVT or self.T_RUN
         :return a pandas Series if as_series is True (the default), raising a ValueError if
@@ -634,12 +637,67 @@ class Reader(DbHandler):
 
         return pddf if not as_pd_series else pddf.iloc[0]  # pylint: disable=no-member
 
-    def select(self, table_names, where):
+    def get(self, index, table_names=None, as_annotated_class=True):
+        """gets the row of the index-th segment from the relative table
+        :param: table_name either self.T_SEG (default when missing) or self.T_EVT or self.T_RUN
+        :return a pandas Series if as_series is True (the default), raising a ValueError if
+        the DataFrame resulting from the db query has not 1 element, or a pandas DataFrame otherwise
+        """
+        if table_names is None:
+            table_names = [self.T_SEG]
+        else:
+            # pandas unique preserves the order and is faster than numpy.unique:
+            table_names = pd.unique(table_names).tolist()
+
+        where = (self.column(self.T_SEG, "Id") == self.get_id(index))
+
+        if self.T_EVT in table_names:
+            where &= (self.column(self.T_EVT, "#EventID") == self.column(self.T_SEG, "#EventID"))
+
+        if self.T_RUN in table_names:
+            where &= (self.column(self.T_RUN, "Id") == self.column(self.T_SEG, "RunId"))
+
+        if self.T_CLS in table_names:
+            if as_annotated_class:
+                where &= (self.column(self.T_CLS, "Id") ==
+                          self.column(self.T_SEG, "AnnotatedClassId"))
+            else:
+                where &= (self.column(self.T_CLS, "Id") == self.column(self.T_SEG, "ClassId"))
+
+        pddf = self.select(table_names, where)
+
+        if len(pddf) != 1:
+            raise ValueError("Expected 1 row, found %d" % len(pddf))
+        # create the multiindex:
+        tnms = []
+        for tnam in table_names:
+            tnms.extend([tnam]*self.attcount(tnam))
+
+        index = pd.MultiIndex.from_tuples(list(zip(tnms, pddf.columns)), names=['table', 'column'])
+        return pd.Series(pddf.iloc[0].values, index=index)
+
+    def attcount(self, table_name):
+        tbl = self.table(table_name)
+        return len([a for a in tbl.__dict__
+                    if isinstance(getattr(tbl, a), InstrumentedAttribute)])
+
+    def select(self, table_names, where=None):
+        """Selects the given tables in table_names (iterable) with the given where clause
+        and returns the corresponding DataFrame. Note: if table_names has more than one element and
+        some column names are shared across those tables, unexpected results are given
+        :param table_names: an iterable of table names
+        :param where: an sqlalchemy where clause
+        :Example:
+        reader = Reader(db_uri)
+        t_name = reader.T_SEG
+        where = reader.column(table, "Id").in_([55, 56])
+        df = reader.select(t_name, where)
+        """
         tables = []
         for tbl in table_names:
             tables.append(self.tables[tbl])
 
-        selectable = select(tables).where(where)
+        selectable = select(tables).where(where) if where is not None else select(tables)
         parse_dates = []
         for table_name in table_names:
             parse_dates.extend(self.table_settings[table_name].get("parse_dates", []))
@@ -672,16 +730,21 @@ class Reader(DbHandler):
     @staticmethod
     def mseed(obj):
         """Returns an obspy stream object from the rawdata (bytes data)
-        :param obj: a pandas Series with the 'Data' attriubte, a dict with the 'Data' key
-        or a byte string representing the mseed data
+        :param obj: a pandas Series with a multiindex as returned by self.get
+        (obj[Reader.T_SEG].Data) any object with the 'Data' attribute (e.g. pandas Series),
+        any object with the 'Data' key
+        (e.g., pandas Series, dict) or the object itself (which must be a raw bytes string)
         """
         try:
-            return read(StringIO(obj.Data))
-        except AttributeError:
+            return read(StringIO(obj[Reader.T_SEG].Data))
+        except (TypeError, KeyError):
             try:
-                return read(StringIO(obj['Data']))
-            except KeyError:
-                return read(StringIO(obj))
+                return read(StringIO(obj.Data))
+            except AttributeError:
+                try:
+                    return read(StringIO(obj['Data']))
+                except (TypeError, KeyError):
+                    return read(StringIO(obj))
 
 #     def get_metadata(self, index, include_event_info=True):
 #         """
@@ -833,9 +896,9 @@ class ClassHandler(Reader):
             column specifying the class id (representing the class id as the result of some
             algorithm, e.g. statistical classifier)
         """
-        row = self.get(index)
+        row = self.get(index, as_annotated_class=as_annotated_class)
         att_name = self.annotated_class_id_colname if as_annotated_class else self.class_id_colname
-        return getattr(row, att_name)
+        return getattr(row[self.T_SEG], att_name)
 
     def set_class(self, index, class_id, as_annotated_class=True):
         """
@@ -859,7 +922,7 @@ class ClassHandler(Reader):
         # NOTE: we absolutely need a with statement to keep the session open
         with self.session_scope() as session:
             row = session.query(self.tables[self.T_SEG]).filter(self.column(self.T_SEG, "Id") == 
-                                                          self.get_id(index)).first()
+                                                                self.get_id(index)).first()
             # row = self.get_row(index)
             att_name = self.annotated_class_id_colname if as_annotated_class else \
                 self.class_id_colname
