@@ -530,8 +530,8 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
     logger.info("STEP 1/3: Querying Event WS")
 
     # initialize our Database handler:
+    dbwriter = db.DbHandler(outpath)
     try:
-        dbwriter = db.Writer(outpath)
         events, skipped = get_events(**args)
         # raise ValueError()
     except (IOError, ValueError, TypeError) as err:

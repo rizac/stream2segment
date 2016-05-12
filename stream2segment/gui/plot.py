@@ -7,12 +7,9 @@ Created on Feb 25, 2016
 # import matplotlib
 # matplotlib.use('Qt4Agg')
 import sys
-from stream2segment.io.db import ClassHandler
-import pandas as pd
+from stream2segment.io.db import ClassAnnotator
 import matplotlib.pyplot as plt
 from matplotlib.widgets import RadioButtons
-from sqlalchemy import and_
-from collections import OrderedDict as odict
 # Overriding default buttons behaviour:
 from matplotlib.backend_bases import NavigationToolbar2
 
@@ -44,10 +41,10 @@ NavigationToolbar2.forward = lambda self, *args, **kwargs: plot_other(self, 1)
 # global vars:
 curr_pos = 0
 fig = plt.figure(figsize=(16, 9), dpi=80)
-dbreader = None
+class_annotator = None
 # keep a reference to the figure title so that we do not need to create one every time
 # (avoiding checking for titles etcetera)
-infotext = fig.suptitle("", multialignment='left', fontsize=11, family='monospace',
+infotext = fig.suptitle("", multialignment='left', fontsize=13, family='monospace',
                         horizontalalignment='left', verticalalignment='top')
 # http://matplotlib.org/users/text_props.html:
 # horizontalalignment controls whether the x positional argument for the text indicates the left,
@@ -70,7 +67,7 @@ shown_filters = []
 # Note: the position (0.95, 0.3) will be RESET later, here only elements 3 and 4 (width and height)
 # are set!
 rax = plt.axes([0.95, 0.3, legend_width, legend_width*0.75],  # axisbg='lightgoldenrodyellow',
-               title=ClassHandler.annotated_class_id_colname,
+               title=ClassAnnotator.annotated_class_id_colname,
                aspect='equal')  # the last one makes radio buttons circles and not ellipses
 # the radiobuttons widget:
 radiobuttons = None
@@ -85,16 +82,16 @@ def setclass(label):
     for idx, txt in enumerate(radiobuttons.labels):
         # inefficient but it is independent of label caption
         if txt.get_text() == label:
-            classes_df = dbreader.get_classes_df()
+            classes_df = class_annotator.get_classes_df()
             class_id = classes_df.iloc[idx]['Id']
-            dbreader.set_class(curr_pos, class_id)
+            class_annotator.set_class(curr_pos, class_id)
             update_radio_buttons()
 
 
 def plot_other(self, key=0):  # key = None: home (print first plot), +1: print next, -1: print prev.
     global curr_pos
     old_curr_pos = curr_pos
-    curr_pos = 0 if key is None else (curr_pos + key) % dbreader.seg_count()
+    curr_pos = 0 if key is None else (curr_pos + key) % len(class_annotator)
     if old_curr_pos != curr_pos:
         plot(self.canvas, curr_pos)
 
@@ -131,7 +128,9 @@ def getinfotext(metadata_list):
 
 def plot(canvas, index):
 
-    canvas.set_window_title("%s: FILE %d OF %d" % (dbreader.db_uri, index+1, dbreader.seg_count()))
+    canvas.set_window_title("%s: FILE %d OF %d" % (class_annotator.db_uri,
+                                                   index+1,
+                                                   len(class_annotator)))
     data = None
     # canvas.figure.clear() this is BAD cause the radiobuttons do not work anymore. Then
     # clear only axes of interest:
@@ -139,15 +138,15 @@ def plot(canvas, index):
         if a != rax:
             fig.delaxes(a)
 
-    # mdt = dbreader.get(index).iloc[0]['Data']
-    # mdt = dbreader.read(index)
+    # mdt = class_annotator.get(index).iloc[0]['Data']
+    # mdt = class_annotator.read(index)
     other_components_data = None  # we need to separate the other components as we CANNOT
     # retrieve which is the current plotted data from obspy plot
 
     try:
-        segment_data = dbreader.get(index, [dbreader.T_SEG, dbreader.T_EVT, dbreader.T_CLS])
-        segment_series = segment_data[dbreader.T_SEG]
-        data = dbreader.mseed(segment_series)
+        segment_data = class_annotator.get(index, [class_annotator.T_SEG, class_annotator.T_EVT, class_annotator.T_CLS])
+        segment_series = segment_data[class_annotator.T_SEG]
+        data = class_annotator.mseed(segment_series)
 
         def filter_func(df):
             return df[(df['#Network'] == segment_series['#Network']) &
@@ -158,24 +157,24 @@ def plot(canvas, index):
                       (df['Channel'].str[:2] == segment_series['Channel'][:2]) &
                       (df['Channel'] != segment_series['Channel'])]
 
-        other_components = dbreader.read(dbreader.T_SEG, filter_func=filter_func)
+        other_components = class_annotator.read(class_annotator.T_SEG, filter_func=filter_func)
 
 #  # optionally also:
-#         tseg = dbreader.T_SEG
-#         col = dbreader.column
+#         tseg = class_annotator.T_SEG
+#         col = class_annotator.column
 #         where = and_(col(tseg, "#Network") == segment_series['#Network'],
 #                      col(tseg, "Station") == segment_series['Station'],
 #                      col(tseg, "Location") == segment_series['Location'],
 #                      col(tseg, 'DataStartTime') == segment_series['DataStartTime'],
 #                      col(tseg, 'DataEndTime') == segment_series['DataEndTime'])  #,
 #                      # col(tseg, 'Channel')[:2] == sss['Channel'][:2])
-#         other_components = dbreader.select([tseg], where)
+#         other_components = class_annotator.select([tseg], where)
 
         for _, row in other_components.iterrows():
             if other_components_data is None:
-                other_components_data = dbreader.mseed(row)
+                other_components_data = class_annotator.mseed(row)
             else:
-                dta = dbreader.mseed(row)
+                dta = class_annotator.mseed(row)
                 other_components_data.traces.append(dta.traces[0])
 
         # apply filter
@@ -236,7 +235,7 @@ def plot(canvas, index):
     for k in ("#EventID", "EventDistance/deg", "Magnitude", "", "DataStartTime", "ArrivalTime",
               "DataEndTime", "", "#Network", "Station", "Location", "Channel", "", "RunId"):
         value = "" if not k else \
-            segment_series[k] if k in segment_series else segment_data[dbreader.T_EVT][k]
+            segment_series[k] if k in segment_series else segment_data[class_annotator.T_EVT][k]
         infodata.append((k, value))
     infotext.set_text(getinfotext(infodata))
 
@@ -260,8 +259,8 @@ def update_radio_buttons(update_texts=True):
         SET TO FALSE IF CALLING THIS FROM WITHIN A MOUSE CLICK ON ONE RADIO BUTTON TO AVOID
         INFINITE LOOPS
     """
-    global radiobuttons, dbreader
-    classes_df = dbreader.get_classes_df()
+    global radiobuttons, class_annotator
+    classes_df = class_annotator.get_classes_df()
 
     if update_texts or radiobuttons is None:
         ids = classes_df['Id'].tolist()
@@ -285,14 +284,14 @@ def update_radio_buttons(update_texts=True):
 
     global _pass_set_flag
     _pass_set_flag = True
-    class_id = dbreader.get_class(curr_pos)
+    class_id = class_annotator.get_class(curr_pos)
     radiobuttonindex = classes_df[classes_df['Id'] == class_id].index[0]
     radiobuttons.set_active(radiobuttonindex)
     _pass_set_flag = False
 
 
 def main(db_uri, class_ids):
-    global dbreader
+    global class_annotator
     global shown_filters
 
     if class_ids:
@@ -301,7 +300,7 @@ def main(db_uri, class_ids):
         def filter_func(dframe):
             return dframe[dframe['AnnotatedClassId'].isin(class_ids)]
 
-    dbreader = ClassHandler(db_uri, filter_func=None if not class_ids else filter_func,
+    class_annotator = ClassAnnotator(db_uri, filter_func=None if not class_ids else filter_func,
                             sort_columns=["#EventID", "EventDistance/deg"], sort_ascending=[True,
                                                                                             True])
     plot(fig.canvas, 0)

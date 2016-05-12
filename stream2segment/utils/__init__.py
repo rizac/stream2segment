@@ -551,7 +551,6 @@ class Progress(object):
     @staticmethod
     def show_cursor(out=sys.stdout):
         print('\x1b[?25h', end='', file=out)
-        print('CALLED SHOW CURSOR')
 
     @staticmethod
     def clear_line(out=sys.stdout):
