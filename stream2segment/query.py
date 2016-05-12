@@ -22,7 +22,7 @@ import pandas as pd
 import yaml
 
 from stream2segment.utils import Progress, url_read, tounicode
-from stream2segment.io import db
+from stream2segment.s2sio import db
 from stream2segment import __version__ as program_version
 from stream2segment.classification import UNKNOWN_CLASS_ID
 

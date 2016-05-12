@@ -7,7 +7,7 @@ Created on Feb 25, 2016
 # import matplotlib
 # matplotlib.use('Qt4Agg')
 import sys
-from stream2segment.io.db import ClassAnnotator
+from stream2segment.s2sio.db import ClassAnnotator
 import matplotlib.pyplot as plt
 from matplotlib.widgets import RadioButtons
 # Overriding default buttons behaviour:
