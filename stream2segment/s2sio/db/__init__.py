@@ -553,7 +553,7 @@ class ListReader(DbHandler):
             Example: True, [True, False], ...
         """
         DbHandler.__init__(self, db_uri)
-        # check if database exists:
+        # check if database exists: FIXME: why HERE???
         try:
             connection = self.engine.connect()
             connection.execute("SELECT * from segments;")
@@ -598,49 +598,95 @@ class ListReader(DbHandler):
     def __getitem__(self, key):
         return self.get(key)[self.T_SEG]
 
-    def get(self, index, table_names=None, as_annotated_class=True):
-        """gets the row of the index-th segment from the relative table
-        :param: table_name either self.T_SEG (default when missing) or self.T_EVT or self.T_RUN
-        :return a pandas Series if as_series is True (the default), raising a ValueError if
-        the DataFrame resulting from the db query has not 1 element, or a pandas DataFrame otherwise
-        """
-        if table_names is None:
-            table_names = [self.T_SEG]
-        else:
-            # pandas unique preserves the order and is faster than numpy.unique:
-            table_names = pd.unique(table_names).tolist()
+    def get(self, segment_id, table_name, column_names_list=None):
 
-        where = (self.column(self.T_SEG, "Id") == self.get_id(index))
+        where = (self.column(self.T_SEG, "Id") == segment_id)
 
-        if self.T_EVT in table_names:
+        if self.T_EVT == table_name:
             where &= (self.column(self.T_EVT, "#EventID") == self.column(self.T_SEG, "#EventID"))
 
-        if self.T_RUN in table_names:
+        if self.T_RUN == table_name:
             where &= (self.column(self.T_RUN, "Id") == self.column(self.T_SEG, "RunId"))
 
-        if self.T_CLS in table_names:
-            if as_annotated_class:
-                where &= (self.column(self.T_CLS, "Id") ==
-                          self.column(self.T_SEG, "AnnotatedClassId"))
-            else:
-                where &= (self.column(self.T_CLS, "Id") == self.column(self.T_SEG, "ClassId"))
+        if self.T_CLS == table_name:
+            where &= (self.column(self.T_CLS, "Id") == self.column(self.T_SEG, "ClassId"))
 
-        pddf = self.select(table_names, where)
+        pddf = self.select([table_name], where)
 
-        if len(pddf) != 1:
-            raise ValueError("Expected 1 row, found %d" % len(pddf))
-        # create the multiindex:
-        tnms = []
-        for tnam in table_names:
-            tnms.extend([tnam]*self.attcount(tnam))
+        return pddf if column_names_list is None else \
+            pddf[column_names_list]
 
-        index = pd.MultiIndex.from_tuples(list(zip(tnms, pddf.columns)), names=['table', 'column'])
-        return pd.Series(pddf.iloc[0].values, index=index)
+    def get_stream(self, segment_id, include_same_channel=False):
+        columns = ['#Network', 'Station', 'Location', 'DataStartTime', 'DataEndTime',
+                   'Channel', 'Data']
+        # sser is the pandas Series representing the row of the segments table
+        # corresponding to segment_id
+        seg_series = self.get(segment_id, self.T_SEG, columns).iloc[0]
+        strm = self.mseed(seg_series)
+        if include_same_channel:
+            def filter_func(df):
+                return df[(df['#Network'] == seg_series['#Network']) &
+                          (df['Station'] == seg_series['Station']) &
+                          (df['Location'] == seg_series['Location']) &
+                          (df['DataStartTime'] == seg_series['DataStartTime']) &
+                          (df['DataEndTime'] == seg_series['DataEndTime']) &
+                          (df['Channel'].str[:2] == seg_series['Channel'][:2]) &
+                          (df['Channel'] != seg_series['Channel'])]
+
+            # FIXME: read is NOT EFFICIENT, BETTER SELECT!!
+            other_components = self.read(self.T_SEG, filter_func=filter_func)
+            for i, seg_sr in other_components.iterrows():
+                stre = self.mseed(seg_sr)
+                strm.traces.append(stre.traces[0])
+
+        return strm
 
     def get_id(self, index):
         """Returns the database ID of the index-th item (=db table row)"""
         id_colname = self.table_settings[self.T_SEG]['pkey']
         return self.mseed_ids.iloc[index][id_colname]
+
+
+#     def get_(self, segment_id, table_names=None, as_annotated_class=True):
+#         """gets the row of the index-th segment from the relative table
+#         :param: table_name either self.T_SEG (default when missing) or self.T_EVT or self.T_RUN
+#         :return a pandas Series if as_series is True (the default), raising a ValueError if
+#         the DataFrame resulting from the db query has not 1 element, or a pandas DataFrame otherwise
+#         """
+#         if table_names is None:
+#             table_names = [self.T_SEG]
+#         else:
+#             # pandas unique preserves the order and is faster than numpy.unique:
+#             table_names = pd.unique(table_names).tolist()
+# 
+#         where = (self.column(self.T_SEG, "Id") == segment_id)
+# 
+#         if self.T_EVT in table_names:
+#             where &= (self.column(self.T_EVT, "#EventID") == self.column(self.T_SEG, "#EventID"))
+# 
+#         if self.T_RUN in table_names:
+#             where &= (self.column(self.T_RUN, "Id") == self.column(self.T_SEG, "RunId"))
+# 
+#         if self.T_CLS in table_names:
+#             if as_annotated_class:
+#                 where &= (self.column(self.T_CLS, "Id") ==
+#                           self.column(self.T_SEG, "AnnotatedClassId"))
+#             else:
+#                 where &= (self.column(self.T_CLS, "Id") == self.column(self.T_SEG, "ClassId"))
+# 
+#         pddf = self.select(table_names, where)
+# 
+#         if len(pddf) != 1:
+#             raise ValueError("Expected 1 row, found %d" % len(pddf))
+# 
+# 
+#         # create the multiindex:
+#         tnms = []
+#         for tnam in table_names:
+#             tnms.extend([tnam]*self.attcount(tnam))
+# 
+#         index = pd.MultiIndex.from_tuples(list(zip(tnms, pddf.columns)), names=['table', 'column'])
+#         return pd.Series(pddf.iloc[0].values, index=index)
 
 
 class ClassAnnotator(ListReader):

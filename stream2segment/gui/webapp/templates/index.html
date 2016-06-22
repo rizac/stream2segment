@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+<head>
+<script src="static/js/Chart.bundle.min.js"></script>
+<script src="static/js/angular.min.js"></script>
+<link href="static/css/bootstrap.min.css" rel="stylesheet" media="screen">
+<link href="static/css/mystyle.css" rel="stylesheet" media="screen">
+<title>{{ title }}</title>
+</head>
+
+<body style="padding:1em" ng-app="myApp" ng-controller="myController">
+<div class=navigator>
+	<button class='btn btn-active' ng-click="setPreviousIndex()">previous</button>
+	<button class='btn btn-active' ng-click="setNextIndex()" >next</button>
+</div>
+
+<div class="container">
+	<div class="left">
+		<div class="v-top">
+			<canvas id="canvas1.1"></canvas>
+		</div>
+		<div class="v-middle">
+			<canvas id="canvas2.1"></canvas>
+		</div>
+		<div class="v-bottom">
+			<canvas id="canvas3.1"></canvas>
+		</div>
+	</div>
+	<div class="right">
+		<div class="v-top">
+			<canvas id="canvas1.2"></canvas>
+		</div>
+		<div class="v-middle">
+			<canvas id="canvas1.3"></canvas>
+		</div>
+		<div class="v-bottom">
+			<canvas id="canvas1.4"></canvas>
+		</div>
+	</div>
+</div>
+
+</body>
+<script type="text/javascript">
+/* these two options together make canvas (plots) resize automatically according to parent container size */
+Chart.defaults.global.responsive = true; /* what happens?? */
+Chart.defaults.global.maintainAspectRatio = false;
+Chart.defaults.global.elements.point.radius = 0;
+Chart.defaults.global.elements.line.fill = false;
+Chart.defaults.global.elements.line.borderWidth = 1;
+//Chart.defaults.global.elements.line.backgroundColor = "rgba(75,192,192,0.4)";
+//Chart.defaults.global.elements.line.borderColor = "rgba(75,192,192,1)";
+
+/* init charts: */
+var trace1 = document.getElementById("canvas1.1");
+var trace1_ch_other1 = document.getElementById("canvas2.1");
+var trace1_ch_other2 = document.getElementById("canvas3.1");
+var mseed1 = new Chart(trace1, {
+    type: 'line',
+    data: {
+        labels: [],
+        datasets: [{
+        	label: '',
+            data: [],
+            backgroundColor: "rgba(75,192,192,0.4)",
+            borderColor: "rgba(75,192,192,0.9)",
+        }]
+    },
+    /*options: {
+        scales: {
+            yAxes: [{
+                ticks: {
+                    beginAtZero:true
+                }
+            }]
+        }
+    }*/
+});
+var mseed2 = new Chart(trace1_ch_other1, {
+    type: 'line',
+    data: {
+        labels: [],
+        datasets: [{
+            label: '',
+            data: [],
+        }]
+    }
+});
+var mseed3 = new Chart(trace1_ch_other2, {
+    type: 'line',
+    data: {
+        labels: [],
+        datasets: [{
+            label: '',
+            data: [],
+         }]
+    }
+});
+
+
+var trace1_snr = document.getElementById("canvas1.2");
+var trace1_cum = document.getElementById("canvas1.3");
+var trace1_env = document.getElementById("canvas1.4");
+var mseed_snr = new Chart(trace1_snr, {
+    type: 'line',
+    data: {
+        labels: [],
+        datasets: [{
+            label: '',
+            data: [],
+            backgroundColor: "rgba(125,192,192,0.4)",
+            borderColor: "rgba(125,192,192,0.9)",
+        },
+        {
+        	label: '',
+            data: [],
+            backgroundColor: "rgba(35, 192,192, 0.4)",
+            borderColor: "rgba(35,192,192,0.9)",
+        }]
+    },
+    options: {
+        scales: {
+            /* NOTE: log scale supported for EITHER x or y axis:
+            	http://www.chartjs.org/docs/#scales-logarithmic-scale
+            	*/
+            yAxes: [{
+            	type: 'logarithmic',
+            	ticks: {
+                    min: 1,
+                    max: 1000
+                }
+            }]
+        }
+    }
+});
+var mseed_cum = new Chart(trace1_cum, {
+    type: 'line',
+    data: {
+        labels: [],
+        datasets: [{
+            label: '',
+            data: [],
+            backgroundColor: "rgba(75,192,192,0.4)",
+            borderColor: "rgba(75,192,192,0.9)",
+        }]
+    }
+});
+var mseed_env = new Chart(trace1_env, {
+    type: 'line',
+    data: {
+        labels: [],
+        datasets: [{
+            label: '',
+            data: [],
+            backgroundColor: "rgba(75,192,192,0.4)",
+            borderColor: "rgba(75,192,192,1)",
+         }]
+    }
+});
+
+</script>
+<!--  Load our angular app after having loaded Charts (for safety)   -->
+<script src="static/js/app.js"></script>
+
+</html>

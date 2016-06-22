@@ -1,0 +1,73 @@
+/* to make all row the same height. See:
+http://stackoverflow.com/questions/19695784/how-can-i-make-bootstrap-columns-all-the-same-height
+
+.row{
+    overflow: hidden; 
+}
+
+[class*="col-"]{
+    margin-bottom: -99999px;
+    padding-bottom: 99999px;
+}
+
+-----------------------------------------------*/
+html, body{
+	height:100%;
+}
+div.container{
+	position:relative;
+	height: 100%;
+	box-sizing:border-box;
+	height:100%;
+}
+
+div.container div.left{
+	position:absolute;
+	left:0;
+	right:40%;
+	top: 0;
+	bottom:0;
+}
+
+div.container div.right{
+	position:absolute;
+	left:60%;
+	right:0;
+	top: 0;
+	bottom:0;
+}
+
+div.v-top{
+	position:absolute;
+	left:0;
+	right:0;
+	top: 0;
+	bottom:66%;
+}
+
+div.v-middle{
+	position:absolute;
+	left:0;
+	right:0;
+	top: 33%;
+	bottom:33%;
+}
+
+div.v-bottom{
+	position:absolute;
+	left:0;
+	right:0;
+	top: 66%;
+	bottom:0;
+}
+
+div.test{
+	box-sizing:border-box;
+	border: 1px solid #000;
+}
+
+div.navigator{
+	position:absolute;
+	top:1em;
+	right:1em;
+}

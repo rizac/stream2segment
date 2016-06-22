@@ -6,13 +6,16 @@ Created on Feb 25, 2016
 '''
 # import matplotlib
 # matplotlib.use('Qt4Agg')
+import numpy as np
+from datetime import timedelta
 import sys
 from stream2segment.s2sio.db import ClassAnnotator
 import matplotlib.pyplot as plt
 from matplotlib.widgets import RadioButtons
 # Overriding default buttons behaviour:
 from matplotlib.backend_bases import NavigationToolbar2
-
+from scipy.signal import savgol_filter
+from obspy.signal.konnoohmachismoothing import konno_ohmachi_smoothing as kos
 # set here left or right:
 plot_position = 'right'
 
@@ -126,6 +129,104 @@ def getinfotext(metadata_list):
     return title_str
 
 
+def filter_(data, freq_min=0.1, freq_max=20, corners=2):
+    """filters a signal data as obtained from obspy.read"""
+    data_filtered = data.copy()
+
+    # define sampling freq
+    sampling_rate = data[0].stats.sampling_rate
+    # adjust the max_f_max to 0.9 of the nyquist frea (sampling rate /2)
+    max_f_max = 0.9 * (sampling_rate / 2.0)
+
+    freq_max = min(freq_max, max_f_max)
+
+    # pad data with zeros at the beginnign in order to accomodate the transient
+#     lengths = []
+#     for d in data_filtered:
+#         lengths.append(len(d.data))
+#         d.data = np.lib.pad(d.data, (0, lengths[-1]), 'constant', constant_values=(0, 0))
+
+    data_filtered = data_filtered.filter('bandpass', freqmin=freq_min, freqmax=freq_max,
+                                         corners=corners, zerophase=True)
+
+#     for l, d in zip(lengths, data_filtered):
+#         d.data = d.data[l:]
+
+    # smooth tail artifacts due to transients:
+    data_filtered.taper(type='cosine', max_percentage=0.05)
+
+    return data_filtered
+
+def todt(obj):
+    try:
+        return obj.to_datetime()
+    except AttributeError:
+        try:
+            return obj.datetime
+        except AttributeError:    
+            return obj.datetime
+    
+    return obj
+
+def get_noise_spectra(trace, fixed_time, window_in_sec):
+    fixed_time = todt(fixed_time)
+
+    noise_dt = [fixed_time - timedelta(seconds=window_in_sec), fixed_time]
+    normal_dt = [fixed_time, fixed_time + timedelta(seconds=window_in_sec)]
+
+    
+    start = todt(trace.stats.starttime)
+    end = todt(trace.stats.endtime)
+
+    if start > noise_dt[0]:
+        noise_dt[0] = start
+
+    if end < noise_dt[1]:
+        noise_dt[1] = end
+
+    dt = trace.stats.delta
+
+    noise_idxs = [
+                  int((noise_dt[0] - start).total_seconds() / dt),
+                  int((noise_dt[1] - start).total_seconds() / dt)
+                  ]
+
+    normal_idxs = [
+                  int((normal_dt[0] - start).total_seconds() / dt),
+                  int((normal_dt[1] - start).total_seconds() / dt)
+                  ]
+
+    signal1 = trace.data[noise_idxs[0]: noise_idxs[1]]
+    signal2 = trace[normal_idxs[0]: normal_idxs[1]]
+
+    ft1 = np.fft.rfft(signal1)
+    freq1 = np.fft.rfftfreq(len(signal1), d=dt)
+    ft2 = np.fft.rfft(signal2)
+    freq2 = np.fft.rfftfreq(len(signal2), d=dt)
+
+    return [
+            {'freqs': freq1, 'vals': ft1},
+            {'freqs': freq2, 'vals': ft2},
+            ]
+    
+    
+
+#     signal1=tmp[in1:in2]
+#     n1=len(signal1)
+#     signal2=tmp[is1:is2]
+#     n2=len(signal2)
+#     q=[n1,n2]
+#     print(q)
+#     ft1=np.fft.rfft(signal1)
+#     freq1 = np.fft.rfftfreq(n1, d=dt)
+#     ft2=np.fft.rfft(signal2)
+#     freq2 = np.fft.rfftfreq(n2, d=dt)
+#     mtf1=np.abs(ft1)
+#     mtf2=np.abs(ft2)
+#     smtf1=savitzky_golay(mtf1, 101, 3)   #smoothing
+#     smtf2=savitzky_golay(mtf2, 101, 3)
+
+    
 def plot(canvas, index):
 
     canvas.set_window_title("%s: FILE %d OF %d" % (class_annotator.db_uri,
@@ -188,6 +289,78 @@ def plot(canvas, index):
         infotext.set_text(errmsg)
         # canvas.draw()
         return
+
+    # preprocess the signals
+    data = filter_(data)
+    other_components_data = filter_(other_components_data)
+    
+    # PLot SNR:
+#     arrival_time = segment_data[class_annotator.T_SEG]['ArrivalTime']
+#     ret = get_noise_spectra(data[0], arrival_time, 40)
+#     
+#     ax = fig.add_axes([0, 0, 1, 1])
+#     
+#     signals = np.array([np.abs(ret[0]['vals']), np.abs(ret[1]['vals'])])
+#     freqs = np.array([ret[0]['freqs'], ret[1]['freqs']])
+#     ys2 = kos(signals, ret[0]['freqs'])
+#     
+#     ax.loglog(ret[0]['freqs'], ys2[0], color='g', lw=3)
+#
+#     ax.loglog(ret[1]['freqs'], ys2[1], color='r', lw=3)
+    
+    # FIXME: add sum of squares and plot the ratio S/N
+    
+    # ============================
+    
+    # PLOT CUMULATIVE
+    
+#     yval = data[0].data
+#     cumsum = np.cumsum(yval**2, axis=None, dtype=None, out=None)
+#     cumsum /= np.max(cumsum)
+#     ax = fig.add_axes([0, 0, 1, 1])
+#     npt = len(yval)
+#     time = (np.linspace(1, npt, npt)) * data[0].stats.delta
+#     ax.plot(time, cumsum, color='k', lw=3)
+
+    # =============================
+
+    # PLOT ENVELOPE
+
+    # get spectrogram
+    from scipy.signal import spectrogram
+    f, t, sxx = spectrogram(data[0].data, data[0].stats.sampling_rate)
+    # ax = fig.add_axes([0, 0, 1, 1])
+    # ax.pcolormesh(t, f, sxx)
+
+    fmin = 2
+    fmax = 10
+    tmin=-100000
+    tmax=100000
+    ffilt = [i for i in list(range(len(f))) if (f[i] >= fmin) and (f[i] <= fmax)]
+    indxt = [i for i in list(range(len(t))) if (t[i]>=tmin) and (t[i]<=tmax)]
+    ener = np.zeros(len(indxt))
+    ii = 0
+    for i in xrange(len(ener)):
+        dum = np.abs(sxx[ffilt,i])#**2  #either norm 1 or norm 2
+        ener[ii] = dum.sum()
+        ii= ii + 1 
+
+    enerdb = 10*np.log10(ener)
+    # num = np.array(ener,dtype=np.float)
+    # den = np.array(enerR,dtype=np.float)
+    # enerRatio = num/den
+    # enerRatioFil = savitzky_golay(enerRatio, 11, 3)
+    # ener = ener/max(ener)
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.plot(enerdb)
+    # plt.xlim(tmin, tmax)
+    
+#     ax.plot(time, enerdb)
+#     plt.xlim(tmin, tmax)
+    
+    
+    # linewidth=self.linewidth, linestyle=self.linestyle)
+    
     data.plot(fig=fig, draw=False)  # , block=True)
 
     xlim = None  # drawback: by adding other_components_data we can know which is the currently
