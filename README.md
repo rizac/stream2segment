@@ -1,10 +1,10 @@
 # stream2segment
 
-A python project to download seismic waveforms related to events
+A python project to download seismic waveforms related to events featuring (in progress) several pre-processing utilities
 
 ## Installation (tested on Ubuntu14.04 - Ubuntu 12.10)
 
-This program has been written on Mac OS El Capitan, but a fresh installation test could be done on Ubuntu only. Mac users can safely follow the instructions below (skipping the [Prerequisites](#prerequisites) section), but in case of problems we did not keep track (yet) of the solutions here
+This program has been written on Mac OS El Capitan, but a fresh installation test could be done on Ubuntu only. In principle, Mac users can safely follow the instructions below (trying skipping the [Prerequisites](#prerequisites) section), but a complete track of possible issues is still to be published
 
 ### Prerequisites
 The following system packages are required: `git python-pip python2.7-dev libpng-dev libfreetype6-dev 
@@ -16,8 +16,7 @@ sudo apt-get upgrade gcc
 sudo apt-get install git python-pip python2.7-dev libpng-dev libfreetype6-dev \
 	build-essential gfortran libatlas-base-dev libxml2-dev libxslt-dev python-tk
 ```
-However, you can also skip this section and get back here in case of problems
-(see also the section [Installation Notes](#installation-notes))
+Another choice (the one followed when building this documentation) is to skip this section and get back here in case of problems (or jumping to the section [Installation Notes](#installation-notes))
 
 ### Cloning repository
 
@@ -107,13 +106,13 @@ has been to update gcc and install python2.7-dev:
 ## Misc:
 
 ### sqlitebrowser
-The proigram saves data on a sqlite database (whose path is specified in the config file). To visualize sqlite content, you can download sqlitebrowser (http://sqlitebrowser.org/). The installation on Ubuntu can be done as follows:
+The program saves data on a sqlite database (whose path is specified in the config file). To visualize the sqlite content, you can download sqlitebrowser (http://sqlitebrowser.org/). The installation on Mac is straightforward (use brew cask or go to the link above) whereas on Ubuntu can be done as follows:
 ```
 sudo add-apt-repository ppa:linuxgndu/sqlitebrowser
 sudo apt-get install sqlitebrowser
 ```
 
 ### matplotlibrc 
-There is a `matplotlibrc` in the stream2segment directory. It tells matplotlib to use a TkAgg backend which is able to show figures (for `stream2segment --gui` options) Advantage: it can be used for specific customizations that you do not want to apply elsewhere (if you have other matplotlib settings). Drawbacks: *you need to cd to stream2segment for making the program work*. For global backend settings create the file (if it does not exist) `$HOME/.config/matplotlib/matplotlibrc` (`$HOME/.matplotlib/matplotlibrc` in OSX), oopen it and add the line:
-```backend: TkAgg```
-For info, see http://matplotlib.org/users/customizing.html
+There is a `matplotlibrc` in the stream2segment directory. It tells matplotlib to use a TkAgg backend which is able to show figures (for `stream2segment --gui` options) Advantage: it can be used for specific customizations that you do not want to apply elsewhere (if you have other matplotlib settings). Drawback: *you need to cd to stream2segment for making the program work with the default matplotlib config*
+(Reminder: for global backend settings create or open the file  `$HOME/.config/matplotlib/matplotlibrc` on Ubuntu or `$HOME/.matplotlib/matplotlibrc` in OSX. Then add the line:
+```backend: TkAgg``` and save it. For info, see http://matplotlib.org/users/customizing.html)
