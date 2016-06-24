@@ -8,13 +8,15 @@ import numpy as np
 from stream2segment.analysis.mseeds import cumsum, snr, env, bandpass
 from obspy.core.utcdatetime import UTCDateTime
 listreader = None
+SNR_WINDOW_SIZE_IN_SECS = 40  # FIXME: add to the config!!
+
 
 def get_listreader(db_uri):
     if listreader is None:
         global listreader
         listreader = ListReader(db_uri, filter_func=None,
-                            sort_columns=["#EventID", "EventDistance/deg"], sort_ascending=[True,
-                                                                                            True])
+                                sort_columns=["#EventID", "EventDistance/deg"],
+                                sort_ascending=[True, True])
     return listreader
 
 
@@ -35,13 +37,14 @@ def get_data(db_uri, id):
     stream = listreader.get_stream(id, include_same_channel=True)
     filtered_stream = bandpass(stream)
     cumulative_trace = cumsum(filtered_stream[0])
-    snr_stream = snr(filtered_stream[0], db_row.iloc[0]['ArrivalTime'], 40)
+    snr_stream = snr(filtered_stream[0], db_row.iloc[0]['ArrivalTime'], SNR_WINDOW_SIZE_IN_SECS)
     evlp_trace = env(filtered_stream[0])
 
-    ret_data = {'freqs': [], 'data': [], 'spectrum_bounds': [0,1,0,1]}
+    ret_data = {'freqs': [], 'data': [], 'spectrum_bounds': [0, 1, 0, 1]}
 
     MAX_NUM_PTS = 1200
 
+    metadata = []  # store each type of metadata here
     for i in xrange(3):
         signal_found = i < len(stream)
         if signal_found:
@@ -49,13 +52,19 @@ def get_data(db_uri, id):
             # set the labels for the times
             starttime = stream[i].stats.starttime
             delta = stream[i].stats.delta
-            timez = [(starttime + delta*x).timestamp for x in xrange(len(stream[i].data))]
+            timez = np.linspace(starttime.timestamp, stream[i].stats.endtime.timestamp,
+                                num=len(stream[i].data),
+                                endpoint=True)
+
             newtimez = None if len(timez) <= MAX_NUM_PTS else \
                 np.linspace(timez[0], timez[-1], num=MAX_NUM_PTS, endpoint=True)
 
+            times_rounded_to_millisecs = np.round((timez if newtimez is None else newtimez) *
+                                                  1000.0)
+
             ret_data['data'].append(
                             {
-                             'times': [UTCDateTime(x).isoformat()[11:] for x in newtimez],
+                             'times': times_rounded_to_millisecs.tolist(),  # [UTCDateTime(x).isoformat()[11:] for x in newtimez],
                              'id': stream[i].id,
                              'trace': interp(newtimez, timez, stream[i].data),
                              'trace_bandpass': interp(newtimez, timez, filtered_stream[i].data),
@@ -85,10 +94,16 @@ def get_data(db_uri, id):
                     ret_data['freqs'] = freqz.tolist() if len(freqz) <= MAX_NUM_PTS else \
                         newfreqz.tolist()
 
-                    snr_noise = interp(newfreqz, freqz, snr_stream[0].data, return_json_serializable=False)
-                    snr_sig = interp(newfreqz, freqz, snr_stream[1].data, return_json_serializable=False)
+                    snr_noise = interp(newfreqz, freqz, snr_stream[0].data,
+                                       return_json_serializable=False)
+                    snr_sig = interp(newfreqz, freqz, snr_stream[1].data,
+                                     return_json_serializable=False)
+
+                    metadata.append(['SNR',  \
+                        np.sum(snr_stream[1].data) / np.sum(snr_stream[0].data)])
 
                     # set frequency bounds. ChartJs requires them to properly scale the log axes:
+                    # FIXME: REMOVE!!
                     ret_data['spectrum_bounds'][0] = freqz[0]
                     ret_data['spectrum_bounds'][1] = freqz[-1]
                     ret_data['spectrum_bounds'][2] = np.nanmin([snr_noise, snr_sig])
@@ -111,6 +126,20 @@ def get_data(db_uri, id):
                                       'cum': [],
                                       }
                                     )
+
+    # add metadata:
+    mag = listreader.get(id, listreader.T_EVT, ['Magnitude'])
+    metadata.append(("Mag", str(mag.iloc[0]['Magnitude'])))
+    for key in ("#EventID", "EventDistance/deg", "DataStartTime", "ArrivalTime",
+                "DataEndTime", "#Network", "Station", "Location", "Channel"):  # , "", "RunId"):
+        metadata.append((key, str(db_row.iloc[0][key])))
+        if key == "ArrivalTime":
+            # set arrival time. This is a pandas Timestamp object and
+            # uses microseconds. We want seconds
+            ret_data['arrival_time'] = round(db_row.iloc[0][key].value / 1000000)
+            ret_data['snr_dt_in_sec'] = SNR_WINDOW_SIZE_IN_SECS
+
+    ret_data['metadata'] = metadata
 
     return ret_data
 

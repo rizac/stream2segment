@@ -746,9 +746,9 @@ class ClassAnnotator(ListReader):
             column specifying the class id (representing the class id as the result of some
             algorithm, e.g. statistical classifier)
         """
-        row = self.get(index, as_annotated_class=as_annotated_class)
+        row = self.get(index, self.T_SEG)
         att_name = self.annotated_class_id_colname if as_annotated_class else self.class_id_colname
-        return row[self.T_SEG][att_name]
+        return row.iloc[0][att_name]
 
     def set_class(self, index, class_id, as_annotated_class=True):
         """

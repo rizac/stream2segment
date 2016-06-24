@@ -3,6 +3,7 @@
 .env
 config.yaml
 conftest.py
+*.sqlite
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

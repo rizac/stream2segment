@@ -26,6 +26,7 @@ def bandpass(trace_or_stream, freq_min=0.1, freq_max=20, corners=2):
         # adjust the max_f_max to 0.9 of the nyquist frea (sampling rate /2)
         max_f_max = 0.9 * (sampling_rate / 2.0)
         freq_max = min(freq_max, max_f_max)
+        # tr.taper(type='cosine', max_percentage=0.15)
         tr.filter('bandpass', freqmin=freq_min, freqmax=freq_max, corners=corners, zerophase=True)
         # smooth tail artifacts due to transients:
         tr.taper(type='cosine', max_percentage=0.05)

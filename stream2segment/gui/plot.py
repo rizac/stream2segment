@@ -245,8 +245,9 @@ def plot(canvas, index):
     # retrieve which is the current plotted data from obspy plot
 
     try:
-        segment_data = class_annotator.get(index, [class_annotator.T_SEG, class_annotator.T_EVT, class_annotator.T_CLS])
-        segment_series = segment_data[class_annotator.T_SEG]
+        segment_data = class_annotator.get(class_annotator.get_id(index),
+                                            class_annotator.T_SEG)
+        segment_series = segment_data.iloc[0]
         data = class_annotator.mseed(segment_series)
 
         def filter_func(df):
@@ -329,9 +330,7 @@ def plot(canvas, index):
     # get spectrogram
     from scipy.signal import spectrogram
     f, t, sxx = spectrogram(data[0].data, data[0].stats.sampling_rate)
-    # ax = fig.add_axes([0, 0, 1, 1])
-    # ax.pcolormesh(t, f, sxx)
-
+    
     fmin = 2
     fmax = 10
     tmin=-100000
@@ -346,20 +345,12 @@ def plot(canvas, index):
         ii= ii + 1 
 
     enerdb = 10*np.log10(ener)
-    # num = np.array(ener,dtype=np.float)
-    # den = np.array(enerR,dtype=np.float)
-    # enerRatio = num/den
-    # enerRatioFil = savitzky_golay(enerRatio, 11, 3)
-    # ener = ener/max(ener)
+    
     ax = fig.add_axes([0, 0, 1, 1])
     ax.plot(enerdb)
-    # plt.xlim(tmin, tmax)
-    
-#     ax.plot(time, enerdb)
-#     plt.xlim(tmin, tmax)
     
     
-    # linewidth=self.linewidth, linestyle=self.linestyle)
+    # =========================================
     
     data.plot(fig=fig, draw=False)  # , block=True)
 
@@ -408,7 +399,7 @@ def plot(canvas, index):
     for k in ("#EventID", "EventDistance/deg", "Magnitude", "", "DataStartTime", "ArrivalTime",
               "DataEndTime", "", "#Network", "Station", "Location", "Channel", "", "RunId"):
         value = "" if not k else \
-            segment_series[k] if k in segment_series else segment_data[class_annotator.T_EVT][k]
+            segment_series[k] if k in segment_series else ""  # segment_data[class_annotator.T_EVT][k]
         infodata.append((k, value))
     infotext.set_text(getinfotext(infodata))
 
@@ -457,7 +448,7 @@ def update_radio_buttons(update_texts=True):
 
     global _pass_set_flag
     _pass_set_flag = True
-    class_id = class_annotator.get_class(curr_pos)
+    class_id = class_annotator.get_class(class_annotator.get_id(curr_pos))
     radiobuttonindex = classes_df[classes_df['Id'] == class_id].index[0]
     radiobuttons.set_active(radiobuttonindex)
     _pass_set_flag = False

@@ -1,21 +1,85 @@
 <!DOCTYPE html>
 <html>
 <head>
-<script src="static/js/Chart.bundle.min.js"></script>
+<script src="static/js/moment.min.js"></script>
+<script src="static/js/Chart.min.js"></script>
 <script src="static/js/angular.min.js"></script>
 <link href="static/css/bootstrap.min.css" rel="stylesheet" media="screen">
 <link href="static/css/mystyle.css" rel="stylesheet" media="screen">
 <title>{{ title }}</title>
 </head>
 
-<body style="padding:1em" ng-app="myApp" ng-controller="myController">
-<div class=navigator>
-	<button class='btn btn-active' ng-click="setPreviousIndex()">previous</button>
-	<button class='btn btn-active' ng-click="setNextIndex()" >next</button>
+<body ng-app="myApp" ng-controller="myController">
+
+
+<div class="container-fluid fullheight">
+<div class="row fullheight">
+	<div class="col-md-2 fullheight">
+		<div class=navigator>
+			Segment {{ '{{' }} currentIndex + 1 {{ '}}' }} of {{ '{{' }} elements.length {{ '}}' }}
+			<!-- as these two buttons are right floated (see mystyle.css), the order they wil be displayed is
+			inverse to the order they appear here, so we invert them
+			order  -->
+			<button class='btn btn-default' ng-click="setNextIndex()" >&rarr;</button>
+			<button class='btn btn-default' ng-click="setPreviousIndex()">&larr;</button>
+		</div>
+		<div class="checkbox">
+    		<label>
+      			<input type="checkbox" ng-model="showFiltered"
+      				ng-change="toggleFilter()"> View filtered
+    		</label>
+  		</div>
+		<div class="panel panel-default">
+  			<!-- Default panel contents -->
+  			<div class="panel-heading">Info</div>
+  				<div class="panel-body">
+  					<ul class="segment-info example-animate-container">
+						<li class="animate-repeat" ng-repeat="info in data.metadata">
+					      		<strong>{{ '{{' }} info[0] {{ '}}' }}</strong>: {{ '{{' }} info[1] {{ '}}' }}
+					    </li>
+					    <li class="animate-repeat" ng-if="infos.length == 0">
+					      		<strong>No info available</strong>
+					    </li>
+					</ul>
+    				<!-- <table class="example-animate-container">
+						<tbody>
+					    	<tr class="animate-repeat" ng-repeat="info in data.metadata">
+					      		<td>{{ '{{' }} info[0] {{ '}}' }}:</td><td>{{ '{{' }} info[1] {{ '}}' }}</td>
+					    	</tr>
+					    	<tr class="animate-repeat" ng-if="infos.length == 0">
+					      		<strong>No info available</strong>
+					    	</tr>
+					    </tbody>
+					</table> -->
+  				</div>
+  		</div>
+	</div>
+	<div class="col-md-6 fullheight pos-relative">
+		<div class="one-third-height">
+			<canvas id="canvas1.1"></canvas>
+		</div>
+		<div class="one-third-height">
+			<canvas id="canvas2.1"></canvas>
+		</div>
+		<div class="one-third-height">
+			<canvas id="canvas3.1"></canvas>
+		</div>
+	</div>
+	<div class="col-md-4 fullheight pos-relative">
+		<div class="one-third-height">
+			<canvas id="canvas1.2"></canvas>
+		</div>
+		<div class="one-third-height">
+			<canvas id="canvas1.3"></canvas>
+		</div>
+		<div class="one-third-height">
+			<canvas id="canvas1.4"></canvas>
+		</div>
+	</div>
 </div>
 
-<div class="container">
-	<div class="left">
+</div>
+	<!-- <div class="left">
 		<div class="v-top">
 			<canvas id="canvas1.1"></canvas>
 		</div>
@@ -36,7 +100,7 @@
 		<div class="v-bottom">
 			<canvas id="canvas1.4"></canvas>
 		</div>
-	</div>
+	</div> -->
 </div>
 
 </body>
@@ -50,7 +114,87 @@ Chart.defaults.global.elements.line.borderWidth = 1;
 //Chart.defaults.global.elements.line.backgroundColor = "rgba(75,192,192,0.4)";
 //Chart.defaults.global.elements.line.borderColor = "rgba(75,192,192,1)";
 
-/* init charts: */
+
+/* extends a line chart which displays the arrival time.
+ * 
+ */
+
+ //first define the snr colors:
+var snrColors = {
+	noise: {
+		border: "rgba(0, 125, 0, 0.55)",
+		background: "rgba(0, 125, 0, 0.1)"
+	},
+	signal: {
+		border: "rgba(125, 0, 0, 0.55)",
+		background: "rgba(125, 0, 0, 0.1)"
+	}
+};
+
+var traceColors = {
+	border: "rgba(75,192,192,0.8)",
+	background: "rgba(75,192,192,0.4)"
+}
+ 
+var originalLineDraw = Chart.controllers.line.prototype.draw;
+Chart.helpers.extend(Chart.controllers.line.prototype, {
+    draw: function () {
+    	originalLineDraw.apply(this, arguments);
+    	
+    	var chart = this.chart;
+        var ctx = chart.chart.ctx;
+
+        var aTime = chart.config.options._arrivalTime;
+        var snrDtInMSec = chart.config.options._snrDtInSec * 1000;
+        if (aTime || aTime === 0) {
+          var xaxis = chart.scales['x-axis-0'];
+          var yaxis = chart.scales['y-axis-0'];
+		  
+          var x1 = xaxis.getPixelForValue(moment(aTime));
+          
+          ctx.save();
+          // paint line
+          ctx.beginPath();
+          ctx.moveTo(x1, yaxis.top + 12);
+          ctx.strokeStyle = '#ff0000';
+          ctx.lineTo(x1, yaxis.bottom);
+          ctx.stroke();
+          
+       	  // write TODAY
+          ctx.textAlign = 'center';
+          ctx.fillText("arrival time", x1, yaxis.top);
+
+          //paint rects:
+          if (snrDtInMSec){
+        	  var x0 = xaxis.getPixelForValue(moment(aTime - snrDtInMSec));
+              var x2 = xaxis.getPixelForValue(moment(aTime + snrDtInMSec));
+         
+	          ctx.fillStyle = snrColors.noise.background;
+			  ctx.fillRect(x0, yaxis.top, x1-x0, yaxis.bottom - yaxis.top);
+			  ctx.fillStyle = snrColors.signal.background;
+			  ctx.fillRect(x1, yaxis.top, x2-x1, yaxis.bottom - yaxis.top);
+          }
+
+          ctx.restore();
+        }
+    }
+}); 
+
+
+/*
+init charts: 
+*/
+// first init the dict of options for all time plots:
+var timeOpts = {
+        scales: {
+        	xAxes: [{
+                type: 'time',
+                ticks:{
+                	maxRotation: 0
+                }
+            }]
+        }
+    };
 var trace1 = document.getElementById("canvas1.1");
 var trace1_ch_other1 = document.getElementById("canvas2.1");
 var trace1_ch_other2 = document.getElementById("canvas3.1");
@@ -61,19 +205,15 @@ var mseed1 = new Chart(trace1, {
         datasets: [{
         	label: '',
             data: [],
-            backgroundColor: "rgba(75,192,192,0.4)",
-            borderColor: "rgba(75,192,192,0.9)",
+            backgroundColor: traceColors.background,
+            borderColor: traceColors.border
         }]
     },
-    /*options: {
-        scales: {
-            yAxes: [{
-                ticks: {
-                    beginAtZero:true
-                }
-            }]
-        }
-    }*/
+    options: {
+    	scales: timeOpts.scales,
+    	_arrivalTime: undefined,
+    	_snrDtInSec: 0
+    }
 });
 var mseed2 = new Chart(trace1_ch_other1, {
     type: 'line',
@@ -83,7 +223,8 @@ var mseed2 = new Chart(trace1_ch_other1, {
             label: '',
             data: [],
         }]
-    }
+    },
+    options: timeOpts
 });
 var mseed3 = new Chart(trace1_ch_other2, {
     type: 'line',
@@ -93,9 +234,9 @@ var mseed3 = new Chart(trace1_ch_other2, {
             label: '',
             data: [],
          }]
-    }
+    },
+    options: timeOpts
 });
-
 
 var trace1_snr = document.getElementById("canvas1.2");
 var trace1_cum = document.getElementById("canvas1.3");
@@ -107,14 +248,14 @@ var mseed_snr = new Chart(trace1_snr, {
         datasets: [{
             label: '',
             data: [],
-            backgroundColor: "rgba(125,192,192,0.4)",
-            borderColor: "rgba(125,192,192,0.9)",
+            backgroundColor: snrColors.noise.background,
+            borderColor: snrColors.noise.border
         },
         {
         	label: '',
             data: [],
-            backgroundColor: "rgba(35, 192,192, 0.4)",
-            borderColor: "rgba(35,192,192,0.9)",
+            backgroundColor: snrColors.signal.background,
+            borderColor: snrColors.signal.border
         }]
     },
     options: {
@@ -124,10 +265,19 @@ var mseed_snr = new Chart(trace1_snr, {
             	*/
             yAxes: [{
             	type: 'logarithmic',
+            	 ticks: {
+                 /*    min: 1,
+                    max: 13382290 */ 
+            	}
+            }],
+            xAxes:[{
+            	/* type: 'logarithmic',
+            	position: 'bottom', */
             	ticks: {
-                    min: 1,
-                    max: 1000
-                }
+            		/*  min: 1,
+                     max: 10, */
+                	maxRotation: 0
+            	}
             }]
         }
     }
@@ -139,22 +289,25 @@ var mseed_cum = new Chart(trace1_cum, {
         datasets: [{
             label: '',
             data: [],
-            backgroundColor: "rgba(75,192,192,0.4)",
-            borderColor: "rgba(75,192,192,0.9)",
+            backgroundColor: traceColors.background,
+            borderColor: traceColors.border
         }]
-    }
+    },
+    options: timeOpts
 });
 var mseed_env = new Chart(trace1_env, {
     type: 'line',
     data: {
         labels: [],
         datasets: [{
+        	fill: true,
             label: '',
             data: [],
-            backgroundColor: "rgba(75,192,192,0.4)",
-            borderColor: "rgba(75,192,192,1)",
+            backgroundColor: traceColors.background,
+            borderColor: traceColors.border
          }]
-    }
+    },
+    options: timeOpts
 });
 
 </script>
