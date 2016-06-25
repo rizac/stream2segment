@@ -5,23 +5,26 @@ Created on Jun 20, 2016
 '''
 from stream2segment.gui.webapp import app
 import sys
+import random
+import threading
+import webbrowser
+
+
 # from stream2segment.s2sio.db import ClassAnnotator
-
-
-class Config(object):
-    DEBUG = False
-    TESTING = False
-    DATABASE_URI = 'sqlite://:memory:'
-
-    def __init__(self, db_uri):
-        Config.DATABASE_URI = db_uri
-
-
-def main(db_uri):
+def main(db_uri, port, debug):
     app.config.update(
                       DATABASE_URI=db_uri
                       )
-    app.run()
+    app.run(port=port, debug=debug)
+
+
+def run_in_browser(db_uri):
+    port = 5000 + random.randint(0, 999)
+    url = "http://127.0.0.1:{0}".format(port)
+
+    threading.Timer(1.25, lambda: webbrowser.open(url)).start()
+
+    main(db_uri, port=port, debug=False)
 
 
 if __name__ == '__main__':
@@ -29,5 +32,6 @@ if __name__ == '__main__':
     if len(sys.argv) < 2:
         print "please specify a valid directory of mseed files"
         sys.exit(1)
-    path_ = sys.argv[1]
-    main(path_)
+    db_uri = sys.argv[1]
+
+    run_in_browser(db_uri)

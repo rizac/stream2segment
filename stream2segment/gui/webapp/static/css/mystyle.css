@@ -48,4 +48,10 @@ div.navigator{
 
 div.navigator button{
 	float: right;
-}	
+}
+
+div.navigator button:not(:last-of-type) {
+	/* remember THAT buttons with float: right are placed in reversed order, so it is
+	margin-left instead of margin-right */
+    margin-left: 10px;
+}

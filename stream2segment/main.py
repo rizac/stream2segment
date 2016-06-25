@@ -108,8 +108,8 @@ def main():
                       cfg_dict=cfg_dict)
 
     if args.gui is not None:
-        from stream2segment.gui import plot
-        plot.main(args.outpath, args.gui)
+        from stream2segment.gui import main
+        main.run_in_browser(args.outpath)
         sys.exit(0)
 
     vars_args = vars(args)

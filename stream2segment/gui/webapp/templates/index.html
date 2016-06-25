@@ -31,26 +31,41 @@
   		</div>
 		<div class="panel panel-default">
   			<!-- Default panel contents -->
-  			<div class="panel-heading">Info</div>
+  			<div class="panel-heading">{{ '{{' }} getCurrentSegmentName() {{ '}}' }}</div>
   				<div class="panel-body">
   					<ul class="segment-info example-animate-container">
 						<li class="animate-repeat" ng-repeat="info in data.metadata">
-					      		<strong>{{ '{{' }} info[0] {{ '}}' }}</strong>: {{ '{{' }} info[1] {{ '}}' }}
+					      		<strong>{{ '{{' }} info[0] {{ '}}' }}</strong>: {{ '{{' }} info2str(info[0], info[1]) {{ '}}' }}
 					    </li>
 					    <li class="animate-repeat" ng-if="infos.length == 0">
 					      		<strong>No info available</strong>
 					    </li>
 					</ul>
-    				<!-- <table class="example-animate-container">
-						<tbody>
-					    	<tr class="animate-repeat" ng-repeat="info in data.metadata">
-					      		<td>{{ '{{' }} info[0] {{ '}}' }}:</td><td>{{ '{{' }} info[1] {{ '}}' }}</td>
-					    	</tr>
-					    	<tr class="animate-repeat" ng-if="infos.length == 0">
-					      		<strong>No info available</strong>
-					    	</tr>
-					    </tbody>
-					</table> -->
+  				</div>
+  		</div>
+  		<div class="panel panel-default">
+  			<!-- Default panel contents -->
+  			<div class="panel-heading">Class</div>
+  				<!-- <ul class="nav nav-tabs">
+				  <li ng-class="{{ '{' }} 'active' : classTabSelIndex != 1 , '' :  classTabSelIndex == 1 {{ '}' }}"><a ng-click="setClassTab(0)" href="#">Set class</a></li>
+				  <li ng-class="{{ '{' }} 'active' : classTabSelIndex == 1 , '' :  classTabSelIndex != 1 {{ '}' }}"><a ng-click="setClassTab(1)" href="#">Filter</a></li>
+				</ul> -->
+  			
+  				<div class="panel-body">
+  					<div ng-show="classTabSelIndex != 1" class="segment-class example-animate-container">
+						<div ng-repeat="class in classes">
+						<label>
+						<input type='radio' ng-click="setCurrentSegmentClass()" class="animate-repeat" ng-model="data.class_id" value="{{ '{{' }} class.Id {{ '}}' }}">
+					      		{{ '{{' }} class.Id {{ '}}' }}: <strong>{{ '{{' }} class.Label {{ '}}' }}</strong> ({{ '{{' }} class.Count {{ '}}' }}) 
+					    </label>
+					    </div>
+					</div>
+					<!-- <div ng-show="classTabSelIndex == 1" class="segment-class example-animate-container">
+						<div ng-repeat="class in classes">
+						<input type='checkbox' class="animate-repeat" ng-model="data.class_id" value="{{ '{{' }} class.Id {{ '}}' }}">
+					      		{{ '{{' }} class.Id {{ '}}' }}: <strong>{{ '{{' }} class.Label {{ '}}' }}</strong> ({{ '{{' }} class.Count {{ '}}' }}) 
+					    </div>
+					</div> -->
   				</div>
   		</div>
 	</div>
@@ -79,30 +94,7 @@
 </div>
 
 </div>
-	<!-- <div class="left">
-		<div class="v-top">
-			<canvas id="canvas1.1"></canvas>
-		</div>
-		<div class="v-middle">
-			<canvas id="canvas2.1"></canvas>
-		</div>
-		<div class="v-bottom">
-			<canvas id="canvas3.1"></canvas>
-		</div>
-	</div>
-	<div class="right">
-		<div class="v-top">
-			<canvas id="canvas1.2"></canvas>
-		</div>
-		<div class="v-middle">
-			<canvas id="canvas1.3"></canvas>
-		</div>
-		<div class="v-bottom">
-			<canvas id="canvas1.4"></canvas>
-		</div>
-	</div> -->
-</div>
-
+	
 </body>
 <script type="text/javascript">
 /* these two options together make canvas (plots) resize automatically according to parent container size */
@@ -133,9 +125,11 @@ var snrColors = {
 
 var traceColors = {
 	border: "rgba(75,192,192,0.8)",
-	background: "rgba(75,192,192,0.4)"
+	background: "rgba(75,192,192,0.1)"
 }
- 
+
+var arrivalTimeColor = "rgba(0, 0, 42, 0.7)";
+
 var originalLineDraw = Chart.controllers.line.prototype.draw;
 Chart.helpers.extend(Chart.controllers.line.prototype, {
     draw: function () {
@@ -144,39 +138,66 @@ Chart.helpers.extend(Chart.controllers.line.prototype, {
     	var chart = this.chart;
         var ctx = chart.chart.ctx;
 
-        var aTime = chart.config.options._arrivalTime;
-        var snrDtInMSec = chart.config.options._snrDtInSec * 1000;
-        if (aTime || aTime === 0) {
-          var xaxis = chart.scales['x-axis-0'];
-          var yaxis = chart.scales['y-axis-0'];
-		  
-          var x1 = xaxis.getPixelForValue(moment(aTime));
-          
-          ctx.save();
-          // paint line
-          ctx.beginPath();
-          ctx.moveTo(x1, yaxis.top + 12);
-          ctx.strokeStyle = '#ff0000';
-          ctx.lineTo(x1, yaxis.bottom);
-          ctx.stroke();
-          
-       	  // write TODAY
-          ctx.textAlign = 'center';
-          ctx.fillText("arrival time", x1, yaxis.top);
-
-          //paint rects:
-          if (snrDtInMSec){
-        	  var x0 = xaxis.getPixelForValue(moment(aTime - snrDtInMSec));
-              var x2 = xaxis.getPixelForValue(moment(aTime + snrDtInMSec));
+        //IMPORTANT: ALL TIME UNITS IN MILLISECONDS!!!!
+        //as a remindeer, a timestamp in milliseconds has 13 chars if integer
+        var aTime = chart.config.options.arrivalTime;
+        var snrDtInMSec = chart.config.options.snrWindowInSec * 1000;
+        var cumt5 = chart.config.options.cumT5;
+        var cumt95 = chart.config.options.cumT95;
+        
+        var aTimeSet = aTime || aTime === 0;
+        var t5_95RegionSet = cumt5 && cumt95 && cumt5 < cumt95;
+        
+        if (aTimeSet || t5_95RegionSet){
+        	ctx.save();
+        	
+        	var xaxis = chart.scales['x-axis-0'];
+            var yaxis = chart.scales['y-axis-0'];
+            //save a reference toi current fill style
+  		  	var textFillStyle = ctx.fillStyle;
+  		  	
+        	if(aTimeSet){
+	            var x1 = xaxis.getPixelForValue(moment(aTime));
+	            
+	            // paint line
+	            ctx.beginPath();
+	            ctx.moveTo(x1, yaxis.top + 12);
+	            ctx.strokeStyle = arrivalTimeColor;
+	            ctx.lineTo(x1, yaxis.bottom);
+	            ctx.stroke();
+	            
+	         	  // write TODAY
+	            ctx.fillStyle = textFillStyle;
+			  	ctx.textAlign = 'center';
+	            ctx.fillText("arrival time", x1, yaxis.top);
+	
+	            //paint rects:
+	            if (snrDtInMSec){
+	          	  var x0 = xaxis.getPixelForValue(moment(aTime - snrDtInMSec));
+	                var x2 = xaxis.getPixelForValue(moment(aTime + snrDtInMSec));
+	           
+	  	          ctx.fillStyle = snrColors.noise.background;
+	  			  ctx.fillRect(x0, yaxis.top, x1-x0, yaxis.bottom - yaxis.top);
+	  			  ctx.fillStyle = snrColors.signal.background;
+	  			  ctx.fillRect(x1, yaxis.top, x2-x1, yaxis.bottom - yaxis.top);
+	            }
+        	}
+        	
+        	if(t5_95RegionSet){
+        		var x0 = xaxis.getPixelForValue(moment(cumt5));
+            	var x2 = xaxis.getPixelForValue(moment(cumt95));
          
-	          ctx.fillStyle = snrColors.noise.background;
-			  ctx.fillRect(x0, yaxis.top, x1-x0, yaxis.bottom - yaxis.top);
-			  ctx.fillStyle = snrColors.signal.background;
-			  ctx.fillRect(x1, yaxis.top, x2-x1, yaxis.bottom - yaxis.top);
-          }
-
-          ctx.restore();
+	          	ctx.fillStyle = traceColors.background;
+			  	ctx.fillRect(x0, yaxis.top, x2-x0, yaxis.bottom - yaxis.top);
+			  	
+			  	ctx.fillStyle = textFillStyle;
+			  	ctx.textAlign = 'center';
+	          	ctx.fillText("5% to 95% Region", (x2+x0)/2, yaxis.top);
+            }
+        	
+        	ctx.restore();
         }
+
     }
 }); 
 
@@ -211,8 +232,8 @@ var mseed1 = new Chart(trace1, {
     },
     options: {
     	scales: timeOpts.scales,
-    	_arrivalTime: undefined,
-    	_snrDtInSec: 0
+    	arrivalTime: undefined,
+    	snrWindowInSec: 0
     }
 });
 var mseed2 = new Chart(trace1_ch_other1, {
@@ -293,7 +314,11 @@ var mseed_cum = new Chart(trace1_cum, {
             borderColor: traceColors.border
         }]
     },
-    options: timeOpts
+    options: {
+    	scales: timeOpts.scales,
+    	cumT5: undefined,
+    	cumT95: undefined
+    }
 });
 var mseed_env = new Chart(trace1_env, {
     type: 'line',
