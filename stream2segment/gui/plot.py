@@ -9,7 +9,7 @@ Created on Feb 25, 2016
 import numpy as np
 from datetime import timedelta
 import sys
-from stream2segment.s2sio.db import ClassAnnotator
+from stream2segment.s2sio.db import ListReader as ClassAnnotator
 import matplotlib.pyplot as plt
 from matplotlib.widgets import RadioButtons
 # Overriding default buttons behaviour:
@@ -70,7 +70,7 @@ shown_filters = []
 # Note: the position (0.95, 0.3) will be RESET later, here only elements 3 and 4 (width and height)
 # are set!
 rax = plt.axes([0.95, 0.3, legend_width, legend_width*0.75],  # axisbg='lightgoldenrodyellow',
-               title=ClassAnnotator.annotated_class_id_colname,
+               title="Class ID",
                aspect='equal')  # the last one makes radio buttons circles and not ellipses
 # the radiobuttons widget:
 radiobuttons = None
@@ -423,35 +423,36 @@ def update_radio_buttons(update_texts=True):
         SET TO FALSE IF CALLING THIS FROM WITHIN A MOUSE CLICK ON ONE RADIO BUTTON TO AVOID
         INFINITE LOOPS
     """
-    global radiobuttons, class_annotator
-    classes_df = class_annotator.get_classes_df()
-
-    if update_texts or radiobuttons is None:
-        ids = classes_df['Id'].tolist()
-        clbls = classes_df['Label'].tolist()
-        counts = classes_df['Count'].tolist()
-        radiolabels = ["%d: %s (%d)" % (i, s, v) for i, s, v in zip(ids, clbls, counts)]
-        if radiobuttons is None:
-            radiobuttons = RadioButtons(rax, radiolabels)
-            if len(shown_filters):
-                for i, text in enumerate(radiobuttons.labels):
-                    if ids[i] not in shown_filters:
-                        text.set_color('#bbbbbb')
-            # Resize all radio buttons in `r` collection by fractions `f`"
-            for circle in radiobuttons.circles:
-                circle.set_radius(circle.get_radius() * .75)
-
-            radiobuttons.on_clicked(setclass)  # set this after 'update_radio_buttons' above
-        else:
-            for text, label in zip(radiobuttons.labels, radiolabels):
-                text.set_text(label)
-
-    global _pass_set_flag
-    _pass_set_flag = True
-    class_id = class_annotator.get_class(class_annotator.get_id(curr_pos))
-    radiobuttonindex = classes_df[classes_df['Id'] == class_id].index[0]
-    radiobuttons.set_active(radiobuttonindex)
-    _pass_set_flag = False
+    pass
+#     global radiobuttons, class_annotator
+#     classes_df = class_annotator.get_classes_df()
+# 
+#     if update_texts or radiobuttons is None:
+#         ids = classes_df['Id'].tolist()
+#         clbls = classes_df['Label'].tolist()
+#         counts = classes_df['Count'].tolist()
+#         radiolabels = ["%d: %s (%d)" % (i, s, v) for i, s, v in zip(ids, clbls, counts)]
+#         if radiobuttons is None:
+#             radiobuttons = RadioButtons(rax, radiolabels)
+#             if len(shown_filters):
+#                 for i, text in enumerate(radiobuttons.labels):
+#                     if ids[i] not in shown_filters:
+#                         text.set_color('#bbbbbb')
+#             # Resize all radio buttons in `r` collection by fractions `f`"
+#             for circle in radiobuttons.circles:
+#                 circle.set_radius(circle.get_radius() * .75)
+# 
+#             radiobuttons.on_clicked(setclass)  # set this after 'update_radio_buttons' above
+#         else:
+#             for text, label in zip(radiobuttons.labels, radiolabels):
+#                 text.set_text(label)
+# 
+#     global _pass_set_flag
+#     _pass_set_flag = True
+#     class_id = class_annotator.get_class(class_annotator.get_id(curr_pos))
+#     radiobuttonindex = classes_df[classes_df['Id'] == class_id].index[0]
+#     radiobuttons.set_active(radiobuttonindex)
+#     _pass_set_flag = False
 
 
 def main(db_uri, class_ids):

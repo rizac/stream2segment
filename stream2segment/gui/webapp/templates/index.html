@@ -210,6 +210,16 @@ var timeOpts = {
         scales: {
         	xAxes: [{
                 type: 'time',
+                time: {
+                    parser: function(value){
+                    	// override this cause moment parses as local time,
+                    	// but we have times as utc
+                    	// for info see:
+                    	// http://www.chartjs.org/docs/#scales-time-scale
+                    	// http://momentjs.com/docs/#/parsing/utc/
+                		return moment.utc(value);
+                    }
+                },
                 ticks:{
                 	maxRotation: 0
                 }

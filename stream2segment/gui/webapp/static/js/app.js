@@ -40,6 +40,9 @@ myApp.controller('myController', ['$scope', '$http', '$window', function($scope,
 	};
 	
 	$scope.datetime2iso = function(timestamp){
+		// toISOString seems to consider times as UTC which is what we want. By default,
+		// (i.e., on the time axis by specifying time scale) it converts them according to
+		// local timezone
 		var ts =  $window.moment(timestamp).toISOString();
 		if (ts[ts.length-1] === 'Z'){
 			ts = ts.substring(0, ts.length - 1);
