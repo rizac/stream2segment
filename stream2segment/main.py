@@ -95,6 +95,9 @@ def parse_args(description=sys.argv[0], args=sys.argv[1:], cfg_dict=load_def_cfg
                         default=cfg_dict.get('end', dtn),
                         help='Limit to events on or before the specified end time.')
 
+    parser.add_argument('--min_sample_rate', 
+                        default=cfg_dict['min_sample_rate'],
+                        help='Limit to segments on a sample rate higher than a specific threshold')
 #     parser.add_argument('--version', action='version',
 #                         version='event2wav %s' % version)
     args = parser.parse_args(args)

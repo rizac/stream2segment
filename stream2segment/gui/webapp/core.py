@@ -161,6 +161,11 @@ def get_data(db_uri, seg_id):
 
 
 def interp(newxarray, oldxarray, yarray, numpoints=1000, return_json_serializable=True):
+    """Calls numpy.interp(newxarray, oldxarray, yarray), with the difference that oldxarray can be
+    None (in this case nothing is interpolated
+    :param return_json_serializable: converts the returned array to a python list, so that is
+    json serializable
+    """
     if oldxarray is None:
         newy = yarray
     else:

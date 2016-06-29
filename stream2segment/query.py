@@ -25,13 +25,12 @@ from stream2segment.utils import Progress, url_read, tounicode
 from stream2segment.s2sio import db
 from stream2segment import __version__ as program_version
 from stream2segment.classification import UNKNOWN_CLASS_ID
+from stream2segment.classification import class_labels_df
 
 # IMPORT OBSPY AT END! IT MESSES UP WITH IMPORTS!
 from obspy.taup import TauPyModel
 from obspy.geodetics import locations2degrees
 from obspy.taup.helper_classes import TauModelError
-
-from stream2segment.classification import class_labels_df
 
 
 def get_min_travel_time(source_depth_in_km, distance_in_degree, model='ak135'):  # FIXME: better!
@@ -270,6 +269,12 @@ def station_to_dframe(stations_query_result):
                                'Elevation': pd.to_numeric,
                                'Latitude': pd.to_numeric,
                                'Longitude': pd.to_numeric,
+                               'Depth': pd.to_numeric,
+                               'Azimuth': pd.to_numeric,
+                               'Dip': pd.to_numeric,
+                               'SampleRate': pd.to_numeric,
+                               'Scale': pd.to_numeric,
+                               'ScaleFreq': pd.to_numeric,
                                }.iteritems():
             dfr[key] = cast_func(dfr[key], errors='coerce')
 
@@ -292,8 +297,8 @@ def query2dframe(query_result_str):
 
     data = None
     columns = [e.strip() for e in events[0].split("|")]
-    for ev in events[1:]:
-        evt_list = ev.split('|')
+    for evt in events[1:]:
+        evt_list = evt.split('|')
         # Use numpy and then build the dataframe
         # For info on other solutions:
         # http://stackoverflow.com/questions/10715965/add-one-row-in-a-pandas-dataframe:
@@ -347,11 +352,11 @@ def get_time_ranges(arrival_times_series, days=0, hours=0, minutes=0, seconds=0)
     """returns two series objects with 'StartTime' 'EndTime' """
     def func(val):
         try:
-            a, b = get_time_range(val['start'], days=days, hours=hours, minutes=minutes,
-                                  seconds=seconds)
+            tim1, tim2 = get_time_range(val['start'], days=days, hours=hours, minutes=minutes,
+                                        seconds=seconds)
         except TypeError:
-            a, b = None, None
-        val['start'], val['end'] = a, b
+            tim1, tim2 = None, None
+        val['start'], val['end'] = tim1, tim2
         return val
     # FIXME: as we are modifying the data frame, try not to reutnr anything and not assign apply
     # (just call it), it should work
@@ -372,19 +377,6 @@ def read_wav_data(query_str):
     except (IOError, ValueError, TypeError) as _:
         return None
 
-# def read_wavs_data(query_series, logger=None, progress=None):
-#     def func_dwav(query_str):
-#         data = read_wav_data(query_str)
-#         if logger is not None or progress is not None:
-#             msg = "%6d bytes downloaded from: %s" % (len(data), query_str)
-#             if logger is not None:
-#                 logger.debug(msg)
-#             if progress is not None:
-#                 progress.echo(epilog=msg)
-#         return data
-# 
-#     return query_series.apply(func_dwav)
-
 
 def pd_str(dframe):
     with pd.option_context('display.max_rows', len(dframe),
@@ -402,16 +394,16 @@ class LoggerHandler(object):
         """
             Initializes a new LoggerHandler, attaching to the root logger two handlers
         """
-        rootLogger = logging.getLogger()
-        rootLogger.setLevel(10)
+        root_logger = logging.getLogger()
+        root_logger.setLevel(10)
         stringio = StringIO()
         fileHandler = logging.StreamHandler(stringio)  # stream=StringIO())
         # fileHandler.setLevel(10)
-        rootLogger.addHandler(fileHandler)
+        root_logger.addHandler(fileHandler)
         consoleHandler = logging.StreamHandler(out)
         consoleHandler.setLevel(20)
-        rootLogger.addHandler(consoleHandler)
-        self.rootlogger = rootLogger
+        root_logger.addHandler(consoleHandler)
+        self.rootlogger = root_logger
         self.errors = 0
         self.warnings = 0
         self.stringio = stringio
@@ -461,7 +453,8 @@ class LoggerHandler(object):
 
 
 def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius_args,
-                   datacenters_dict, channels, start, end, ptimespan, outpath):
+                   datacenters_dict, channels, start, end, ptimespan, min_sample_rate,
+                   outpath):
     """
         Downloads waveforms related to events to a specific path
         :param eventws: Event WS to use in queries. E.g. 'http://seismicportal.eu/fdsnws/event/1/'
@@ -497,6 +490,10 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         :param ptimespan: the minutes before and after P wave arrival for the waveform query time
             span
         :type ptimespan: iterable of two float
+        :param min_sample_rate: the minimum sample rate required to download data
+        channels with a field 'SampleRate' lower than this value (in Hz) will be discarded and
+        relative data not downloaded
+        :type min_sample_rate: float
         :param outpath: path where to store mseed files E.g. '/tmp/mseeds'
         :type outpath: string
     """
@@ -597,6 +594,13 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
             if stations.empty:
                 continue
 
+            if min_sample_rate > 0:
+                tmp = stations[stations['SampleRate'] >= min_sample_rate]
+                if len(tmp) != len(stations):
+                    logger.warning(("%d stations skipped (sample rate < %s Hz") %
+                                   (len(stations) - len(tmp), str(min_sample_rate)))
+                    stations = tmp
+
             # Do the core calculation of times and distances now...
             # First define column names once (avoid typos):
             atime_col = "ArrivalTime"
@@ -646,7 +650,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
             wdf.insert(5, 'QueryStr', dc)  # this is the Datacenter (for the moment) later the 
             # query string (see below)
             wdf.insert(6, 'ClassId', UNKNOWN_CLASS_ID)
-            wdf.insert(7, 'AnnotatedClassId', UNKNOWN_CLASS_ID)
+            wdf.insert(7, 'ClassIdHandLabeled', False)
             wdf.insert(8, 'RunId', pd.NaT)
 
             # populate our dataframe with the unique values, acounting for duplicates stations
