@@ -3,24 +3,8 @@ import numpy as np
 from scipy.signal import hilbert
 
 
-# def todt(obj):
-#     """
-#         Returns a python datetime object from obj, which is supposed to be one of the 
-#         several types of datetime (pandas, numpy etcetera)
-#     """
-#     try:
-#         return obj.to_datetime()
-#     except AttributeError:
-#         try:
-#             return obj.datetime
-#         except AttributeError:
-#             return obj.datetime
-#
-#     return obj
-
-
 def fft(signal):
-    """Returns the fft of signal
+    """Returns the fft of a REAL signal
     :param signal: a signal (numeric array)
     :param dt: the delta t (distance from two points of the equally sampled signal)
     :param return_abs: if true, np.abs is applied to the returned fft, thus converting it to
@@ -30,7 +14,7 @@ def fft(signal):
 
 
 def pow_spec(signal):
-    """Returns the power spectrum of signal
+    """Returns the power spectrum of a REAL signal
     :param signal: a signal (numeric array)
     :param dt: the delta t (distance from two points of the equally sampled signal)
     :param return_abs: if true, np.abs is applied to the returned fft, thus converting it to
@@ -40,7 +24,7 @@ def pow_spec(signal):
 
 
 def amp_spec(signal):
-    """Returns the amplitude spectrum of signal
+    """Returns the amplitude spectrum of a REAL signal
     :param signal: a signal (numeric array)
     :param dt: the delta t (distance from two points of the equally sampled signal)
     :param return_abs: if true, np.abs is applied to the returned fft, thus converting it to
@@ -49,8 +33,9 @@ def amp_spec(signal):
     return np.abs(fft(signal))
 
 
-def dfreq(signal, dt):
-    return 1.0 / (len(signal) * dt)
+def dfreq(signal, delta_t):
+    """return the delta frequency of a given signal with given sampling rate delta_t (in seconds)"""
+    return 1.0 / (len(signal) * delta_t)
 
 
 def cumsum(signal, normalize=True):
@@ -69,3 +54,31 @@ def env(signal):
     analytic_signal = hilbert(signal)
     amplitude_envelope = np.abs(analytic_signal)
     return amplitude_envelope
+
+
+def interp(newnumpoints, startx, deltax, yarray, as_json_serializable=True):
+    """Calls numpy.interp, with the difference that we know only
+    the startx and the deltax of the evenly spaced sequence yarray, and that we want to return
+    newnumpoints from yarray
+    :param as_json_serializable: converts the returned array to a python list, so that is
+    json serializable
+    :return: the tuple (oldxarray, newxarray, newyarray)
+    """
+    newxarray = np.linspace(startx, startx+deltax*newnumpoints, num=newnumpoints, endpoint=False)
+    if newnumpoints == len(yarray):
+        oldxarray = newxarray
+        newyarray = yarray
+    else:
+        oldxarray = np.linspace(startx, startx+deltax*len(yarray), num=len(yarray), endpoint=False)
+        newyarray = np.interp(newxarray, oldxarray, yarray)
+
+    if as_json_serializable:
+        newxarray = newxarray.tolist()
+        oldxarray = oldxarray.tolist()
+    return oldxarray, newxarray, newyarray
+
+
+def moving_average(np_array, n=3):
+    ret = np.cumsum(np_array, dtype=float)
+    ret[n:] = ret[n:] - ret[:-n]
+    return ret[n - 1:] / n

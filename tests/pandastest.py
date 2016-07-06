@@ -43,7 +43,7 @@ if __name__ == '__main__':
         for i in xrange(L):
             val[i] = d.loc[i, 'int']
     t = time.time() - t
-    print "%s seconds" % str(t)
+    print "loop on length(df): %s seconds" % str(t)
     v1 = val
 
     # try1
@@ -53,14 +53,14 @@ if __name__ == '__main__':
         for i, row in d.iterrows():
             val[i] = row['int']
     t = time.time() - t
-    print "%s seconds" % str(t)
+    print "iterrows: %s seconds" % str(t)
     v2 = val
 
     # try1
     t = time.time()
     val = d.apply(f, axis=1)
     t = time.time() - t
-    print "%s seconds" % str(t)
+    print "apply: %s seconds" % str(t)
     v3 = val
 
 

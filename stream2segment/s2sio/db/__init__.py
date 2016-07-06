@@ -8,6 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.exc import OperationalError
 from sqlalchemy import BLOB
+from sqlalchemy import distinct
 import pandas as pd
 import pandas.io.sql as pdsql
 import numpy as np
@@ -78,8 +79,11 @@ class PandasDbHandler(SessionHandler):
     without the need of sqlalchemy Declarative's implementation and mantainance
     (http://docs.sqlalchemy.org/en/latest/orm/extensions/declarative/index.html)
 
-    The sql alchemy tables can be accessed via `self.table(table_name)`, their columns (As
-    sqlAlchemy InstrumentedAttribute objects) via self.column(tablename, colname).
+    The sql alchemy tables can be accessed via `self.table(table_name)`, and their columns (As
+    sqlAlchemy InstrumentedAttribute objects) as sql alchemy attributes
+    t = self.table(table_name)
+    # access the Id column:
+    t.Id
     (If you want to force auto-mapping, call self.automap() first)
 
     Pitfalls:
@@ -133,16 +137,31 @@ class PandasDbHandler(SessionHandler):
         """Returns the sqlalchemy table object mapped to the given table_name"""
         return self.tables[table_name]
 
-    def column(self, table_name, column_name):
-        """Returns the sqlalchemy column object mapped to the given table_name"""
+    def get_name_and_table(self, table):
+        """Returns the tuple table_name (string), sqlalchemy table object
+        relative to the argument, which can be either a table name or an sqlalchemy table
+        Raises value error if no table is found in the automap method of this class"""
         try:
-            table = self.table(table_name)
-            try:
-                return getattr(table, column_name)
-            except AttributeError:
-                raise ValueError("No such column '%s'" % column_name)
+            return table, self.tables[table]
         except KeyError:
-            raise ValueError("No such table: '%s'" % table_name)
+            for key, value in self.tables.iteritems():
+                if table == value:
+                    return key, value
+
+        raise ValueError(("Error in `get_name_and_table` method: argument '%s' (%s) is neither "
+                          "a valid table name nor an existing table object") % (str(table),
+                                                                                str(type(table))))
+
+#     def column(self, table_name, column_name):
+#         """Returns the sqlalchemy column object mapped to the given table_name"""
+#         try:
+#             table = self.table(table_name)
+#             try:
+#                 return getattr(table, column_name)
+#             except AttributeError:
+#                 raise ValueError("No such column '%s'" % column_name)
+#         except KeyError:
+#             raise ValueError("No such table: '%s'" % table_name)
 
     def drop_table(self, table_name):
         """Drops the table identified by the given table name. If the table does not exist, exits
@@ -170,10 +189,10 @@ class PandasDbHandler(SessionHandler):
         :param table_names: an iterable of table names
         :param where: an sqlalchemy where clause
         :Example:
-        xxx = PandasDbHandler(db_uri)  # or any of its subclasses...
-        t_name = "some_existing_table_name"
-        where = xxx.column(table, "Id").in_([55, 56])
-        df = self.read_sql_query(xxx.select(t_name).where(where))
+        dbh = PandasDbHandler(db_uri)  # or any of its subclasses...
+        table_name = "some_existing_table_name"
+        where = dbh.column(table_name, "Id").in_([55, 56])
+        df = self.read_sql_query(dbh.select(t_name).where(where))
         """
         return pd.read_sql_query(selectable, self.engine, parse_dates=parse_dates)
 
@@ -333,13 +352,16 @@ class PandasDbHandler(SessionHandler):
 class DbHandler(PandasDbHandler):
     """
     An object extending `PandasDbHandler` used for IO operations for this program. As the tables
-    are known in advance, they can be accessed via self.table(name) where name can be:
+    are known in advance, they can be accessed via :
 
     - self.T_SEG ('segments'): represents the "core" table where each segment is stored (with
     relative station and channel metadata)
     - selg.T_EVT ("events"): represents the table of all seismic events downloaded
     - self.T_CLS ("classes"): represents the classes (for machine learning preprocessing) are stored
     - self.T_RUNS ("runs"): represents the information about each run populating the db is stored
+
+    Each of the above mentioned classes has its relative table name, e.g. self.T_SEG_NAME,
+    self.T_EVT_NAME, ... etcetera. Most of the methods accept either table names or table objects
 
     This class supports also an attribute table_settings (dict) in which we store all necessary
     information about tables (implementation details: any new table should be added to this dict)
@@ -358,10 +380,11 @@ class DbHandler(PandasDbHandler):
 """
 
     # initialize here the default table names:
-    T_RUN = "runs"
-    T_EVT = "events"
-    T_SEG = "segments"
-    T_CLS = "classes"
+    # ANY NEW TABLE MUST BE ADDED HERE (step 1 of 3):
+    T_RUN_NAME = "runs"
+    T_EVT_NAME = "events"
+    T_SEG_NAME = "segments"
+    T_CLS_NAME = "classes"
 
     def __init__(self, db_uri):
         """
@@ -371,47 +394,134 @@ class DbHandler(PandasDbHandler):
 
         # Not everything can be fully automated. Here specific table settings used in read, purge
         # and write. IMPORTANT NOTE: when adding a new table, add also AT LEAST its primary key here
-        seg, evt, run, cls = DbHandler.T_SEG, DbHandler.T_EVT, DbHandler.T_RUN, DbHandler.T_CLS
-        self.table_settings = {evt: {'pkey': '#EventID', 'parse_dates': ['Time']},
-                               seg: {'pkey': 'Id', 'dtype': {'Data': BLOB},
-                                     'parse_dates': ['DataStartTime', 'DataEndTime', 'RunId',
-                                                     'StartTime', 'EndTime', 'ArrivalTime']},
-                               run: {'pkey': 'Id', 'parse_dates': ['Id']},
-                               cls: {'pkey': 'Id'}
+        # (step 2 of 3)
+        self.table_settings = {self.T_EVT_NAME: {
+                                            'pkey': '#EventID',
+                                            'parse_dates': ['Time'],
+                                            'seg_table_fkey': ["#EventID", "#EventID"]
+                                            },
+                               self.T_SEG_NAME: {
+                                            'pkey': 'Id',
+                                            'dtype': {'Data': BLOB},
+                                            'parse_dates': ['DataStartTime', 'DataEndTime', 'RunId',
+                                                            'StartTime', 'EndTime', 'ArrivalTime']
+                                            },
+                               self.T_RUN_NAME: {
+                                                 'pkey': 'Id',
+                                                 'parse_dates': ['Id'],
+                                                 'seg_table_fkey': ["Id", "RunId"]
+                                                 },
+                               self.T_CLS_NAME: {
+                                                 'pkey': 'Id',
+                                                 'seg_table_fkey': ["Id", "ClassId"]
+                                                 }
                                }
+        # step 3 of 3: add a table object to this class:
+        self.T_RUN = self.table(self.T_RUN_NAME)
+        self.T_EVT = self.table(self.T_EVT_NAME)
+        self.T_SEG = self.table(self.T_SEG_NAME)
+        self.T_CLS = self.table(self.T_CLS_NAME)
 
-    def select(self, table_names, where=None):
-        """Selects the given tables in table_names (iterable) with the given where clause
+        # STEP3: EDIT the JOIN METHOD BELOW ADING A RELATION to ANY NEW TABLE WITH THE
+        # SEGMENTS TABLE:
+
+    def join_t_seg_with(self, tables):
+        """
+            Returns a where clause by "joining" the segments table with the given tables according
+            to their "foreign keys". NOTE that this is not a real join, as we cannot implement
+            foreign keys in pandas (this is the drawback. The advantage is that we don't have to
+            implement an ORM by taking care of all columns data types). So basically the returned
+            clause is a where clause of AND (sqlalchemy '&') such as, e.g.:
+            tables = [self.T_RUN, self.T_EVT], then
+            join_t_seg_with(tables) produces:
+            self.T_SEG.RunId == self.T_RUN.Id & \
+                getattr(self.T_SEG, "#EventID") == getattr(self.T_EVT, "#EventID")
+
+            (note the getattr in the second & cause we have "invalid" python attr.names)
+            :param tables: an iterable of the sqlalchemy tables or table names (string). If "all",
+            all tables for which a relation with self.T_SEG has been declared will be used
+        """
+        tbl_dict = self.tables if tables == "all" else self._todict(tables)
+
+        where_clause = None
+
+        for tname, table in tbl_dict.iteritems():
+            where = None
+
+            fkey_cols = self.table_settings.get(tname, {}).get('seg_table_fkey', None)
+
+            if fkey_cols is None:
+                continue
+
+            where = (getattr(table, fkey_cols[0]) == getattr(self.T_SEG, fkey_cols[1]))
+
+            if where_clause is None:
+                where_clause = where
+            else:
+                where_clause &= where
+
+        return where_clause
+
+    def _todict(self, tables):
+        """
+            Returns a subdict of self.tables according to the arguments
+            :param tables: an iterable of either table names or table objects
+            :return: a dict of string -> sql alchemy table (subset of self.tables)
+        """
+        ret = {}
+        for tbl in tables:
+            tname, tbl = self.get_name_and_table(tbl)
+            ret[tname] = tbl
+        return ret
+
+    def select(self, tables, where=None):
+        """Selects the given tables (iterable) with the given where clause
         and returns the corresponding DataFrame by calling self.read_sql_query.
-        Note: if table_names has more than one element and
+        Note: if tables has more than one element and
         some column names are shared across those tables, the resulting DataFrame columns will be
         not unique
-        :param table_names: an iterable of table names
+        :param tables: an iterable of table names, or sqlalchemy tables
         :param where: an sqlalchemy where clause
         :Example:
-        xxx = DbHandler(db_uri)
-        t_name = xxx.T_SEG
-        where = xxx.column(t_name, "Id").in_([55, 56])
-        df = xxx.select(t_name, where)
-        """
-        tables = []
-        for tbl in table_names:
-            tables.append(self.tables[tbl])
+        dbh = DbHandler(db_uri)
+        df = dbh.select([dbh.T_SEG], dbh.T_SEG.Id.in_([55, 56]))
 
-        selectable = select(tables).where(where) if where is not None else select(tables)
+        # if the query has to be done from self.T_SEG on another table's value (e.g., Magnitude),
+        # use an sqlalchemy '&' with the relation between the two tables. The method
+        # self.join_t_seg_with([T_EVT])
+        # equals the sqlalchemy expression:
+        # getattr(T_SEG, "#EventID") == getattr(T_SEG, "#EventID")
+        df = dbh.select([dbh.T_SEG], T_EVT.Magnitude.in_([3.1, 3.2]) & self.join_t_seg_with([T_EVT]))
+
+        # You can also return a joined DataFrame, BUT NOTE THAT THE COLUMN ORDER
+        # of the DATAFRAME SEEMS NOT TO REFLECT THE ORDER OF THE TABLES, THUS COLUMNS
+        # WITH THE SAME NAME (e.g. 'Longitude') ARE EITHER MERGED OR DUPLICATED (FIXME: CHECK!)
+        df = dbh.select([dbh.T_SEG, dbh.T_EVT], T_EVT.Magnitude.in_([3.1, 3.2]) & \
+            getattr(T_SEG, "#EventID") == getattr(T_SEG, "#EventID"))
+
+        """
+        tablez = self._todict(tables)
+
+        selectable = select(tablez.values()).where(where) if where is not None else \
+            select(tablez.values())
+
+        # get the dates object so thay are parsed to datetime objects. These are stored in the
+        # constructor. FIXME: not handled the case of columns sharing the same name on different
+        # tables
         parse_dates = []
-        for table_name in table_names:
+        for table_name in tablez.keys():
             parse_dates.extend(self.table_settings[table_name].get("parse_dates", []))
 
         return self.read_sql_query(selectable, parse_dates=None if not parse_dates else parse_dates)
 
-    def purge(self, dframe, table_name, pkey_name=None):
+    def purge(self, dframe, table, pkey_name=None):
         """
             Purges the given DataFrame of data already written on the database, based on the table
             primary key
             :param: dframe: the DataFrame
             :type: dframe: pandas DataFrame
-            :param: table_name: the name of the table mapped to the given DataFrame
+            :param: table: the name of the table mapped to the given DataFrame, or the sql alchemy
+            table object (one of the values of self.tables dict)
             :type: table_name: string
             :pkey_name: the private key whereby to check if data is already on the database
             :type: pkey_name: string. Must be a column of the given DataFrame. NOTE **If table_name
@@ -421,6 +531,7 @@ class DbHandler(PandasDbHandler):
             :return: a new DataFrame with the data not stored to the datbase according to pkey_name
             :rtype: pandas DataFrame
         """
+        table_name, table = self.get_name_and_table(table)
         if dframe is None or dframe.empty or table_name not in self.tables:
             return dframe
 
@@ -430,18 +541,21 @@ class DbHandler(PandasDbHandler):
                 pkey_name = self.table_settings[table_name]['pkey']
 
         session = self.session()
-        column = self.column(table_name, pkey_name)
+        column = getattr(table_name, pkey_name)
         ids = session.query(column).filter(column.in_(dframe[pkey_name].values)).all()
         dframe = dframe[~dframe[pkey_name].isin([i[0] for i in ids])]
         session.close()
 
         return dframe
 
-    def write(self, dframe, table_name, purge_first=False, if_exists='append'):
+    def write(self, dframe, table, purge_first=False, if_exists='append'):
         """
         Calls self.to_sql(dframe, table_name). NOTE: **table_name must be one of the default tables
         registered on self.table_settings**
+        :param table: the name of the table mapped to the given DataFrame, or the sql alchemy
+            table object (one of the values of self.tables dict)
         """
+        table_name = self.get_name_and_table(table)[0]
         if dframe is None or dframe.empty:
             return
         pkey = self.table_settings[table_name]['pkey']
@@ -452,13 +566,16 @@ class DbHandler(PandasDbHandler):
         dtype = self.table_settings[table_name].get('dtype', None)
         self.to_sql(dframe, table_name, pkey, if_exists=if_exists, dtype=dtype)
 
-    def prepare_df(self, table_name, dframe):
+    def prepare_df(self, table, dframe):
         """
             Prepares a default frame for purging or writing. Basically it creates an Id for
             all null Id's if table_name == self.tables.segments, and modifies the data frame.
             Returns the input dataframe at the end (potentially unmodified)
+             :param table: the name of the table mapped to the given DataFrame, or the sql alchemy
+            table object (one of the values of self.tables dict)
         """
-        if table_name == self.T_SEG:
+        table_name = self.get_name_and_table(table)[0]
+        if table_name == self.T_SEG_NAME:
             pkey = self.table_settings[table_name]['pkey']
             recalc = pkey not in dframe.columns
             if recalc:
@@ -477,11 +594,12 @@ class DbHandler(PandasDbHandler):
 
         return dframe
 
-    def read(self, table_name, chunksize=None, columns=None, filter_func=None):
+    def read(self, table, chunksize=None, columns=None, filter_func=None):
         """
         Calls self.read_sql(table_name). NOTE: **table_name must be one of the default tables
         registered on self.table_settings**
-        :param table_name: Name of SQL table in database
+        :param table: the name of the table mapped to the given DataFrame, or the sql alchemy
+            table object (one of the values of self.tables dict)
         :type table_name: string
         :param chunksize: If specified, return an iterator where chunksize is the number of rows
         to include in each chunk.
@@ -493,6 +611,7 @@ class DbHandler(PandasDbHandler):
         if filter_here:  # we might have overflows on filters, thus do iteration here:
             chunksize = 30
 
+        table_name = self.get_name_and_table(table)[0]
         ret = self.read_sql(table_name, coerce_float=True,
                             index_col=None,
                             parse_dates=self.table_settings[table_name].get('parse_dates', None),
@@ -501,9 +620,9 @@ class DbHandler(PandasDbHandler):
 
         if filter_here:
             _tmp = None
-            for r in ret:
-                r = filter_func(r)
-                _tmp = r if _tmp is None else _tmp.append(r, ignore_index=True)
+            for r__ in ret:
+                r__ = filter_func(r__)
+                _tmp = r__ if _tmp is None else _tmp.append(r__, ignore_index=True)
             return _tmp
 
         if filter_func is None:
@@ -534,7 +653,8 @@ class DbHandler(PandasDbHandler):
 class ListReader(DbHandler):
     """
         A sublass of DbHandler which behaves like a list. Items of the list are the pandas Series
-        of the "segments" table (self.table(self.T_SEG)) accessed in the order they are read from
+        of the "segments" table (self.T_SEG, or self.tables(self.T_SEG_NAME)) accessed in the order
+        they are read from
         the table (insertion order?).
     """
     def __init__(self, db_uri, filter_func=None, sort_columns=None, sort_ascending=None):
@@ -542,11 +662,22 @@ class ListReader(DbHandler):
             Initializes a new ListReader via a given db_uri
             :param db_uri: the database uri, e.g. sqlite:///path_to_my_sqlite_file
             :param filter_func: a filter function taking as argument the DataFrame of *segments*
-            read and returning a filtered DataFrame. NOTE: filter_func is mainly implemented to
-            filter out (remove) DataFrame rows. However, if filter_func is not None, it should
-            not filter out the Dataframe columns denoting the associated Table's primary key or any
+            and returning a filtered DataFrame. NOTE: filter_func is mainly implemented to
+            filter out (remove) DataFrame rows of the segments table (no filter on other tables
+            column are currently supported, e.g. magnitude of T_EVT). It should
+            not filter out the Dataframe columns denoting the segments Table's primary key or any
             of the columns specified in sort_columns, if any. The table primary key name is
-            accessible via `self.table_settings[self.T_SEG]['pkey']`
+            accessible via `self.table_settings[self.T_SEG_NAME]['pkey']`. Most methods of this
+            class use that segment id as argument to uniquely get/set segments properies on the 
+            relative table row
+            :Example:
+
+            class_ids = (1,2,-1)
+            def filter_func(dframe):
+                return dframe[dframe['ClassId'].isin(class_ids)]
+
+            l = Listreader(my_db_uri, filter_func)
+
             :param sort_columns: same as pandas DataFrame sort_value's by arg.
             Example: 'A', ['A', 'B'], ...
             :param sort_ascending: same aas pandas DataFrame sort_values's 'ascending' argument.
@@ -561,8 +692,8 @@ class ListReader(DbHandler):
         except OperationalError as oerr:
             raise ValueError(str(oerr) + "\nDoes the database exist?")
 
-        iterator = self.read(self.T_SEG, chunksize=30, filter_func=filter_func)
-        id_colname = self.table_settings[self.T_SEG]['pkey']
+        iterator = self.read(self.T_SEG_NAME, chunksize=30, filter_func=filter_func)
+        id_colname = self.table_settings[self.T_SEG_NAME]['pkey']
         files = None  # do NOT instantiate a new DataFrame, otherwise append below coerces to
         # the type of the files DataFrame (object) and we want to preserve the db type (so first
         # iteration files is the first chunk read)
@@ -571,50 +702,111 @@ class ListReader(DbHandler):
             columns.insert(0, id_colname)
 
         for data in iterator:
-            # remove Data column (avoid too much data in memory, get it with get_segment)
-            # data.drop('Data', axis=1, inplace=True)
-            # only use ids:
+            # use only columns of interest (Id and other specified in sort_columns)
             data = pd.DataFrame({k: data[k] for k in columns})
             if files is None:
                 files = data
             else:
                 files = files.append(data)
 
-        if files is not None and not files.empty and sort_columns:
-            files.sort_values(by=sort_columns, ascending=sort_ascending, inplace=True)
-
-        if files is None:
-            files = pd.DataFrame(columns=[id_colname])
-        else:
-            files = files[[id_colname]]
-            files.reset_index(drop=True, inplace=True)
+        files.reset_index(drop=True, inplace=True)
         # files.info()
         self.mseed_ids = files
+        self.sort_columns = sort_columns
+        self.sort_ascending = sort_ascending
+        self.sort()
+        self._mseed_ids = self.mseed_ids.copy()
+
+    def sort(self, by=None, ascending=None):
+        """Sorts internally the ids according to by and ascending.
+         :param by: same as pandas DataFrame sort_value's by arg.
+            Example: 'A', ['A', 'B'], ...
+            If None, self.sort_columns is used. If the latter is None, no sort will take place
+            and the method silently exists
+         :param ascending: same as pandas DataFrame sort_values's 'ascending' argument.
+            Example: True, [True, False], ...
+        """
+        if by is None:
+            by = self.sort_columns
+        if ascending is None:
+            ascending = self.sort_ascending
+        if self.mseed_ids is not None and not self.mseed_ids.empty and by:
+            self.mseed_ids.sort_values(by=by, ascending=ascending, inplace=True)
 
     def __len__(self):
         """returns the number of segments read from the segments table"""
         return len(self.mseed_ids)
 
-#     def __getitem__(self, key):
-#         return self.get(key)[self.T_SEG]
-
-    def get(self, segment_id, table_name, column_names_list=None):
-
-        where = (self.column(self.T_SEG, "Id") == segment_id)
-
-        if self.T_EVT == table_name:
-            where &= (self.column(self.T_EVT, "#EventID") == self.column(self.T_SEG, "#EventID"))
-
-        if self.T_RUN == table_name:
-            where &= (self.column(self.T_RUN, "Id") == self.column(self.T_SEG, "RunId"))
-
-        if self.T_CLS == table_name:
-            where &= (self.column(self.T_CLS, "Id") == self.column(self.T_SEG, "ClassId"))
+    def get(self, segment_id, table, column_names_list=None):
+        """
+            Returns a pandas DataFrame representing the table row of the given segment id,
+            for the table specified in table_name.
+            filtered with only the given column names in column_names_list (if the latter is not
+            None). The dataframe has in principle zero or one rows
+            :param segment_id: the segment_id
+            :param table: the name of the table mapped to the given DataFrame, or the sql alchemy
+            table object (one of the values of self.tables dict)
+            :param column_names_list: the columns of the table whose value has to be returned.
+            if None, returns all columns from the given table
+            :return: a pandas DataFrame reflecting the row(s) of the query
+        """
+        table_name = self.get_name_and_table(table)[0]
+        where = self.join_t_seg_with([table_name])
+        additional_where = (self.T_SEG.Id == segment_id)
+        if where is None:  # in case table name == self.T_SEG_NAME
+            where = additional_where
+        else:
+            where &= additional_where  # in any other case
 
         pddf = self.select([table_name], where)
-
         return pddf if column_names_list is None else \
             pddf[column_names_list]
+
+    def filter(self, where):
+        """FIXME: add doc!
+        :param table_names: an iterable of table names
+        :param where: an sqlalchemy where clause. Can be None (no where clause)
+        :Example:
+        dbh = DbHandler(db_uri)
+        where1 = ~dbh.table(dbh.T_SEG).Id.in_([55, 56])
+        where2 = dbh.table(dbh.T_EVT).Magnitude == 51.5
+        dbh.filter(where1 & where2)
+        """
+        where_clause = None
+        if where is not None:
+            tables = []
+            # detect the tables in the where clause
+            for tbl in where._from_objects:  # pylint:disable=protected-access
+                # tbl seems to be a different type than the tables stored in self.tables.values()
+                # so use its name:
+                tables.append(str(tbl.name))
+            # join those tables with the foreign keys specified in the constructor:
+            where_clause = self.join_t_seg_with(tables)  # joins with all tables, might be None
+            if where_clause is None:  # we only have T_SEG in tables
+                where_clause = where
+            else:
+                where_clause &= where
+
+        # select the columns used for sort ordering. This also avoid to load all table data
+        # so that most likely mseed binary data is skipped avoiding overhead
+        cols = list(self.sort_columns)
+        id_colname = self.table_settings[self.T_SEG_NAME]['pkey']
+        if id_colname not in cols:
+            cols.insert(0, id_colname)
+        t_cols = [getattr(self.T_SEG, c) for c in cols]
+        selectable = select(t_cols) if where_clause is None else select(t_cols).where(where_clause)
+
+        parse_dates = [c for c in self.table_settings[self.T_SEG_NAME]['parse_dates']
+                       if c in cols]
+        tmp = self.read_sql_query(selectable, parse_dates= None if not parse_dates else parse_dates)
+        self.mseed_ids = tmp.drop_duplicates(subset=[id_colname], inplace=True)
+        self.sort()
+
+        return self
+
+    def reset_filter(self):
+        """Resets a filter previously set with self.filter"""
+        self.mseed_ids = self._mseed_ids.copy()
 
     def get_stream(self, segment_id, include_same_channel=False):
         columns = ['#Network', 'Station', 'Location', 'DataStartTime', 'DataEndTime',
@@ -635,7 +827,7 @@ class ListReader(DbHandler):
 
             # FIXME: read is NOT EFFICIENT, BETTER SELECT!!
             other_components = self.read(self.T_SEG, filter_func=filter_func)
-            for i, seg_sr in other_components.iterrows():
+            for _, seg_sr in other_components.iterrows():
                 stre = self.mseed(seg_sr)
                 strm.traces.append(stre.traces[0])
 
@@ -643,47 +835,5 @@ class ListReader(DbHandler):
 
     def get_id(self, index):
         """Returns the database ID of the index-th item (=db table row)"""
-        id_colname = self.table_settings[self.T_SEG]['pkey']
+        id_colname = self.table_settings[self.T_SEG_NAME]['pkey']
         return self.mseed_ids.iloc[index][id_colname]
-
-
-#     def get_(self, segment_id, table_names=None, as_annotated_class=True):
-#         """gets the row of the index-th segment from the relative table
-#         :param: table_name either self.T_SEG (default when missing) or self.T_EVT or self.T_RUN
-#         :return a pandas Series if as_series is True (the default), raising a ValueError if
-#         the DataFrame resulting from the db query has not 1 element, or a pandas DataFrame otherwise
-#         """
-#         if table_names is None:
-#             table_names = [self.T_SEG]
-#         else:
-#             # pandas unique preserves the order and is faster than numpy.unique:
-#             table_names = pd.unique(table_names).tolist()
-# 
-#         where = (self.column(self.T_SEG, "Id") == segment_id)
-# 
-#         if self.T_EVT in table_names:
-#             where &= (self.column(self.T_EVT, "#EventID") == self.column(self.T_SEG, "#EventID"))
-# 
-#         if self.T_RUN in table_names:
-#             where &= (self.column(self.T_RUN, "Id") == self.column(self.T_SEG, "RunId"))
-# 
-#         if self.T_CLS in table_names:
-#             if as_annotated_class:
-#                 where &= (self.column(self.T_CLS, "Id") ==
-#                           self.column(self.T_SEG, "AnnotatedClassId"))
-#             else:
-#                 where &= (self.column(self.T_CLS, "Id") == self.column(self.T_SEG, "ClassId"))
-# 
-#         pddf = self.select(table_names, where)
-# 
-#         if len(pddf) != 1:
-#             raise ValueError("Expected 1 row, found %d" % len(pddf))
-# 
-# 
-#         # create the multiindex:
-#         tnms = []
-#         for tnam in table_names:
-#             tnms.extend([tnam]*self.attcount(tnam))
-# 
-#         index = pd.MultiIndex.from_tuples(list(zip(tnms, pddf.columns)), names=['table', 'column'])
-#         return pd.Series(pddf.iloc[0].values, index=index)

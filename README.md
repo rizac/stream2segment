@@ -83,6 +83,21 @@ Eventually run
 stream2segment
 ```
 
+
+# Installing testing
+
+If you want to install and run tests, move in the project directory and run the command:
+```
+	pip install -e .[test]
+```
+
+Then, always in the project directory, run:
+```
+	py.test .
+```
+
+(you should see a message with no errors, such as "===== 8 passed in 1.30 seconds ======")
+
 ## Installation Notes:
 
 - On Ubuntu 12.10, there might be problems with libxml (`version libxml2_2.9.0' not found`). 

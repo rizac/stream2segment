@@ -20,8 +20,9 @@ from datetime import timedelta, datetime
 import numpy as np
 import pandas as pd
 import yaml
+from click import progressbar
 
-from stream2segment.utils import Progress, url_read, tounicode
+from stream2segment.utils import url_read, tounicode  # , Progress
 from stream2segment.s2sio import db
 from stream2segment import __version__ as program_version
 from stream2segment.classification import UNKNOWN_CLASS_ID
@@ -33,7 +34,7 @@ from obspy.geodetics import locations2degrees
 from obspy.taup.helper_classes import TauModelError
 
 
-def get_min_travel_time(source_depth_in_km, distance_in_degree, model='ak135'):  # FIXME: better!
+def get_min_travel_time(source_depth_in_km, distance_in_degree, model='ak135'):
     """
         Assess and return the travel time of P phases.
         Uses obspy.getTravelTimes
@@ -88,13 +89,14 @@ def get_arrival_time(distance_in_degrees, ev_depth_km, ev_time):
         :raises: ValueError
     """
     travel_time = get_min_travel_time(ev_depth_km, distance_in_degrees)
-    arrivalTime = ev_time + timedelta(seconds=float(travel_time))
-    return arrivalTime
+    arrival_time = ev_time + timedelta(seconds=float(travel_time))
+    return arrival_time
 
 
-def get_arrival_times(distances_series, ev_depth_km, ev_time, col_name=None):
+def get_arrival_times(distances_series, ev_depth_km, ev_time):
     """returns a Series object """
     def atime(dista):
+        """applies get_arrival_time to the given value"""
         try:
             return get_arrival_time(dista, ev_depth_km, ev_time)
         except ValueError:
@@ -104,9 +106,9 @@ def get_arrival_times(distances_series, ev_depth_km, ev_time, col_name=None):
     return distances_series.apply(atime)
 
 
-def get_time_range(origTime, days=0, hours=0, minutes=0, seconds=0):
+def get_time_range(orig_time, days=0, hours=0, minutes=0, seconds=0):
     """
-        Returns the tuple (origTime - timeDeltaBefore, origTime + timeDeltaAfter), where the deltas
+        Returns the tuple (orig_time - timeDeltaBefore, orig_time + timeDeltaAfter), where the deltas
         are built according to the given parameters. Any of the parameters can be an int
         OR an iterable (list, tuple) of two elements specifying the days before and after,
         respectively
@@ -122,11 +124,11 @@ def get_time_range(origTime, days=0, hours=0, minutes=0, seconds=0):
                 - t minus 1 day and 1 second
                 - t plus 1 day and 2 seconds
 
-        :param days: the day shift from origTime
+        :param days: the day shift from orig_time
         :type days: integer or tuple of positive integers (of length 2)
-        :param minutes: the minutes shift from origTime
+        :param minutes: the minutes shift from orig_time
         :type minutes: integer or tuple of positive integers (of length 2)
-        :param seconds: the second shift from origTime
+        :param seconds: the second shift from orig_time
         :type seconds: integer or tuple of positive integers (of length 2)
         :return: the tuple (timeBefore, timeAfter)
         :rtype: tuple of datetime objects (timeBefore, timeAfter)
@@ -141,12 +143,12 @@ def get_time_range(origTime, days=0, hours=0, minutes=0, seconds=0):
             td1.append(val)
             td2.append(val)
 
-    start = origTime - timedelta(days=td1[0], hours=td1[1], minutes=td1[2], seconds=td1[3])
-    endt = origTime + timedelta(days=td2[0], hours=td2[1], minutes=td2[2], seconds=td2[3])
+    start = orig_time - timedelta(days=td1[0], hours=td1[1], minutes=td1[2], seconds=td1[3])
+    endt = orig_time + timedelta(days=td2[0], hours=td2[1], minutes=td2[2], seconds=td2[3])
     return start, endt
 
 
-def get_search_radius(mag, mmin=3, mmax=7, dmin=1, dmax=5):  # FIXME: better!
+def get_search_radius(mag, mmin=3, mmax=7, dmin=1, dmax=5):
     """From a given magnitude, determines and returns the max radius (in degrees).
         Given dmin and dmax and mmin and mmax (FIXME: TO BE CALIBRATED!),
         this function returns D from the f below:
@@ -187,11 +189,11 @@ def get_events(**kwargs):
             maxlat (float): the event max latitude
         :raise: ValueError, TypeError, IOError
     """
-    eventQuery = ('%(eventws)squery?minmagnitude=%(minmag)1.1f&start=%(start)s'
-                  '&minlon=%(minlon)s&maxlon=%(maxlon)s&end=%(end)s'
-                  '&minlat=%(minlat)s&maxlat=%(maxlat)s&format=text') % kwargs
+    event_query = ('%(eventws)squery?minmagnitude=%(minmag)1.1f&start=%(start)s'
+                   '&minlon=%(minlon)s&maxlon=%(maxlon)s&end=%(end)s'
+                   '&minlat=%(minlat)s&maxlat=%(maxlat)s&format=text') % kwargs
 
-    result = url_read(eventQuery, decoding='utf8')
+    result = url_read(event_query, decoding='utf8')
 
     return evt_to_dframe(result)
 
@@ -217,18 +219,18 @@ def evt_to_dframe(event_query_result):
     return dfr, oldlen - len(dfr)
 
 
-def get_stations(dc, listCha, origTime, lat, lon, max_radius, level='channel'):
+def get_stations(datacenter, channels_list, orig_time, lat, lon, max_radius, level='channel'):
     """
         Returns a tuple of two elements: the first one is the DataFrame representing the stations
         read from the specified arguments. The second is the the number of rows (denoting stations)
         which where dropped from the url query due to errors in parsing
-        :param dc: the datacenter
-        :type dc: string
-        :param listCha: the list of channels, e.g. ['HL?', 'SL?', 'BL?'].
-        :type listCha: iterable (e.g., list)
-        :param origTime: the origin time. The request will be built with a time start and end of +-1
-            day from origTime
-        :type origTime: date or datetime
+        :param datacenter: the datacenter
+        :type datacenter: string
+        :param channels_list: the list of channels, e.g. ['HL?', 'SL?', 'BL?'].
+        :type channels_list: iterable (e.g., list)
+        :param orig_time: the origin time. The request will be built with a time start and end of
+            +-1 day from orig_time
+        :type orig_time: date or datetime
         :param lat: the latitude
         :type lat: float
         :param lon: the longitude
@@ -239,22 +241,14 @@ def get_stations(dc, listCha, origTime, lat, lon, max_radius, level='channel'):
         :raise: ValueError, TypeError, IOError
     """
 
-    start, endt = get_time_range(origTime, days=1)
-    stationQuery = ('%s/station/1/query?latitude=%3.3f&longitude=%3.3f&'
-                    'maxradius=%3.3f&start=%s&end=%s&channel=%s&format=text&level=%s')
-    aux = stationQuery % (dc, lat, lon, max_radius, start.isoformat(),
-                          endt.isoformat(), ','.join(listCha), level)
-    dcResult = url_read(aux, decoding='utf8')
+    start, endt = get_time_range(orig_time, days=1)
+    station_query = ('%s/station/1/query?latitude=%3.3f&longitude=%3.3f&'
+                     'maxradius=%3.3f&start=%s&end=%s&channel=%s&format=text&level=%s')
+    aux = station_query % (datacenter, lat, lon, max_radius, start.isoformat(),
+                           endt.isoformat(), ','.join(channels_list), level)
+    dc_result = url_read(aux, decoding='utf8')
 
-    # TEST (FIXME: remove)
-#     x, _ = station_to_dframe(dcResult)
-#     x2 = x
-#     if len(x):
-#         x2 = x.dropna(subset=['EndTime'])
-#     if len(x2):
-#         f = 9
-
-    return station_to_dframe(dcResult)
+    return station_to_dframe(dc_result)
 
 
 def station_to_dframe(stations_query_result):
@@ -319,6 +313,7 @@ def query2dframe(query_result_str):
 
 
 def get_wav_query(datacenter, network, station_name, location, channel, start_time, end_time):
+    """Returns the wav query from the arguments, all strings except the last two (datetime)"""
     qry = '%s/dataselect/1/query?network=%s&station=%s&location=%s&channel=%s&start=%s&end=%s'
     return qry % (datacenter, network, station_name, location, channel, start_time.isoformat(),
                   end_time.isoformat())
@@ -326,11 +321,15 @@ def get_wav_query(datacenter, network, station_name, location, channel, start_ti
 
 def get_wav_queries(dc_series, network_series, station_name_series, location_series, channel_series,
                     start_time_series, end_time_series):
+    """Returns the wav query from the arguments, all pandas Series"""
+
     pddf = pd.DataFrame({'dc': dc_series, 'channel': channel_series, 'network': network_series,
                          'station_name': station_name_series, 'location': location_series,
                          'start_time': start_time_series, 'end_time': end_time_series})
 
     def func(row):
+        """return the wav query from a  dataframe row"""
+
         return get_wav_query(row['dc'], row['network'], row['station_name'], row['location'],
                              row['channel'], row['start_time'], row['end_time'])
 
@@ -339,7 +338,7 @@ def get_wav_queries(dc_series, network_series, station_name_series, location_ser
 
 
 def get_distances(latitude_series, longitude_series, ev_lat, ev_lon):
-    """returns a Series object """
+    """returns a DataFrame of distances derived from the given arguments"""
     return pd.DataFrame({'lat': latitude_series,
                          'lon': longitude_series}).apply(lambda row: locations2degrees(ev_lat,
                                                                                        ev_lon,
@@ -351,6 +350,7 @@ def get_distances(latitude_series, longitude_series, ev_lat, ev_lon):
 def get_time_ranges(arrival_times_series, days=0, hours=0, minutes=0, seconds=0):
     """returns two series objects with 'StartTime' 'EndTime' """
     def func(val):
+        """returns a dict of 'start' and 'end' keys mapped to the respective times"""
         try:
             tim1, tim2 = get_time_range(val['start'], days=days, hours=hours, minutes=minutes,
                                         seconds=seconds)
@@ -358,8 +358,7 @@ def get_time_ranges(arrival_times_series, days=0, hours=0, minutes=0, seconds=0)
             tim1, tim2 = None, None
         val['start'], val['end'] = tim1, tim2
         return val
-    # FIXME: as we are modifying the data frame, try not to reutnr anything and not assign apply
-    # (just call it), it should work
+
     retval = pd.DataFrame({'start': arrival_times_series,
                            'end': arrival_times_series}).apply(func, axis=1)
     # http://pandas.pydata.org/pandas-docs/stable/dsintro.html#name-attribute
@@ -372,6 +371,7 @@ def get_time_ranges(arrival_times_series, days=0, hours=0, minutes=0, seconds=0)
 
 
 def read_wav_data(query_str):
+    """Returns the wav data (mseed binary data) from the given query_str (string)"""
     try:
         return url_read(query_str)
     except (IOError, ValueError, TypeError) as _:
@@ -379,6 +379,7 @@ def read_wav_data(query_str):
 
 
 def pd_str(dframe):
+    """Returns a dataframe to string with all rows and all columns, used for printing to log"""
     with pd.option_context('display.max_rows', len(dframe),
                            'display.max_columns', len(dframe.columns),
                            'max_colwidth', 50, 'expand_frame_repr', False):
@@ -397,12 +398,11 @@ class LoggerHandler(object):
         root_logger = logging.getLogger()
         root_logger.setLevel(10)
         stringio = StringIO()
-        fileHandler = logging.StreamHandler(stringio)  # stream=StringIO())
-        # fileHandler.setLevel(10)
-        root_logger.addHandler(fileHandler)
-        consoleHandler = logging.StreamHandler(out)
-        consoleHandler.setLevel(20)
-        root_logger.addHandler(consoleHandler)
+        file_handler = logging.StreamHandler(stringio)
+        root_logger.addHandler(file_handler)
+        console_handler = logging.StreamHandler(out)
+        console_handler.setLevel(20)
+        root_logger.addHandler(console_handler)
         self.rootlogger = root_logger
         self.errors = 0
         self.warnings = 0
@@ -433,11 +433,6 @@ class LoggerHandler(object):
     def to_df(self, seg_found, seg_written, config_text=None, close_stream=True,
               datetime_now=None):
         """Saves the logger informatuon to database"""
-#         db_handler.write(pd.DataFrame([[datetime.utcnow(), tounicode(self.stringio.getvalue()),
-#                                         self.warnings, self.errors, str(program_version)]],
-#                                       columns=["Time", "Log", "Warnings", "Errors",
-#                                                "ProgramVersion"]
-#                                       ), "logs", "Time")
         if datetime_now is None:
             datetime_now = datetime.utcnow()
         pddf = pd.DataFrame([[datetime_now, tounicode(self.stringio.getvalue()), self.warnings,
@@ -481,12 +476,10 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         :type channels: iterable of strings
         :param start: Limit to events on or after the specified start time
             E.g. (date.today() - timedelta(days=1))
-        :type start: datetime or string, as returned from datetime.isoformat()
-        FIXME: STRING NOT IMPLEMENTED!
+        :type start: datetime
         :param end: Limit to events on or before the specified end time
             E.g. date.today().isoformat()
-        :type end: datetime or string, as returned from datetime.isoformat()
-        FIXME: STRING NOT IMPLEMENTED!
+        :type end: datetime
         :param ptimespan: the minutes before and after P wave arrival for the waveform query time
             span
         :type ptimespan: iterable of two float
@@ -547,153 +540,154 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
 
     wav_dframe = None
 
-    progress = Progress(len(events) * len(datacenters_dict))
+    # progress = Progress(len(events) * len(datacenters_dict))
 
     logger.debug("")
     msg = "STEP 2/3: Querying Station WS (level=channel)"
     logger.info(msg)
+    n_step = 0
+    with progressbar(length=len(events) * len(datacenters_dict)) as _bar:
+        for _, row in events.iterrows():
+            ev_mag = row['Magnitude']
+            ev_id = row['#EventID']
+            ev_loc_name = row['EventLocationName']
+            ev_time = row['Time']
+            ev_lat = row['Latitude']
+            ev_lon = row['Longitude']
+            ev_depth_km = row['Depth/km']
 
-    for ev in events.values:  # FIXME: use str labels?
-        ev_mag = ev[10]
-        ev_id = ev[0]
-        ev_loc_name = ev[12]
-        ev_time = ev[1]
-        ev_lat = ev[2]
-        ev_lon = ev[3]
-        ev_depth_km = ev[4]
+            max_radius = get_search_radius(ev_mag,
+                                           search_radius_args[0],
+                                           search_radius_args[1],
+                                           search_radius_args[2],
+                                           search_radius_args[3])
 
-        max_radius = get_search_radius(ev_mag,
-                                       search_radius_args[0],
-                                       search_radius_args[1],
-                                       search_radius_args[2],
-                                       search_radius_args[3])
+            for DCID, dc in datacenters_dict.iteritems():
 
-        for DCID, dc in datacenters_dict.iteritems():
+                n_step += 1
+                _bar.update(n_step)
 
-            msg = ("Event %s (%s): querying stations within %5.3f deg. "
-                   "to %s") % (ev_id, ev_loc_name, max_radius, DCID)
+                msg = ("Event %s (%s): querying stations within %5.3f deg. "
+                       "to %s") % (ev_id, ev_loc_name, max_radius, DCID)
 
-            logger.debug("")
-            logger.debug(msg)
-            progress.echo(epilog=msg)
+                logger.debug("")
+                logger.debug(msg)
 
-            try:
-                stations, skipped = get_stations(dc, channels, ev_time, ev_lat, ev_lon,
-                                                 max_radius)
-            except (IOError, ValueError, TypeError) as exc:
-                logger.warning(exc.__class__.__name__ + ": " + str(exc))
-                continue
+                try:
+                    stations, skipped = get_stations(dc, channels, ev_time, ev_lat, ev_lon,
+                                                     max_radius)
+                except (IOError, ValueError, TypeError) as exc:
+                    logger.warning(exc.__class__.__name__ + ": " + str(exc))
+                    continue
 
-            logger.debug('%d stations found (data center: %s, channel: %s)',
-                         len(stations), str(DCID), str(channels))
+                logger.debug('%d stations found (data center: %s, channel: %s)',
+                             len(stations), str(DCID), str(channels))
 
-            if skipped > 0:
-                logger.warning(("%d stations skipped (possible cause: bad formatting, "
-                                "e.g. invalid datetimes or numbers") % skipped)
+                if skipped > 0:
+                    logger.warning(("%d stations skipped (possible cause: bad formatting, "
+                                    "e.g. invalid datetimes or numbers") % skipped)
 
-            if stations.empty:
-                continue
+                if min_sample_rate > 0 and not stations.empty:
+                    tmp = stations[stations['SampleRate'] >= min_sample_rate]
+                    if len(tmp) != len(stations):
+                        logger.warning(("%d stations skipped (sample rate < %s Hz") %
+                                       (len(stations) - len(tmp), str(min_sample_rate)))
+                        stations = tmp
 
-            if min_sample_rate > 0:
-                tmp = stations[stations['SampleRate'] >= min_sample_rate]
-                if len(tmp) != len(stations):
-                    logger.warning(("%d stations skipped (sample rate < %s Hz") %
-                                   (len(stations) - len(tmp), str(min_sample_rate)))
-                    stations = tmp
+                if stations.empty:
+                    continue
 
-            # Do the core calculation of times and distances now...
-            # First define column names once (avoid typos):
-            atime_col = "ArrivalTime"
-            dist_col = "EventDistance/deg"
-            stime_col = "DataStartTime"
-            etime_col = "DataEndTime"
-            lat_col = 'Latitude'
-            lon_col = 'Longitude'
-            # Now calculate. As arrival_times is computationally expensive. We might have DUPLICATED
-            # stations so we select only those unique according to Latitude and longitude
-            stations_unique = stations.drop_duplicates(subset=(lat_col, lon_col))
-            # NOTE: the function above calculates duplicated if ALL subset(s) are equal, if any
-            # is equal then does not drop them (what we want)
+                # Do the core calculation of times and distances now...
+                # First define column names once (avoid typos):
+                atime_col = "ArrivalTime"
+                dist_col = "EventDistance/deg"
+                stime_col = "DataStartTime"
+                etime_col = "DataEndTime"
+                lat_col = 'Latitude'
+                lon_col = 'Longitude'
+                # Now calculate. As arrival_times is computationally expensive. We might have
+                # DUPLICATED stations so we select only those unique according to Latitude and
+                # longitude
+                stations_unique = stations.drop_duplicates(subset=(lat_col, lon_col))
+                # NOTE: the function above calculates duplicated if ALL subset(s) are equal, if any
+                # is equal then does not drop them (what we want)
 
-            # set stations_unique as "not a copy" to suppress pandas warning, as that warning does
-            # tell us that we are not modifying the original stations dataframe, which is what we
-            # are aware of
-            stations_unique.is_copy = False  # suppress warning
+                # set stations_unique as "not a copy" to suppress pandas warning, as that warning
+                # does tell us that we are not modifying the original stations dataframe, which is
+                # what we are aware of
+                stations_unique.is_copy = False  # suppress warning
 
-            # add a column distances, arrival times etcetera to stations_unique
-            stations_unique.loc[:, dist_col] = get_distances(stations_unique[lat_col],
-                                                             stations_unique[lon_col],
-                                                             ev_lat, ev_lon)
-            stations_unique.loc[:, atime_col] = get_arrival_times(stations_unique[dist_col],
-                                                                  ev_depth_km, ev_time)
-            stations_unique.loc[:, stime_col], \
-                stations_unique.loc[:, etime_col] = get_time_ranges(stations_unique[atime_col],
-                                                                    minutes=ptimespan)
+                # add a column distances, arrival times etcetera to stations_unique
+                stations_unique.loc[:, dist_col] = get_distances(stations_unique[lat_col],
+                                                                 stations_unique[lon_col],
+                                                                 ev_lat, ev_lon)
+                stations_unique.loc[:, atime_col] = get_arrival_times(stations_unique[dist_col],
+                                                                      ev_depth_km, ev_time)
+                stations_unique.loc[:, stime_col], \
+                    stations_unique.loc[:, etime_col] = get_time_ranges(stations_unique[atime_col],
+                                                                        minutes=ptimespan)
 
-            # print stations unique. It has infos about times and distances, we drop all channel
-            # info (this might speed up rendering for long DataFrame and make things more
-            # readable)
-            logger.debug("Downloaded stations (unique, i.e. showing with level=station):")
-            sts = stations_unique[stations_unique.columns[stations_unique.columns != 'Channel']]
-            logger.debug(pd_str(sts))
+                # print stations unique. It has infos about times and distances, we drop all channel
+                # info (this might speed up rendering for long DataFrame and make things more
+                # readable)
+                logger.debug("Downloaded stations (unique, i.e. showing with level=station):")
+                sts = stations_unique[stations_unique.columns[stations_unique.columns != 'Channel']]
+                logger.debug(pd_str(sts))
 
-            # build our DataFrame (extension of stations DataFrame):
-            wdf = stations
-            # add specific segments columns
-            # it's important to initialize some to na (None NaT or NaN) as we will drop those values
-            # later (na means some error, thus warn in the log)
-            wdf.insert(0, '#EventID', ev_id)
-            wdf.insert(1, atime_col, pd.NaT)
-            wdf.insert(2, dist_col, np.NaN)
-            wdf.insert(3, stime_col, pd.NaT)
-            wdf.insert(4, etime_col, pd.NaT)
-            wdf.insert(5, 'QueryStr', dc)  # this is the Datacenter (for the moment) later the 
-            # query string (see below)
-            wdf.insert(6, 'ClassId', UNKNOWN_CLASS_ID)
-            wdf.insert(7, 'ClassIdHandLabeled', False)
-            wdf.insert(8, 'RunId', pd.NaT)
+                # build our DataFrame (extension of stations DataFrame):
+                wdf = stations
+                # add specific segments columns
+                # it's important to initialize some to na (None NaT or NaN) as we will drop those
+                # values later (na means some error, thus warn in the log)
+                wdf.insert(0, '#EventID', ev_id)
+                wdf.insert(1, atime_col, pd.NaT)
+                wdf.insert(2, dist_col, np.NaN)
+                wdf.insert(3, stime_col, pd.NaT)
+                wdf.insert(4, etime_col, pd.NaT)
+                wdf.insert(5, 'QueryStr', dc)  # this is the Datacenter (for the moment) later the
+                # query string (see below)
+                wdf.insert(6, 'ClassId', UNKNOWN_CLASS_ID)
+                wdf.insert(7, 'ClassIdHandLabeled', False)
+                wdf.insert(8, 'RunId', pd.NaT)
 
-            # populate our dataframe with the unique values, acounting for duplicates stations
-            # due to different channels:
-            def func(stations_unique_row):
-                # this is generally faster than iterrows
-                row_selector_df = (wdf[lat_col] == stations_unique_row[lat_col]) & \
-                    (wdf[lon_col] == stations_unique_row[lon_col])
-                wdf.loc[row_selector_df, atime_col] = stations_unique_row[atime_col]
-                wdf.loc[row_selector_df, stime_col] = stations_unique_row[stime_col]
-                wdf.loc[row_selector_df, etime_col] = stations_unique_row[etime_col]
-                wdf.loc[row_selector_df, dist_col] = stations_unique_row[dist_col]
+                def func(sur):
+                    """populate our dataframe with the unique values, acounting for duplicates stations
+                       due to different channels. sur = stations_unique_row"""
+                    row_selector_df = (wdf[lat_col] == sur[lat_col]) & \
+                        (wdf[lon_col] == sur[lon_col])  # pylint: disable=W0640
+                    wdf.loc[row_selector_df, atime_col] = sur[atime_col]  # pylint: disable=W0640
+                    wdf.loc[row_selector_df, stime_col] = sur[stime_col]  # pylint: disable=W0640
+                    wdf.loc[row_selector_df, etime_col] = sur[etime_col]  # pylint: disable=W0640
+                    wdf.loc[row_selector_df, dist_col] = sur[dist_col]  # pylint: disable=W0640
 
-            stations_unique.apply(func, axis=1)
+                stations_unique.apply(func, axis=1)  # apply is generally faster than iterrows
 
-            # dropna D from distances, arr_times, time_ranges which are na
-            # FIXME: print to debug the removed dframe? do the same for stations and events df?
-            dict_ = {(dist_col,): "station-event distance",
-                     (atime_col,): "arrival time",
-                     (stime_col, etime_col): "time-range around arrival time"}
-            for subset, reason in dict_.iteritems():
-                _l_ = len(wdf)
-                wdf.dropna(subset=subset, inplace=True)
-                _l_ -= len(wdf)
-                if _l_ > 0:
-                    logger.warning("%d stations removed (reason %s)" % (_l_, reason))
+                # dropna D from distances, arr_times, time_ranges which are na
+                dict_ = {(dist_col,): "station-event distance",
+                         (atime_col,): "arrival time",
+                         (stime_col, etime_col): "time-range around arrival time"}
+                for subset, reason in dict_.iteritems():
+                    _l_ = len(wdf)
+                    wdf.dropna(subset=subset, inplace=True)
+                    _l_ -= len(wdf)
+                    if _l_ > 0:
+                        logger.warning("%d stations removed (reason %s)" % (_l_, reason))
 
-            # reset index so that we have nonnegative ordered natural numbers 0, ... N:
-            wdf.reset_index(inplace=True, drop=True)
+                # reset index so that we have nonnegative ordered natural numbers 0, ... N:
+                wdf.reset_index(inplace=True, drop=True)
 
-            # NOTE: wdf['QueryStr'] is the data center (will be filled with the query string below)
-            wdf.loc[:, 'QueryStr'] = get_wav_queries(wdf['QueryStr'], wdf['#Network'],
-                                                     wdf['Station'], wdf['Location'],
-                                                     wdf['Channel'], wdf['DataStartTime'],
-                                                     wdf['DataEndTime'])
+                # NOTE: wdf['QueryStr'] is the data center (will be filled with the query string
+                # below)
+                wdf.loc[:, 'QueryStr'] = get_wav_queries(wdf['QueryStr'], wdf['#Network'],
+                                                         wdf['Station'], wdf['Location'],
+                                                         wdf['Channel'], wdf['DataStartTime'],
+                                                         wdf['DataEndTime'])
 
-            # skip when the dataframe is empty. Moreover, this apparently avoids shuffling
-            # column order
-            if not wdf.empty:
-                wav_dframe = wdf if wav_dframe is None else wav_dframe.append(wdf,
-                                                                              ignore_index=True)
-
-    progress.echo(epilog="Done")
+                # skip when the dataframe is empty. Moreover, this apparently avoids shuffling
+                # column order
+                if not wdf.empty:
+                    wav_dframe = wdf if wav_dframe is None else wav_dframe.append(wdf,
+                                                                                  ignore_index=True)
 
     logger.debug("")
     logger.info("STEP 3/3: Querying Datacenter WS")
@@ -719,24 +713,25 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         logger.debug("Downloading and saving %d of %d waveforms (%d already saved)",
                      len(wav_data), len(wav_dframe), len(wav_dframe) - len(wav_data))
 
-        progress = Progress(len(wav_data))
-
         # it turns out that now wav_data is a COPY of wav_dframe
         # any further operation on it raises a SettingWithCopyWarning, thus avoid issuing it:
         # http://stackoverflow.com/questions/23688307/settingwithcopywarning-even-when-using-loc
         wav_data.is_copy = False
+        wav_data.reset_index(drop=True, inplace=True)
 
         logger.debug("")
 
-        # insert binary data (empty)
-        def func_dwav(query_str):
-            data = read_wav_data(query_str)
-            msg = "%7d bytes downloaded from: %s" % (len(data), query_str)
-            logger.debug(msg)
-            progress.echo(epilog=msg)
-            return data
+        with progressbar(length=len(wav_data)) as bar:
+            # insert binary data (empty)
+            def func_dwav(row_series):
+                query_str = row_series['QueryStr']
+                data = read_wav_data(query_str)
+                msg = "%7d bytes downloaded from: %s" % (len(data), query_str)
+                logger.debug(msg)
+                bar.update(row_series.name + 1)  # series name is the original dframe index
+                return data
 
-        binary_data_series = wav_data['QueryStr'].apply(func_dwav)
+            binary_data_series = wav_data.apply(func_dwav, axis=1)
 #         binary_data_series = read_wavs_data(wav_data['QueryStr'], logger, progress)
 
         wav_data.insert(1, 'Data', binary_data_series)
@@ -747,7 +742,6 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
         wav_data = wav_data[wav_data['Data'] != b'']
         skipped_empty = (total - skipped_already_saved - skipped_error) - len(wav_data)
 
-    progress.echo(epilog="Done")
     logger.debug("")
     if logger.warnings:
         print "%d warnings (check log for details)" % logger.warnings

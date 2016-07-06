@@ -5,31 +5,52 @@ Created on Jun 20, 2016
 '''
 from stream2segment.s2sio.db import ListReader
 import numpy as np
-from stream2segment.analysis.mseeds import cumsum, snr, env, bandpass
+from stream2segment.analysis import interp as interp2, moving_average
+from numpy import interp
+from stream2segment.analysis.mseeds import cumsum, snr, env, bandpass, freq_stream, amp_ratio,\
+    cumtimes, interpolate
 from stream2segment.classification.handlabelling import ClassAnnotator
+from obspy.signal.konnoohmachismoothing import konno_ohmachi_smoothing as kos
+from itertools import izip
+from obspy.signal.util import smooth
+# from numpy import nanmax
 # from obspy.core.utcdatetime import UTCDateTime
 # from future.backports.datetime import timezone
 listreader = None
+class_ids = None
 classannotator = None
 SNR_WINDOW_SIZE_IN_SECS = 40  # FIXME: add to the config!!
 
 
-def get_listreader(db_uri):
-    if listreader is None:
-        global listreader
-        listreader = ListReader(db_uri, filter_func=None,
+def get_listreader(db_uri, class_ids_=None):
+    global listreader
+    global class_ids
+    if listreader is None or class_ids_ != class_ids:
+        if class_ids_:
+            def filter_func(dframe):
+                return dframe[dframe['ClassId'].isin(class_ids)]
+        else:
+            filter_func = None
+        class_ids = class_ids_
+        listreader = ListReader(db_uri, filter_func=filter_func,
                                 sort_columns=["#EventID", "EventDistance/deg"],
                                 sort_ascending=[True, True])
+
+#         listreader2 = ListReader(db_uri, filter_func=None,
+#                                  sort_columns=["#EventID", "EventDistance/deg"],
+#                                  sort_ascending=[True, True])
+#         listreader2.filter(listreader2.T_EVT.Magnitude.between(3, 3.1))
         global classannotator
         classannotator = ClassAnnotator(listreader)
     return listreader
 
 
-def get_ids(db_uri):
-    listreader = get_listreader(db_uri)
+def get_ids(db_uri, class_ids=[]):
+    listreader = get_listreader(db_uri, class_ids)
+
     # NOTE: we need conversion to string cause apparently jsonify does some rounding on big ints
     # FIXME: CHECK!!!
-    return {'segment_ids': listreader.mseed_ids['Id'].values.astype(str).tolist(),
+    return {'segment_ids': tojson(listreader.mseed_ids['Id'].values.astype(str)),
             'classes':  classannotator.get_classes_df().to_dict('records')}
 
 
@@ -39,98 +60,67 @@ def get_data(db_uri, seg_id):
     stream = listreader.get_stream(seg_id, include_same_channel=True)
     filtered_stream = bandpass(stream)
     cumulative_trace = cumsum(filtered_stream[0])
-    snr_stream = snr(filtered_stream[0], db_row.iloc[0]['ArrivalTime'], SNR_WINDOW_SIZE_IN_SECS)
+    snr_stream = freq_stream(filtered_stream[0], db_row.iloc[0]['ArrivalTime'],
+                             SNR_WINDOW_SIZE_IN_SECS)
     evlp_trace = env(filtered_stream[0])
 
-    ret_data = {'data': [], 'metadata': [], 'class_id': None}
+    # calculate "Numbers" (scalar info):
+    _cum_t5, _cum_t95 = cumtimes(cumulative_trace, 0.05, 0.95)
+    _amp_ratio = amp_ratio(stream[0])
+    _snr = snr(snr_stream[1], snr_stream[0])
 
-    MAX_NUM_PTS = 1200
+    # define interpolation values
+    MAX_NUM_PTS_TIMESCALE = 1100
+    MAX_NUM_PTS_FREQSCALE = 200
 
-    metadata = []  # store each type of metadata here
-    s_n_r = "N/A"
-    cum_t5 = 0
-    cum_t95 = 0
-    for i in xrange(3):
-        try:
-            data_list = ret_data['data']
-            starttime = stream[i].stats.starttime
-            delta = stream[i].stats.delta
-            endtime = stream[i].stats.endtime
-            datalen = len(stream[i].data)
-            datalen2 = min(datalen, MAX_NUM_PTS)
+    # interpolate and return:
+    times, stream = interpolate(stream, MAX_NUM_PTS_TIMESCALE, align_if_stream=True,
+                                return_x_array=True)
 
-            timez = np.linspace(starttime.timestamp, endtime.timestamp, num=datalen2, endpoint=True)
+    filtered_stream = interpolate(filtered_stream, times, align_if_stream=True)
+    cumulative_trace = interpolate(cumulative_trace, times)
+    bwd = 1200000000
+#     evlp_trace_data = kos(interpolate(evlp_trace, times).data,
+#                           times, bandwidth=bwd)
+    evlp_trace_data = moving_average(interpolate(evlp_trace, times).data, 50)
 
-            orig_timez = None if datalen2 == datalen else \
-                np.linspace(starttime.timestamp, endtime.timestamp, num=datalen, endpoint=True)
+    time_data = {'labels': tojson(np.round(times * 1000.0)), 'datasets': []}
+    datasets = time_data['datasets']
 
-            # put data in chartjs "format":
-            data_list.append({
-                              # round to milliseconds for chart.js time scale:
-                              'labels': np.round(timez * 1000.0).tolist(),
-                              'datasets': [{
-                                           'label': stream[i].id,
-                                           'data': interp(timez, orig_timez, stream[i].data)
-                                           },
-                                           {
-                                           'label': stream[i].id + " (filtered)",
-                                           'data': interp(timez, orig_timez,
-                                                          filtered_stream[i].data)
-                                           }
-                                           ]
-                            })
+    title = stream[0].id
+    datasets.append(to_chart_dataset(stream[0].data, title))
+    datasets.append(to_chart_dataset(filtered_stream[0].data, title + " (Filtered)"))
+    # append other two traces:
+    datasets.append(to_chart_dataset(stream[1].data, stream[1].id))
+    datasets.append(to_chart_dataset(filtered_stream[1].data, stream[1].id + " (Filtered)"))
+    datasets.append(to_chart_dataset(stream[2].data, stream[2].id))
+    datasets.append(to_chart_dataset(filtered_stream[2].data, stream[2].id + " (Filtered)"))
 
-            if i != 0:
-                continue
+    # cumulative:
+    datasets.append(to_chart_dataset(cumulative_trace.data, title + " (Cumulative)"))
+    # envelope
+    datasets.append(to_chart_dataset(evlp_trace_data, title + " (Envelope)"))
 
-            cum_t5 = (starttime +
-                      (np.where(cumulative_trace.data <= 0.05)[0][-1]) * delta).timestamp * 1000
-            cum_t95 = (starttime +
-                       (np.where(cumulative_trace.data >= 0.95)[0][0]) * delta).timestamp * 1000
+    # calculate frequencies and return
+    freqs, snr_stream = interpolate(snr_stream, MAX_NUM_PTS_FREQSCALE, align_if_stream=True,
+                                    return_x_array=True)
 
-            # add other plots and stuff:
-            data_list[-1]['datasets'].\
-                extend([{
-                         'label': stream[i].id + " (Cumulative)",
-                         'data': interp(timez, orig_timez, cumulative_trace.data)
-                         },
-                        {
-                         'label': stream[i].id + " (Envelope)",
-                         'data': interp(timez, orig_timez, evlp_trace.data)
-                         }])
-
-            # add frequencies (actually, power spectra)
-            df = snr_stream[0].df
-            datalen = max(len(snr_stream[0].data), len(snr_stream[1].data))
-            datalen2 = min(datalen, MAX_NUM_PTS)
-            freqz = np.linspace(0, df*datalen2, num=datalen2, endpoint=False)
-
-            orig_freqz = None if datalen == datalen2 else \
-                np.linspace(0, df*datalen, num=datalen, endpoint=False)
-
-            s_n_r = 10 * np.log10(np.sum(snr_stream[1].data) / np.sum(snr_stream[0].data))
-
-            data_list.append({
-                              # round to 2 decimals cause chart.js x axis scale is nicer so:
-                              'labels': np.round(freqz, 2).tolist(),
-                              'datasets': [{
-                                           'label': stream[i].id + " (Noise)",
-                                           'data': interp(freqz, orig_freqz, snr_stream[0].data)
-                                           },
-                                           {
-                                           'label': stream[i].id + " (Sig.)",
-                                           'data': interp(freqz, orig_freqz, snr_stream[1].data)
-                                           }
-                                           ]
-                               })
-        except (ValueError, IndexError) as _:
-            raise
+    freqs_log = np.log10(freqs[1:])  # FIXME: REMOVE!
+    freq_data = {'datasets': []}
+    datasets = freq_data['datasets']
+    # smooth signal:
+    bwd = 100
+    noisy_amps = kos(snr_stream[0].data, freqs, bandwidth=bwd)
+    sig_amps = kos(snr_stream[1].data, freqs, bandwidth=bwd)
+    datasets.append(to_chart_dataset(noisy_amps[1:], title + " (Noise)", freqs_log))
+    datasets.append(to_chart_dataset(sig_amps[1:], title + " (Signal)", freqs_log))
 
     # add metadata:
     mag = listreader.get(seg_id, listreader.T_EVT, ['Magnitude'])
+    metadata = []
     metadata.append(("Mag", str(mag.iloc[0]['Magnitude'])))
     for key in ("#EventID", "EventDistance/deg", "DataStartTime", "ArrivalTime",
-                "DataEndTime", "#Network", "Station", "Location", "Channel"):  # , "", "RunId"):
+                "DataEndTime", "#Network", "Station", "Location", "Channel", "SampleRate"):
         value = db_row.iloc[0][key]
         if "time" in key.lower():
             # here we don't have obpsy UTCDatetimes, but PANDAS timestamops
@@ -149,43 +139,72 @@ def get_data(db_uri, seg_id):
             # uses microseconds. We want seconds
             metadata.append(('SnrWindow/sec', SNR_WINDOW_SIZE_IN_SECS))
 
-    metadata.append(('SNR', s_n_r))
+    metadata.append(('---', ""))
+    metadata.append(('SNR', _snr))
     # reminder: # setting the word 'time' will convert to timestamp in web page
-    metadata.append(('Cum_time( 5%)', cum_t5))
-    metadata.append(('Cum_time(95%)', cum_t95))
+    metadata.append(('Cum_time( 5%)', _cum_t5.timestamp * 1000))
+    metadata.append(('Cum_time(95%)', _cum_t95.timestamp * 1000))
+    metadata.append(('Amplitude_Ratio', _amp_ratio))
 
-    ret_data['class_id'] = classannotator.get_class(seg_id)
-    ret_data['metadata'] = metadata
-
-    return ret_data
+    return {'time_data': time_data, 'freq_data': freq_data, 'metadata': metadata,
+            'class_id': classannotator.get_class(seg_id)}
 
 
-def interp(newxarray, oldxarray, yarray, numpoints=1000, return_json_serializable=True):
-    """Calls numpy.interp(newxarray, oldxarray, yarray), with the difference that oldxarray can be
-    None (in this case nothing is interpolated
-    :param return_json_serializable: converts the returned array to a python list, so that is
-    json serializable
+def to_chart_dataset(np_array_y, title=None, np_array_x=None):
+    """Converts the array to a dataset dict usable for Chart.js
+        IF title is NOT NONE. Otherwise, converts array to a json serializable list
+        :param array: a numpy array
     """
-    if oldxarray is None:
-        newy = yarray
+
+    if np_array_y is None:
+        array = []
     else:
-        newy = np.interp(newxarray, oldxarray, yarray)
-    return newy if not return_json_serializable else newy.tolist()
+        if np_array_x is not None:
+            array = []
+            for x, y in izip(np_array_x, np_array_y):
+                array.append({'x': x.item(), 'y': y.item()})
+        else:
+            array = np_array_y.tolist()
+    return {'label': title, 'data': array}
 
 
-def get_other_components(segment_series, listreader):
-    # get other components
-    def filter_func(df):
-        return df[(df['#Network'] == segment_series['#Network']) &
-                  (df['Station'] == segment_series['Station']) &
-                  (df['Location'] == segment_series['Location']) &
-                  (df['DataStartTime'] == segment_series['DataStartTime']) &
-                  (df['DataEndTime'] == segment_series['DataEndTime']) &
-                  (df['Channel'].str[:2] == segment_series['Channel'][:2]) &
-                  (df['Channel'] != segment_series['Channel'])]
+def tojson(array):
+    return array.tolist()
 
-    other_components = listreader.read(ListReader.T_SEG, filter_func=filter_func)
-    return other_components
+
+def to_chart_data(np_xvalues, chart_datasets_list):
+    """Converts the array to a dataset dict usable for Chart.js
+        IF title is NOT NONE. Otherwise, converts array to a json serializable list
+        :param array: a numpy array
+    """
+    return {'labels': tojson(np_xvalues), 'datasets': chart_datasets_list}
+
+# def interp(newxarray, oldxarray, yarray, numpoints=1000, return_json_serializable=True):
+#     """Calls numpy.interp(newxarray, oldxarray, yarray), with the difference that oldxarray can be
+#     None (in this case nothing is interpolated
+#     :param return_json_serializable: converts the returned array to a python list, so that is
+#     json serializable
+#     """
+#     if oldxarray is None:
+#         newy = yarray
+#     else:
+#         newy = np.interp(newxarray, oldxarray, yarray)
+#     return newy if not return_json_serializable else newy.tolist()
+# 
+# 
+# def get_other_components(segment_series, listreader):
+#     # get other components
+#     def filter_func(df):
+#         return df[(df['#Network'] == segment_series['#Network']) &
+#                   (df['Station'] == segment_series['Station']) &
+#                   (df['Location'] == segment_series['Location']) &
+#                   (df['DataStartTime'] == segment_series['DataStartTime']) &
+#                   (df['DataEndTime'] == segment_series['DataEndTime']) &
+#                   (df['Channel'].str[:2] == segment_series['Channel'][:2]) &
+#                   (df['Channel'] != segment_series['Channel'])]
+# 
+#     other_components = listreader.read(ListReader.T_SEG, filter_func=filter_func)
+#     return other_components
 
 
 def set_class(seg_id, class_id):

@@ -22,10 +22,14 @@ def main():
     return render_template('index.html', title=app.config["DATABASE_URI"])  # app.config['DB_URI'])
 
 
-@app.route("/get_elements", methods=['GET'])
+@app.route("/get_elements", methods=['POST'])
 def get_elements():
     db_uri = app.config['DATABASE_URI']
-    return jsonify(core.get_ids(db_uri))
+    json_req = request.get_json()
+    class_ids = [] if json_req is None else json_req.get('class_ids', [])
+    if class_ids:
+        class_ids = [int(c) for c in class_ids]
+    return jsonify(core.get_ids(db_uri, class_ids))
 
 
 @app.route("/get_data", methods=['POST'])

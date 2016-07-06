@@ -2,7 +2,7 @@
 <html>
 <head>
 <script src="static/js/moment.min.js"></script>
-<script src="static/js/Chart.min.js"></script>
+<script src="static/js/Chart.js"></script>
 <script src="static/js/angular.min.js"></script>
 <link href="static/css/bootstrap.min.css" rel="stylesheet" media="screen">
 <link href="static/css/mystyle.css" rel="stylesheet" media="screen">
@@ -14,16 +14,23 @@
 
 <div class="container-fluid fullheight">
 <div class="row fullheight">
-	<div class="col-md-2 fullheight">
+	<div class="col-md-2 fullheight left-panel">
 		<div class=navigator>
-			Segment {{ '{{' }} currentIndex + 1 {{ '}}' }} of {{ '{{' }} elements.length {{ '}}' }}
+			<input ng-show="isEditingIndex" type="numeric" class="form-control"
+			placeholder="Enter number in [ 1, {{ '{{' }} elements.length {{ '}}' }} ]"
+			ng-keyup="$event.keyCode == 13 ? setCurrentIndex($event) : ($event.keyCode == 27 ? isEditingIndex=false : null)">
+			<a  ng-show="!isEditingIndex" ng-click="isEditingIndex=true">
+				Segment {{ '{{' }} currentIndex + 1 {{ '}}' }} of {{ '{{' }} elements.length {{ '}}' }}
+			</a>
 			<!-- as these two buttons are right floated (see mystyle.css), the order they wil be displayed is
 			inverse to the order they appear here, so we invert them
 			order  -->
-			<button class='btn btn-default' ng-click="setNextIndex()" >&rarr;</button>
-			<button class='btn btn-default' ng-click="setPreviousIndex()">&larr;</button>
+			<button  ng-show="!isEditingIndex" class='btn btn-default' ng-click="setNextIndex()" >&rarr;</button>
+			<button  ng-show="!isEditingIndex" class='btn btn-default' ng-click="setPreviousIndex()">&larr;</button>
 		</div>
 		<div class="checkbox">
+			
+    
     		<label>
       			<input type="checkbox" ng-model="showFiltered"
       				ng-change="toggleFilter()"> View filtered
@@ -43,6 +50,17 @@
 					</ul>
   				</div>
   		</div>
+  		
+  		<!--  <div class="dropdown">
+  <button class="btn btn-primary dropdown-toggle" type="button" data-toggle="dropdown">Dropdown Example
+  <span class="caret"></span></button>
+  <ul class="dropdown-menu">
+    <li><a href="#">HTML</a></li>
+    <li><a href="#">CSS</a></li>
+    <li><a href="#">JavaScript</a></li>
+  </ul>
+</div> -->
+  		
   		<div class="panel panel-default">
   			<!-- Default panel contents -->
   			<div class="panel-heading">Class</div>
@@ -52,20 +70,25 @@
 				</ul> -->
   			
   				<div class="panel-body">
-  					<div ng-show="classTabSelIndex != 1" class="segment-class example-animate-container">
-						<div ng-repeat="class in classes">
-						<label>
-						<input type='radio' ng-click="setCurrentSegmentClass()" class="animate-repeat" ng-model="data.class_id" value="{{ '{{' }} class.Id {{ '}}' }}">
-					      		{{ '{{' }} class.Id {{ '}}' }}: <strong>{{ '{{' }} class.Label {{ '}}' }}</strong> ({{ '{{' }} class.Count {{ '}}' }}) 
-					    </label>
+  					<div><a ng-click="classesActiveTab = 1 - classesActiveTab">Filter</a></div>
+  					<div ng-show="classesActiveTab == 0" class="segment-class example-animate-container">
+						<div ng-repeat="(classId, class) in classes">
+							<label>
+							<input type='radio' ng-click="setCurrentSegmentClass()" class="animate-repeat"
+								ng-model="data.class_id" value="{{ '{{' }} classId {{ '}}' }}">
+						      		{{ '{{' }} classId {{ '}}' }}: <strong>{{ '{{' }} class.Label {{ '}}' }}</strong> ({{ '{{' }} class.Count {{ '}}' }}) 
+						    </label>
 					    </div>
 					</div>
-					<!-- <div ng-show="classTabSelIndex == 1" class="segment-class example-animate-container">
-						<div ng-repeat="class in classes">
-						<input type='checkbox' class="animate-repeat" ng-model="data.class_id" value="{{ '{{' }} class.Id {{ '}}' }}">
-					      		{{ '{{' }} class.Id {{ '}}' }}: <strong>{{ '{{' }} class.Label {{ '}}' }}</strong> ({{ '{{' }} class.Count {{ '}}' }}) 
+					<div ng-show="classesActiveTab == 1" class="segment-class example-animate-container">
+						<div ng-repeat="(classId, class) in classes">
+							<label>
+							<input type='checkbox' class="animate-repeat" ng-model="class.visible">
+						      		{{ '{{' }} classId {{ '}}' }}: <strong>{{ '{{' }} class.Label {{ '}}' }}</strong> ({{ '{{' }} class.Count {{ '}}' }}) 
+						    </label>
 					    </div>
-					</div> -->
+					    <input type="submit" class="form-control" ng-click="init()" ng-disabled="!isClassFilterProperlySet()">
+					</div>
   				</div>
   		</div>
 	</div>
@@ -218,10 +241,25 @@ var timeOpts = {
                     	// http://www.chartjs.org/docs/#scales-time-scale
                     	// http://momentjs.com/docs/#/parsing/utc/
                 		return moment.utc(value);
+                    },
+                    displayFormats: {
+                    	second:	'HH:mm:ss',
+                    	minute:	'HH:mm:ss',
+                    	hour:	'MMM D, HH'
                     }
                 },
                 ticks:{
-                	maxRotation: 0
+                	maxRotation: 0,
+                	// Last ticks in time scale often overlap. Remove next-to-last
+                	// in case
+                    callback: function(value, index, values) {
+                    	if (values.length > 2 && index == values.length - 2){
+                    		if(values[index] - value[index-1] != values[index+1] - value[index]){
+                    			value = "";
+                    		}
+                    	}
+                    	return "" + value;
+                    }
                 }
             }]
         }
@@ -275,7 +313,7 @@ var trace1_env = document.getElementById("canvas1.4");
 var mseed_snr = new Chart(trace1_snr, {
     type: 'line',
     data: {
-        labels: [],
+        //labels: [],
         datasets: [{
             label: '',
             data: [],
@@ -296,18 +334,24 @@ var mseed_snr = new Chart(trace1_snr, {
             	*/
             yAxes: [{
             	type: 'logarithmic',
-            	 ticks: {
-                 /*    min: 1,
-                    max: 13382290 */ 
-            	}
+            	/*ticks: {
+                     min: 1,
+                    max: 13382290  
+            	}*/
             }],
             xAxes:[{
-            	/* type: 'logarithmic',
-            	position: 'bottom', */
+            	gridLines : {
+            		zeroLineColor : "rgba(0, 0, 0, 0.1)"
+                },
+            	type: 'linear',
+                position: 'bottom',
             	ticks: {
-            		/*  min: 1,
-                     max: 10, */
-                	maxRotation: 0
+            		beginAtZero: false,
+                    // Convert a log number to its real number by means of 10^value:
+                    //(round to max two decimal digits)
+                    callback: function(value, index, values) {
+                    	return "" + Math.round(Math.pow(10,value) * 100) / 100;
+                    }
             	}
             }]
         }
