@@ -67,6 +67,20 @@ cp config.example.yaml config.yaml
 ```
 and edit it if you whish
 
+### Install and run tests (suggested but **optional**)
+
+If you want to install and run tests, move in the project directory and run the command:
+```
+	pip install -e .[test]
+```
+
+Then, always in the project directory, run:
+```
+	py.test .
+```
+
+(you should see a message with no errors, such as "===== 8 passed in 1.30 seconds ======")
+
 ## Usage
 
 Move (`cd` on a terminal) to the stream2segment folder. If you installed and activated a python virtual environment during installation (hopefully you did), **activate the virtual environment first**:
@@ -83,20 +97,6 @@ Eventually run
 stream2segment
 ```
 
-
-# Installing testing
-
-If you want to install and run tests, move in the project directory and run the command:
-```
-	pip install -e .[test]
-```
-
-Then, always in the project directory, run:
-```
-	py.test .
-```
-
-(you should see a message with no errors, such as "===== 8 passed in 1.30 seconds ======")
 
 ## Installation Notes:
 
