@@ -1,3 +1,7 @@
+"""
+    Database classes utilities for IO operations
+"""
+
 import os
 from StringIO import StringIO
 from contextlib import contextmanager
@@ -9,12 +13,11 @@ from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.exc import OperationalError
 from sqlalchemy import BLOB
 from sqlalchemy import distinct
+from sqlalchemy.sql.expression import select, join
+from sqlalchemy.orm.attributes import InstrumentedAttribute
 import pandas as pd
 import pandas.io.sql as pdsql
 import numpy as np
-
-from sqlalchemy.sql.expression import select, join
-from sqlalchemy.orm.attributes import InstrumentedAttribute
 
 from stream2segment.classification import class_labels_df
 from obspy import read
@@ -31,6 +34,7 @@ class SessionHandler(object):
             ... do something with the session ...```
     """
     def __init__(self, sql_alchemy_engine_or_dburl):
+        self._open_session = None
         if isinstance(sql_alchemy_engine_or_dburl, Engine):
             self.engine = sql_alchemy_engine_or_dburl
             self.db_uri = self.engine.engine.url
@@ -55,8 +59,8 @@ class SessionHandler(object):
             session.rollback()
             raise
         finally:
-            session.close()
             self._open_session = None
+            session.close()
 
     def session(self):
         """Returns a new sqlalchemy session, or the sql alchemy session currently used in a with
@@ -395,27 +399,28 @@ class DbHandler(PandasDbHandler):
         # Not everything can be fully automated. Here specific table settings used in read, purge
         # and write. IMPORTANT NOTE: when adding a new table, add also AT LEAST its primary key here
         # (step 2 of 3)
-        self.table_settings = {self.T_EVT_NAME: {
-                                            'pkey': '#EventID',
-                                            'parse_dates': ['Time'],
-                                            'seg_table_fkey': ["#EventID", "#EventID"]
-                                            },
-                               self.T_SEG_NAME: {
-                                            'pkey': 'Id',
-                                            'dtype': {'Data': BLOB},
-                                            'parse_dates': ['DataStartTime', 'DataEndTime', 'RunId',
-                                                            'StartTime', 'EndTime', 'ArrivalTime']
-                                            },
-                               self.T_RUN_NAME: {
-                                                 'pkey': 'Id',
-                                                 'parse_dates': ['Id'],
-                                                 'seg_table_fkey': ["Id", "RunId"]
-                                                 },
-                               self.T_CLS_NAME: {
-                                                 'pkey': 'Id',
-                                                 'seg_table_fkey': ["Id", "ClassId"]
-                                                 }
-                               }
+        self.table_settings = {
+            self.T_EVT_NAME: {
+                              'pkey': '#EventID',
+                              'parse_dates': ['Time'],
+                              'seg_table_fkey': ["#EventID", "#EventID"]
+                              },
+            self.T_SEG_NAME: {
+                             'pkey': 'Id',
+                             'dtype': {'Data': BLOB},
+                             'parse_dates': ['DataStartTime', 'DataEndTime', 'RunId',
+                                             'StartTime', 'EndTime', 'ArrivalTime']
+                             },
+            self.T_RUN_NAME: {
+                              'pkey': 'Id',
+                              'parse_dates': ['Id'],
+                              'seg_table_fkey': ["Id", "RunId"]
+                              },
+            self.T_CLS_NAME: {
+                              'pkey': 'Id',
+                              'seg_table_fkey': ["Id", "ClassId"]
+                              }
+            }
         # step 3 of 3: add a table object to this class:
         self.T_RUN = self.table(self.T_RUN_NAME)
         self.T_EVT = self.table(self.T_EVT_NAME)

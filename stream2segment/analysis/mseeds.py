@@ -5,46 +5,64 @@ Created on Jun 20, 2016
 '''
 import numpy as np
 from obspy.core import Stream, Trace, UTCDateTime
-from stream2segment.analysis import cumsum as _cumsum, dfreq, env as _env, pow_spec, amp_spec
-
-
-def isstream(trace_or_stream):
-    """Returns true or false if the argument is an obspy trace or an obspy stream (collection
-    of traces"""
-    return hasattr(trace_or_stream, 'traces')
+from stream2segment.analysis import fft as _fft, linspace as xlinspace, cumsum as _cumsum, dfreq, env as _env, pow_spec, amp_spec
+from obspy import read, read_inventory
 
 
 def itertrace(trace_or_stream):
-    """Iterator over the argument. If the latter is a trace, returns it. If it is a stream
-    returns all its traces"""
-    for tra in trace_or_stream if isstream(trace_or_stream) else [trace_or_stream]:
-        yield tra
+    """Iterator over the argument. If the latter is a Stream, returns it. If it is a trace
+    returns the argument wrapped into a list"""
+    return trace_or_stream if isinstance(trace_or_stream, Stream) else [trace_or_stream]
 
 
-def bandpass(trace_or_stream, freq_min=0.1, freq_max=20, corners=2):
-    """filters a signal trace_or_stream"""
+def bandpass(trace_or_stream, magnitude, freq_max=20, max_nyquist_ratio=0.9,
+             corners=2):
+    """filters a signal trace_or_stream.
+    FIXME: add comment!!!
+    :param magnitude: the magnitude which originated the trace (or stream). It dictates the value
+    of the high-pass corner (the minimum frequency, freq_min, in Hz)
+    :param freq_max: the value of the low-pass corner (freq_max), in Hz
+    :param max_nyquist_ratio: the ratio of freq_max to be computed. The real low-pass corner will
+    be set as max_nyquist_ratio * freq_max (default: 0.9, i.e. 90%)
+    :param corners: the corners (i.e., the order of the filter)
+    """
     trace_or_stream_filtered = trace_or_stream.copy()
 
+    # get freq_min according to magnitude (see e.g. RRSM or ISM)
+    # (this might change in the future)
+    if magnitude <= 4:
+        freq_min = 0.3
+    elif magnitude <= 5:
+        freq_min = 0.2
+    elif magnitude <= 6.5:
+        freq_min = 0.1
+    else:
+        freq_min = 0.05
+
     for tra in itertrace(trace_or_stream_filtered):
+
         # define sampling freq
         sampling_rate = tra.stats.sampling_rate
         # adjust the max_f_max to 0.9 of the nyquist frea (sampling rate /2)
         # slightly less than nyquist (0.9) seems to avoid artifacts
-        max_f_max = 0.9 * (sampling_rate / 2.0)
+        max_f_max = max_nyquist_ratio * (sampling_rate / 2.0)
         freq_max = min(freq_max, max_f_max)
 
-        # remove artifacts:
-        # offset:
+        # Start filtering (several pre-steps)
+        # 1) offset removal:
         tra.data = tra.data - np.nanmean(tra.data)
 
-        # tapering
+        # 2) tapering
         tra.taper(type='cosine', max_percentage=0.05)
 
+        # 3) pad data with zeros at the END in order to filter transient
         lgt = len(tra.data)
         tra.data = np.append(tra.data, np.zeros(lgt))
-        # tra.taper(type='cosine', max_percentage=0.15)
+
+        # 4) apply bandpass filter:
         tra.filter('bandpass', freqmin=freq_min, freqmax=freq_max, corners=corners, zerophase=True)
-        # smooth tail artifacts due to transients:
+
+        # 5) remove padded elements:
         tra.data = tra.data[:lgt]
 
     return trace_or_stream_filtered
@@ -55,13 +73,27 @@ def apply(trace_or_stream, func, *args, **kwargs):
         func is a function taking a Trace as argument and returning a new Trace
     """
     traces = []
-    for tra in itertrace(trace_or_stream):
+    itr = itertrace(trace_or_stream)
+    for tra in itr:
         traces.append(func(tra, *args, **kwargs))
 
-    if isstream(trace_or_stream):
-        return Stream(traces)
-    else:
-        return traces[0]
+    return Stream(traces) if isinstance(itr, Stream) else traces[0]
+
+
+def remove_response(trace_or_stream, inventory_or_inventory_path, output='ACC', water_level=60):
+    """
+        :param inventory: either an inventory object, or a (absolute) path to a specified inventory
+            objects
+    """
+    inventory = read_inventory(inventory_or_inventory_path) \
+        if isinstance(inventory_or_inventory_path, basestring) else inventory_or_inventory_path
+
+    def func(tra):
+        """removes the response on the trace"""
+        tra.remove_response(inventory=inventory, output=output, water_level=water_level)
+        return tra
+
+    return apply(trace_or_stream, func)
 
 
 def get_gaps(trace_or_stream):
@@ -75,9 +107,10 @@ def get_gaps(trace_or_stream):
         :return: a list of gaps
         :rtype: list of lists
     """
-    if not isstream(trace_or_stream):
+    try:
+        return trace_or_stream.get_gaps()
+    except AttributeError:  # is a Trace
         return []
-    return trace_or_stream.get_gaps()
 
 
 def cumsum(trace_or_stream):
@@ -98,7 +131,7 @@ def cumtimes(cum_trace_or_stream, *percentages):
     normalized cumulative of a given trace or stream), calculates the time(s) where the signal
     reaches the given percentage(s) of the toal signal (which is 1)
     Called P = len(percentages), returns a list of length P if the first argument is a Trace, or
-    a list of M sub-lists if the argument is a stream of M traces, where each sub-list is
+    a list of M lists if the argument is a stream of M traces, where each sub-list is
     a list of length P.
     Note that each element of the list is an obspy.UTCTimeStamp have the timestamp attribute which
     returns the relative timestamp, in case
@@ -109,16 +142,21 @@ def cumtimes(cum_trace_or_stream, *percentages):
     the given percentages occur. If the argument
     is a stream, returns a list of lists, where each sub-list (of length P) refers to the i-th trace
     """
-    istrace = not isstream(cum_trace_or_stream)
+    itr = itertrace(cum_trace_or_stream)
+    isstream = isinstance(itr, Stream)
     times = []
-    for cum_tra in itertrace(cum_trace_or_stream):
+    for cum_tra in itr:
         starttime = cum_tra.stats.starttime
         delta = cum_tra.stats.delta
         val = []
+        minv = cum_tra[0]
+        maxv = cum_tra[-1]
         for perc in percentages:
-            val.append(starttime +
-                       (np.where(cum_tra.data <= perc)[0][-1]) * delta)  # .timestamp * 1000
-        if istrace:
+            idx = np.searchsorted(cum_tra.data, minv + (maxv - minv) * perc)
+            val.append(starttime + idx * delta)
+#             val.append(starttime +
+#                        (np.where(cum_tra.data <= perc)[0][-1]) * delta)
+        if not isstream:
             return val
 
         times.append(val)
@@ -139,59 +177,49 @@ def env(trace_or_stream):
     return apply(trace_or_stream, func)
 
 
-def freq_stream(trace_or_stream, fixed_time, window_in_sec):
+def fft(trace_or_stream, fixed_time=None, window_in_sec=None, taper_max_percentage=0.05,
+        taper_type='hann'):
     """
-    Returns an obspy stream object where the first trace is the power spectrum P1 of
-    the window (fixed_time-window_in_sec), and the second trace is the power spectrum P2 of the
-    window (fixed_time+window_in_sec)
-    If the argument is a stream of N traces, returns a stream object of N*2 traces:
-    [P1(trace1), P2(trace1), P1(trace2), P2(trace2), ...]
+    Returns a numpy COMPLEX array (or a list of numpy arrays, if the first argument is a Stream)
+    resulting from the fft applied on (a sliced version of) the argument
     :param trace_or_stream: either an obspy trace, or an obspy stream (collection of traces). In the
-    latter case, the cumulative is applied on all traces
-    :return: an obspy stream (regardless of whether the argument is a trace or stream object)
+    latter case, the fft is applied on all traces
+    :param fixed_time: the fixed time where to set the start (if `window_in_sec` > 0) or end
+    (if `window_in_sec` < 0) of the trace slice on which to apply the fft. If None, it defaults
+    to the start of each trace
+    :type fixed_time: an `obspy.UTCDateTije` object or any objectthat can be passed as argument
+    to the latter (e.g., a numeric timestamp)
+    :param window_in_sec: the window, in sec, of the trace slice where to apply the fft. If None,
+    it defaults to the amount of time from `fixed_time` till the end of each trace
+    :type window_in_sec: numeric
+    :return: a NUMPY obspy stream (regardless of whether the argument is a trace or stream object)
     """
-    if not isinstance(fixed_time, UTCDateTime):
+    if not isinstance(fixed_time, UTCDateTime) and fixed_time is not None:
         fixed_time = UTCDateTime(fixed_time)
-    traces = []
-    for tra in itertrace(trace_or_stream):
-        signal1 = tra.slice(fixed_time-window_in_sec, fixed_time)
-        traces.append(FTrace.from_trace(signal1))
-        signal2 = tra.slice(fixed_time, fixed_time+window_in_sec)
-        traces.append(FTrace.from_trace(signal2))
+    ret_list = []
+    itr = itertrace(trace_or_stream)
+    for tra in itr:
 
-    return Stream(traces)
+        tra = tra.copy()
+        if fixed_time is None:
+            starttime = None
+            endtime = None if window_in_sec is None else window_in_sec
+        elif window_in_sec is None:
+            starttime = fixed_time
+            endtime = None
+        else:
+            t01 = fixed_time
+            t02 = fixed_time+window_in_sec
+            starttime, endtime = min(t01, t02), max(t01, t02)
 
+        trim_tra = tra.trim(starttime=starttime, endtime=endtime, pad=True, fill_value=0)
+        if taper_max_percentage > 0:
+            trim_tra.taper(max_percentage=0.05, type=taper_type)
+        dft = _fft(trim_tra.data)
+        # remember: now we have a numpy array of complex numbers
+        ret_list.append(dft)
 
-def snr(ftrace_signal, ftrace_noise):
-    """Returns the signal to noise ratio of two FTraces, the first representing the signal trace
-    (no noise), the second the noisy trace. Usually, both arguments are slices of the same
-    trace"""
-    return 10 * np.log10(np.sum(ftrace_signal.data) / np.sum(ftrace_noise.data))
-
-
-class FTrace(Trace):
-    """
-        Class extending an obspy trace for frequency x scales instead of the default time x scales.
-        The trace.data argument holds numeric values referring to e.g. amplitudes, and trace.stats
-        object has an additional attribute 'df' denoting the sampling frequency. The latter is also
-        accessible as object attribute: Trace.df
-        All other trace.stats attributes refer to the generating time-series trace, in case ones
-        wants that kind of info accessible
-    """
-    def __init__(self, freq_data, header=None, df=0):
-        Trace.__init__(self, freq_data, header=header)
-        self.stats.df = df
-
-    @staticmethod
-    def from_trace(trace, calc_pow_spec=True):
-        data = pow_spec(trace.data) if calc_pow_spec else amp_spec(trace.data)
-        return FTrace(data, header=trace.stats.copy(), df=dfreq(trace.data, trace.stats.delta))
-#         Trace.__init__(self, ft1, header=trace.stats.copy())
-#         self.stats.df = dfreq(trace.data, trace.stats.delta)
-
-    @property
-    def df(self):
-        return self.stats.df
+    return ret_list if isinstance(itr, Stream) else ret_list[0]
 
 
 def amp_ratio(trace_or_stream):
@@ -199,87 +227,83 @@ def amp_ratio(trace_or_stream):
     numeric value (if the argument is a single trace) representing the amplitude ratio given by:
         np.nanmax(np.abs(trace.data)) / 2 ** 23
     """
-    istrace = not isstream(trace_or_stream)
+    itr = itertrace(trace_or_stream)
+    isstream = isinstance(itr, Stream)
     ampratios = []
-    for tra in itertrace(trace_or_stream):
-        amprat = np.true_divide(np.nanmax(np.abs(tra.data)), 2 ** 23)
-        if istrace:
+    threshold = 2 ** 23
+    for tra in itr:
+        amprat = np.true_divide(np.nanmax(np.abs(tra.data)), threshold)
+        if not isstream:
             return amprat
         ampratios.append(amprat)
 
     return ampratios
 
 
-def xlinspace(trace, num=None):
+def timearray(trace_or_stream, npts=None):
     """
-    Returns the numpy array of evenly spaced values x values of the given trace, in timestamps
-    (derived from UTCDateTime.timestamp). If the argument is an instance of FTrace, returns evenly
-    spaced frequencies. The returned array is ASSURED to be within the trace bounds (usually
-    time units, or frequency units if the argument is an FTrace)
-    :param num: the number of points. If None, the trace number of points is used (i.e., return
-    the trace x values, usually timestamps). Otherwise, it creates an evenly spaced array with
-    bounds given by the trace bounds
+        Returns the x values of the given trace_or_stream according to each trace stats
+        if npts is not None, returns a linear space of equally sampled x from
+        tra.starttime and tra.endtime. Otherwise, npts equals the trace number of points
     """
-    if num is None:
-        num = len(trace.data)
+    ret = []
+    itr = itertrace(trace_or_stream)
+    for tra in itr:
+        num = len(tra.data) if npts is None else npts  # we don't trust tra.stats.npts
+        ret.append(np.linspace(tra.stats.starttime.timestamp,
+                               tra.stats.endtime.timestamp, num=num, endpoint=True))
 
-    if isinstance(trace, FTrace):
-        return np.linspace(0, trace.df*len(trace.data), num, endpoint=False)
-    else:
-        return np.linspace(trace.stats.starttime.timestamp,
-                           trace.stats.endtime.timestamp, num, endpoint=True)
+    return ret if isinstance(itr, Stream) else ret[0]
 
 
 def interpolate(trace_or_stream, npts_or_new_x_array, align_if_stream=True,
                 return_x_array=False):
     """Returns a trace or stream interpolated with the given number of points. This method
-    differs from obspy.Trace.interpolate in that is limited to the case where visualization must
-    occur and no calculation on the data is needed, so a linear interpolation will take place and
-    the sampling_rate will be set according to
-    the npts specified. In the original obspy interpolation, the sampling_rate must be specified
-    and more complex options can be set
+    differs from obspy.Trace.interpolate in that it offers a probably faster but less fine-tuned
+    way to (linearly) interpolate a Trace or a Stream (and in this case optionally align its Traces
+    on the same time range, if needed). This method is intended to optimize visualizations
+    of the data, rather than performing calculation on it
     :param trace_or_stream: the Trace or Stream
     :param npts_or_new_x_array: the new number of points (if python integer) or the new x array
-        where to interpolate the trace(s)
-    :param align_if_stream: if True, data will be "aligned" with the timestamp of the first trace
+        where to interpolate the trace(s) (as UTCDateTime.timestamp's)
+    :param align_if_stream: Ignored if the first argument is a Trace object. Otherwise, if True,
+    data will be "aligned" with the timestamp of the first trace:
+    all the traces (if more than one) will have the same start and end time, and the same number
+    of points. This argument is always True if npts_or_new_x_array is an array of timestamps
     :param return_new_x_array: if True (false by default) a tuple (newtimes, new_trace_or_stream) is
     returned. Otherwise, only new_trace_or_stream is returned. The name return_new_x_array is more
     general as, if FTraces are passed, then the units of the array are frequencies (in Hz)
     """
+    newxarray = None
     try:
-        len(npts_or_new_x_array)
+        len(npts_or_new_x_array)  # is npts_or_new_x_array an array?
         newxarray = npts_or_new_x_array
-        x_array_given = True
-    except TypeError:
+        align_if_stream = True
+    except TypeError:  # npts_or_new_x_array is scalar (not array)
         npts = npts_or_new_x_array
-        x_array_given = False
 
-    istrace = not isstream(trace_or_stream)
-    tra = trace_or_stream if istrace else trace_or_stream[0]
-    isftrace = isinstance(tra, FTrace)
-    starttime = tra.stats.starttime
+    ret = []
+    oldxarrays = {}
+    itr = itertrace(trace_or_stream)
+    for tra in itr:
+        if newxarray is None or not align_if_stream:
+            newxarray = timearray(tra, npts)
 
-    if not x_array_given:
-        newxarray = None if align_if_stream is False else xlinspace(tra, npts)
+        # get old x array. If we have an x array of times already calculated for a previous
+        # trace with same start, delta and number of points, use that (improving performances):
+        key = (tra.stats.starttime.timestamp, tra.stats.delta, len(tra.data))
+        oldxarray = oldxarrays.get(key, None)
+        if oldxarray is None:
+            oldxarray = timearray(tra)
+            oldxarrays[key] = oldxarray
 
-    def func(tra, newxarray, isftrace):
-        """interpolates the trace"""
-        if newxarray is None:
-            newxarray = xlinspace(tra, npts)
-        oldxarray = xlinspace(tra)
         data = np.interp(newxarray, oldxarray, tra.data)
         header = tra.stats.copy()
         header.npts = len(data)
-        if isftrace:
-            header.df = newxarray[1] - newxarray[0]
-        else:
-            header.delta = newxarray[1] - newxarray[0]
-            header.starttime = starttime  # redundant, for first trace in iter...
-            # all other fields are updated automatically
+        header.delta = newxarray[1] - newxarray[0]
+        header.starttime = UTCDateTime(newxarray[0])
 
-        return FTrace(freq_data=data, header=header, df=header.df) if isftrace else \
-            Trace(data=data, header=header)
+        ret.append(Trace(data=data, header=header))
 
-    ret = apply(trace_or_stream, func, newxarray, isftrace)
-
+    ret = Stream(ret) if isinstance(itr, Stream) else ret[0]
     return (newxarray, ret) if return_x_array else ret

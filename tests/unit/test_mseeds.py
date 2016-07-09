@@ -7,13 +7,10 @@ import os
 import mock
 import pytest
 import numpy as np
-from stream2segment.analysis.mseeds import Stream, Trace
+from stream2segment.analysis.mseeds import Stream, Trace, fft
+from stream2segment.analysis import fft as orig_fft
 from obspy.core.stream import read
-from obspy.core import Stream as strm
-
-
-def get_trace(dx, ydata):
-    return Trace(ydata, header={'delta': dx})
+from obspy.core import Stream as ObspyStream, Trace as ObspyTrace
 
 
 def get_stream_with_gaps():
@@ -25,6 +22,20 @@ def test_get_trace_with_gaps():
     stream = get_stream_with_gaps()
     arr = stream.get_gaps()
     assert len(arr) > 0
+
+@pytest.mark.parametrize('arr, arr_len_after_trim, fft_npts',
+                        [([1, 2, 3, 4, 5, 6], 6, 4),
+                         ([1, 2, 3, 4, 5], 5, 3),
+                         ([1, 2, 3, 4], 4, 3),
+                         ([1, 2, 3], 3, 2),
+                         ])
+@mock.patch('stream2segment.analysis.mseeds._fft', side_effect=lambda *a, **k: orig_fft(*a, **k))
+def test_fft(mock_mseed_fft, arr, arr_len_after_trim, fft_npts):
+    t = Trace(np.array(arr))
+    f = fft(t)
+    assert len(mock_mseed_fft.call_args[0][0]) == arr_len_after_trim
+    assert len(f) == fft_npts
+    g = 9
 # @pytest.mark.parametrize('arr, normalize, expected_result, ',
 #                           [([-1, 1], True, [0.5, 1]),
 #                            ([-1, 1], False, [1, 2]),
