@@ -156,25 +156,14 @@ class PandasDbHandler(SessionHandler):
                           "a valid table name nor an existing table object") % (str(table),
                                                                                 str(type(table))))
 
-#     def column(self, table_name, column_name):
-#         """Returns the sqlalchemy column object mapped to the given table_name"""
+#     def drop_table(self, table_name):
+#         """Drops the table identified by the given table name. If the table does not exist, exits
+#         silently"""
 #         try:
-#             table = self.table(table_name)
-#             try:
-#                 return getattr(table, column_name)
-#             except AttributeError:
-#                 raise ValueError("No such column '%s'" % column_name)
+#             self.table(table_name).drop(self.engine)
+#             self.automap()
 #         except KeyError:
-#             raise ValueError("No such table: '%s'" % table_name)
-
-    def drop_table(self, table_name):
-        """Drops the table identified by the given table name. If the table does not exist, exits
-        silently"""
-        try:
-            self.table(table_name).drop(self.engine)
-            self.automap()
-        except KeyError:
-            pass
+#             pass
 
     def attcount(self, table_name):
         """Returns the number of attributes (columns in the underlying table) of the table
@@ -346,9 +335,6 @@ class PandasDbHandler(SessionHandler):
             :type chunksize: int, default None
             :return a pandas DataFrame (empty in case table not found)
         """
-#         if table_name not in self.tables:
-#             # FIXME: better way to return a generator of 1 element?
-#             return (pd.DataFrame() for _ in xrange(1)) if chunksize is not None else pd.DataFrame()
         return pd.read_sql_table(table_name, self.engine, None, index_col, coerce_float,
                                  parse_dates, columns, chunksize)
 
@@ -383,12 +369,20 @@ class DbHandler(PandasDbHandler):
     bytestring
 """
 
+    STATION_TBL_COLUMNS = ["#Network", "Station", "Latitude", "Longitude", "Elevation", "SiteName",
+                           "StartTime", "EndTime"]
+    CHANNEL_TBL_COLUMNS = ["Location", "Channel", "Depth", "Azimuth", "Dip", "SensorDescription",
+                           "Scale", "ScaleFreq", "ScaleUnits", "SampleRate"]
+
     # initialize here the default table names:
     # ANY NEW TABLE MUST BE ADDED HERE (step 1 of 3):
     T_RUN_NAME = "runs"
     T_EVT_NAME = "events"
+    T_STA_NAME = "stations"
+    T_CHA_NAME = "channels"
     T_SEG_NAME = "segments"
     T_CLS_NAME = "classes"
+    T_PRO_NAME = "processing"
 
     def __init__(self, db_uri):
         """
@@ -396,39 +390,61 @@ class DbHandler(PandasDbHandler):
         """
         PandasDbHandler.__init__(self, db_uri)
 
+        # follow these steps if you add a new table:
+        # 1: add a table object to this class (we could use a loop BUT: we wouldn't see these
+        # variables in editors autocompletiion and we would probably see warnings.Quite annoying...
+
+        # NOTE: use the `property` class (same as the `property` decorator) so that the value is
+        # returned only when called explicitly (we might have no db at the given db_uri)
+        DbHandler.T_RUN = property(lambda self: self.table(self.T_RUN_NAME))
+        DbHandler.T_EVT = property(lambda self: self.table(self.T_EVT_NAME))
+        DbHandler.T_STA = property(lambda self: self.table(self.T_STA_NAME))
+        DbHandler.T_CHA = property(lambda self: self.table(self.T_CHA_NAME))
+        DbHandler.T_SEG = property(lambda self: self.table(self.T_SEG_NAME))
+        DbHandler.T_CLS = property(lambda self: self.table(self.T_CLS_NAME))
+        DbHandler.T_PRO = property(lambda self: self.table(self.T_PRO_NAME))
+
         # Not everything can be fully automated. Here specific table settings used in read, purge
         # and write. IMPORTANT NOTE: when adding a new table, add also AT LEAST its primary key here
         # (step 2 of 3)
+
+        # (use lambdas to lazily initialize tables. We might not have tables nor a db at this stage)
         self.table_settings = {
             self.T_EVT_NAME: {
                               'pkey': '#EventID',
                               'parse_dates': ['Time'],
-                              'seg_table_fkey': ["#EventID", "#EventID"]
+                              't_seg_bin_rel': lambda: (getattr(self.T_EVT, "#EventID") ==
+                                                        getattr(self.T_SEG, "#EventID")),
+                              },
+            self.T_STA_NAME: {
+                              'pkey': 'Id',
+                              'parse_dates': ["StartTime", "EndTime"],
+                              't_seg_bin_rel': lambda: (self.T_SEG.ChannelId == self.T_CHA.Id &
+                                                        self.T_STA.Id == self.T_CHA.StationId)
+                              },
+            self.T_CHA_NAME: {
+                              'pkey': 'Id',
+                              't_seg_bin_rel': lambda: (self.T_SEG.ChannelId == self.T_CHA.Id),
                               },
             self.T_SEG_NAME: {
                              'pkey': 'Id',
                              'dtype': {'Data': BLOB},
-                             'parse_dates': ['DataStartTime', 'DataEndTime', 'RunId',
-                                             'StartTime', 'EndTime', 'ArrivalTime']
+                             'parse_dates': ['RunId', 'StartTime', 'EndTime', 'ArrivalTime']
                              },
             self.T_RUN_NAME: {
                               'pkey': 'Id',
                               'parse_dates': ['Id'],
-                              'seg_table_fkey': ["Id", "RunId"]
+                              't_seg_bin_rel': lambda: (self.T_SEG.RunlId == self.T_RUN.Id)
                               },
             self.T_CLS_NAME: {
                               'pkey': 'Id',
-                              'seg_table_fkey': ["Id", "ClassId"]
-                              }
+                              't_seg_bin_rel': lambda: (self.T_SEG.ClasslId == self.T_CLS.Id)
+                              },
+            self.T_PRO_NAME: {
+                              'pkey': 'Id',
+                              't_seg_bin_rel': lambda: (self.T_SEG.ProcessinglId == self.T_PRO.Id)
+                              },
             }
-        # step 3 of 3: add a table object to this class:
-        self.T_RUN = self.table(self.T_RUN_NAME)
-        self.T_EVT = self.table(self.T_EVT_NAME)
-        self.T_SEG = self.table(self.T_SEG_NAME)
-        self.T_CLS = self.table(self.T_CLS_NAME)
-
-        # STEP3: EDIT the JOIN METHOD BELOW ADING A RELATION to ANY NEW TABLE WITH THE
-        # SEGMENTS TABLE:
 
     def join_t_seg_with(self, tables):
         """
@@ -450,15 +466,12 @@ class DbHandler(PandasDbHandler):
 
         where_clause = None
 
-        for tname, table in tbl_dict.iteritems():
-            where = None
+        for tname, _ in tbl_dict.iteritems():
+            # get the key t_seg_bin_rel and call it (it's a callable), or by default return None
+            where = self.table_settings.get(tname, {}).get('t_seg_bin_rel', lambda: None)()
 
-            fkey_cols = self.table_settings.get(tname, {}).get('seg_table_fkey', None)
-
-            if fkey_cols is None:
+            if where is None:
                 continue
-
-            where = (getattr(table, fkey_cols[0]) == getattr(self.T_SEG, fkey_cols[1]))
 
             if where_clause is None:
                 where_clause = where
@@ -488,6 +501,7 @@ class DbHandler(PandasDbHandler):
         :param tables: an iterable of table names, or sqlalchemy tables
         :param where: an sqlalchemy where clause
         :Example:
+
         dbh = DbHandler(db_uri)
         df = dbh.select([dbh.T_SEG], dbh.T_SEG.Id.in_([55, 56]))
 
@@ -496,14 +510,16 @@ class DbHandler(PandasDbHandler):
         # self.join_t_seg_with([T_EVT])
         # equals the sqlalchemy expression:
         # getattr(T_SEG, "#EventID") == getattr(T_SEG, "#EventID")
-        df = dbh.select([dbh.T_SEG], T_EVT.Magnitude.in_([3.1, 3.2]) & self.join_t_seg_with([T_EVT]))
+
+        df = dbh.select([dbh.T_SEG], T_EVT.Magnitude.in_([3.1, 3.2]) & \
+            self.join_t_seg_with([T_EVT]))
 
         # You can also return a joined DataFrame, BUT NOTE THAT THE COLUMN ORDER
         # of the DATAFRAME SEEMS NOT TO REFLECT THE ORDER OF THE TABLES, THUS COLUMNS
         # WITH THE SAME NAME (e.g. 'Longitude') ARE EITHER MERGED OR DUPLICATED (FIXME: CHECK!)
+
         df = dbh.select([dbh.T_SEG, dbh.T_EVT], T_EVT.Magnitude.in_([3.1, 3.2]) & \
             getattr(T_SEG, "#EventID") == getattr(T_SEG, "#EventID"))
-
         """
         tablez = self._todict(tables)
 
@@ -581,14 +597,13 @@ class DbHandler(PandasDbHandler):
         """
         table_name = self.get_name_and_table(table)[0]
         if table_name == self.T_SEG_NAME:
-            pkey = self.table_settings[table_name]['pkey']
-            recalc = pkey not in dframe.columns
-            if recalc:
-                dframe.insert(0, pkey, None)
-            else:
-                recalc = pd.isnull(dframe[pkey]).any()
+            dframe, pkey, recalc = self._checkpkey(table_name, dframe)
 
             if recalc:
+                dframe = self.prepare_df(self.T_CHA_NAME, dframe)
+                dframe.rename(columns={self.table_settings[self.T_CHA_NAME]['pkey']:
+                                       'ChannelId'}, inplace=True)
+
                 def myfunc(row):
                     row[pkey] = hash((row['#EventID'], row['#Network'], row['Station'],
                                       row['Location'], row['Channel'],
@@ -596,8 +611,38 @@ class DbHandler(PandasDbHandler):
                                       row['DataEndTime'].isoformat()))
                     return row
                 dframe = dframe.apply(myfunc, axis=1)
+                dframe = dframe.drop(self.STATION_TBL_COLUMNS + self.CHANNEL_TBL_COLUMNS, axis=1)
+
+        elif table_name == self.T_STA_NAME:
+            dframe, pkey, recalc = self._checkpkey(table_name, dframe)
+
+            if recalc:
+                dframe.insert(0, pkey, dframe['#Network'] + "." + dframe['Station'])
+            dframe = dframe([pkey] + self.STATION_TBL_COLUMNS)
+
+        elif table_name == self.T_CHA_NAME:
+            dframe, pkey, recalc = self._checkpkey(table_name, dframe)
+
+            if recalc:
+                dframe = self.prepare_df(self.T_STA_NAME, dframe)
+                dframe.rename(columns={self.table_settings[self.T_STA_NAME]['pkey']:
+                                       'StationId'}, inplace=True)
+                dframe.insert(0, pkey, dframe['StationId'] + "." + dframe['Location'] + "." +
+                              dframe['Channel'])
+                dframe = dframe([pkey] + self.CHANNEL_TBL_COLUMNS)
 
         return dframe
+
+    def _checkpkey(self, table, dframe):
+        table_name = self.get_name_and_table(table)[0]
+        pkey = self.table_settings[table_name]['pkey']
+        recalc = pkey not in dframe.columns
+        if recalc:
+            dframe.insert(0, pkey, None)
+            return dframe, pkey, True
+        else:
+            recalc = pd.isnull(dframe[pkey]).any()
+            return dframe, pkey, recalc
 
     def read(self, table, chunksize=None, columns=None, filter_func=None):
         """

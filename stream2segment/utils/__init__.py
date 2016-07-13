@@ -254,7 +254,7 @@ def ensure(filepath, mode, mkdirs=False, error_type=OSError):
     return mkdirdone
 
 
-def url_read(url, blockSize=1024*1024, decoding=None):
+def url_read(url, blockSize=1024*1024, decoding=None, raise_exc=True):
     """
         Reads and return data from the given url. Note that in case of IOException, the  data
         read until the exception is returned
@@ -267,8 +267,13 @@ def url_read(url, blockSize=1024*1024, decoding=None):
         (the default), the result is returned as it is (byte string, note that in Python2 this is
         equivalent to string), otherwise as unicode string
         :type: decoding: string, or None
+        :param raise_exc: if True (the default when missing) an exception is raised while reading
+        blocks of data (an exception is ALWAYS raised while creating urlopen, prior to reading
+        blocks of data). Otherwise, an exception is returned as second argument in the tuple, whose
+        first argument is the bytes of data (or unicode string) read until that exception
         :return the data read, or empty string if None
-        :rtype bytes of data (equivalent to string in python2), or unicode string
+        :rtype bytes of data (equivalent to string in python2), or unicode string, or the tuple
+        bytes of data or unicode string, exception (the latter might be None)
         :raise: IOError, ValueError or TypeError in case of errors
     """
     dcResult = b''
@@ -291,7 +296,7 @@ def url_read(url, blockSize=1024*1024, decoding=None):
 
         raise IOError(str_)
 
-    except (TypeError, ValueError) as e:
+    except (TypeError, ValueError) as _:
         # see https://docs.python.org/2/howto/urllib2.html#handling-exceptions
         raise
 
@@ -300,6 +305,7 @@ def url_read(url, blockSize=1024*1024, decoding=None):
     # end of the data stream; there is no good way to determine that the entire stream from a socket
     # has been read in the general case.
     # See https://docs.python.org/2/library/urllib.html
+
     exc = None
     while True:
         try:
@@ -307,8 +313,12 @@ def url_read(url, blockSize=1024*1024, decoding=None):
         except IOError as ioexc:  # urlopen behaves as a file-like obj.
             # Thus we catch the file-like exception IOError,
             # see https://docs.python.org/2.4/lib/bltin-file-objects.html
-            exc = ioexc
-            buf = ''  # for safety (break the loop here below)
+            if raise_exc:
+                urlopen_.close()
+                raise
+            else:
+                exc = ioexc
+                buf = ''  # for safety (break the loop here below)
 
         if not buf:
             break
@@ -317,12 +327,10 @@ def url_read(url, blockSize=1024*1024, decoding=None):
     # Close the connection to avoid overloading the server
     urlopen_.close()
 
-    if exc is not None:
-        raise exc
-
     # logging.debug('%s bytes read from %s', dcBytes, url)
-    return tounicode(dcResult, decoding) if decoding is not None else dcResult
+    body = tounicode(dcResult, decoding) if decoding is not None else dcResult
 
+    return body if raise_exc else (body, exc)
 
 # these methods are implemented to avoid complex workarounds in testing.
 # See http://blog.xelnor.net/python-mocking-datetime/

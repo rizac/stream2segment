@@ -32,6 +32,8 @@ from stream2segment.classification import class_labels_df
 from obspy.taup import TauPyModel
 from obspy.geodetics import locations2degrees
 from obspy.taup.helper_classes import TauModelError
+from stream2segment.s2sio.db import DbHandler
+# from stream2segment.s2sio.db import DbHandler
 
 
 def get_min_travel_time(source_depth_in_km, distance_in_degree, model='ak135'):
@@ -219,12 +221,20 @@ def evt_to_dframe(event_query_result):
     return dfr, oldlen - len(dfr)
 
 
+def get_datacenters(start_time, end_time):
+    dcs_query = ('http://geofon.gfz-potsdam.de/eidaws/routing/1/query?service=station&'
+                 'start=%s&end=%s&format=post' % (start_time.isoformat(), end_time.isoformat()))
+    dc_result = url_read(dcs_query, decoding='utf8')
+    dc_result = [k for k in dc_result.split("\n") if k[:7] == "http://"]
+    return dc_result
+
+
 def get_stations(datacenter, channels_list, orig_time, lat, lon, max_radius, level='channel'):
     """
         Returns a tuple of two elements: the first one is the DataFrame representing the stations
         read from the specified arguments. The second is the the number of rows (denoting stations)
         which where dropped from the url query due to errors in parsing
-        :param datacenter: the datacenter
+        :param datacenter: the datacenter, e.g.: "http://ws.resif.fr/fdsnws/station/1/query"
         :type datacenter: string
         :param channels_list: the list of channels, e.g. ['HL?', 'SL?', 'BL?'].
         :type channels_list: iterable (e.g., list)
@@ -242,7 +252,7 @@ def get_stations(datacenter, channels_list, orig_time, lat, lon, max_radius, lev
     """
 
     start, endt = get_time_range(orig_time, days=1)
-    station_query = ('%s/station/1/query?latitude=%3.3f&longitude=%3.3f&'
+    station_query = ('%s?latitude=%3.3f&longitude=%3.3f&'
                      'maxradius=%3.3f&start=%s&end=%s&channel=%s&format=text&level=%s')
     aux = station_query % (datacenter, lat, lon, max_radius, start.isoformat(),
                            endt.isoformat(), ','.join(channels_list), level)
@@ -448,7 +458,7 @@ class LoggerHandler(object):
 
 
 def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius_args,
-                   datacenters_dict, channels, start, end, ptimespan, min_sample_rate,
+                   channels, start, end, ptimespan, min_sample_rate,
                    outpath):
     """
         Downloads waveforms related to events to a specific path
@@ -522,7 +532,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
     # initialize our Database handler:
     dbwriter = db.DbHandler(outpath)
     try:
-        events, skipped = get_events(**args)
+        events_df, skipped = get_events(**args)
         # raise ValueError()
     except (IOError, ValueError, TypeError) as err:
         logger.error(str(err))
@@ -535,25 +545,40 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
             logger.warning(("%d events skipped (possible cause: bad formatting, "
                             "e.g. invalid datetimes or numbers") % skipped)
 
-    logger.info('%s events found', len(events))
-    logger.debug('Events: %s', pd_str(events))
+    logger.info('%s events found', len(events_df))
+    logger.debug('Events: %s', pd_str(events_df))
 
-    wav_dframe = None
+    # get all datacenters:
+    datacenters = get_datacenters(start, end)
 
-    # progress = Progress(len(events) * len(datacenters_dict))
-
+    data_df = None
     logger.debug("")
     msg = "STEP 2/3: Querying Station WS (level=channel)"
     logger.info(msg)
     n_step = 0
-    with progressbar(length=len(events) * len(datacenters_dict)) as _bar:
-        for _, row in events.iterrows():
-            ev_mag = row['Magnitude']
+
+    # First define column names once (avoid typos):
+    atime_col = "ArrivalTime"
+    dist_col = "EventDistance/deg"
+    stime_col = "DataStartTime"
+    etime_col = "DataEndTime"
+    lat_col = 'Latitude'
+    lon_col = 'Longitude'
+    mag_col = 'Magnitude'
+    srate_col = 'SampleRate'
+    cha_col = 'Channel'
+    sta_col = 'Station'
+    net_col = '#Network'
+    loc_col = 'Location'
+
+    with progressbar(length=len(events_df) * len(datacenters)) as _bar:
+        for _, row in events_df.iterrows():
+            ev_mag = row[mag_col]
             ev_id = row['#EventID']
             ev_loc_name = row['EventLocationName']
             ev_time = row['Time']
-            ev_lat = row['Latitude']
-            ev_lon = row['Longitude']
+            ev_lat = row[lat_col]
+            ev_lon = row[lon_col]
             ev_depth_km = row['Depth/km']
 
             max_radius = get_search_radius(ev_mag,
@@ -562,53 +587,45 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
                                            search_radius_args[2],
                                            search_radius_args[3])
 
-            for DCID, dc in datacenters_dict.iteritems():
+            for dcen in datacenters:
 
                 n_step += 1
                 _bar.update(n_step)
 
                 msg = ("Event %s (%s): querying stations within %5.3f deg. "
-                       "to %s") % (ev_id, ev_loc_name, max_radius, DCID)
+                       "to %s") % (ev_id, ev_loc_name, max_radius, dcen)
 
                 logger.debug("")
                 logger.debug(msg)
 
                 try:
-                    stations, skipped = get_stations(dc, channels, ev_time, ev_lat, ev_lon,
-                                                     max_radius)
+                    stations_cha_level, skipped = get_stations(dcen, channels, ev_time, ev_lat,
+                                                               ev_lon, max_radius)
                 except (IOError, ValueError, TypeError) as exc:
                     logger.warning(exc.__class__.__name__ + ": " + str(exc))
                     continue
 
                 logger.debug('%d stations found (data center: %s, channel: %s)',
-                             len(stations), str(DCID), str(channels))
+                             len(stations_cha_level), str(dcen), str(channels))
 
                 if skipped > 0:
                     logger.warning(("%d stations skipped (possible cause: bad formatting, "
                                     "e.g. invalid datetimes or numbers") % skipped)
 
-                if min_sample_rate > 0 and not stations.empty:
-                    tmp = stations[stations['SampleRate'] >= min_sample_rate]
-                    if len(tmp) != len(stations):
+                if min_sample_rate > 0 and not stations_cha_level.empty:
+                    tmp = stations_cha_level[stations_cha_level[srate_col] >= min_sample_rate]
+                    if len(tmp) != len(stations_cha_level):
                         logger.warning(("%d stations skipped (sample rate < %s Hz") %
-                                       (len(stations) - len(tmp), str(min_sample_rate)))
-                        stations = tmp
+                                       (len(stations_cha_level) - len(tmp), str(min_sample_rate)))
+                        stations_cha_level = tmp
 
-                if stations.empty:
+                if stations_cha_level.empty:
                     continue
 
-                # Do the core calculation of times and distances now...
-                # First define column names once (avoid typos):
-                atime_col = "ArrivalTime"
-                dist_col = "EventDistance/deg"
-                stime_col = "DataStartTime"
-                etime_col = "DataEndTime"
-                lat_col = 'Latitude'
-                lon_col = 'Longitude'
                 # Now calculate. As arrival_times is computationally expensive. We might have
                 # DUPLICATED stations so we select only those unique according to Latitude and
                 # longitude
-                stations_unique = stations.drop_duplicates(subset=(lat_col, lon_col))
+                stations_unique = stations_cha_level.drop_duplicates(subset=(lat_col, lon_col))
                 # NOTE: the function above calculates duplicated if ALL subset(s) are equal, if any
                 # is equal then does not drop them (what we want)
 
@@ -631,11 +648,11 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
                 # info (this might speed up rendering for long DataFrame and make things more
                 # readable)
                 logger.debug("Downloaded stations (unique, i.e. showing with level=station):")
-                sts = stations_unique[stations_unique.columns[stations_unique.columns != 'Channel']]
+                sts = stations_unique[dbwriter.STATION_TBL_COLUMNS]
                 logger.debug(pd_str(sts))
 
                 # build our DataFrame (extension of stations DataFrame):
-                wdf = stations
+                wdf = stations_cha_level
                 # add specific segments columns
                 # it's important to initialize some to na (None NaT or NaN) as we will drop those
                 # values later (na means some error, thus warn in the log)
@@ -644,12 +661,13 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
                 wdf.insert(2, dist_col, np.NaN)
                 wdf.insert(3, stime_col, pd.NaT)
                 wdf.insert(4, etime_col, pd.NaT)
-                wdf.insert(5, 'QueryStr', dc)  # this is the Datacenter (for the moment) later the
+                wdf.insert(5, 'QueryStr', dcen)  # this is the Datacenter (for the moment) later the
                 # query string (see below)
                 wdf.insert(6, 'ClassId', UNKNOWN_CLASS_ID)
                 wdf.insert(7, 'ClassIdHandLabeled', False)
                 wdf.insert(8, 'RunId', pd.NaT)
 
+                # set in wdf 'stations-event distances', 'arrival time' and 'time_ranges' columns:
                 def func(sur):
                     """populate our dataframe with the unique values, acounting for duplicates stations
                        due to different channels. sur = stations_unique_row"""
@@ -677,17 +695,18 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
                 wdf.reset_index(inplace=True, drop=True)
 
                 # NOTE: wdf['QueryStr'] is the data center (will be filled with the query string
-                # below)
-                wdf.loc[:, 'QueryStr'] = get_wav_queries(wdf['QueryStr'], wdf['#Network'],
-                                                         wdf['Station'], wdf['Location'],
-                                                         wdf['Channel'], wdf['DataStartTime'],
-                                                         wdf['DataEndTime'])
+                # below). FIXME: HORRIBLE HACK!!!
+                if 'location' in wdf.columns:
+                    wdf = wdf.rename(columns={'location': 'Location'})
+                wdf.loc[:, 'QueryStr'] = get_wav_queries(wdf['QueryStr'], wdf[net_col],
+                                                         wdf[sta_col], wdf[loc_col],
+                                                         wdf[cha_col], wdf[stime_col],
+                                                         wdf[etime_col])
 
                 # skip when the dataframe is empty. Moreover, this apparently avoids shuffling
                 # column order
                 if not wdf.empty:
-                    wav_dframe = wdf if wav_dframe is None else wav_dframe.append(wdf,
-                                                                                  ignore_index=True)
+                    data_df = wdf if data_df is None else data_df.append(wdf, ignore_index=True)
 
     logger.debug("")
     logger.info("STEP 3/3: Querying Datacenter WS")
@@ -696,32 +715,36 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
     skipped_error = 0
     skipped_empty = 0
     skipped_already_saved = 0
-    wav_data = None
-    if wav_dframe is not None:
 
-        total = len(wav_dframe)
+    # set data_df to empty if None (makes life easier by checking if data.df.empty leter on)
+    if data_df is None:
+        data_df = pd.DataFrame([])
 
+    if not data_df.empty:
+
+        # FIXME: REMOVE THIS COMMENT IF NOT RELEVANT ANYMORE!!!
         # append reorders the columns, so set them as we wanted
         # Note that wdf is surely defined
         # Note also that now column order is not anymore messed up, but do this for safety:
-        wav_dframe = wav_dframe[wdf.columns]
+        # data_df = data_df[wdf.columns]
 
         # purge wav_data (this creates a column id primary key):
-        wav_data = dbwriter.purge(wav_dframe, dbwriter.T_SEG)
-        skipped_already_saved = total - len(wav_data)
+        original_data_len = len(data_df)
+        data_df = dbwriter.purge(data_df, dbwriter.T_SEG)
+        skipped_already_saved = original_data_len - len(data_df)
 
         logger.debug("Downloading and saving %d of %d waveforms (%d already saved)",
-                     len(wav_data), len(wav_dframe), len(wav_dframe) - len(wav_data))
+                     len(data_df), original_data_len, skipped_already_saved)
 
-        # it turns out that now wav_data is a COPY of wav_dframe
+        # it turns out that now wav_data is a COPY of data_df
         # any further operation on it raises a SettingWithCopyWarning, thus avoid issuing it:
         # http://stackoverflow.com/questions/23688307/settingwithcopywarning-even-when-using-loc
-        wav_data.is_copy = False
-        wav_data.reset_index(drop=True, inplace=True)
+        data_df.is_copy = False
+        data_df.reset_index(drop=True, inplace=True)
 
         logger.debug("")
 
-        with progressbar(length=len(wav_data)) as bar:
+        with progressbar(length=len(data_df)) as bar:
             # insert binary data (empty)
             def func_dwav(row_series):
                 query_str = row_series['QueryStr']
@@ -731,16 +754,19 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
                 bar.update(row_series.name + 1)  # series name is the original dframe index
                 return data
 
-            binary_data_series = wav_data.apply(func_dwav, axis=1)
-#         binary_data_series = read_wavs_data(wav_data['QueryStr'], logger, progress)
+            binary_data_series = data_df.apply(func_dwav, axis=1)
 
-        wav_data.insert(1, 'Data', binary_data_series)
+        data_df.insert(1, 'Data', binary_data_series)
 
         # purge stuff which is not good:
-        wav_data.dropna(subset=['Data'], inplace=True)
-        skipped_error = (total - skipped_already_saved) - len(wav_data)
-        wav_data = wav_data[wav_data['Data'] != b'']
-        skipped_empty = (total - skipped_already_saved - skipped_error) - len(wav_data)
+        _len_data_df = len(data_df)
+        data_df.dropna(subset=['Data'], inplace=True)
+        skipped_error = _len_data_df - len(data_df)
+
+        # purge empty stuff:
+        _len_data_df = len(data_df)
+        data_df = data_df[data_df['Data'] != b'']
+        skipped_empty = _len_data_df - len(data_df)
 
     logger.debug("")
     if logger.warnings:
@@ -762,17 +788,50 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
     dbwriter.write(class_labels_df, dbwriter.T_CLS, if_exists='skip')  # fail means: do nothing
     # write events:
     # first purge them then write
-    new_events = dbwriter.purge(events, dbwriter.T_EVT)
-    dbwriter.write(new_events, dbwriter.T_EVT)
+    new_events_df = dbwriter.purge(events_df, dbwriter.T_EVT)
+    dbwriter.write(new_events_df, dbwriter.T_EVT)
     # write data:
     now_ = datetime.utcnow()  # set a common datetime now for runs and data
-    if not wav_data.empty:
-        wav_data.is_copy = False  # FIXME: why is the warning raised?!!!
-        wav_data['RunId'] = now_
-    dbwriter.write(wav_data, dbwriter.T_SEG)
+    if not data_df.empty:
+        stations_df = data_df[dbwriter.STATION_TBL_COLUMNS]
+        pkeycol = dbwriter.table_settings[dbwriter.T_STA_NAME]['pkey']
+        stations_df.insert(0, pkeycol, stations_df[net_col] + "." + stations_df[sta_col])
+        stations_df = stations_df.drop_duplicates(subset=[pkeycol])
+        stations_df = dbwriter.write(data_df, dbwriter.T_STA_NAME, purge_first=True)
+
+        channels_df = data_df[dbwriter.CHANNEL_TBL_COLUMNS]
+        channels_df.insert(0, "StationId", channels_df[net_col] + "." + channels_df[sta_col])
+        pkeycol = dbwriter.table_settings[dbwriter.T_CHA_NAME]['pkey']
+        channels_df.insert(0, "Id", channels_df[net_col] + "." + channels_df[sta_col] + "." +
+                           channels_df[loc_col] + "." + channels_df[cha_col])
+        channels_df = channels_df.drop_duplicates(subset=[pkeycol])
+        channels_df = dbwriter.write(data_df, dbwriter.T_CHA_NAME, purge_first=True)
+
+        non_segs_col = dbwriter.CHANNEL_TBL_COLUMNS + dbwriter.STATION_TBL_COLUMNS
+        id_tmp_cols = (net_col, sta_col, loc_col, cha_col)  # columns to be kept (temporarily)
+        non_segs_col = [k for k in non_segs_col if k not in id_tmp_cols]
+        segments_df = data_df.drop(non_segs_col, axis=1)
+        segments_df['RunId'] = now_
+        pkeycol = dbwriter.table_settings[dbwriter.T_SEG_NAME]['pkey']
+        segments_df.insert(0, 'ChannelId', segments_df[net_col] + "." + segments_df[sta_col] + "." +
+                           segments_df[loc_col] + "." + segments_df[cha_col])
+        segments_df.insert(0, pkeycol, None)
+
+        def myfunc(row):
+            row[pkeycol] = hash((row['#EventID'], row[net_col], row[sta_col],
+                                 row[loc_col], row[cha_col],
+                                 row[stime_col].isoformat(),
+                                 row[etime_col].isoformat()))
+            return row
+
+        segments_df = segments_df.apply(myfunc, axis=1)
+        segments_df = segments_df.drop(id_tmp_cols, axis=1)
+        segments_df = segments_df.rename({stime_col: 'StartTime', etime_col: 'EndTime'})
+        segments_df = dbwriter.write(segments_df, dbwriter.T_SEG_NAME)
+
     # write log:
-    log_dframe = logger.to_df(seg_found=total, seg_written=seg_written,
-                              config_text=yaml_content.getvalue(), datetime_now=now_)
-    dbwriter.write(log_dframe, dbwriter.T_RUN)
+    log_df = logger.to_df(seg_found=total, seg_written=seg_written,
+                          config_text=yaml_content.getvalue(), datetime_now=now_)
+    dbwriter.write(log_df, dbwriter.T_RUN)
 
     return 0

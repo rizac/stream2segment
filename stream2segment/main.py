@@ -98,7 +98,7 @@ def main(gui, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan, search
 
     try:
         sys.exit(save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon,
-                                search_radius_args, cfg_dict['datacenters'], cfg_dict['channels'],
+                                search_radius_args, cfg_dict['channels'],
                                 start, end, ptimespan, min_sample_rate, outpath))
     except KeyboardInterrupt:
         sys.exit(1)
