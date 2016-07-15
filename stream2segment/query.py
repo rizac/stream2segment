@@ -35,6 +35,9 @@ from obspy.taup.helper_classes import TauModelError
 from stream2segment.s2sio.db import DbHandler
 # from stream2segment.s2sio.db import DbHandler
 
+from stream2segment.utils import DataFrame  # overrides DataFrame to allow case-insensitive
+# slicing by columns. Some datacenters are not returning the same columns (concerning case. E.g.
+# 'latitude' vs 'Latitude')
 
 def get_min_travel_time(source_depth_in_km, distance_in_degree, model='ak135'):
     """
@@ -295,7 +298,7 @@ def query2dframe(query_result_str):
         :raise: ValueError in case of errors
     """
     if not query_result_str:
-        return pd.DataFrame()
+        return DataFrame()
 
     events = query_result_str.splitlines()
 
@@ -319,7 +322,7 @@ def query2dframe(query_result_str):
         # Note that if we are here we are sure data rows are the same length
         np.append(data, [columns], axis=0)
 
-    return pd.DataFrame(data=data, columns=columns)
+    return DataFrame(data=data, columns=columns)
 
 
 def get_wav_query(datacenter, network, station_name, location, channel, start_time, end_time):
@@ -333,7 +336,7 @@ def get_wav_queries(dc_series, network_series, station_name_series, location_ser
                     start_time_series, end_time_series):
     """Returns the wav query from the arguments, all pandas Series"""
 
-    pddf = pd.DataFrame({'dc': dc_series, 'channel': channel_series, 'network': network_series,
+    pddf = DataFrame({'dc': dc_series, 'channel': channel_series, 'network': network_series,
                          'station_name': station_name_series, 'location': location_series,
                          'start_time': start_time_series, 'end_time': end_time_series})
 
@@ -349,7 +352,7 @@ def get_wav_queries(dc_series, network_series, station_name_series, location_ser
 
 def get_distances(latitude_series, longitude_series, ev_lat, ev_lon):
     """returns a DataFrame of distances derived from the given arguments"""
-    return pd.DataFrame({'lat': latitude_series,
+    return DataFrame({'lat': latitude_series,
                          'lon': longitude_series}).apply(lambda row: locations2degrees(ev_lat,
                                                                                        ev_lon,
                                                                                        row['lat'],
@@ -369,13 +372,13 @@ def get_time_ranges(arrival_times_series, days=0, hours=0, minutes=0, seconds=0)
         val['start'], val['end'] = tim1, tim2
         return val
 
-    retval = pd.DataFrame({'start': arrival_times_series,
+    retval = DataFrame({'start': arrival_times_series,
                            'end': arrival_times_series}).apply(func, axis=1)
     # http://pandas.pydata.org/pandas-docs/stable/dsintro.html#name-attribute
     # The Series name will be assigned automatically in many cases, in particular when taking 1D
     # slices of DataFrame (as it is now). Problem: the constructor
-    # (pd.DataFrame(series, columns=[new_col]) will produce a DataFrame with  NaN data in it if
-    # new_col is not the same as series name. Solution 1: use pd.DataFrame({'new_name':series}) but
+    # (DataFrame(series, columns=[new_col]) will produce a DataFrame with  NaN data in it if
+    # new_col is not the same as series name. Solution 1: use DataFrame({'new_name':series}) but
     # for safety there is also the rename method:
     return retval['start'].rename(None), retval['end'].rename(None)
 
@@ -445,7 +448,7 @@ class LoggerHandler(object):
         """Saves the logger informatuon to database"""
         if datetime_now is None:
             datetime_now = datetime.utcnow()
-        pddf = pd.DataFrame([[datetime_now, tounicode(self.stringio.getvalue()), self.warnings,
+        pddf = DataFrame([[datetime_now, tounicode(self.stringio.getvalue()), self.warnings,
                               self.errors, seg_found, seg_written, seg_found - seg_written,
                               tounicode(config_text) if config_text else tounicode(""),
                               ".".join(str(v) for v in program_version)]],
@@ -695,9 +698,10 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
                 wdf.reset_index(inplace=True, drop=True)
 
                 # NOTE: wdf['QueryStr'] is the data center (will be filled with the query string
-                # below). FIXME: HORRIBLE HACK!!!
-                if 'location' in wdf.columns:
-                    wdf = wdf.rename(columns={'location': 'Location'})
+                # below).
+                # Note that some datacenters return loc_col as 'location', some others as
+                # 'Location'. That's why we use the DataFrame (subclass of pd.DataFrame)
+                # defined in utils
                 wdf.loc[:, 'QueryStr'] = get_wav_queries(wdf['QueryStr'], wdf[net_col],
                                                          wdf[sta_col], wdf[loc_col],
                                                          wdf[cha_col], wdf[stime_col],
@@ -718,7 +722,7 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
 
     # set data_df to empty if None (makes life easier by checking if data.df.empty leter on)
     if data_df is None:
-        data_df = pd.DataFrame([])
+        data_df = DataFrame([])
 
     if not data_df.empty:
 
@@ -788,8 +792,8 @@ def save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radiu
     dbwriter.write(class_labels_df, dbwriter.T_CLS, if_exists='skip')  # fail means: do nothing
     # write events:
     # first purge them then write
-    new_events_df = dbwriter.purge(events_df, dbwriter.T_EVT)
-    dbwriter.write(new_events_df, dbwriter.T_EVT)
+    new_events_df = dbwriter.purge(events_df, dbwriter.T_EVT_NAME)
+    dbwriter.write(new_events_df, dbwriter.T_EVT_NAME)
     # write data:
     now_ = datetime.utcnow()  # set a common datetime now for runs and data
     if not data_df.empty:

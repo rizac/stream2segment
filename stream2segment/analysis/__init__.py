@@ -96,8 +96,17 @@ def linspace(start, delta, npts):
     return np.linspace(start, start + delta * npts, num=npts, endpoint=False)
 
 
-def moving_average(np_array, n=3):
-    """Implements the moving average filter. NOT USED. FIXME: REMOVE!"""
-    ret = np.cumsum(np_array, dtype=float)
-    ret[n:] = ret[n:] - ret[:-n]
-    return ret[n - 1:] / n
+# def moving_average(np_array, n=3):
+#     """Implements the moving average filter. NOT USED. FIXME: REMOVE!"""
+#     ret = np.cumsum(np_array, dtype=float)
+#     ret[n:] = ret[n:] - ret[:-n]
+#     return ret[n - 1:] / n
+
+
+def maxabs(signal):
+    """
+        Returns the maximum of the absolute values of the signal, i.e. the tuple:
+            (index_of_max, max)
+    """
+    idx = np.nanargmax(np.abs(signal))
+    return idx, signal[idx]

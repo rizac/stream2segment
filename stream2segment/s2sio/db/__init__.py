@@ -141,18 +141,18 @@ class PandasDbHandler(SessionHandler):
         """Returns the sqlalchemy table object mapped to the given table_name"""
         return self.tables[table_name]
 
-    def get_name_and_table(self, table):
-        """Returns the tuple table_name (string), sqlalchemy table object
-        relative to the argument, which can be either a table name or an sqlalchemy table
-        Raises value error if no table is found in the automap method of this class"""
-        try:
-            return table, self.tables[table]
-        except KeyError:
+    def get_table_name(self, table):
+        """Returns the table name corresponding to the table object, or
+        the `table` argument if the latter is already a string matching a table name
+        detected via sqlAlchemy auto-map"""
+        if table in self.tables:
+            return table
+        else:
             for key, value in self.tables.iteritems():
                 if table == value:
-                    return key, value
+                    return key
 
-        raise ValueError(("Error in `get_name_and_table` method: argument '%s' (%s) is neither "
+        raise ValueError(("Error in `get_table_name` method: argument '%s' (%s) is neither "
                           "a valid table name nor an existing table object") % (str(table),
                                                                                 str(type(table))))
 
@@ -165,12 +165,12 @@ class PandasDbHandler(SessionHandler):
 #         except KeyError:
 #             pass
 
-    def attcount(self, table_name):
-        """Returns the number of attributes (columns in the underlying table) of the table
-        identified by table_name"""
-        tbl = self.table(table_name)
-        return len([a for a in tbl.__dict__
-                    if isinstance(getattr(tbl, a), InstrumentedAttribute)])
+#     def attcount(self, table_name):
+#         """Returns the number of attributes (columns in the underlying table) of the table
+#         identified by table_name"""
+#         tbl = self.table(table_name)
+#         return len([a for a in tbl.__dict__
+#                     if isinstance(getattr(tbl, a), InstrumentedAttribute)])
 
     def read_sql_query(self, selectable, parse_dates=None):
         """Selects the given tables in table_names (iterable) with the given where clause
@@ -369,7 +369,8 @@ class DbHandler(PandasDbHandler):
     bytestring
 """
 
-    STATION_TBL_COLUMNS = ["#Network", "Station", "Latitude", "Longitude", "Elevation", "SiteName",
+    STATION_TBL_COLUMNS = ["#Network", "Station", "Latitude", "Longitude", "Elevation",
+                           # "SiteName",
                            "StartTime", "EndTime"]
     CHANNEL_TBL_COLUMNS = ["Location", "Channel", "Depth", "Azimuth", "Dip", "SensorDescription",
                            "Scale", "ScaleFreq", "ScaleUnits", "SampleRate"]
@@ -396,6 +397,8 @@ class DbHandler(PandasDbHandler):
 
         # NOTE: use the `property` class (same as the `property` decorator) so that the value is
         # returned only when called explicitly (we might have no db at the given db_uri)
+        # THESE ATTRIBUTES MIGHT RAISE A KEYERROR IF CALLED ON AN OBJECT WITHOUT UNDERLYING
+        # DATABASE!!!!!
         DbHandler.T_RUN = property(lambda self: self.table(self.T_RUN_NAME))
         DbHandler.T_EVT = property(lambda self: self.table(self.T_EVT_NAME))
         DbHandler.T_STA = property(lambda self: self.table(self.T_STA_NAME))
@@ -488,8 +491,8 @@ class DbHandler(PandasDbHandler):
         """
         ret = {}
         for tbl in tables:
-            tname, tbl = self.get_name_and_table(tbl)
-            ret[tname] = tbl
+            table_name = self.get_table_name(tbl)
+            ret[table_name] = self.table(table_name)
         return ret
 
     def select(self, tables, where=None):
@@ -552,7 +555,7 @@ class DbHandler(PandasDbHandler):
             :return: a new DataFrame with the data not stored to the datbase according to pkey_name
             :rtype: pandas DataFrame
         """
-        table_name, table = self.get_name_and_table(table)
+        table_name = self.get_table_name(table)
         if dframe is None or dframe.empty or table_name not in self.tables:
             return dframe
 
@@ -571,12 +574,11 @@ class DbHandler(PandasDbHandler):
 
     def write(self, dframe, table, purge_first=False, if_exists='append'):
         """
-        Calls self.to_sql(dframe, table_name). NOTE: **table_name must be one of the default tables
-        registered on self.table_settings**
+        Calls self.to_sql(dframe, table_name), where table_name is the name of the table argument
         :param table: the name of the table mapped to the given DataFrame, or the sql alchemy
-            table object (one of the values of self.tables dict)
+            table object.
         """
-        table_name = self.get_name_and_table(table)[0]
+        table_name = self.get_table_name(table)
         if dframe is None or dframe.empty:
             return
         pkey = self.table_settings[table_name]['pkey']
@@ -584,57 +586,49 @@ class DbHandler(PandasDbHandler):
             dframe = self.purge(dframe, table_name, pkey)  # calls self.prepare_df
         else:
             dframe = self.prepare_df(table_name, dframe)
+        dframe = dframe.drop_duplicates(subset=[pkey])
         dtype = self.table_settings[table_name].get('dtype', None)
         self.to_sql(dframe, table_name, pkey, if_exists=if_exists, dtype=dtype)
 
     def prepare_df(self, table, dframe):
         """
             Prepares a default frame for purging or writing. Basically it creates an Id for
-            all null Id's if table_name == self.tables.segments, and modifies the data frame.
-            Returns the input dataframe at the end (potentially unmodified)
+            all null Id's for certain tables, and returns the input dataframe
+            (potentially unmodified)
              :param table: the name of the table mapped to the given DataFrame, or the sql alchemy
             table object (one of the values of self.tables dict)
         """
-        table_name = self.get_name_and_table(table)[0]
+        table_name = self.get_table_name(table)
         if table_name == self.T_SEG_NAME:
             dframe, pkey, recalc = self._checkpkey(table_name, dframe)
 
             if recalc:
-                dframe = self.prepare_df(self.T_CHA_NAME, dframe)
-                dframe.rename(columns={self.table_settings[self.T_CHA_NAME]['pkey']:
-                                       'ChannelId'}, inplace=True)
 
                 def myfunc(row):
                     row[pkey] = hash((row['#EventID'], row['#Network'], row['Station'],
                                       row['Location'], row['Channel'],
-                                      row['DataStartTime'].isoformat(),
-                                      row['DataEndTime'].isoformat()))
+                                      row['StartTime'].isoformat(),
+                                      row['EndTime'].isoformat()))
                     return row
                 dframe = dframe.apply(myfunc, axis=1)
-                dframe = dframe.drop(self.STATION_TBL_COLUMNS + self.CHANNEL_TBL_COLUMNS, axis=1)
 
         elif table_name == self.T_STA_NAME:
             dframe, pkey, recalc = self._checkpkey(table_name, dframe)
 
             if recalc:
-                dframe.insert(0, pkey, dframe['#Network'] + "." + dframe['Station'])
-            dframe = dframe([pkey] + self.STATION_TBL_COLUMNS)
+                dframe[pkey] = dframe['#Network'] + "." + dframe['Station']
 
         elif table_name == self.T_CHA_NAME:
             dframe, pkey, recalc = self._checkpkey(table_name, dframe)
 
             if recalc:
-                dframe = self.prepare_df(self.T_STA_NAME, dframe)
-                dframe.rename(columns={self.table_settings[self.T_STA_NAME]['pkey']:
-                                       'StationId'}, inplace=True)
-                dframe.insert(0, pkey, dframe['StationId'] + "." + dframe['Location'] + "." +
-                              dframe['Channel'])
-                dframe = dframe([pkey] + self.CHANNEL_TBL_COLUMNS)
+                dframe[pkey] = dframe['StationId'] + "." + dframe['Location'] + "." + \
+                    dframe['Channel']
 
         return dframe
 
     def _checkpkey(self, table, dframe):
-        table_name = self.get_name_and_table(table)[0]
+        table_name = self.get_table_name(table)
         pkey = self.table_settings[table_name]['pkey']
         recalc = pkey not in dframe.columns
         if recalc:
@@ -661,7 +655,7 @@ class DbHandler(PandasDbHandler):
         if filter_here:  # we might have overflows on filters, thus do iteration here:
             chunksize = 30
 
-        table_name = self.get_name_and_table(table)[0]
+        table_name = self.get_table_name(table)
         ret = self.read_sql(table_name, coerce_float=True,
                             index_col=None,
                             parse_dates=self.table_settings[table_name].get('parse_dates', None),
@@ -800,7 +794,7 @@ class ListReader(DbHandler):
             if None, returns all columns from the given table
             :return: a pandas DataFrame reflecting the row(s) of the query
         """
-        table_name = self.get_name_and_table(table)[0]
+        table_name = self.get_table_name(table)
         where = self.join_t_seg_with([table_name])
         additional_where = (self.T_SEG.Id == segment_id)
         if where is None:  # in case table name == self.T_SEG_NAME

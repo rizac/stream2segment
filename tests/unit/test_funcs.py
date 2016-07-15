@@ -4,13 +4,79 @@ Created on Feb 23, 2016
 @author: riccardo
 '''
 
-import mock
+import mock, os, sys
 import pytest
+import re
 import argparse
 import numpy as np
+import pandas as pd
 from stream2segment.analysis import env, cumsum, fft
 from scipy.signal import hilbert
+from stream2segment.utils import DataFrame
+from stream2segment.analysis.mseeds import remove_response
+from obspy.core import read
+from obspy.core import Trace, Stream
 
+@pytest.mark.parametrize('inv_output',
+                          ['ACC', 'VEL', 'DISP'])
+def test_remove_response(inv_output):
+    folder = os.path.join(os.path.dirname(os.path.abspath(__file__)),'..','data')
+    mseed = read(os.path.join(folder, 'trace_GE.APE.mseed'))
+    inv_path = os.path.join(folder, 'inventory_GE.APE.xml')
+    mseed2 = remove_response(mseed, inv_path, output=inv_output)
+    assert isinstance(mseed, Stream) == isinstance(mseed2, Stream)
+    assert len(mseed.traces) == len(mseed2.traces)
+    assert (mseed[0].data != mseed2[0].data).any()
+    # assert mseed.__class__.__name__ == mseed2.__class__.__name__
+
+    # UNCOMMENT JUST TO SEE THE PLOT
+    # WARNING: REMEMBER TO COMMENT IT LATER IN CASE!!!!!!!
+#     tr = mseed2.traces[0]
+#     tr.stats.channel = 'REMOVED_R'
+#     news = Stream([mseed.traces[0], tr])
+#     news.plot()
+#     g = 9
+
+
+def test_new_df():
+    dnormal = pd.DataFrame(columns=['Col1\$', 'col2'], data=[[1,2], [3, 'f']])
+    with pytest.raises(KeyError):
+        dnormal['col1']
+    
+    dnew = DataFrame(columns=['Col1\$', 'col2'], data=[[1,2], [3, 'f']])
+    d1 = dnormal['Col1\$']
+    d2 = dnew['col1\$']
+    assert d1.equals(d2)
+    assert isinstance(d1, pd.Series)
+    assert isinstance(d2, pd.Series)
+    d1 = dnormal[['Col1\$', 'col2']]
+    d2 = dnew[['col1\$', 'cOL2']]
+    assert d1.equals(d2)
+    assert isinstance(d1, pd.DataFrame)
+    assert isinstance(d2, DataFrame)
+
+    # non string slicing returns DataFrame or pd.DataFrame according to the object:
+    d1 = dnormal[1:2]
+    d2 = dnew[1:2]
+    assert d1.equals(d2)
+    assert isinstance(d1, pd.DataFrame)
+    assert isinstance(d2, DataFrame)
+
+    d1 = dnormal[[]]
+    d2 = dnew[[]]
+    assert d1.equals(d2)
+    assert isinstance(d1, pd.DataFrame)
+    assert isinstance(d2, DataFrame)
+    
+    with pytest.raises(KeyError):
+        dnew['kol1']
+    with pytest.raises(KeyError):
+        dnew[['kol1', 'col2']]
+    with pytest.raises(KeyError):
+        dnormal[4]
+    with pytest.raises(KeyError):
+        dnew[4]
+    
 @pytest.mark.parametrize('arr, normalize, expected_result, ',
                           [([-1, 1], True, [0.5, 1]),
                            ([-1, 1], False, [1, 2]),

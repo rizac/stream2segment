@@ -5,8 +5,10 @@ Created on Jun 20, 2016
 '''
 import numpy as np
 from obspy.core import Stream, Trace, UTCDateTime
-from stream2segment.analysis import fft as _fft, linspace as xlinspace, cumsum as _cumsum, dfreq, env as _env, pow_spec, amp_spec
+from stream2segment.analysis import fft as _fft, maxabs as _maxabs,\
+    linspace as xlinspace, cumsum as _cumsum, dfreq, env as _env, pow_spec, amp_spec
 from obspy import read, read_inventory
+from scipy.signal import savgol_filter
 
 
 def itertrace(trace_or_stream):
@@ -80,20 +82,75 @@ def apply(trace_or_stream, func, *args, **kwargs):
     return Stream(traces) if isinstance(itr, Stream) else traces[0]
 
 
+def maxabs(trace_or_stream, starttime=None, endtime=None):
+    """
+        Returns the maxima of the absolute values of the trace or stream object passed as first
+        argument. The returned value is the tuple:
+            (time, val)
+        if trace_or_stream is an obspy.Trace, or the lost:
+            [(time1, va1), ... (timeN, valN)]
+        if trace_or_stream is an obspy.Stream
+        :param starttime: an obspy UTCDateTime object (or integer, denoting a timestamp) denoting
+        the start time of the trace
+    """
+    starttime = utcdatetime(starttime)
+    endtime = utcdatetime(endtime)
+
+    ret = []
+    itr = itertrace(trace_or_stream)
+    for tra in itr:
+        tra = tra[starttime: endtime]
+        idx, val = _maxabs(tra.data)
+        time = tra.stats.starttime + idx * tra.stats.delta
+        ret.append((time, val))
+
+    raise ValueError('IMPLEMENT TESTS AND COMMENT HOW TIMES ARE RETURNED!')
+    return ret if isinstance(itr, Stream) else ret[0]
+
+
 def remove_response(trace_or_stream, inventory_or_inventory_path, output='ACC', water_level=60):
     """
-        :param inventory: either an inventory object, or a (absolute) path to a specified inventory
-            objects
+        Removes the response from the trace (or stream) passed as first argument. Calls
+        obspy.Stream.remove_response (or obspy.Trace.remove_response, depending on the first
+        argument) without pre-filtering. THEREFORE, IF THE SIGNAL HAS TO BE FILTERED ONE SHOULD
+        PERFORM THE FILTER PRIOR TO THIS FUNCTION, OR CALL obspy.Stream.remove_response
+        (obspy.Trace.remove_response) which offer more fine parameter tuning
+        :param inventory: either an inventory object, or an (absolute) path to a specified inventory
+        xml file
     """
+    trace_or_stream = trace_or_stream.copy()
     inventory = read_inventory(inventory_or_inventory_path) \
         if isinstance(inventory_or_inventory_path, basestring) else inventory_or_inventory_path
 
-    def func(tra):
-        """removes the response on the trace"""
-        tra.remove_response(inventory=inventory, output=output, water_level=water_level)
-        return tra
+    trace_or_stream.remove_response(inventory=inventory, output=output, water_level=water_level)
 
-    return apply(trace_or_stream, func)
+    return trace_or_stream
+
+
+PAZ_WA = {'sensitivity': 2800, 'zeros': [0j], 'gain': 1,
+          'poles': [-6.2832 - 4.7124j, -6.2832 + 4.7124j]}
+
+
+def simulate_wa(trace_or_stream, inventory_or_inventory_path=None, water_level=60):
+    """
+        Simulates a syntetic wood anderson recording by returning a new Stream (or Trace) object
+        (according to the argument)
+        :param trace_or_stream: the Trace (or Stream) object on which the simulation occurs
+        :param inventory: either an inventory object, or an (absolute) path to a specified inventory
+        xml file. IMPORTANT: IF NOT SUPPLIED (OR NONE) THE FUNCTION ASSUMES THAT THE RESPONSE HAS
+        BEEN ALREADY REMOVED (WITH OUTPUT='DISP') FROM THE INPUT TRACE (OR STREAM) SUPPLIED AS FIRST
+        ARGUMENT
+        :param water_level: ignored if `inventory_or_inventory_path` is None or missing, is the
+        water level argument to be passed to remove_response
+    """
+    if inventory_or_inventory_path is not None:
+        trace_or_stream = remove_response(trace_or_stream, inventory_or_inventory_path,
+                                          'DISP', water_level=water_level)
+    else:
+        trace_or_stream = trace_or_stream.copy()
+
+    trace_or_stream.simulate(paz_remove=None, paz_simulate=PAZ_WA)
+    return trace_or_stream
 
 
 def get_gaps(trace_or_stream):
@@ -194,8 +251,8 @@ def fft(trace_or_stream, fixed_time=None, window_in_sec=None, taper_max_percenta
     :type window_in_sec: numeric
     :return: a NUMPY obspy stream (regardless of whether the argument is a trace or stream object)
     """
-    if not isinstance(fixed_time, UTCDateTime) and fixed_time is not None:
-        fixed_time = UTCDateTime(fixed_time)
+    fixed_time = utcdatetime(fixed_time)
+
     ret_list = []
     itr = itertrace(trace_or_stream)
     for tra in itr:
@@ -307,3 +364,80 @@ def interpolate(trace_or_stream, npts_or_new_x_array, align_if_stream=True,
 
     ret = Stream(ret) if isinstance(itr, Stream) else ret[0]
     return (newxarray, ret) if return_x_array else ret
+
+
+def get_multievent(cum_trace_or_stream, tmin, tmax,
+                   threshold_inside_tmin_tmax_percent,
+                   threshold_inside_tmin_tmax_sec, threshold_after_tmax_percent):
+
+    tmin = utcdatetime(tmin)
+    tmax = utcdatetime(tmax)
+
+    ret = []
+    itr = itertrace(cum_trace_or_stream)
+    for tra in itr:
+        d_order = 2
+
+        # split traces between tmin and tmax and after tmax
+        traces = [tra[tmin:tmax], tra[tmax:]]
+
+        # calculate second derivative and normalize:
+        derivs = []
+        max_ = None
+        for ttt in traces:
+            sec_der = np.diff(ttt.data, n=d_order)
+            mmm = _maxabs(sec_der)
+            max_ = np.nanmax([max_, mmm])  # get max (global) for normalization (see below):
+            derivs.append(sec_der)
+
+        # normalize second derivatives:
+        for der in derivs:
+            der /= max_
+
+        result = 0
+
+        # case A: see if after tmax we exceed a threshold
+        indices = np.where(derivs[1] >= threshold_after_tmax_percent)
+
+        if len(indices):
+            result = 2
+
+        # case B: see if inside tmin tmax we exceed a threshold, and in case check the duration
+        indices = np.where(derivs[0] >= threshold_inside_tmin_tmax_percent)
+        if len(indices) >= 2:
+            idx0 = indices[0]
+            idx1 = indices[-1]
+
+            deltatime = (idx1 - idx0) * tra.stats.delta
+
+            if deltatime >= threshold_inside_tmin_tmax_sec:
+                result += 1
+
+        ret.append(result)
+
+    return ret if isinstance(itr, Stream) else ret[0]
+
+
+def utcdatetime(time, return_if_none=None):
+    if not isinstance(time, UTCDateTime):
+        time = return_if_none if time is None else UTCDateTime(time)
+    return time
+
+
+# FIXME: implement this also in other functions where needed!!!
+# def indexof(trace_or_stream, time):
+#     time = utcdatetime(time)
+#     ret = []
+#     itr = itertrace(trace_or_stream)
+#     for tra in itr:
+#         if time <= tra.stats.starttime:
+#             ret.append(0)
+#         elif time > tra.stats.endtime:
+#             ret.append(len(tra.data))
+#         elif time == tra.stats.endtime:
+#             ret.append(len(tra.data)-1)
+#         else:
+#             idx = (time.timestamp - tra.stats.starttime.timestamp) / tra.stats.delta
+#             return int(np.round(idx))
+# 
+#     return ret if isinstance(itr, Stream) else ret[0]

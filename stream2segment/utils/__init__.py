@@ -40,6 +40,7 @@ import shutil
 import time
 import bisect
 import signal
+import pandas as pd
 
 if 2 <= sys.version_info[0] < 3:
     def ispy2():
@@ -410,280 +411,324 @@ def parsedb(string):
     return m
 
 
-class EstRemTimer():
+class DataFrame(pd.DataFrame):
+    """An extension of pandas DataFrame, where indexing with [] (a.k.a. __getitem__ for those
+       familiar with implementing class behavior in Python), i.e. selecting out lower-dimensional
+       slices, works ignoring the case. This works obviously only if the argument of the slice
+       is either a string or an iterable of strings. Thus, given a DataFrame `d` with columns
+       'a' and 'B', d['A'] returns the same Series as d['a'] (using a pandas DataFrame, a KeyError
+       would be raised), and d[['a', 'b']] returns the same pandas DataFrame as d[['a', 'B']]
+       When the slicing would return a pandas DataFrame, a new DataFrame is returned so that the
+       same ignoring-case slicing works on the returned DataFrame.
+
+       For info see: http://pandas.pydata.org/pandas-docs/stable/indexing.html#basics
     """
-        An object used to calculate the estimated remaining time (ert) in loops.
-        There are two options:
-        1) initialize ert=EstRemTimer(N) and then call ert.get(), ert.percent() or
-        ert.percent_str() at the *start* of each loop. In this case note that ert.get() will be
-        None the first time is called, and ert.get() will never show 0 time remaining as the last
-        time is called the last loop has to be done, or:
-        2) initialize ert=EstRemTimer(N, start_now=True) and then call ert.get(), ert.percent() or
-        ert.percent_str() at the *end* of each loop. In this case, note that ert.get() will never
-        be None and will show 0 time remaining the last time is called
 
-        :Example: 
-            etr = EstRemTimer(N)  # N number of iterations
-            for i in xrange(N):
-                etr.get()   # returns the ert as timedelta object (the first time jsut starts the
-                            # internal timer returning None)
-                            # and increments the internal counter. Call get(False) to return
-                            # the last ert without incrementing the counter
-                etr.done    # returns the number of iterations done (if get() has not been called
-                            # at least TWICE, returns 0)
-                etr.total   # returns N
-                etr.progress(None)  # returns a float representing the percent done
-                                    # (see note of etr.done)
-                etr.progress()      # returns the formatted string of the percent done, e.g.
-                                    # "  1%", " 15%", "100%"
-                ... loop code here ...
-    """
-    def __init__(self, total_iterations, start_now=False, approx_to_seconds=True, use="mean"):
-        """
-            Initializes an EstRemTimer for calculating the estimated remaining time (ert)
-            :param: total_iterations the total iterations this object is assumed to use for
-            calculate the ert
-            :type: total_iterations integer
-            :param: start_now: False by default, set to True if the object methods get or
-            print_progress are called at the end of the loop (i.e., when the first loop work has
-            already been done)
-            :param: approx_to_seconds: when True (the default) approximate the ert
-            (timedelta object) to seconds
-            :type: approx_to_seconds: boolean
-            :param: use: if 'median' (case insensitive) calculates the estimated remaining time
-            using the median of all durations of the iterations done. For any other string,
-            use the mean. The default is "median" because it is less sensitive to skewed
-            distributions, so basically iterations which take far more (or less) time than the
-            average weight less in the computation of the ert.
-        """
-        self.total = total_iterations
-        self.done = 0
-        self._start_time = None if not start_now else time.time()
-        self.ert = None
-        self.approx_to_seconds = approx_to_seconds
-        self._times = [] if use.lower() == "median" else None
+    @staticmethod
+    def _isstr__(elm):
+        return isinstance(elm, basestring)
 
-    def percent(self, formatstr="{:>3.0f}%"):
-        """
-            Returns the percent done according to the internal counter (which is incremented by
-            calling self.get(). I.e., calling this method several times returns always the same
-            value until get() is called again).
-            :param: format: if None, returns the float representing the percent done (in [0,1]).
-            If string, returns a formatted string of the percent done (float within [0,1]). By
-            default is "{:>3.0f}%", which means the percent done is rounded to the int in [0, 100]
-            and displayed as, e.g., "  2%", " 58%", "100%" etcetera.
-            :return: the percent done
-            :rtype: string or float in [0,1] according to the argument (default: string)
-        """
-        num = 1 if not self.total else float(self.done) / self.total
-        if formatstr is None:
-            return num
-        return formatstr.format(100 * num)
-
-    def get(self, increment=True, approx_to_seconds=None):
-        """
-            Gets the estimated remaing time etr. If increment is True, the returned object is None
-            the first time this method is called, at subsequent calls it will be a timedelta object.
-            If increment is False, returns the last calculated ert (which might be None)
-            :param: increment: (True by default) returns the ert and increments the internal counter
-            :type: increment: boolean
-            :param: approx_to_seconds: sets whether the ert is approximated to seconds. If None (the
-            default) the value of the argument approx_to_seconds passed in the constructor (True
-            by default) is used
-            :type: approx_to_seconds: boolean, or None
-            :return: the estimated remaining time, or None
-            :rtype: timedelta object, or None
-        """
-        if increment:
-            if self._start_time is None:
-                self._start_time = time.time()  # start now timing
-                # first iteration, leave done to zero so that user can query the 'done' attribute
-                # and it correctly displays the done iteration
+    def __getitem__(self, key):
+        try:
+            dfm = pd.DataFrame.__getitem__(self, key)
+        except KeyError as kerr:
+            # try to see if key is a string:
+            reg = None
+            if self._isstr__(key):
+                reg = re.escape(key)
+                expected_col_num = 1
             else:
-                self.done += 1
-                if approx_to_seconds is None:
-                    approx_to_seconds = self.approx_to_seconds
-                if self.done >= self.total:
-                    ret = dt.timedelta()
-                else:
-                    elapsed_time = time.time() - self._start_time
-                    if self._times is not None:  # use median
-                        # Find rightmost value less than or equal to ret:
-                        i = bisect.bisect_right(self._times, elapsed_time)
-                        self._times.insert(i, elapsed_time)
-                        idx = len(self._times) / 2
-                        ret = self._times[idx] if len(self._times) % 2 == 1 else \
-                            (self._times[idx] + self._times[idx-1]) / 2
-                        ret *= (self.total - self.done)
-                        ret = dt.timedelta(seconds=int(ret + 0.5) if approx_to_seconds else ret)
-                        self._start_time = time.time()  # re-start timer (for next iteration)
-                    else:
-                        ret = estremttime(elapsed_time, self.done, self.total, approx_to_seconds)
-                self.ert = ret
-        return self.ert
+                regarray = []
+                try:
+                    for k in key:
+                        if not self._isstr__(k):
+                            raise kerr
+                        regarray.append("(?:%s)" % re.escape(k))
+                    expected_col_num = len(regarray)
+                    reg = "|".join([r for r in regarray])
+                except TypeError:
+                    raise kerr
 
-#     def signal_handler(signal, frame):
-#         print 'You pressed Ctrl+C!'
-#         sys.exit(0)
+            if reg is None:  # for safety ...
+                raise kerr
+
+            dfm = self.filter(regex=re.compile(r"^"+reg+"$", re.IGNORECASE))
+            cols = len(dfm.columns)
+            if cols != expected_col_num:
+                raise kerr
+
+            # original pandas slicing returns a series when single string:
+            if cols == 1 and self._isstr__(key):
+                dfm = dfm[dfm.columns[0]]  # returns a Series
+
+        return DataFrame(dfm) if isinstance(dfm, pd.DataFrame) else dfm
+
+
+
+# class EstRemTimer():
+#     """
+#         An object used to calculate the estimated remaining time (ert) in loops.
+#         There are two options:
+#         1) initialize ert=EstRemTimer(N) and then call ert.get(), ert.percent() or
+#         ert.percent_str() at the *start* of each loop. In this case note that ert.get() will be
+#         None the first time is called, and ert.get() will never show 0 time remaining as the last
+#         time is called the last loop has to be done, or:
+#         2) initialize ert=EstRemTimer(N, start_now=True) and then call ert.get(), ert.percent() or
+#         ert.percent_str() at the *end* of each loop. In this case, note that ert.get() will never
+#         be None and will show 0 time remaining the last time is called
 # 
-#         signal.signal(signal.SIGINT, signal_handler)
-#         print 'Press Ctrl+C'
-#         while True:
-#             time.sleep(1)
+#         :Example: 
+#             etr = EstRemTimer(N)  # N number of iterations
+#             for i in xrange(N):
+#                 etr.get()   # returns the ert as timedelta object (the first time jsut starts the
+#                             # internal timer returning None)
+#                             # and increments the internal counter. Call get(False) to return
+#                             # the last ert without incrementing the counter
+#                 etr.done    # returns the number of iterations done (if get() has not been called
+#                             # at least TWICE, returns 0)
+#                 etr.total   # returns N
+#                 etr.progress(None)  # returns a float representing the percent done
+#                                     # (see note of etr.done)
+#                 etr.progress()      # returns the formatted string of the percent done, e.g.
+#                                     # "  1%", " 15%", "100%"
+#                 ... loop code here ...
+#     """
+#     def __init__(self, total_iterations, start_now=False, approx_to_seconds=True, use="mean"):
+#         """
+#             Initializes an EstRemTimer for calculating the estimated remaining time (ert)
+#             :param: total_iterations the total iterations this object is assumed to use for
+#             calculate the ert
+#             :type: total_iterations integer
+#             :param: start_now: False by default, set to True if the object methods get or
+#             print_progress are called at the end of the loop (i.e., when the first loop work has
+#             already been done)
+#             :param: approx_to_seconds: when True (the default) approximate the ert
+#             (timedelta object) to seconds
+#             :type: approx_to_seconds: boolean
+#             :param: use: if 'median' (case insensitive) calculates the estimated remaining time
+#             using the median of all durations of the iterations done. For any other string,
+#             use the mean. The default is "median" because it is less sensitive to skewed
+#             distributions, so basically iterations which take far more (or less) time than the
+#             average weight less in the computation of the ert.
+#         """
+#         self.total = total_iterations
+#         self.done = 0
+#         self._start_time = None if not start_now else time.time()
+#         self.ert = None
+#         self.approx_to_seconds = approx_to_seconds
+#         self._times = [] if use.lower() == "median" else None
+# 
+#     def percent(self, formatstr="{:>3.0f}%"):
+#         """
+#             Returns the percent done according to the internal counter (which is incremented by
+#             calling self.get(). I.e., calling this method several times returns always the same
+#             value until get() is called again).
+#             :param: format: if None, returns the float representing the percent done (in [0,1]).
+#             If string, returns a formatted string of the percent done (float within [0,1]). By
+#             default is "{:>3.0f}%", which means the percent done is rounded to the int in [0, 100]
+#             and displayed as, e.g., "  2%", " 58%", "100%" etcetera.
+#             :return: the percent done
+#             :rtype: string or float in [0,1] according to the argument (default: string)
+#         """
+#         num = 1 if not self.total else float(self.done) / self.total
+#         if formatstr is None:
+#             return num
+#         return formatstr.format(100 * num)
+# 
+#     def get(self, increment=True, approx_to_seconds=None):
+#         """
+#             Gets the estimated remaing time etr. If increment is True, the returned object is None
+#             the first time this method is called, at subsequent calls it will be a timedelta object.
+#             If increment is False, returns the last calculated ert (which might be None)
+#             :param: increment: (True by default) returns the ert and increments the internal counter
+#             :type: increment: boolean
+#             :param: approx_to_seconds: sets whether the ert is approximated to seconds. If None (the
+#             default) the value of the argument approx_to_seconds passed in the constructor (True
+#             by default) is used
+#             :type: approx_to_seconds: boolean, or None
+#             :return: the estimated remaining time, or None
+#             :rtype: timedelta object, or None
+#         """
+#         if increment:
+#             if self._start_time is None:
+#                 self._start_time = time.time()  # start now timing
+#                 # first iteration, leave done to zero so that user can query the 'done' attribute
+#                 # and it correctly displays the done iteration
+#             else:
+#                 self.done += 1
+#                 if approx_to_seconds is None:
+#                     approx_to_seconds = self.approx_to_seconds
+#                 if self.done >= self.total:
+#                     ret = dt.timedelta()
+#                 else:
+#                     elapsed_time = time.time() - self._start_time
+#                     if self._times is not None:  # use median
+#                         # Find rightmost value less than or equal to ret:
+#                         i = bisect.bisect_right(self._times, elapsed_time)
+#                         self._times.insert(i, elapsed_time)
+#                         idx = len(self._times) / 2
+#                         ret = self._times[idx] if len(self._times) % 2 == 1 else \
+#                             (self._times[idx] + self._times[idx-1]) / 2
+#                         ret *= (self.total - self.done)
+#                         ret = dt.timedelta(seconds=int(ret + 0.5) if approx_to_seconds else ret)
+#                         self._start_time = time.time()  # re-start timer (for next iteration)
+#                     else:
+#                         ret = estremttime(elapsed_time, self.done, self.total, approx_to_seconds)
+#                 self.ert = ret
+#         return self.ert
+
+# class Progress(object):
+#     bar_chars_length = 12
+#     empty_fill = u'∙'
+#     fill = u'█'
+#     bar_prefix = u'|'
+#     bar_fuffix = '|'
+#     out = sys.stdout
+#     show_percentage = True
+#     show_ert = True,
+# #     preamble = ''
+# #     epilog = ''
+#     clear_terminal_cursor = True
+#     start_time_immediately = False
+# 
+#     def __init__(self, number_of_iterations, **kwargs):
+#         for name, value in kwargs.iteritems():
+#             setattr(self, name, value)
+#         self.ert = EstRemTimer(number_of_iterations, start_now=self.start_time_immediately)
+#         self._uninit = True
+# 
+#     @staticmethod
+#     def clear_cursor(out=sys.stdout):
+#         print('\x1b[?25l', end='', file=out)
+# 
+#     @staticmethod
+#     def show_cursor(out=sys.stdout):
+#         print('\x1b[?25h', end='', file=out)
+# 
+#     @staticmethod
+#     def clear_line(out=sys.stdout):
+#         print('\r\x1b[K', end='', file=out)  # clear line
+# 
+#     def echo(self, preamble='', epilog=''):
+# 
+#         bar_chars_length = self.bar_chars_length
+#         empty_fill = self.empty_fill
+#         fill = self.fill
+#         bar_prefix = self.bar_prefix
+#         bar_fuffix = self.bar_fuffix
+#         out = self.out
+#         show_percentage = self.show_percentage
+#         show_ert = self.show_ert
+#         clear_terminal_cursor = self.clear_terminal_cursor
+# 
+#         if self._uninit and clear_terminal_cursor:  # first round
+#             self._uninit = False
+#             Progress.clear_cursor(out)
+#             # add a listener for restoring the cursor if keyboardinterrupt is pressed. See:
+#             # http://stackoverflow.com/questions/4205317/capture-keyboardinterrupt-in-python-without-try-except
+# 
+#             def signal_handler(signal, frame):
+#                 Progress.show_cursor(out)
+#             signal.signal(signal.SIGINT, signal_handler)
+# 
+#         Progress.clear_line(out)
+#         ert = self.ert.get()
+#         percent = self.ert.percent(None)
+#         fill_len = max(0, min(bar_chars_length, int(percent * bar_chars_length + 0.5)))
+#         empty_len = bar_chars_length - fill_len
+#         line = '' if not preamble else preamble + " "
+#         line += bar_prefix + (fill * fill_len) + (empty_fill * empty_len) + bar_fuffix
+#         if show_percentage:
+#             line += self.ert.percent()
+#         if show_ert and ert is not None:
+#             line += u" ≈ %ss remaining." % str(ert)
+#         if epilog:
+#             line += " " + epilog
+#         # calculate the number of columns otherwise the line is NOT properly deleted
+#         # NOTE: this works when terminal size is too small, so we do not produce several lines
+#         # and it's fine when resizing UP. Unfortunately, when resizing DOWN in such a way that
+#         # line will be wrapped the problem is still persist and all rows up to (and not including)
+#         # the last row will stay on the terminal. For such a case, we should add a listener
+#         # for terminal resize, which is too much effort
+#         cols = get_terminal_cols()
+#         if cols is not None and cols < len(line):
+#             line = line[:max(0, cols-3)]
+#             if line:
+#                 line += "..."
+#         print(line, end='', file=out)
+#         out.flush()
+#         if self.ert.done >= self.ert.total:
+#             print(file=out)  # print new line
+#             if clear_terminal_cursor:
+#                 Progress.show_cursor(out)  # show cursor
+# 
+# 
+# def estremttime(elapsed_time, iteration_number, total_iterations, approx_to_seconds=True):
+#     """Called within a set of N=total_iterations "operations" (usually in a for loop) started since
+#     elapsed_time, this method returns a timedelta object representing the ESTIMATED remaining time
+#     when the iteration_number-th operation has been finished.
+#     Estimated means that the remaining time is calculated as if each of the remaining operations
+#     will take in average the average time taken for the operations done, which might not always be
+#     the case
+#     :Example:
+#     import time
+#     start_time = time.time()
+#     for i, elm in enumerate(events):  # events being e.g., a list / tuple or whatever
+#         elapsed = time.time() - start_time
+#         est_rt = str(estremttime(elapsed, i, len(events))) if i > 0 else "unwknown"
+#         ... your code here ...
+# 
+#     :param: elapsed_time: the time elapsed since the first operation (operation 0) started
+#     :type: elapsed_time a timedelta object, or any type castable to float (int, floats, numeric
+#         strings)
+#     :param: iteration_number: the number of operations done
+#     :type: iteration_number: a positive int
+#     :param: total_iterations: self-explanatory, specifies the total number of operations expected
+#     :type: total_iterations: a positive int greater or equal than iteration_number
+#     :param: approx_to_seconds: True by default if missing, returns the remaining time aproximated
+#         to seconds, which is sufficient for the typical use case of a process remaining time
+#         which must be shown to the user
+#     :type: approx_to_seconds: boolean
+#     :return: the estimated remaining time according to elapsed_time, which is the time taken to
+#         process iteration_number operations of a total number of total_iterations operations
+#     :rtype: timedelta object. Note that it's string value (str function) can be called to display
+#     the text of the estimated remaining time
+#     """
+#     if isinstance(elapsed_time, dt.timedelta):
+#         elapsed_time = elapsed_time.total_seconds()  # is a float
+#     else:
+#         elapsed_time = float(elapsed_time)  # to avoid rounding below (FIXME: use true division?)
+#     remaining_seconds = (total_iterations - iteration_number) * (elapsed_time / iteration_number)
+#     dttd = dt.timedelta(seconds=int(remaining_seconds+0.5)
+#                         if approx_to_seconds else remaining_seconds)
+#     return dttd
 
 
-class Progress(object):
-    bar_chars_length = 12
-    empty_fill = u'∙'
-    fill = u'█'
-    bar_prefix = u'|'
-    bar_fuffix = '|'
-    out = sys.stdout
-    show_percentage = True
-    show_ert = True,
-#     preamble = ''
-#     epilog = ''
-    clear_terminal_cursor = True
-    start_time_immediately = False
-
-    def __init__(self, number_of_iterations, **kwargs):
-        for name, value in kwargs.iteritems():
-            setattr(self, name, value)
-        self.ert = EstRemTimer(number_of_iterations, start_now=self.start_time_immediately)
-        self._uninit = True
-
-    @staticmethod
-    def clear_cursor(out=sys.stdout):
-        print('\x1b[?25l', end='', file=out)
-
-    @staticmethod
-    def show_cursor(out=sys.stdout):
-        print('\x1b[?25h', end='', file=out)
-
-    @staticmethod
-    def clear_line(out=sys.stdout):
-        print('\r\x1b[K', end='', file=out)  # clear line
-
-    def echo(self, preamble='', epilog=''):
-
-        bar_chars_length = self.bar_chars_length
-        empty_fill = self.empty_fill
-        fill = self.fill
-        bar_prefix = self.bar_prefix
-        bar_fuffix = self.bar_fuffix
-        out = self.out
-        show_percentage = self.show_percentage
-        show_ert = self.show_ert
-        clear_terminal_cursor = self.clear_terminal_cursor
-
-        if self._uninit and clear_terminal_cursor:  # first round
-            self._uninit = False
-            Progress.clear_cursor(out)
-            # add a listener for restoring the cursor if keyboardinterrupt is pressed. See:
-            # http://stackoverflow.com/questions/4205317/capture-keyboardinterrupt-in-python-without-try-except
-
-            def signal_handler(signal, frame):
-                Progress.show_cursor(out)
-            signal.signal(signal.SIGINT, signal_handler)
-
-        Progress.clear_line(out)
-        ert = self.ert.get()
-        percent = self.ert.percent(None)
-        fill_len = max(0, min(bar_chars_length, int(percent * bar_chars_length + 0.5)))
-        empty_len = bar_chars_length - fill_len
-        line = '' if not preamble else preamble + " "
-        line += bar_prefix + (fill * fill_len) + (empty_fill * empty_len) + bar_fuffix
-        if show_percentage:
-            line += self.ert.percent()
-        if show_ert and ert is not None:
-            line += u" ≈ %ss remaining." % str(ert)
-        if epilog:
-            line += " " + epilog
-        # calculate the number of columns otherwise the line is NOT properly deleted
-        # NOTE: this works when terminal size is too small, so we do not produce several lines
-        # and it's fine when resizing UP. Unfortunately, when resizing DOWN in such a way that
-        # line will be wrapped the problem is still persist and all rows up to (and not including)
-        # the last row will stay on the terminal. For such a case, we should add a listener
-        # for terminal resize, which is too much effort
-        cols = get_terminal_cols()
-        if cols is not None and cols < len(line):
-            line = line[:max(0, cols-3)]
-            if line:
-                line += "..."
-        print(line, end='', file=out)
-        out.flush()
-        if self.ert.done >= self.ert.total:
-            print(file=out)  # print new line
-            if clear_terminal_cursor:
-                Progress.show_cursor(out)  # show cursor
-
-
-def estremttime(elapsed_time, iteration_number, total_iterations, approx_to_seconds=True):
-    """Called within a set of N=total_iterations "operations" (usually in a for loop) started since
-    elapsed_time, this method returns a timedelta object representing the ESTIMATED remaining time
-    when the iteration_number-th operation has been finished.
-    Estimated means that the remaining time is calculated as if each of the remaining operations
-    will take in average the average time taken for the operations done, which might not always be
-    the case
-    :Example:
-    import time
-    start_time = time.time()
-    for i, elm in enumerate(events):  # events being e.g., a list / tuple or whatever
-        elapsed = time.time() - start_time
-        est_rt = str(estremttime(elapsed, i, len(events))) if i > 0 else "unwknown"
-        ... your code here ...
-
-    :param: elapsed_time: the time elapsed since the first operation (operation 0) started
-    :type: elapsed_time a timedelta object, or any type castable to float (int, floats, numeric
-        strings)
-    :param: iteration_number: the number of operations done
-    :type: iteration_number: a positive int
-    :param: total_iterations: self-explanatory, specifies the total number of operations expected
-    :type: total_iterations: a positive int greater or equal than iteration_number
-    :param: approx_to_seconds: True by default if missing, returns the remaining time aproximated
-        to seconds, which is sufficient for the typical use case of a process remaining time
-        which must be shown to the user
-    :type: approx_to_seconds: boolean
-    :return: the estimated remaining time according to elapsed_time, which is the time taken to
-        process iteration_number operations of a total number of total_iterations operations
-    :rtype: timedelta object. Note that it's string value (str function) can be called to display
-    the text of the estimated remaining time
-    """
-    if isinstance(elapsed_time, dt.timedelta):
-        elapsed_time = elapsed_time.total_seconds()  # is a float
-    else:
-        elapsed_time = float(elapsed_time)  # to avoid rounding below (FIXME: use true division?)
-    remaining_seconds = (total_iterations - iteration_number) * (elapsed_time / iteration_number)
-    dttd = dt.timedelta(seconds=int(remaining_seconds+0.5)
-                        if approx_to_seconds else remaining_seconds)
-    return dttd
-
-
-def get_terminal_size():
-    return [get_terminal_rows(), get_terminal_cols()]
-
-
-def get_terminal_cols():
-    try:
-        columns = int(os.popen('tput cols', 'r').read().strip())
-        return columns
-    except ValueError:
-        try:
-            _, columns = os.popen('rstty size', 'r').read().split()
-            return int(columns)
-        except ValueError:
-            pass
-    return None
-
-
-def get_terminal_rows():
-    try:
-        rows = int(os.popen('tput lines', 'r').read().strip())
-        return rows
-    except ValueError:
-        try:
-            rows, _ = os.popen('rstty size', 'r').read().split()
-            return int(rows)
-        except ValueError:
-            pass
-    return None
+# def get_terminal_size():
+#     return [get_terminal_rows(), get_terminal_cols()]
+# 
+# 
+# def get_terminal_cols():
+#     try:
+#         columns = int(os.popen('tput cols', 'r').read().strip())
+#         return columns
+#     except ValueError:
+#         try:
+#             _, columns = os.popen('rstty size', 'r').read().split()
+#             return int(columns)
+#         except ValueError:
+#             pass
+#     return None
+# 
+# 
+# def get_terminal_rows():
+#     try:
+#         rows = int(os.popen('tput lines', 'r').read().strip())
+#         return rows
+#     except ValueError:
+#         try:
+#             rows, _ = os.popen('rstty size', 'r').read().split()
+#             return int(rows)
+#         except ValueError:
+#             pass
+#     return None
