@@ -6,9 +6,14 @@ Created on Jun 20, 2016
 import numpy as np
 from obspy.core import Stream, Trace, UTCDateTime
 from stream2segment.analysis import fft as _fft, maxabs as _maxabs,\
-    linspace as xlinspace, cumsum as _cumsum, dfreq, env as _env, pow_spec, amp_spec
-from obspy import read, read_inventory
+    linspace as xlinspace, cumsum as _cumsum, env as _env, pow_spec, amp_spec,\
+    dfreq as _dfreq
+from obspy import read_inventory
 from scipy.signal import savgol_filter
+import pickle
+from obspy.core.stream import read as obspy_read
+import os
+from obspy.core.trace import Stats
 
 
 def itertrace(trace_or_stream):
@@ -72,14 +77,28 @@ def bandpass(trace_or_stream, magnitude, freq_max=20, max_nyquist_ratio=0.9,
 
 def apply(trace_or_stream, func, *args, **kwargs):
     """"
-        func is a function taking a Trace as argument and returning a new Trace
-    """
-    traces = []
-    itr = itertrace(trace_or_stream)
-    for tra in itr:
-        traces.append(func(tra, *args, **kwargs))
+        func is a function taking a Trace as argument and returning anything. This function
+        returns:
 
-    return Stream(traces) if isinstance(itr, Stream) else traces[0]
+        - If trace_or_stream is a Trace:
+          - returns func(trace_or_stream, *args, **kwargs)  (whatever it is)
+        - If trace_or_stream is a Stream:
+            - returns a Stream of all func returned values, if they are all Traces
+            - returns a list of all func returned values, otherwise
+    """
+    returned_vals = []
+    itr = itertrace(trace_or_stream)
+    are_all_traces = True
+    for tra in itr:
+        ret_val = func(tra, *args, **kwargs)
+        returned_vals.append(ret_val)
+        if are_all_traces and not isinstance(ret_val, Trace):
+            are_all_traces = False
+
+    if are_all_traces:
+        return Stream(returned_vals) if isinstance(itr, Stream) else returned_vals[0]
+    else:
+        return returned_vals if isinstance(itr, Stream) else returned_vals[0]
 
 
 def maxabs(trace_or_stream, starttime=None, endtime=None):
@@ -90,8 +109,11 @@ def maxabs(trace_or_stream, starttime=None, endtime=None):
         if trace_or_stream is an obspy.Trace, or the lost:
             [(time1, va1), ... (timeN, valN)]
         if trace_or_stream is an obspy.Stream
+        All times are UTCDateTime objects
         :param starttime: an obspy UTCDateTime object (or integer, denoting a timestamp) denoting
-        the start time of the trace
+        the start time of the trace, or None to default to the trace start
+        :param endtime: an obspy UTCDateTime object (or integer, denoting a timestamp) denoting
+        the start time of the trace, or None to default to the trace end
     """
     starttime = utcdatetime(starttime)
     endtime = utcdatetime(endtime)
@@ -101,11 +123,18 @@ def maxabs(trace_or_stream, starttime=None, endtime=None):
     for tra in itr:
         tra = tra[starttime: endtime]
         idx, val = _maxabs(tra.data)
-        time = tra.stats.starttime + idx * tra.stats.delta
+        time = timeof(tra, idx)
         ret.append((time, val))
 
-    raise ValueError('IMPLEMENT TESTS AND COMMENT HOW TIMES ARE RETURNED!')
     return ret if isinstance(itr, Stream) else ret[0]
+
+#     def func(trace, starttime, endtime):
+#         tra = trace[starttime: endtime]
+#         idx, val = _maxabs(tra.data)
+#         time = timeof(tra, idx)
+#         ret.append((time, val))
+# 
+#     return apply(trace_or_stream, func, utcdatetime(starttime), utcdatetime(endtime))
 
 
 def remove_response(trace_or_stream, inventory_or_inventory_path, output='ACC', water_level=60):
@@ -369,13 +398,21 @@ def interpolate(trace_or_stream, npts_or_new_x_array, align_if_stream=True,
 def get_multievent(cum_trace_or_stream, tmin, tmax,
                    threshold_inside_tmin_tmax_percent,
                    threshold_inside_tmin_tmax_sec, threshold_after_tmax_percent):
-
+    """
+        Returns the tuple (or a list of tuples, if the first argument is a stream) of the 
+        values (score, UTCDateTime of arrival)
+        where scores is: 0: no double event, 1: double event inside tmin_tmax,
+            2: double event after tmax, 3: both double event previously defined are detected
+        If score is 2 or 3, the second argument is the UTCDateTime denoting the occurrence of the
+        first sample triggering the double event after tmax
+    """
     tmin = utcdatetime(tmin)
     tmax = utcdatetime(tmax)
 
     ret = []
     itr = itertrace(cum_trace_or_stream)
     for tra in itr:
+        double_event_after_tmax_time = None
         d_order = 2
 
         # split traces between tmin and tmax and after tmax
@@ -401,6 +438,7 @@ def get_multievent(cum_trace_or_stream, tmin, tmax,
 
         if len(indices):
             result = 2
+            double_event_after_tmax_time = timeof(traces[1], indices[0])
 
         # case B: see if inside tmin tmax we exceed a threshold, and in case check the duration
         indices = np.where(derivs[0] >= threshold_inside_tmin_tmax_percent)
@@ -413,15 +451,211 @@ def get_multievent(cum_trace_or_stream, tmin, tmax,
             if deltatime >= threshold_inside_tmin_tmax_sec:
                 result += 1
 
-        ret.append(result)
+        ret.append((result, double_event_after_tmax_time))
 
     return ret if isinstance(itr, Stream) else ret[0]
+
+
+def timeof(trace, index):
+    """Returns a UTCDateTime object corresponding to the given index of the given trace
+    the index does not need to be inside the trace indices, the method will return the time
+    corresponding to that index anyway"""
+    return trace.stats.starttime + index * trace.stats.delta
 
 
 def utcdatetime(time, return_if_none=None):
     if not isinstance(time, UTCDateTime):
         time = return_if_none if time is None else UTCDateTime(time)
     return time
+
+
+_IO_FORMAT_FFT = 'fft'
+_IO_FORMAT_TRACE = 'time'
+_IO_FORMAT_STREAM = 'obspystream'
+_IO_FORMAT_TIME = 'obspytrace'
+
+_io_types = (g for g in globals() if g[:4] == '_IO_')
+
+def read(obj):
+    """
+        De-serializes an object previously serialized with dumps.
+        The returned object is a python Object with attributes:
+        `data`: a numpy array with the object data, and
+        `stats`: an object with a field called 'delta', denoting
+        the distance (on the x scale) of each data value (As of July 2016, data is supposed to
+        stem from equally sampled recordings), and a field called 'starttime' or 'startfreq',
+        denoting the start value of data on the x-scale.
+
+        Note that if the data type passed in 'dumps' was 'obspytrace' or 'mseed', an obspy Trace or
+        Stream object is returned. This still conforms to the description of the objects attributes
+        and types given above
+
+        As of July 2016, 'startfreq' is used when the data type passed in 'dumps' was 'fft'
+        (i.e., frequency x-scale), 'starttime' in any other case
+
+        For forward compatibility (allowing us to be flexible and implement new versions and types)
+        the stats object might contain ANY kind of additional values. The only two reserved
+        keywords, used for the stats default attributes described above, are 'dx' and 'x0'
+    """
+
+    # test: given a an array of 1000 floats
+    # t1 = Trace(np.array(a))
+    # t2 = {'data':a, 'starttime':t1.stats.starttime.timestamp, 'delta':t1.stats.delta}
+    # len(pickle.dumps(t1)) = 29698
+    # len(pickle.dumps(t2)) = 6063
+    # there seems to be a factor of 5 (!!!)
+    #
+    # The main cause is numpy:
+    # np_a = np.array(a)
+    # len(pickle.dumps(np_a)) = 29190
+    # len(pickle.dumps(a))    =  6006
+    try:
+        return obspy_read(obj)
+    except TypeError:
+        ser = None
+        if os.path.isfile(obj):
+            ser = pickle.load(obj)
+        else:
+            ser = pickle.loads(obj)
+
+        datatype = ser.get('t', None)
+        if datatype not in _io_types:
+            raise ValueError("data_type argument should be any of %s" % str(_io_types))
+
+        data = np.array(ser['d'])
+
+        stats = ser['p']
+        if datatype == _IO_FORMAT_FFT:
+            stats['startfreq'] = stats.pop('x0', 0.0)
+            stats['delta'] = stats.pop('dx', 1.0)
+        elif datatype == _IO_FORMAT_TIME or datatype == _IO_FORMAT_STREAM or \
+                datatype == _IO_FORMAT_TRACE:
+            stats['starttime'] = UTCDateTime(stats.pop('x0', 0.0))
+            stats['delta'] = stats.pop('dx', 1.0)
+            if datatype != _IO_FORMAT_TIME:
+                tra = Trace(data=data, header=stats)
+                if datatype == _IO_FORMAT_STREAM:
+                    return Stream(traces=[tra])
+                else:
+                    return tra
+
+        # instanitate an object ot have access to their attributes
+        # discussion here
+        # http://stackoverflow.com/questions/2827623/python-create-object-and-add-attributes-to-it
+        class Object(object):
+            pass
+        ret = Object()
+        ret.data = data
+        ret.stats = Object()
+        for k, v in stats.iteritems():
+            setattr(ret.stats, k, v)
+
+        return ret
+
+
+def dumps(data, data_type=None, x0=None, dx=None, **stats):
+    """
+        Serializes the given data (array) to a python dictionary. The returned value is a sequence
+        of bytes which can be written to file and read back with the `read` method of this module.
+        This function basically calls pickle.dumps after some casting and conversion, namely
+        converting data from numpy array to native python list (when possible), x0 and x1 to float.
+        The stats dictionary holds custom data, allowing updates in the future.
+
+        *IMPORTANT* In `stats`, PROVIDE WHEN POSSIBLE ONLY PYTHON NATIVE OBJECTS, WHOSE SIZE IS
+        MUCH LIGHTER THAN OTHER OBJECTS. For instance, a numpy array seems to be 5 TIMES bigger than
+        the same array as python list. An obspy UTCDateTime 10 TIMES BIGGER than its timestamp!
+        The arguments data, x0, and x1 ARE AUTOMATICALLY CONVERTED so they can be passed with
+        different formats
+
+        TO GET BACK THE OBJECT SERIALIZED HERE, USE THE `read` MODULE FUNCTION (HAVE A LOOK AT IT)
+
+        :param data: the data, i.e. the y-axis values of the array to store
+        :type data: numpy array or iterable of numeric values. It will be stored as python list
+        anyway
+
+        :param x0: the x value of the first data point. If None, it defaults to 0.0, unless data is
+        an obspy single-trace Stream or an obspy Trace. In this case, it will default to the trace
+        `starttime` property.
+        :type x0: int, float, anything which is a valid argument to the `float` function
+        (e.g., numeric string, UTCDateTime).
+        *NOTE*: For time-series formats, UTCDateTime can be safely passed as the value will be
+        stored as float (its timestamp) and converted back in `read`
+
+        :param dx: the distance between points on the x axis. If None, it will default to 1.0,
+        unless data is an obspy single-trace Stream or an obspy Trace. In this case, it will default
+        to the trace `delta` property.
+        :type dx: int, float, anything which is a valid argument to the `float` function. For
+        time-series, provide a numeric value, which is assumed to be IN SECONDS.
+
+        :param datatype: It is a string format denoting the type of the data.
+            If None, the first argument must be a trace or stream object, and the type
+            will be set accordingly. 
+            Basically, the type
+            tells this function how to convert / parse some arguments before writing them, but MORE
+            IMPORTANTLY, it is used by the `read` function to return back the object serialized
+            here. See the doc for `read` for details on how the objects are returned.
+            The argument can be:
+            - 'fft': when data denotes values mapped to frequency values. x0 is assumed to denote a
+                start frequency (if provided, otherwise defaults to 0) and dx a delta in Hz.
+            - 'time: when data denotes values mapped to time values. x0 is assumed to denote a
+                start time (if provided, otherwise defaults to 0. Note UTCDateTime's are valid) and
+                dx a delta in SECONDS.
+            - 'obspytrace': same as 'time'. In addition, this datatype instructs the `read` method
+                to convert the object into an obspy Trace and return the latter
+            - 'mseed': same as `time`. In addition, this datatype instructs the `read` method to
+                convert the object into and an obspy Trace and return an obspy Stream wrapping that
+                trace
+    """
+    try:
+        data = data.tolist()
+    except AttributeError:
+        tra = None
+        if isinstance(data, Stream) and len(data) == 1:
+            tra = data[0]
+            if data_type is None:
+                data_type = _IO_FORMAT_STREAM
+        elif isinstance(data, Trace):
+            tra = data
+            if data_type is None:
+                data_type = _IO_FORMAT_TRACE
+        else:
+            raise ValueError('data can be a numpy array or Trace or a single-trace Stream object')
+
+        data = tra.data.tolist()
+        if x0 is None:
+            x0 = tra.stats.starttime
+        if dx is None:
+            dx = tra.stats.delta
+
+    if type(data) != list:
+        try:
+            data = list(data)
+        except TypeError:
+            raise ValueError("type '%s' is not writable to db. Expected numeric iterable "
+                             "(list, tuple) or numpy array")
+
+    if data_type not in _io_types:
+        raise ValueError("data_type argument should be any of %s" % str(_io_types))
+    ser_data = {'d': data, 'p': stats, 't': type}  # data, parameters, type
+    if x0 is not None:
+        stats['x0'] = float(x0)  # UTCDateTime works!
+    if dx is not None:
+        stats['dx'] = float(dx)  # UTCDateTime works!
+    return pickle.dumps(ser_data)
+
+
+def dfreq(trace_or_stream):
+    """Returns the delta frequencies"""
+    itr = itertrace(trace_or_stream)
+    isstream = isinstance(itr, Stream)
+    dfreqs = []
+    for tra in itr:
+        dfr = _dfreq(tra.data, tra.stats.delta)
+        if not isstream:
+            return dfr
+        dfreqs.append(dfr)
+
+    return dfreqs
 
 
 # FIXME: implement this also in other functions where needed!!!

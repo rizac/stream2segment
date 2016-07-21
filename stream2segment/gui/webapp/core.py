@@ -5,7 +5,7 @@ Created on Jun 20, 2016
 '''
 from stream2segment.s2sio.db import ListReader
 import numpy as np
-from stream2segment.analysis import interp as interp2, moving_average
+from stream2segment.analysis import moving_average
 from numpy import interp
 from stream2segment.analysis.mseeds import cumsum, snr, env, bandpass, freq_stream, amp_ratio,\
     cumtimes, interpolate

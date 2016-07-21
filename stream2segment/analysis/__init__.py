@@ -13,24 +13,24 @@ def fft(signal):
     return np.fft.rfft(signal)
 
 
-def pow_spec(signal):
+def pow_spec(signal, signal_is_fft=False):
     """Returns the power spectrum of a REAL signal
     :param signal: a signal (numeric array)
     :param dt: the delta t (distance from two points of the equally sampled signal)
     :param return_abs: if true, np.abs is applied to the returned fft, thus converting it to
         power spectrum
     """
-    return np.square(amp_spec(signal))
+    return np.square(amp_spec(signal, signal_is_fft))
 
 
-def amp_spec(signal):
+def amp_spec(signal, signal_is_fft=False):
     """Returns the amplitude spectrum of a REAL signal
     :param signal: a signal (numeric array)
     :param dt: the delta t (distance from two points of the equally sampled signal)
     :param return_abs: if true, np.abs is applied to the returned fft, thus converting it to
         power spectrum
     """
-    return np.abs(fft(signal))
+    return np.abs(fft(signal) if not signal_is_fft else signal)
 
 
 def dfreq(signal, delta_t):
@@ -38,7 +38,7 @@ def dfreq(signal, delta_t):
     return 1.0 / (len(signal) * delta_t)
 
 
-def snr(signal1, signal2, signal_form='normal'):
+def snr(signal, noisy_signal, signals_form='normal', in_db=False):
     """
     Returns the signal to noise ratio of signal1 over signal2.
     :param signal1: a numeric array denoting the divisor of the snr
@@ -49,25 +49,25 @@ def snr(signal1, signal2, signal_form='normal'):
         - 'amp;: then the signals are amplitude spectra. ``snr = 20*log10(signal1 /signal2)``
         - 'pow', then the signals are power spectra. ``snr = 20*log10(signal1 /signal2)``
         - any other value: then the signals are time series, their amplitude spectra will be
-            computed before returing the fft.
+            computed before returing the snr.
     """
-    if signal_form.lower() == 'amp':
-        factor = 20
-    elif signal_form.lower() == 'pow':
-        factor = 10
-    elif signal_form.lower() == 'fft' or signal_form.lower() == 'dft':
-        signal1 = np.abs(signal1)
-        signal2 = np.abs(signal2)
-        factor = 20
-    else:
-        signal1 = amp_spec(signal1)
-        signal2 = amp_spec(signal2)
-        factor = 20
+    if signals_form.lower() == 'amp':
+        signal = np.square(signal)
+        noisy_signal = np.square(noisy_signal)
+    elif signals_form.lower() == 'fft' or signals_form.lower() == 'dft':
+        signal = pow_spec(signal, signal_is_fft=True)
+        noisy_signal = pow_spec(noisy_signal, signal_is_fft=True)
+    elif signals_form.lower() != 'pow':
+        signal = pow_spec(signal, signal_is_fft=False)
+        noisy_signal = pow_spec(noisy_signal, signal_is_fft=False)
 
     # normalize by the number of points:
-    sum1 = np.true_divide(np.sum(signal1), len(signal1))
-    sum2 = np.true_divide(np.sum(signal2), len(signal2))
-    return factor * np.log10(np.true_divide(sum1, sum2))
+    square1 = np.true_divide(signal, len(signal))
+    square2 = np.true_divide(noisy_signal, len(noisy_signal))
+    ret = np.true_divide(square1, square2)
+    # if no db, then return the sqrt.
+    # The sqrt is accounted for in db by multiplying by 10 and not 20
+    return 10 * np.log10(ret) if in_db else np.sqrt(ret)
 
 
 def cumsum(signal, normalize=True):
