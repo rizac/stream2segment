@@ -23,6 +23,9 @@ from pandas import isnull as pd_isnull
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql.elements import BinaryExpression
 from sqlalchemy.sql.expression import and_
+from pandas import to_numeric
+import pandas as pd
+
 
 def _get_dtype(sqltype):
     """Converts a sql type to a numpy type. Copied from pandas.io.sql"""
@@ -86,7 +89,7 @@ def harmonize_rows(table, dataframe, inplace=True):
     """
     non_nullable_cols = get_non_nullable_cols(table, dataframe)
     if non_nullable_cols:
-        dataframe = dataframe.dropna(subset=[non_nullable_cols], inplace=inplace)
+        dataframe.dropna(subset=[non_nullable_cols], inplace=inplace)
     return dataframe
 
 
@@ -116,6 +119,10 @@ def _harmonize_columns(table, dataframe, parse_dates=None):
     by means of parse_dates (a list of strings denoting the name of the additional columns
     to be parsed as dates. None by default)
     """
+    # Note by me: _handle_date_column calls pd.to_datetime which coerces invalid dates to NaT
+    # However, astype raises Errors, so we replace the "astype" with to_numeric if the former
+    # fails
+
     # handle non-list entries for parse_dates gracefully
     if parse_dates is True or parse_dates is None or parse_dates is False:
         parse_dates = []
@@ -139,11 +146,29 @@ def _harmonize_columns(table, dataframe, parse_dates=None):
                 # floats support NA, can always convert!
                 dataframe[col_name] = df_col.astype(col_type, copy=False)
 
-            elif len(df_col) == df_col.count():
-                # No NA values, can convert ints and bools
-                if col_type is np.dtype('int64') or col_type is bool:
-                    dataframe[col_name] = df_col.astype(
-                        col_type, copy=False)
+            elif col_type is np.dtype('int64'):
+                # integers. Try with normal way. The original code checked NaNs like this:
+                # if len(df_col) == df_col.count():
+                # but this raises on e.g., non numeric strings, which we want to
+                # convert to NaN. So, try the "normal way":
+                try:
+                    dataframe[col_name] = df_col.astype(col_type, copy=False)
+                except ValueError:
+                    # failed, use to_numeric coercing to None on errors
+                    dataframe[col_name] = pd.to_numeric(df_col, errors='coerce')
+            elif col_type is bool:
+                # boolean seems to convert without errors but
+                # converts NaN's to True, None to False. So, for preserving None's and NaN:
+                bool_col = df_col.astype(col_type, copy=True)
+                bool_col[pd.isnull(df_col)] = None
+                dataframe[col_name] = bool_col
+
+            # OLD CODE (commented out):
+#             elif len(df_col) == df_col.count():
+#                 # No NA values, can convert ints and bools
+#                 if col_type is np.dtype('int64') or col_type is bool:
+#                     dataframe[col_name] = df_col.astype(
+#                         col_type, copy=False)
 
             # Handle date parsing
             if col_name in parse_dates:
@@ -166,10 +191,13 @@ def df_to_table_iterrows(table_class, dataframe, harmonize_columns_first=True,
         Returns a generator of of ORM model instances (reflecting the rows database table mapped by
         table_class) from the given dataframe. The returned generator can be used in loops and each
         element can be e.g. added to the database by means of sqlAlchemy `session.add` method.
+        NOTE: Only the dataframe columns whose name match the table_class columns will be used.
+        Therefore, it is safe to append to dataframe any column whose name is not in table_class
+        columns.
         :param table_class: the CLASS of the table whose rows are instantiated and returned
         :param dataframe: the input dataframe
         :param harmonize_columns_first: if True (default when missing), the dataframe column types
-        are FIRST harmonized to reflect the table_class column types, and columns withotu a match
+        are FIRST harmonized to reflect the table_class column types, and columns without a match
         in table_class are filtered out. See `harmonize_columns(dataframe)`
         :param harmonize_rows: if True (default when missing), NA values are checked for
         those table columns which have the property nullable set to False. In this case, the
@@ -184,29 +212,33 @@ def df_to_table_iterrows(table_class, dataframe, harmonize_columns_first=True,
 
     dataframe = dataframe[colnames]
 
+    if dataframe.empty:
+        return
+
     valid_rows = None
     if harmonize_rows:
         non_nullable_cols = get_non_nullable_cols(table_class, dataframe)
         if non_nullable_cols:
-            df = pd_isnull(dataframe[non_nullable_cols])
-            valid_rows = df.apply(lambda row: pd_isnull(row).any(), axis=1).values
+            df = ~pd_isnull(dataframe[non_nullable_cols])
+            valid_rows = df.apply(lambda row: row.all(), axis=1).values
 
     if valid_rows is None:
         l = len(dataframe)
-        valid_rows = (True for _ in l)  # fake generator, basically skip valid_rows check below
+        # fake generator, basically skip valid_rows check below
+        valid_rows = (True for _ in xrange(l))
 
     cols, datalist = _insert_data(dataframe)
     # Note below: datalist is an array of N column, each of M rows (it would be nicer to return an
     # array of N rows, each of them representing a table row. But we do not want to touch pandas
     # code.
     # See _insert_table below). Thus we zip it:
-    for has_null, row_values in zip(valid_rows, zip(*datalist)):
-        if has_null:
-            yield None
-        else:
+    for is_ok, row_values in zip(valid_rows, zip(*datalist)):
+        if is_ok:
             # don't make (even if we could) a single line statement. Two lines are more readable:
             row_args_dict = dict(zip(cols, row_values))
             yield table_class(**row_args_dict)
+#         else:
+#             yield None
 
 
 def _insert_data(dataframe):
@@ -255,7 +287,7 @@ def flush(session):
     try:
         session.flush()
         return True
-    except IntegrityError:
+    except IntegrityError as _:
         session.rollback()
         return False
 
@@ -291,30 +323,34 @@ def add_or_get(session, db_row, *args):
         return db_row, True
 
 
-def get_or_add_all(session, model_rows, check_existence_on=None, flush_on_add=True):
-    for _ in get_or_add_iter(session, model_rows, check_existence_on, flush_on_add):
-        pass
+def get_or_add_all(session, model_rows, model_cols_or_colnames=None, flush_on_add=True):
+    ret = []
+    for instance, isnew in get_or_add_iter(session, model_rows, model_cols_or_colnames, flush_on_add):
+        if instance is not None:
+            ret.append(instance)
+    return ret
 
 
-def get_or_add_iter(session, model_rows, check_existence_on=None, flush_on_add=True):
+def get_or_add_iter(session, model_rows, model_cols_or_colnames=None, flush_on_add=True):
     class2expr = {}  # cahce dict for expression
     for row in model_rows:
         model = row.__class__
         binexpfunc = class2expr.get(model, None)
         if not binexpfunc:
-            binexpfunc = _bin_exp_func_from_columns(model, check_existence_on)
+            binexpfunc = _bin_exp_func_from_columns(model, model_cols_or_colnames)
             class2expr[model] = binexpfunc
 
-            yield _get_or_add(session, model, row, binexpfunc, flush_on_add)
+        yield _get_or_add(session, model, row, binexpfunc, flush_on_add)
 
 
-def get_or_add(session, row, check_existence_on=None, flush_on_add=True):
+def get_or_add(session, row, model_cols_or_colnames=None, flush_on_add=True):
     model = row.__class__
-    return _get_or_add(session, model, row, _bin_exp_func_from_columns(model, check_existence_on),
+    return _get_or_add(session, model, row, _bin_exp_func_from_columns(model, model_cols_or_colnames),
                        flush_on_add)
 
 
 def _get_or_add(session, model, row, binexpr_for_get, flush_on_add=True):
+    """Note: flush_on_add=False is dangerous!"""
     row_ = session.query(model).filter(binexpr_for_get(row)).first()
     if row_:
         return row_, False
@@ -325,86 +361,28 @@ def _get_or_add(session, model, row, binexpr_for_get, flush_on_add=True):
         return None, False
 
 
-def _bin_exp_func_from_columns(model, columns):
+def _bin_exp_func_from_columns(model, model_cols_or_colnames):
 
-    if not columns:
-        columns = get_cols(model, primary_key_only=True)
+    if not model_cols_or_colnames:
+        model_cols_or_colnames = get_cols(model, primary_key_only=True)
 
-    for col in columns:
+    columns = []
+    for col in model_cols_or_colnames:
         if not hasattr(col, "key"):  # is a column object
-            col = [getattr(model, col)]  # return the attribute object
+            col = getattr(model, col)  # return the attribute object
         columns.append(col)
 
-    binary_expr_func = None
+    binary_expr_funcs = []
     for col in columns:
         def bin_exp_func(row):
             return col == getattr(row, col.key)
 
-        binary_expr_func = bin_exp_func if binary_expr_func is None else \
-            lambda row: (binary_expr_func(row)) & (bin_exp_func(row))
+        binary_expr_funcs.append(bin_exp_func)
 
-    return binary_expr_func
-
-
-# def _get_or_add(session, row, check_existence_on=None, flush_on_add=True):
-#     """check existence_on NOT callable. Either binary expression OR valid_obj OR iterable of
-#     valid_obj's, where a valid_obj is either a String or a model column (class attribute)
-#     Returns the tuple instance, is_added, bin_exp_func
-#     where instance is the model instance (~= db row), either got or newly added
-#     is_added is self explanatory: whether we added the instance or we got it cause already existing
-#     bin_exp_func: None if check_existence_on is a sqlalchemy Binary expression or a callable
-#         (returning a binary expression). Otherwise, it is the callable built here from the
-#         `check_existence_on` argument. It accepts any row of the same row's model AND will apply
-#         the same criteria set here.
-#     """
-#     binexpfunc = None
-#     model = row.__class__
-#     if hasattr(check_existence_on, "__call__"):
-#         binary_expr = check_existence_on(row)
-#     elif isinstance(check_existence_on, BinaryExpression):
-#         binary_expr = check_existence_on
-#     else:
-#         binexpfunc = _bin_exp_func_from_columns(row, check_existence_on)
-#         # now execute it to get the binary expression:
-#         binary_expr = binexpfunc(row)
-# 
-#     instance = session.query(model).filter(binary_expr).first()
-#     if instance:
-#         return instance, False, binexpfunc
-#     else:
-#         session.add(row)
-#         if flush_on_add:
-#             try:
-#                 session.flush()
-#             except IntegrityError:
-#                 session.rollback()  # rollback only last transaction
-#                 return None, False, binexpfunc
-#         return row, True, binexpfunc
-# 
-# 
-# def _get_or_exec(session, row, check_existence_bin_exp, exec_func_if_no_exist='add', flush_on_exec=True):
-#     """check existence_on NOT callable. Either binary expression OR valid_obj OR iterable of
-#     valid_obj's, where a valid_obj is either a String or a model column (class attribute)
-#     Returns the tuple instance, is_added, bin_exp_func
-#     where instance is the model instance (~= db row), either got or newly added
-#     is_added is self explanatory: whether we added the instance or we got it cause already existing
-#     bin_exp_func: None if check_existence_on is a sqlalchemy Binary expression or a callable
-#         (returning a binary expression). Otherwise, it is the callable built here from the
-#         `check_existence_on` argument. It accepts any row of the same row's model AND will apply
-#         the same criteria set here.
-#     """
-#     instance = session.query(row.__class__).filter(check_existence_bin_exp).first()
-#     if instance:
-#         return instance, False
-#     else:
-#         if exec_func_if_no_exist == 'add':
-#             session.add(row)
-#         else:
-#             exec_func_if_no_exist(session, row)
-#         if flush_on_exec:
-#             try:
-#                 session.flush()
-#             except IntegrityError:
-#                 session.rollback()  # rollback only last transaction
-#                 return None, False
-#         return row, True
+    if len(binary_expr_funcs) == 1:
+        return binary_expr_funcs[0]
+    else:
+        def ret_func(row):
+            binexprs = [b(row) for b in binary_expr_funcs]
+            return and_(*binexprs)
+        return ret_func

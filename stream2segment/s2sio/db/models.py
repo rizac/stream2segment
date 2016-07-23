@@ -48,8 +48,8 @@ class FDSNBase(Base):
     __abstract__ = True
 
     @classmethod
-    def rename_cols(cls, fdsn_query_df):
-        col_mapping = cls.get_col_mapping(fdsn_query_df)
+    def rename_cols(cls, fdsn_query_df, *args, **kwargs):
+        col_mapping = cls.get_col_mapping(fdsn_query_df, *args, **kwargs)
         return fdsn_query_df.rename(columns=col_mapping)  # [col_mapping.values()]
 
     @classmethod
@@ -73,14 +73,26 @@ class Run(Base):
     program_version = Column(String)
 
 
-class Class(Base):  # pylint: disable=no-init
-    """A Building.
-    """
-    __tablename__ = 'classes'
+def dc_datasel_default(context):
+    return context.current_parameters['station_query_url'].replace("/station", "/dataselect")
 
-    id = Column(Integer, primary_key=True, autoincrement=False)
-    label = Column(String)
-    description = Column(String)
+
+class DataCenter(Base):
+    """DataCenters"""
+
+    __tablename__ = "data_centers"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    station_query_url = Column(String, nullable=False)
+    dataselect_query_url = Column(String, default=dc_datasel_default, onupdate=dc_datasel_default)
+
+    segments = relationship("Segment", backref="data_centers")
+    stations = relationship("Station", backref="data_centers")
+
+    __table_args__ = (
+                      UniqueConstraint('station_query_url', 'dataselect_query_url',
+                                       name='sta_data_uc'),
+                     )
 
 
 class Event(FDSNBase):
@@ -106,11 +118,9 @@ class Event(FDSNBase):
 
     @classmethod
     def get_col_mapping(cls, dataframe):
-        dfcols = dataframe.columns
+        # "+" operator is weird on dataframe.columns object. Although not used here convert to list:
+        dfcols = dataframe.columns.values.tolist()
         mycols = cls.get_col_names()
-        if len(dfcols) != len(mycols):
-            raise ValueError("'%s.get_col_mapping' error: expected dataframe with %i column(s), "
-                             "found %i" % (len(mycols), len(dfcols), cls.__name__))
         return {cold: cnew for cold, cnew in zip(dfcols, mycols)}
 
 
@@ -124,6 +134,7 @@ class Station(FDSNBase):
     __tablename__ = "stations"
 
     id = Column(String, primary_key=True, default=sta_pkey_default, onupdate=sta_pkey_default)
+    datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
     network = Column(String, nullable=False)
     station = Column(String, nullable=False)
     latitude = Column(Float, nullable=False)
@@ -142,30 +153,33 @@ class Station(FDSNBase):
 
     @classmethod
     def get_col_mapping(cls, dataframe, level):
-        dfcols = dataframe.columns
+        # "+" operator is weird on dataframe.columns object, convert to list:
+        dfcols = dataframe.columns.values.tolist()
         mycols = cls.get_col_names()
         if level == 'channel':
-            # these are the columns for a station (level=channel) query (the dataframe expected
-            # columns):
+            # these are the dataframe expected columns for a station (level=channel) query:
             #  #Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|
             #  SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
-            # re-arrange columns of this table model:
+            # Some of them are for the Channel table, so select them:
             dfcols = dfcols[:2] + dfcols[4:7] + dfcols[-2:]
-            mycols = mycols[1:6] + mycols[7:9]
+            # and now this table columns mapping (by name, so we can safely add any new column at
+            # any index):
+            mycols = [Station.network.key, Station.station.key, Station.latitude.key,
+                      Station.longitude.key, Station.elevation.key, Station.start_time.key,
+                      Station.end_time.key]
         elif level == 'station':
-            # these are the columns for a station (level=channel) query (the dataframe expected
-            # columns):
+            # these are the dataframe columns for a station (level=channel) query:
             #  #Network|Station|Latitude|Longitude|Elevation|SiteName|StartTime|EndTime
-            mycols = mycols[1:-1]
+            # set this table columns mapping (by name, so we can safely add any new column at any
+            # index):
+            mycols = [Station.network.key, Station.station.key, Station.latitude.key,
+                      Station.longitude.key, Station.elevation.key, Station.site_name.key,
+                      Station.start_time.key, Station.end_time.key]
         else:
             raise ValueError("'%s.get_col_mapping' error: expected 'channel' or 'station' as "
                              "'level' argument value, found '%s'" % str(level))
-        if len(dfcols) != len(mycols):
-            raise ValueError("'%s.get_col_mapping' error: expected dataframe with %i column(s), "
-                             "found %i" % (len(mycols), len(dfcols), cls.__name__))
 
         return {cold: cnew for cold, cnew in zip(dfcols, mycols)}
-        # dataframe.rename(columns={cold: cnew for cold, cnew in zip(dfcols, mycols)}, inplace=True)
 
 
 def cha_pkey_default(context):
@@ -200,18 +214,47 @@ class Channel(FDSNBase):
 
     @classmethod
     def get_col_mapping(cls, dataframe):
-        dfcols = dataframe.columns
+        # "+" operator is weird on dataframe.columns object, convert to list:
+        dfcols = dataframe.columns.values.tolist()
         mycols = cls.get_col_names()
-        # these are the columns for a station (level=channel) query:
+        # these are the dataframe columns for a station (level=channel) query:
         #  #Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|
         #  SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
-        # re-arrange columns of this table model:
+        # Some of them are for the Station table, so select them:
         dfcols = dfcols[2:4] + dfcols[7:15]
-        mycols = mycols[2:4] + mycols[7:]
-        if len(dfcols) != len(mycols):
-            raise ValueError("'%s.get_col_mapping' error: expected dataframe with %i column(s), "
-                             "found %i" % (len(mycols), len(dfcols), cls.__name__))
+        # and now this table columns mapping (by name, so we can safely add any new column at
+        # any index):
+        mycols = [Channel.location.key, Channel.channel.key, Channel.depth.key, Channel.azimuth.key,
+                  Channel.dip.key, Channel.sensor_description.key, Channel.scale.key,
+                  Channel.scale_freq.key, Channel.scale_units.key, Channel.sample_rate.key]
         return {cold: cnew for cold, cnew in zip(dfcols, mycols)}
+
+
+class SegmentClassAssociation(Base):
+
+    __tablename__ = "segment_class_asociations"
+
+    id = Column(Integer, primary_key=True)
+    segment_id = Column(Integer, ForeignKey("segments.id"), nullable=False)
+    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
+    class_id_hand_labelled = Column(Boolean)
+
+    __table_args__ = (UniqueConstraint('segment_id', 'class_id', name='seg_class_uc'),)
+
+
+class Class(Base):  # pylint: disable=no-init
+    """A Building.
+    """
+    __tablename__ = 'classes'
+
+    id = Column(Integer, primary_key=True, autoincrement=False)
+    label = Column(String)
+    description = Column(String)
+
+#     segments = relationship(
+#         "Segment",
+#         secondary=SegmentClassAssociation,
+#         back_populates="classes")
 
 
 class Segment(Base):
@@ -222,16 +265,19 @@ class Segment(Base):
     id = Column(Integer, primary_key=True)  # , default=seg_pkey_default, onupdate=seg_pkey_default)
     event_id = Column(String, ForeignKey("events.id"), nullable=False)
     channel_id = Column(String, ForeignKey("channels.id"), nullable=False)
+    datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
     event_distance_deg = Column(Float, nullable=False)
     data = Column(Binary, nullable=False)
     start_time = Column(DateTime, nullable=False)
     arrival_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
-    query_url = Column(String)
     run_id = Column(DateTime, ForeignKey("runs.id"), nullable=False)
 
     processings = relationship("Processing", backref="segments")
-    classes = relationship("Classes", backref="segments")
+#     classes = relationship(
+#         "Class",
+#         secondary=SegmentClassAssociation,
+#         back_populates="segments")
 
     __table_args__ = (
                       UniqueConstraint('channel_id', 'start_time', 'end_time',
@@ -278,16 +324,6 @@ class Processing(Base):
     __table_args__ = (UniqueConstraint('segment_id', 'run_id', name='seg_run_uc'),)
 
 
-class SegmentClass(Base):
-
-    __tablename__ = "segment_classes"
-
-    id = Column(Integer, primary_key=True)
-    segment_id = Column(Integer, ForeignKey("segments.id"), nullable=False)
-    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
-    class_id_hand_labelled = Column(Boolean)
-
-    __table_args__ = (UniqueConstraint('segment_id', 'class_id', name='seg_class_uc'),)
 
 # FIXME: implement runs datetime server side, and run test to see it's utc!
 # FIXME: implement relations, and test joins

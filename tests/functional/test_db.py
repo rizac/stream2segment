@@ -138,10 +138,14 @@ class Test(unittest.TestCase):
         self.session.add(e)
         self.session.commit()
         assert e.latitude == float(val)
-        
+
+        dc = models.DataCenter(station_query_url='abc')
+        self.session.add(dc)
+        self.session.flush()
+
         # test stations auto id (concat):
         # first test non-specified non-null fields (should reaise an IntegrityError)
-        e = models.Station(network='abc', station='f')
+        e = models.Station(network='abc', station='f', datacenter_id=dc.id)
         assert e.id is None
         self.session.add(e)
         # we do not have specified all non-null fields:
@@ -150,7 +154,8 @@ class Test(unittest.TestCase):
         self.session.rollback()
 
         # now test auto id
-        e = models.Station(network='abc', station='f', latitude='89.5', longitude='56')
+        e = models.Station(network='abc', station='f', latitude='89.5', longitude='56',
+                           datacenter_id=dc.id)
         assert e.id is None
         self.session.add(e)
         # we do not have specified all non-null fields:
@@ -158,21 +163,24 @@ class Test(unittest.TestCase):
         assert e.id == "abc.f"
 
         # test unique constraints by changing only network
-        sta = models.Station(network='a', station='f', latitude='89.5', longitude='56')
+        sta = models.Station(network='a', station='f', latitude='89.5', longitude='56',
+                             datacenter_id=dc.id)
         self.session.add(sta)
         # we do not have specified all non-null fields:
         self.session.commit()
         assert sta.id == "a.f"
 
         # now re-add it. Unique constraint failed
-        sta = models.Station(network='a', station='f', latitude='189.5', longitude='156')
+        sta = models.Station(network='a', station='f', latitude='189.5', longitude='156',
+                             datacenter_id=dc.id)
         self.session.add(sta)
         with pytest.raises(IntegrityError):
             self.session.commit()
         self.session.rollback()
 
         # test stations channels relationship:
-        sta = models.Station(network='ax', station='f', latitude='89.5', longitude='56')
+        sta = models.Station(network='ax', station='f', latitude='89.5', longitude='56',
+                             datacenter_id=dc.id)
         # write channels WITHOUT foreign key
         cha1 = models.Channel(location='l', channel='HHZ', sample_rate=56)
         cha2 = models.Channel(location='l', channel='HHN', sample_rate=12)
@@ -241,10 +249,14 @@ class Test(unittest.TestCase):
         assert len(self.session.query(models.Event).all()) == events+1
             
     def test_pd_to_sql(self):
-
+        dc = models.DataCenter(station_query_url='awergedfbvdbfnhfsnsbstndggf ')
+        self.session.add(dc)
+        self.session.commit()
+        
         id = 'abcdefghilmnopq'
         utcnow = datetime.datetime.utcnow()
-        e = models.Station(id="a.b", network='a', station='b', latitude=56, longitude=78)
+        e = models.Station(id="a.b", network='a', station='b', latitude=56, longitude=78,
+                           datacenter_id=dc.id)
         self.session.add(e)
         self.session.commit()
 #         
@@ -254,6 +266,7 @@ class Test(unittest.TestCase):
         df.loc[0, 'station'] = 'j'
         df.loc[0, 'latitude'] = 43
         df.loc[0, 'longitude'] = 56.7
+        df.loc[0, 'datacenter_id'] = dc.id
         
         df.to_sql(e.__table__.name, self.engine, if_exists='append', index=False)
          
@@ -295,6 +308,10 @@ class Test(unittest.TestCase):
 
 
     def test_event_sta_channel_seg(self):
+        dc= models.DataCenter(station_query_url="345635434246354765879685432efbdfnrhytwfesdvfbgfnyhtgrefs")
+        self.session.add(dc)
+        self.session.flush()
+
         id = '__abcdefghilmnopq'
         utcnow = datetime.datetime.utcnow()
         e = models.Event(id=id, time=utcnow, latitude=89.5, longitude=6,
@@ -302,7 +319,8 @@ class Test(unittest.TestCase):
 
         e, added = add_or_get(self.session, e)
 
-        s = models.Station(network='sdf', station='_', latitude=90, longitude=-45)
+        s = models.Station(network='sdf', station='_', latitude=90, longitude=-45,
+                           datacenter_id = dc.id)
 
         c = models.Channel(location= 'tyu', channel='rty', sample_rate=6)
 
@@ -411,7 +429,8 @@ class Test(unittest.TestCase):
         assert len(df3.columns) == len(df.columns)-2
         
         
-        
+    def test_context_man(self):
+        pass
 #     def dontrunthis_pdsql_utils(self): 
 #         event_rows = df_to_table_rows(models.Event, df3)
 #         

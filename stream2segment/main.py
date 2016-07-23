@@ -19,7 +19,7 @@ import sys
 import yaml
 import click
 import datetime as dt
-from stream2segment.query import save_waveforms
+from stream2segment.query import main as query_main
 from stream2segment.utils import datetime as dtime
 
 
@@ -97,9 +97,9 @@ def main(gui, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan, search
         sys.exit(0)
 
     try:
-        sys.exit(save_waveforms(eventws, minmag, minlat, maxlat, minlon, maxlon,
-                                search_radius_args, cfg_dict['channels'],
-                                start, end, ptimespan, min_sample_rate, outpath))
+        sys.exit(query_main(eventws, minmag, minlat, maxlat, minlon, maxlon,
+                            search_radius_args, cfg_dict['channels'],
+                            start, end, ptimespan, min_sample_rate, outpath))
     except KeyboardInterrupt:
         sys.exit(1)
 

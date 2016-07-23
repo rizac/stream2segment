@@ -9,7 +9,7 @@ from stream2segment.s2sio.db.pd_sql_utils import flush
 from obspy.core.stream import read
 from stream2segment.analysis.mseeds import remove_response, get_gaps, amp_ratio, bandpass, cumsum,\
     cumtimes, fft, maxabs, simulate_wa, get_multievent, dumps, dfreq
-from stream2segment.analysis import snr
+from stream2segment.analysis import snr, mseeds
 from stream2segment.s2sio.db import models
 from obspy.core.utcdatetime import UTCDateTime
 from sqlalchemy.exc import IntegrityError
@@ -31,7 +31,7 @@ def process(session, run_instance, segments_model_instances, logger, progresslis
         if progresslistener:
             progresslistener(i+1)
 
-        mseed = read(seg.data)
+        mseed = read(seg.data)[0]  # it's a trace
 
         if get_gaps(mseed):
             pro.has_gaps = True
@@ -41,6 +41,10 @@ def process(session, run_instance, segments_model_instances, logger, progresslis
 
         if len(mseed) != 1:  # FIXME: better handling
             continue
+
+        # work on the trace now. All functions will return Traces or scalars, which is better
+        # so we can write them to database more easily
+        mseed = mseed[0]
 
         ampratio = amp_ratio(mseed)
         pro.amplitude_ratio = ampratio
@@ -128,11 +132,11 @@ def process(session, run_instance, segments_model_instances, logger, progresslis
 
         deltafreq = dfreq(mseed_rem_resp_t05_t95[0])
 
-        seg.mseed_rem_resp_savewindow = dumps(mseed_rem_resp_savewindow)
-        seg.fft_rem_resp_t05_t95 = dumps(fft_rem_resp_s, 'fft', dx=deltafreq)
-        seg.fft_rem_resp_until_atime = dumps(fft_rem_resp_n, 'fft', dx=deltafreq)
-        seg.wood_anderson_savewindow = dumps(wa_savewindow)
-        seg.cumulative = dumps(mseed_cum)
+        seg.mseed_rem_resp_savewindow = dumps(mseed_rem_resp_savewindow, mseeds._IO_FORMAT_STREAM)
+        seg.fft_rem_resp_t05_t95 = dumps(fft_rem_resp_s, mseeds._IO_FORMAT_FFT, dx=deltafreq)
+        seg.fft_rem_resp_until_atime = dumps(fft_rem_resp_n, mseeds._IO_FORMAT_FFT, dx=deltafreq)
+        seg.wood_anderson_savewindow = dumps(wa_savewindow, mseeds._IO_FORMAT_STREAM)
+        seg.cumulative = dumps(mseed_cum, mseeds._IO_FORMAT_STREAM)
         seg.pga_atime_t95 = PGA
         seg.pgv_atime_t95 = PGV
         seg.pwa_atime_t95 = PWA

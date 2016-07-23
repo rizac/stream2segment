@@ -1,5 +1,6 @@
-from __future__ import unicode_literals
+# from __future__ import unicode_literals
 import pandas as pd
+from stream2segment.s2sio.db import models
 
 
 UNKNOWN_CLASS_ID = -1
@@ -25,5 +26,7 @@ class_labels_df = pd.DataFrame(
                                        [5, "NoSigAll", "Signal is not present in all channels"],
                                        [6, "Gaps", "Signal with gaps"]
                                        ],
-                               columns=["Id", "Label", "Description"],
+                               columns=[models.Class.id.key,
+                                        models.Class.label.key,
+                                        models.Class.description.key],
                               )
