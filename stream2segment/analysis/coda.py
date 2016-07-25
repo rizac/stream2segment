@@ -9,17 +9,9 @@ Created on Jul 25, 2016
 # selection automatique de "clean coda"
 
 from obspy import read
-# import os
-# import shutil
-# from Tkinter import *
-# import tkMessageBox
 import numpy as np
-from matplotlib import pyplot as plt
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2TkAgg
 from obspy.signal.filter import bandpass
 from obspy.signal.trigger import classic_sta_lta
-import csv
 import scipy as sc
 from stream2segment.analysis.mseeds import stream_compliant
 
