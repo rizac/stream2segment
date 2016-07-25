@@ -14,28 +14,29 @@ import pickle
 from obspy.core.stream import read as obspy_read
 import os
 from obspy.core.trace import Stats
-
+from StringIO import StringIO
 
 def stream_compliant(func):
     """
-        This function acts as a decorator, allowing the function decorated to accept either
+        Function decorator which allows the function decorated to accept either
         obspy.Trace or an obspy.Stream objects, and handling the returned output consistently.
         Rationale: A Trace is the obspy core object representing a timeseries. Therefore, in
         principle all processing functions, like those defined here, should work on traces.
-        However, obspy has also a wrapper class, Stream, which is basically a collection of Traces,
-        *which represents the miniSEED file stored on disk* (writing e.g. a Trace T
-        to disk and reading it back returns a Stream wrapping our single Trace T).
-        So, all in all we want to implement here all functions to accept Traces or Streams,
-        implementing only the Trace processing.
+        However, obspy provides also Stream objects (basically, collections of Traces)
+        *which represent the miniSEED file stored on disk* (writing e.g. a Trace T
+        to disk and reading it back returns a Stream object with a single Trace: T).
+        Therefore if would be nice to implement here all functions to accept Traces or Streams,
+        implementing only the Trace processing because the Stream one is just a loop over its
+        Traces.
         After implementing a function func processing a trace, and decorating it like this:
             \@stream_compliant
             def func(trace,...)
         then this decoraor takes care of the rest: it takes the `func` and wraps it creating a
         wrapper function W: if W argument is a Trace, then W calls and returns `func` with the
         trace as argument. On the other hand, if W argument is a Stream, iterates over its traces
-        and call `func` on all of them. Then, if all the objects returned by `func` are again
-        Traces, **returns a Stream wrapping the returned traces**, otherwise return a list
-        of the returned objects.
+        and calls `func` on all of them. Then, if all the objects returned by `func` are again
+        Traces, **returns a Stream wrapping the returned traces**, otherwise **returns a list
+        of the returned objects**.
     """
     def func_wrapper(obj, *args, **kwargs):
         if isinstance(obj, Stream):
@@ -440,7 +441,7 @@ _IO_FORMAT_TRACE = 'time'
 _IO_FORMAT_STREAM = 'obspystream'
 _IO_FORMAT_TIME = 'obspytrace'
 
-_io_types = (g for g in globals() if g[:4] == '_IO_')
+_io_types = tuple(globals()[g] for g in globals() if g[:4] == '_IO_')
 
 
 def read(obj):
@@ -477,7 +478,7 @@ def read(obj):
     # len(pickle.dumps(np_a)) = 29190
     # len(pickle.dumps(a))    =  6006
     try:
-        return obspy_read(obj)
+        return obspy_read(StringIO(obj))
     except TypeError:
         ser = None
         if os.path.isfile(obj):
@@ -574,26 +575,30 @@ def dumps(data, data_type=None, x0=None, dx=None, **stats):
                 trace
     """
     try:
-        data = data.tolist()
+        data = data.tolist()  # try to see if it's a numpy array
     except AttributeError:
         tra = None
-        if isinstance(data, Stream) and len(data) == 1:
+        if isinstance(data, Stream) and len(data) == 1:  # is a single-Trace Stream?
             tra = data[0]
             if data_type is None:
                 data_type = _IO_FORMAT_STREAM
-        elif isinstance(data, Trace):
+        elif isinstance(data, Trace):   # is a Trace?
             tra = data
             if data_type is None:
                 data_type = _IO_FORMAT_TRACE
-        else:
+        elif not hasattr(data, "__iter__"):  # is something iterable? then go on. Otherwise:
             raise ValueError('data can be 1) a numpy array, 2) Trace or 3) a single-trace '
                              'Stream object')
 
-        data = tra.data.tolist()
-        if x0 is None:
-            x0 = tra.stats.starttime
-        if dx is None:
-            dx = tra.stats.delta
+        if tra is not None:
+            data = tra.data.tolist()
+            if x0 is None:
+                x0 = tra.stats.starttime
+            if dx is None:
+                dx = tra.stats.delta
+
+    if data_type not in _io_types:
+        raise ValueError("data_type argument should be any of %s" % str(_io_types))
 
     if type(data) != list:
         try:
@@ -602,9 +607,7 @@ def dumps(data, data_type=None, x0=None, dx=None, **stats):
             raise ValueError("type '%s' is not writable to db. Expected numeric iterable "
                              "(list, tuple) or numpy array")
 
-    if data_type not in _io_types:
-        raise ValueError("data_type argument should be any of %s" % str(_io_types))
-    ser_data = {'d': data, 'p': stats, 't': type}  # data, parameters, type
+    ser_data = {'d': data, 'p': stats, 't': data_type}  # data, parameters, type
     if x0 is not None:
         stats['x0'] = float(x0)  # UTCDateTime works!
     if dx is not None:

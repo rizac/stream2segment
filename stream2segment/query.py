@@ -43,7 +43,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm.session import sessionmaker
 from stream2segment.s2sio.db.models import Base
-from stream2segment.process import process
+from stream2segment.processing import process
 # slicing by columns. Some datacenters are not returning the same columns (concerning case. E.g.
 # 'latitude' vs 'Latitude')
 
@@ -691,7 +691,7 @@ def get_datacenters(session, logger, start_time, end_time):
 
 
 def main(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius_args,
-         channels, start, end, ptimespan, min_sample_rate, outpath):
+         channels, start, end, ptimespan, min_sample_rate, outpath, processing_dict):
     """
         Downloads waveforms related to events to a specific path
         :param eventws: Event WS to use in queries. E.g. 'http://seismicportal.eu/fdsnws/event/1/'
@@ -805,18 +805,20 @@ def main(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius_args,
 
     logger.debug("")
     logger.info("STEP 3/3: Querying Datacenter WS")
+    segments_rows = []
     with progressbar(length=len(segments_df)) as bar:
         segments_rows = write_and_download_data(session, run_row.id,
                                                 stations_df, segments_df,
                                                 progresslistener=lambda i: bar.update(i))
 
-
     try:
         session.commit()
+        seg_processed = process(session, run_row.id, segments_rows, logger, lambda i: bar.update(i), 
+                                **processing_dict)
     except IntegrityError as _:
         session.rollback()
     finally:
         session.close()
-    # process.process(segments_rows)
+
 
     return 0

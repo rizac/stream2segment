@@ -13,20 +13,63 @@ import pandas as pd
 from stream2segment.analysis import env, cumsum, fft
 from scipy.signal import hilbert
 from stream2segment.utils import DataFrame
-from stream2segment.analysis.mseeds import remove_response
-from obspy.core import read
+from stream2segment.analysis.mseeds import remove_response, read as s2s_read, dumps
+from stream2segment.analysis.mseeds import _IO_FORMAT_FFT, _IO_FORMAT_STREAM, _IO_FORMAT_TIME,\
+    _IO_FORMAT_TRACE
+
+from obspy.core.inventory import read_inventory
+from obspy.core import read as obspy_read
 from obspy.core import Trace, Stream
+from StringIO import StringIO
+from obspy.io.stationxml.core import _read_stationxml
+
+
+def test_read_dumps():
+    data = [1, 1.4, 4 + 7j]
+
+    # do NOT provide the format, it should complain:
+    with pytest.raises(ValueError):
+        d = dumps(data)
+
+    # Now not anymore:
+    for f in [_IO_FORMAT_FFT, _IO_FORMAT_STREAM, _IO_FORMAT_TIME, _IO_FORMAT_TRACE]:
+        dmp = dumps(data, f)
+        ret_obj = s2s_read(dmp)
+        _data = ret_obj.data if hasattr(ret_obj, "data") else ret_obj.traces[0].data
+        assert all(_data == data)
+        h = 9
+
 
 @pytest.mark.parametrize('inv_output',
                           ['ACC', 'VEL', 'DISP'])
-def test_remove_response(inv_output):
-    folder = os.path.join(os.path.dirname(os.path.abspath(__file__)),'..','data')
-    mseed = read(os.path.join(folder, 'trace_GE.APE.mseed'))
+def test_remove_response_with_inv_path(inv_output):
+    folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
+    mseed = obspy_read(os.path.join(folder, 'trace_GE.APE.mseed'))
     inv_path = os.path.join(folder, 'inventory_GE.APE.xml')
     mseed2 = remove_response(mseed, inv_path, output=inv_output)
     assert isinstance(mseed, Stream) == isinstance(mseed2, Stream)
     assert len(mseed.traces) == len(mseed2.traces)
     assert (mseed[0].data != mseed2[0].data).any()
+    assert max(mseed[0].data) > max(mseed2[0].data)
+
+
+def test_remove_response_with_inv_object():
+    folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
+    mseed = obspy_read(os.path.join(folder, 'trace_GE.APE.mseed'))
+    inv_path = os.path.join(folder, 'inventory_GE.APE.xml')
+    s = StringIO()
+    with open(inv_path) as _opn:
+        s.write(_opn.read())
+    s.seek(0)
+    inv_obj = read_inventory(s)
+    for inv_output in ['ACC', 'VEL', 'DISP']:
+        mseed2 = remove_response(mseed, inv_obj, output=inv_output)
+        assert isinstance(mseed, Stream) == isinstance(mseed2, Stream)
+        assert len(mseed.traces) == len(mseed2.traces)
+        assert (mseed[0].data != mseed2[0].data).any()
+        assert max(mseed[0].data) > max(mseed2[0].data)
+
+
     # assert mseed.__class__.__name__ == mseed2.__class__.__name__
 
     # UNCOMMENT JUST TO SEE THE PLOT

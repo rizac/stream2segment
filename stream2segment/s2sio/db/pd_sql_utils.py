@@ -284,6 +284,11 @@ def _insert_data(dataframe):
 
 
 def flush(session):
+    """
+        Flushes the given section. In case of Exception (IntegrityError), rolls back the session
+        and returns False. Otherwise True is returned
+        :return: True on success, False otherwise
+    """
     try:
         session.flush()
         return True
@@ -293,6 +298,7 @@ def flush(session):
 
 
 def add_or_get(session, db_row, *args):
+    """deprecated: will be removed in the future"""
     lst = list(args)
     model = db_row.__class__
     if not lst:
@@ -324,16 +330,68 @@ def add_or_get(session, db_row, *args):
 
 
 def get_or_add_all(session, model_rows, model_cols_or_colnames=None, flush_on_add=True):
+    """
+        Iterates on all model_rows trying to add each
+        instance to the session if it does not already exist on the database.
+        The existence is checked based on model_cols_or_colnames: if a database row is found,
+        whose values are the same as the given instance for **all** the columns defined
+        in model_cols_or_colnames, then the database row instance is used.
+
+        Returns the list of tuples: (model_instance, is_newly_added)
+
+        ----------------
+        IMPORTANT
+        ----------------
+        **The length of the returned list might differ from the
+        number of items in model_rows**: If flush_on_add=True,
+        model rows for which `session.flush` fails, typically for reasons like primary key,
+        foreign key, or "not nullable" constraint violations, are *NOT* returned. If you want
+        control over these cases and have the tuple (None, False) returned, consider using
+        `get_or_add_iter`.
+
+        :param model_rows: an iterable (list tuple generator ...) of ORM model instances.
+        An ORM model is the python class reflecting a database table. An ORM model instance is
+        simply a python instance of that class, and thus reflects a rows of the database table
+        :param model_rows: an iterable (list, tuple,...) of ORM model isntances
+        :param model_cols_or_colnames: an iterable of columns, either as columns 
+        of the given ORM model columns, or as strings denoting the given ORM model columns
+        :param flush_on_add: True by default, tells whether a `session.flush` has to be issued after each
+        `session.add`. In case of failure, a `session.rollback` will be issued and the tuple
+        (None, False) is *NOT* appended to the returned list
+    """
     ret = []
-    for instance, isnew in get_or_add_iter(session, model_rows, model_cols_or_colnames, flush_on_add):
+    for instance, isnew in get_or_add_iter(session, model_rows, model_cols_or_colnames,
+                                           flush_on_add):
         if instance is not None:
             ret.append(instance)
     return ret
 
 
-def get_or_add_iter(session, model_rows, model_cols_or_colnames=None, flush_on_add=True):
-    class2expr = {}  # cahce dict for expression
-    for row in model_rows:
+def get_or_add_iter(session, model_instances, model_cols_or_colnames=None, flush_on_add=True):
+    """
+        Iterates on all model_rows trying to add each
+        instance to the session if it does not already exist on the database.
+        The existence is checked based on model_cols_or_colnames: if a database row is found,
+        whose values are the same as the given instance for **all** the columns defined
+        in model_cols_or_colnames, then the database row instance is used.
+
+        Yields tuple: (model_instance, is_newly_added)
+
+        Note that if `flush_on_add`=True (the default), model_instance might be
+        None (see below)
+
+        :param model_rows: an iterable (list tuple generator ...) of ORM model instances.
+        An ORM model is the python class reflecting a database table. An ORM model instance is
+        simply a python instance of that class, and thus reflects a rows of the database table
+        :param model_rows: an iterable (list, tuple,...) of ORM model instances
+        :param model_cols_or_colnames: an iterable of columns, either as columns
+        of the given ORM model columns, or as strings denoting the given ORM model columns
+        :param flush_on_add: True by default, tells whether a `session.flush` has to be issued
+        after each `session.add`. In case of failure, a `session.rollback` will be issued and
+        the tuple (None, False) is yielded
+    """
+    class2expr = {}  # cache dict for expressions
+    for row in model_instances:
         model = row.__class__
         binexpfunc = class2expr.get(model, None)
         if not binexpfunc:
@@ -343,14 +401,42 @@ def get_or_add_iter(session, model_rows, model_cols_or_colnames=None, flush_on_a
         yield _get_or_add(session, model, row, binexpfunc, flush_on_add)
 
 
-def get_or_add(session, row, model_cols_or_colnames=None, flush_on_add=True):
-    model = row.__class__
-    return _get_or_add(session, model, row, _bin_exp_func_from_columns(model, model_cols_or_colnames),
+def get_or_add(session, model_instance, model_cols_or_colnames=None, flush_on_add=True):
+    """
+        Adds `model_instance` to the session if it does not already exist on the database.
+        The existence is checked based on model_cols_or_colnames: if a database row is found,
+        whose values are the same as `model_instance` for **all** the columns defined
+        in model_cols_or_colnames, then `model_instance` is not added, and the database row
+        instance is used.
+
+        Returns the list of tuples: (model_instance, is_newly_added)
+
+        Note that if `flush_on_add`=True (the default), the returned model_instance might be
+        None (see below)
+
+        :param model_instance: An ORM model instances.
+        An ORM model is the python class reflecting a database table. An ORM model instance is
+        simply a python instance of that class, and thus reflects a rows of the database table
+        :param model_cols_or_colnames: an iterable of columns, either as columns
+        of the given ORM model columns, or as strings denoting the given ORM model columns
+        :param flush_on_add: True by default, tells whether a `session.flush` has to be issued
+        after each `session.add`. **If `session.flush` fails**, typically for reasons like
+        primary key, foreign key, or "not nullable" constraint violations, **the session is
+        rolled back and (None, False) is returned**
+    """
+    model = model_instance.__class__
+    return _get_or_add(session, model, model_instance,
+                       _bin_exp_func_from_columns(model, model_cols_or_colnames),
                        flush_on_add)
 
 
 def _get_or_add(session, model, row, binexpr_for_get, flush_on_add=True):
-    """Note: flush_on_add=False is dangerous!"""
+    """
+    Returns row, is_new, where row is the pased row as argument (added if not existing) or the
+    one on the db matching binexpr_for_get. is_new is a boolean indicating whether row was newly
+    added or found on the db (according to binexpr_for_get)
+    If flush_on_add is True (flush_on_add=False must be carefully used, epsecially for handling
+    rollbacks), then row might be None if session.sluch failed"""
     row_ = session.query(model).filter(binexpr_for_get(row)).first()
     if row_:
         return row_, False
@@ -362,7 +448,19 @@ def _get_or_add(session, model, row, binexpr_for_get, flush_on_add=True):
 
 
 def _bin_exp_func_from_columns(model, model_cols_or_colnames):
-
+    """
+        Returns an slalchemy binary expression *function* for the given model and the given columns
+        the function can be passed in a query object for a given model instance.
+        :Example:
+        # assuming a MyTable model defined somewhere, with columns "col_name_1", "col_name2":
+        func = _bin_exp_func_from_columns(MyTable, ["col_name_1", "col_name2"]):
+        # Now assume we have a model instance
+        row = MyTable(col_name_1='a', col_name_2=5.5)
+        # We can use func in a query (assuming we have a session object):
+        session.query(model).filter(func(row)).all()
+        # which will query the db table mapped by MyTable for all the rows whose col_name_1 value
+        is 'a' **and** whose 'col_name_2' value is 5.5
+    """
     if not model_cols_or_colnames:
         model_cols_or_colnames = get_cols(model, primary_key_only=True)
 

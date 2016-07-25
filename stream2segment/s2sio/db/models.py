@@ -62,7 +62,8 @@ class Run(Base):
 
     __tablename__ = "runs"
 
-    id = Column(DateTime, primary_key=True, default=datetime.datetime.utcnow)
+    id = Column(Integer, primary_key=True)  # auto increment should be set to True
+    run_time = Column(DateTime, default=datetime.datetime.utcnow)
     log = Column(String)
     warnings = Column(Integer)
     errors = Column(Integer)
@@ -271,7 +272,7 @@ class Segment(Base):
     start_time = Column(DateTime, nullable=False)
     arrival_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
-    run_id = Column(DateTime, ForeignKey("runs.id"), nullable=False)
+    run_id = Column(Integer, ForeignKey("runs.id"), nullable=False)
 
     processings = relationship("Processing", backref="segments")
 #     classes = relationship(
