@@ -25,6 +25,7 @@ from sqlalchemy.sql.elements import BinaryExpression
 from sqlalchemy.sql.expression import and_
 from pandas import to_numeric
 import pandas as pd
+from sqlalchemy.engine import create_engine
 
 
 def _get_dtype(sqltype):
@@ -484,3 +485,12 @@ def _bin_exp_func_from_columns(model, model_cols_or_colnames):
             binexprs = [b(row) for b in binary_expr_funcs]
             return and_(*binexprs)
         return ret_func
+
+
+def init_db(dbpath):
+    engine = create_engine(dbpath)
+    Base.metadata.create_all(engine)
+    # create a configured "Session" class
+    Session = sessionmaker(bind=engine)
+    # create a Session
+    session = Session()

@@ -51,6 +51,26 @@ def load_def_cfg(filepath='config.yaml', raw=False):
 cfg_dict = load_def_cfg()
 
 
+def run(gui, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan, search_radius_args,
+        outpath, start, end, min_sample_rate, action, processing_on_exist,
+        **processing_args):
+
+    if gui is True:
+        from stream2segment.gui import main
+        main.run_in_browser(outpath)
+        sys.exit(0)
+
+    try:
+        segments = []
+        ret_val = 1
+        if action != 'p':
+            sys.exit(query_main(eventws, minmag, minlat, maxlat, minlon, maxlon,
+                            search_radius_args, cfg_dict['channels'],
+                            start, end, ptimespan, min_sample_rate, outpath,
+                            do_processing=))
+    except KeyboardInterrupt:
+        sys.exit(1)
+
 @click.command()
 @click.option('--gui', is_flag=True,
               help='Launch GUI editor to annotate class ids on '
@@ -99,7 +119,8 @@ def main(gui, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan, search
     try:
         sys.exit(query_main(eventws, minmag, minlat, maxlat, minlon, maxlon,
                             search_radius_args, cfg_dict['channels'],
-                            start, end, ptimespan, min_sample_rate, outpath))
+                            start, end, ptimespan, min_sample_rate, outpath,
+                            do_processing=))
     except KeyboardInterrupt:
         sys.exit(1)
 

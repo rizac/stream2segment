@@ -14,7 +14,7 @@ from stream2segment.s2sio.db import models
 from obspy.core.utcdatetime import UTCDateTime
 from sqlalchemy.exc import IntegrityError
 from StringIO import StringIO
-
+from sqlalchemy import func
 
 # def process_single(session, segments_model_instance, run_id,
 #                    if_exists='update',
@@ -63,16 +63,32 @@ def process(session, segments_model_instance, run_id,
             multievent_threshold2_percent=0.05, **kwargs):
 
     seg = segments_model_instance
-    pro_obj = session.query(models.Processing).filter(models.Processing.segment_id == seg.id &
-                                                      models.Processing.run_id == run_id).first()
-
     needs_add = False
-    if pro_obj and if_exists != 'update':
-        return pro_obj
-    elif pro_obj:
-        pro = pro_obj
-    else:
+    if if_exists == 'overwrite':
+        pro_obj = session.query(models.Processing).filter(models.Processing.segment_id == seg.id).\
+                    delete()
+        flush(session)
         needs_add = True
+    else:
+        pro_objs = session.query(models.Processing).filter(models.Processing.segment_id == seg.id).\
+                                                          all()
+
+        if len(pro_obj):
+            # take the last. Do an inline calculation although there might be smarter db queries
+            # (we are in a hurry!)
+            runs = session.query(models.Run).filter(models.Run.id == seg.run_id).all()
+            runs.sort(key=lambda row: row.run_time)
+            last_run_id = runs[0].id
+            for pro_ in pro_objs:
+                if pro_.run_id == last_run_id:
+                    pro = pro_
+                    break
+            if if_exists != 'update':
+                return pro
+        else:
+            needs_add = True
+
+    if needs_add:
         pro = models.Processing(segment_id=seg.id, run_id=run_id)
 
     # convert to UTCDateTime for operations later:
