@@ -2,6 +2,19 @@
 
 A python project to download seismic waveforms related to events featuring (in progress) several pre-processing utilities
 
+## Installation with anaconda
+Create a virtual environment for your project
+       - In the terminal client enter the following where yourenvname (like « env ») is the name you want to call your environment, and replace x.x with the Python version you wish to use. (To see a list of available python versions first, type conda search "^python$" and press enter.)
+Conda create –n yourenvname python=x.x anaconda
+      - Press « y » to proceed
+
+Activate your virtual environment
+	 - Enter : $source activate env
+	 - To deactivate this environment, use $source deactivate
+
+
+
+
 ## Installation (tested on Ubuntu14.04 - Ubuntu 12.10)
 
 This program has been written on Mac OS El Capitan, but a fresh installation test could be done on Ubuntu only. In principle, Mac users can safely follow the instructions below (trying skipping the [Prerequisites](#prerequisites) section), but a complete track of possible issues is still to be published
