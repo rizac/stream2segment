@@ -30,9 +30,11 @@ class Test(unittest.TestCase):
         mseed = self.read_data_trace("20091217_231838.FR.ESCA.00.HHZ.SAC")
         ret = coda_module.analyze_coda(mseed)
         assert len(ret) == 1
-        coda_start_time = ret[0]
-        assert coda_start_time > mseed.stats.starttime
-        coda_slope = ret[1]
+        coda_result = ret[0]
+        trace = mseed[0]
+        coda_start_time = coda_result[0]
+        assert coda_start_time > trace.stats.starttime
+        coda_slope = coda_result[1]
         assert coda_slope < 0
 
 
