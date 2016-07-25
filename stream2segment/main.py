@@ -5,8 +5,6 @@
 # <XXXXXXX@gfz-potsdam.de>
 #
 # ----------------------------------------------------------------------
-
-
 """
    :Platform:
        Linux, Mac OSX
@@ -15,12 +13,69 @@
    :License:
        To be decided!
 """
+from sqlalchemy.engine import create_engine
+from stream2segment.s2sio.db.models import Base
+from sqlalchemy.orm.session import sessionmaker
+from stream2segment.s2sio.db import models
+from stream2segment.processing import process, process_all
+import logging
+from StringIO import StringIO
+from stream2segment.s2sio.db.pd_sql_utils import flush
 import sys
 import yaml
 import click
 import datetime as dt
 from stream2segment.query import main as query_main
-from stream2segment.utils import datetime as dtime
+from stream2segment.utils import datetime as dtime, tounicode
+from sqlalchemy.sql import func
+
+
+class LoggerHandler(object):
+    """Object handling the root loggers and two Handlers: one writing to StringIO (verbose, being
+    saved to db) the other writing to stdout (or stdio) (less verbose, not saved).
+    This class has all four major logger methods info, warning, debug and error, plus a save
+    method to save the logger text to a database"""
+    def __init__(self, out=sys.stdout):
+        """
+            Initializes a new LoggerHandler, attaching to the root logger two handlers
+        """
+        root_logger = logging.getLogger()
+        root_logger.setLevel(10)
+        stringio = StringIO()
+        file_handler = logging.StreamHandler(stringio)
+        root_logger.addHandler(file_handler)
+        console_handler = logging.StreamHandler(out)
+        console_handler.setLevel(20)
+        root_logger.addHandler(console_handler)
+        self.rootlogger = root_logger
+        self.errors = 0
+        self.warnings = 0
+        self.stringio = stringio
+
+    def info(self, *args, **kw):
+        """forwards the arguments to L.info, where L is the root Logger"""
+        self.rootlogger.info(*args, **kw)
+
+    def debug(self, *args, **kw):
+        """forwards the arguments to L.debug, where L is the root Logger"""
+        self.rootlogger.debug(*args, **kw)
+
+    def warning(self, *args, **kw):
+        """forwards the arguments to L.debug (with "WARNING: " inserted at the beginning of the log
+        message), where L is the root logger. This allows this kind of log messages
+        to be printed to the db log but NOT on the screen (less verbose)"""
+        args = list(args)  # it's a tuple ...
+        args[0] = "WARNING: " + args[0]
+        self.warnings += 1
+        self.rootlogger.debug(*args, **kw)
+
+    def error(self, *args, **kw):
+        """forwards the arguments to L.error, where L is the root Logger"""
+        self.errors += 1
+        self.rootlogger.error(*args, **kw)
+
+    def get_log(self):
+        return tounicode(self.stringio.getvalue())
 
 
 def valid_date(string):
@@ -51,36 +106,96 @@ def load_def_cfg(filepath='config.yaml', raw=False):
 cfg_dict = load_def_cfg()
 
 
-def run(gui, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan, search_radius_args,
-        outpath, start, end, min_sample_rate, action, processing_on_exist,
-        **processing_args):
+def run(action, dbpath, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan,
+        search_radius_args,
+        channels,
+        start, end, min_sample_rate,
+        processing_args_dict):
 
-    if gui is True:
-        from stream2segment.gui import main
-        main.run_in_browser(outpath)
-        sys.exit(0)
+    _args_ = dict(locals())  # this must be the first statement, so that we catch all arguments and
+    # no local variable (none has been declared yet). Note: dict(locals()) avoids problems with
+    # variables created inside loops, when iterating over _args_ (see below)
 
+    if action == 'gui':
+        from stream2segment.gui import main as main_gui
+        main_gui.run_in_browser(dbpath)
+        return 0
+
+    # init the session:
+    engine = create_engine(dbpath)
+    Base.metadata.create_all(engine)
+    # create a configured "Session" class
+    Session = sessionmaker(bind=engine)
+    # create a Session
+    session = Session()
+
+    # add run row with current datetime (utcnow, see models)
+    run_row = models.Run()
+
+    # create logger handler
+    logger = LoggerHandler()
+
+    # print local vars:
+    yaml_content = StringIO()
+    yaml_content.write(yaml.dump(_args_, default_flow_style=False))
+    config_text = yaml_content.getvalue()
+    logger.info("Arguments:")
+    tab = "   "
+    logger.info(tab + config_text.replace("\n", "\n%s" % tab))
+    run_row.config = tounicode(config_text)
+
+    session.add(run_row)
+    session.flush()  # udpate run row
+
+    ret = 0
     try:
         segments = []
-        ret_val = 1
-        if action != 'p':
-            segments, ret_val = query_main(eventws, minmag, minlat, maxlat, minlon, maxlon,
-                                           search_radius_args, cfg_dict['channels'],
-                                           start, end, ptimespan, min_sample_rate, outpath)
-        else:
-            segments = 
-        if action != 'd':
+        if 'd' in action:
+#             main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius_args,
+#          channels, start, end, ptimespan, min_sample_rate, logger=None):
+            ret = query_main(session, run_row.id, eventws, minmag, minlat, maxlat, minlon, maxlon,
+                             search_radius_args, channels,
+                             start, end, ptimespan, min_sample_rate, logger)
 
-    except KeyboardInterrupt:
-        sys.exit(1)
+        if 'p' in action.lower() and ret == 0:
+            segments = session.query(models.Segment).all()
+
+#            parse processing dict:
+            pro_sublists_keys = ['bandpass', 'remove_response', 'snr', 'multi_event', 'coda']
+            pro_args = {k: processing_args_dict[k] for k in processing_args_dict
+                        if k not in pro_sublists_keys}
+            for key in pro_sublists_keys:
+                subvalues = processing_args_dict.get(key, {})
+                for k, v in subvalues.iteritems():
+                    pro_args[key + "_" + k] = v
+
+            ret = process_all(session, segments, run_row.id, overwrite_all='P' in action,
+                              logger=logger, **pro_args)
+
+    except Exception as exc:
+        logger.error(str(exc))
+        ret = 1
+
+    run_row.log = logger.get_log()
+    run_row.errors = logger.errors
+    run_row.warnings - logger.warnings
+    flush(session)
+    return ret
 
 
 @click.command()
-@click.option('--gui', is_flag=True,
-              help='Launch GUI editor to annotate class ids on '
-              'pre-saved data (using this tool). You can also provide optional '
-              'class labels to be shown after --gui, '
-              'e.g.: stream2segment --gui -1 0')
+@click.option('--action', '-a', type=click.Choice(['d', 'p', 'P', 'dp', 'dP', 'gui']),
+              help=('Action to be taken for the program. Choices are:'
+                    '\nd   : download data only, no processing'
+                    '\np   : no download, process only non-processed data (if any)'
+                    '\nP   : no download, clear processing and re-process *all* data'
+                    '\ndp  : download data, process only non-processed data (if any)'
+                    '\ndP  : download data, clear processing and re-process *all* data'
+                    '\ngui : show gui'
+                    '\n'
+                    '\ne.g.: stream2segment --action dp'
+                    '\n      stream2segment --action gui'),
+              default=cfg_dict['action'])
 @click.option('-e', '--eventws', default=cfg_dict['eventws'],
               help='Event WS to use in queries.')
 @click.option('--minmag', default=cfg_dict['minmag'],
@@ -112,19 +227,14 @@ def run(gui, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan, search_
               help='Limit to events on or before the specified end time.')
 @click.option('--min_sample_rate', default=cfg_dict['min_sample_rate'],
               help='Limit to segments on a sample rate higher than a specific threshold')
-def main(gui, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan, search_radius_args,
+def main(action, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan, search_radius_args,
          outpath, start, end, min_sample_rate):
 
-    if gui is True:
-        from stream2segment.gui import main
-        main.run_in_browser(outpath)
-        sys.exit(0)
-
     try:
-        sys.exit(query_main(eventws, minmag, minlat, maxlat, minlon, maxlon,
-                            search_radius_args, cfg_dict['channels'],
-                            start, end, ptimespan, min_sample_rate, outpath,
-                            do_processing=))
+        ret = run(action, outpath, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan,
+                  search_radius_args, cfg_dict['channels'], start, end, min_sample_rate,
+                  cfg_dict['processing'])
+        sys.exit(ret)
     except KeyboardInterrupt:
         sys.exit(1)
 

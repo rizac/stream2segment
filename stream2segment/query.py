@@ -298,67 +298,6 @@ def pd_str(dframe):
         return str(dframe)
 
 
-class LoggerHandler(object):
-    """Object handling the root loggers and two Handlers: one writing to StringIO (verbose, being
-    saved to db) the other writing to stdout (or stdio) (less verbose, not saved).
-    This class has all four major logger methods info, warning, debug and error, plus a save
-    method to save the logger text to a database"""
-    def __init__(self, out=sys.stdout):
-        """
-            Initializes a new LoggerHandler, attaching to the root logger two handlers
-        """
-        root_logger = logging.getLogger()
-        root_logger.setLevel(10)
-        stringio = StringIO()
-        file_handler = logging.StreamHandler(stringio)
-        root_logger.addHandler(file_handler)
-        console_handler = logging.StreamHandler(out)
-        console_handler.setLevel(20)
-        root_logger.addHandler(console_handler)
-        self.rootlogger = root_logger
-        self.errors = 0
-        self.warnings = 0
-        self.stringio = stringio
-
-    def info(self, *args, **kw):
-        """forwards the arguments to L.info, where L is the root Logger"""
-        self.rootlogger.info(*args, **kw)
-
-    def debug(self, *args, **kw):
-        """forwards the arguments to L.debug, where L is the root Logger"""
-        self.rootlogger.debug(*args, **kw)
-
-    def warning(self, *args, **kw):
-        """forwards the arguments to L.debug (with "WARNING: " inserted at the beginning of the log
-        message), where L is the root logger. This allows this kind of log messages
-        to be printed to the db log but NOT on the screen (less verbose)"""
-        args = list(args)  # it's a tuple ...
-        args[0] = "WARNING: " + args[0]
-        self.warnings += 1
-        self.rootlogger.debug(*args, **kw)
-
-    def error(self, *args, **kw):
-        """forwards the arguments to L.error, where L is the root Logger"""
-        self.errors += 1
-        self.rootlogger.error(*args, **kw)
-
-    def to_df(self, seg_found, seg_written, config_text=None, close_stream=True,
-              datetime_now=None):
-        """Saves the logger informatuon to database"""
-        if datetime_now is None:
-            datetime_now = datetime.utcnow()
-        pddf = DataFrame([[datetime_now, tounicode(self.stringio.getvalue()), self.warnings,
-                           self.errors, seg_found, seg_written, seg_found - seg_written,
-                           tounicode(config_text) if config_text else tounicode(""),
-                           ".".join(str(v) for v in program_version)]],
-                         columns=["Id", "Log", "Warnings", "Errors", "SegmentsFound",
-                                  "SegmentsWritten", "SegmentsSkipped", "Config",
-                                  "ProgramVersion"])
-        if close_stream:
-            self.stringio.close()
-        return pddf
-
-
 def search_all_stations(events, datacenters, search_radius_args, channels,
                         min_sample_rate, logger=None, progresslistener=None):
     """
@@ -690,8 +629,8 @@ def get_datacenters(session, logger, start_time, end_time):
     return ret_dcs
 
 
-def main(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius_args,
-         channels, start, end, ptimespan, min_sample_rate, outpath, processing_dict):
+def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius_args,
+         channels, start, end, ptimespan, min_sample_rate, logger=None):
     """
         Downloads waveforms related to events to a specific path
         :param eventws: Event WS to use in queries. E.g. 'http://seismicportal.eu/fdsnws/event/1/'
@@ -729,30 +668,9 @@ def main(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius_args,
         channels with a field 'SampleRate' lower than this value (in Hz) will be discarded and
         relative data not downloaded
         :type min_sample_rate: float
-        :param outpath: path where to store mseed files E.g. 'sqlite:////tmp/mseeds.sqlite'
+        :param session: sql alchemy session object
         :type outpath: string
     """
-    _args_ = dict(locals())  # this must be the first statement, so that we catch all arguments and
-    # no local variable (none has been declared yet). Note: dict(locals()) avoids problems with
-    # variables created inside loops, when iterating over _args_ (see below)
-
-    # init the session:
-    engine = create_engine(outpath)
-    Base.metadata.create_all(engine)
-    # create a configured "Session" class
-    Session = sessionmaker(bind=engine)
-    # create a Session
-    session = Session()
-
-    # create logger handler
-    logger = LoggerHandler()
-
-    # print local vars:
-    yaml_content = StringIO()
-    yaml_content.write(yaml.dump(_args_, default_flow_style=False))
-    logger.info("Arguments:")
-    tab = "   "
-    logger.info(tab + yaml_content.getvalue().replace("\n", "\n%s" % tab))
 
     # write the class labels:
     get_or_add_all(session,
@@ -760,11 +678,6 @@ def main(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius_args,
                                         class_labels_df,
                                         harmonize_columns_first=True,
                                         harmonize_rows=True))
-
-    # add run row with current datetime (utcnow, see models)
-    run_row = models.Run()
-    session.add(run_row)
-    session.flush()  # udpate run row
 
     # a little bit hacky, but convert to dict as the function gets dictionaries
     # Note: we might want to use dict(locals()) as above but that does NOT
@@ -776,8 +689,7 @@ def main(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius_args,
             "minlon": minlon,
             "maxlon": maxlon,
             "start": start.isoformat(),
-            "end": end.isoformat(),
-            "outpath": outpath}
+            "end": end.isoformat()}
 
     logger.debug("")
     logger.info("STEP 1/4: Querying Event WS")
@@ -807,18 +719,18 @@ def main(eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius_args,
     logger.info("STEP 3/3: Querying Datacenter WS")
     segments_rows = []
     with progressbar(length=len(segments_df)) as bar:
-        segments_rows = write_and_download_data(session, run_row.id,
+        segments_rows = write_and_download_data(session, run_id,
                                                 stations_df, segments_df,
                                                 progresslistener=lambda i: bar.update(i))
 
-    try:
-        session.commit()
-        seg_processed = process(session, run_row.id, segments_rows, logger, lambda i: bar.update(i), 
-                                **processing_dict)
-    except IntegrityError as _:
-        session.rollback()
-    finally:
-        session.close()
+#     try:
+#         session.commit()
+#         seg_processed = process(session, run_id, segments_rows, logger, lambda i: bar.update(i), 
+#                                 **processing_dict)
+#     except IntegrityError as _:
+#         session.rollback()
+    #finally:
+        # session.close()
 
 
     return 0

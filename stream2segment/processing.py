@@ -18,6 +18,7 @@ from sqlalchemy import func
 from sqlalchemy.engine import create_engine
 from stream2segment.s2sio.db.models import Base
 from sqlalchemy.orm.session import sessionmaker
+from setuptools.command.egg_info import overwrite_arg
 
 # def process_single(session, segments_model_instance, run_id,
 #                    if_exists='update',
@@ -31,79 +32,45 @@ from sqlalchemy.orm.session import sessionmaker
 #                    multievent_threshold1_duration_sec=10,
 #                    multievent_threshold2_percent=0.05, **kwargs):
 
-def process_all(inpath, segments_model_instances, run_id, if_exist='update',
+
+def process_all(session, segments_model_instances, run_id, overwrite_all=False,
                 logger=None, progresslistener=None,
                 **processing_args):
-#                 amp_ratio_threshold=0.8, a_time_delay=0,
-#                 bandpass_freq_max=20, bandpass_max_nyquist_ratio=0.9, bandpass_corners=2,
-#                 remove_response_output='ACC', remove_response_water_level=60,
-#                 taper_max_percentage=0.05, savewindow_delta_in_sec=30,
-#                 snr_fixedwindow_in_sec=60, multievent_threshold1_percent=0.85,
-#                 multievent_threshold1_duration_sec=10,
-#                 multievent_threshold2_percent=0.05, **kwargs):
-    
-    # init the session:
-    engine = create_engine(inpath)
-    Base.metadata.create_all(engine)
-    # create a configured "Session" class
-    Session = sessionmaker(bind=engine)
-    # create a Session
-    session = Session()
 
     station_inventories = {}  # cache inventories
-    for _, seg in enumerate(segments_model_instances):
-        pro = process(session, seg, run_id,
-                      if_exists=if_exist,
-                      logger=logger,
+    for seg in segments_model_instances:
+        pro = process(session, seg,
+                      logger=logger, overwrite_all=overwrite_all,
                       station_inventories=station_inventories,
                       **processing_args)
         if pro:
-            yield pro
+            yield seg, pro
 
 
-def process(session, segments_model_instance, run_id,
-            if_exists='update',
-            logger=None,
+def process(session, segments_model_instance, run_id, logger=None, overwrite_all=False,
             station_inventories={},
-            amp_ratio_threshold=0.8, a_time_delay=0,
+            amp_ratio_threshold=0.8, arrival_time_delay=0,
             bandpass_freq_max=20, bandpass_max_nyquist_ratio=0.9, bandpass_corners=2,
             remove_response_output='ACC', remove_response_water_level=60,
-            taper_max_percentage=0.05, savewindow_delta_in_sec=30,
-            snr_fixedwindow_in_sec=60, multievent_threshold1_percent=0.85,
-            multievent_threshold1_duration_sec=10,
-            multievent_threshold2_percent=0.05, **kwargs):
+            taper_max_percentage=0.05, savewindow_delta=30,
+            snr_window_length=60, multievent_threshold1=0.85,
+            multievent_threshold1_duration=10,
+            multievent_threshold2=0.05, **kwargs):
 
     seg = segments_model_instance
-    needs_add = False
-    if if_exists == 'overwrite':
-        pro_obj = session.query(models.Processing).filter(models.Processing.segment_id == seg.id).\
-                    delete()
-        flush(session)
-        needs_add = True
-    else:
-        pro_objs = session.query(models.Processing).filter(models.Processing.segment_id == seg.id).\
-                                                          all()
 
-        if len(pro_obj):
-            # take the last. Do an inline calculation although there might be smarter db queries
-            # (we are in a hurry!)
-            runs = session.query(models.Run).filter(models.Run.id == seg.run_id).all()
-            runs.sort(key=lambda row: row.run_time)
-            last_run_id = runs[0].id
-            for pro_ in pro_objs:
-                if pro_.run_id == last_run_id:
-                    pro = pro_
-                    break
-            if if_exists != 'update':
-                return pro
-        else:
-            needs_add = True
+    if overwrite_all:
+        for pro in seg.processings:
+            session.delete(pro)
+        if not flush(session):
+            return None
+    elif seg.processings:
+        return seg.processings[0]
 
-    if needs_add:
-        pro = models.Processing(segment_id=seg.id, run_id=run_id)
+    pro = models.Processing(segment_id=seg.id, run_id=run_id)
 
     # convert to UTCDateTime for operations later:
-    a_time = UTCDateTime(seg.arrival_time) + a_time_delay
+    a_time = UTCDateTime(seg.arrival_time) + arrival_time_delay
 
     mseed = read(seg.data)
 
@@ -186,9 +153,9 @@ def process(session, segments_model_instance, run_id,
                     snr_rem_resp_t10_t90 = snr(fft_rem_resp_s2, fft_rem_resp_n2,
                                                signals_form='fft', in_db=False)
 
-                    fft_rem_resp_s3 = fft(mseed_rem_resp.traces[0], a_time, snr_fixedwindow_in_sec,
+                    fft_rem_resp_s3 = fft(mseed_rem_resp.traces[0], a_time, snr_window_length,
                                           taper_max_percentage=taper_max_percentage)
-                    fft_rem_resp_n3 = fft(mseed_rem_resp.traces[0], a_time, -snr_fixedwindow_in_sec,
+                    fft_rem_resp_n3 = fft(mseed_rem_resp.traces[0], a_time, - snr_window_length,
                                           taper_max_percentage=taper_max_percentage)
                     snr_rem_resp_fixed_window = snr(fft_rem_resp_s3, fft_rem_resp_n3,
                                                     signals_form='fft', in_db=False)
@@ -196,16 +163,16 @@ def process(session, segments_model_instance, run_id,
                     gme = get_multievent  # rename func just to avoid line below is not too wide
                     double_evt = \
                         gme(mseed_cum, t05, t95,
-                            threshold_inside_tmin_tmax_percent=multievent_threshold1_percent,
-                            threshold_inside_tmin_tmax_sec=multievent_threshold1_duration_sec,
-                            threshold_after_tmax_percent=multievent_threshold2_percent)
+                            threshold_inside_tmin_tmax_percent=multievent_threshold1,
+                            threshold_inside_tmin_tmax_sec=multievent_threshold1_duration,
+                            threshold_after_tmax_percent=multievent_threshold2)
 
-                    mseed_rem_resp_savewindow = mseed_rem_resp.slice[a_time-savewindow_delta_in_sec,
-                                                                     t95+savewindow_delta_in_sec].\
+                    mseed_rem_resp_savewindow = mseed_rem_resp.slice[a_time-savewindow_delta,
+                                                                     t95+savewindow_delta].\
                         taper(max_percentage=taper_max_percentage)
 
-                    wa_savewindow = mseed_wa.slice[a_time-savewindow_delta_in_sec,
-                                                   t95+savewindow_delta_in_sec].\
+                    wa_savewindow = mseed_wa.slice[a_time-savewindow_delta,
+                                                   t95+savewindow_delta].\
                         taper(max_percentage=taper_max_percentage)
 
                     deltafreq = dfreq(mseed_rem_resp_t05_t95[0])
@@ -249,10 +216,10 @@ def process(session, segments_model_instance, run_id,
 
     if pro is None:
         return None
-    elif needs_add:
-        seg.processings.append(pro)
 
+    seg.processings.append(pro)
     flush(session)
+    return pro
 
 
 def get_inventory(segment_instance, session, logger=None):

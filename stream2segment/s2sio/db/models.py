@@ -63,13 +63,13 @@ class Run(Base):
     __tablename__ = "runs"
 
     id = Column(Integer, primary_key=True)  # auto increment should be set to True
-    run_time = Column(DateTime, default=datetime.datetime.utcnow)
+    run_time = Column(DateTime, unique=True, default=datetime.datetime.utcnow)
     log = Column(String)
     warnings = Column(Integer)
     errors = Column(Integer)
-    segments_found = Column(Integer)
-    segments_written = Column(Integer)
-    segments_skipped = Column(Integer)
+    # segments_found = Column(Integer)
+    # segments_written = Column(Integer)
+    # segments_skipped = Column(Integer)
     config = Column(String)
     program_version = Column(String)
 

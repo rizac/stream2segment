@@ -454,6 +454,9 @@ def read(obj):
         stem from equally sampled recordings), and a field called 'starttime' or 'startfreq',
         denoting the start value of data on the x-scale.
 
+        This method first attempt is to use obsoy.read function, so it is safe to pass
+        obspy recognized objects
+
         Note that if the data type passed in 'dumps' was 'obspytrace' or 'mseed', an obspy Trace or
         Stream object is returned. This still conforms to the description of the objects attributes
         and types given above
@@ -478,7 +481,7 @@ def read(obj):
     # len(pickle.dumps(np_a)) = 29190
     # len(pickle.dumps(a))    =  6006
     try:
-        return obspy_read(StringIO(obj))
+        return obspy_read(obj if os.path.isfile(obj) else StringIO(obj))
     except TypeError:
         ser = None
         if os.path.isfile(obj):
