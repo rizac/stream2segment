@@ -10,27 +10,32 @@
 channels: # sampling rate (hight to low) / type of data (broadband etcetera)
  - "HH?"
  - 'SH?'
- - 'BH?'
+# - 'BH?'
  - 'HN?'
  - 'SN?'
- - 'BN?'
-# - 'HL?'
-# - 'SL?'
+# - 'BN?'
+ - 'HL?'
+ - 'SL?'
 # - 'BL?'
 
+# regardless of the config above (which sets also the sampling rates, see FIXME: link)
+# one can set the minimum frequency here (in Hz). Set to a number <=0 to skip it
+min_sample_rate: 60
+
+# FIXME: REMOVE THIS COMMENT BLOCK. IT's NOT ANYMORE USED!!!
 # Include only two datacentres to test. You can change to the full
 # set of datacentres as soon as you think it's working.
-datacenters:
- GFZ: 'http://geofon.gfz-potsdam.de/fdsnws'
- ETH: 'http://arclink.ethz.ch/fdsnws'
-# ODC: 'http://www.orfeus-eu.org/fdsnws'
-# RESIF: 'http://ws.resif.fr/fdsnws'
-# INGV: 'http://webservices.rm.ingv.it/fdsnws'
-# BGR: 'http://eida.bgr.de/fdsnws'
-# LMU: 'http://erde.geophysik.uni-muenchen.de/fdsnws'
-# IPGP: 'http://eida.ipgp.fr/fdsnws'
-# NIEP: 'http://eida-sc3.infp.ro/fdsnws'
-# KOERI: 'http://eida.koeri.boun.edu.tr/fdsnws'
+#datacenters:
+#  GFZ: 'http://geofon.gfz-potsdam.de/fdsnws'
+#  ETH: 'http://arclink.ethz.ch/fdsnws'
+#  ODC: 'http://www.orfeus-eu.org/fdsnws'
+#  RESIF: 'http://ws.resif.fr/fdsnws'
+#  INGV: 'http://webservices.rm.ingv.it/fdsnws'
+#  BGR: 'http://eida.bgr.de/fdsnws'
+#  LMU: 'http://erde.geophysik.uni-muenchen.de/fdsnws'
+#  IPGP: 'http://eida.ipgp.fr/fdsnws'
+#  NIEP: 'http://eida-sc3.infp.ro/fdsnws'
+#  KOERI: 'http://eida.koeri.boun.edu.tr/fdsnws'
 
 # other sesmic specific parameters
 eventws: 'http://seismicportal.eu/fdsnws/event/1/'
@@ -50,8 +55,8 @@ search_radius_args:
  - 5 # max distance (deg)
 
 # these are optional, missing defaults to start:yesterday at midnight, today at midnight
-#start: 2016-04-23T00:00:00
-#end: 2016-04-23T11:00:00
+start: 2016-05-08T00:00:00
+end: 2016-05-08T09:00:00
 
 # program specific parameters:
 
@@ -62,3 +67,50 @@ search_radius_args:
 # dialect+driver://username:password@host:port/database
 # (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)
 outpath: 'sqlite:///./mydb.sqlite'  # '/tmp/mseeds/'
+
+# specify here the action to be taken: 'all': download and process, 'd': download only, 'p': process saved segments only
+action: 'all'
+
+# if processing is enabled (see above), specify here what to do:
+# 'overwrite': take all processings for a given segment, delete them and insert the new processing
+# 'update': if for a given segment exist at least one processing, take the last one and update its fields
+# 'skip': if for a given segment exists at least one processing, skip processing for that segment  
+processing_on_exist: 'overwrite'
+
+# processing stuff:
+processing:
+  amp_ratio_threshold: 0.8
+  bandpass:
+    freq_max: 20 # the max frequency, in Hz
+    max_nyquist_ratio: 0.9 # the amount of freq_max to be taken. low-pass corner = max_nyquist_ratio * freq_max (defined above)
+    corners: 2 # the corners
+  remove_response:
+    output: 'ACC'
+    water_level: 60
+  taper_max_percentage: 0.05  # the taper percentage used when tapering (applied on any tapered object)
+  savewindow_delta: 30 # the window whereby the mseed and wood_anderson are saved (in seconds)
+  # the window will be substracted from the arrival time and added to the t95 of the cumulative
+  arrival_time_delay: 0  # the delay (in seconds) whereby to shift the P-arrival time T (calculated inside the code)
+  # the real arrival time AT will be AT = T + fixed_delay for processing only
+  snr:
+ # the window length (in seconds). There will be two spectra, one calculated on
+ # AT-window_length (noisy signal), the other on AT+window_length ('normal' signal)
+    window_length: 60  # snr_fixedwindow_in_sec
+  multi_event:
+    threshold1: 0.85 # in [0,1] (percentage units) threshold to apply on the main interval (usually t05 t95)
+    threshold1_duration: 10 # in seconds. Threshold to apply on the main interval (usually t05 t95)
+    threshold2: 0.05 # in [0,1] (percentage units). Threshold to apply on the second interval (usually after t95)
+  coda_analysis:
+    # max window length after which we stop iterations (in seconds):
+    window_length: 80
+    # for the coda analysis: sub-window length in seconds (used alo for moving average smoothing)
+    subwindow_length: 2.5
+    # for the coda analysis: sub-window overlap in percentage (i.e., in ]0,1])
+    subwindow_overlap: 0.5
+    # coda analysis threshold on snr sub-windows
+    subwindow_amplitude_threshold: 4
+
+    
+    
+            
+    
