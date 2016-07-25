@@ -64,12 +64,16 @@ def run(gui, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan, search_
         segments = []
         ret_val = 1
         if action != 'p':
-            sys.exit(query_main(eventws, minmag, minlat, maxlat, minlon, maxlon,
-                            search_radius_args, cfg_dict['channels'],
-                            start, end, ptimespan, min_sample_rate, outpath,
-                            do_processing=))
+            segments, ret_val = query_main(eventws, minmag, minlat, maxlat, minlon, maxlon,
+                                           search_radius_args, cfg_dict['channels'],
+                                           start, end, ptimespan, min_sample_rate, outpath)
+        else:
+            segments = 
+        if action != 'd':
+
     except KeyboardInterrupt:
         sys.exit(1)
+
 
 @click.command()
 @click.option('--gui', is_flag=True,

@@ -15,6 +15,9 @@ from obspy.core.utcdatetime import UTCDateTime
 from sqlalchemy.exc import IntegrityError
 from StringIO import StringIO
 from sqlalchemy import func
+from sqlalchemy.engine import create_engine
+from stream2segment.s2sio.db.models import Base
+from sqlalchemy.orm.session import sessionmaker
 
 # def process_single(session, segments_model_instance, run_id,
 #                    if_exists='update',
@@ -28,7 +31,7 @@ from sqlalchemy import func
 #                    multievent_threshold1_duration_sec=10,
 #                    multievent_threshold2_percent=0.05, **kwargs):
 
-def process_all(session, segments_model_instances, run_id, if_exist='update',
+def process_all(inpath, segments_model_instances, run_id, if_exist='update',
                 logger=None, progresslistener=None,
                 **processing_args):
 #                 amp_ratio_threshold=0.8, a_time_delay=0,
@@ -38,6 +41,14 @@ def process_all(session, segments_model_instances, run_id, if_exist='update',
 #                 snr_fixedwindow_in_sec=60, multievent_threshold1_percent=0.85,
 #                 multievent_threshold1_duration_sec=10,
 #                 multievent_threshold2_percent=0.05, **kwargs):
+    
+    # init the session:
+    engine = create_engine(inpath)
+    Base.metadata.create_all(engine)
+    # create a configured "Session" class
+    Session = sessionmaker(bind=engine)
+    # create a Session
+    session = Session()
 
     station_inventories = {}  # cache inventories
     for _, seg in enumerate(segments_model_instances):

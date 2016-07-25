@@ -613,3 +613,4 @@ def dumps(data, data_type=None, x0=None, dx=None, **stats):
     if dx is not None:
         stats['dx'] = float(dx)  # UTCDateTime works!
     return pickle.dumps(ser_data)
+
