@@ -20,18 +20,18 @@ from stream2segment.analysis.mseeds import stream_compliant
 # fm=freq moyenne du signal (filtre), dt=pas d'echant
 def mysmooth(signal, time, fm, cycle, dt):
     """
-        FIXME: write doc
+        Return the envelop of the signal and its corresponding time, smoothed from natural variations thanks to an average moving window of length the number of cycle. Note that the signal is under-sampled depending on the number of cycles.
 
-        :param signal:
-        :type signal:
-        :param time:
-        :type time:
-        :param fm:
-        :type fm:
-        :param cycle:
-        :type cycle:
-        :param dt:
-        :type dt:
+        :param signal: energy computed as the squared of the velocigram (from Obspy.core.Trace) 
+        :type signal: array (units depends on the input trace) 
+        :param time: time corresponding to the trace (st.times() for an Obspy trace object)
+        :type time: array in seconds
+        :param fm: mean frequency of the band passe filter
+        :type fm: float in Hertz
+        :param cycle: number of cycle in the moving window (1 cycle = 1 period)
+        :type cycle: float number (adimensionnal)
+        :param dt: sampling rate of the data
+        :type dt: float in seconds
     """
     signal = list(signal)
     # longueur de la fenetre en temps
@@ -49,9 +49,9 @@ def mysmooth(signal, time, fm, cycle, dt):
 
 def group(indices_list):
     """
-        FIXME: write doc
-        :param indices_list: asdasdadfrb
-        :type indices_list:
+         Extract the first and the last part of a list components
+        :param indices_list: list of indices
+        :type indices_list: list
     """
     first = last = indices_list[0]
     for n in indices_list[1:]:
@@ -67,7 +67,7 @@ def group(indices_list):
 def analyze_coda(trace, fm=6, cycle=10, noise_level=16, Lw=50, noise_duration=5, subwdw_length=5,
                  subwdw_length_rec=2.5):
     """
-        FIXME: write doc!
+        Return the correlation coefficient of the coda part of the signal : the onset of the coda is selected as the maximum amplitude time and the coda duration is Lw.
 
 
         NOTE: this function accepts also streams objects (see @stream_compliant decorator in
