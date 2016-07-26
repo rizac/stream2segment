@@ -444,7 +444,7 @@ _IO_FORMAT_TIME = 'obspytrace'
 _io_types = tuple(globals()[g] for g in globals() if g[:4] == '_IO_')
 
 
-def read(obj):
+def loads(obj):
     """
         De-serializes an object previously serialized with dumps.
         The returned object is a python Object with attributes:
@@ -527,7 +527,7 @@ def read(obj):
 def dumps(data, data_type=None, x0=None, dx=None, **stats):
     """
         Serializes the given data (array) to a python dictionary. The returned value is a sequence
-        of bytes which can be written to file and read back with the `read` method of this module.
+        of bytes which can be written to file and read back with the `loads` method of this module.
         This function basically calls pickle.dumps after some casting and conversion, namely
         converting data from numpy array to native python list (when possible), x0 and x1 to float.
         The stats dictionary holds custom data, allowing updates in the future.
@@ -538,7 +538,7 @@ def dumps(data, data_type=None, x0=None, dx=None, **stats):
         The arguments data, x0, and x1 ARE AUTOMATICALLY CONVERTED so they can be passed with
         different formats
 
-        TO GET BACK THE OBJECT SERIALIZED HERE, USE THE `read` MODULE FUNCTION (HAVE A LOOK AT IT)
+        TO GET BACK THE OBJECT SERIALIZED HERE, USE THE `loads` MODULE FUNCTION (HAVE A LOOK AT IT)
 
         :param data: the data, i.e. the y-axis values of the array to store
         :type data: numpy array or iterable of numeric values. It will be stored as python list
@@ -550,7 +550,7 @@ def dumps(data, data_type=None, x0=None, dx=None, **stats):
         :type x0: int, float, anything which is a valid argument to the `float` function
         (e.g., numeric string, UTCDateTime).
         *NOTE*: For time-series formats, UTCDateTime can be safely passed as the value will be
-        stored as float (its timestamp) and converted back in `read`
+        stored as float (its timestamp) and converted back in `loads`
 
         :param dx: the distance between points on the x axis. If None, it will default to 1.0,
         unless data is an obspy single-trace Stream or an obspy Trace. In this case, it will default
@@ -563,17 +563,17 @@ def dumps(data, data_type=None, x0=None, dx=None, **stats):
             will be set accordingly. 
             Basically, the type
             tells this function how to convert / parse some arguments before writing them, but MORE
-            IMPORTANTLY, it is used by the `read` function to return back the object serialized
-            here. See the doc for `read` for details on how the objects are returned.
+            IMPORTANTLY, it is used by the `loads` function to return back the object serialized
+            here. See the doc for `loads` for details on how the objects are returned.
             The argument can be:
             - 'fft': when data denotes values mapped to frequency values. x0 is assumed to denote a
                 start frequency (if provided, otherwise defaults to 0) and dx a delta in Hz.
             - 'time: when data denotes values mapped to time values. x0 is assumed to denote a
                 start time (if provided, otherwise defaults to 0. Note UTCDateTime's are valid) and
                 dx a delta in SECONDS.
-            - 'obspytrace': same as 'time'. In addition, this datatype instructs the `read` method
+            - 'obspytrace': same as 'time'. In addition, this datatype instructs the `loads` method
                 to convert the object into an obspy Trace and return the latter
-            - 'mseed': same as `time`. In addition, this datatype instructs the `read` method to
+            - 'mseed': same as `time`. In addition, this datatype instructs the `loads` function to
                 convert the object into and an obspy Trace and return an obspy Stream wrapping that
                 trace
     """
