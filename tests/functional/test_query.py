@@ -45,6 +45,10 @@ class Test(unittest.TestCase):
         # Base.metadata.drop_all(cls.engine)
         Base.metadata.create_all(cls.engine)
 
+    @classmethod
+    def tearDownClass(cls):
+        Base.metadata.drop_all(cls.engine)
+        
     @property
     def session(self):
         # create a configured "Session" class
@@ -52,6 +56,7 @@ class Test(unittest.TestCase):
         # create a Session
         session = Session()
         return session
+
     
     def get_events_df(self, *a, **k):
         pddf = pd.DataFrame(columns = get_col_names(models.Event),
@@ -124,8 +129,11 @@ class Test(unittest.TestCase):
         
     
     @patch('stream2segment.query.get_datacenters')
-    def texst_download_too_little_timespan(self, getdc):
+    def test_download_too_little_timespan(self, getdc):
         getdc.side_effect = self.get_datacenters
+        
+        prevlen = len(self.session.query(models.Segment).all())
+
         runner = CliRunner()
         result = runner.invoke(main , ['-o', self.dburi, '-a', 'd',
                                        '--start', '2016-05-08T00:00:00',
@@ -133,13 +141,16 @@ class Test(unittest.TestCase):
         if result.exception:
             raise result.exception
         
-        assert len(self.session.query(models.Segment).all()) == 0
+        assert len(self.session.query(models.Segment).all()) == prevlen
         # assert result.exit_code == 1
 
     
     @patch('stream2segment.query.get_datacenters')
-    def texst_download_no_sample_rate_matching(self, getdc):
+    def test_download_no_sample_rate_matching(self, getdc):
         getdc.side_effect = self.get_datacenters
+        
+        prevlen = len(self.session.query(models.Segment).all())
+
         runner = CliRunner()
         result = runner.invoke(main , ['-o', self.dburi, '--min_sample_rate', 60, '-a', 'd',
                                        '--start', '2016-05-08T00:00:00',
@@ -147,12 +158,12 @@ class Test(unittest.TestCase):
         if result.exception:
             raise result.exception
         
-        assert len(self.session.query(models.Segment).all()) == 0
+        assert len(self.session.query(models.Segment).all()) == prevlen
 
 
     @patch('stream2segment.query.get_datacenters')
     @patch('stream2segment.query.get_events_df')
-    def txst_download_process(self, getedf, getdc):
+    def test_download_process(self, getedf, getdc):
         getedf.side_effect = self.get_events_df
         getdc.side_effect = self.get_datacenters
         runner = CliRunner()
@@ -162,17 +173,17 @@ class Test(unittest.TestCase):
         if result.exception:
             raise result.exception
         
-        assert len(self.session.query(models.Segment).all()) != 0
-
+        segs = self.session.query(models.Segment).all()
+        procs = self.session.query(models.Processing).all()
         
-        assert len(self.session.query(models.Segment).all()) != 0
+        assert len(segs) == len(procs)
+        assert len(segs) > 0
+        
+        self.txst_process()
         
     
-    @patch('stream2segment.query.get_datacenters')
-    @patch('stream2segment.query.get_events_df')
-    def txst_process(self, getedf, getdc):
-        getedf.side_effect = self.get_events_df
-        getdc.side_effect = self.get_datacenters
+    def txst_process(self):
+        
         runner = CliRunner()
         result = runner.invoke(main , ['-o', self.dburi, '--min_sample_rate', 60, '-a', 'P',
                                        '--start', '2016-05-08T00:00:00',
@@ -185,38 +196,38 @@ class Test(unittest.TestCase):
         
         assert len(segs) == len(procs)
         assert len(segs) > 0
-        
-        pro = procs[0]
 
-    def test_read_obj(self):
+        self.txst_read_obj()
+
+    def txst_read_obj(self):
         pro = self.session.query(models.Processing).first()
-        from stream2segment.analysis.mseeds import read as loads
-        
+        from stream2segment.analysis.mseeds import loads
+
         array = loads(pro.mseed_rem_resp_savewindow)
         assert isinstance(array, Stream)
         assert len(array) == 1
-        
+
         array = loads(pro.wood_anderson_savewindow)
         assert isinstance(array, Stream)
         assert len(array) == 1
-        
+
         array = loads(pro.cumulative)
         assert isinstance(array, Stream)
         assert len(array) == 1
-        
+
         array = loads(pro.fft_rem_resp_t05_t95)
         assert not isinstance(array, Stream)
         assert len(array.data) > 1
         assert array.stats.startfreq == 0
         assert array.stats.delta > 0
-        
+
         array = loads(pro.fft_rem_resp_until_atime)
         assert not isinstance(array, Stream)
         assert len(array.data) > 1
         assert array.stats.startfreq == 0
         assert array.stats.delta > 0
-        
-        
+
+
     def test_df_to_iterrows(self):
         from stream2segment.classification import class_labels_df
             

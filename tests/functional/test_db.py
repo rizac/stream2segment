@@ -33,7 +33,10 @@ class Test(unittest.TestCase):
         Base.metadata.drop_all(cls.engine)
         Base.metadata.create_all(cls.engine)
 
-
+    @classmethod
+    def tearDownClass(cls):
+        Base.metadata.drop_all(cls.engine)
+        
     def setUp(self):
         # create a configured "Session" class
         Session = sessionmaker(bind=self.engine)
@@ -88,12 +91,12 @@ class Test(unittest.TestCase):
 
         # now pass a utcdatetime and see if we keep that value:
         utcnow = datetime.datetime.utcnow()
-        run_row = models.Run(id=utcnow)
-        assert run_row.id == utcnow
+        run_row = models.Run(run_time=utcnow)
+        assert run_row.run_time == utcnow
         self.session.add_all([run_row])
         # self.session.flush()
         self.session.commit()
-        assert run_row.id == utcnow
+        assert run_row.run_time == utcnow
 
         # test column names:
 #         colz = run_row.get_col_names()

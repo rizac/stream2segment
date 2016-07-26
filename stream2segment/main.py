@@ -13,6 +13,7 @@
    :License:
        To be decided!
 """
+import os
 from sqlalchemy.engine import create_engine
 from stream2segment.s2sio.db.models import Base
 from sqlalchemy.orm.session import sessionmaker
@@ -95,7 +96,7 @@ def get_def_timerange():
     return startt, endt
 
 
-def load_def_cfg(filepath='config.yaml', raw=False):
+def load_def_cfg(filepath, raw=False):
     """Loads default config from yaml file"""
     with open(filepath, 'r') as stream:
         ret = yaml.load(stream) if not raw else stream.read()
@@ -103,7 +104,7 @@ def load_def_cfg(filepath='config.yaml', raw=False):
     return ret
 
 
-cfg_dict = load_def_cfg()
+cfg_dict = load_def_cfg(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.yaml'))
 
 
 def run(action, dbpath, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan,

@@ -13,7 +13,7 @@ import pandas as pd
 from stream2segment.analysis import env, cumsum, fft
 from scipy.signal import hilbert
 from stream2segment.utils import DataFrame
-from stream2segment.analysis.mseeds import remove_response, read as s2s_read, dumps
+from stream2segment.analysis.mseeds import remove_response, loads as s2s_loads, dumps
 from stream2segment.analysis.mseeds import _IO_FORMAT_FFT, _IO_FORMAT_STREAM, _IO_FORMAT_TIME,\
     _IO_FORMAT_TRACE
 
@@ -34,7 +34,7 @@ def test_read_dumps():
     # Now not anymore:
     for f in [_IO_FORMAT_FFT, _IO_FORMAT_STREAM, _IO_FORMAT_TIME, _IO_FORMAT_TRACE]:
         dmp = dumps(data, f)
-        ret_obj = s2s_read(dmp)
+        ret_obj = s2s_loads(dmp)
         _data = ret_obj.data if hasattr(ret_obj, "data") else ret_obj.traces[0].data
         assert all(_data == data)
         h = 9

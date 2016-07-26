@@ -68,18 +68,20 @@ end: 2016-05-08T09:00:00
 # (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)
 outpath: 'sqlite:///./mydb.sqlite'  # '/tmp/mseeds/'
 
-# specify here the action to be taken: 'all': download and process, 'd': download only, 'p': process saved segments only
-action: 'all'
-
-# if processing is enabled (see above), specify here what to do:
-# 'overwrite': take all processings for a given segment, delete them and insert the new processing
-# 'update': if for a given segment exist at least one processing, take the last one and update its fields
-# 'skip': if for a given segment exists at least one processing, skip processing for that segment  
-processing_on_exist: 'overwrite'
+# action to be taken for the program. Possible values:
+# d   : download data only, no processing'
+# p   : no download, process only non-processed data (if any)'
+# P   : no download, clear processing and re-process *all* data'
+# dp  : download data, process only non-processed data (if any)'
+# dP  : download data, clear processing and re-process *all* data'
+# gui : show gui'
+action: 'dp'
 
 # processing stuff:
 processing:
   amp_ratio_threshold: 0.8
+  arrival_time_delay: 0  # the delay (in seconds) whereby to shift the P-arrival time T (calculated inside the code)
+  # the real arrival time AT will be AT = T + fixed_delay for processing only
   bandpass:
     freq_max: 20 # the max frequency, in Hz
     max_nyquist_ratio: 0.9 # the amount of freq_max to be taken. low-pass corner = max_nyquist_ratio * freq_max (defined above)
@@ -90,8 +92,6 @@ processing:
   taper_max_percentage: 0.05  # the taper percentage used when tapering (applied on any tapered object)
   savewindow_delta: 30 # the window whereby the mseed and wood_anderson are saved (in seconds)
   # the window will be substracted from the arrival time and added to the t95 of the cumulative
-  arrival_time_delay: 0  # the delay (in seconds) whereby to shift the P-arrival time T (calculated inside the code)
-  # the real arrival time AT will be AT = T + fixed_delay for processing only
   snr:
  # the window length (in seconds). There will be two spectra, one calculated on
  # AT-window_length (noisy signal), the other on AT+window_length ('normal' signal)
@@ -100,7 +100,7 @@ processing:
     threshold1: 0.85 # in [0,1] (percentage units) threshold to apply on the main interval (usually t05 t95)
     threshold1_duration: 10 # in seconds. Threshold to apply on the main interval (usually t05 t95)
     threshold2: 0.05 # in [0,1] (percentage units). Threshold to apply on the second interval (usually after t95)
-  coda_analysis:
+  coda:
     # max window length after which we stop iterations (in seconds):
     window_length: 80
     # for the coda analysis: sub-window length in seconds (used alo for moving average smoothing)
