@@ -87,8 +87,8 @@ class DataCenter(Base):
     station_query_url = Column(String, nullable=False)
     dataselect_query_url = Column(String, default=dc_datasel_default, onupdate=dc_datasel_default)
 
-    segments = relationship("Segment", backref="data_centers")
-    stations = relationship("Station", backref="data_centers")
+    # segments = relationship("Segment", backref="data_centers")
+    # stations = relationship("Station", backref="data_centers")
 
     __table_args__ = (
                       UniqueConstraint('station_query_url', 'dataselect_query_url',
@@ -115,7 +115,7 @@ class Event(FDSNBase):
     mag_author = Column(String)
     event_location_name = Column(String)
 
-    segments = relationship("Segment", backref="events")
+    # segments = relationship("Segment", back_populates="event")
 
     @classmethod
     def get_col_mapping(cls, dataframe):
@@ -150,7 +150,7 @@ class Station(FDSNBase):
                       UniqueConstraint('network', 'station', name='net_sta_uc'),
                      )
 
-    channels = relationship("Channel", backref="stations")
+    datacenter = relationship("DataCenter", backref="stations")
 
     @classmethod
     def get_col_mapping(cls, dataframe, level):
@@ -211,7 +211,7 @@ class Channel(FDSNBase):
                                        name='net_sta_loc_cha_uc'),
                      )
 
-    segments = relationship("Segment", backref="channels")
+    station = relationship("Station", backref="channels")
 
     @classmethod
     def get_col_mapping(cls, dataframe):
@@ -273,6 +273,11 @@ class Segment(Base):
     arrival_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
     run_id = Column(Integer, ForeignKey("runs.id"), nullable=False)
+
+    event = relationship("Event", backref="segments")
+    channel = relationship("Channel", backref="segments")
+    datacenter = relationship("DataCenter", backref="segments")
+    run = relationship("Run", backref="segments")
 
     processings = relationship("Processing", backref="segments")
 #     classes = relationship(

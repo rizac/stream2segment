@@ -20,7 +20,7 @@ from stream2segment.s2sio.db import models
 from stream2segment.processing import process, process_all
 import logging
 from StringIO import StringIO
-from stream2segment.s2sio.db.pd_sql_utils import flush
+from stream2segment.s2sio.db.pd_sql_utils import flush, commit
 import sys
 import yaml
 import click
@@ -169,8 +169,8 @@ def run(action, dbpath, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimesp
                 for k, v in subvalues.iteritems():
                     pro_args[key + "_" + k] = v
 
-            ret = process_all(session, segments, run_row.id, overwrite_all='P' in action,
-                              logger=logger, **pro_args)
+            ret_vals = process_all(session, segments, run_row.id, overwrite_all='P' in action,
+                                   logger=logger, **pro_args)
 
     except Exception as exc:
         logger.error(str(exc))
@@ -178,9 +178,11 @@ def run(action, dbpath, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimesp
 
     run_row.log = logger.get_log()
     run_row.errors = logger.errors
-    run_row.warnings - logger.warnings
-    flush(session)
-    return ret
+    run_row.warnings = logger.warnings
+    if commit(session):
+        return ret
+
+    return 1
 
 
 @click.command()

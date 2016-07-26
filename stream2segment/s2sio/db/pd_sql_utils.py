@@ -284,7 +284,7 @@ def _insert_data(dataframe):
     return column_names, data_list
 
 
-def flush(session):
+def flush(session, on_exc=None):
     """
         Flushes the given section. In case of Exception (IntegrityError), rolls back the session
         and returns False. Otherwise True is returned
@@ -293,7 +293,25 @@ def flush(session):
     try:
         session.flush()
         return True
-    except IntegrityError as _:
+    except Exception as _:
+        if on_exc is not None:
+            on_exc(_)
+        session.rollback()
+        return False
+
+
+def commit(session, on_exc=None):
+    """
+        Flushes the given section. In case of Exception (IntegrityError), rolls back the session
+        and returns False. Otherwise True is returned
+        :return: True on success, False otherwise
+    """
+    try:
+        session.commit()
+        return True
+    except Exception as _:
+        if on_exc is not None:
+            on_exc(_)
         session.rollback()
         return False
 

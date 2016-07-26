@@ -21,24 +21,81 @@ from sqlalchemy.exc import IntegrityError
 from stream2segment.main import main
 from click.testing import CliRunner
 from stream2segment.s2sio.db import models
-from stream2segment.s2sio.db.pd_sql_utils import df_to_table_iterrows
+from stream2segment.s2sio.db.pd_sql_utils import df_to_table_iterrows, get_col_names
 import pandas as pd
+from stream2segment.query import get_datacenters as gdc_orig
+from obspy.core.stream import Stream
+
 
 class Test(unittest.TestCase):
     
     engine = None
+    dburi = ""
 
-#     @classmethod
-#     def setUpClass(cls):
-#         file = os.path.dirname(__file__)
-#         filedata = os.path.join(file,"..","data")
-#         url = os.path.join(filedata, "_test.sqlite")
-#         # an Engine, which the Session will use for connection
-#         # resources
-#         # some_engine = create_engine('postgresql://scott:tiger@localhost/')
-#         cls.engine = create_engine('sqlite:///'+url)
-#         Base.metadata.drop_all(cls.engine)
-#         Base.metadata.create_all(cls.engine)
+    @classmethod
+    def setUpClass(cls):
+        file = os.path.dirname(__file__)
+        filedata = os.path.join(file,"..","data")
+        url = os.path.join(filedata, "_test.sqlite")
+        Test.dburi = 'sqlite:///' + url
+        # an Engine, which the Session will use for connection
+        # resources
+        # some_engine = create_engine('postgresql://scott:tiger@localhost/')
+        Test.engine = create_engine(Test.dburi)
+        # Base.metadata.drop_all(cls.engine)
+        Base.metadata.create_all(cls.engine)
+
+    @property
+    def session(self):
+        # create a configured "Session" class
+        Session = sessionmaker(bind=self.engine)
+        # create a Session
+        session = Session()
+        return session
+    
+    def get_events_df(self, *a, **k):
+        pddf = pd.DataFrame(columns = get_col_names(models.Event),
+                            data = [[
+                                     "20160508_0000129",
+                                     "2016-05-08 05:17:11.500000",
+                                     "40.57",
+                                     "52.23",
+                                     "60.0",
+                                     "AZER",
+                                     "EMSC-RTS",
+                                     "AZER",
+                                     "505483",
+                                     "ml",
+                                     "3.1",
+                                     "AZER",
+                                     "CASPIAN SEA, OFFSHR TURKMENISTAN"],
+                                    ["20160508_0000004",
+                                     "2016-05-08 01:45:30.300000",
+                                     "44.96",
+                                     "15.35",
+                                     "2.0",
+                                     "EMSC",
+                                     "EMSC-RTS",
+                                     "EMSC",
+                                     "505183",
+                                     "ml",
+                                     "3.6",
+                                     "EMSC",
+                                     "CROATIA"],
+                                    ["20160508_0000113",
+                                     "2016-05-08 22:37:20.100000",
+                                     "45.68",
+                                     "26.64",
+                                     "163.0",
+                                     "BUC",
+                                     "EMSC-RTS",
+                                     "BUC",
+                                     "505351",
+                                     "ml",
+                                     "3.4",
+                                     "BUC",
+                                     "ROMANIA"]])
+        return pddf
 # 
 # 
 #     def setUp(self):
@@ -55,14 +112,111 @@ class Test(unittest.TestCase):
 #             self.session.rollback()
 #         self.session.close()
 
-    def test_download(self):
+#     def test_download(self):
+#         runner = CliRunner()
+#         result = runner.invoke(main , ['-a', 'p', '--start', '2016-05-08T00:00:00', '--end', '2016-05-08T09:00:00'])
+#         if result.exception:
+#             raise result.exception
+    
+    def get_datacenters(self, *a, **k):
+        dcs = gdc_orig(*a, **k)
+        return [d for d in dcs if "geofon" in d.station_query_url]
+        
+    
+    @patch('stream2segment.query.get_datacenters')
+    def texst_download_too_little_timespan(self, getdc):
+        getdc.side_effect = self.get_datacenters
         runner = CliRunner()
-        result = runner.invoke(main , ['--start', '2016-05-08T00:00:00', '--end', '2016-05-08T09:00:00'])
+        result = runner.invoke(main , ['-o', self.dburi, '-a', 'd',
+                                       '--start', '2016-05-08T00:00:00',
+                                       '--end', '2016-05-08T9:00:00'])
         if result.exception:
             raise result.exception
-            
+        
+        assert len(self.session.query(models.Segment).all()) == 0
         # assert result.exit_code == 1
 
+    
+    @patch('stream2segment.query.get_datacenters')
+    def texst_download_no_sample_rate_matching(self, getdc):
+        getdc.side_effect = self.get_datacenters
+        runner = CliRunner()
+        result = runner.invoke(main , ['-o', self.dburi, '--min_sample_rate', 60, '-a', 'd',
+                                       '--start', '2016-05-08T00:00:00',
+                                       '--end', '2016-05-08T18:00:00'])
+        if result.exception:
+            raise result.exception
+        
+        assert len(self.session.query(models.Segment).all()) == 0
+
+
+    @patch('stream2segment.query.get_datacenters')
+    @patch('stream2segment.query.get_events_df')
+    def txst_download_process(self, getedf, getdc):
+        getedf.side_effect = self.get_events_df
+        getdc.side_effect = self.get_datacenters
+        runner = CliRunner()
+        result = runner.invoke(main , ['-o', self.dburi, '--min_sample_rate', 60, '-a', 'dp',
+                                       '--start', '2016-05-08T00:00:00',
+                                       '--end', '2016-05-09T00:00:00'])
+        if result.exception:
+            raise result.exception
+        
+        assert len(self.session.query(models.Segment).all()) != 0
+
+        
+        assert len(self.session.query(models.Segment).all()) != 0
+        
+    
+    @patch('stream2segment.query.get_datacenters')
+    @patch('stream2segment.query.get_events_df')
+    def txst_process(self, getedf, getdc):
+        getedf.side_effect = self.get_events_df
+        getdc.side_effect = self.get_datacenters
+        runner = CliRunner()
+        result = runner.invoke(main , ['-o', self.dburi, '--min_sample_rate', 60, '-a', 'P',
+                                       '--start', '2016-05-08T00:00:00',
+                                       '--end', '2016-05-09T00:00:00'])
+        if result.exception:
+            raise result.exception
+        
+        segs = self.session.query(models.Segment).all()
+        procs = self.session.query(models.Processing).all()
+        
+        assert len(segs) == len(procs)
+        assert len(segs) > 0
+        
+        pro = procs[0]
+
+    def test_read_obj(self):
+        pro = self.session.query(models.Processing).first()
+        from stream2segment.analysis.mseeds import read as loads
+        
+        array = loads(pro.mseed_rem_resp_savewindow)
+        assert isinstance(array, Stream)
+        assert len(array) == 1
+        
+        array = loads(pro.wood_anderson_savewindow)
+        assert isinstance(array, Stream)
+        assert len(array) == 1
+        
+        array = loads(pro.cumulative)
+        assert isinstance(array, Stream)
+        assert len(array) == 1
+        
+        array = loads(pro.fft_rem_resp_t05_t95)
+        assert not isinstance(array, Stream)
+        assert len(array.data) > 1
+        assert array.stats.startfreq == 0
+        assert array.stats.delta > 0
+        
+        array = loads(pro.fft_rem_resp_until_atime)
+        assert not isinstance(array, Stream)
+        assert len(array.data) > 1
+        assert array.stats.startfreq == 0
+        assert array.stats.delta > 0
+        
+        
     def test_df_to_iterrows(self):
         from stream2segment.classification import class_labels_df
             

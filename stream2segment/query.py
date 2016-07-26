@@ -38,7 +38,7 @@ from stream2segment.s2sio.db import DbHandler, models
 # from stream2segment.utils import DataFrame  # overrides DataFrame to allow case-insensitive
 from pandas import DataFrame
 from stream2segment.s2sio.db.pd_sql_utils import add_or_get, harmonize_columns,\
-    harmonize_rows, df_to_table_iterrows, get_or_add_all, get_or_add, flush
+    harmonize_rows, df_to_table_iterrows, get_or_add_all, get_or_add, flush, commit
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm.session import sessionmaker
@@ -538,6 +538,10 @@ def write_and_download_data(session, run_id, stations_cha_level_df,
         if not seg_tmp:  # FIXME: check if correct
             dcen = session.query(models.DataCenter).\
                 filter(models.DataCenter.id == seg.datacenter_id).first()
+
+            if dcen is None:
+                fg = 9
+
             query_url = get_wav_query(dcen.dataselect_query_url, sta.network, sta.station,
                                       cha.location, cha.channel, seg.start_time,
                                       seg.end_time)
@@ -547,16 +551,20 @@ def write_and_download_data(session, run_id, stations_cha_level_df,
                 if logger:
                     logger.debug("%7d bytes downloaded from: %s" % (len(data), query_url))
 
-            seg.run_id = run_id
-            cha.segments.append(seg)
-            if flush(session):
-                ret_segs.append(seg)
+                seg.run_id = run_id
+                cha.segments.append(seg)
+                if seg.channel_id == "RO.BAC..HNE":
+                    fgh = 9
+                if flush(session):
+                    ret_segs.append(seg)
+                else:
+                    g = 9
         else:
             ret_segs.append(seg_tmp)
 
         if progresslistener:
             count += 1
-            progresslistener(count)
+            # progresslistener(count)
 
     return ret_segs
 
@@ -592,16 +600,16 @@ def get_events(session, logger=None, **args):
         events_df = get_events_df(**args)
         # rename columns
         events_df = normalize_fdsn_dframe(models.Event, events_df, logger)
-        # convert dataframe to records (df_to_table_iterrows),
-        # add non existing records to db (get_or_add_all) comparing by events.id
-        # return the added rows
-        # Note: get_or_add_all has already flushed, so the returned model instances (db rows)
-        # have the fields updated, if any
-        return get_or_add_all(session, df_to_table_iterrows(models.Event, events_df))
-
     except (IOError, ValueError, TypeError) as err:
         logger.error(str(err))
         events_df = DataFrame(columns=models.Event.get_col_names(), data=[])
+
+    # convert dataframe to records (df_to_table_iterrows),
+    # add non existing records to db (get_or_add_all) comparing by events.id
+    # return the added rows
+    # Note: get_or_add_all has already flushed, so the returned model instances (db rows)
+    # have the fields updated, if any
+    return get_or_add_all(session, df_to_table_iterrows(models.Event, events_df))
 
 
 def get_datacenters(session, logger, start_time, end_time):
@@ -624,7 +632,7 @@ def get_datacenters(session, logger, start_time, end_time):
         if dcen[:7] == "http://":
             dc_row, isnew = get_or_add(session, models.DataCenter(station_query_url=dcen),
                                        [models.DataCenter.station_query_url])
-            if dc_row is not None and "geofon" in dcen:
+            if dc_row is not None:
                 ret_dcs.append(dc_row)
     return ret_dcs
 
@@ -708,6 +716,10 @@ def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, searc
     msg = "STEP 3/4: Querying Station WS (level=channel)"
     logger.info(msg)
 
+    # commit changes now in order not to loose datacenters and events:
+    if not commit(session, on_exc=lambda exc: logger.error(str(exc))):
+        return 1
+
     with progressbar(length=len(events) * len(datacenters)) as bar:
         stations_df, segments_df = search_all_stations(events, datacenters, search_radius_args,
                                                        channels, min_sample_rate, logger,
@@ -718,19 +730,13 @@ def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, searc
     logger.debug("")
     logger.info("STEP 3/3: Querying Datacenter WS")
     segments_rows = []
+
     with progressbar(length=len(segments_df)) as bar:
         segments_rows = write_and_download_data(session, run_id,
-                                                stations_df, segments_df,
+                                                stations_df, segments_df, logger=logger,
                                                 progresslistener=lambda i: bar.update(i))
 
-#     try:
-#         session.commit()
-#         seg_processed = process(session, run_id, segments_rows, logger, lambda i: bar.update(i), 
-#                                 **processing_dict)
-#     except IntegrityError as _:
-#         session.rollback()
-    #finally:
-        # session.close()
-
+    if not commit(session, on_exc=lambda exc: logger.error(str(exc))):
+        return 1
 
     return 0

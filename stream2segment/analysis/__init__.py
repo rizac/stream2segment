@@ -62,8 +62,8 @@ def snr(signal, noisy_signal, signals_form='normal', in_db=False):
         noisy_signal = pow_spec(noisy_signal, signal_is_fft=False)
 
     # normalize by the number of points:
-    square1 = np.true_divide(signal, len(signal))
-    square2 = np.true_divide(noisy_signal, len(noisy_signal))
+    square1 = np.true_divide(np.sum(signal), len(signal))
+    square2 = np.true_divide(np.sum(noisy_signal), len(noisy_signal))
     ret = np.true_divide(square1, square2)
     # if no db, then return the sqrt.
     # The sqrt is accounted for in db by multiplying by 10 and not 20

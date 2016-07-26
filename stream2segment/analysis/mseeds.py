@@ -127,7 +127,7 @@ def maxabs(trace, starttime=None, endtime=None):
         :param endtime: an obspy UTCDateTime object (or integer, denoting a timestamp) denoting
         the start time of the trace, or None to default to the trace end
     """
-    tra = trace[starttime: endtime]
+    tra = trace.slice(starttime, endtime)
     idx, val = _maxabs(tra.data)
     time = timeof(tra, idx)
     return (time, val)
@@ -254,7 +254,7 @@ def fft(trace, fixed_time=None, window_in_sec=None, taper_max_percentage=0.05,
     :param fixed_time: the fixed time where to set the start (if `window_in_sec` > 0) or end
     (if `window_in_sec` < 0) of the trace slice on which to apply the fft. If None, it defaults
     to the start of each trace
-    :type fixed_time: an `obspy.UTCDateTije` object or any objectthat can be passed as argument
+    :type fixed_time: an `obspy.UTCDateTime` object or any objectthat can be passed as argument
     to the latter (e.g., a numeric timestamp)
     :param window_in_sec: the window, in sec, of the trace slice where to apply the fft. If None,
     it defaults to the amount of time from `fixed_time` till the end of each trace
@@ -266,7 +266,7 @@ def fft(trace, fixed_time=None, window_in_sec=None, taper_max_percentage=0.05,
     tra = trace.copy()
     if fixed_time is None:
         starttime = None
-        endtime = None if window_in_sec is None else window_in_sec
+        endtime = None if window_in_sec is None else tra.stats.starttime + window_in_sec
     elif window_in_sec is None:
         starttime = fixed_time
         endtime = None
@@ -385,14 +385,14 @@ def get_multievent(cum_trace, tmin, tmax,
     d_order = 2
 
     # split traces between tmin and tmax and after tmax
-    traces = [cum_trace[tmin:tmax], cum_trace[tmax:]]
+    traces = [cum_trace.slice(tmin, tmax), cum_trace.slice(tmax, None)]
 
     # calculate second derivative and normalize:
     derivs = []
     max_ = None
     for ttt in traces:
         sec_der = np.diff(ttt.data, n=d_order)
-        mmm = _maxabs(sec_der)
+        _, mmm = _maxabs(sec_der)
         max_ = np.nanmax([max_, mmm])  # get max (global) for normalization (see below):
         derivs.append(sec_der)
 
@@ -403,14 +403,14 @@ def get_multievent(cum_trace, tmin, tmax,
     result = 0
 
     # case A: see if after tmax we exceed a threshold
-    indices = np.where(derivs[1] >= threshold_after_tmax_percent)
+    indices = np.where(derivs[1] >= threshold_after_tmax_percent)[0]
 
     if len(indices):
         result = 2
         double_event_after_tmax_time = timeof(traces[1], indices[0])
 
     # case B: see if inside tmin tmax we exceed a threshold, and in case check the duration
-    indices = np.where(derivs[0] >= threshold_inside_tmin_tmax_percent)
+    indices = np.where(derivs[0] >= threshold_inside_tmin_tmax_percent)[0]
     if len(indices) >= 2:
         idx0 = indices[0]
         idx1 = indices[-1]
