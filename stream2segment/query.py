@@ -328,14 +328,12 @@ def get_datacenters(session, logger, start_time, end_time):
     # 2) When adding the datacenter, the table column dataselect_query_url (when not provided, as
     # in this case) is assumed to be the same as station_query_url by replacing "/station" with
     # "/dataselect"
-    ret_dcs = []
     for dcen in dc_result.split("\n"):
         if dcen[:7] == "http://":
             dc_row, isnew = get_or_add(session, models.DataCenter(station_query_url=dcen),
                                        [models.DataCenter.station_query_url])
-            if dc_row is not None:
-                ret_dcs.append(dc_row)
-    return ret_dcs
+    # do not return only new datacenters, return all of them
+    return session.query(models.DataCenter).all()
 
 
 def search_all_stations(events, datacenters, search_radius_args, channels,
@@ -704,8 +702,8 @@ def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, searc
     datacenters = get_datacenters(session, logger, start, end)
 
     logger.debug("")
-    logger.info(("STEP 3/5: Querying Station WS (level=channel) from %d datacenters "
-                 "nearby %d events found")
+    logger.info(("STEP 3/5: Querying Station WS (level=channel) from %d datacenter(s) "
+                 "nearby %d event(s) found")
                 % (len(datacenters), len(events)))
 
     # commit changes now in order not to loose datacenters and events:
@@ -717,11 +715,11 @@ def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, searc
                                                        channels, min_sample_rate, logger,
                                                        progresslistener=lambda i: bar.update(1))
 
-    logger.info("STEP 4/5: Calculating P-arrival times on %d stations found" % len(stations_df))
+    logger.info("STEP 4/5: Calculating P-arrival time(s) on %d station(s) found" % len(stations_df))
     calculate_times(events, stations_df, segments_df, ptimespan)
 
     logger.debug("")
-    logger.info("STEP 5/5: Querying Datacenter WS from %d stations processed" % len(stations_df))
+    logger.info("STEP 5/5: Querying Datacenter WS from %d station(s) processed" % len(stations_df))
     segments_rows = []
 
     leng = min(len(stations_df), len(segments_df))
@@ -730,8 +728,9 @@ def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, searc
                                                 stations_df, segments_df, logger=logger,
                                                 progresslistener=lambda i: bar.update(1))
 
-    logger.info("Saving to db %d of %d data segments (%d skipped due to errors, "
-                "e.g. empty data, url error)" % (len(segments_rows), leng, leng-len(segments_rows)))
+    logger.info(("Saving to db %d of %d segments (already saved data will not be overwritten): "
+                 "%d segment(s) skipped due to errors (e.g. empty data, url error)") %
+                (len(segments_rows), leng, leng-len(segments_rows)))
     if not commit(session, on_exc=lambda exc: logger.error(str(exc))):
         return 1
 

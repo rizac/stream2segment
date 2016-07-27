@@ -285,3 +285,6 @@ class Test(unittest.TestCase):
         # WARNING (norm_resp): computed and reported sensitivities differ by more than 5 percent.
         # Execution continuing.
         
+        # common query for 1 event found and all datacenters (takes more or less 10 to 20 minutes):
+        # stream2segment -f 2016-05-08T22:45:00 -t 2016-05-08T23:00:00
+        
