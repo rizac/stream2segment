@@ -411,6 +411,14 @@ def parsedb(string):
     return m
 
 
+def pd_str(dframe):
+    """Returns a dataframe to string with all rows and all columns, used for printing to log"""
+    with pd.option_context('display.max_rows', len(dframe),
+                           'display.max_columns', len(dframe.columns),
+                           'max_colwidth', 50, 'expand_frame_repr', False):
+        return str(dframe)
+
+
 class DataFrame(pd.DataFrame):
     """An extension of pandas DataFrame, where indexing with [] (a.k.a. __getitem__ for those
        familiar with implementing class behavior in Python), i.e. selecting out lower-dimensional

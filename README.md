@@ -2,22 +2,12 @@
 
 A python project to download seismic waveforms related to events featuring (in progress) several pre-processing utilities
 
-## Installation with anaconda
-Create a virtual environment for your project
-       - In the terminal client enter the following where yourenvname (like « env ») is the name you want to call your environment, and replace x.x with the Python version you wish to use. (To see a list of available python versions first, type conda search "^python$" and press enter.)
-Conda create –n yourenvname python=x.x anaconda
-      - Press « y » to proceed
-
-Activate your virtual environment
-	 - Enter : $source activate env
-	 - To deactivate this environment, use $source deactivate
-
-
-
-
 ## Installation (tested on Ubuntu14.04 - Ubuntu 12.10)
 
-This program has been written on Mac OS El Capitan, but a fresh installation test could be done on Ubuntu only. In principle, Mac users can safely follow the instructions below (trying skipping the [Prerequisites](#prerequisites) section), but a complete track of possible issues is still to be published
+This program has been written on Mac OS El Capitan, but a fresh installation test could be done
+on Ubuntu only. In principle, Mac users can safely follow the instructions below
+(trying to skip the [Prerequisites](#prerequisites) section, as it might not be necessary),
+but a complete track of possible issues is still to be published
 
 ### Prerequisites
 The following system packages are required: `git python-pip python2.7-dev libpng-dev libfreetype6-dev 
@@ -60,6 +50,24 @@ and activate it:
 
 > <sub>Activation needs to be done __each time__ we will run the program. See section [Usage](#usage) below</sub>
 > <sub>Check: To check you are in the right env, type: `which pip` and you should see it's pointing inside the env folder</sub>
+
+
+#### Virtualenv with anaconda
+
+(Thanks to JessieMyr who wrote this for us)
+
+Create a virtual environment for your project
+
+  - In the terminal client enter the following where yourenvname (like « env ») is the name you want to call your environment, and replace x.x with the Python version you wish to use. (To see a list of available python versions first, type conda search "^python$" and press enter.)
+	```
+	Conda create –n yourenvname python=x.x anaconda
+	```
+  - Press « y » to proceed
+
+Activate your virtual environment
+
+  - ```$source activate env```
+  - To deactivate this environment, use ```$source deactivate```
 
 
 ### Install and config packages
@@ -140,7 +148,11 @@ sudo add-apt-repository ppa:linuxgndu/sqlitebrowser
 sudo apt-get install sqlitebrowser
 ```
 
-### matplotlibrc 
-There is a `matplotlibrc` in the stream2segment directory. It tells matplotlib to use a TkAgg backend which is able to show figures (for `stream2segment --gui` options) Advantage: it can be used for specific customizations that you do not want to apply elsewhere (if you have other matplotlib settings). Drawback: *you need to cd to stream2segment for making the program work with the default matplotlib config*
-(Reminder: for global backend settings create or open the file  `$HOME/.config/matplotlib/matplotlibrc` on Ubuntu or `$HOME/.matplotlib/matplotlibrc` in OSX. Then add the line:
-```backend: TkAgg``` and save it. For info, see http://matplotlib.org/users/customizing.html)
+### ~~matplotlibrc~~
+
+We do not use anymore matplotlib for responsive GUIs, we moved to more robust and more powerful
+web interfaces with Flask. Therefore, the following lines are not needed anymore (just as reminder in case).
+
+~~There is a `matplotlibrc` in the stream2segment directory. It tells matplotlib to use a TkAgg backend which is able to show figures (for `stream2segment --gui` options) Advantage: it can be used for specific customizations that you do not want to apply elsewhere (if you have other matplotlib settings). Drawback: *you need to cd to stream2segment for making the program work with the default matplotlib config*~~
+~~(Reminder: for global backend settings create or open the file  `$HOME/.config/matplotlib/matplotlibrc` on Ubuntu or `$HOME/.matplotlib/matplotlibrc` in OSX. Then add the line:~~
+~~```backend: TkAgg``` and save it. For info, see http://matplotlib.org/users/customizing.html) ~~

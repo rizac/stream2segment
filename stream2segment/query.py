@@ -187,27 +187,6 @@ def get_events_df(**kwargs):
     return query2dframe(result)
 
 
-# def evt_to_dframe(event_query_result):
-#     """
-#         :return: the tuple dataframe, dropped_rows (int >=0)
-#         raises: ValueError
-#     """
-#     dfr = query2dframe(event_query_result)
-#     oldlen = len(dfr)
-#     if not dfr.empty:
-#         for key, cast_func in {'Time': pd.to_datetime,
-#                                'Depth/km': pd.to_numeric,
-#                                'Latitude': pd.to_numeric,
-#                                'Longitude': pd.to_numeric,
-#                                'Magnitude': pd.to_numeric,
-#                                }.iteritems():
-#             dfr[key] = cast_func(dfr[key], errors='coerce')
-# 
-#         dfr.dropna(inplace=True)
-# 
-#     return dfr, oldlen - len(dfr)
-
-
 def get_stations_df(datacenter, channels_list, orig_time, lat, lon, max_radius, level='channel'):
     """
         Returns a tuple of two elements: the first one is the DataFrame representing the stations
@@ -290,12 +269,73 @@ def read_wav_data(query_str):
         return None
 
 
-def pd_str(dframe):
-    """Returns a dataframe to string with all rows and all columns, used for printing to log"""
-    with pd.option_context('display.max_rows', len(dframe),
-                           'display.max_columns', len(dframe.columns),
-                           'max_colwidth', 50, 'expand_frame_repr', False):
-        return str(dframe)
+def normalize_fdsn_dframe(fdsn_model_class, fdsn_query_dataframe, logger):
+    if fdsn_query_dataframe.empty:
+        return fdsn_query_dataframe
+    # rename columns. Note that for Stations and Channels models their column names MUST NOT OVERLAP
+    # this has to be remembered if modifying models ORM (not an issue for now)
+    # note that Station table needs an argument 'level' (channel in this case):
+    kwargs = {'level': 'channel'} if fdsn_model_class == models.Station else {}
+    fdsn_query_dataframe = fdsn_model_class.rename_cols(fdsn_query_dataframe, **kwargs)
+    # convert columns to correct dtypes (datetime, numeric etcetera). Values not conforming
+    # will be set to NaN or NaT or None, thus detectable via pandas.dropna or pandas.isnull
+    fdsn_query_dataframe = harmonize_columns(fdsn_model_class, fdsn_query_dataframe)
+    leng = len(fdsn_query_dataframe)
+    # drop NA rows (NA for columns which are non- nullable):
+    fdsn_query_dataframe = harmonize_rows(fdsn_model_class, fdsn_query_dataframe)
+
+    if logger and leng-len(fdsn_query_dataframe):
+        logger.warning("Table '%s': %d items skipped (invalid values for the db schema, e.g., "
+                       "NaN)) will not be written to table nor further processed" %
+                       (str(fdsn_model_class), leng-len(fdsn_query_dataframe),))
+
+    return fdsn_query_dataframe
+
+
+def get_events(session, logger=None, **args):
+    """Queries all events and returns the local db model rows correctly added
+    Rows already existing (comparing by event id) are returned as well, but not added again
+    """
+    try:
+        events_df = get_events_df(**args)
+        # rename columns
+        events_df = normalize_fdsn_dframe(models.Event, events_df, logger)
+    except (IOError, ValueError, TypeError) as err:
+        if logger is not None:
+            logger.error(err)
+        events_df = DataFrame(columns=models.Event.get_col_names(), data=[])
+
+    # convert dataframe to records (df_to_table_iterrows),
+    # add non existing records to db (get_or_add_all) comparing by events.id
+    # return the added rows
+    # Note: get_or_add_all has already flushed, so the returned model instances (db rows)
+    # have the fields updated, if any
+    return get_or_add_all(session, df_to_table_iterrows(models.Event, events_df))
+
+
+def get_datacenters(session, logger, start_time, end_time):
+    """Queries all datacenters and returns the local db model rows correctly added
+    Rows already existing (comparing by datacenter station_query_url) are returned as well,
+    but not added again
+    """
+    dcs_query = ('http://geofon.gfz-potsdam.de/eidaws/routing/1/query?service=station&'
+                 'start=%s&end=%s&format=post' % (start_time.isoformat(), end_time.isoformat()))
+    dc_result = url_read(dcs_query, decoding='utf8')
+
+    # add to db the datacenters read. Two little hacks:
+    # 1) parse dc_result string and assume any new line starting with http:// is a valid station
+    # query url
+    # 2) When adding the datacenter, the table column dataselect_query_url (when not provided, as
+    # in this case) is assumed to be the same as station_query_url by replacing "/station" with
+    # "/dataselect"
+    ret_dcs = []
+    for dcen in dc_result.split("\n"):
+        if dcen[:7] == "http://":
+            dc_row, isnew = get_or_add(session, models.DataCenter(station_query_url=dcen),
+                                       [models.DataCenter.station_query_url])
+            if dc_row is not None:
+                ret_dcs.append(dc_row)
+    return ret_dcs
 
 
 def search_all_stations(events, datacenters, search_radius_args, channels,
@@ -365,6 +405,26 @@ def search_all_stations(events, datacenters, search_radius_args, channels,
                 stations_df = stations_cha_level
                 segments_df = tmp_seg_df
             else:
+                # Now: just append stations_cha_level to stations_df.
+                # NO! we might have different column names (e.g. "Location" vs "location").
+                # In this case, append preserves all the columns BUT RE-SHUFFLES tjeir order.
+                # Which is bad, as we rely on column orders (see models module and FDSNBase
+                # model class). So, again , WORKAROUND:
+                cols1 = stations_df.columns
+                cols2 = stations_cha_level.columns
+                if (cols1 != cols2).any():
+                    # work with lists now:
+                    cols1 = cols1.tolist()
+                    cols2 = cols2.tolist()
+                    if logger:
+                        logger.warning(("query from '%s' returned columns: %s\n"
+                                        "Mismatch with current column names: %s\n"
+                                        "Using columns position to match columns") %
+                                       (sta_query, str(cols2), str(cols1)))
+
+                    col_dict = {k: v for k, v in zip(cols2, cols1)}
+                    stations_cha_level = stations_cha_level.rename(columns=col_dict)
+
                 stations_df = stations_df.append(stations_cha_level, ignore_index=True)
                 segments_df = segments_df.append(tmp_seg_df, ignore_index=True)
 
@@ -445,6 +505,10 @@ def calculate_times(events, stations_df, segments_df, ptimespan):
     # NOTE: the function above calculates duplicated if ALL subset(s) are equal, if any
     # is equal then does not drop them (what we want)
 
+    # turn off warnings, as we know what we are doing
+    # See: http://stackoverflow.com/questions/20625582/how-to-deal-with-this-pandas-warning
+    stations_unique.is_copy = False
+
     def loc2degrees(row):
         # get the row index (accessible by .name.. weird)
         row_index = row.name
@@ -483,7 +547,7 @@ def calculate_times(events, stations_df, segments_df, ptimespan):
     segments_df[seg_etime_col] = segments_df[seg_atime_col] + timedelta(minutes=ptimespan[1])
 
 
-def write_and_download_data(session, run_id, stations_cha_level_df,
+def download_and_write_data(session, run_id, stations_cha_level_df,
                             segments_df, logger=None,
                             progresslistener=None):
     """
@@ -505,10 +569,11 @@ def write_and_download_data(session, run_id, stations_cha_level_df,
     ret_segs = []
     count = 0
 
-    def sta_getter(row):
-        return (models.Station.network == row.network) & (models.Station.station == row.station)
-
     for sta, cha, seg in zip(station_rows, channel_rows, segment_rows):
+
+        if progresslistener:
+            count += 1
+            progresslistener(count)
 
         if sta is None or cha is None or seg is None:  # for safety...
             continue
@@ -539,9 +604,6 @@ def write_and_download_data(session, run_id, stations_cha_level_df,
             dcen = session.query(models.DataCenter).\
                 filter(models.DataCenter.id == seg.datacenter_id).first()
 
-            if dcen is None:
-                fg = 9
-
             query_url = get_wav_query(dcen.dataselect_query_url, sta.network, sta.station,
                                       cha.location, cha.channel, seg.start_time,
                                       seg.end_time)
@@ -553,88 +615,17 @@ def write_and_download_data(session, run_id, stations_cha_level_df,
 
                 seg.run_id = run_id
                 cha.segments.append(seg)
-                if seg.channel_id == "RO.BAC..HNE":
-                    fgh = 9
-                if flush(session):
-                    ret_segs.append(seg)
-                else:
-                    g = 9
-        else:
-            ret_segs.append(seg_tmp)
+#                 if commit(session, on_exc=lambda exc: if logger: logger.warn(exc)):
+#                     ret_segs.append(seg)
+#         else:
+#             ret_segs.append(seg_tmp)
 
-        if progresslistener:
-            count += 1
-            # progresslistener(count)
+        if commit(session):
+            ret_segs.append(seg)
+        elif logger:
+            logger.warn("unable to write changes to db for given segment")
 
     return ret_segs
-
-
-def normalize_fdsn_dframe(fdsn_model_class, fdsn_query_dataframe, logger):
-    if fdsn_query_dataframe.empty:
-        return fdsn_query_dataframe
-    # rename columns. Note that for Stations and Channels models their column names MUST NOT OVERLAP
-    # this has to be remembered if modifying models ORM (not an issue for now)
-    # note that Station table needs an argument 'level' (channel in this case):
-    kwargs = {'level': 'channel'} if fdsn_model_class == models.Station else {}
-    fdsn_query_dataframe = fdsn_model_class.rename_cols(fdsn_query_dataframe, **kwargs)
-    # convert columns to correct dtypes (datetime, numeric etcetera). Values not conforming
-    # will be set to NaN or NaT or None, thus detectable via pandas.dropna or pandas.isnull
-    fdsn_query_dataframe = harmonize_columns(fdsn_model_class, fdsn_query_dataframe)
-    leng = len(fdsn_query_dataframe)
-    # drop NA rows (NA for columns which are non- nullable):
-    fdsn_query_dataframe = harmonize_rows(fdsn_model_class, fdsn_query_dataframe)
-
-    if logger and leng-len(fdsn_query_dataframe):
-        logger.warning("Table '%s': %d items skipped (invalid values for the db schema, e.g., "
-                       "NaN)) will not be written to table nor further processed" %
-                        (str(fdsn_model_class), leng-len(fdsn_query_dataframe),))
-
-    return fdsn_query_dataframe
-
-
-def get_events(session, logger=None, **args):
-    """Queries all events and returns the local db model rows correctly added
-    Rows already existing (comparing by event id) are returned as well, but not added again
-    """
-    try:
-        events_df = get_events_df(**args)
-        # rename columns
-        events_df = normalize_fdsn_dframe(models.Event, events_df, logger)
-    except (IOError, ValueError, TypeError) as err:
-        logger.error(str(err))
-        events_df = DataFrame(columns=models.Event.get_col_names(), data=[])
-
-    # convert dataframe to records (df_to_table_iterrows),
-    # add non existing records to db (get_or_add_all) comparing by events.id
-    # return the added rows
-    # Note: get_or_add_all has already flushed, so the returned model instances (db rows)
-    # have the fields updated, if any
-    return get_or_add_all(session, df_to_table_iterrows(models.Event, events_df))
-
-
-def get_datacenters(session, logger, start_time, end_time):
-    """Queries all datacenters and returns the local db model rows correctly added
-    Rows already existing (comparing by datacenter station_query_url) are returned as well,
-    but not added again
-    """
-    dcs_query = ('http://geofon.gfz-potsdam.de/eidaws/routing/1/query?service=station&'
-                 'start=%s&end=%s&format=post' % (start_time.isoformat(), end_time.isoformat()))
-    dc_result = url_read(dcs_query, decoding='utf8')
-
-    # add to db the datacenters read. Two little hacks:
-    # 1) parse dc_result string and assume any new line starting with http:// is a valid station
-    # query url
-    # 2) When adding the datacenter, the table column dataselect_query_url (when not provided, as
-    # in this case) is assumed to be the same as station_query_url by replacing "/station" with
-    # "/dataselect"
-    ret_dcs = []
-    for dcen in dc_result.split("\n"):
-        if dcen[:7] == "http://":
-            dc_row, isnew = get_or_add(session, models.DataCenter(station_query_url=dcen),
-                                       [models.DataCenter.station_query_url])
-            if dc_row is not None:
-                ret_dcs.append(dc_row)
-    return ret_dcs
 
 
 def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius_args,
@@ -700,7 +691,7 @@ def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, searc
             "end": end.isoformat()}
 
     logger.debug("")
-    logger.info("STEP 1/4: Querying Event WS")
+    logger.info("STEP 1/5: Querying Event WS")
 
     # Get events, store them in the db, returns the event instances (db rows) correctly added:
     events = get_events(session, logger, **args)
@@ -708,13 +699,14 @@ def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, searc
     # convert to dict (we need it for faster search, and we might also avoid duplicated events)
     events = {evt.id: evt for evt in events}
 
-    logger.info("STEP 2/4: Querying Datacenters")
+    logger.info("STEP 2/5: Querying Datacenters")
     # Get datacenters, store them in the db, returns the dc instances (db rows) correctly added:
     datacenters = get_datacenters(session, logger, start, end)
 
     logger.debug("")
-    msg = "STEP 3/4: Querying Station WS (level=channel)"
-    logger.info(msg)
+    logger.info(("STEP 3/5: Querying Station WS (level=channel) from %d datacenters "
+                 "nearby %d events found")
+                % (len(datacenters), len(events)))
 
     # commit changes now in order not to loose datacenters and events:
     if not commit(session, on_exc=lambda exc: logger.error(str(exc))):
@@ -723,19 +715,23 @@ def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, searc
     with progressbar(length=len(events) * len(datacenters)) as bar:
         stations_df, segments_df = search_all_stations(events, datacenters, search_radius_args,
                                                        channels, min_sample_rate, logger,
-                                                       progresslistener=lambda i: bar.update(i))
+                                                       progresslistener=lambda i: bar.update(1))
 
+    logger.info("STEP 4/5: Calculating P-arrival times on %d stations found" % len(stations_df))
     calculate_times(events, stations_df, segments_df, ptimespan)
 
     logger.debug("")
-    logger.info("STEP 3/3: Querying Datacenter WS")
+    logger.info("STEP 5/5: Querying Datacenter WS from %d stations processed" % len(stations_df))
     segments_rows = []
 
-    with progressbar(length=len(segments_df)) as bar:
-        segments_rows = write_and_download_data(session, run_id,
+    leng = min(len(stations_df), len(segments_df))
+    with progressbar(length=leng) as bar:
+        segments_rows = download_and_write_data(session, run_id,
                                                 stations_df, segments_df, logger=logger,
-                                                progresslistener=lambda i: bar.update(i))
+                                                progresslistener=lambda i: bar.update(1))
 
+    logger.info("Saving to db %d of %d data segments (%d skipped due to errors, "
+                "e.g. empty data, url error)" % (len(segments_rows), leng, leng-len(segments_rows)))
     if not commit(session, on_exc=lambda exc: logger.error(str(exc))):
         return 1
 

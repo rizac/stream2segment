@@ -107,9 +107,18 @@ def harmonize_columns(table, dataframe, parse_dates=None):
 
 def _harmonize_columns(table, dataframe, parse_dates=None):
     """
-    Copied and modified from pandas.io.sql:
+    Copied and modified from pandas.io.sql: 
     Make the DataFrame's column types align with the SQL table
-    column types.
+    column types. The original dataframe dtypes and values MIGHT be modified in place!
+
+    Modified because it uses pandas.to_numeric when df.as_type fails. It
+    should silently converts all non-numeric non-date values to NaN and NaT respectively,
+    the only drawback is that int types are float64 in case. This should not be a problem
+    for conversion to db's. And in any case is better than having the original type, when
+    it was, e.g., object or something else
+
+    Original pandas doc:
+
     Need to work around limited NA value support. Floats are always
     fine, ints must always be floats if there are Null values.
     Booleans are hard because converting bool column with None replaces
@@ -145,8 +154,14 @@ def _harmonize_columns(table, dataframe, parse_dates=None):
 
             elif col_type is float:
                 # floats support NA, can always convert!
-                dataframe[col_name] = df_col.astype(col_type, copy=False)
-
+                # BUT: if we have non-numeric non-NaN values, this fails, so
+                # we fall back to pd.to_numeric
+                try:
+                    dataframe[col_name] = df_col.astype(col_type, copy=False)
+                except ValueError:
+                    # failed, use to_numeric coercing to None on errors
+                    # this also sets the column dtype to float64
+                    dataframe[col_name] = pd.to_numeric(df_col, errors='coerce')
             elif col_type is np.dtype('int64'):
                 # integers. Try with normal way. The original code checked NaNs like this:
                 # if len(df_col) == df_col.count():
@@ -156,6 +171,7 @@ def _harmonize_columns(table, dataframe, parse_dates=None):
                     dataframe[col_name] = df_col.astype(col_type, copy=False)
                 except ValueError:
                     # failed, use to_numeric coercing to None on errors
+                    # this also sets the column dtype to float64
                     dataframe[col_name] = pd.to_numeric(df_col, errors='coerce')
             elif col_type is bool:
                 # boolean seems to convert without errors but

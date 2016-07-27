@@ -135,7 +135,7 @@ class Test(unittest.TestCase):
         prevlen = len(self.session.query(models.Segment).all())
 
         runner = CliRunner()
-        result = runner.invoke(main , ['-o', self.dburi, '-a', 'd',
+        result = runner.invoke(main , ['--dburi', self.dburi, '-a', 'd',
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         if result.exception:
@@ -152,7 +152,7 @@ class Test(unittest.TestCase):
         prevlen = len(self.session.query(models.Segment).all())
 
         runner = CliRunner()
-        result = runner.invoke(main , ['-o', self.dburi, '--min_sample_rate', 60, '-a', 'd',
+        result = runner.invoke(main , ['--dburi', self.dburi, '--min_sample_rate', 60, '-a', 'd',
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T18:00:00'])
         if result.exception:
@@ -167,7 +167,7 @@ class Test(unittest.TestCase):
         getedf.side_effect = self.get_events_df
         getdc.side_effect = self.get_datacenters
         runner = CliRunner()
-        result = runner.invoke(main , ['-o', self.dburi, '--min_sample_rate', 60, '-a', 'dp',
+        result = runner.invoke(main , ['--dburi', self.dburi, '--min_sample_rate', 60, '-a', 'dp',
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-09T00:00:00'])
         if result.exception:
@@ -185,7 +185,7 @@ class Test(unittest.TestCase):
     def txst_process(self):
         
         runner = CliRunner()
-        result = runner.invoke(main , ['-o', self.dburi, '--min_sample_rate', 60, '-a', 'P',
+        result = runner.invoke(main , ['--dburi', self.dburi, '--min_sample_rate', 60, '-a', 'P',
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-09T00:00:00'])
         if result.exception:
@@ -211,7 +211,7 @@ class Test(unittest.TestCase):
         assert isinstance(array, Stream)
         assert len(array) == 1
 
-        array = loads(pro.cumulative)
+        array = loads(pro.cum_rem_resp)
         assert isinstance(array, Stream)
         assert len(array) == 1
 
@@ -280,4 +280,8 @@ class Test(unittest.TestCase):
         assert len(list(d)) == len(dframe)-1
         
         
+        # FIXME: Check this warning WARNING:
+        
+        # WARNING (norm_resp): computed and reported sensitivities differ by more than 5 percent.
+        # Execution continuing.
         

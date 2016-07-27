@@ -279,7 +279,8 @@ class Segment(Base):
     datacenter = relationship("DataCenter", backref="segments")
     run = relationship("Run", backref="segments")
 
-    processings = relationship("Processing", backref="segments")
+#    processings = relationship("Processing", backref="segments")
+
 #     classes = relationship(
 #         "Class",
 #         secondary=SegmentClassAssociation,
@@ -302,7 +303,7 @@ class Processing(Base):
     fft_rem_resp_t05_t95 = Column(Binary)
     fft_rem_resp_until_atime = Column(Binary)
     wood_anderson_savewindow = Column(Binary)
-    cumulative = Column(Binary)
+    cum_rem_resp = Column(Binary)
     pga_atime_t95 = Column(Float)
     pgv_atime_t95 = Column(Float)
     pwa_atime_t95 = Column(Float)
@@ -324,15 +325,20 @@ class Processing(Base):
     has_gaps = Column(Boolean)
     double_event_result = Column(Integer)
     secondary_event_time = Column(DateTime)
-    coda_tmax = Column(DateTime)
-    coda_length_sec = Column(Float)
+    coda_start_time = Column(DateTime)  # the coda start time
+    coda_slope = Column(Float)  # slope of the regression line
+    # coda_intercept : float  # intercept of the regression line
+    coda_r_value = Column(Float)  # correlation coefficient
+    coda_is_ok = Column(Boolean)
+
+    segment = relationship("Segment", backref="processings")
 
     __table_args__ = (UniqueConstraint('segment_id', 'run_id', name='seg_run_uc'),)
 
 
 
 # FIXME: implement runs datetime server side, and run test to see it's utc!
-# FIXME: implement relations, and test joins
+# FIXME: test joins with relations
 # fixme: implement DataFrame write, and test it
 # fixme: implement ondelete and oncascade when possible
 # FIXME: many to one with respect to segments table!!

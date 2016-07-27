@@ -19,6 +19,7 @@ from sqlalchemy.engine import create_engine
 from stream2segment.s2sio.db.models import Base
 from sqlalchemy.orm.session import sessionmaker
 from setuptools.command.egg_info import overwrite_arg
+from click import progressbar
 
 # def process_single(session, segments_model_instance, run_id,
 #                    if_exists='update',
@@ -32,27 +33,34 @@ from setuptools.command.egg_info import overwrite_arg
 #                    multievent_threshold1_duration_sec=10,
 #                    multievent_threshold2_percent=0.05, **kwargs):
 
+
 def process_all(session, segments_model_instances, run_id, overwrite_all=False,
-                logger=None,
-                progresslistener=None,
+                logger=None, progresslistener=None,
                 **processing_args):
+    if logger:
+        logger.info("Processing data, please wait")
     ret = []
-    for seg, pro in process_all_iter(session, segments_model_instances, run_id,
-                                     overwrite_all, logger, progresslistener, **processing_args):
-        ret.append((seg, pro))
+    with progressbar(length=len(segments_model_instances)) as bar:
+        for seg, pro in process_all_iter(session, segments_model_instances, run_id,
+                                         overwrite_all, logger,
+                                         **processing_args):
+            bar.update(1)
+
+            ret.append((seg, pro))
     return ret
 
 
 def process_all_iter(session, segments_model_instances, run_id, overwrite_all=False,
-                     logger=None, progresslistener=None,
+                     logger=None,
                      **processing_args):
 
     station_inventories = {}  # cache inventories
-    for seg in segments_model_instances:
+    for i, seg in enumerate(segments_model_instances):
         pro = process(session, seg, run_id,
                       logger=logger, overwrite_all=overwrite_all,
                       station_inventories=station_inventories,
                       **processing_args)
+
         if pro:
             yield seg, pro
 
@@ -205,8 +213,7 @@ def process(session, segments_model_instance, run_id, overwrite_all=False, logge
                                                              mseeds._IO_FORMAT_FFT, dx=deltafreq)
                         pro.wood_anderson_savewindow = dumps(wa_savewindow,
                                                              mseeds._IO_FORMAT_STREAM)
-                        pro.cumulative = dumps(mseed_cum,
-                                               mseeds._IO_FORMAT_STREAM)
+                        pro.cum_rem_resp = dumps(mseed_cum, mseeds._IO_FORMAT_STREAM)
                         pro.pga_atime_t95 = PGA
                         pro.pgv_atime_t95 = PGV
                         pro.pwa_atime_t95 = PWA
@@ -237,6 +244,7 @@ def process(session, segments_model_instance, run_id, overwrite_all=False, logge
     if pro is None:
         return None
 
+    # session.add(pro)
     seg.processings.append(pro)
     if commit(session, on_exc=lambda exc: warn(logger, seg, exc)):
         return pro

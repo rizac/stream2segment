@@ -28,7 +28,6 @@ import click
 import datetime as dt
 from stream2segment.query import main as query_main
 from stream2segment.utils import datetime as dtime, tounicode
-from sqlalchemy.sql import func
 
 
 class LoggerHandler(object):
@@ -103,7 +102,7 @@ def load_def_cfg(filepath, raw=False):
     # load config file. This might be better implemented in the near future
     return ret
 
-
+# a bit hacky maybe, should be checked:
 cfg_dict = load_def_cfg(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.yaml'))
 
 
@@ -152,8 +151,6 @@ def run(action, dbpath, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimesp
     try:
         segments = []
         if 'd' in action:
-#             main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius_args,
-#          channels, start, end, ptimespan, min_sample_rate, logger=None):
             ret = query_main(session, run_row.id, eventws, minmag, minlat, maxlat, minlon, maxlon,
                              search_radius_args, channels,
                              start, end, ptimespan, min_sample_rate, logger)
@@ -161,7 +158,6 @@ def run(action, dbpath, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimesp
         if 'p' in action.lower() and ret == 0:
             segments = session.query(models.Segment).all()
 
-#            parse processing dict:
             pro_sublists_keys = ['bandpass', 'remove_response', 'snr', 'multi_event', 'coda']
             pro_args = {k: processing_args_dict[k] for k in processing_args_dict
                         if k not in pro_sublists_keys}
@@ -180,10 +176,13 @@ def run(action, dbpath, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimesp
     run_row.log = logger.get_log()
     run_row.errors = logger.errors
     run_row.warnings = logger.warnings
-    if commit(session):
-        return ret
+    commit(session, on_exc=lambda exc: logger.error(exc))
 
-    return 1
+    logger.info("")
+    logger.info("Done: %d error(s), %d warning(s)" % (logger.errors, logger.warnings))
+    logger.info("")
+
+    return ret
 
 
 @click.command()
@@ -219,7 +218,7 @@ def run(action, dbpath, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimesp
                     'stations within R will be queried from given event location. '
                     'args are: min_mag max_mag min_distance_deg max_distance_deg'),
               )
-@click.option('-o', '--outpath', default=cfg_dict.get('outpath', ''),
+@click.option('-d', '--dburi', default=cfg_dict.get('outpath', ''),
               help='Db path where to store waveforms, or db path from where to read the'
                    ' waveforms, if --gui is specified.')
 @click.option('-f', '--start', default=cfg_dict.get('start', get_def_timerange()[0]),
@@ -231,10 +230,10 @@ def run(action, dbpath, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimesp
 @click.option('--min_sample_rate', default=cfg_dict['min_sample_rate'],
               help='Limit to segments on a sample rate higher than a specific threshold')
 def main(action, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan, search_radius_args,
-         outpath, start, end, min_sample_rate):
+         dburi, start, end, min_sample_rate):
 
     try:
-        ret = run(action, outpath, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan,
+        ret = run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan,
                   search_radius_args, cfg_dict['channels'], start, end, min_sample_rate,
                   cfg_dict['processing'])
         sys.exit(ret)

@@ -402,23 +402,29 @@ class Test(unittest.TestCase):
 
         id = 'abcdefghilmnopq'
         utcnow = datetime.datetime.utcnow()
-        e = models.Event(id=id, time=utcnow)
+
         df = pd.DataFrame(columns=models.Event.get_col_names(),
                           data=[[None for _ in models.Event.get_col_names()]])
-        # add int and bool fields
-        df.insert(0, 'int', 1)
-        df.insert(0, 'bool', 1)
+
+
+        # add a column which is NOT on the table:
+        colx = 'iassdvgdhrnjynhnt_________'
+        df.insert(0, colx, 1)
 
         colnames, df2 = _harmonize_columns(models.Event, df)
 
+        # colx is not part of the Event model:
+        assert colx not in colnames
+
+        # df2 has been modified in place actually:
+        assert (df.dtypes == df2.dtypes).all()
+
         df2types = df2.dtypes
-        # check if a class is datetime is cumbersome innumpy. See here:
+        # checking if a class is datetime is cumbersome innumpy. See here:
         # http://stackoverflow.com/questions/23063362/consistent-way-to-check-if-an-np-array-is-datetime-like
         # so we do:
         assert 'datetime64' in str(df2types[models.Event.time.key])
         # other stuff works fine with normal check:
-        assert df2types['int'] == np.int64
-        assert df2types['bool'] == np.int64
         assert df2types[models.Event.latitude.key] == np.float64
         assert df2types[models.Event.longitude.key] == np.float64
         assert df2types[models.Event.depth_km.key] == np.float64
@@ -427,10 +433,44 @@ class Test(unittest.TestCase):
         assert df2types[models.Event.event_location_name.key] == object
         assert df2types[models.Event.author.key] == object
         
+        
         df3 = harmonize_columns(models.Event, df2)[colnames] # this calls _harmonize_columns above
         
-        assert len(df3.columns) == len(df.columns)-2
+        assert colx not in df3.columns
         
+        
+        
+        # now try to see with invalid values for floats
+        dfx = pd.DataFrame(columns=models.Event.get_col_names(),
+                          data=[["a" for _ in models.Event.get_col_names()]])
+        
+        _harmonize_columns(models.Event, dfx)
+        
+        # df2 and dfx should have the same dtypes:
+        assert (dfx.dtypes == df2[colnames].dtypes).all()
+        
+        # fast check: datetimes and a float field
+        assert pd.isnull(dfx.loc[0, models.Event.time.key])
+        assert pd.isnull(dfx.loc[0, models.Event.longitude.key])
+        
+        
+        dfx = pd.DataFrame(columns=models.Event.get_col_names(),
+                          data=[["a" for _ in models.Event.get_col_names()]])
+        
+        dfx.loc[0, models.Event.time.key] = utcnow
+        dfx.loc[0, models.Event.latitude.key] = 6.5
+        
+        _harmonize_columns(models.Event, dfx)
+        # fast check: datetimes and a float field
+        assert pd.notnull(dfx.loc[0, models.Event.time.key])
+        assert pd.isnull(dfx.loc[0, models.Event.longitude.key])
+        assert pd.notnull(dfx.loc[0, models.Event.latitude.key])
+        
+        
+        
+        
+        
+        g = 9
         
     def test_context_man(self):
         pass
