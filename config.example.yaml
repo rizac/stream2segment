@@ -60,13 +60,16 @@ end: 2016-05-09T00:00:00
 
 # program specific parameters:
 
-# outpath: specify a database file name
+# dburi: specify a database uri
 # Usually, it is a sqlite database, in which case just write the path to your local file
 # PREPENED with 'sqlite:///' (e.g., 'sqlite:////home/my_folder/db.sqlite')
 # Otherwise, the syntax is:
 # dialect+driver://username:password@host:port/database
 # (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)
-outpath: 'sqlite:///./mydb.sqlite'  # '/tmp/mseeds/'
+dburi: 'sqlite:///./mydb.sqlite'
+# IMPORTANT: IF SQLITE, AND THE DBPATH IS RELATIVE (not starting with slash on unix or C:\ whatever on windows)
+# IT REFERS TO THIS FILE PATH!
+
 
 # action to be taken for the program. Possible values:
 # d   : download data only, no processing'

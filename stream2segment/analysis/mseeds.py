@@ -481,13 +481,9 @@ def loads(obj):
     # len(pickle.dumps(np_a)) = 29190
     # len(pickle.dumps(a))    =  6006
     try:
-        return obspy_read(obj if os.path.isfile(obj) else StringIO(obj))
+        return obspy_read(StringIO(obj))
     except TypeError:
-        ser = None
-        if os.path.isfile(obj):
-            ser = pickle.load(obj)
-        else:
-            ser = pickle.loads(obj)
+        ser = pickle.loads(obj)
 
         datatype = ser.get('t', None)
         if datatype not in _io_types:

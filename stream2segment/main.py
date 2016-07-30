@@ -98,8 +98,24 @@ def get_def_timerange():
 def load_def_cfg(filepath, raw=False):
     """Loads default config from yaml file"""
     with open(filepath, 'r') as stream:
-        ret = yaml.load(stream) if not raw else stream.read()
+        ret = yaml.safe_load(stream) if not raw else stream.read()
     # load config file. This might be better implemented in the near future
+    if not raw:
+        configfilepath = os.path.abspath(os.path.dirname(filepath))
+        # convert sqlite path to relative to the config
+        sqlite_prefix = 'sqlite:///'
+        newdict = {}
+        for k, v in ret.iteritems():
+            try:
+                if v.startswith(sqlite_prefix):
+                    dbpath = v[len(sqlite_prefix):]
+                    if os.path.isabs(filepath):
+                        newdict[k] = sqlite_prefix + \
+                            os.path.normpath(os.path.join(configfilepath, dbpath))
+            except AttributeError:
+                pass
+        if newdict:
+            ret.update(newdict)
     return ret
 
 # a bit hacky maybe, should be checked:
@@ -218,7 +234,7 @@ def run(action, dbpath, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimesp
                     'stations within R will be queried from given event location. '
                     'args are: min_mag max_mag min_distance_deg max_distance_deg'),
               )
-@click.option('-d', '--dburi', default=cfg_dict.get('outpath', ''),
+@click.option('-d', '--dburi', default=cfg_dict.get('dburi', ''),
               help='Db path where to store waveforms, or db path from where to read the'
                    ' waveforms, if --gui is specified.')
 @click.option('-f', '--start', default=cfg_dict.get('start', get_def_timerange()[0]),
