@@ -462,6 +462,10 @@ def search_all_stations(events, datacenters, search_radius_args, channels,
 
 
 def calculate_times(events, stations_df, segments_df, ptimespan):
+    """
+        Calculates the arrival times for each segment. Uses pandas dataframes.
+        FIXME: write detailed doc
+    """
     if stations_df.empty or segments_df.empty:
         return
 
@@ -549,6 +553,7 @@ def download_and_write_data(session, run_id, stations_cha_level_df,
                             segments_df, logger=None,
                             progresslistener=None):
     """
+    Writes stations + channels + data to the db.
     :param progresslistener: a function accepting an integer (starting from 1 until len(segments_df)
     denoting the progress of the downloaded segments data
     """

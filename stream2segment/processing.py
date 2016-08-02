@@ -37,6 +37,9 @@ from click import progressbar
 def process_all(session, segments_model_instances, run_id, overwrite_all=False,
                 logger=None, progresslistener=None,
                 **processing_args):
+    """
+        Processes all segments_model_instances. FIXME: write detailed doc
+    """
     if logger:
         logger.info("Processing data, please wait")
     ret = []
@@ -53,7 +56,9 @@ def process_all(session, segments_model_instances, run_id, overwrite_all=False,
 def process_all_iter(session, segments_model_instances, run_id, overwrite_all=False,
                      logger=None,
                      **processing_args):
-
+    """
+        Processes all segments_model_instances. Returns an generator. FIXME: write detailed doc
+    """
     station_inventories = {}  # cache inventories
     for i, seg in enumerate(segments_model_instances):
         pro = process(session, seg, run_id,
@@ -66,12 +71,14 @@ def process_all_iter(session, segments_model_instances, run_id, overwrite_all=Fa
 
 
 def warn(logger, segment, exception_or_msg):
+    """ convenience function for logging warnings during processing"""
     if logger:
         logger.warning("while processing segment.id='%s': %s" %
                        (str(segment.id), str(exception_or_msg)))
 
 
 def dtime(utcdatetime):
+    """converts UtcDateTime to datetime, returns None if arg is None"""
     return None if utcdatetime is None else utcdatetime.datetime
 
 
@@ -84,7 +91,9 @@ def process(session, segments_model_instance, run_id, overwrite_all=False, logge
             snr_window_length=60, multievent_threshold1=0.85,
             multievent_threshold1_duration=10,
             multievent_threshold2=0.05, **kwargs):
-
+    """
+        Processes a single segment. FIXME: write detailed doc!
+    """
     seg = segments_model_instance
 
     if overwrite_all:
