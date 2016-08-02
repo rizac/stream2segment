@@ -6,38 +6,8 @@ Created on Jul 29, 2016
 This module is an example module to query the *local* db after running
 the main program stream2segments. Follow the instruction to analyze your data
 '''
-
-# this part until ==end== MUST NOT be changed
-import os
-from stream2segment.main import load_def_cfg
-from sqlalchemy.engine import create_engine
-from stream2segment.s2sio.db.models import Base
-from sqlalchemy.orm.session import sessionmaker
-
-
-def get_default_dbpath():
-    return load_def_cfg(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.yaml'))['dburi']
-
-
-def get_session(dbpath=None):
-    """
-    Create an sql alchemy session for IO db operations
-    :param dbpath: the path to the database, e.g. sqlite:///path_to_my_dbase.sqlite
-    if None or missing, it defaults to the 'dburi' field in config.yaml
-    """
-    if dbpath is None:
-        dbpath = get_default_dbpath()
-    # init the session:
-    engine = create_engine(dbpath)
-    Base.metadata.create_all(engine)
-    # create a configured "Session" class
-    Session = sessionmaker(bind=engine)
-    # create a Session
-    session = Session()
-    return session
-
-# ==end== 
-
+# this import is needed to have the sql alchemy session for IO db operations (see below)
+from stream2segment.utils import get_session
 
 def example():
     """
@@ -67,6 +37,7 @@ def example():
     # A model instance (or instance only) is a python object and represents a table row
 
     # Let's import our models (PYTHON classes reflecting the database tables)
+    # You should import them at module level, we do it here for code readability
     from stream2segment.s2sio.db.models import Event, Station, Segment, Processing, Channel,\
         Run, DataCenter
 
@@ -88,6 +59,9 @@ def example():
 
     # then, you instantiate the session. The session is the tool to communicate with the database
     session = get_session()
+    # the line above loads db from config.yaml. To supply a custom sqlite path, use e.g.:
+    # session = get_session("sqlite:///path/to/my/db.sqlite")
+    
 
 
     # ================================

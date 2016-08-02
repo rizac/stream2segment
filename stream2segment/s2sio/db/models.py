@@ -332,6 +332,7 @@ class Processing(Base):
     coda_is_ok = Column(Boolean)
 
     segment = relationship("Segment", backref="processings")
+    run = relationship("Run", backref="processings")
 
     __table_args__ = (UniqueConstraint('segment_id', 'run_id', name='seg_run_uc'),)
 

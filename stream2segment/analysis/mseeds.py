@@ -10,11 +10,15 @@ from stream2segment.analysis import fft as _fft, maxabs as _maxabs,\
     dfreq as _dfreq
 from obspy import read_inventory
 from scipy.signal import savgol_filter
-import pickle
+try:
+    import cPickle as pickle
+except:
+    import pickle
 from obspy.core.stream import read as obspy_read
 import os
 from obspy.core.trace import Stats
 from StringIO import StringIO
+
 
 def stream_compliant(func):
     """

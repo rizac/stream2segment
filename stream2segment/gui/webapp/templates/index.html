@@ -16,9 +16,9 @@
 <div class="row fullheight">
 	<div class="col-md-2 fullheight left-panel">
 		<div class=navigator>
-			<input ng-show="isEditingIndex" type="numeric" class="form-control"
-			placeholder="Enter number in [ 1, {{ '{{' }} elements.length {{ '}}' }} ]"
-			ng-keyup="$event.keyCode == 13 ? setCurrentIndex($event) : ($event.keyCode == 27 ? isEditingIndex=false : null)">
+			<input ng-show="isEditingIndex" ng-model="currentSegmentText" type="numeric" class="form-control"
+			placeholder="Enter number in [ 1, {{ '{{' }} elements.length {{ '}}' }} ] (ESC to exit)"
+			ng-keyup="$event.keyCode == 13 ? setCurrentIndexFromText() : ($event.keyCode == 27 ? isEditingIndex=false : null)">
 			<a  ng-show="!isEditingIndex" ng-click="isEditingIndex=true">
 				Segment {{ '{{' }} currentIndex + 1 {{ '}}' }} of {{ '{{' }} elements.length {{ '}}' }}
 			</a>
@@ -33,7 +33,7 @@
     
     		<label>
       			<input type="checkbox" ng-model="showFiltered"
-      				ng-change="toggleFilter()"> View filtered
+      				ng-change="toggleFilter()"> View Rem.resp+filtered
     		</label>
   		</div>
 		<div class="panel panel-default">
@@ -42,7 +42,7 @@
   				<div class="panel-body">
   					<ul class="segment-info example-animate-container">
 						<li class="animate-repeat" ng-repeat="info in data.metadata">
-					      		<strong>{{ '{{' }} info[0] {{ '}}' }}</strong>: {{ '{{' }} info2str(info[0], info[1]) {{ '}}' }}
+					      		<strong>{{ '{{' }} info[0] {{ '}}' }}</strong>: {{ '{{' }} info2str(info[1]) {{ '}}' }}
 					    </li>
 					    <li class="animate-repeat" ng-if="infos.length == 0">
 					      		<strong>No info available</strong>
@@ -64,30 +64,19 @@
   		<div class="panel panel-default">
   			<!-- Default panel contents -->
   			<div class="panel-heading">Class</div>
-  				<!-- <ul class="nav nav-tabs">
-				  <li ng-class="{{ '{' }} 'active' : classTabSelIndex != 1 , '' :  classTabSelIndex == 1 {{ '}' }}"><a ng-click="setClassTab(0)" href="#">Set class</a></li>
-				  <li ng-class="{{ '{' }} 'active' : classTabSelIndex == 1 , '' :  classTabSelIndex != 1 {{ '}' }}"><a ng-click="setClassTab(1)" href="#">Filter</a></li>
-				</ul> -->
-  			
   				<div class="panel-body">
-  					<div><a ng-click="classesActiveTab = 1 - classesActiveTab">Filter</a></div>
-  					<div ng-show="classesActiveTab == 0" class="segment-class example-animate-container">
-						<div ng-repeat="(classId, class) in classes">
-							<label>
-							<input type='radio' ng-click="setCurrentSegmentClass()" class="animate-repeat"
-								ng-model="data.class_id" value="{{ '{{' }} classId {{ '}}' }}">
-						      		{{ '{{' }} classId {{ '}}' }}: <strong>{{ '{{' }} class.Label {{ '}}' }}</strong> ({{ '{{' }} class.Count {{ '}}' }}) 
-						    </label>
-					    </div>
+  					<!-- <div><a ng-click="classesActiveTab = 1 - classesActiveTab">Filter</a></div>-->
+  					<div class="segment-class example-animate-container">
+  					<div ng-repeat="class in classes">
+  						<label>
+							<input
+							    type="checkbox"
+							    value="{{ '{{' }} class.id {{ '}}' }}"
+							    ng-checked="currentSegmentClassIds.indexOf(class.id) > -1"
+							    ng-click="toggleClassIdSelectionForCurrentSegment(class.id)"
+							> {{ '{{' }} class.id {{ '}}' }}: <strong>{{ '{{' }} class.label {{ '}}' }}</strong> ({{ '{{' }} class.count {{ '}}' }})
+						</label>
 					</div>
-					<div ng-show="classesActiveTab == 1" class="segment-class example-animate-container">
-						<div ng-repeat="(classId, class) in classes">
-							<label>
-							<input type='checkbox' class="animate-repeat" ng-model="class.visible">
-						      		{{ '{{' }} classId {{ '}}' }}: <strong>{{ '{{' }} class.Label {{ '}}' }}</strong> ({{ '{{' }} class.Count {{ '}}' }}) 
-						    </label>
-					    </div>
-					    <input type="submit" class="form-control" ng-click="init()" ng-disabled="!isClassFilterProperlySet()">
 					</div>
   				</div>
   		</div>
@@ -163,15 +152,14 @@ Chart.helpers.extend(Chart.controllers.line.prototype, {
 
         //IMPORTANT: ALL TIME UNITS IN MILLISECONDS!!!!
         //as a remindeer, a timestamp in milliseconds has 13 chars if integer
-        var aTime = chart.config.options.arrivalTime;
-        var snrDtInMSec = chart.config.options.snrWindowInSec * 1000;
+        var fftWindows = chart.config.options.fftWindows;
         var cumt5 = chart.config.options.cumT5;
         var cumt95 = chart.config.options.cumT95;
         
-        var aTimeSet = aTime || aTime === 0;
+        var fftWindowsSet = fftWindows && fftWindows.length;
         var t5_95RegionSet = cumt5 && cumt95 && cumt5 < cumt95;
         
-        if (aTimeSet || t5_95RegionSet){
+        if (fftWindowsSet || t5_95RegionSet){
         	ctx.save();
         	
         	var xaxis = chart.scales['x-axis-0'];
@@ -179,31 +167,32 @@ Chart.helpers.extend(Chart.controllers.line.prototype, {
             //save a reference toi current fill style
   		  	var textFillStyle = ctx.fillStyle;
   		  	
-        	if(aTimeSet){
-	            var x1 = xaxis.getPixelForValue(moment(aTime));
+        	if(fftWindowsSet){
+	            var x1 = xaxis.getPixelForValue(fftWindows[1]); //arrival time + delay
 	            
-	            // paint line
+	            // paint arrival time (+ delay) line
 	            ctx.beginPath();
-	            ctx.moveTo(x1, yaxis.top + 12);
+	            ctx.moveTo(x1, yaxis.top + 12); // 12 to leave a little bit of margin
 	            ctx.strokeStyle = arrivalTimeColor;
 	            ctx.lineTo(x1, yaxis.bottom);
 	            ctx.stroke();
 	            
-	         	  // write TODAY
+	         	// write arrival time caption
 	            ctx.fillStyle = textFillStyle;
 			  	ctx.textAlign = 'center';
-	            ctx.fillText("arrival time", x1, yaxis.top);
+	            ctx.fillText("arrival time (+delay)", x1, yaxis.top);
 	
 	            //paint rects:
-	            if (snrDtInMSec){
-	          	  var x0 = xaxis.getPixelForValue(moment(aTime - snrDtInMSec));
-	                var x2 = xaxis.getPixelForValue(moment(aTime + snrDtInMSec));
+          		var x0 = xaxis.getPixelForValue(fftWindows[0]);
+          	  	var x1 = xaxis.getPixelForValue(fftWindows[1]);
+          		var x2 = xaxis.getPixelForValue(fftWindows[2]);
+          		var x3 = xaxis.getPixelForValue(fftWindows[3]);
+          	   
+              	ctx.fillStyle = snrColors.noise.background;
+  			  	ctx.fillRect(x0, yaxis.top, x1-x0, yaxis.bottom - yaxis.top);
+  			  	ctx.fillStyle = snrColors.signal.background;
+  			  	ctx.fillRect(x2, yaxis.top, x3-x2, yaxis.bottom - yaxis.top);
 	           
-	  	          ctx.fillStyle = snrColors.noise.background;
-	  			  ctx.fillRect(x0, yaxis.top, x1-x0, yaxis.bottom - yaxis.top);
-	  			  ctx.fillStyle = snrColors.signal.background;
-	  			  ctx.fillRect(x1, yaxis.top, x2-x1, yaxis.bottom - yaxis.top);
-	            }
         	}
         	
         	if(t5_95RegionSet){
@@ -250,11 +239,11 @@ var timeOpts = {
                 },
                 ticks:{
                 	maxRotation: 0,
-                	// Last ticks in time scale often overlap. Remove next-to-last
-                	// in case
-                    callback: function(value, index, values) {
+                	callback: function(value, index, values) {
                     	if (values.length > 2 && index == values.length - 2){
-                    		if(values[index] - value[index-1] != values[index+1] - value[index]){
+                    		// Last ticks in time scale often overlap. Remove next-to-last
+                        	// in case
+                            if(values[index] - value[index-1] != values[index+1] - value[index]){
                     			value = "";
                     		}
                     	}
@@ -334,10 +323,32 @@ var mseed_snr = new Chart(trace1_snr, {
             	*/
             yAxes: [{
             	type: 'logarithmic',
-            	/*ticks: {
-                     min: 1,
-                    max: 13382290  
-            	}*/
+            	ticks: {
+            		// Avoid
+                    callback: function(value, index, values) {
+                    	//the scale is logarithmic, get only powers of ten:
+                    	// this makes less labels (too dense)
+                    	var printLabel = index == 0 || index == values.length - 1;
+                    	if (!printLabel && (index > 1) && (index < values.length - 2)){
+                    		//apparently, Math.log10 is not fully supported, so do:
+                        	var valueLog10 = Math.log(value) / Math.LN10;
+                    		printLabel = Math.abs(Math.round(valueLog10) - valueLog10) < 0.0001;
+                    		if (printLabel){
+	                    		value = Math.pow(10, Math.round(valueLog10));
+                    		}
+                    	}
+            			if (!printLabel){
+            				return ""
+            			}
+            			var val = value.toExponential();
+            			//to be sure (especially if index=0 or values.length-1),
+            			//brute force approach:
+            			if (val.length > 10){
+            				return "";
+            			}
+                    	return val;
+                    }
+            	}
             }],
             xAxes:[{
             	gridLines : {
@@ -346,7 +357,7 @@ var mseed_snr = new Chart(trace1_snr, {
             	type: 'linear',
                 position: 'bottom',
             	ticks: {
-            		beginAtZero: false,
+            		//beginAtZero: true,
                     // Convert a log number to its real number by means of 10^value:
                     //(round to max two decimal digits)
                     callback: function(value, index, values) {

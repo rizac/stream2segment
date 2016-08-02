@@ -58,3 +58,8 @@ div.navigator button:not(:last-of-type) {
 div.left-panel{
 	font-size: smaller;
 }
+
+div.left-panel div.panel-body{
+	max-height: 44vh;
+    overflow: auto;
+}

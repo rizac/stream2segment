@@ -109,6 +109,7 @@ def process(session, segments_model_instance, run_id, overwrite_all=False, logge
             warn(logger, seg, "Mseed has more than one Trace")
             pro = None
         else:
+            pro.has_gaps = False
             # work on the trace now. All functions will return Traces or scalars, which is better
             # so we can write them to database more easily
             mseed = mseed[0]
@@ -118,6 +119,7 @@ def process(session, segments_model_instance, run_id, overwrite_all=False, logge
             if ampratio >= amp_ratio_threshold:
                 pro.is_saturated = True
             else:
+                pro.is_saturated = False
                 mseed = bandpass(mseed, seg.event.magnitude, freq_max=bandpass_freq_max,
                                  max_nyquist_ratio=bandpass_max_nyquist_ratio,
                                  corners=bandpass_corners)
@@ -129,8 +131,6 @@ def process(session, segments_model_instance, run_id, overwrite_all=False, logge
                         logger.debug("Reading inventory for station (id='%s')" % str(sta.id))
                     inv_obj = get_inventory(seg, session, logger)
                     station_inventories[sta.id] = inv_obj
-                else:
-                    gh = 9
 
                 if inv_obj is None:
                     pro = None

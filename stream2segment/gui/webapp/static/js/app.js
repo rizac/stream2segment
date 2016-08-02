@@ -6,101 +6,93 @@ myApp.controller('myController', ['$scope', '$http', '$window', function($scope,
 	$scope.data = {};
 	$scope.showFiltered = true;
 	$scope.isEditingIndex = false;
-	$scope.classesActiveTab = 0;
-	$scope.classes = {};
+	$scope.classes = [];
+	$scope.currentSegmentClassIds = [];
+	$scope.currentSegmentText = "";
 
+	$scope.init = function(){
+		var data = {}; //maybe in the future pass some data
+		$http.post("/get_classes", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
+	        $scope.classes = response.data.classes;
+	        $scope.refresh({});
+	    });
+		
+	};
+	
+	$scope.refresh = function(data){ 
+		//var classIds = data.class_ids;
+		$http.post("/get_elements", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
+	        $scope.elements = response.data.segment_ids;
+	        $scope.setCurrentIndex(0);
+	    });
+	};
+	
 	$scope.toggleFilter = function(){
 		//$scope.showFiltered = !$scope.showFiltered; THIS IS HANDLED BY ANGULAR!
 		$scope.updatePlots(true);
-	};
-	
-	$scope.isClassFilterProperlySet = function(){
-		for(var id in $scope.classes){
-			if ($scope.classes[id].visible && $scope.classes[id].Count){
-				return true;
-			}
-		}
-		return false;
 	};
 	
 	$scope.getCurrentSegmentName = function(){
 		if (!$scope.data || !$scope.data.metadata){
 			return ""
 		}
-		return $scope.data.metadata[8][1] + "." + $scope.data.metadata[9][1] + "." + $scope.data.metadata[10][1] + "." + $scope.data.metadata[11][1];
+		return "METADATA";
 	};
 	
-	$scope.info2str = function(key, value){
-		if (key.toLowerCase().indexOf("time") > -1){
-    		return $scope.datetime2iso(value)[1];
-    	}else if (key.toLowerCase().indexOf("date") > -1){
-    		return $scope.datetime2iso(value)[0];
-    	}
+	$scope.info2str = function(value){
+		if (value && value.startsWith){
+			if (value.startsWith("[__TIME__]")){
+				value = $scope.cast(value);
+				return $scope.splitDateAndTime(value)[1];
+			}else if (value.startsWith("[__DATE__]")){
+				value = $scope.cast(value);
+				return $scope.splitDateAndTime(value)[0];
+			}
+		}
 		return value;
 	};
 	
-	$scope.datetime2iso = function(timestamp){
+	$scope.cast = function(value){
+		//converts a value passed from metadata to moment object IF is string and starts
+		// with either "[__DATE__]" or "[__TIME__]"
+		//in any other case, returns the value
+		if (value && value.startsWith){
+			if (value.startsWith("[__TIME__]")){
+				value = "" + value.substring("[__TIME__]".length, (""+value).length);
+				return $window.moment.utc(parseFloat(value));
+			}else if (value.startsWith("[__DATE__]")){
+				value = "" + value.substring("[__DATE__]".length, (""+value).length);
+				return $window.moment.utc(parseFloat(value));
+			}
+		}
+		return value;
+	};
+	
+	$scope.splitDateAndTime = function(momentObj){
 		// toISOString seems to consider times as UTC which is what we want. By default,
 		// (i.e., on the time axis by specifying time scale) it converts them according to
-		// local timezone
-		var ts =  $window.moment(timestamp).toISOString();
+		// local timezone (but we overridden this behavior to display moment.utc in index.html)
+		var ts =  momentObj.toISOString();
 		if (ts[ts.length-1] === 'Z'){
 			ts = ts.substring(0, ts.length - 1);
 		}
 		return ts.split("T");
 	};
-	
-//	$scope.setClassTab = function(index){
-//		$scope.classTabSelIndex = index;
-//	};
-	
-	$scope.setCurrentSegmentClass = function(){
-		//note: due to data binding $scope.data.class_id is already updated
-    	//i.e., $scope.data.class_id is the new classId
-		var param = {segmentId:$scope.elements[$scope.currentIndex], classId: $scope.data.class_id};
-	    $http.post("/set_class_id", param, {headers: {'Content-Type': 'application/json'}}).
-	    success(function(data, status, headers, config) {
-	        // this callback will be called asynchronously
-	        // when the response is available
-	    	oldClassId = parseInt(data);
-	    	if (oldClassId == $scope.data.class_id){
-	    		return;
-	    	}
 
-	    	$scope.classes[oldClassId].Count -= 1;
-	    	$scope.classes[$scope.data.class_id].Count += 1;
+	
+	$scope.toggleClassIdSelectionForCurrentSegment = function(classId){
+		
+		var param = {class_id: classId, segment_id: $scope.elements[$scope.currentIndex]};
+	    $http.post("/toggle_class_id", param, {headers: {'Content-Type': 'application/json'}}).
+	    success(function(data, status, headers, config) {
+	        $scope.classes = data.classes;
+	        $scope.currentSegmentClassIds = data.segment_class_ids;
 	      }).
 	      error(function(data, status, headers, config) {
 	        // called asynchronously if an error occurs
 	        // or server returns response with an error status.
 	      });
 	};
-	
-	$scope.init = function(){ //classIds is an Array
-		var classIds = [];
-		for(var id in $scope.classes){
-			if ($scope.classes[id].visible){
-				classIds.push(parseInt(id));
-			}
-		}
-	    $scope.refresh({'class_ids': classIds});
-	};
-	
-	$scope.refresh = function(data){ 
-		var classIds = data.class_ids;
-		$http.post("/get_elements", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
-	        $scope.elements = response.data.segment_ids;
-	        $scope.classes = {};
-	        for (var i in response.data.classes){
-	        	var id = response.data.classes[i].Id;
-	        	$scope.classes[id] = response.data.classes[i];
-	        	$scope.classes[id].visible = (!classIds.length || classIds.indexOf(id) >= 0);
-	        }
-	        $scope.setCurrentIndex(0);
-	    });
-	};
-	
-	$scope.init();
 	
 	$scope.setNextIndex = function(){
 		var currentIndex = ($scope.currentIndex + 1) % ($scope.elements.length);
@@ -111,20 +103,27 @@ myApp.controller('myController', ['$scope', '$http', '$window', function($scope,
 		var currentIndex = $scope.currentIndex == 0 ? $scope.elements.length - 1 : $scope.currentIndex - 1;
 		$scope.setCurrentIndex(currentIndex);
 	};
-
+	
+	$scope.setCurrentIndexFromText = function(){
+		var index = parseInt($scope.currentSegmentText);
+		if (index >0 && index <= $scope.elements.length){
+			$scope.setCurrentIndex(index-1);
+		}
+	}
+	
 	$scope.setCurrentIndex = function(index){
 		$scope.isEditingIndex = false;
-		var param = {segId: $scope.elements[index]};
+		var param = {segId: $scope.elements[index], filteredRemResp: $scope.showFiltered};
 		$http.post("/get_data", param, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
 			$scope.currentIndex = index;
 	        $scope.data = response.data;
-	        //$scope.currentClassId = response.data.class_id;
+	        $scope.currentSegmentClassIds = response.data.class_ids;
 	        $scope.updatePlots();
 
 	    });
 	};
 	
-	$scope.updatePlots = function(updateFilterOnly){
+	$scope.updatePlots = function(updateFilterOnly){ // update filter only is not actually used anymore
 	    
 	    var index = $scope.showFiltered ? 1 : 0;
         var SCOPEDATA =  $scope.data.time_data;
@@ -157,21 +156,21 @@ myApp.controller('myController', ['$scope', '$http', '$window', function($scope,
 		    for (var i in SCOPEMETADATA){
 		    	key = SCOPEMETADATA[i][0];
 		    	value = SCOPEMETADATA[i][1];
-		    	if(key == "ArrivalTime"){
-		    		arrivalTime = value;
-		    	}else if(key == "SnrWindow/sec"){
-		    		snrWindowInSec = value;
-		    	}else if(key == "Cum_time( 5%)"){
-		    		cumt5 = value;
-		    	}else if(key == "Cum_time(95%)"){
-		    		cumt95 = value;
-		    	}else if(key == "SampleRate"){
-		    		sampleRate = value;
+		    	if(key == "arrival_time (+ config delay)"){
+		    		arrivalTime = $scope.cast(value);
+		    	}else if(key == "noise_fft_start"){
+		    		noiseFFtStart = $scope.cast(value);
+		    	}else if(key == "cum_t05"){
+		    		cumt5 = $scope.cast(value);
+		    	}else if(key == "cum_t95"){
+		    		cumt95 = $scope.cast(value);
+		    	}else if(key == "sample_rate"){
+		    		sampleRate = $scope.cast(value);
 		    	}
 		    }
 
-		    $window.mseed1.config.options.arrivalTime = arrivalTime;
-		    $window.mseed1.config.options.snrWindowInSec = snrWindowInSec;
+		    $window.mseed1.config.options.fftWindows = [noiseFFtStart,arrivalTime,cumt5,cumt95];
+		    //$window.mseed1.config.options.snrWindowInSec = snrWindowInSec;
 		    $window.mseed_cum.config.options.cumT5 = cumt5;
 		    $window.mseed_cum.config.options.cumT95 = cumt95;
 		    
@@ -209,5 +208,9 @@ myApp.controller('myController', ['$scope', '$http', '$window', function($scope,
 	    	plots2refresh[i].update();
 	    }
 	};
+	
+	// init our app:
+	$scope.init();
+	
 
 }]);

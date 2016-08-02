@@ -27,7 +27,7 @@ import yaml
 import click
 import datetime as dt
 from stream2segment.query import main as query_main
-from stream2segment.utils import datetime as dtime, tounicode
+from stream2segment.utils import datetime as dtime, tounicode, load_def_cfg, get_session
 
 
 class LoggerHandler(object):
@@ -95,55 +95,31 @@ def get_def_timerange():
     return startt, endt
 
 
-def load_def_cfg(filepath, raw=False):
-    """Loads default config from yaml file"""
-    with open(filepath, 'r') as stream:
-        ret = yaml.safe_load(stream) if not raw else stream.read()
-    # load config file. This might be better implemented in the near future
-    if not raw:
-        configfilepath = os.path.abspath(os.path.dirname(filepath))
-        # convert sqlite path to relative to the config
-        sqlite_prefix = 'sqlite:///'
-        newdict = {}
-        for k, v in ret.iteritems():
-            try:
-                if v.startswith(sqlite_prefix):
-                    dbpath = v[len(sqlite_prefix):]
-                    if os.path.isabs(filepath):
-                        newdict[k] = sqlite_prefix + \
-                            os.path.normpath(os.path.join(configfilepath, dbpath))
-            except AttributeError:
-                pass
-        if newdict:
-            ret.update(newdict)
-    return ret
-
 # a bit hacky maybe, should be checked:
-cfg_dict = load_def_cfg(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.yaml'))
+cfg_dict = load_def_cfg()
 
 
-def run(action, dbpath, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan,
+def run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan,
         search_radius_args,
         channels,
         start, end, min_sample_rate,
-        processing_args_dict):
-
+        processing):
+    """
+        Main run method. KEEP the ARGUMENT THE SAME AS THE config.yaml OTHERWISE YOU'LL GET
+        A DIFFERENT CONFIG SAVED IN THE DB
+        :param processing: a dict as load from the config
+    """
     _args_ = dict(locals())  # this must be the first statement, so that we catch all arguments and
     # no local variable (none has been declared yet). Note: dict(locals()) avoids problems with
     # variables created inside loops, when iterating over _args_ (see below)
 
     if action == 'gui':
         from stream2segment.gui import main as main_gui
-        main_gui.run_in_browser(dbpath)
+        main_gui.run_in_browser(dburi)
         return 0
 
-    # init the session:
-    engine = create_engine(dbpath)
-    Base.metadata.create_all(engine)
-    # create a configured "Session" class
-    Session = sessionmaker(bind=engine)
-    # create a Session
-    session = Session()
+    # init the session: FIXME: call utils function!
+    session = get_session(dburi)
 
     # add run row with current datetime (utcnow, see models)
     run_row = models.Run()
@@ -151,9 +127,17 @@ def run(action, dbpath, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimesp
     # create logger handler
     logger = LoggerHandler()
 
+    yaml_dict = load_def_cfg()
+    # update with our current variables (only those present in the config_yaml):
+    for arg in _args_:
+        if arg in yaml_dict:
+            yaml_dict[arg] = _args_[arg]
+
     # print local vars:
     yaml_content = StringIO()
-    yaml_content.write(yaml.dump(_args_, default_flow_style=False))
+    # use safe_dump to avoid python types. See:
+    # http://stackoverflow.com/questions/1950306/pyyaml-dumping-without-tags
+    yaml_content.write(yaml.safe_dump(yaml_dict, default_flow_style=False))
     config_text = yaml_content.getvalue()
     logger.info("Arguments:")
     tab = "   "
@@ -175,10 +159,10 @@ def run(action, dbpath, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimesp
             segments = session.query(models.Segment).all()
 
             pro_sublists_keys = ['bandpass', 'remove_response', 'snr', 'multi_event', 'coda']
-            pro_args = {k: processing_args_dict[k] for k in processing_args_dict
+            pro_args = {k: processing[k] for k in processing
                         if k not in pro_sublists_keys}
             for key in pro_sublists_keys:
-                subvalues = processing_args_dict.get(key, {})
+                subvalues = processing.get(key, {})
                 for k, v in subvalues.iteritems():
                     pro_args[key + "_" + k] = v
 

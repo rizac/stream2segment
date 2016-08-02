@@ -16,9 +16,8 @@ def fft(signal):
 def pow_spec(signal, signal_is_fft=False):
     """Returns the power spectrum of a REAL signal
     :param signal: a signal (numeric array)
-    :param dt: the delta t (distance from two points of the equally sampled signal)
-    :param return_abs: if true, np.abs is applied to the returned fft, thus converting it to
-        power spectrum
+    :param signal_is_fft: if true, the signal is already an fft of some signal. Otherwise
+    (the default), fft(signal) will be applied first
     """
     return np.square(amp_spec(signal, signal_is_fft))
 
@@ -26,9 +25,8 @@ def pow_spec(signal, signal_is_fft=False):
 def amp_spec(signal, signal_is_fft=False):
     """Returns the amplitude spectrum of a REAL signal
     :param signal: a signal (numeric array)
-    :param dt: the delta t (distance from two points of the equally sampled signal)
-    :param return_abs: if true, np.abs is applied to the returned fft, thus converting it to
-        power spectrum
+    :param signal_is_fft: if true, the signal is already an fft of some signal. Otherwise
+    (the default), fft(signal) will be applied first
     """
     return np.abs(fft(signal) if not signal_is_fft else signal)
 
@@ -36,6 +34,13 @@ def amp_spec(signal, signal_is_fft=False):
 def dfreq(signal, delta_t):
     """return the delta frequency of a given signal with given sampling rate delta_t (in seconds)"""
     return 1.0 / (len(signal) * delta_t)
+
+
+def freqs(signal, delta_f, start=0):
+    """return the array of the frequencies of a given signal with given sampling freq dfreq
+    starting from start (defaults is 0)"""
+    leng = len(signal)
+    return np.linspace(start, start + (delta_f * leng), leng, endpoint=False)
 
 
 def snr(signal, noisy_signal, signals_form='normal', in_db=False):
@@ -110,3 +115,15 @@ def maxabs(signal):
     """
     idx = np.nanargmax(np.abs(signal))
     return idx, signal[idx]
+
+
+def interp(npts_or_new_x_array, oldxarray, signal):
+    try:
+        len(npts_or_new_x_array)  # is npts_or_new_x_array an array?
+        newxarray = npts_or_new_x_array
+    except TypeError:  # npts_or_new_x_array is scalar (not array)
+        newxarray = np.linspace(oldxarray[0], oldxarray[-1], npts_or_new_x_array, endpoint=True)
+
+    newsignal = np.interp(newxarray, oldxarray, signal)
+
+    return newxarray, newsignal

@@ -8,6 +8,7 @@ import sys
 import random
 import threading
 import webbrowser
+from stream2segment.main import cfg_dict
 
 
 # from stream2segment.s2sio.db import ClassAnnotator
@@ -28,10 +29,14 @@ def run_in_browser(db_uri):
 
 
 if __name__ == '__main__':
+    db_uri = cfg_dict['dburi']
+    print "Using config.py dburi: %s" % db_uri
+
     # global files
-    if len(sys.argv) < 2:
-        print "please specify a valid directory of mseed files"
-        sys.exit(1)
-    db_uri = sys.argv[1]
+#     if len(sys.argv) < 2:
+#         dburi = cfg_dict['dburi']
+#         print "Using config.py dburi: %s" % dburi
+#     else:
+#         db_uri = sys.argv[1]
 
     run_in_browser(db_uri)
