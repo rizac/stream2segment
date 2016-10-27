@@ -10,14 +10,19 @@ from stream2segment.analysis import fft as _fft, maxabs as _maxabs,\
     dfreq as _dfreq
 from obspy import read_inventory
 from scipy.signal import savgol_filter
-try:
-    import cPickle as pickle
-except:
-    import pickle
+# try:
+#     import cPickle as pickle
+# except:
+#     import pickle
+import pickle
 from obspy.core.stream import read as obspy_read
 import os
 from obspy.core.trace import Stats
 from StringIO import StringIO
+import gzip
+import bz2
+import zlib
+import zipfile
 
 
 def stream_compliant(func):
@@ -448,7 +453,7 @@ _IO_FORMAT_TIME = 'obspytrace'
 _io_types = tuple(globals()[g] for g in globals() if g[:4] == '_IO_')
 
 
-def loads(obj):
+def loads__(obj):
     """
         De-serializes an object previously serialized with dumps.
         The returned object is a python Object with attributes:
@@ -473,6 +478,7 @@ def loads(obj):
         keywords, used for the stats default attributes described above, are 'dx' and 'x0'
     """
 
+    # WRONG: FIXME: rewrite doc!!
     # test: given a an array of 1000 floats
     # t1 = Trace(np.array(a))
     # t2 = {'data':a, 'starttime':t1.stats.starttime.timestamp, 'delta':t1.stats.delta}
@@ -487,44 +493,73 @@ def loads(obj):
     try:
         return obspy_read(StringIO(obj))
     except TypeError:
-        ser = pickle.loads(obj)
-
-        datatype = ser.get('t', None)
-        if datatype not in _io_types:
-            raise ValueError("data_type argument should be any of %s" % str(_io_types))
-
-        data = np.array(ser['d'])
-
-        stats = ser['p']
-        if datatype == _IO_FORMAT_FFT:
-            stats['startfreq'] = stats.pop('x0', 0.0)
-            stats['delta'] = stats.pop('dx', 1.0)
-        elif datatype == _IO_FORMAT_TIME or datatype == _IO_FORMAT_STREAM or \
-                datatype == _IO_FORMAT_TRACE:
-            stats['starttime'] = UTCDateTime(stats.pop('x0', 0.0))
-            stats['delta'] = stats.pop('dx', 1.0)
-            if datatype != _IO_FORMAT_TIME:
-                tra = Trace(data=data, header=stats)
-                if datatype == _IO_FORMAT_STREAM:
-                    return Stream(traces=[tra])
-                else:
-                    return tra
+        data = np.load(StringIO(obj))
 
         # instanitate an object ot have access to their attributes
         # discussion here
         # http://stackoverflow.com/questions/2827623/python-create-object-and-add-attributes-to-it
-        class Object(object):
+        class DummyTrace(object):
+            """dummy object emulating an Obspy Trace"""
             pass
-        ret = Object()
-        ret.data = data
-        ret.stats = Object()
-        for k, v in stats.iteritems():
-            setattr(ret.stats, k, v)
+        ret = DummyTrace()
+        for k in data.keys():
+            setattr(ret, k, data[k])
 
         return ret
 
+#         ser = pickle.loads(obj)
+# 
+#         datatype = ser.get('t', None)
+#         if datatype not in _io_types:
+#             raise ValueError("data_type argument should be any of %s" % str(_io_types))
+# 
+#         data = np.array(ser['d'])
+# 
+#         stats = ser['p']
+#         if datatype == _IO_FORMAT_FFT:
+#             stats['startfreq'] = stats.pop('x0', 0.0)
+#             stats['delta'] = stats.pop('dx', 1.0)
+#         elif datatype == _IO_FORMAT_TIME or datatype == _IO_FORMAT_STREAM or \
+#                 datatype == _IO_FORMAT_TRACE:
+#             stats['starttime'] = UTCDateTime(stats.pop('x0', 0.0))
+#             stats['delta'] = stats.pop('dx', 1.0)
+#             if datatype != _IO_FORMAT_TIME:
+#                 tra = Trace(data=data, header=stats)
+#                 if datatype == _IO_FORMAT_STREAM:
+#                     return Stream(traces=[tra])
+#                 else:
+#                     return tra
+# 
+#         # instanitate an object ot have access to their attributes
+#         # discussion here
+#         # http://stackoverflow.com/questions/2827623/python-create-object-and-add-attributes-to-it
+#         class Object(object):
+#             pass
+#         ret = Object()
+#         ret.data = data
+#         ret.stats = Object()
+#         for k, v in stats.iteritems():
+#             setattr(ret.stats, k, v)
+# 
+#         return ret
 
-def dumps(data, data_type=None, x0=None, dx=None, **stats):
+
+def dumps(data, **stats):
+    return np_dumps_compressed(**{'data': data, 'stats': stats})
+
+
+def np_dumps_compressed(**values):
+    sio = StringIO()
+    np.savez_compressed(sio, **values)
+    ret = sio.getvalue()
+    sio.close()
+    return ret
+
+def np_loads_compressed(bytedata):
+    return np.load(StringIO(bytedata))
+
+
+def dumps__(data, data_type=None, x0=None, dx=None, protocol=None, compressed=False, **stats):
     """
         Serializes the given data (array) to a python dictionary. The returned value is a sequence
         of bytes which can be written to file and read back with the `loads` method of this module.
@@ -615,5 +650,111 @@ def dumps(data, data_type=None, x0=None, dx=None, **stats):
         stats['x0'] = float(x0)  # UTCDateTime works!
     if dx is not None:
         stats['dx'] = float(dx)  # UTCDateTime works!
-    return pickle.dumps(ser_data)
+        
+    if compressed:
+        import gzip
+        s = StringIO()
+        with gzip.GzipFile(filename="FILENAME", mode='wb', fileobj=s) as gzip_obj:
+            gzip_obj.write(pickle.dumps(ser_data) if not protocol else
+                           pickle.dumps(ser_data, protocol=protocol))
 
+        return s.getvalue()
+
+    return pickle.dumps(ser_data) if not protocol else \
+        pickle.dumps(ser_data, protocol=protocol)
+
+
+def dumps_test(obj, pickleprotocol=pickle.HIGHEST_PROTOCOL, compresslevel=9,
+               compression='zlib'):
+    """
+        Serializes (and optionally, compresses) `obj` returning a byte sequence to be, e.g.,
+        saved to file or db and loaded back by the module level function `loads`
+        :param obj: any object (numpy array, obspy Stream or Trace, array etcetera)
+        :param pickle protocol: the pickle protocol passed to pickle.dumps (default:
+        `pickle.HIGHEST_PROTOCOL`, which gives lighter object sizes). For more information, see:
+        https://docs.python.org/2/library/pickle.html#data-stream-format
+        :param compresslevel: 9 by default, is a number from 0 to 9. If zero, no compression is
+        further made on the serialized pickle bytes sequence, leading to bigger objects. Otherwise, 
+        this parameter controls the level of compression; 1 is fastest and produces the least
+        compression, and 9 is slowest and produces the most compression
+        :param compressionname: String, either ['bz2', 'zlib' or 'gzip'], defaults to 'gzip'. This parameter
+        is ignored if compresslevel is non-positive, otherwise determines which library will be
+        used to compress the pickled data.
+    """
+    pickle_bytes = pickle.dumps(obj, protocol=pickleprotocol)
+    if compresslevel:
+        if compression == 'bz2':
+            return bz2.compress(pickle_bytes, compresslevel=compresslevel)
+        elif compression == 'zlib':
+            return zlib.compress(pickle_bytes, compresslevel)
+        elif compression == 'gzip':
+            s = StringIO()
+            with gzip.GzipFile(mode='wb', fileobj=s, compresslevel=compresslevel) as gzip_obj:
+                gzip_obj.write(pickle_bytes)
+            return s.getvalue()  # needs to be done OUTSIDE the with statement, the gzip file obj
+            # needs to be closed. see
+        elif compression == 'zip':
+            s = StringIO()
+            with zipfile.ZipFile(s, 'w') as zip_obj:
+                zip_obj.writestr('dumped_obj', pickle_bytes)
+            return s.getvalue()
+        raise ValueError("'compress' argument '%s' not in ('gzip', 'zlib', 'bz2')" %
+                         str(compression))
+    else:
+        return pickle_bytes
+
+
+def loads_test(obj):
+    bytestr = None
+    magic_dict = {
+    "\x1f\x8b\x08": loads_gzip,
+    "\x42\x5a\x68": loads_bz2,
+    "\x50\x4b\x03\x04": loads_zip,
+    }
+    # zlib seems not to have a 100% reliable way. See:
+    # http://stackoverflow.com/questions/5322860/how-to-detect-quickly-if-a-string-is-zlib-compressed
+
+    # try to infer the compression
+    for magic, decompress_func in magic_dict.items():
+        if obj.startswith(magic):
+            try:
+                bytestr = decompress_func(obj)
+                break
+            except:
+                pass
+
+    # no compression found, or failed. Try with zlib first:
+    if bytestr is None:
+        try:
+            bytestr = loads_zlib(obj)
+        except:
+            pass
+        # try numpy compressed data:
+        try:
+            data = np.load(StringIO(obj))
+            return {d: data[d] for d in data.keys()}
+        except:
+            pass
+
+    # bytestr is either a decompressed byte string
+    return pickle.loads(obj if bytestr is None else bytestr)
+
+
+def loads_gzip(obj):
+    with gzip.GzipFile(mode='rb', fileobj=StringIO(obj)) as gzip_obj:
+        return gzip_obj.read()
+
+
+def loads_zip(obj):
+    with zipfile.ZipFile(StringIO(obj), 'r') as zip_obj:
+        return zip_obj.read(zip_obj.namelist()[0])
+#         return {name: zip_obj.read(name) for name in zip_obj.namelist()}
+        # return zip_obj.read()
+
+
+def loads_zlib(obj):
+    return zlib.decompress(obj)
+
+
+def loads_bz2(obj):
+    return bz2.decompress(obj)
