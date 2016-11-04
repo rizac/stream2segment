@@ -10,19 +10,15 @@ from stream2segment.analysis import fft as _fft, maxabs as _maxabs,\
     dfreq as _dfreq
 from obspy import read_inventory
 from scipy.signal import savgol_filter
-# try:
-#     import cPickle as pickle
-# except:
-#     import pickle
-import pickle
+try:
+    import cPickle as pickle
+except ImportError:
+    import pickle
+# import pickle
 from obspy.core.stream import read as obspy_read
 import os
 from obspy.core.trace import Stats
 from StringIO import StringIO
-import gzip
-import bz2
-import zlib
-import zipfile
 
 
 def stream_compliant(func):
@@ -663,98 +659,3 @@ def dumps__(data, data_type=None, x0=None, dx=None, protocol=None, compressed=Fa
     return pickle.dumps(ser_data) if not protocol else \
         pickle.dumps(ser_data, protocol=protocol)
 
-
-def dumps_test(obj, pickleprotocol=pickle.HIGHEST_PROTOCOL, compresslevel=9,
-               compression='zlib'):
-    """
-        Serializes (and optionally, compresses) `obj` returning a byte sequence to be, e.g.,
-        saved to file or db and loaded back by the module level function `loads`
-        :param obj: any object (numpy array, obspy Stream or Trace, array etcetera)
-        :param pickle protocol: the pickle protocol passed to pickle.dumps (default:
-        `pickle.HIGHEST_PROTOCOL`, which gives lighter object sizes). For more information, see:
-        https://docs.python.org/2/library/pickle.html#data-stream-format
-        :param compresslevel: 9 by default, is a number from 0 to 9. If zero, no compression is
-        further made on the serialized pickle bytes sequence, leading to bigger objects. Otherwise, 
-        this parameter controls the level of compression; 1 is fastest and produces the least
-        compression, and 9 is slowest and produces the most compression
-        :param compressionname: String, either ['bz2', 'zlib' or 'gzip'], defaults to 'gzip'. This parameter
-        is ignored if compresslevel is non-positive, otherwise determines which library will be
-        used to compress the pickled data.
-    """
-    pickle_bytes = pickle.dumps(obj, protocol=pickleprotocol)
-    if compresslevel:
-        if compression == 'bz2':
-            return bz2.compress(pickle_bytes, compresslevel=compresslevel)
-        elif compression == 'zlib':
-            return zlib.compress(pickle_bytes, compresslevel)
-        elif compression == 'gzip':
-            s = StringIO()
-            with gzip.GzipFile(mode='wb', fileobj=s, compresslevel=compresslevel) as gzip_obj:
-                gzip_obj.write(pickle_bytes)
-            return s.getvalue()  # needs to be done OUTSIDE the with statement, the gzip file obj
-            # needs to be closed. see
-        elif compression == 'zip':
-            s = StringIO()
-            with zipfile.ZipFile(s, 'w') as zip_obj:
-                zip_obj.writestr('dumped_obj', pickle_bytes)
-            return s.getvalue()
-        raise ValueError("'compress' argument '%s' not in ('gzip', 'zlib', 'bz2')" %
-                         str(compression))
-    else:
-        return pickle_bytes
-
-
-def loads_test(obj):
-    bytestr = None
-    magic_dict = {
-    "\x1f\x8b\x08": loads_gzip,
-    "\x42\x5a\x68": loads_bz2,
-    "\x50\x4b\x03\x04": loads_zip,
-    }
-    # zlib seems not to have a 100% reliable way. See:
-    # http://stackoverflow.com/questions/5322860/how-to-detect-quickly-if-a-string-is-zlib-compressed
-
-    # try to infer the compression
-    for magic, decompress_func in magic_dict.items():
-        if obj.startswith(magic):
-            try:
-                bytestr = decompress_func(obj)
-                break
-            except:
-                pass
-
-    # no compression found, or failed. Try with zlib first:
-    if bytestr is None:
-        try:
-            bytestr = loads_zlib(obj)
-        except:
-            pass
-        # try numpy compressed data:
-        try:
-            data = np.load(StringIO(obj))
-            return {d: data[d] for d in data.keys()}
-        except:
-            pass
-
-    # bytestr is either a decompressed byte string
-    return pickle.loads(obj if bytestr is None else bytestr)
-
-
-def loads_gzip(obj):
-    with gzip.GzipFile(mode='rb', fileobj=StringIO(obj)) as gzip_obj:
-        return gzip_obj.read()
-
-
-def loads_zip(obj):
-    with zipfile.ZipFile(StringIO(obj), 'r') as zip_obj:
-        return zip_obj.read(zip_obj.namelist()[0])
-#         return {name: zip_obj.read(name) for name in zip_obj.namelist()}
-        # return zip_obj.read()
-
-
-def loads_zlib(obj):
-    return zlib.decompress(obj)
-
-
-def loads_bz2(obj):
-    return bz2.decompress(obj)

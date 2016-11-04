@@ -7,7 +7,7 @@ import os
 import numpy as np
 from obspy import read as obspy_read
 from stream2segment.analysis.mseeds import remove_response, dumps__, dumps, np_dumps_compressed,\
-loads__, np_loads_compressed, dumps_test, loads_test
+loads__, np_loads_compressed, dumps_test, loads_test, fft
 from stream2segment.analysis import mseeds
 import tempfile
 import pickle
@@ -18,6 +18,10 @@ import time
 
 import warnings
 from collections import OrderedDict
+from obspy.core.stream import Stream
+from obspy.core.trace import Trace
+from obspy.io.segy.header import DATA_SAMPLE_FORMAT_CODE_DTYPE
+from stream2segment.s2sio.dataseries import LightTrace
 warnings.filterwarnings("ignore")
 
 
@@ -26,17 +30,6 @@ def size(filepath):
     size_ = stats.st_size
     return "%.3f Kb" % (size_ / 1000.0)
 
-
-class LightTrace(object):  # for pickle, a module level class is needed
-
-    def __init__(self, stream=None, **attrs):
-        if stream is not None:
-            setattr(self, 'data', stream.traces[0].data)
-            self.stats = LightTrace(None, starttime=float(stream.traces[0].stats.starttime),
-                                    endtime=float(stream.traces[0].stats.endtime))
-        for a in attrs:
-            setattr(self, a, attrs[a])
-        
 
 def test_io():
     # see here:
@@ -50,9 +43,13 @@ def test_io():
     inv_path = os.path.join(folder, 'inventory_GE.APE.xml')
     mseed_disp = remove_response(mseed, inv_path, output='DISP')
 
-    obj = mseed
+    fft_test = fft(mseed_disp, mseed_disp.traces[0].stats.starttime + 0.2, 60,
+                                              taper_max_percentage=0.05)
 
-    light_obj = LightTrace(obj)
+    fft_test = LightTrace(fft_test, startfreq=0, delta=1.0/mseed_disp.traces[0].stats.delta)
+
+    objects = {'stream': mseed, 'stream-rem-resp': mseed_disp, 'stream-rem-resp-fft': fft_test}
+    # light_obj = LightTrace(obj)
 
     print "done"
 
@@ -76,9 +73,9 @@ def test_io():
                                                                  compresslevel=9, compression='zip')
     vals['pickle h.p. + gzip'] = lambda obj: dumps_test(obj, pickleprotocol=pickle.HIGHEST_PROTOCOL,
                                                                  compresslevel=9, compression='gzip')
-    vals['pickle h.p. + gzip + less data'] = lambda obj: dumps_test(light_obj,
-                                                                             pickleprotocol=pickle.HIGHEST_PROTOCOL,
-                                                                             compresslevel=9, compression='gzip')
+#     vals['pickle h.p. + gzip + less data'] = lambda obj: dumps_test(light_obj,
+#                                                                              pickleprotocol=pickle.HIGHEST_PROTOCOL,
+#                                                                              compresslevel=9, compression='gzip')
 
     # ---------------------------------
 #     vals['pickle_new_hihprotocol'] = dumps_test(obj, protocol=pickle.HIGHEST_PROTOCOL)
@@ -102,23 +99,31 @@ def test_io():
 
     names = []
     try:
-        for key in vals:
-            start = time.time()
-            bytestr = vals[key](obj)
-            # print "key: %s" % key
-            try:
-                _ = loads_test(bytestr)
-            except Exception as exc:
-                # _ = loads_test(bytestr)
-                print "    '%s' ERROR: %s" % (key, str(exc))
-            end = time.time()
-            ttt = end - start
-            with tempfile.NamedTemporaryFile(suffix='.zip') as t:
-                names.append(t.name)
-                assert type(bytestr) == str
-                t.write(bytestr)
-                print "'%30s' string lenght: %10d, file size: %14s. Time to dump and load back: %f" % \
-                    (key, len(bytestr), size(t.name), ttt)
+        for obj in objects:
+            print " Test with '%s'" % obj
+            obj = objects[obj]
+            for key in vals:
+                start = time.time()
+                try:
+                    bytestr = vals[key](obj)
+                except ValueError as error:
+                    print "'%30s' ERROR: %s" % (key, str(error))
+                    continue
+                # print "key: %s" % key
+                try:
+                    _ = loads_test(bytestr)
+                except Exception as exc:
+                    # _ = loads_test(bytestr)
+                    print "'%30s' ERROR: %s" % (key, str(exc))
+                    continue
+                end = time.time()
+                ttt = end - start
+                with tempfile.NamedTemporaryFile(suffix='.zip') as t:
+                    names.append(t.name)
+                    assert type(bytestr) == str
+                    t.write(bytestr)
+                    print "'%30s' string lenght: %10d, file size: %14s. Time to dump and load back: %f" % \
+                        (key, len(bytestr), size(t.name), ttt)
     finally:
         # foe safety:
         for n in names:
