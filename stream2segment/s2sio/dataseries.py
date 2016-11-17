@@ -34,6 +34,7 @@ import numpy as np
 from obspy.core import Stream
 from obspy.core import Trace
 from obspy.core.stream import read as obspy_read
+# from obspy.core.stream import write
 
 
 class Object(object):  # pylint: disable=too-few-public-methods
@@ -54,6 +55,9 @@ class Object(object):  # pylint: disable=too-few-public-methods
         for k, j in attrs.iteritems():
             setattr(self, k, j)
         return self
+
+    def __str__(self):
+        return self.__dict__.__str__()
 
 
 class LightTrace(Object):  # pylint: disable=too-few-public-methods
@@ -98,7 +102,7 @@ class FreqTrace(LightTrace):  # pylint: disable=too-few-public-methods
     This object extends `Light trace` thus has the same structure of an
     `obspy.Trace` object (i.e., with the fields `data` - numeric array, and `stats`, an
     object with attributes)"""
-    def __init__(self, data, startfreq, delta, y_unit=None, **stats_attrs):
+    def __init__(self, data, delta, startfreq=0, y_unit='', **stats_attrs):
         """
             Initializes a new FreqTrace.
             :param data: [iterable | array | Stream | Trace] the data, usually after applying
@@ -107,6 +111,14 @@ class FreqTrace(LightTrace):  # pylint: disable=too-few-public-methods
             make much sense to pass *time*-series data. However, if Stream, it must hold only
             a single trace, and the trace `data` attribute will be used. If Trace, the `trace.data`
             attribute will be used
+            :param delta: the sampling frequency (the distance between two points on the frequency
+            domain, in Herz)
+            :param startfreq: integer, defaults to zero. Equivalent to stats.starttime for an `obspy`
+            Trace, the frequency value of the first point in data
+            :param y_unit (str): empty by default, provide the optional y unit. Typical values might
+            be 'fft' for a simple Fft (with complex-values data), 'amplitude' or 'power' for
+            amplitude and power spectra (with real-values data), or whatever is meaningful to the
+            user
             :param stats_attrs: custom attributes to be set in the attribute `self.stats` (which is
             a :ref Object type). 'startfreq' and 'delta' are set by default as stats attributes
 
@@ -122,37 +134,56 @@ class FreqTrace(LightTrace):  # pylint: disable=too-few-public-methods
         super(FreqTrace, self).__init__(data, **stats_attrs)
 
 
-def dumps(obj, pickleprotocol=pickle.HIGHEST_PROTOCOL, compression='gzip',
-          compresslevel=9):
+def dumps(obj, format=None,   # @ReservedAssignment  # pylint: disable=redefined-builtin
+          compression='gzip', compresslevel=9):
     """
         Serializes `obj` (with optional compression) returning a byte sequence to be, e.g.,
-        saved to file or db and loaded back by this module level function :ref: `loads`.
-        :param obj: A Python object
-        :param pickle protocol: the pickle protocol passed to pickle.dumps (default:
-        `pickle.HIGHEST_PROTOCOL`, which gives lighter object sizes). Ignored if `compression`
-        is 'numpy' (see below). For more information, see:
-        https://docs.python.org/2/library/pickle.html#data-stream-format
-        :param compression: String, either ['bz2', 'zlib', 'gzip', 'zip' or 'numpy'. Default:
-        'gip'], The compression library to use for compressing the data. If None or empty string,
-        no compression is applied (thus generally increasing the size of the returned byte string).
-        The compression is applied on the byte string returned by 'pickle.dumps` *except* if this
-        parameter is 'numpy' (in that case, `pickle.dumps` is not applied at all).
-        :param compresslevel: integer (9 by default). Ignored if `compression` is None, empty,
-        'numpy' or 'zip', this parameter controls the level of compression; 1 is fastest and
+        saved to file or db and loaded back by the module function :ref: `loads`.
+        :param obj: An `obspy` `Stream` or `Trace` object or anything implementing the obspy Stream
+        `write` method
+        :param format: The format argument passed to obspy.write. If None, it defaults to 'MSEED'
+        and 'pickle', meaning that the two format are tried in that order (obspy pickle protocol
+        defaults to 2 as of November 2016)
+        :param compression: String, either ['bz2', 'zlib', 'gzip', 'zip'. Default:
+        'gip'], The compression library to use (after serializing `obj` with the given format)
+        on the serialized data.
+        If None or empty string, no compression is applied (thus generally increasing the size of
+        the returned byte string).
+        :param compresslevel: integer (9 by default). Ignored if `compression` is None, empty
+        or 'zip' (the latter does not accept this argument), this parameter
+        controls the level of compression; 1 is fastest and
         produces the least compression, and 9 is slowest and produces the most compression
     """
-    if compression == 'numpy':
-        sio = StringIO()
-        np.savez_compressed(sio, obj)
-        ret = sio.getvalue()
+    sio = StringIO()
+    if not format:
+        try:
+            format = obj.stats._format  # @ReservedAssignment # pylint: disable=protected-access
+        except AttributeError:
+            try:
+                format = obj[0].stats._format  # @IgnorePep8 # @ReservedAssignment # pylint: disable=protected-access
+            except (AttributeError, TypeError):
+                format = "MSEED"  # @ReservedAssignment # pylint: disable=protected-access
+
+    try:
+        obj.write(sio, format=format)
+        pickle_bytes = sio.getvalue()
         sio.close()
-        return ret
-    pickle_bytes = pickle.dumps(obj, protocol=pickleprotocol)
+    except (AttributeError, TypeError, ValueError):
+        # these are exceptions we should NEVER get, regardless of the format
+        raise
+    except:  # pylint: disable=bare-except
+        # obspy raises a bare Exception, we cannot do anything against!
+        if format.lower() == 'pickle':
+            raise
+        obj.write(sio, format='pickle')
+        pickle_bytes = sio.getvalue()
+        sio.close()
+
     if compression == 'bz2':
         return bz2.compress(pickle_bytes, compresslevel=compresslevel)
     elif compression == 'zlib':
         return zlib.compress(pickle_bytes, compresslevel)
-    else:
+    elif compression:
         sio = StringIO()
         if compression == 'gzip':
             with gzip.GzipFile(mode='wb', fileobj=sio, compresslevel=compresslevel) as gzip_obj:
@@ -160,11 +191,15 @@ def dumps(obj, pickleprotocol=pickle.HIGHEST_PROTOCOL, compression='gzip',
                 # Note: DO NOT return sio.getvalue() WITHIN the with statement, the gzip file obj
                 # needs to be closed first. FIXME: ref?
         elif compression == 'zip':
-            with zipfile.ZipFile(sio, 'w') as zip_obj:
-                zip_obj.writestr(__name__ + " object", pickle_bytes)
-        elif compression:
-            raise ValueError("compression '%s' not in ('gzip', 'zlib', 'bz2', 'zip', 'numpy')" %
+            # In this case, use the compress argument to ZipFile to compress the data,
+            # since writestr() does not take compress as an argument. See:
+            # https://pymotw.com/2/zipfile/#writing-data-from-sources-other-than-files
+            with zipfile.ZipFile(sio, 'w', compression=zipfile.ZIP_DEFLATED) as zip_obj:
+                zip_obj.writestr("x", pickle_bytes)  # first arg must be a nonempty str
+        else:
+            raise ValueError("compression '%s' not in ('gzip', 'zlib', 'bz2', 'zip')" %
                              str(compression))
+
         return sio.getvalue()
 
     return pickle_bytes
@@ -177,40 +212,41 @@ def loads(bytestr):
     :param bytestr: a sequence of bytes from e.g., file or database.
     :return: a python object
     """
-    try:  # try as obspy read:
-        return obspy_read(StringIO(bytestr))
-    except TypeError:
-        pass
-    d_bytestr = None  # decompressed byte string
-    if bytestr.starts_with("\x1f\x8b\x08"):  # gzip
-        with gzip.GzipFile(mode='rb', fileobj=StringIO(bytestr)) as gzip_obj:
-            d_bytestr = gzip_obj.read()
-    elif bytestr.starts_with("\x42\x5a\x68"):  # bz2
-        d_bytestr = bz2.decompress(bytestr)
-    elif bytestr.starts_with("\x50\x4b\x03\x04"):  # zip
-        with zipfile.ZipFile(StringIO(bytestr), 'r') as zip_obj:
-            namelist = zip_obj.namelist()
-            if len(namelist) != 1:
-                raise ValueError("Found zipped content with %d archives, `loads` "
-                                 "can only uncompress single archive content" % len(namelist))
-            d_bytestr = zip_obj.read(namelist[0])
-    else:
-        # zlib seems not to have a 100% reliable way. See:
-        # http://stackoverflow.com/questions/5322860/how-to-detect-quickly-if-a-string-is-zlib-compressed
+    # check if the data is compressed. Note: this is a hint! For info see:
+    # http://stackoverflow.com/questions/19120676/how-to-detect-type-of-compression-used-on-the-file-if-no-file-extension-is-spe
+    if bytestr.startswith("\x1f\x8b\x08"):  # gzip
         try:
-            d_bytestr = zlib.decompress(bytestr)
-        except:  # pylint: disable=bare-except
-            # try numpy compressed data:
+            with gzip.GzipFile(mode='rb', fileobj=StringIO(bytestr)) as gzip_obj:
+                bytestr = gzip_obj.read()
+        except IOError:
+            pass
+    elif bytestr.startswith("\x42\x5a\x68"):  # bz2
+        try:
+            bytestr = bz2.decompress(bytestr)
+        except IOError:
+            pass
+    elif bytestr.startswith("\x50\x4b\x03\x04"):  # zip
+        try:
+            with zipfile.ZipFile(StringIO(bytestr), 'r') as zip_obj:
+                namelist = zip_obj.namelist()
+                if len(namelist) != 1:
+                    raise ValueError("Found zipped content with %d archives, `loads` "
+                                     "can only uncompress single archive content" % len(namelist))
+                bytestr = zip_obj.read(namelist[0])
+        except zipfile.BadZipfile:
+            pass
+    else:
+        byte1 = ord(bytestr[0])
+        byte2 = ord(bytestr[1])
+        if (byte1 * 256 + byte2) % 31 == 0 and (byte1 & 143) == 8:  # zlib. 143=int('10001111', 2)
             try:
-                data = np.load(StringIO(bytestr))
-                if len(data.keys()) != 1:
-                    raise ValueError("Found numpy compressed content with %d archives, `loads` can "
-                                     "only uncompress single archive content" % len(data.keys()))
-                return data[data.keys()[0]]
-            except:
+                bytestr = zlib.decompress(bytestr)
+            except zlib.error:
                 pass
-
-    return pickle.loads(bytestr if d_bytestr is None else d_bytestr)
+    try:
+        return obspy_read(StringIO(bytestr))
+    except (TypeError, AttributeError, ValueError) as exc:
+        raise ValueError(str(exc))
 
 
 def _load_np(obj):
@@ -240,3 +276,145 @@ def _loads_zlib(obj):
 
 def _loads_bz2(obj):
     return bz2.decompress(obj)
+
+# ================================================================================================
+def _dumps(obj, format=None,  # @ReservedAssignment  # pylint: disable=redefined-builtin
+          compression='gzip', compresslevel=9):
+    """
+        Serializes `obj` (with optional compression) returning a byte sequence to be, e.g.,
+        saved to file or db and loaded back by the module function :ref: `loads`.
+        :param obj: A Python object (Stream, Trace, or any object)
+        :param format: The format to be used when serializing obj, i.e., for producing a sequence
+        of bytes representing `obj`. If integer, data will be
+        serialized via pickle dumps and this argument
+        is `protocol` argument. If 'numpy', then numpy.savez_compressed will be used, otherwise
+        it is the format string passed to obspy.Stream (or obspy.core.Trace) `write` method (in this
+        latter case, `obj` needs to be either a Stream or a Trace object). If None, it infers the
+        format from `obj`: if the latter is either a Stream or a Trace, it defaults to 'MSEED',
+        otherwise to pickle.HIGHEST_PROTOCOL (integer). Note that, according to the docs of pickle,
+        a negative int defaults always to pickle.HIGHEST_PROTOCOL (for more information, see:
+        https://docs.python.org/2/library/pickle.html#data-stream-format)
+        :param compression: String, either ['bz2', 'zlib', 'gzip', 'zip'. Default:
+        'gip'], The compression library to use (after serializing `obj` with the given format)
+        on the serialized data.
+        If None or empty string, no compression is applied (thus generally increasing the size of
+        the returned byte string).
+        Note that if format is 'numpy' this compression might be redundant, as 'numpy' already
+        compresses data.
+        :param compresslevel: integer (9 by default). Ignored if `compression` is None, empty,
+        'numpy' or 'zip' (the latter two do not accept compresslevel arguments), this parameter
+        controls the level of compression; 1 is fastest and
+        produces the least compression, and 9 is slowest and produces the most compression
+    """
+    if format is None:
+        if isinstance(obj, Stream) or isinstance(obj, Trace):
+            format = 'MSEED'  # @ReservedAssignment
+        else:
+            format = pickle.HIGHEST_PROTOCOL  # @ReservedAssignment
+
+    if format == 'numpy':
+        sio = StringIO()
+        np.savez_compressed(sio, obj)
+        pickle_bytes = sio.getvalue()
+        sio.close()
+    elif isinstance(format, int):
+        pickle_bytes = pickle.dumps(obj, protocol=format)
+    else:
+        sio = StringIO()
+        obj.write(sio, format=format)
+        pickle_bytes = sio.getvalue()
+        sio.close()
+
+    if compression == 'bz2':
+        return bz2.compress(pickle_bytes, compresslevel=compresslevel)
+    elif compression == 'zlib':
+        return zlib.compress(pickle_bytes, compresslevel)
+    elif compression:
+        sio = StringIO()
+        if compression == 'gzip':
+            with gzip.GzipFile(mode='wb', fileobj=sio, compresslevel=compresslevel) as gzip_obj:
+                gzip_obj.write(pickle_bytes)
+                # Note: DO NOT return sio.getvalue() WITHIN the with statement, the gzip file obj
+                # needs to be closed first. FIXME: ref?
+        elif compression == 'zip':
+            # In this case, use the compress argument to ZipFile to compress the data,
+            # since writestr() does not take compress as an argument. See:
+            # https://pymotw.com/2/zipfile/#writing-data-from-sources-other-than-files
+            with zipfile.ZipFile(sio, 'w', compression=zipfile.ZIP_DEFLATED) as zip_obj:
+                zip_obj.writestr("x", pickle_bytes)  # first arg must be a nonempty str
+        else:
+            raise ValueError("compression '%s' not in ('gzip', 'zlib', 'bz2', 'zip')" %
+                             str(compression))
+
+        return sio.getvalue()
+
+    return pickle_bytes
+
+
+def _loads(bytestr):
+    """De-serializes the given byte string into a python object. The argument must be a byte string
+    as returned from the `dumps` method of this module, or a bytes string representing an obspy
+    Stream object (using `obspy.core.stream.read` function)
+    :param bytestr: a sequence of bytes from e.g., file or database.
+    :return: a python object
+    """
+    # check if the data is compressed. Note: this is a hint! For info see:
+    # http://stackoverflow.com/questions/19120676/how-to-detect-type-of-compression-used-on-the-file-if-no-file-extension-is-spe
+    d_bytestr = None  # decompressed byte string
+    if bytestr.startswith("\x1f\x8b\x08"):  # gzip
+        try:
+            with gzip.GzipFile(mode='rb', fileobj=StringIO(bytestr)) as gzip_obj:
+                d_bytestr = gzip_obj.read()
+        except IOError:
+            pass
+    elif bytestr.startswith("\x42\x5a\x68"):  # bz2
+        try:
+            d_bytestr = bz2.decompress(bytestr)
+        except IOError:
+            pass
+    elif bytestr.startswith("\x50\x4b\x03\x04"):  # zip
+        try:
+            with zipfile.ZipFile(StringIO(bytestr), 'r') as zip_obj:
+                namelist = zip_obj.namelist()
+                if len(namelist) != 1:
+                    raise ValueError("Found zipped content with %d archives, `loads` "
+                                     "can only uncompress single archive content" % len(namelist))
+                d_bytestr = zip_obj.read(namelist[0])
+        except zipfile.BadZipfile:
+            pass
+    else:
+        byte1 = ord(bytestr[0])
+        byte2 = ord(bytestr[1])
+        if (byte1 * 256 + byte2) % 31 == 0 and (byte1 & 143) == 8:  # zlib. 143=int('10001111', 2)
+            try:
+                d_bytestr = zlib.decompress(bytestr)
+            except zlib.error:
+                pass
+    # try with obspy read:
+    try:
+        return obspy_read(StringIO(bytestr if d_bytestr is None else d_bytestr))
+    except TypeError:
+        pass
+
+    # try with pickle:
+    try:
+        return pickle.loads(bytestr if d_bytestr is None else d_bytestr)
+    except (pickle.UnpicklingError, AttributeError,  EOFError, ImportError, IndexError):
+        # http://stackoverflow.com/questions/33307623/python-exception-safe-pickle-use
+        pass
+
+    # try with numpy:
+    try:
+        data = np.load(StringIO(bytestr))  # allow_pickle=True by default
+        if len(data.keys()) != 1:
+            raise ValueError("Found numpy compressed content with %d archives, `loads` can "
+                             "only uncompress single archive content" % len(data.keys()))
+        return data[data.keys()[0]]
+    except IOError:  # Note: ValueError ia also raised but only if allow_pickle=False
+        pass
+
+    raise ValueError("Unable to loads data")
+
+
+
+

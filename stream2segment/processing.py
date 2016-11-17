@@ -3,23 +3,28 @@ Created on Jul 20, 2016
 
 @author: riccardo
 '''
-from stream2segment.utils import url_read
-from obspy.core.inventory.inventory import read_inventory
-from stream2segment.s2sio.db.pd_sql_utils import flush, commit
-from obspy.core.stream import read
-from stream2segment.analysis.mseeds import remove_response, get_gaps, amp_ratio, bandpass, cumsum,\
-    cumtimes, fft, maxabs, simulate_wa, get_multievent, dumps, dfreq
-from stream2segment.analysis import snr, mseeds
-from stream2segment.s2sio.db import models
-from obspy.core.utcdatetime import UTCDateTime
-from sqlalchemy.exc import IntegrityError
 from StringIO import StringIO
-from sqlalchemy import func
-from sqlalchemy.engine import create_engine
-from stream2segment.s2sio.db.models import Base
-from sqlalchemy.orm.session import sessionmaker
-from setuptools.command.egg_info import overwrite_arg
+
 from click import progressbar
+
+from obspy.core.inventory.inventory import read_inventory
+from obspy.core.stream import read
+from obspy.core.utcdatetime import UTCDateTime
+
+from stream2segment.s2sio.db.pd_sql_utils import flush, commit
+from stream2segment.s2sio.dataseries import dumps
+from stream2segment.utils import url_read
+from stream2segment.analysis.mseeds import remove_response, get_gaps, amp_ratio, bandpass, cumsum,\
+    cumtimes, fft, maxabs, simulate_wa, get_multievent, snr  # ,dfreq
+from stream2segment.s2sio.db import models
+# from stream2segment.analysis import snr, mseeds
+# from sqlalchemy.exc import IntegrityError
+# from sqlalchemy import func
+# from sqlalchemy.engine import create_engine
+# from stream2segment.s2sio.db.models import Base
+# from sqlalchemy.orm.session import sessionmaker
+
+# from obspy.core.trace import Trace
 
 # def process_single(session, segments_model_instance, run_id,
 #                    if_exists='update',
@@ -179,6 +184,7 @@ def process(session, segments_model_instance, run_id, overwrite_all=False, logge
                         fft_rem_resp_n = fft(mseed_rem_resp, fixed_time=a_time,
                                              window_in_sec=t05-t95,  # negative float (in seconds)
                                              taper_max_percentage=taper_max_percentage)
+                        # calculate the *real* start time
                         snr_rem_resp_t05_t95 = snr(fft_rem_resp_s, fft_rem_resp_n,
                                                    signals_form='fft', in_db=False)
 
@@ -211,18 +217,14 @@ def process(session, segments_model_instance, run_id, overwrite_all=False, logge
                                                        t95+savewindow_delta).\
                             taper(max_percentage=taper_max_percentage)
 
-                        deltafreq = dfreq(mseed_rem_resp_t05_t95)
+                        # deltafreq = dfreq(mseed_rem_resp_t05_t95)
 
                         # write stuff now to instance:
-                        pro.mseed_rem_resp_savewindow = dumps(mseed_rem_resp_savewindow,
-                                                              mseeds._IO_FORMAT_STREAM)
-                        pro.fft_rem_resp_t05_t95 = dumps(fft_rem_resp_s,
-                                                         mseeds._IO_FORMAT_FFT, dx=deltafreq)
-                        pro.fft_rem_resp_until_atime = dumps(fft_rem_resp_n,
-                                                             mseeds._IO_FORMAT_FFT, dx=deltafreq)
-                        pro.wood_anderson_savewindow = dumps(wa_savewindow,
-                                                             mseeds._IO_FORMAT_STREAM)
-                        pro.cum_rem_resp = dumps(mseed_cum, mseeds._IO_FORMAT_STREAM)
+                        pro.mseed_rem_resp_savewindow = dumps(mseed_rem_resp_savewindow)
+                        pro.fft_rem_resp_t05_t95 = dumps(fft_rem_resp_s)
+                        pro.fft_rem_resp_until_atime = dumps(fft_rem_resp_n)
+                        pro.wood_anderson_savewindow = dumps(wa_savewindow)
+                        pro.cum_rem_resp = dumps(mseed_cum)
                         pro.pga_atime_t95 = PGA
                         pro.pgv_atime_t95 = PGV
                         pro.pwa_atime_t95 = PWA

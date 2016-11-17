@@ -4,21 +4,18 @@ Created on Jun 20, 2016
 @author: riccardo
 '''
 import numpy as np
-from obspy.core import Stream, Trace, UTCDateTime
-from stream2segment.analysis import fft as _fft, maxabs as _maxabs,\
-    linspace as xlinspace, cumsum as _cumsum, env as _env, pow_spec, amp_spec,\
-    dfreq as _dfreq
-from obspy import read_inventory
-from scipy.signal import savgol_filter
+
+# from scipy.signal import savgol_filter
 try:
     import cPickle as pickle
 except ImportError:
     import pickle
-# import pickle
-from obspy.core.stream import read as obspy_read
-import os
-from obspy.core.trace import Stats
 from StringIO import StringIO
+from obspy.core.stream import read as obspy_read
+from obspy.core import Stream, Trace, UTCDateTime  # , Stats
+from obspy import read_inventory
+from stream2segment.analysis import fft as _fft, maxabs as _maxabs,\
+    snr as _snr, cumsum as _cumsum, env as _env, dfreq as _dfreq  # , pow_spec, amp_spec
 
 
 def stream_compliant(func):
@@ -250,16 +247,16 @@ def env(trace):
 
 
 @stream_compliant
-def fft(trace, fixed_time=None, window_in_sec=None, taper_max_percentage=0.05,
-        taper_type='hann'):
+def fft(trace, fixed_time=None, window_in_sec=None, taper_max_percentage=0.05, taper_type='hann'):
     """
+    FIXME: rewrite doc!!!
     Returns a numpy COMPLEX array (or a list of numpy arrays, if the first argument is a Stream)
     resulting from the fft applied on (a sliced version of) the argument
     :param trace: the input obspy.core.Trace
     :param fixed_time: the fixed time where to set the start (if `window_in_sec` > 0) or end
     (if `window_in_sec` < 0) of the trace slice on which to apply the fft. If None, it defaults
     to the start of each trace
-    :type fixed_time: an `obspy.UTCDateTime` object or any objectthat can be passed as argument
+    :type fixed_time: an `obspy.UTCDateTime` object or any object that can be passed as argument
     to the latter (e.g., a numeric timestamp)
     :param window_in_sec: the window, in sec, of the trace slice where to apply the fft. If None,
     it defaults to the amount of time from `fixed_time` till the end of each trace
@@ -277,7 +274,7 @@ def fft(trace, fixed_time=None, window_in_sec=None, taper_max_percentage=0.05,
         endtime = None
     else:
         t01 = fixed_time
-        t02 = fixed_time+window_in_sec
+        t02 = fixed_time + window_in_sec
         starttime, endtime = min(t01, t02), max(t01, t02)
 
     trim_tra = tra.trim(starttime=starttime, endtime=endtime, pad=True, fill_value=0)
@@ -285,13 +282,40 @@ def fft(trace, fixed_time=None, window_in_sec=None, taper_max_percentage=0.05,
         trim_tra.taper(max_percentage=0.05, type=taper_type)
     dft = _fft(trim_tra.data)
     # remember: now we have a numpy array of complex numbers
-    return dft
+    # build a Trace object with complex values and stats referring to the **original** trace
+    # then we can use trace.write(format='pickle') to save the trace and hopefully have a robust
+    # way to retrieve it back via obspy.read. Implementing subclasses of Trace is less robust
+    # cause we need maintainance if we change to the sub-classes in the future, this way we
+    # completely delegate obpsy.
+    t = Trace(data=dft, header=trim_tra.stats)  # stats are preserved. The only stats changed is
+    # when we set the data attribute on a trace (not via the constructor, like we just did)
+    t.stats._format = 'PICKLE'  # pylint:disable=protected-access
+    # this gives an hint on the format to be saved to
+    # note that tt.stats.processing is a list of ALL processing applied on a given Trace,
+    # so we have also the history of the stuff done (only for Trace class methods, but should be
+    # enough)
+    return t
 
 
 @stream_compliant
 def dfreq(trace):
     """Returns the delta frequencies"""
     return _dfreq(trace.data, trace.stats.delta)
+
+
+@stream_compliant
+def snr(trace, noisy_trace, signals_form='normal', in_db=False):
+    """
+    Returns the signal to noise ratio of trace over noisy_trace.
+    :param trace: a given `obspy` Trace denoting the divisor of the snr
+    :param noisy_trace: a given `obspy` Trace denoting the dividend of the snr
+    :param signals_form: tells this function what the given traces are. If:
+        - 'fft' or 'dft': then the traces where obtained from the `fft` function of this module,
+            and their data are actually discrete Fourier transforms
+        - any other value: then the traces are time series, their amplitude spectra will be
+            computed before returning the snr.
+    """
+    return _snr(trace.data, noisy_trace.data, signals_form, in_db)
 
 
 @stream_compliant

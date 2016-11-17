@@ -45,16 +45,17 @@ def freqs(signal, delta_f, start=0):
 
 def snr(signal, noisy_signal, signals_form='normal', in_db=False):
     """
+    FIXME: check better normalizations!!
     Returns the signal to noise ratio of signal1 over signal2.
     :param signal1: a numeric array denoting the divisor of the snr
-    :param signal1: a numeric array denoting the divident of the snr
-    :param signal_format: tells this function what are signal1 and signal2. If:
-        - 'fft' or 'dft': then the signals are discrete fourier transofrms, and they will be
+    :param signal1: a numeric array denoting the dividend of the snr
+    :param signals_form: tells this function what the given signals are. If:
+        - 'fft' or 'dft': then the signals are discrete Fourier transforms, and they will be
             converted to amplitude spectra before computing the snr (modulus of each fft component)
-        - 'amp;: then the signals are amplitude spectra. ``snr = 20*log10(signal1 /signal2)``
-        - 'pow', then the signals are power spectra. ``snr = 20*log10(signal1 /signal2)``
+        - 'amp;: then the signals are amplitude spectra.
+        - 'pow', then the signals are power spectra.
         - any other value: then the signals are time series, their amplitude spectra will be
-            computed before returing the snr.
+            computed before returning the snr.
     """
     if signals_form.lower() == 'amp':
         signal = np.square(signal)
