@@ -24,22 +24,22 @@ from obspy.core import Trace, Stream
 from StringIO import StringIO
 from obspy.io.stationxml.core import _read_stationxml
 
-@pytest.mark.parametrize('inv_output',
-                          ['ACC', 'VEL', 'DISP'])
-def test_read_dumps(_data, inv_output):
-
-
-    # do NOT provide the format, it should complain:
-    with pytest.raises(ValueError):
-        d = dumps(data)
-
-    # Now not anymore:
-    for f in [_IO_FORMAT_FFT, _IO_FORMAT_STREAM, _IO_FORMAT_TIME, _IO_FORMAT_TRACE]:
-        dmp = dumps(data, f)
-        ret_obj = loads(dmp)
-        _data = ret_obj.data if hasattr(ret_obj, "data") else ret_obj.traces[0].data
-        assert all(_data == data)
-        h = 9
+# @pytest.mark.parametrize('inv_output',
+#                           ['ACC', 'VEL', 'DISP'])
+# def test_read_dumps(_data, inv_output):
+# 
+# 
+#     # do NOT provide the format, it should complain:
+#     with pytest.raises(ValueError):
+#         d = dumps(data)
+# 
+#     # Now not anymore:
+#     for f in [_IO_FORMAT_FFT, _IO_FORMAT_STREAM, _IO_FORMAT_TIME, _IO_FORMAT_TRACE]:
+#         dmp = dumps(data, f)
+#         ret_obj = loads(dmp)
+#         _data = ret_obj.data if hasattr(ret_obj, "data") else ret_obj.traces[0].data
+#         assert all(_data == data)
+#         h = 9
 
 
 @pytest.fixture(scope="session")

@@ -14,7 +14,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 import pandas as pd
 from sqlalchemy.exc import IntegrityError
-from stream2segment.s2sio.db.pd_sql_utils import _harmonize_columns, harmonize_columns, add_or_get
+from stream2segment.s2sio.db.pd_sql_utils import _harmonize_columns, harmonize_columns,\
+    get_or_add_iter
 
 
 class Test(unittest.TestCase):
@@ -148,7 +149,7 @@ class Test(unittest.TestCase):
 
         # test stations auto id (concat):
         # first test non-specified non-null fields (should reaise an IntegrityError)
-        e = models.Station(network='abc', station='f', datacenter_id=dc.id)
+        e = models.Station(network='abc', station='f')
         assert e.id is None
         self.session.add(e)
         # we do not have specified all non-null fields:
@@ -157,8 +158,7 @@ class Test(unittest.TestCase):
         self.session.rollback()
 
         # now test auto id
-        e = models.Station(network='abc', station='f', latitude='89.5', longitude='56',
-                           datacenter_id=dc.id)
+        e = models.Station(network='abc', station='f', latitude='89.5', longitude='56')
         assert e.id is None
         self.session.add(e)
         # we do not have specified all non-null fields:
@@ -166,24 +166,21 @@ class Test(unittest.TestCase):
         assert e.id == "abc.f"
 
         # test unique constraints by changing only network
-        sta = models.Station(network='a', station='f', latitude='89.5', longitude='56',
-                             datacenter_id=dc.id)
+        sta = models.Station(network='a', station='f', latitude='89.5', longitude='56')
         self.session.add(sta)
         # we do not have specified all non-null fields:
         self.session.commit()
         assert sta.id == "a.f"
 
         # now re-add it. Unique constraint failed
-        sta = models.Station(network='a', station='f', latitude='189.5', longitude='156',
-                             datacenter_id=dc.id)
+        sta = models.Station(network='a', station='f', latitude='189.5', longitude='156')
         self.session.add(sta)
         with pytest.raises(IntegrityError):
             self.session.commit()
         self.session.rollback()
 
         # test stations channels relationship:
-        sta = models.Station(network='ax', station='f', latitude='89.5', longitude='56',
-                             datacenter_id=dc.id)
+        sta = models.Station(network='ax', station='f', latitude='89.5', longitude='56')
         # write channels WITHOUT foreign key
         cha1 = models.Channel(location='l', channel='HHZ', sample_rate=56)
         cha2 = models.Channel(location='l', channel='HHN', sample_rate=12)
@@ -258,8 +255,7 @@ class Test(unittest.TestCase):
         
         id = 'abcdefghilmnopq'
         utcnow = datetime.datetime.utcnow()
-        e = models.Station(id="a.b", network='a', station='b', latitude=56, longitude=78,
-                           datacenter_id=dc.id)
+        e = models.Station(id="a.b", network='a', station='b', latitude=56, longitude=78)
         self.session.add(e)
         self.session.commit()
 #         
@@ -269,7 +265,7 @@ class Test(unittest.TestCase):
         df.loc[0, 'station'] = 'j'
         df.loc[0, 'latitude'] = 43
         df.loc[0, 'longitude'] = 56.7
-        df.loc[0, 'datacenter_id'] = dc.id
+        # df.loc[0, 'datacenter_id'] = dc.id
         
         df.to_sql(e.__table__.name, self.engine, if_exists='append', index=False)
          
@@ -278,32 +274,36 @@ class Test(unittest.TestCase):
         with pytest.raises(IntegrityError):
             df.to_sql(e.__table__.name, self.engine, if_exists='append', index=False)
 
+    def get_or_add(self, session, model_instance, model_cols_or_colnames=None, on_add='flush'):
+        for inst, isnew in get_or_add_iter(session, [model_instance], model_cols_or_colnames,
+                                           on_add):
+            return inst, isnew
+
     def test_add_or_get(self):
         id = 'some_id_not_used_elsewhere'
         utcnow = datetime.datetime.utcnow()
         e = models.Event(id=id, time=utcnow, latitude=89.5, longitude=6,
                          depth_km=7, magnitude=56)
-        e_, new_added = add_or_get(self.session, e)
-        self.session.flush()  # necessary otherwise add_or_get below doesn;t work
+        e_, new_added = self.get_or_add(self.session, e)
+        # we should have flushed, as it is the default argument
+        # of the function above. Without flush get_or_add below doesn't work
         assert new_added is True and e_ is not None
 
-        e_, new_added = add_or_get(self.session, e)
+        e_, new_added = self.get_or_add(self.session, e)
         assert new_added is False and e_ is not None
 
-        e.latitude = 67.0546
-        e_, new_added = add_or_get(self.session, e, 'latitude')
-        # THIS STILL RETURNS e! we updated the same object!!
-        assert new_added is False and e_ is not None
+        e.latitude = 67.0546  # auto updated, in fact if we do:
+        e_, new_added = self.get_or_add(self.session, e, 'latitude')
+        # we didn't add any new object
+        assert new_added is False and e_ is not None and e_.latitude == e.latitude
 
         # now re-initialize e WITH THE SAME ARGUMENT AS ABOVE AT THE BEGINNING:
         e = models.Event(id=id, time=utcnow, latitude=89.5, longitude=6,
                          depth_km=7, magnitude=56)
-        # THIS RETURNS a new object, as e has the latitude set above so an element with
-        # latitude-89.5 is NOT found on the db with the query
-        e_, new_added = add_or_get(self.session, e, 'latitude')
+        # and do NOT flush by default
+        e_, new_added = self.get_or_add(self.session, e, 'latitude', on_add=None)
         assert new_added is True and e_ is not None
-
-        # now we should get an error cause we added two elements with same id:
+        # However, now we should get an error cause we added two elements with same id:
         with pytest.raises(IntegrityError):
             self.session.flush()
             self.session.commit()
@@ -320,25 +320,24 @@ class Test(unittest.TestCase):
         e = models.Event(id=id, time=utcnow, latitude=89.5, longitude=6,
                          depth_km=7.1, magnitude=56)
 
-        e, added = add_or_get(self.session, e)
+        e, added = self.get_or_add(self.session, e)
 
-        s = models.Station(network='sdf', station='_', latitude=90, longitude=-45,
-                           datacenter_id = dc.id)
+        s = models.Station(network='sdf', station='_', latitude=90, longitude=-45)
 
         c = models.Channel(location= 'tyu', channel='rty', sample_rate=6)
 
         s.channels.append(c)
         
-        s, added = add_or_get(self.session, s)
+        s, added = self.get_or_add(self.session, s, on_add='commit')
         
-        self.session.flush()
-        self.session.commit()
+#         self.session.flush()
+#         self.session.commit()
         
         id = '__abcdefghilmnopq'
         utcnow = datetime.datetime.utcnow()
         e = models.Event(id=id, time=utcnow)
 
-        e, added = add_or_get(self.session, e)
+        e, added = self.get_or_add(self.session, e)
 
         s = models.Station(network='sdf', station='_', latitude=90, longitude=-45)
 
@@ -346,8 +345,8 @@ class Test(unittest.TestCase):
 
         # 
         # self.session.flush()
-        s, added = add_or_get(self.session, s, 'network', 'station')
-        self.session.flush()
+        s, added = self.get_or_add(self.session, s, 'network', 'station')
+        # self.session.flush()
 
         s.channels.append(c)  # that's an error. test it:
         with pytest.raises(IntegrityError):

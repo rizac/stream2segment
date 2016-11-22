@@ -135,7 +135,7 @@ class Station(FDSNBase):
     __tablename__ = "stations"
 
     id = Column(String, primary_key=True, default=sta_pkey_default, onupdate=sta_pkey_default)
-    datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
+    # datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
     network = Column(String, nullable=False)
     station = Column(String, nullable=False)
     latitude = Column(Float, nullable=False)
@@ -150,7 +150,7 @@ class Station(FDSNBase):
                       UniqueConstraint('network', 'station', name='net_sta_uc'),
                      )
 
-    datacenter = relationship("DataCenter", backref="stations")
+    # datacenter = relationship("DataCenter", backref="stations")
 
     @classmethod
     def get_col_mapping(cls, dataframe, level):

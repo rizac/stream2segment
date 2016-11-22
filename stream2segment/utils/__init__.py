@@ -72,14 +72,14 @@ else:
         """:return: True if the current python version is 3"""
         return False
 
-# Python 2 and 3: we might try and catch along the lines of:
+# Python 2 and 3: we might use "try and catch" along the lines of:
 # http://python-future.org/compatible_idioms.html
 # BUT THIS HAS CONFLICTS WITH libraries importing __future__ (see e.g. obspy),
 # if those libraries are imported BEFORE this module. this is safer:
 if ispy3():
-    from urllib.parse import urlparse, urlencode  # @UnresolvedImport
-    from urllib.request import urlopen, Request  # @UnresolvedImport
-    from urllib.error import HTTPError  # @UnresolvedImport
+    from urllib.parse import urlparse, urlencode  # @IgnorePep8 # @UnresolvedImport # pylint:disable=no-name-in-module,import-error
+    from urllib.request import urlopen, Request  # @IgnorePep8 # @UnresolvedImport # pylint:disable=no-name-in-module,import-error
+    from urllib.error import HTTPError  # @IgnorePep8 # @UnresolvedImport # pylint:disable=no-name-in-module,import-error
 else:
     from urlparse import urlparse  # @Reimport
     from urllib import urlencode  # @Reimport
@@ -259,84 +259,6 @@ def ensure(filepath, mode, mkdirs=False, error_type=OSError):
 
     return mkdirdone
 
-
-def url_read(url, blockSize=1024*1024, decoding=None, raise_exc=True):
-    """
-        Reads and return data from the given url. Note that in case of IOException, the  data
-        read until the exception is returned
-        :param url: a valid url
-        :type url: string
-        :param blockSize: the block size while reading, defaults to 1024 ** 2
-            (at most in chunks of 1 MB)
-        :type blockSize: integer
-        :param: decoding: the string used for decoding to string (e.g., 'utf8'). If None
-        (the default), the result is returned as it is (byte string, note that in Python2 this is
-        equivalent to string), otherwise as unicode string
-        :type: decoding: string, or None
-        :param raise_exc: if True (the default when missing) an exception is raised while reading
-        blocks of data (an exception is ALWAYS raised while creating urlopen, prior to reading
-        blocks of data). Otherwise, an exception is returned as second argument in the tuple, whose
-        first argument is the bytes of data (or unicode string) read until that exception
-        :return the data read, or empty string if None
-        :rtype bytes of data (equivalent to string in python2), or unicode string, or the tuple
-        bytes of data or unicode string, exception (the latter might be None)
-        :raise: IOError, ValueError or TypeError in case of errors
-    """
-    dcResult = b''
-
-    try:
-        urlopen_ = urlopen(Request(url))
-    except (IOError, OSError) as e:
-        # note: urllib2 raises urllib2.URLError (subclass of IOError),
-        # in python3 raises urllib.errorURLError (subclass of OSError)
-        # in both cases there might be a reason or code attributes, which we
-        # want to print
-        str_ = ''
-        if hasattr(e, 'reason'):
-            str_ = '%s (Reason: %s)' % (e.__class__.__name__, e.reason)  # pylint:disable=E1103
-        elif hasattr(e, 'code'):
-            str_ = '%s (The server couldn\'t fulfill the request. Error code: %s)' % \
-                    (e.__class__.__name__, e.code)  # pylint:disable=E1103
-        else:
-            str_ = '%s (%s)' % (e.__class__.__name__, str(e))
-
-        raise IOError(str_)
-
-    except (TypeError, ValueError) as _:
-        # see https://docs.python.org/2/howto/urllib2.html#handling-exceptions
-        raise
-
-    # Read the data in blocks of predefined size
-    # Note the read() method, if the size argument is omitted or negative, may not read until the
-    # end of the data stream; there is no good way to determine that the entire stream from a socket
-    # has been read in the general case.
-    # See https://docs.python.org/2/library/urllib.html
-
-    exc = None
-    while True:
-        try:
-            buf = urlopen_.read(blockSize)
-        except IOError as ioexc:  # urlopen behaves as a file-like obj.
-            # Thus we catch the file-like exception IOError,
-            # see https://docs.python.org/2.4/lib/bltin-file-objects.html
-            if raise_exc:
-                urlopen_.close()
-                raise
-            else:
-                exc = ioexc
-                buf = ''  # for safety (break the loop here below)
-
-        if not buf:
-            break
-        dcResult += buf
-
-    # Close the connection to avoid overloading the server
-    urlopen_.close()
-
-    # logging.debug('%s bytes read from %s', dcBytes, url)
-    body = tounicode(dcResult, decoding) if decoding is not None else dcResult
-
-    return body if raise_exc else (body, exc)
 
 # these methods are implemented to avoid complex workarounds in testing.
 # See http://blog.xelnor.net/python-mocking-datetime/

@@ -22,7 +22,8 @@ import pandas as pd
 import yaml
 from click import progressbar
 
-from stream2segment.utils import url_read, tounicode  # , Progress
+from stream2segment.async import url_read
+# from stream2segment.utils import tounicode  # , Progress
 from stream2segment.s2sio import db
 from stream2segment import __version__ as program_version
 from stream2segment.classification import UNKNOWN_CLASS_ID
@@ -37,13 +38,16 @@ from stream2segment.s2sio.db import DbHandler, models
 
 # from stream2segment.utils import DataFrame  # overrides DataFrame to allow case-insensitive
 from pandas import DataFrame
-from stream2segment.s2sio.db.pd_sql_utils import add_or_get, harmonize_columns,\
-    harmonize_rows, df_to_table_iterrows, get_or_add_all, get_or_add, flush, commit
+from stream2segment.s2sio.db.pd_sql_utils import harmonize_columns,\
+    harmonize_rows, df2dbiter, get_or_add_iter, flush, commit
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import and_
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm.session import sessionmaker
 from stream2segment.s2sio.db.models import Base
 from stream2segment.processing import process
+from itertools import count
+from stream2segment.async import read_async
 # slicing by columns. Some datacenters are not returning the same columns (concerning case. E.g.
 # 'latitude' vs 'Latitude')
 
@@ -153,13 +157,22 @@ def get_search_radius(mag, mmin=3, mmax=7, dmin=1, dmax=5):
                     mmin     mmax
 
     """
-    if mag < mmin:
-        radius = dmin
-    elif mag > mmax:
-        radius = dmax
-    else:
-        radius = dmin + (dmax - dmin) / (mmax - mmin) * (mag - mmin)
-    return radius
+    isscalar = np.isscalar(mag)  # for converting back to scalar later
+    mag = np.array(mag)  # copies data
+    mag[mag < mmin] = dmin
+    mag[mag > mmax] = dmax
+    mag[(mag >= mmin) & (mag <= mmax)] = dmin + (dmax - dmin) / (mmax - mmin) * \
+        (mag[(mag >= mmin) & (mag <= mmax)] - mmin)
+
+    return mag[0] if isscalar else mag
+
+#     if mag < mmin:
+#         radius = dmin
+#     elif mag > mmax:
+#         radius = dmax
+#     else:
+#         radius = dmin + (dmax - dmin) / (mmax - mmin) * (mag - mmin)
+#     return radius
 
 
 def get_events_df(**kwargs):
@@ -178,16 +191,59 @@ def get_events_df(**kwargs):
             maxlat (float): the event max latitude
         :raise: ValueError, TypeError, IOError
     """
-    event_query = ('%(eventws)squery?minmagnitude=%(minmag)1.1f&start=%(start)s'
-                   '&minlon=%(minlon)s&maxlon=%(maxlon)s&end=%(end)s'
-                   '&minlat=%(minlat)s&maxlat=%(maxlat)s&format=text') % kwargs
+    logger = kwargs['logger'] if 'logger' in kwargs else None
+    query = ('%(eventws)squery?minmagnitude=%(minmag)1.1f&start=%(start)s'
+             '&minlon=%(minlon)s&maxlon=%(maxlon)s&end=%(end)s'
+             '&minlat=%(minlat)s&maxlat=%(maxlat)s&format=text') % kwargs
 
-    result = url_read(event_query, decoding='utf8')
+    try:
+        result = url_read(query, decode='utf8')
+    except (IOError, ValueError, TypeError) as exc:
+        if logger:
+            logger.error("query: '%s': %s" % (query, str(exc)))
+        return empty()
 
-    return query2dframe(result)
+    dframe = query2dframe(result)
+
+    query_type = "event"
+    try:
+        dframe = rename_columns(dframe, query_type)
+    except ValueError as exc:
+        if logger:
+            logger.error("query: '%s': %s" % (query, str(exc)))
+        return empty()
+
+    try:
+        dframe2 = harmonize_fdsn_dframe(dframe, query_type)
+        if logger:
+            skipped = len(dframe)-len(dframe2)
+            if skipped:
+                logger.warning("query: '%s': %d %ss skipped (invalid values, e.g., "
+                               "NaNs)) will not be written to table nor further processed" %
+                               (query, skipped, query_type))  # query_type = 'event'
+        dframe = dframe2
+    except ValueError as exc:
+        if logger:
+            logger.error("query: '%s': %s" % (query, str(exc)))
+        return empty()
+
+#     if logger:
+#         logger.debug("query: '%s': %d valid %ss found (from: %s, channel: %s)",
+#                      query, len(dframe), query_type)  # query_type is "station" or "channel"
+
+    return dframe
 
 
-def get_stations_df(datacenter, channels_list, orig_time, lat, lon, max_radius, level='channel'):
+def get_station_query_url(datacenter, channels_list, orig_time, lat, lon, max_radius,
+                          level='channel'):
+    start, endt = get_time_range(orig_time, days=1)
+    query = ('%s?latitude=%3.3f&longitude=%3.3f&'
+             'maxradius=%3.3f&start=%s&end=%s&channel=%s&format=text&level=%s')
+    return query % (datacenter, lat, lon, max_radius, start.isoformat(),
+                    endt.isoformat(), ','.join(channels_list), level)
+
+
+def get_stations_df2(query, raw_test_data, min_sample_rate=None, query_type='channel', logger=None):
     """
         Returns a tuple of two elements: the first one is the DataFrame representing the stations
         read from the specified arguments. The second is the the number of rows (denoting stations)
@@ -205,18 +261,159 @@ def get_stations_df(datacenter, channels_list, orig_time, lat, lon, max_radius, 
         :type lon: float
         :param max_radius: the radius distance from lat and lon, in degrees FIXME: check!
         :type max_radius: float
+        :param min_sample_rate: a float denoting the minimum sample rate, in Hz. Only taken into
+        account if 'sample_rate' (or better, `models.Channel.sample_rate.key`) is a column
+        of the resulting dataframe. This is True if level='channel', not True if level='station'
+        (not tested for the other level options). If the parameter value is not greater than zero
+        (which is True when None, the default), no filter on sample rate is done.
+        :type min_sample_rate: float or None
+        :return: the DataFrame representing the stations, and the stations dropped (int)
+        :raise: ValueError, TypeError, IOError
+    """
+    dframe = query2dframe(raw_test_data)
+
+    try:
+        dframe = rename_columns(dframe, query_type)
+    except ValueError as exc:
+        if logger:
+            logger.error("query: '%s': %s" % (query, str(exc)))
+        return empty()  # FIXME: reachable??? logger error should exit!
+
+    try:
+        dframe2 = harmonize_fdsn_dframe(dframe, query_type)
+        if logger:
+            skipped = len(dframe)-len(dframe2)
+            if skipped:
+                logger.warning("query: '%s': %d %ss skipped (invalid values, e.g., "
+                               "NaNs)) will not be written to table nor further processed" %
+                               (query, skipped, query_type))  # query_type is "station" or "channel"
+        dframe = dframe2
+    except ValueError as exc:
+        if logger:
+            logger.error("query: '%s': %s" % (query, str(exc)))
+        return empty()
+
+    # filter out sampling rate lower than required one:
+    if not empty(dframe) and min_sample_rate > 0:
+        srate_col = models.Channel.sample_rate.key
+        tmp = dframe[dframe[srate_col] >= min_sample_rate]
+        if logger:
+            skipped = len(dframe) - len(tmp)
+            logger.warning(("query: '%s': %d stations skipped (sample rate < %s Hz)") %
+                           (query, skipped, str(min_sample_rate)))
+        dframe = empty() if empty(tmp) else tmp
+
+#     if logger:
+#         logger.debug("query: '%s': %d valid %ss found (from: %s, channel: %s)",
+#                      query, len(dframe), query_type)  # query_type is "station" or "channel"
+    return dframe
+
+
+def get_stations_df(datacenter, channels_list, orig_time, lat, lon, max_radius,
+                    min_sample_rate=None, level='channel', logger=None):
+    """
+        Returns a tuple of two elements: the first one is the DataFrame representing the stations
+        read from the specified arguments. The second is the the number of rows (denoting stations)
+        which where dropped from the url query due to errors in parsing
+        :param datacenter: the datacenter, e.g.: "http://ws.resif.fr/fdsnws/station/1/query"
+        :type datacenter: string
+        :param channels_list: the list of channels, e.g. ['HL?', 'SL?', 'BL?'].
+        :type channels_list: iterable (e.g., list)
+        :param orig_time: the origin time. The request will be built with a time start and end of
+            +-1 day from orig_time
+        :type orig_time: date or datetime
+        :param lat: the latitude
+        :type lat: float
+        :param lon: the longitude
+        :type lon: float
+        :param max_radius: the radius distance from lat and lon, in degrees FIXME: check!
+        :type max_radius: float
+        :param min_sample_rate: a float denoting the minimum sample rate, in Hz. Only taken into
+        account if 'sample_rate' (or better, `models.Channel.sample_rate.key`) is a column
+        of the resulting dataframe. This is True if level='channel', not True if level='station'
+        (not tested for the other level options). If the parameter value is not greater than zero
+        (which is True when None, the default), no filter on sample rate is done.
+        :type min_sample_rate: float or None
         :return: the DataFrame representing the stations, and the stations dropped (int)
         :raise: ValueError, TypeError, IOError
     """
 
     start, endt = get_time_range(orig_time, days=1)
-    station_query = ('%s?latitude=%3.3f&longitude=%3.3f&'
-                     'maxradius=%3.3f&start=%s&end=%s&channel=%s&format=text&level=%s')
-    aux = station_query % (datacenter, lat, lon, max_radius, start.isoformat(),
-                           endt.isoformat(), ','.join(channels_list), level)
-    result = url_read(aux, decoding='utf8')
+    query = ('%s?latitude=%3.3f&longitude=%3.3f&'
+             'maxradius=%3.3f&start=%s&end=%s&channel=%s&format=text&level=%s')
+    aux = query % (datacenter, lat, lon, max_radius, start.isoformat(),
+                   endt.isoformat(), ','.join(channels_list), level)
+    result = url_read(aux, decode='utf8')
 
-    return query2dframe(result)
+    dframe = query2dframe(result)
+
+    query_type = level
+    try:
+        dframe = rename_columns(dframe, query_type)
+    except ValueError as exc:
+        if logger:
+            logger.error("query: '%s': %s" % (query, str(exc)))
+        return empty()  # FIXME: reachable??? logger error should exit!
+
+    try:
+        dframe2 = harmonize_fdsn_dframe(dframe, query_type)
+        if logger:
+            skipped = len(dframe)-len(dframe2)
+            if skipped:
+                logger.warning("query: '%s': %d %ss skipped (invalid values, e.g., "
+                               "NaNs)) will not be written to table nor further processed" %
+                               (query, skipped, query_type))  # query_type is "station" or "channel"
+        dframe = dframe2
+    except ValueError as exc:
+        if logger:
+            logger.error("query: '%s': %s" % (query, str(exc)))
+        return empty()
+
+    # filter out sampling rate lower than required one:
+    if not empty(dframe) and min_sample_rate > 0:
+        srate_col = models.Channel.sample_rate.key
+        tmp = dframe[dframe[srate_col] >= min_sample_rate]
+        if logger:
+            skipped = len(dframe) - len(tmp)
+            logger.warning(("query: '%s': %d stations skipped (sample rate < %s Hz)") %
+                           (query, skipped, str(min_sample_rate)))
+        dframe = empty() if empty(tmp) else tmp
+
+#     if logger:
+#         logger.debug("query: '%s': %d valid %ss found (from: %s, channel: %s)",
+#                      query, len(dframe), query_type)  # query_type is "station" or "channel"
+    return dframe
+
+
+def save_stations_df(session, stations_df, logger=None):
+    """
+        stations_df is already harmonized
+        FIXME: add logger capabilities!!!
+    """
+    sta_ids = []
+    for sta, _ in get_or_add_iter(session,
+                                  df2dbiter(stations_df, models.Station, False, False),
+                                  [models.Station.network, models.Station.station],
+                                  on_add='commit'):
+        sta_ids.append(None if sta is None else sta.id)
+
+    stations_df[models.Channel.station_id.key] = sta_ids
+    channels_df = stations_df.dropna(subset=[models.Channel.station_id.key])
+
+    cha_ids = []
+    for cha, _ in get_or_add_iter(session,
+                                  df2dbiter(channels_df, models.Channel, False, False),
+                                  [models.Channel.station_id, models.Channel.location,
+                                   models.Channel.channel],
+                                  on_add='commit'):
+        cha_ids.append(None if cha is None else cha.id)
+
+    channels_df = channels_df.drop(models.Channel.station_id.key, axis=1)  # del station_id column
+    channels_df.reset_index(drop=True, inplace=True)  # otherwise with `mask` below we have issues
+    channels_ids = pd.DataFrame(data=cha_ids, columns=[models.Segment.channel_id.key])
+    mask = ~(channels_ids.isnull().any(axis=1))  # we might omit any() and apply on the series
+    # (is a single column dataframe)
+    return channels_df[mask], channels_ids[mask]
 
 
 def query2dframe(query_result_str):
@@ -269,48 +466,91 @@ def read_wav_data(query_str):
         return None
 
 
-def normalize_fdsn_dframe(fdsn_model_class, fdsn_query_dataframe, logger):
-    if fdsn_query_dataframe.empty:
-        return fdsn_query_dataframe
-    # rename columns. Note that for Stations and Channels models their column names MUST NOT OVERLAP
-    # this has to be remembered if modifying models ORM (not an issue for now)
-    # note that Station table needs an argument 'level' (channel in this case):
-    kwargs = {'level': 'channel'} if fdsn_model_class == models.Station else {}
-    fdsn_query_dataframe = fdsn_model_class.rename_cols(fdsn_query_dataframe, **kwargs)
+def rename_columns(query_df, query_type):
+    """Renames the columns of `query_df` according to the "standard" expected column names given by
+    query_type, so that IO operation with the database are not suffering naming mismatch (e.g., non
+    matching cases). If the number of columns of `query_df` does not match the number of expected
+    columns, a ValueError is raised. The assumption is that any datacenter returns the *same* column
+    in the *same* position, as guessing columns by name might be tricky (there is not only a problem
+    of case sensitivity, but also of e.g. "#Network" vs "network". <-Ref needed!)
+    :param query_df: the DataFrame resulting from an fdsn query, either events station
+    (level=station) or station (level=channel)
+    :param query_type: a string denoting the query type whereby `query_df` has been generated and
+    determining the expected column names, so that `query_df` columns will be renamed accordingly.
+    Possible values are "event", "station" (for a station query with parameter level=station) or
+    "channel" (for a station query with parameter level=channel)
+    :return: a new DataFrame with columns correctly renamed
+    """
+    if empty(query_df):
+        return empty()
+
+    Event, Station, Channel = models.Event, models.Station, models.Channel
+    if query_type.lower() == "event" or query_type.lower() == "events":
+        columns = Event.get_col_names()
+    elif query_type.lower() == "station" or query_type.lower() == "stations":
+        # these are the query_df columns for a station (level=station) query:
+        #  #Network|Station|Latitude|Longitude|Elevation|SiteName|StartTime|EndTime
+        # set this table columns mapping (by name, so we can safely add any new column at any
+        # index):
+        columns = [Station.network.key, Station.station.key, Station.latitude.key,
+                   Station.longitude.key, Station.elevation.key, Station.site_name.key,
+                   Station.start_time.key, Station.end_time.key]
+    elif query_type.lower() == "channel" or query_type.lower() == "channels":
+        # these are the query_df expected columns for a station (level=channel) query:
+        #  #Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|
+        #  SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
+        # Some of them are for the Channel table, so select them:
+        columns = [Station.network.key, Station.station.key, Channel.location.key,
+                   Channel.channel.key, Station.latitude.key, Station.longitude.key,
+                   Station.elevation.key, Channel.depth.key,
+                   Channel.azimuth.key, Channel.dip.key, Channel.sensor_description.key,
+                   Channel.scale.key, Channel.scale_freq.key, Channel.scale_units.key,
+                   Channel.sample_rate.key, Station.start_time.key, Station.end_time.key]
+    else:
+        raise ValueError("Invalid fdsn_model: supply Events, Station or Channel class")
+
+    oldcolumns = query_df.columns.tolist()
+    if len(oldcolumns) != len(columns):
+        raise ValueError("Mismatching number of columns in '%s' query.\nExpected:\n%s\nFound:\n%s" %
+                         (query_type.lower(), str(oldcolumns), str(columns)))
+
+    return query_df.rename(columns={cold: cnew for cold, cnew in zip(oldcolumns, columns)})
+
+
+def harmonize_fdsn_dframe(query_df, query_type):
+    """harmonizes the query dataframe (convert to dataframe dtypes, removes NaNs etcetera) according
+    to query_type
+    :param query_df: a query dataframe *on which `rename_columns` has already been called*
+    :return: a new dataframe with only the good values
+    """
+    if empty(query_df):
+        return empty()
+
+    if query_type.lower() in ("event", "events"):
+        fdsn_model_classes = [models.Event]
+    elif query_type.lower() in ("station", "stations"):
+        fdsn_model_classes = [models.Station]
+    elif query_type.lower() in ("channel", "channels"):
+        fdsn_model_classes = [models.Station, models.Channel]
+
     # convert columns to correct dtypes (datetime, numeric etcetera). Values not conforming
     # will be set to NaN or NaT or None, thus detectable via pandas.dropna or pandas.isnull
-    fdsn_query_dataframe = harmonize_columns(fdsn_model_class, fdsn_query_dataframe)
-    leng = len(fdsn_query_dataframe)
-    # drop NA rows (NA for columns which are non- nullable):
-    fdsn_query_dataframe = harmonize_rows(fdsn_model_class, fdsn_query_dataframe)
+    for fdsn_model_class in fdsn_model_classes:
+        query_df = harmonize_columns(fdsn_model_class, query_df)
+        # we might have NA values (NaNs) after harmonize_columns, now
+        # drop the rows with NA rows (NA for columns which are non-nullable):
+        query_df = harmonize_rows(fdsn_model_class, query_df)
 
-    if logger and leng-len(fdsn_query_dataframe):
-        logger.warning("Table '%s': %d items skipped (invalid values for the db schema, e.g., "
-                       "NaN)) will not be written to table nor further processed" %
-                       (str(fdsn_model_class), leng-len(fdsn_query_dataframe),))
-
-    return fdsn_query_dataframe
+    return query_df
 
 
-def get_events(session, logger=None, **args):
-    """Queries all events and returns the local db model rows correctly added
-    Rows already existing (comparing by event id) are returned as well, but not added again
-    """
-    try:
-        events_df = get_events_df(**args)
-        # rename columns
-        events_df = normalize_fdsn_dframe(models.Event, events_df, logger)
-    except (IOError, ValueError, TypeError) as err:
-        if logger is not None:
-            logger.error(err)
-        events_df = DataFrame(columns=models.Event.get_col_names(), data=[])
-
-    # convert dataframe to records (df_to_table_iterrows),
-    # add non existing records to db (get_or_add_all) comparing by events.id
-    # return the added rows
-    # Note: get_or_add_all has already flushed, so the returned model instances (db rows)
-    # have the fields updated, if any
-    return get_or_add_all(session, df_to_table_iterrows(models.Event, events_df))
+def empty(*obj):
+    if not len(obj):
+        return pd.DataFrame()  # this allows us to call len(empty()) without errors
+    elif len(obj) > 1:
+        raise ValueError("empty can be called with a single argument")
+    obj = obj[0]
+    return obj is None or (hasattr(obj, 'empty') and obj.empty)
 
 
 def get_datacenters(session, logger, start_time, end_time):
@@ -320,7 +560,7 @@ def get_datacenters(session, logger, start_time, end_time):
     """
     dcs_query = ('http://geofon.gfz-potsdam.de/eidaws/routing/1/query?service=station&'
                  'start=%s&end=%s&format=post' % (start_time.isoformat(), end_time.isoformat()))
-    dc_result = url_read(dcs_query, decoding='utf8')
+    dc_result = url_read(dcs_query, decode='utf8')
 
     # add to db the datacenters read. Two little hacks:
     # 1) parse dc_result string and assume any new line starting with http:// is a valid station
@@ -328,307 +568,161 @@ def get_datacenters(session, logger, start_time, end_time):
     # 2) When adding the datacenter, the table column dataselect_query_url (when not provided, as
     # in this case) is assumed to be the same as station_query_url by replacing "/station" with
     # "/dataselect"
-    for dcen in dc_result.split("\n"):
-        if dcen[:7] == "http://":
-            dc_row, isnew = get_or_add(session, models.DataCenter(station_query_url=dcen),
-                                       [models.DataCenter.station_query_url])
+
+    datacenters = [models.DataCenter(station_query_url=dcen) for dcen in dc_result.split("\n")
+                   if dcen[:7] == "http://"]
+
+    for dcen, _ in get_or_add_iter(session, datacenters, [models.DataCenter.station_query_url],
+                                   on_add='commit'):
+        pass
     # do not return only new datacenters, return all of them
     return session.query(models.DataCenter).all()
 
 
-def search_all_stations(events, datacenters, search_radius_args, channels,
-                        min_sample_rate, logger=None, progresslistener=None):
+def get_segments_df(session, dcen, evt, channels, max_radius, min_sample_rate,
+                    ptimespan, distances_cache_dict,
+                    arrivaltimes_cache_dict, logger=None):
     """
-    :param events: a dict of ids mapped to model instances
-    :param progresslistener: a function accepting an integer (starting from 1 until
-    len(events_df) * len(datacenters)
-    denoting the progress of the downloaded segments data
+    FIXME: write doc
+    Downloads stations and channels, saves them , returns a well formatted pd.DataFrame
+    with the segments ready to be downloaded
     """
 
-    n_step = 0
-    # initialize two empty dataframes (which we will return):
-    stations_df = pd.DataFrame()
-    segments_df = pd.DataFrame()
+    stations_df = get_stations_df(dcen.station_query_url, channels,
+                                  evt.time, evt.latitude,
+                                  evt.longitude, max_radius, min_sample_rate, logger=logger)
 
-    for evt_id in events:
-        evt = events[evt_id]
-        evt_mag = evt.magnitude
-        ev_loc_name = evt.event_location_name
-        ev_time = evt.time
-        ev_lat = evt.latitude
-        ev_lon = evt.longitude
+    if empty(stations_df):
+        return empty(), 0
 
-        max_radius = get_search_radius(evt_mag,
-                                       search_radius_args[0],
-                                       search_radius_args[1],
-                                       search_radius_args[2],
-                                       search_radius_args[3])
+    stations_df, channel_ids = save_stations_df(session, stations_df, logger)
 
-        for dcen in datacenters:
+    if empty(stations_df):
+        return empty(), 0
 
-            sta_query = dcen.station_query_url
-            # dataselect_query = dcen.dataselect_query_url
+    segments_df = calculate_times(stations_df, evt, ptimespan, distances_cache_dict,
+                                  arrivaltimes_cache_dict)
 
-            n_step += 1
-            if progresslistener:
-                progresslistener(n_step)
+    segments_df[models.Segment.channel_id.key] = channel_ids
+    segments_df[models.Segment.event_id.key] = evt.id
 
-            msg = ("Event '%s': querying stations within %5.3f deg. "
-                   "to %s") % (ev_loc_name, max_radius, sta_query)
+    notyet_downloaded_filter =\
+        [False if session.query(models.Segment).
+         filter((models.Segment.channel_id == seg.channel_id) &
+                (models.Segment.start_time == seg.start_time) &
+                (models.Segment.end_time == seg.end_time)).first() else True
+         for _, seg in segments_df.iterrows()]
 
-            if logger:
-                logger.debug("")
-                logger.debug(msg)
+    segments_df_newitems = segments_df[notyet_downloaded_filter]
+    skipped_already_downloaded = len(segments_df)-len(segments_df_newitems)
+    segments_df = segments_df_newitems
 
-            try:
-                stations_cha_level = get_stations_df(sta_query, channels, ev_time, ev_lat,
-                                                     ev_lon, max_radius)
-            except (IOError, ValueError, TypeError) as exc:
-                if logger:
-                    logger.warning(exc.__class__.__name__ + ": " + str(exc))
-                continue
+    stations_df = stations_df[notyet_downloaded_filter]
 
-            if logger:
-                logger.debug('%d stations found (from: %s, channel: %s)',
-                             len(stations_cha_level), str(sta_query), str(channels))
+    # build a query url:
+    query_urls = [get_wav_query(dcen.dataselect_query_url,
+                                sta[models.Station.network.key],
+                                sta[models.Station.station.key],
+                                sta[models.Channel.location.key],
+                                sta[models.Channel.channel.key],
+                                seg[models.Segment.start_time.key],
+                                seg[models.Segment.end_time.key])
+                  for (_, sta), (_, seg) in zip(stations_df.iterrows(),
+                                                segments_df.iterrows())]
 
-            if stations_cha_level.empty:
-                continue
+    # set index as urls. Do not use reindex cause it will set everything to NaN
+    # (considering new index values as missing). This works:
+    segments_df = pd.DataFrame(data=segments_df.values, columns=segments_df.columns,
+                               index=query_urls)
+    return segments_df, skipped_already_downloaded
 
-            tmp_seg_df = pd.DataFrame(columns=[models.Segment.event_id.key,
-                                               models.Segment.datacenter_id.key],
-                                      data=[[evt_id, dcen.id]] * len(stations_cha_level))
 
-            if stations_df.empty:
-                stations_df = stations_cha_level
-                segments_df = tmp_seg_df
+def appenddf(olddf, newdf):
+    if empty(olddf):
+        return newdf
+    elif empty(newdf):
+        return olddf
+    else:
+        return olddf.append(newdf, ignore_index=True)
+
+
+def calculate_times(stations_df, evt, ptimespan, distances_cache_dict={}, times_cache_dict={}):
+    event_distances_degrees = []
+    arrival_times = []
+    for _, sta in stations_df.iterrows():
+        coordinates = (evt.latitude, evt.longitude,
+                       sta[models.Station.latitude.key], sta[models.Station.longitude.key])
+        degrees = distances_cache_dict.get(coordinates, None)
+        if degrees is None:
+            degrees = locations2degrees(*coordinates)
+            distances_cache_dict[coordinates] = degrees
+        event_distances_degrees.append(degrees)
+
+        coordinates = (degrees, evt.depth_km, evt.time)
+        arr_time = times_cache_dict.get(coordinates, None)
+        if arr_time is None:
+            arr_time = get_arrival_time(*coordinates)
+            times_cache_dict[coordinates] = arr_time
+        arrival_times.append(arr_time)
+
+    ret = pd.DataFrame({models.Segment.event_distance_deg.key: event_distances_degrees,
+                        models.Segment.arrival_time.key: arrival_times})
+    ret[models.Segment.start_time.key] = ret[models.Segment.arrival_time.key] - timedelta(minutes=ptimespan[0])
+    ret[models.Segment.end_time.key] = ret[models.Segment.arrival_time.key] + timedelta(minutes=ptimespan[1])
+
+    return ret
+
+
+def download_data(session, dcen, segments_df, max_error_count, stats, bar):
+    if not stats:
+        stats = {}
+
+    for key in ['skipped_server_error', 'skipped_other_reason', 'skipped_empty',
+                'skipped_localdb_error', 'downloaded']:
+        stats.setdefault(key, 0)
+
+    segments_df[models.Segment.datacenter_id.key] = dcen.id
+    segments_df[models.Segment.data.key] = None
+    urls = segments_df.index.values
+
+    def onsuccess(data, url, index):
+        bar.update(1)
+        segments_df.loc[url, models.Segment.data.key] = data  # avoid pandas SettingWithCopyWarning
+
+    def onerror(exc, url, index):
+        bar.update(1)
+        stats['skipped_server_error'] += 1
+        if stats['skipped_server_error'] >= max_error_count:
+            return False
+
+    # now download Data:
+    try:
+        read_async(urls, onsuccess, onerror)
+    except:
+        g = 9
+
+    tmp_df = segments_df.dropna(subset=[models.Segment.data.key])
+    stats['skipped_other_reason'] = len(segments_df) - len(tmp_df)
+    segments_df = tmp_df
+    # get empty data, then remove it:
+    segments_df[models.Segment.data.key].replace('', np.nan, inplace=True)
+    tmp_df = segments_df.dropna(subset=[models.Segment.data.key])
+    stats['skipped_empty'] = len(segments_df) - len(tmp_df)
+    segments_df = tmp_df
+
+    remaining_to_update = (stats['skipped_other_reason'] - stats['skipped_server_error'])
+    if remaining_to_update:
+        bar.update(remaining_to_update)
+
+    if not empty(segments_df):
+        for model_instance in df2dbiter(segments_df, models.Segment, False, False):
+            session.add(model_instance)
+            if commit(session):
+                stats['downloaded'] += 1
             else:
-                # Now: just append stations_cha_level to stations_df.
-                # NO! we might have different column names (e.g. "Location" vs "location").
-                # In this case, append preserves all the columns BUT RE-SHUFFLES tjeir order.
-                # Which is bad, as we rely on column orders (see models module and FDSNBase
-                # model class). So, again , WORKAROUND:
-                cols1 = stations_df.columns
-                cols2 = stations_cha_level.columns
-                if (cols1 != cols2).any():
-                    # work with lists now:
-                    cols1 = cols1.tolist()
-                    cols2 = cols2.tolist()
-                    if logger:
-                        logger.warning(("query from '%s' returned columns: %s\n"
-                                        "Mismatch with current column names: %s\n"
-                                        "Using columns position to match columns") %
-                                       (sta_query, str(cols2), str(cols1)))
+                stats['skipped_localdb_error'] += 1
 
-                    col_dict = {k: v for k, v in zip(cols2, cols1)}
-                    stations_cha_level = stations_cha_level.rename(columns=col_dict)
-
-                stations_df = stations_df.append(stations_cha_level, ignore_index=True)
-                segments_df = segments_df.append(tmp_seg_df, ignore_index=True)
-
-    # reset indices to be sure: from 0 to dataframe length
-    # note that the two dataframes have the same number of rows, so its safe
-    stations_df.reset_index(drop=True)
-    segments_df.reset_index(drop=True)
-
-    # normalize the dataframe, drop NA etcetera:
-    count = len(stations_df)
-    if not stations_df.empty:
-        # rename columns according to fdsn table defined in models, purge nan columns etcetera:
-        stations_df = normalize_fdsn_dframe(models.Station, stations_df, logger)
-        stations_df = normalize_fdsn_dframe(models.Channel, stations_df, logger)
-
-    if len(stations_df) != count and logger:
-        logger.warning(("%d stations skipped (bad values, e.g. NaN's)") %
-                       (count - len(stations_df)))
-        # filter out segments also:
-        segments_df = segments_df.loc[stations_df.index.values]
-
-    if not stations_df.empty and min_sample_rate > 0:
-        srate_col = models.Channel.sample_rate.key
-        tmp = stations_df[stations_df[srate_col] >= min_sample_rate]
-        if len(tmp) != len(stations_df):
-            if logger:
-                logger.warning(("%d stations skipped (sample rate < %s Hz)") %
-                               (len(stations_df) - len(tmp), str(min_sample_rate)))
-            stations_df = tmp
-            # filter out segments also:
-            segments_df = segments_df.loc[stations_df.index.values]
-
-    if not stations_df.empty:
-        # append to stations_df the datacenters ids:
-        stations_df[models.Station.datacenter_id.key] = segments_df[models.Segment.datacenter_id.key]
-    return stations_df, segments_df
-
-
-def calculate_times(events, stations_df, segments_df, ptimespan):
-    """
-        Calculates the arrival times for each segment. Uses pandas dataframes.
-        FIXME: write detailed doc
-    """
-    if stations_df.empty or segments_df.empty:
-        return
-
-    # init column names (according to db model):
-    sta_lat_col = models.Station.latitude.key
-    sta_lon_col = models.Station.longitude.key
-    ev_lat_col = models.Event.latitude.key
-    ev_lon_col = models.Event.longitude.key
-    ev_id_col = models.Event.id.key
-    ev_depth_km_col = models.Event.depth_km.key
-    ev_time_col = models.Event.time.key
-
-    seg_ev2sta_dist_col = models.Segment.event_distance_deg.key
-    seg_atime_col = models.Segment.arrival_time.key
-    seg_stime_col = models.Segment.start_time.key
-    seg_etime_col = models.Segment.end_time.key
-    seg_eventid_col = models.Segment.event_id.key
-
-    sta_net_col = models.Station.network.key
-    sta_sta_col = models.Station.station.key
-    cha_loc_col = models.Channel.location.key
-    cha_cha_col = models.Channel.channel.key
-
-    # insert columns we will populate here (order is irrelevant for db output)
-    segments_df.insert(0, seg_ev2sta_dist_col, float('nan'))
-    segments_df.insert(0, seg_stime_col, pd.NaT)
-    segments_df.insert(0, seg_atime_col, pd.NaT)
-    segments_df.insert(0, seg_etime_col, pd.NaT)
-
-    # reset indices to be sure: from 0 to dataframe length for both dataframes
-    # note that the two dataframes are assumed to have the same number of rows, so its safe
-    stations_df.reset_index(drop=True)
-    segments_df.reset_index(drop=True)
-
-    # Now calculate. As arrival_times is computationally expensive. We might have
-    # DUPLICATED stations so we select only those unique according to Latitude and
-    # longitude
-    stations_unique = stations_df.drop_duplicates(subset=(sta_lat_col, sta_lon_col))
-    # NOTE: the function above calculates duplicated if ALL subset(s) are equal, if any
-    # is equal then does not drop them (what we want)
-
-    # turn off warnings, as we know what we are doing
-    # See: http://stackoverflow.com/questions/20625582/how-to-deal-with-this-pandas-warning
-    stations_unique.is_copy = False
-
-    def loc2degrees(row):
-        # get the row index (accessible by .name.. weird)
-        row_index = row.name
-        ev_id = segments_df.loc[row_index][seg_eventid_col]
-        event = events[ev_id]
-        ev_lat = event.latitude
-        ev_lon = event.longitude
-        sta_lat = row[sta_lat_col]
-        sta_lon = row[sta_lon_col]
-        return locations2degrees(sta_lat, sta_lon, ev_lat, ev_lon)
-
-    stations_unique[seg_ev2sta_dist_col] = stations_unique.apply(loc2degrees, axis=1)
-
-    def get_arr_times(row):
-        distance_in_degrees = row[seg_ev2sta_dist_col]
-        row_index = row.name
-        ev_id = segments_df.loc[row_index][seg_eventid_col]
-        event = events[ev_id]
-        ev_depth_km = event.depth_km
-        ev_time = event.time
-        return get_arrival_time(distance_in_degrees, ev_depth_km, ev_time)
-
-    stations_unique[seg_atime_col] = stations_unique.apply(get_arr_times, axis=1)
-
-    def populate_segments(row):
-        sta_lat = row[sta_lat_col]
-        sta_lon = row[sta_lon_col]
-        mask = (stations_df[sta_lat_col] == sta_lat) & (stations_df[sta_lon_col] == sta_lon)
-        # d.loc[d['int']<50, 'float'] = 7
-        segments_df.loc[mask, seg_atime_col] = row[seg_atime_col]
-        segments_df.loc[mask, seg_ev2sta_dist_col] = row[seg_ev2sta_dist_col]
-
-    stations_unique.apply(populate_segments, axis=1)
-
-    segments_df[seg_stime_col] = segments_df[seg_atime_col] - timedelta(minutes=ptimespan[0])
-    segments_df[seg_etime_col] = segments_df[seg_atime_col] + timedelta(minutes=ptimespan[1])
-
-
-def download_and_write_data(session, run_id, stations_cha_level_df,
-                            segments_df, logger=None,
-                            progresslistener=None):
-    """
-    Writes stations + channels + data to the db.
-    :param progresslistener: a function accepting an integer (starting from 1 until len(segments_df)
-    denoting the progress of the downloaded segments data
-    """
-
-    # NOTE: we already harmonized rows and columns, so we skip it
-    station_rows = df_to_table_iterrows(models.Station, stations_cha_level_df,
-                                        harmonize_columns_first=False,
-                                        harmonize_rows=False)
-    channel_rows = df_to_table_iterrows(models.Channel, stations_cha_level_df,
-                                        harmonize_columns_first=False,
-                                        harmonize_rows=False)
-    segment_rows = df_to_table_iterrows(models.Segment, segments_df,
-                                        harmonize_columns_first=False,
-                                        harmonize_rows=False)
-
-    ret_segs = []
-    count = 0
-
-    for sta, cha, seg in zip(station_rows, channel_rows, segment_rows):
-
-        if progresslistener:
-            count += 1
-            progresslistener(count)
-
-        if sta is None or cha is None or seg is None:  # for safety...
-            continue
-
-        sta, _ = get_or_add(session, sta, [models.Station.network, models.Station.station])
-
-        if sta is None:
-            continue
-
-        cha_tmp = session.query(models.Channel).\
-            filter((models.Channel.station_id == sta.id) &
-                   (models.Channel.location == cha.location) &
-                   (models.Channel.channel == cha.channel)).first()
-
-        if not cha_tmp:
-            sta.channels.append(cha)
-            if not flush(session):  # FIXME: check if correct
-                continue
-        else:
-            cha = cha_tmp
-
-        seg_tmp = session.query(models.Segment).\
-            filter((models.Segment.channel_id == cha.id) &
-                   (models.Segment.start_time == seg.start_time) &
-                   (models.Segment.end_time == seg.end_time)).first()
-
-        if not seg_tmp:  # FIXME: check if correct
-            dcen = session.query(models.DataCenter).\
-                filter(models.DataCenter.id == seg.datacenter_id).first()
-
-            query_url = get_wav_query(dcen.dataselect_query_url, sta.network, sta.station,
-                                      cha.location, cha.channel, seg.start_time,
-                                      seg.end_time)
-            data = read_wav_data(query_url)
-            if data:
-                seg.data = data
-                if logger:
-                    logger.debug("%7d bytes downloaded from: %s" % (len(data), query_url))
-
-                seg.run_id = run_id
-                cha.segments.append(seg)
-#                 if commit(session, on_exc=lambda exc: if logger: logger.warn(exc)):
-#                     ret_segs.append(seg)
-#         else:
-#             ret_segs.append(seg_tmp)
-
-        if commit(session):
-            ret_segs.append(seg)
-        elif logger:
-            logger.warn("unable to write changes to db for given segment")
-
-    return ret_segs
+    return stats
 
 
 def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius_args,
@@ -674,12 +768,14 @@ def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, searc
         :type outpath: string
     """
 
+    STEPS = 4
+
     # write the class labels:
-    get_or_add_all(session,
-                   df_to_table_iterrows(models.Class,
-                                        class_labels_df,
-                                        harmonize_columns_first=True,
-                                        harmonize_rows=True))
+    for _, _ in get_or_add_iter(session, df2dbiter(class_labels_df,
+                                                   models.Class,
+                                                   harmonize_columns_first=True,
+                                                   harmonize_rows=True), on_add='commit'):
+        pass
 
     # a little bit hacky, but convert to dict as the function gets dictionaries
     # Note: we might want to use dict(locals()) as above but that does NOT
@@ -694,49 +790,110 @@ def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, searc
             "end": end.isoformat()}
 
     logger.debug("")
-    logger.info("STEP 1/5: Querying Event WS")
-
+    logger.info("STEP 1/%d: Querying Event WS and datacenters" % STEPS)
     # Get events, store them in the db, returns the event instances (db rows) correctly added:
-    events = get_events(session, logger, **args)
+    events_df = get_events_df(logger=logger, **args)
+    if empty(events_df):
+        logger.error("No events found")
+        return 1
+    # convert dataframe to records (df_to_table_iterrows),
+    # add non existing records to db (get_or_add_all) comparing by events.id
+    # return the added rows
+    # Note: get_or_add_all has already flushed, so the returned model instances (db rows)
+    # have the fields updated, if any
+    events = [inst for inst, _ in get_or_add_iter(session, df2dbiter(events_df, models.Event),
+                                                  on_add='commit') if inst is not None]
 
-    # convert to dict (we need it for faster search, and we might also avoid duplicated events)
-    events = {evt.id: evt for evt in events}
+    if not events:
+        logger.error("0 events found")
+        return 1
 
-    logger.info("STEP 2/5: Querying Datacenters")
     # Get datacenters, store them in the db, returns the dc instances (db rows) correctly added:
     datacenters = get_datacenters(session, logger, start, end)
 
-    logger.debug("")
-    logger.info(("STEP 3/5: Querying Station WS (level=channel) from %d datacenter(s) "
-                 "nearby %d event(s) found")
-                % (len(datacenters), len(events)))
-
-    # commit changes now in order not to loose datacenters and events:
-    if not commit(session, on_exc=lambda exc: logger.error(str(exc))):
+    if not datacenters:
+        logger.error("0 datacenters found")
         return 1
 
+    logger.debug("")
+    logger.info(("STEP 2/%d: Querying Station WS (level=channel) from %d datacenter(s) "
+                 "nearby %d event(s) found, calculating P-arrival times and time ranges "
+                 "for downloading segments")
+                % (STEPS, len(datacenters), len(events)))
+
+    # calculate search radia:
+    magnitudes = np.array([evt.magnitude for evt in events])
+    max_radia = get_search_radius(magnitudes,  # FIXME: use *search_radius_args?
+                                  search_radius_args[0],
+                                  search_radius_args[1],
+                                  search_radius_args[2],
+                                  search_radius_args[3])
+
+#     urls_to_dcindex = {}
+#     for i, dcen in enumerate(datacenters):
+#         for max_radius, evt in zip(max_radia, events):
+#             url = get_station_query_url(dcen.station_query_url, channels,
+#                                         evt.time, evt.latitude,
+#                                         evt.longitude, max_radius)
+#             urls_to_dcindex[url] = i
+# 
+#     dcenrawdata = [[] for _ in len(datacenters)]
+# 
+#     def onsuccess(data, url, index):
+#         if data:
+#             dcenrawdata[urls_to_dcindex[url]].append(data)
+# 
+#     def onerror(exc, url, index):
+#         logger.warning("%s: %s" % (url, str(exc)))
+# 
+#     read_async(urls_to_dcindex.keys(),onsuccess, onerror, max_workers=5, decode='utf8')
+    
+    
+    dcen_stats = pd.DataFrame(index=[dcen.dataselect_query_url for dcen in datacenters],
+                              columns=['skipped_downloaded', 'skipped_empty',
+                                       'skipped_server_error', 'skipped_other_reason',
+                                       'skipped_localdb_error', 'downloaded'],
+                              data=0)
+    data = []
+    distances_cache_dict = {}
+    arrivaltimes_cache_dict = {}
+    stats = {}
     with progressbar(length=len(events) * len(datacenters)) as bar:
-        stations_df, segments_df = search_all_stations(events, datacenters, search_radius_args,
-                                                       channels, min_sample_rate, logger,
-                                                       progresslistener=lambda i: bar.update(1))
+        for dcen in datacenters:
+            dcendata = None
+            dcen_stats = {'skipped_already_downloaded': 0}
+            stats[dcen.dataselect_query_url] = dcen_stats
+            for max_radius, evt in zip(max_radia, events):
+                bar.update(1)
+                segments_df, skipped = \
+                    get_segments_df(session, dcen, evt, channels, max_radius, min_sample_rate,
+                                    ptimespan, distances_cache_dict, arrivaltimes_cache_dict,
+                                    logger)
+                dcen_stats['skipped_already_downloaded'] += skipped
+                dcendata = appenddf(dcendata, segments_df)
+            data.append(dcendata)
 
-    logger.info("STEP 4/5: Calculating P-arrival time(s) on %d station(s) found" % len(stations_df))
-    calculate_times(events, stations_df, segments_df, ptimespan)
-
+    segments_count = sum([0 if empty(d) else len(d) for d in data])
     logger.debug("")
-    logger.info("STEP 5/5: Querying Datacenter WS from %d station(s) processed" % len(stations_df))
-    segments_rows = []
+    logger.info("STEP 3/%d: Querying Datacenter WS for %d segments" % (STEPS, segments_count))
 
-    leng = min(len(stations_df), len(segments_df))
-    with progressbar(length=leng) as bar:
-        segments_rows = download_and_write_data(session, run_id,
-                                                stations_df, segments_df, logger=logger,
-                                                progresslistener=lambda i: bar.update(1))
+    max_error_count = 5
+    dcen_stats_series = []
+    with progressbar(length=segments_count) as bar:
+        for dcen, segments_df in zip(datacenters, data):
+            if empty(segments_df):
+                continue
+            segments_df[models.Segment.run_id.key] = run_id
+            download_data(session, dcen, segments_df, max_error_count,
+                          stats[dcen.dataselect_query_url], bar)
+            dcen_stats_series.append(pd.Series(name=dcen.dataselect_query_url,
+                                               data=stats[dcen.dataselect_query_url]))
 
-    logger.info(("Saving to db %d of %d segments (already saved data will not be overwritten): "
-                 "%d segment(s) skipped due to errors (e.g. empty data, url error)") %
-                (len(segments_rows), leng, leng-len(segments_rows)))
-    if not commit(session, on_exc=lambda exc: logger.error(str(exc))):
-        return 1
-
+    logger.info("Done. Summary info per datacenter:")
+    stats_info = pd.DataFrame(dcen_stats_series)
+    stats_info = stats_info.append(pd.Series(name='total',
+                                             data=stats_info.apply(pd.to_numeric,
+                                                                   errors='coerce', axis=0).sum()))
+    logger.info(stats_info.to_string(col_space=1, justify='right'))
+    logger.info("")
     return 0

@@ -171,18 +171,19 @@ def run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespa
 
     except Exception as exc:
         logger.error(str(exc))
-        ret = 1
+        raise
 
-    run_row.log = logger.get_log()
-    run_row.errors = logger.errors
-    run_row.warnings = logger.warnings
-    commit(session, on_exc=lambda exc: logger.error(exc))
+    finally:
+        run_row.log = logger.get_log()
+        run_row.errors = logger.errors
+        run_row.warnings = logger.warnings
+        commit(session, on_exc=lambda exc: logger.error(exc))
 
-    logger.info("")
-    logger.info("Done: %d error(s), %d warning(s)" % (logger.errors, logger.warnings))
-    logger.info("")
+        logger.info("")
+        logger.info("Done: %d error(s), %d warning(s)" % (logger.errors, logger.warnings))
+        logger.info("")
 
-    return ret
+    return 0
 
 
 @click.command()
