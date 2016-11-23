@@ -48,8 +48,12 @@ from stream2segment.s2sio.db.models import Base
 from stream2segment.processing import process
 from itertools import count
 from stream2segment.async import read_async
+from stream2segment.utils import dc_stats_str
 # slicing by columns. Some datacenters are not returning the same columns (concerning case. E.g.
 # 'latitude' vs 'Latitude')
+
+
+MAX_WORKERS = 7  # define the max thread workers
 
 
 def get_min_travel_time(source_depth_in_km, distance_in_degree, model='ak135'):
@@ -175,247 +179,7 @@ def get_search_radius(mag, mmin=3, mmax=7, dmin=1, dmax=5):
 #     return radius
 
 
-def get_events_df(**kwargs):
-    """
-        Returns a tuple of two elements: the first one is the DataFrame representing the stations
-        read from the specified arguments. The second is the the number of rows (denoting stations)
-        which where dropped from the url query due to errors in parsing
-        :param kwargs: a variable length list of arguments, including:
-            eventws (string): the event web service
-            minmag (float): the minimum magnitude
-            start (string): the event start, in string format (e.g., datetime.isoformat())
-            end (string): the event end, in string format (e.g., datetime.isoformat())
-            minlon (float): the event min longitude
-            maxlon (float): the event max longitude
-            minlat (float): the event min latitude
-            maxlat (float): the event max latitude
-        :raise: ValueError, TypeError, IOError
-    """
-    logger = kwargs['logger'] if 'logger' in kwargs else None
-    query = ('%(eventws)squery?minmagnitude=%(minmag)1.1f&start=%(start)s'
-             '&minlon=%(minlon)s&maxlon=%(maxlon)s&end=%(end)s'
-             '&minlat=%(minlat)s&maxlat=%(maxlat)s&format=text') % kwargs
-
-    try:
-        result = url_read(query, decode='utf8')
-    except (IOError, ValueError, TypeError) as exc:
-        if logger:
-            logger.error("query: '%s': %s" % (query, str(exc)))
-        return empty()
-
-    dframe = query2dframe(result)
-
-    query_type = "event"
-    try:
-        dframe = rename_columns(dframe, query_type)
-    except ValueError as exc:
-        if logger:
-            logger.error("query: '%s': %s" % (query, str(exc)))
-        return empty()
-
-    try:
-        dframe2 = harmonize_fdsn_dframe(dframe, query_type)
-        if logger:
-            skipped = len(dframe)-len(dframe2)
-            if skipped:
-                logger.warning("query: '%s': %d %ss skipped (invalid values, e.g., "
-                               "NaNs)) will not be written to table nor further processed" %
-                               (query, skipped, query_type))  # query_type = 'event'
-        dframe = dframe2
-    except ValueError as exc:
-        if logger:
-            logger.error("query: '%s': %s" % (query, str(exc)))
-        return empty()
-
-#     if logger:
-#         logger.debug("query: '%s': %d valid %ss found (from: %s, channel: %s)",
-#                      query, len(dframe), query_type)  # query_type is "station" or "channel"
-
-    return dframe
-
-
-def get_station_query_url(datacenter, channels_list, orig_time, lat, lon, max_radius,
-                          level='channel'):
-    start, endt = get_time_range(orig_time, days=1)
-    query = ('%s?latitude=%3.3f&longitude=%3.3f&'
-             'maxradius=%3.3f&start=%s&end=%s&channel=%s&format=text&level=%s')
-    return query % (datacenter, lat, lon, max_radius, start.isoformat(),
-                    endt.isoformat(), ','.join(channels_list), level)
-
-
-def get_stations_df2(query, raw_test_data, min_sample_rate=None, query_type='channel', logger=None):
-    """
-        Returns a tuple of two elements: the first one is the DataFrame representing the stations
-        read from the specified arguments. The second is the the number of rows (denoting stations)
-        which where dropped from the url query due to errors in parsing
-        :param datacenter: the datacenter, e.g.: "http://ws.resif.fr/fdsnws/station/1/query"
-        :type datacenter: string
-        :param channels_list: the list of channels, e.g. ['HL?', 'SL?', 'BL?'].
-        :type channels_list: iterable (e.g., list)
-        :param orig_time: the origin time. The request will be built with a time start and end of
-            +-1 day from orig_time
-        :type orig_time: date or datetime
-        :param lat: the latitude
-        :type lat: float
-        :param lon: the longitude
-        :type lon: float
-        :param max_radius: the radius distance from lat and lon, in degrees FIXME: check!
-        :type max_radius: float
-        :param min_sample_rate: a float denoting the minimum sample rate, in Hz. Only taken into
-        account if 'sample_rate' (or better, `models.Channel.sample_rate.key`) is a column
-        of the resulting dataframe. This is True if level='channel', not True if level='station'
-        (not tested for the other level options). If the parameter value is not greater than zero
-        (which is True when None, the default), no filter on sample rate is done.
-        :type min_sample_rate: float or None
-        :return: the DataFrame representing the stations, and the stations dropped (int)
-        :raise: ValueError, TypeError, IOError
-    """
-    dframe = query2dframe(raw_test_data)
-
-    try:
-        dframe = rename_columns(dframe, query_type)
-    except ValueError as exc:
-        if logger:
-            logger.error("query: '%s': %s" % (query, str(exc)))
-        return empty()  # FIXME: reachable??? logger error should exit!
-
-    try:
-        dframe2 = harmonize_fdsn_dframe(dframe, query_type)
-        if logger:
-            skipped = len(dframe)-len(dframe2)
-            if skipped:
-                logger.warning("query: '%s': %d %ss skipped (invalid values, e.g., "
-                               "NaNs)) will not be written to table nor further processed" %
-                               (query, skipped, query_type))  # query_type is "station" or "channel"
-        dframe = dframe2
-    except ValueError as exc:
-        if logger:
-            logger.error("query: '%s': %s" % (query, str(exc)))
-        return empty()
-
-    # filter out sampling rate lower than required one:
-    if not empty(dframe) and min_sample_rate > 0:
-        srate_col = models.Channel.sample_rate.key
-        tmp = dframe[dframe[srate_col] >= min_sample_rate]
-        if logger:
-            skipped = len(dframe) - len(tmp)
-            logger.warning(("query: '%s': %d stations skipped (sample rate < %s Hz)") %
-                           (query, skipped, str(min_sample_rate)))
-        dframe = empty() if empty(tmp) else tmp
-
-#     if logger:
-#         logger.debug("query: '%s': %d valid %ss found (from: %s, channel: %s)",
-#                      query, len(dframe), query_type)  # query_type is "station" or "channel"
-    return dframe
-
-
-def get_stations_df(datacenter, channels_list, orig_time, lat, lon, max_radius,
-                    min_sample_rate=None, level='channel', logger=None):
-    """
-        Returns a tuple of two elements: the first one is the DataFrame representing the stations
-        read from the specified arguments. The second is the the number of rows (denoting stations)
-        which where dropped from the url query due to errors in parsing
-        :param datacenter: the datacenter, e.g.: "http://ws.resif.fr/fdsnws/station/1/query"
-        :type datacenter: string
-        :param channels_list: the list of channels, e.g. ['HL?', 'SL?', 'BL?'].
-        :type channels_list: iterable (e.g., list)
-        :param orig_time: the origin time. The request will be built with a time start and end of
-            +-1 day from orig_time
-        :type orig_time: date or datetime
-        :param lat: the latitude
-        :type lat: float
-        :param lon: the longitude
-        :type lon: float
-        :param max_radius: the radius distance from lat and lon, in degrees FIXME: check!
-        :type max_radius: float
-        :param min_sample_rate: a float denoting the minimum sample rate, in Hz. Only taken into
-        account if 'sample_rate' (or better, `models.Channel.sample_rate.key`) is a column
-        of the resulting dataframe. This is True if level='channel', not True if level='station'
-        (not tested for the other level options). If the parameter value is not greater than zero
-        (which is True when None, the default), no filter on sample rate is done.
-        :type min_sample_rate: float or None
-        :return: the DataFrame representing the stations, and the stations dropped (int)
-        :raise: ValueError, TypeError, IOError
-    """
-
-    start, endt = get_time_range(orig_time, days=1)
-    query = ('%s?latitude=%3.3f&longitude=%3.3f&'
-             'maxradius=%3.3f&start=%s&end=%s&channel=%s&format=text&level=%s')
-    aux = query % (datacenter, lat, lon, max_radius, start.isoformat(),
-                   endt.isoformat(), ','.join(channels_list), level)
-    result = url_read(aux, decode='utf8')
-
-    dframe = query2dframe(result)
-
-    query_type = level
-    try:
-        dframe = rename_columns(dframe, query_type)
-    except ValueError as exc:
-        if logger:
-            logger.error("query: '%s': %s" % (query, str(exc)))
-        return empty()  # FIXME: reachable??? logger error should exit!
-
-    try:
-        dframe2 = harmonize_fdsn_dframe(dframe, query_type)
-        if logger:
-            skipped = len(dframe)-len(dframe2)
-            if skipped:
-                logger.warning("query: '%s': %d %ss skipped (invalid values, e.g., "
-                               "NaNs)) will not be written to table nor further processed" %
-                               (query, skipped, query_type))  # query_type is "station" or "channel"
-        dframe = dframe2
-    except ValueError as exc:
-        if logger:
-            logger.error("query: '%s': %s" % (query, str(exc)))
-        return empty()
-
-    # filter out sampling rate lower than required one:
-    if not empty(dframe) and min_sample_rate > 0:
-        srate_col = models.Channel.sample_rate.key
-        tmp = dframe[dframe[srate_col] >= min_sample_rate]
-        if logger:
-            skipped = len(dframe) - len(tmp)
-            logger.warning(("query: '%s': %d stations skipped (sample rate < %s Hz)") %
-                           (query, skipped, str(min_sample_rate)))
-        dframe = empty() if empty(tmp) else tmp
-
-#     if logger:
-#         logger.debug("query: '%s': %d valid %ss found (from: %s, channel: %s)",
-#                      query, len(dframe), query_type)  # query_type is "station" or "channel"
-    return dframe
-
-
-def save_stations_df(session, stations_df, logger=None):
-    """
-        stations_df is already harmonized
-        FIXME: add logger capabilities!!!
-    """
-    sta_ids = []
-    for sta, _ in get_or_add_iter(session,
-                                  df2dbiter(stations_df, models.Station, False, False),
-                                  [models.Station.network, models.Station.station],
-                                  on_add='commit'):
-        sta_ids.append(None if sta is None else sta.id)
-
-    stations_df[models.Channel.station_id.key] = sta_ids
-    channels_df = stations_df.dropna(subset=[models.Channel.station_id.key])
-
-    cha_ids = []
-    for cha, _ in get_or_add_iter(session,
-                                  df2dbiter(channels_df, models.Channel, False, False),
-                                  [models.Channel.station_id, models.Channel.location,
-                                   models.Channel.channel],
-                                  on_add='commit'):
-        cha_ids.append(None if cha is None else cha.id)
-
-    channels_df = channels_df.drop(models.Channel.station_id.key, axis=1)  # del station_id column
-    channels_df.reset_index(drop=True, inplace=True)  # otherwise with `mask` below we have issues
-    channels_ids = pd.DataFrame(data=cha_ids, columns=[models.Segment.channel_id.key])
-    mask = ~(channels_ids.isnull().any(axis=1))  # we might omit any() and apply on the series
-    # (is a single column dataframe)
-    return channels_df[mask], channels_ids[mask]
-
-
+# ==========================================
 def query2dframe(query_result_str):
     """
         Returns a pandas dataframne fro the given query_result_str
@@ -448,22 +212,6 @@ def query2dframe(query_result_str):
         np.append(data, [columns], axis=0)
 
     return DataFrame(data=data, columns=columns)
-
-
-def get_wav_query(datacenter, network, station_name, location, channel, start_time, end_time):
-    """Returns the wav query from the arguments, all strings except the last two (datetime)"""
-    # qry = '%s/dataselect/1/query?network=%s&station=%s&location=%s&channel=%s&start=%s&end=%s'
-    qry = '%s?network=%s&station=%s&location=%s&channel=%s&start=%s&end=%s'
-    return qry % (datacenter, network, station_name, location, channel, start_time.isoformat(),
-                  end_time.isoformat())
-
-
-def read_wav_data(query_str):
-    """Returns the wav data (mseed binary data) from the given query_str (string)"""
-    try:
-        return url_read(query_str)
-    except (IOError, ValueError, TypeError) as _:
-        return None
 
 
 def rename_columns(query_df, query_type):
@@ -545,6 +293,15 @@ def harmonize_fdsn_dframe(query_df, query_type):
 
 
 def empty(*obj):
+    """
+    Utility function to handle "no-data" dataframes in this module function by providing a
+    general check and generation of empty objects.
+    Returns True or False if the argument is "empty" (i.e. if obj is None or obj has attribute
+    'empty' and `obj.empty` is True). With a single argument, returns an object `obj` which
+    evaluates to empty, i.e. for which `empty(obj)` is True (currently, an empty DataFrame, but it
+    might be any value for which empty(obj) is True. We prefer a DataFrame over `None` so that
+    len(empty()) does not raise Exceptions and correctly returns 0).
+    """
     if not len(obj):
         return pd.DataFrame()  # this allows us to call len(empty()) without errors
     elif len(obj) > 1:
@@ -553,7 +310,82 @@ def empty(*obj):
     return obj is None or (hasattr(obj, 'empty') and obj.empty)
 
 
-def get_datacenters(session, logger, start_time, end_time):
+def appenddf(df1, df2):
+    """
+    Merges "vertically" the two dataframes provided as argument, handling empty values without
+    errors: if the first dataframe is empty (`empty(df1)==True`) returns the second, if the
+    second is empty returns the first. Otherwise calls `df1.append(df2, ignore_index=True)`
+    :param df1: the first dataframe
+    :param df2: the second dataframe
+    """
+    if empty(df1):
+        return df2
+    elif empty(df2):
+        return df1
+    else:
+        return df1.append(df2, ignore_index=True)
+
+
+def get_events_df(**kwargs):
+    """
+        Returns a tuple of two elements: the first one is the DataFrame representing the stations
+        read from the specified arguments. The second is the the number of rows (denoting stations)
+        which where dropped from the url query due to errors in parsing
+        :param kwargs: a variable length list of arguments, including:
+            eventws (string): the event web service
+            minmag (float): the minimum magnitude
+            start (string): the event start, in string format (e.g., datetime.isoformat())
+            end (string): the event end, in string format (e.g., datetime.isoformat())
+            minlon (float): the event min longitude
+            maxlon (float): the event max longitude
+            minlat (float): the event min latitude
+            maxlat (float): the event max latitude
+        :raise: ValueError, TypeError, IOError
+    """
+    logger = kwargs['logger'] if 'logger' in kwargs else None
+    query = ('%(eventws)squery?minmagnitude=%(minmag)1.1f&start=%(start)s'
+             '&minlon=%(minlon)s&maxlon=%(maxlon)s&end=%(end)s'
+             '&minlat=%(minlat)s&maxlat=%(maxlat)s&format=text') % kwargs
+
+    try:
+        result = url_read(query, decode='utf8')
+    except (IOError, ValueError, TypeError) as exc:
+        if logger:
+            logger.error("query: '%s': %s" % (query, str(exc)))
+        return empty()
+
+    dframe = query2dframe(result)
+
+    query_type = "event"
+    try:
+        dframe = rename_columns(dframe, query_type)
+    except ValueError as exc:
+        if logger:
+            logger.error("query: '%s': %s" % (query, str(exc)))
+        return empty()
+
+    try:
+        dframe2 = harmonize_fdsn_dframe(dframe, query_type)
+        if logger:
+            skipped = len(dframe)-len(dframe2)
+            if skipped:
+                logger.warning("query: '%s': %d %ss skipped (invalid values, e.g., "
+                               "NaNs)) will not be written to table nor further processed" %
+                               (query, skipped, query_type))  # query_type = 'event'
+        dframe = dframe2
+    except ValueError as exc:
+        if logger:
+            logger.error("query: '%s': %s" % (query, str(exc)))
+        return empty()
+
+#     if logger:
+#         logger.debug("query: '%s': %d valid %ss found (from: %s, channel: %s)",
+#                      query, len(dframe), query_type)  # query_type is "station" or "channel"
+
+    return dframe
+
+
+def get_datacenters(session, start_time, end_time):
     """Queries all datacenters and returns the local db model rows correctly added
     Rows already existing (comparing by datacenter station_query_url) are returned as well,
     but not added again
@@ -579,74 +411,117 @@ def get_datacenters(session, logger, start_time, end_time):
     return session.query(models.DataCenter).all()
 
 
-def get_segments_df(session, dcen, evt, channels, max_radius, min_sample_rate,
-                    ptimespan, distances_cache_dict,
-                    arrivaltimes_cache_dict, logger=None):
+def get_station_query_url(datacenter, channels_list, orig_time, lat, lon, max_radius,
+                          level='channel'):
     """
-    FIXME: write doc
-    Downloads stations and channels, saves them , returns a well formatted pd.DataFrame
-    with the segments ready to be downloaded
+    :return: the station query url (as string) given the arguments
     """
-
-    stations_df = get_stations_df(dcen.station_query_url, channels,
-                                  evt.time, evt.latitude,
-                                  evt.longitude, max_radius, min_sample_rate, logger=logger)
-
-    if empty(stations_df):
-        return empty(), 0
-
-    stations_df, channel_ids = save_stations_df(session, stations_df, logger)
-
-    if empty(stations_df):
-        return empty(), 0
-
-    segments_df = calculate_times(stations_df, evt, ptimespan, distances_cache_dict,
-                                  arrivaltimes_cache_dict)
-
-    segments_df[models.Segment.channel_id.key] = channel_ids
-    segments_df[models.Segment.event_id.key] = evt.id
-
-    notyet_downloaded_filter =\
-        [False if session.query(models.Segment).
-         filter((models.Segment.channel_id == seg.channel_id) &
-                (models.Segment.start_time == seg.start_time) &
-                (models.Segment.end_time == seg.end_time)).first() else True
-         for _, seg in segments_df.iterrows()]
-
-    segments_df_newitems = segments_df[notyet_downloaded_filter]
-    skipped_already_downloaded = len(segments_df)-len(segments_df_newitems)
-    segments_df = segments_df_newitems
-
-    stations_df = stations_df[notyet_downloaded_filter]
-
-    # build a query url:
-    query_urls = [get_wav_query(dcen.dataselect_query_url,
-                                sta[models.Station.network.key],
-                                sta[models.Station.station.key],
-                                sta[models.Channel.location.key],
-                                sta[models.Channel.channel.key],
-                                seg[models.Segment.start_time.key],
-                                seg[models.Segment.end_time.key])
-                  for (_, sta), (_, seg) in zip(stations_df.iterrows(),
-                                                segments_df.iterrows())]
-
-    # set index as urls. Do not use reindex cause it will set everything to NaN
-    # (considering new index values as missing). This works:
-    segments_df = pd.DataFrame(data=segments_df.values, columns=segments_df.columns,
-                               index=query_urls)
-    return segments_df, skipped_already_downloaded
+    start, endt = get_time_range(orig_time, days=1)
+    query = ('%s?latitude=%3.3f&longitude=%3.3f&'
+             'maxradius=%3.3f&start=%s&end=%s&channel=%s&format=text&level=%s')
+    return query % (datacenter, lat, lon, max_radius, start.isoformat(),
+                    endt.isoformat(), ','.join(channels_list), level)
 
 
-def appenddf(olddf, newdf):
-    if empty(olddf):
-        return newdf
-    elif empty(newdf):
-        return olddf
-    else:
-        return olddf.append(newdf, ignore_index=True)
+def get_stations_df(query, raw_text_data, min_sample_rate=None, query_type='channel', logger=None):
+    """
+        Returns a tuple of two elements: the first one is the DataFrame representing the stations
+        read from the specified arguments. The second is the the number of rows (denoting stations)
+        which where dropped from the url query due to errors in parsing
+        :param datacenter: the datacenter, e.g.: "http://ws.resif.fr/fdsnws/station/1/query"
+        :type datacenter: string
+        :param channels_list: the list of channels, e.g. ['HL?', 'SL?', 'BL?'].
+        :type channels_list: iterable (e.g., list)
+        :param orig_time: the origin time. The request will be built with a time start and end of
+            +-1 day from orig_time
+        :type orig_time: date or datetime
+        :param lat: the latitude
+        :type lat: float
+        :param lon: the longitude
+        :type lon: float
+        :param max_radius: the radius distance from lat and lon, in degrees FIXME: check!
+        :type max_radius: float
+        :param min_sample_rate: a float denoting the minimum sample rate, in Hz. Only taken into
+        account if 'sample_rate' (or better, `models.Channel.sample_rate.key`) is a column
+        of the resulting dataframe. This is True if level='channel', not True if level='station'
+        (not tested for the other level options). If the parameter value is not greater than zero
+        (which is True when None, the default), no filter on sample rate is done.
+        :type min_sample_rate: float or None
+        :return: the DataFrame representing the stations, and the stations dropped (int)
+        :raise: ValueError, TypeError, IOError
+    """
+    dframe = query2dframe(raw_text_data)
+
+    try:
+        dframe = rename_columns(dframe, query_type)
+    except ValueError as exc:
+        if logger:
+            logger.error("query: '%s': %s" % (query, str(exc)))
+        return empty()  # FIXME: reachable??? logger error should exit!
+
+    try:
+        dframe2 = harmonize_fdsn_dframe(dframe, query_type)
+        if logger:
+            skipped = len(dframe)-len(dframe2)
+            if skipped:
+                logger.warning("query: '%s': %d %ss skipped (invalid values, e.g., "
+                               "NaNs)) will not be written to table nor further processed" %
+                               (query, skipped, query_type))  # query_type is "station" or "channel"
+        dframe = dframe2
+    except ValueError as exc:
+        if logger:
+            logger.error("query: '%s': %s" % (query, str(exc)))
+        return empty()
+
+    # filter out sampling rate lower than required one:
+    if not empty(dframe) and min_sample_rate > 0:
+        srate_col = models.Channel.sample_rate.key
+        tmp = dframe[dframe[srate_col] >= min_sample_rate]
+        if logger:
+            skipped = len(dframe) - len(tmp)
+            logger.warning(("query: '%s': %d stations skipped (sample rate < %s Hz)") %
+                           (query, skipped, str(min_sample_rate)))
+        dframe = empty() if empty(tmp) else tmp
+
+#     if logger:
+#         logger.debug("query: '%s': %d valid %ss found (from: %s, channel: %s)",
+#                      query, len(dframe), query_type)  # query_type is "station" or "channel"
+    return dframe
 
 
-def calculate_times(stations_df, evt, ptimespan, distances_cache_dict={}, times_cache_dict={}):
+def save_stations_df(session, stations_df):
+    """
+        stations_df is already harmonized. If saved, it is appended a column 
+        `models.Channel.station_id.key` with nonNull values
+        FIXME: add logger capabilities!!!
+    """
+    sta_ids = []
+    for sta, _ in get_or_add_iter(session,
+                                  df2dbiter(stations_df, models.Station, False, False),
+                                  [models.Station.network, models.Station.station],
+                                  on_add='commit'):
+        sta_ids.append(None if sta is None else sta.id)
+
+    stations_df[models.Channel.station_id.key] = sta_ids
+    channels_df = stations_df.dropna(subset=[models.Channel.station_id.key])
+
+    cha_ids = []
+    for cha, _ in get_or_add_iter(session,
+                                  df2dbiter(channels_df, models.Channel, False, False),
+                                  [models.Channel.station_id, models.Channel.location,
+                                   models.Channel.channel],
+                                  on_add='commit'):
+        cha_ids.append(None if cha is None else cha.id)
+
+    channels_df = channels_df.drop(models.Channel.station_id.key, axis=1)  # del station_id column
+    channels_df[models.Channel.id.key] = cha_ids
+    channels_df.dropna(subset=[models.Channel.id.key], inplace=True)
+    channels_df.reset_index(drop=True, inplace=True)  # to be safe
+    return channels_df
+
+
+def calculate_times(stations_df, evt, ptimespan, distances_cache_dict={}, times_cache_dict={},
+                    session=None):
     event_distances_degrees = []
     arrival_times = []
     for _, sta in stations_df.iterrows():
@@ -661,48 +536,142 @@ def calculate_times(stations_df, evt, ptimespan, distances_cache_dict={}, times_
         coordinates = (degrees, evt.depth_km, evt.time)
         arr_time = times_cache_dict.get(coordinates, None)
         if arr_time is None:
-            arr_time = get_arrival_time(*coordinates)
+            # get_arrival_time is ... time consuming. Use session to query for an already calculated
+            # value:
+            if session:
+                # Note on the query below: the filter on the Event class is made database side
+                # on the Event associated to the Segment thanks to sqlAlchemy relationships
+                # (see models.py).
+                # Thus, if seg is not None, we will have:
+                # seg.event_distance_deg == degrees (trivial)
+                # seg.event.time == evt.time
+                # seg.event.depth_km == evt.depth_km
+                # For info see:
+                # http://stackoverflow.com/questions/16589208/attributeerror-while-querying-neither-instrumentedattribute-object-nor-compa
+                seg = session.query(models.Segment).\
+                        filter(and_(models.Segment.event_distance_deg == degrees,
+                                    models.Event.time == evt.time,
+                                    models.Event.depth_km == evt.depth_km)).first()
+                if seg:
+                    arr_time = seg.arrival_time
+            if arr_time is None:
+                arr_time = get_arrival_time(*coordinates)
             times_cache_dict[coordinates] = arr_time
         arrival_times.append(arr_time)
 
     ret = pd.DataFrame({models.Segment.event_distance_deg.key: event_distances_degrees,
                         models.Segment.arrival_time.key: arrival_times})
-    ret[models.Segment.start_time.key] = ret[models.Segment.arrival_time.key] - timedelta(minutes=ptimespan[0])
-    ret[models.Segment.end_time.key] = ret[models.Segment.arrival_time.key] + timedelta(minutes=ptimespan[1])
+    ret[models.Segment.start_time.key] = \
+        ret[models.Segment.arrival_time.key] - timedelta(minutes=ptimespan[0])
+    ret[models.Segment.end_time.key] = \
+        ret[models.Segment.arrival_time.key] + timedelta(minutes=ptimespan[1])
 
     return ret
 
 
-def download_data(session, dcen, segments_df, max_error_count, stats, bar):
-    if not stats:
-        stats = {}
+def get_segments_df(session, stations_df, evt, ptimespan,
+                    distances_cache_dict, arrivaltimes_cache_dict):
+    """
+    FIXME: write doc
+    stations_df must have a column named `models.Channel.id.key`
+    Downloads stations and channels, saves them , returns a well formatted pd.DataFrame
+    with the segments ready to be downloaded
+    """
 
-    for key in ['skipped_server_error', 'skipped_other_reason', 'skipped_empty',
-                'skipped_localdb_error', 'downloaded']:
-        stats.setdefault(key, 0)
+    segments_df = calculate_times(stations_df, evt, ptimespan, distances_cache_dict,
+                                  arrivaltimes_cache_dict, session=session)
+
+    segments_df[models.Segment.channel_id.key] = stations_df[models.Channel.id.key]
+    segments_df[models.Segment.event_id.key] = evt.id
+    return segments_df
+
+
+def purge_already_downloaded(session, segments_df):  # FIXME: use apply?
+    """Does what the name says removing all segments aready downloaded. Returns a new DataFrame
+    which is equal to segments_df with rows, representing already downloaded segments, removed"""
+    notyet_downloaded_filter =\
+        [False if session.query(models.Segment).
+         filter((models.Segment.channel_id == seg.channel_id) &
+                (models.Segment.start_time == seg.start_time) &
+                (models.Segment.end_time == seg.end_time)).first() else True
+         for _, seg in segments_df.iterrows()]
+
+    return segments_df[notyet_downloaded_filter]
+
+
+def get_wav_query(datacenter, network, station_name, location, channel, start_time, end_time):
+    """Returns the wav query from the arguments, all strings except the last two (datetime)"""
+    # qry = '%s/dataselect/1/query?network=%s&station=%s&location=%s&channel=%s&start=%s&end=%s'
+    qry = '%s?network=%s&station=%s&location=%s&channel=%s&start=%s&end=%s'
+    return qry % (datacenter, network, station_name, location, channel, start_time.isoformat(),
+                  end_time.isoformat())
+
+
+def set_wav_queries(datacenter, stations_df, segments_df, queries_colname=' url '):
+    """
+    Appends a new column to `stations_df` with name `queries_colname` (which is supposed **not**
+    to exist, otherwise data might be overridden or unexpected results might happen): the given
+    column will have the datacenter query url for any given row representing a segment to be
+    downloaded. The given dataframe must have all necessary columns
+    """
+
+    queries = [get_wav_query(datacenter.dataselect_query_url,
+                             sta[models.Station.network.key],
+                             sta[models.Station.station.key],
+                             sta[models.Channel.location.key],
+                             sta[models.Channel.channel.key],
+                             seg[models.Segment.start_time.key],
+                             seg[models.Segment.end_time.key])
+               for (_, sta), (_, seg) in zip(stations_df.iterrows(), segments_df.iterrows())]
+
+    segments_df[queries_colname] = queries
+    return segments_df
+
+
+def download_data(session, run_id, dcen, segments_df, df_urls_colname, max_error_count, stats, bar,
+                  logger=None):
+
+    stat_keys = ['saved', 'skipped_empty', 'skipped_server_error', 'skipped_other_reason',
+                 'skipped_localdb_error']
+
+    if stats is None:
+        stats = pd.Series(index=stat_keys, data=0)
+    else:
+        for key in stat_keys:
+            if key not in stats:
+                stats[key] = 0
+
+    if empty(segments_df):
+        return stats
 
     segments_df[models.Segment.datacenter_id.key] = dcen.id
     segments_df[models.Segment.data.key] = None
+    segments_df[models.Segment.run_id.key] = run_id
+
+    # set_index as urls. this is much faster when locating a dframe row compared to
+    # df[df[df_urls_colname] == some_url]
+    segments_df.set_index(df_urls_colname, inplace=True)
     urls = segments_df.index.values
 
-    def onsuccess(data, url, index):
+    def onsuccess(data, url, index):  # pylint:disable=unused-argument
+        """function executed when a given url has succesfully downloaded `data`"""
         bar.update(1)
         segments_df.loc[url, models.Segment.data.key] = data  # avoid pandas SettingWithCopyWarning
 
-    def onerror(exc, url, index):
+    def onerror(exc, url, index):  # pylint:disable=unused-argument
+        """function executed when a given url has failed"""
         bar.update(1)
+        if logger:
+            logger.warning("%s: %s" % (url, str(exc)))
         stats['skipped_server_error'] += 1
         if stats['skipped_server_error'] >= max_error_count:
             return False
 
     # now download Data:
-    try:
-        read_async(urls, onsuccess, onerror)
-    except:
-        g = 9
+    read_async(urls, onsuccess, onerror, max_workers=MAX_WORKERS)
 
     tmp_df = segments_df.dropna(subset=[models.Segment.data.key])
-    stats['skipped_other_reason'] = len(segments_df) - len(tmp_df)
+    null_data_count = len(segments_df) - len(tmp_df)
     segments_df = tmp_df
     # get empty data, then remove it:
     segments_df[models.Segment.data.key].replace('', np.nan, inplace=True)
@@ -710,17 +679,22 @@ def download_data(session, dcen, segments_df, max_error_count, stats, bar):
     stats['skipped_empty'] = len(segments_df) - len(tmp_df)
     segments_df = tmp_df
 
-    remaining_to_update = (stats['skipped_other_reason'] - stats['skipped_server_error'])
-    if remaining_to_update:
-        bar.update(remaining_to_update)
+    stats['skipped_other_reason'] = null_data_count - stats['skipped_server_error']
+    if stats['skipped_other_reason']:
+        bar.update(stats['skipped_other_reason'])
 
     if not empty(segments_df):
         for model_instance in df2dbiter(segments_df, models.Segment, False, False):
             session.add(model_instance)
             if commit(session):
-                stats['downloaded'] += 1
+                stats['saved'] += 1
             else:
                 stats['skipped_localdb_error'] += 1
+
+        # reset_index as integer. This might not be the old index if the old one was not a
+        # RangeIndex (0,1,2 etcetera). But it shouldn't be an issue
+        # Note: 'drop=False' to restore 'df_urls_colname' column:
+        segments_df.reset_index(drop=False, inplace=True)
 
     return stats
 
@@ -809,7 +783,7 @@ def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, searc
         return 1
 
     # Get datacenters, store them in the db, returns the dc instances (db rows) correctly added:
-    datacenters = get_datacenters(session, logger, start, end)
+    datacenters = get_datacenters(session, start, end)
 
     if not datacenters:
         logger.error("0 datacenters found")
@@ -817,8 +791,7 @@ def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, searc
 
     logger.debug("")
     logger.info(("STEP 2/%d: Querying Station WS (level=channel) from %d datacenter(s) "
-                 "nearby %d event(s) found, calculating P-arrival times and time ranges "
-                 "for downloading segments")
+                 "nearby %d event(s) found")
                 % (STEPS, len(datacenters), len(events)))
 
     # calculate search radia:
@@ -829,71 +802,105 @@ def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, searc
                                   search_radius_args[2],
                                   search_radius_args[3])
 
-#     urls_to_dcindex = {}
-#     for i, dcen in enumerate(datacenters):
-#         for max_radius, evt in zip(max_radia, events):
-#             url = get_station_query_url(dcen.station_query_url, channels,
-#                                         evt.time, evt.latitude,
-#                                         evt.longitude, max_radius)
-#             urls_to_dcindex[url] = i
-# 
-#     dcenrawdata = [[] for _ in len(datacenters)]
-# 
-#     def onsuccess(data, url, index):
-#         if data:
-#             dcenrawdata[urls_to_dcindex[url]].append(data)
-# 
-#     def onerror(exc, url, index):
-#         logger.warning("%s: %s" % (url, str(exc)))
-# 
-#     read_async(urls_to_dcindex.keys(),onsuccess, onerror, max_workers=5, decode='utf8')
-    
-    
-    dcen_stats = pd.DataFrame(index=[dcen.dataselect_query_url for dcen in datacenters],
-                              columns=['skipped_downloaded', 'skipped_empty',
-                                       'skipped_server_error', 'skipped_other_reason',
-                                       'skipped_localdb_error', 'downloaded'],
-                              data=0)
-    data = []
+    urls2tuple = {}
+    for dcen in datacenters:
+        for max_radius, evt in zip(max_radia, events):
+            url = get_station_query_url(dcen.station_query_url, channels,  # FIXME: HANDLE better level arg
+                                        evt.time, evt.latitude,
+                                        evt.longitude, max_radius)
+            urls2tuple[url] = ["", dcen, evt]
+
+    stations_stats_df = pd.DataFrame(columns=[d.station_query_url for d in datacenters],
+                                     index=['downloaded', 'skipped_empty', 'skipped_error'],
+                                     data=0)
+    with progressbar(length=len(urls2tuple)) as bar:
+        def onsuccess(data, url, index):  # pylint:disable=unused-argument
+            """function executed when a given url has successfully downloaded data"""
+            bar.update(1)  # FIXME: handle no data
+            if data:
+                urls2tuple[url][0] = data
+
+        def onerror(exc, url, index):  # pylint:disable=unused-argument
+            """function executed when a given url has failed downloading data"""
+            bar.update(1)
+            logger.warning("%s: %s" % (url, str(exc)))
+
+        read_async(urls2tuple.keys(), onsuccess, onerror, max_workers=MAX_WORKERS, decode='utf8')
+
+    logger.debug("")
+    logger.info(("STEP 3/%d: Preparing segments download: calculating P-arrival times "
+                 "and time ranges")
+                % STEPS)
+
+    data_download_dict = {dcen.id: {"dcen": dcen, "seg_df":  empty(), "skip": 0}
+                          for dcen in datacenters}
     distances_cache_dict = {}
     arrivaltimes_cache_dict = {}
-    stats = {}
-    with progressbar(length=len(events) * len(datacenters)) as bar:
-        for dcen in datacenters:
-            dcendata = None
-            dcen_stats = {'skipped_already_downloaded': 0}
-            stats[dcen.dataselect_query_url] = dcen_stats
-            for max_radius, evt in zip(max_radia, events):
-                bar.update(1)
-                segments_df, skipped = \
-                    get_segments_df(session, dcen, evt, channels, max_radius, min_sample_rate,
-                                    ptimespan, distances_cache_dict, arrivaltimes_cache_dict,
-                                    logger)
-                dcen_stats['skipped_already_downloaded'] += skipped
-                dcendata = appenddf(dcendata, segments_df)
-            data.append(dcendata)
+    seg_dataurls_colname = ' url '
+    with progressbar(length=len(urls2tuple)) as bar:
+        for url, tup in urls2tuple.iteritems():
+            bar.update(1)
+            raw_data, dcen, evt = tup
+            if not raw_data:
+                continue
 
-    segments_count = sum([0 if empty(d) else len(d) for d in data])
+            stations_df = get_stations_df(url, raw_data, min_sample_rate,  # FIXME: handle better query_type arg
+                                          query_type="channel", logger=logger)
+
+            if empty(stations_df):
+                continue
+
+            stations_df = save_stations_df(session, stations_df)
+
+            if empty(stations_df):
+                continue
+
+            segments_df = get_segments_df(session, stations_df, evt, ptimespan,
+                                          distances_cache_dict, arrivaltimes_cache_dict)
+
+            # we will purge already downloaded egments, and use the index of the purged segments
+            # to filter out stations, too. For this, we need to be sure they have the same index
+            # before these operations:
+            stations_df.reset_index(drop=True, inplace=True)
+            segments_df.reset_index(drop=True, inplace=True)
+            oldsegcount = len(segments_df)
+            segments_df = purge_already_downloaded(session, segments_df)
+            skipped_already_downloaded = oldsegcount - len(segments_df)
+            # purge stations, too:
+            stations_df = stations_df[stations_df.index.isin(segments_df.index.values)]
+
+            segments_df = set_wav_queries(dcen, stations_df, segments_df,
+                                          seg_dataurls_colname)
+
+            data_download_dict[dcen.id]['seg_df'] = appenddf(data_download_dict[dcen.id]['seg_df'],
+                                                             segments_df)
+            data_download_dict[dcen.id]['skip'] += skipped_already_downloaded
+
+    segments_count = sum([len(d['seg_df']) for d in data_download_dict.itervalues()])
     logger.debug("")
     logger.info("STEP 3/%d: Querying Datacenter WS for %d segments" % (STEPS, segments_count))
 
     max_error_count = 5
-    dcen_stats_series = []
+    dataselect_stats_df = pd.DataFrame()
     with progressbar(length=segments_count) as bar:
-        for dcen, segments_df in zip(datacenters, data):
-            if empty(segments_df):
-                continue
-            segments_df[models.Segment.run_id.key] = run_id
-            download_data(session, dcen, segments_df, max_error_count,
-                          stats[dcen.dataselect_query_url], bar)
-            dcen_stats_series.append(pd.Series(name=dcen.dataselect_query_url,
-                                               data=stats[dcen.dataselect_query_url]))
+        for item in data_download_dict.itervalues():
+            dcen = item['dcen']
+            segments_df = item['seg_df']
+            stats = download_data(session, run_id, dcen, segments_df, seg_dataurls_colname,
+                                  max_error_count, None, bar, logger)
+            stats['skipped_already_downloaded'] = item['skip']
+            # append dataframe column
+            dataselect_stats_df[dcen.dataselect_query_url] = stats
 
-    logger.info("Done. Summary info per datacenter:")
-    stats_info = pd.DataFrame(dcen_stats_series)
-    stats_info = stats_info.append(pd.Series(name='total',
-                                             data=stats_info.apply(pd.to_numeric,
-                                                                   errors='coerce', axis=0).sum()))
-    logger.info(stats_info.to_string(col_space=1, justify='right'))
+    logger.info("Summary Datacenter WS info (dataselect):")
+    logger.info(dc_stats_str(dataselect_stats_df))
+#     stats_info = pd.DataFrame(dcen_stats_series)
+#     # convert to numeric so that sum returns the correct number of rows/columns (with NaNs in case)
+#     stats_info = stats_info.apply(pd.to_numeric, errors='coerce', axis=0)
+#     # append a row with sum:
+#     stats_info.loc['total'] = stats_info.sum(axis=0)
+#     # append a column with sums:
+#     stats_info['total'] = stats_info.sum(axis=1)
+#     logger.info(stats_info.to_string(col_space=1, justify='right'))
     logger.info("")
     return 0

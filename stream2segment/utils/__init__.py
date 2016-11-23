@@ -36,12 +36,14 @@ import sys
 import datetime as dt
 import re
 import os
+from urlparse import urlparse
 from os import strerror, errno
 import shutil
 import time
 import bisect
 import signal
 import pandas as pd
+
 from sqlalchemy.engine import create_engine
 from stream2segment.s2sio.db.models import Base
 from sqlalchemy.orm.session import sessionmaker
@@ -397,6 +399,32 @@ class DataFrame(pd.DataFrame):
                 dfm = dfm[dfm.columns[0]]  # returns a Series
 
         return DataFrame(dfm) if isinstance(dfm, pd.DataFrame) else dfm
+
+
+def dc_stats_str(dc_df, dc_axis=1,
+                 parse_urls=True, set_totals=True, transpose=True,  *args, **kwargs):
+    """
+        :param dc_axis: axis on which are the datacenter urls: {index (0), columns (1)}
+    """
+    if parse_urls:
+        if dc_axis == 0 or dc_axis == 'index':
+            dc_df.index = dc_df.index.map(lambda x: urlparse(x).netloc)
+        else:
+            dc_df.columns = dc_df.columns.map(lambda x: urlparse(x).netloc)
+
+    if set_totals:
+        # convert to numeric so that sum returns the correct number of rows/columns
+        # (with NaNs in case)
+        dc_df = dc_df.apply(pd.to_numeric, errors='coerce', axis=0)  # axis should be irrelevant
+        # append a row with sum:
+        dc_df.loc['total'] = dc_df.sum(axis=0)
+        # append a column with sums:
+        dc_df['total'] = dc_df.sum(axis=1)
+
+    if transpose:
+        dc_df = dc_df.T
+
+    return dc_df.to_string(*args, **kwargs)
 
 
 def get_default_cfg_filepath():
