@@ -48,7 +48,7 @@ class Test(unittest.TestCase):
         try:
             self.session.flush()
             self.session.commit()
-        except IntegrityError:
+        except IntegrityError as _:
             self.session.rollback()
         self.session.close()
         # self.DB.drop_all()

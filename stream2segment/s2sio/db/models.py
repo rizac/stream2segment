@@ -23,7 +23,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 import datetime
-from stream2segment.s2sio.db.pd_sql_utils import get_col_names, get_cols # , df_to_table_rows
+from stream2segment.s2sio.db.pd_sql_utils import get_col_names, get_cols
 # from sqlalchemy.sql.sqltypes import BigInteger, BLOB
 # from sqlalchemy.sql.schema import ForeignKey
 
@@ -43,26 +43,12 @@ class Base(_Base):
         return get_col_names(cls)
 
 
-class FDSNBase(Base):
-    """Base class which translates a FDSN query. See Event, Station and Channel subclasses"""
-    __abstract__ = True
-
-    @classmethod
-    def rename_cols(cls, fdsn_query_df, *args, **kwargs):
-        col_mapping = cls.get_col_mapping(fdsn_query_df, *args, **kwargs)
-        return fdsn_query_df.rename(columns=col_mapping)  # [col_mapping.values()]
-
-    @classmethod
-    def get_col_mapping(cls, dataframe, *args, **kwargs):
-        raise NotImplementedError("Subclass of FDSNBase does not overrides `get_col_mapping`")
-
-
 class Run(Base):
     """The runs"""
 
     __tablename__ = "runs"
 
-    id = Column(Integer, primary_key=True)  # auto increment should be set to True
+    id = Column(Integer, primary_key=True)  # pylint:disable=invalid-name
     run_time = Column(DateTime, unique=True, default=datetime.datetime.utcnow)
     log = Column(String)
     warnings = Column(Integer)
@@ -83,7 +69,7 @@ class DataCenter(Base):
 
     __tablename__ = "data_centers"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)  # pylint:disable=invalid-name
     station_query_url = Column(String, nullable=False)
     dataselect_query_url = Column(String, default=dc_datasel_default, onupdate=dc_datasel_default)
 
@@ -96,12 +82,12 @@ class DataCenter(Base):
                      )
 
 
-class Event(FDSNBase):
+class Event(Base):
     """Events"""
 
     __tablename__ = "events"
 
-    id = Column(String, primary_key=True, autoincrement=False)
+    id = Column(String, primary_key=True, autoincrement=False)  # pylint:disable=invalid-name
     time = Column(DateTime, nullable=False)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
@@ -117,19 +103,12 @@ class Event(FDSNBase):
 
     # segments = relationship("Segment", back_populates="event")
 
-    @classmethod
-    def get_col_mapping(cls, dataframe):
-        # "+" operator is weird on dataframe.columns object. Although not used here convert to list:
-        dfcols = dataframe.columns.values.tolist()
-        mycols = cls.get_col_names()
-        return {cold: cnew for cold, cnew in zip(dfcols, mycols)}
-
 
 def sta_pkey_default(context):
     return context.current_parameters['network'] + "." + context.current_parameters['station']
 
 
-class Station(FDSNBase):
+class Station(Base):
     """Stations"""
 
     __tablename__ = "stations"
@@ -152,43 +131,13 @@ class Station(FDSNBase):
 
     # datacenter = relationship("DataCenter", backref="stations")
 
-    @classmethod
-    def get_col_mapping(cls, dataframe, level):
-        # "+" operator is weird on dataframe.columns object, convert to list:
-        dfcols = dataframe.columns.values.tolist()
-        mycols = cls.get_col_names()
-        if level == 'channel':
-            # these are the dataframe expected columns for a station (level=channel) query:
-            #  #Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|
-            #  SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
-            # Some of them are for the Channel table, so select them:
-            dfcols = dfcols[:2] + dfcols[4:7] + dfcols[-2:]
-            # and now this table columns mapping (by name, so we can safely add any new column at
-            # any index):
-            mycols = [Station.network.key, Station.station.key, Station.latitude.key,
-                      Station.longitude.key, Station.elevation.key, Station.start_time.key,
-                      Station.end_time.key]
-        elif level == 'station':
-            # these are the dataframe columns for a station (level=channel) query:
-            #  #Network|Station|Latitude|Longitude|Elevation|SiteName|StartTime|EndTime
-            # set this table columns mapping (by name, so we can safely add any new column at any
-            # index):
-            mycols = [Station.network.key, Station.station.key, Station.latitude.key,
-                      Station.longitude.key, Station.elevation.key, Station.site_name.key,
-                      Station.start_time.key, Station.end_time.key]
-        else:
-            raise ValueError("'%s.get_col_mapping' error: expected 'channel' or 'station' as "
-                             "'level' argument value, found '%s'" % str(level))
-
-        return {cold: cnew for cold, cnew in zip(dfcols, mycols)}
-
 
 def cha_pkey_default(context):
     return context.current_parameters['station_id'] + "." + \
         context.current_parameters['location'] + "." + context.current_parameters['channel']
 
 
-class Channel(FDSNBase):
+class Channel(Base):
     """Channels"""
 
     __tablename__ = "channels"
@@ -212,23 +161,6 @@ class Channel(FDSNBase):
                      )
 
     station = relationship("Station", backref="channels")
-
-    @classmethod
-    def get_col_mapping(cls, dataframe):
-        # "+" operator is weird on dataframe.columns object, convert to list:
-        dfcols = dataframe.columns.values.tolist()
-        mycols = cls.get_col_names()
-        # these are the dataframe columns for a station (level=channel) query:
-        #  #Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|
-        #  SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
-        # Some of them are for the Station table, so select them:
-        dfcols = dfcols[2:4] + dfcols[7:15]
-        # and now this table columns mapping (by name, so we can safely add any new column at
-        # any index):
-        mycols = [Channel.location.key, Channel.channel.key, Channel.depth.key, Channel.azimuth.key,
-                  Channel.dip.key, Channel.sensor_description.key, Channel.scale.key,
-                  Channel.scale_freq.key, Channel.scale_units.key, Channel.sample_rate.key]
-        return {cold: cnew for cold, cnew in zip(dfcols, mycols)}
 
 
 class SegmentClassAssociation(Base):

@@ -20,7 +20,7 @@ from pandas.compat import (lzip, map, zip, raise_with_traceback,
 from pandas.core.common import isnull
 # but we need also pd.isnull so we import it like this for safety:
 from pandas import isnull as pd_isnull
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql.elements import BinaryExpression
 from sqlalchemy.sql.expression import and_
 from pandas import to_numeric
@@ -108,7 +108,7 @@ def harmonize_columns(table, dataframe, parse_dates=None):
 
 def _harmonize_columns(table, dataframe, parse_dates=None):
     """
-    Copied and modified from pandas.io.sql: 
+    Copied and modified from pandas.io.sql:
     Make the DataFrame's column types align with the SQL table
     column types. The original dataframe dtypes and values MIGHT be modified in place!
 
@@ -311,9 +311,9 @@ def flush(session, on_exc=None):
     try:
         session.flush()
         return True
-    except Exception as _:
+    except SQLAlchemyError as _:
         session.rollback()
-        if on_exc is not None:
+        if hasattr(on_exc, "__call__"):  # on_exc=None returns False
             on_exc(_)
         return False
 
@@ -323,115 +323,70 @@ def commit(session, on_exc=None):
         Commits the given section. In case of Exception (IntegrityError), rolls back the session
         and returns False. Otherwise True is returned
         :param on_exc: a callable (function) which will be called with the given exception as first
-        argument
+        argument.
         :return: True on success, False otherwise
     """
     try:
         session.commit()
         return True
-    except Exception as _:
+    except SQLAlchemyError as _:
         session.rollback()
-        if on_exc is not None:
+        if hasattr(on_exc, "__call__"):  # on_exc=None returns False
             on_exc(_)
         return False
-
-
-# def add_or_get(session, db_row, *args):
-#     """deprecated: will be removed in the future"""
-#     lst = list(args)
-#     model = db_row.__class__
-#     if not lst:
-#         lst = get_cols(db_row, primary_key_only=True)
-# 
-#     binary_expr = None
-#     for col_name in lst:
-#         try:  # is column name
-#             col = getattr(model, col_name)
-#             bin_exp = col == getattr(db_row, col.key)
-#         except TypeError:
-#             if not isinstance(col_name, BinaryExpression):  # col_name is a model attribute
-#                 # (db column)
-#                 bin_exp = col_name == getattr(db_row, col_name.key)
-#             else:
-#                 bin_exp = col
-# 
-#         binary_expr = bin_exp if binary_expr is None else binary_expr & bin_exp
-# 
-#     if binary_expr is None:
-#         return None, False
-# 
-#     instance = session.query(model).filter(binary_expr).first()
-#     if instance:
-#         return instance, False
-#     else:
-#         session.add(db_row)
-#         return db_row, True
-
-
-# def get_or_add_all(session, model_rows, model_cols_or_colnames=None, flush_on_add=True):
-#     """
-#         Iterates on all model_rows trying to add each
-#         instance to the session if it does not already exist on the database.
-#         The existence is checked based on model_cols_or_colnames: if a database row is found,
-#         whose values are the same as the given instance for **all** the columns defined
-#         in model_cols_or_colnames, then the database row instance is used.
-# 
-#         Returns the list of tuples: (model_instance, is_newly_added)
-# 
-#         ----------------
-#         IMPORTANT
-#         ----------------
-#         **The length of the returned list might differ from the
-#         number of items in model_rows**: If flush_on_add=True,
-#         model rows for which `session.flush` fails, typically for reasons like primary key,
-#         foreign key, or "not nullable" constraint violations, are *NOT* returned. If you want
-#         control over these cases and have the tuple (None, False) returned, consider using
-#         `get_or_add_iter`.
-# 
-#         :param model_rows: an iterable (list tuple generator ...) of ORM model instances.
-#         An ORM model is the python class reflecting a database table. An ORM model instance is
-#         simply a python instance of that class, and thus reflects a rows of the database table
-#         :param model_rows: an iterable (list, tuple,...) of ORM model isntances
-#         :param model_cols_or_colnames: an iterable of columns, either as columns 
-#         of the given ORM model columns, or as strings denoting the given ORM model columns
-#         :param flush_on_add: True by default, tells whether a `session.flush` has to be issued after each
-#         `session.add`. In case of failure, a `session.rollback` will be issued and the tuple
-#         (None, False) is *NOT* appended to the returned list
-#     """
-#     ret = []
-#     for instance, isnew in get_or_add_iter(session, model_rows, model_cols_or_colnames,
-#                                            flush_on_add):
-#         if instance is not None:
-#             ret.append(instance)
-#     return ret
 
 
 def get_or_add_iter(session, model_instances, model_cols_or_colnames=None, on_add='flush'):
     """
         Iterates on all model_rows trying to add each
-        instance to the session if it does not already exist on the database.
-        The existence is checked based on model_cols_or_colnames: if a database row is found,
-        whose values are the same as the given instance for **all** the columns defined
-        in model_cols_or_colnames, then the database row instance is used.
+        instance to the session if it does not already exist on the database. All instances
+        in `model_instances` should belong to the same model (python class). For each
+        instance, its existence is checked based on `model_cols_or_colnames`: if a database row
+        is found, whose values are the same as the given instance for **all** the columns defined
+        in `model_cols_or_colnames`, then the *first* database row instance is returned.
 
-        Yields tuple: (model_instance, is_newly_added)
+        Yields tuple: (model_instance, is_new_and_was_added)
 
         Note that if `on_add`="flush" (the default) or `on_add`="commit", model_instance might be
         None (see below)
 
-        :param model_rows: an iterable (list tuple generator ...) of ORM model instances. None
+        :Example:
+        ```
+        instances = ... # list or iterable of some model instances
+        # add all instances if they are not found on db according to their primary key
+        # (thus no need to specify the argument `model_cols_or_colnames`)
+        for instance, is_new in get_or_add_iter(session, instances, on_add='commit'):
+            if instance is None:
+                # instance was not found on db but adding it raised an exception
+                # (including the case where the item of instances is None)
+            elif is_new:
+                # instance was not found on the db and was succesfully added
+            else:
+               # instance was found on the db and the first matching instance is returned
+
+        # assuming the model of each instance is a class named 'MyTable' with a primary key 'id':
+        instances = [MyTable(...), ..., MyTable(...)]
+        # the calls below produce the same results:
+        get_or_add_iter(session, instances):
+        get_or_add_iter(session, instances, 'id'):
+        get_or_add_iter(session, instances, MyTable.id):
+        ```
+        :param model_instances: an iterable (list tuple generator ...) of ORM model instances. None
         values are valid and will yield the tuple (None, False)
         All instances *MUST* belong to the same class, i.e., represent rows of the same db table.
         An ORM model is the python class reflecting a database table. An ORM model instance is
         simply a python instance of that class, and thus reflects a rows of the database table
-        :param model_rows: an iterable (list, tuple,...) of ORM model instances
-        :param model_cols_or_colnames: an iterable of columns whereby the model_instance has to
-        be checked first. Usually, provide primary keys or a combination of unique constraints.
-        The parameter can be given as column atributes of the given ORM model, or as strings
+        :param model_cols_or_colnames: (iterable, model attribute, string or None) An iterable of
+        columns whereby the existience of a database row matching `model_instance` has to be checked
+        first. The parameter can be also given as "scalar" as model attribute or string denoting
+        a model attribute name (the comparison will be made on that single attribute in case)
+        Usually, provide primary keys or a combination of unique constraints.
+        The parameter can be given as column attributes of the given ORM model, or as strings
         denoting the given ORM model columns. If None, the model primary keys are taken as
-        columns
-        :param on_add: 'commit', 'flush' or None. Default: 'flush'. Tells whether a `session.flush` or
-        a `session commit` has to be issued after each `session.add`. In case of failure, a
+        columns, thus if a row is found, whose primary key values are equal to the primary key
+        values of `model instance`, the instance reflecting that row is returned
+        :param on_add: 'commit', 'flush' or None. Default: 'flush'. Tells whether a `session.flush`
+        or a `session commit` has to be issued after each `session.add`. In case of failure, a
         `session.rollback` will be issued and the tuple (None, False) is yielded
     """
     binexpfunc = None  # cache dict for expressions

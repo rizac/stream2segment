@@ -15,6 +15,7 @@
 """
 import os
 from sqlalchemy.engine import create_engine
+from stream2segment import __version__ as s2s_version
 from stream2segment.s2sio.db.models import Base
 from sqlalchemy.orm.session import sessionmaker
 from stream2segment.s2sio.db import models
@@ -26,56 +27,104 @@ import sys
 import yaml
 import click
 import datetime as dt
-from stream2segment.query import main as query_main
+from stream2segment.download.query import main as query_main
 from stream2segment.utils import datetime as dtime, tounicode, load_def_cfg, get_session
 
 
-class LoggerHandler(object):
-    """Object handling the root loggers and two Handlers: one writing to StringIO (verbose, being
-    saved to db) the other writing to stdout (or stdio) (less verbose, not saved).
-    This class has all four major logger methods info, warning, debug and error, plus a save
-    method to save the logger text to a database"""
-    def __init__(self, out=sys.stdout):
+# CRITICAL    50
+# ERROR    40
+# WARNING    30
+# INFO    20
+# DEBUG    10
+# NOTSET    0
+def config_logger(db_session, out=sys.stdout, out_levels=(20, 50), logfile_level=10):
+    class LevelFilter(object):
         """
-            Initializes a new LoggerHandler, attaching to the root logger two handlers
+        This is a filter which handles standard output: print only critical and info
+        messages (it might inherit by logging.Filter but the docs says it's enough to
+        implement a filter method)
         """
-        root_logger = logging.getLogger()
-        root_logger.setLevel(10)
-        stringio = StringIO()
-        file_handler = logging.StreamHandler(stringio)
-        root_logger.addHandler(file_handler)
-        console_handler = logging.StreamHandler(out)
-        console_handler.setLevel(20)
-        root_logger.addHandler(console_handler)
-        self.rootlogger = root_logger
-        self.errors = 0
-        self.warnings = 0
-        self.stringio = stringio
+        def __init__(self, levels):
+            self._levels = set(levels)
 
-    def info(self, *args, **kw):
-        """forwards the arguments to L.info, where L is the root Logger"""
-        self.rootlogger.info(*args, **kw)
+        def filter(self, record):
+            """returns True or False to dictate whether the given record must be processed or not"""
+            return True if record.levelno in self._levels else False
 
-    def debug(self, *args, **kw):
-        """forwards the arguments to L.debug, where L is the root Logger"""
-        self.rootlogger.debug(*args, **kw)
+    class CounterStreamHandler(logging.StreamHandler):
+        """A StreamHandler which counts errors and warnings. See
+        http://stackoverflow.com/questions/812477/how-many-times-was-logging-error-called
+        NOTE: we might want to send immediately the log to a database, but that requires a lot
+        of refactoring and problem is, we should update (concat) the log field: don't know
+        how much is efficient. Better keep it in a StringIO and commit at the end for the
+        moment (see how an object of this class is instantiated few lines below)
+        FOR AN EXAMPLE USING LOG AND SQLALCHEMY, SEE:
+        http://docs.pylonsproject.org/projects/pyramid_cookbook/en/latest/logging/sqlalchemy_logger.html
+        """
+        def __init__(self, session):
+            super(CounterStreamHandler, self).__init__(stream=StringIO())
+            # access the stream with self.stream
+            self.session = session
+            self.run_row = models.Run()  # database model instance
+            self.run_row.errors = 0
+            self.run_row.warnings = 0
+            self.run_row.program_version = ".".join(str(x) for x in s2s_version)
+            session.add(self.run_row)
+            session.commit()
 
-    def warning(self, *args, **kw):
-        """forwards the arguments to L.debug (with "WARNING: " inserted at the beginning of the log
-        message), where L is the root logger. This allows this kind of log messages
-        to be printed to the db log but NOT on the screen (less verbose)"""
-        args = list(args)  # it's a tuple ...
-        args[0] = "WARNING: " + args[0]
-        self.warnings += 1
-        self.rootlogger.debug(*args, **kw)
+        def emit(self, record):
+            if record.levelno == 30:
+                self.run_row.warnings += 1
+            elif record.levelno == 40:
+                self.run_row.errors += 1
+            super(CounterStreamHandler, self).emit(record)
 
-    def error(self, *args, **kw):
-        """forwards the arguments to L.error, where L is the root Logger"""
-        self.errors += 1
-        self.rootlogger.error(*args, **kw)
+        def close(self):
+            self.run_row.log = self.stream.getvalue()
+            commit(self.session)  # does not throw, so we can call super.close() here:
+            super(CounterStreamHandler, self).close()
 
-    def get_log(self):
-        return tounicode(self.stringio.getvalue())
+    class MyFormatter(logging.Formatter):
+        """Extends formatter to print custom messages according to levelname (or levelno)
+        Warning: don't do too complex stuff as logger gets hard to mantain then
+        """
+        indent_n = 9
+        indent = "%-{:d}s".format(indent_n)
+
+        def format(self, record):
+            string = super(MyFormatter, self).format(record)  # defaults to "%(message)s"
+            if record.levelno != 20:  # insert levelname, indent newlines
+                indent = self.indent
+                lname = indent % record.levelname
+                if "\n" in string:
+                    string = "\n{}".format(indent % "").join(string.split("\n"))
+                string = "%s%s" % (lname, string)
+            return string
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(min(min(out_levels), logfile_level))  # necessary to forward to handlers
+
+    # =============================
+    # configure log file/db handler:
+    # =============================
+    # custom StreamHandler: count errors and warnings
+    db_handler = CounterStreamHandler(db_session)
+    db_handler.setLevel(logfile_level)
+    db_handler.setFormatter(MyFormatter())
+    root_logger.addHandler(db_handler)
+
+    # ==========================================
+    # configure out (by default, stdout) handler:
+    # ==========================================
+    console_handler = logging.StreamHandler(out)
+    console_handler.setLevel(min(out_levels))
+    # custom filtering: do not print certain levels (default: print info and critical):
+    console_handler.addFilter(LevelFilter(out_levels))
+    # console_handler.setLevel(20) don't set level, we use filter above
+    console_handler.setFormatter(MyFormatter())
+    root_logger.addHandler(console_handler)
+
+    return root_logger, db_handler.run_row
 
 
 def valid_date(string):
@@ -99,11 +148,8 @@ def get_def_timerange():
 cfg_dict = load_def_cfg()
 
 
-def run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan,
-        search_radius_args,
-        channels,
-        start, end, min_sample_rate,
-        processing):
+def run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan, stimespan,
+        search_radius_args, channels, start, end, min_sample_rate, processing, isterminal=False):
     """
         Main run method. KEEP the ARGUMENT THE SAME AS THE config.yaml OTHERWISE YOU'LL GET
         A DIFFERENT CONFIG SAVED IN THE DB
@@ -121,11 +167,8 @@ def run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespa
     # init the session: FIXME: call utils function!
     session = get_session(dburi)
 
-    # add run row with current datetime (utcnow, see models)
-    run_row = models.Run()
-
     # create logger handler
-    logger = LoggerHandler()
+    logger, run_row = config_logger(session)
 
     yaml_dict = load_def_cfg()
     # update with our current variables (only those present in the config_yaml):
@@ -139,13 +182,12 @@ def run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespa
     # http://stackoverflow.com/questions/1950306/pyyaml-dumping-without-tags
     yaml_content.write(yaml.safe_dump(yaml_dict, default_flow_style=False))
     config_text = yaml_content.getvalue()
-    logger.info("Arguments:")
-    tab = "   "
-    logger.info(tab + config_text.replace("\n", "\n%s" % tab))
+    if isterminal:
+        print("Arguments:")
+        tab = "   "
+        print(tab + config_text.replace("\n", "\n%s" % tab))
     run_row.config = tounicode(config_text)
-
-    session.add(run_row)
-    session.flush()  # udpate run row
+    session.commit()  # udpate run row. flush might be also used but we prever sotring to db
 
     ret = 0
     try:
@@ -153,7 +195,7 @@ def run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespa
         if 'd' in action:
             ret = query_main(session, run_row.id, eventws, minmag, minlat, maxlat, minlon, maxlon,
                              search_radius_args, channels,
-                             start, end, ptimespan, min_sample_rate, logger)
+                             start, end, ptimespan, stimespan, min_sample_rate, isterminal)
 
         if 'p' in action.lower() and ret == 0:
             segments = session.query(models.Segment).all()
@@ -170,18 +212,17 @@ def run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespa
                                    logger=logger, **pro_args)
 
     except Exception as exc:
-        logger.error(str(exc))
+        logger.critical(str(exc))
         raise
-
     finally:
-        run_row.log = logger.get_log()
-        run_row.errors = logger.errors
-        run_row.warnings = logger.warnings
-        commit(session, on_exc=lambda exc: logger.error(exc))
-
         logger.info("")
-        logger.info("Done: %d error(s), %d warning(s)" % (logger.errors, logger.warnings))
+        logger.info("Done: %d error(s), %d warning(s)" % (run_row.errors, run_row.warnings))
         logger.info("")
+        for handler in logger.handlers:
+            try:
+                handler.close()
+            except (AttributeError, TypeError, IOError, ValueError):
+                pass
 
     return 0
 
@@ -212,8 +253,11 @@ def run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespa
 @click.option('--maxlon', default=cfg_dict['maxlon'], type=float,
               help='Maximum longitude.')
 @click.option('--ptimespan', nargs=2, type=float,
-              help='Minutes to account for before and after the P arrival time.',
+              help='Minutes to account for before and after the P arrival time',
               default=cfg_dict['ptimespan'])
+@click.option('--stimespan', nargs=2, type=float,
+              help='Hours to account for before and after an event is found to set the start and '
+              'end time of the stations search', default=cfg_dict['stimespan'])
 @click.option('--search_radius_args', default=cfg_dict['search_radius_args'], type=float, nargs=4,
               help=('arguments to the function returning the search radius R whereby all '
                     'stations within R will be queried from given event location. '
@@ -230,13 +274,14 @@ def run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespa
               help='Limit to events on or before the specified end time.')
 @click.option('--min_sample_rate', default=cfg_dict['min_sample_rate'],
               help='Limit to segments on a sample rate higher than a specific threshold')
-def main(action, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan, search_radius_args,
-         dburi, start, end, min_sample_rate):
+def main(action, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan, stimespan,
+         search_radius_args, dburi, start, end, min_sample_rate):
 
     try:
         ret = run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan,
+                  stimespan,
                   search_radius_args, cfg_dict['channels'], start, end, min_sample_rate,
-                  cfg_dict['processing'])
+                  cfg_dict['processing'], isterminal=True)
         sys.exit(ret)
     except KeyboardInterrupt:
         sys.exit(1)

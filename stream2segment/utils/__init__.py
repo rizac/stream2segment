@@ -402,7 +402,7 @@ class DataFrame(pd.DataFrame):
 
 
 def dc_stats_str(dc_df, dc_axis=1,
-                 parse_urls=True, set_totals=True, transpose=True,  *args, **kwargs):
+                 parse_urls=True, set_totals=True, transpose=False,  *args, **kwargs):
     """
         :param dc_axis: axis on which are the datacenter urls: {index (0), columns (1)}
     """
