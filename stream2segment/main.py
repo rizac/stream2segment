@@ -5,6 +5,8 @@
 # <XXXXXXX@gfz-potsdam.de>
 #
 # ----------------------------------------------------------------------
+from sqlalchemy.exc import SQLAlchemyError
+import time
 """
    :Platform:
        Linux, Mac OSX
@@ -13,14 +15,13 @@
    :License:
        To be decided!
 """
-import os
+import logging
 from sqlalchemy.engine import create_engine
 from stream2segment import __version__ as s2s_version
 from stream2segment.s2sio.db.models import Base
 from sqlalchemy.orm.session import sessionmaker
 from stream2segment.s2sio.db import models
 from stream2segment.processing import process, process_all
-import logging
 from StringIO import StringIO
 from stream2segment.s2sio.db.pd_sql_utils import flush, commit
 import sys
@@ -30,6 +31,13 @@ import datetime as dt
 from stream2segment.download.query import main as query_main
 from stream2segment.utils import datetime as dtime, tounicode, load_def_cfg, get_session
 
+# set root logger if we are executing this module as script, otherwise as module name following
+# logger conventions. Discussion here:
+# http://stackoverflow.com/questions/30824981/do-i-need-to-explicitly-check-for-name-main-before-calling-getlogge
+# howver, based on how we configured entry points in config, the name is (as november 2016)
+# 'stream2segment.main', which messes up all hineritances. So basically setup a main logger
+# with the package name
+logger = logging.getLogger("stream2segment")
 
 # CRITICAL    50
 # ERROR    40
@@ -37,7 +45,11 @@ from stream2segment.utils import datetime as dtime, tounicode, load_def_cfg, get
 # INFO    20
 # DEBUG    10
 # NOTSET    0
-def config_logger(db_session, out=sys.stdout, out_levels=(20, 50), logfile_level=10):
+
+
+def config_logger_and_return_run_instance(db_session, isterminal, out=sys.stdout,
+                                          out_levels=(20, 50),
+                                          logfile_level=10):
     class LevelFilter(object):
         """
         This is a filter which handles standard output: print only critical and info
@@ -101,7 +113,7 @@ def config_logger(db_session, out=sys.stdout, out_levels=(20, 50), logfile_level
                 string = "%s%s" % (lname, string)
             return string
 
-    root_logger = logging.getLogger()
+    root_logger = logger
     root_logger.setLevel(min(min(out_levels), logfile_level))  # necessary to forward to handlers
 
     # =============================
@@ -116,15 +128,16 @@ def config_logger(db_session, out=sys.stdout, out_levels=(20, 50), logfile_level
     # ==========================================
     # configure out (by default, stdout) handler:
     # ==========================================
-    console_handler = logging.StreamHandler(out)
-    console_handler.setLevel(min(out_levels))
-    # custom filtering: do not print certain levels (default: print info and critical):
-    console_handler.addFilter(LevelFilter(out_levels))
-    # console_handler.setLevel(20) don't set level, we use filter above
-    console_handler.setFormatter(MyFormatter())
-    root_logger.addHandler(console_handler)
+    if isterminal:
+        console_handler = logging.StreamHandler(out)
+        console_handler.setLevel(min(out_levels))
+        # custom filtering: do not print certain levels (default: print info and critical):
+        console_handler.addFilter(LevelFilter(out_levels))
+        # console_handler.setLevel(20) don't set level, we use filter above
+        console_handler.setFormatter(MyFormatter())
+        root_logger.addHandler(console_handler)
 
-    return root_logger, db_handler.run_row
+    return db_handler.run_row
 
 
 def valid_date(string):
@@ -165,10 +178,10 @@ def run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespa
         return 0
 
     # init the session: FIXME: call utils function!
-    session = get_session(dburi)
+    session = get_session(dburi, scoped=True)  # FIXME: is it necessary for multiprocessing in processing?
 
     # create logger handler
-    logger, run_row = config_logger(session)
+    run_row = config_logger_and_return_run_instance(session, isterminal)
 
     yaml_dict = load_def_cfg()
     # update with our current variables (only those present in the config_yaml):
@@ -190,34 +203,38 @@ def run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespa
     session.commit()  # udpate run row. flush might be also used but we prever sotring to db
 
     ret = 0
+    down_com = None
+    proc_comp = None
     try:
         segments = []
         if 'd' in action:
+            _ = time.time()
             ret = query_main(session, run_row.id, eventws, minmag, minlat, maxlat, minlon, maxlon,
                              search_radius_args, channels,
                              start, end, ptimespan, stimespan, min_sample_rate, isterminal)
+            print("Download completed in %s seconds" % str(dt.timedelta(seconds=time.time()-_)))
 
         if 'p' in action.lower() and ret == 0:
-            segments = session.query(models.Segment).all()
-
-            pro_sublists_keys = ['bandpass', 'remove_response', 'snr', 'multi_event', 'coda']
-            pro_args = {k: processing[k] for k in processing
-                        if k not in pro_sublists_keys}
-            for key in pro_sublists_keys:
-                subvalues = processing.get(key, {})
-                for k, v in subvalues.iteritems():
-                    pro_args[key + "_" + k] = v
-
-            ret_vals = process_all(session, segments, run_row.id, overwrite_all='P' in action,
-                                   logger=logger, **pro_args)
+            _ = time.time()
+            if 'P' in action:
+                try:
+                    _ = session.query(models.Processing).delete()  # returns num rows deleted
+                    session.commit()
+                except SQLAlchemyError:
+                    session.rollback()
+                    raise Exception("Unable to delete all processing (internal db error). Please"
+                                    "try again to run the program")
+            segments = session.query(models.Segment).\
+                filter(~models.Segment.processings.any()).all()  # @UndefinedVariable
+            process_all(session, segments, run_row.id, **processing)
+            print("Processing completed in %s seconds" % str(dt.timedelta(seconds=(time.time()-_))))
+        logger.info("")
+        logger.info("%d total error(s), %d total warning(s)", run_row.errors, run_row.warnings)
 
     except Exception as exc:
         logger.critical(str(exc))
         raise
     finally:
-        logger.info("")
-        logger.info("Done: %d error(s), %d warning(s)" % (run_row.errors, run_row.warnings))
-        logger.info("")
         for handler in logger.handlers:
             try:
                 handler.close()

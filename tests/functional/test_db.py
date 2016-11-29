@@ -13,9 +13,11 @@ from stream2segment.s2sio.db.models import Base  # This is your declarative base
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 import pandas as pd
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from stream2segment.s2sio.db.pd_sql_utils import _harmonize_columns, harmonize_columns,\
     get_or_add_iter
+from stream2segment.s2sio.dataseries import dumps_inv, loads_inv
+from sqlalchemy.orm.exc import FlushError
 
 
 class Test(unittest.TestCase):
@@ -48,8 +50,9 @@ class Test(unittest.TestCase):
         try:
             self.session.flush()
             self.session.commit()
-        except IntegrityError as _:
-            self.session.rollback()
+        except SQLAlchemyError as _:
+            pass
+            # self.session.rollback()
         self.session.close()
         # self.DB.drop_all()
 
@@ -65,6 +68,26 @@ class Test(unittest.TestCase):
 #                           data=[])
 #         with pytest.raises(ValueError):
 #             df = e.parse_df(df)
+
+    def test_inventory_io(self):
+        from obspy.core.inventory.inventory import Inventory
+        e = models.Station(network='abc', station='f')
+
+        parentdir = os.path.dirname(os.path.dirname(__file__))
+        invname = os.path.join(parentdir, "data", "inventory_GE.APE.xml")
+        with open(invname, 'rb') as opn:
+            data = opn.read()
+
+        dumped_inv = dumps_inv(data,  compression='gzip', compresslevel=9)
+
+        assert len(dumped_inv) < len(data)
+        e.inventory_xml = dumped_inv
+
+        self.session.commit()
+        inv_xml = loads_inv(e.inventory_xml)
+
+        assert isinstance(inv_xml, Inventory)
+        
         
     def testSqlAlchemy(self):
         #run_cols = models.Run.__table__.columns.keys()
@@ -81,7 +104,6 @@ class Test(unittest.TestCase):
         assert run_row.id is None
 
         # test that methods of the base class work:
-        assert len(run_row.get_cols()) > 0
         assert len(run_row.get_col_names()) > 0
 
         # test id is auto added:
@@ -313,55 +335,121 @@ class Test(unittest.TestCase):
     def test_event_sta_channel_seg(self):
         dc= models.DataCenter(station_query_url="345635434246354765879685432efbdfnrhytwfesdvfbgfnyhtgrefs")
         self.session.add(dc)
-        self.session.flush()
+
+        utcnow = datetime.datetime.utcnow()
+
+        run = models.Run(run_time=utcnow)
+        self.session.add(run)
 
         id = '__abcdefghilmnopq'
-        utcnow = datetime.datetime.utcnow()
         e = models.Event(id=id, time=utcnow, latitude=89.5, longitude=6,
                          depth_km=7.1, magnitude=56)
-
-        e, added = self.get_or_add(self.session, e)
+        self.session.add(e)
 
         s = models.Station(network='sdf', station='_', latitude=90, longitude=-45)
+        self.session.add(s)
 
         c = models.Channel(location= 'tyu', channel='rty', sample_rate=6)
-
         s.channels.append(c)
-        
-        s, added = self.get_or_add(self.session, s, on_add='commit')
-        
-#         self.session.flush()
-#         self.session.commit()
+        self.session.commit()
         
         id = '__abcdefghilmnopq'
         utcnow = datetime.datetime.utcnow()
         e = models.Event(id=id, time=utcnow)
-
         e, added = self.get_or_add(self.session, e)
+        assert added == False
 
         s = models.Station(network='sdf', station='_', latitude=90, longitude=-45)
-
-        c = models.Channel(location= 'tyu', channel='rty')
-
-        # 
-        # self.session.flush()
         s, added = self.get_or_add(self.session, s, 'network', 'station')
-        # self.session.flush()
-
-        s.channels.append(c)  # that's an error. test it:
-        with pytest.raises(IntegrityError):
-            self.session.flush()
-        self.session.rollback()
+        assert added == False
+        
+        self.session.commit()  # harmless
         
 #         c, added = add_or_get2(self.session, c)
-#         
-#         seg = models.Segment(start_time=datetime.datetime.utcnow(),
-#                              end_time=datetime.datetime.utcnow(),
-#                              event_distance_deg=9,
-#                              arrival_time=datetime.datetime.utcnow(),
-#                              data=b'')
-# 
+#
+        seg = models.Segment(start_time=datetime.datetime.utcnow(),
+                             end_time=datetime.datetime.utcnow(),
+                             event_distance_deg=9,
+                             arrival_time=datetime.datetime.utcnow(),
+                             data=b'')
+
+        self.session.add(seg)
+
+        with pytest.raises(IntegrityError):
+            self.session.commit()
+        self.session.rollback()
+        
+        # set necessary attributes
+        seg.event_id = e.id
+        seg.datacenter_id = dc.id
+        seg.run_id = run.id
+        seg.channel_id = c.id
+        # and now it will work:
+        self.session.add(seg)
+        self.session.commit()
+        
+        # Create a copy of the instance, with same value. We should excpect a UniqueConstraint
+        # but we actually get a FlushErro (FIXME: check difference). Anyway the exception is:
+        # FlushError: New instance <Segment at 0x11295cf10> with identity key
+        # (<class 'stream2segment.s2sio.db.models.Segment'>, (1,)) conflicts with persistent
+        # instance <Segment at 0x11289bb50>
+        seg_ = seg.copy()
+        self.session.add(seg_)
+        with pytest.raises(FlushError):
+            self.session.commit()
+        self.session.rollback()
+        
+        # It seems that qlalchemy keeps track
+        # of the instance object linked to a db row.
+        # Take the seg object (already added and committed) change ITS id to force even more
+        # the "malformed" case, but we won't have any exceptions
+        s1 = self.session.query(models.Segment).all()
+        seg.id += 1
+        self.session.add(seg)
+        self.session.commit()
+        s2 = self.session.query(models.Segment).all()
+        assert len(s1) == len(s2)
+        
+        
+        # anyway, now add a new segment
+        seg_ = seg.copy()
+        seg_.id = None  # autoincremented
+        seg_.end_time += datetime.timedelta(seconds=1) # safe unique constraints
+        self.session.add(seg_)
+        self.session.commit()
+        assert len(self.session.query(models.Segment).all()) == 2
+
+
+        # select segments which do not have processings (all)
+        s = self.session.query(models.Segment).filter(~models.Segment.processings.any()).all()  # @UndefinedVariable
+        assert len(s) == 2
+        
+        seg1, seg2 = s[0], s[1]
+        pro = models.Processing(run_id=run.id)
+        pro.segment = seg1
+        assert pro.segment_id != seg1.id
+        self.session.flush()  # updates id or foreign keys related to the relation above
+        assert pro.segment_id == seg1.id
+
+        # check changing segment and segment id and see if the other gets updated
+        
+        # what happens if we change segment_id?
+#         pro.segment_id = seg2.id
+#         assert pro.segment_id != seg2.id and pro.segment.id == seg1.id
 #         self.session.flush()
+#         self.session.commit()
+# #         d=9
+#         
+#         # this does not raise error, it just updates seg.channel_id
+#         seg = models.Segment()
+#         seg.channel = c
+#         self.session.flush()
+#         assert seg.channel_id == c.id
+#         # we would have troubles doing this (there are null fields in seg):
+#         with pytest.raises(IntegrityError):
+#             self.session.commit()
+#         self.session.rollback()
+#         f = 9
 #         e.segments.append(seg)
 #         self.session.flush()
 #         c.segments.append(seg)
@@ -395,6 +483,27 @@ class Test(unittest.TestCase):
 #         self.session.flush()
 #         c.segments.append(seg)
 #         self.session.flush()
+        
+    def test_toattrdict(self):
+#         e = models.Event(id='abc')
+#         
+#         s = models.Station(network='n', station='s')
+        
+        c = models.Channel(location='l', channel='c')
+#         c.station = s
+        
+        adict = c.toattrdict()
+        assert 'id' not in adict and 'station_id' not in adict
+        
+        adict = c.toattrdict(primary_keys=True)
+        assert 'id' in adict and 'station_id' not in adict
+        
+        adict = c.toattrdict(foreign_keys=True)
+        assert 'id' not in adict and 'station_id' in adict
+        
+        adict = c.toattrdict(primary_keys=True, foreign_keys=True)
+        assert 'id' in adict and 'station_id' in adict
+        
         
         
     def test_harmonize_columns(self):

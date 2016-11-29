@@ -2,6 +2,7 @@
 
 from __future__ import print_function  # , unicode_literals
 import yaml
+from sqlalchemy.orm.scoping import scoped_session
 
 """
     Some utilities which share common functions which I often re-use across projects. Most of the
@@ -464,21 +465,27 @@ def get_default_dbpath(config_filepath=None):
     return load_def_cfg(config_filepath)['dburi']
 
 
-def get_session(dbpath=None):
+def get_session(dbpath=None, scoped=False):
     """
     Create an sql alchemy session for IO db operations
     :param dbpath: the path to the database, e.g. sqlite:///path_to_my_dbase.sqlite
     if None or missing, it defaults to the 'dburi' field in config.yaml
+    :param scoped: boolean (False by default) if the session must be scoped session
     """
     if dbpath is None:
         dbpath = get_default_dbpath()
     # init the session:
     engine = create_engine(dbpath)
     Base.metadata.create_all(engine)
-    # create a configured "Session" class
-    Session = sessionmaker(bind=engine)
-    # create a Session
-    session = Session()
-    return session
+    if not scoped:
+        # create a configured "Session" class
+        session = sessionmaker(bind=engine)
+        # create a Session
+        return session()
+    # return session
+    else:
+        session_factory = sessionmaker(bind=engine)
+        return scoped_session(session_factory)
+
 
 # ==end== 

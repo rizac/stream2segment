@@ -15,7 +15,7 @@ from obspy.core import Stream as ObspyStream, Trace as ObspyTrace
 
 def get_stream_with_gaps():
     parentdir = os.path.dirname(os.path.dirname(__file__))
-    return read(os.path.join(parentdir, "IA.BAKI..BHZ.D.2016.004.head"))
+    return read(os.path.join(parentdir, "data", "IA.BAKI..BHZ.D.2016.004.head"))
 
 
 def test_get_trace_with_gaps():

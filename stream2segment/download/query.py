@@ -29,6 +29,7 @@ from stream2segment.download.utils import empty, get_query, query2dframe, normal
 from obspy.taup.tau import TauPyModel
 from obspy.geodetics.base import locations2degrees
 from obspy.taup.helper_classes import TauModelError
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -386,37 +387,34 @@ class dummyprogressbar(object):
     def __exit__(self, *a, **kw):
         pass
 
-from click import progressbar
-# from click._termui_impl import ProgressBar
-# from click.globals import resolve_color_default
-# # 
-# def progressbar(iterable=None, length=None, label=None, show_eta=True,
-#                 show_percent=None, show_pos=False,
-#                 item_show_func=None, fill_char='#', empty_char='-',
-#                 bar_template='%(label)s  [%(bar)s]  %(info)s',
-#                 info_sep='  ', width=36, file=None, color=None):
-#     color = resolve_color_default(color)
-#     return Pbar(iterable=iterable, length=length, show_eta=show_eta,
-#                        show_percent=show_percent, show_pos=show_pos,
-#                        item_show_func=item_show_func, fill_char=fill_char,
-#                        empty_char=empty_char, bar_template=bar_template,
-#                        info_sep=info_sep, file=file, label=label,
-#                        width=width, color=color)
-# class Pbar(ProgressBar):
-#     def __init__(self, iterable=None, **v):
-#         super(Pbar, self).__init__(iterable, **v)
-#         self._s_buflen = int(self.length / 30.0)
-#         self._s_buf = 0
-# 
-#     def update(self, n_steps):
-#         self.make_step(n_steps)
-#         if self.finished:
-#             self.render_progress()
-#         else:
-#             self._s_buf += n_steps
-#             if self._s_buf >= self._s_buflen:
-#                 self._s_buf = 0
-#                 self.render_progress()
+# from click import progressbar
+from click._termui_impl import ProgressBar
+from click.globals import resolve_color_default
+def progressbar(iterable=None, length=None, label=None, show_eta=True,
+                show_percent=None, show_pos=False,
+                item_show_func=None, fill_char='#', empty_char='-',
+                bar_template='%(label)s  [%(bar)s]  %(info)s',
+                info_sep='  ', width=36, file=None, color=None):
+    color = resolve_color_default(color)
+    return Pbar(iterable=iterable, length=length, show_eta=show_eta,
+                       show_percent=show_percent, show_pos=show_pos,
+                       item_show_func=item_show_func, fill_char=fill_char,
+                       empty_char=empty_char, bar_template=bar_template,
+                       info_sep=info_sep, file=file, label=label,
+                       width=width, color=color)
+class Pbar(ProgressBar):
+    def __init__(self, iterable=None, **v):
+        v['width'] = 25
+        super(Pbar, self).__init__(iterable, **v)
+        self._s_buflen = int(self.length / float(self.width))
+        self._s_buf = 0
+
+    def update(self, n_steps):
+        self._s_buf += n_steps
+        if (self._s_buf >= self._s_buflen) or \
+           (self.length_known and (self.pos+self._s_buf) >= self.length):
+            super(Pbar, self).update(self._s_buf)
+            self._s_buf = 0
 
 
 def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius_args,
@@ -528,4 +526,5 @@ def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, searc
     logger.info("Summary Datacenter WS info :")
     logger.info(dc_stats_str(d_stats_df, transpose=True))
     logger.info("")
+
     return 0

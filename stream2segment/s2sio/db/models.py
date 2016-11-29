@@ -23,9 +23,23 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 import datetime
-from stream2segment.s2sio.db.pd_sql_utils import get_col_names, get_cols
+# from stream2segment.s2sio.db.pd_sql_utils import get_col_names, get_cols
 # from sqlalchemy.sql.sqltypes import BigInteger, BLOB
 # from sqlalchemy.sql.schema import ForeignKey
+
+
+class attrdict(dict):
+    """A dict-like object whose keys can be accessed also as attributes
+    ```
+    d = attrdict(a=9, b='g')
+    d['a'] == d.a  # True
+    d['b'] == d.b  # True
+    ```
+    """
+    def __init__(self, *args, **kwargs):
+        dict.__init__(self, *args, **kwargs)
+        self.__dict__ = self
+
 
 _Base = declarative_base()
 
@@ -34,13 +48,53 @@ class Base(_Base):
 
     __abstract__ = True
 
-    @classmethod
-    def get_cols(cls):
-        return get_cols(cls)
+#     @classmethod
+#     def get_cols(cls):
+#         return get_cols(cls)
 
     @classmethod
     def get_col_names(cls):
-        return get_col_names(cls)
+        """Returns the column names, i.e. those attributes reflecting a db table column
+        Note that this method is also implemented in pd_sql_utils but we copy it here for
+        decoupling the two modules
+        """
+        return cls.__table__.columns.keys()
+
+    def __str__(self):
+        return ",\n".join("%s=%s" % (str(c), str(getattr(self, c))) for c in self.get_col_names())
+
+    def copy(self):
+        """Returns a copy of this object. Modifications made on attributes of the copy will not
+        affect this instance"""
+        return self.__class__(**{c: getattr(self, c) for c in self.get_col_names()})
+
+    def toattrdict(self, primary_keys=False, foreign_keys=False):
+        """Returns a dict-like object representing this instance. For convenience, the returned dict
+        keys can be also accessed as attributes
+        :param primary_keys: boolean (False by default): whether or not primary keys should be
+        copied. If False, the returned dict won't have attributes and keys corresponding to this
+        instance primary keys
+        :param foreign_keys: boolean (False by default): whether or not foreign keys should be
+        copied. If False, the returned dict won't have attributes and keys corresponding to this
+        instance foreign keys.
+        :Example:
+        ```
+        Event(id='4', latitude=67).toattrdict().latitude # returns 60
+        Event(id='4', latitude=67).toattrdict()['latitude'] # same as above, it's a dict object
+        Event(id='4', latitude=67).toattrdict().latitude # AttributeError: id primary key
+        Event(id='4', latitude=67, primary_keys=True).toattrdict().id # returns '4'
+        Event(**Event(latitude='4').toattrdict())  # returns a copy of the inner event
+        ```
+        """
+        # see:
+        # http://stackoverflow.com/questions/2441796/how-to-discover-table-properties-from-sqlalchemy-mapped-object
+        fkeys = set([]) if foreign_keys is True else set((fk.parent
+                                                          for fk in self.__table__.foreign_keys))
+        # note below: we removed the option "autocommit" cause all columns seem to have that
+        # attribute set to True
+        return attrdict(**{k: getattr(self, k) for k, c in self.__class__.__table__.columns.items()
+                           if (primary_keys or not c.primary_key) and
+                           (foreign_keys or c not in fkeys)})
 
 
 class Run(Base):
