@@ -4,6 +4,7 @@
 config.yaml
 conftest.py
 *.sqlite
+tmp/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

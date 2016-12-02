@@ -617,8 +617,8 @@ class Test(unittest.TestCase):
 # mag_author                     object
 # event_location_name            object
 # dtype: object])
-        g = 9
-    
+
+
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']
     unittest.main()

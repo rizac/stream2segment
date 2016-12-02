@@ -17,6 +17,11 @@ import socket
 from datetime import timedelta
 import numpy as np
 import pandas as pd
+from click import progressbar
+from obspy.taup.tau import TauPyModel
+from obspy.geodetics.base import locations2degrees
+from obspy.taup.helper_classes import TauModelError
+from stream2segment import msgs
 from stream2segment.async import url_read
 from stream2segment.classification import class_labels_df
 from stream2segment.s2sio.db import models
@@ -26,10 +31,7 @@ from stream2segment.utils import dc_stats_str
 from stream2segment.download.utils import empty, get_query, query2dframe, normalize_fdsn_dframe,\
     get_search_radius, save_stations_df, purge_already_downloaded,\
     set_wav_queries, appenddf, get_arrival_time
-from obspy.taup.tau import TauPyModel
-from obspy.geodetics.base import locations2degrees
-from obspy.taup.helper_classes import TauModelError
-import time
+
 
 logger = logging.getLogger(__name__)
 
@@ -46,37 +48,42 @@ def get_events(session, eventws, minmag, minlat, maxlat, minlon, maxlon, startis
     evt_query = get_query(eventws, minmagnitude=minmag, minlat=minlat, maxlat=maxlat,
                           minlon=minlon, maxlon=maxlon, start=startiso,
                           end=endiso, format='text')
+    raw_data = url_read(evt_query, decode='utf8',
+                        on_exc=lambda exc: logger.error(msgs.format(exc, evt_query)))
+    if raw_data is None:
+        return None
+
     try:
-        events_df = query2dframe(url_read(evt_query, decode='utf8'))
+        events_df = query2dframe(raw_data)
+    except ValueError as exc:
+        logger.error(msgs.format(exc, evt_query))
+        return None
 
-        if empty(events_df):
-            raise ValueError("No events found")
+    # events_df surely not empty
+    try:
+        olddf, events_df = events_df, normalize_fdsn_dframe(events_df, "event")
+    except ValueError as exc:
+        logger.error(msgs.query.dropped_evt(len(olddf), evt_query, exc))
+        return None
 
-        _ = len(events_df)
-        events_df = normalize_fdsn_dframe(events_df, "event")
-        if empty(events_df):
-            raise ValueError("malformed data (NaNs, mismatching column or column names)")
-        elif _ > len(events_df):
-            logger.warning("%d events skipped (malformed data)\nurl:%s", _ - len(events_df),
-                           evt_query)
+    # events_df surely not empty
+    if len(olddf) > len(events_df):
+        logger.warning(msgs.query.dropped_evt(len(olddf) - len(events_df), evt_query,
+                                              "malformed/invalid data, e.g.: NaN"))
 
-        events = {}  # loop below a bit verbose, but better for debug
-        for inst, _ in get_or_add_iter(session, df2dbiter(events_df, models.Event),
-                                       on_add='commit'):
-            if inst is not None:
-                events[inst.id] = inst
+    events = {}  # loop below a bit verbose, but better for debug
+    for inst, _ in get_or_add_iter(session, df2dbiter(events_df, models.Event),
+                                   on_add='commit'):
+        if inst is not None:
+            events[inst.id] = inst
 
-        if len(events) < len(events_df):
-            logger.warning("Processing %d of %d events (%d discarded due to internal db error)",
-                           len(events), len(events_df), len(events_df) - len(events))
-        if not events:
-            raise ValueError("%d events found, no event saved (internal db error)" %
-                             len(events_df))
-        return events
-    except (ValueError, urllib2.HTTPError, urllib2.URLError, httplib.HTTPException,
-            socket.error) as exc:
-        logger.error("%s\nURL:%s", str(exc), evt_query)
-        return 1
+    if not events:
+        logger.error(msgs.db.dropped_evt(len(events_df), evt_query))
+        return None
+    elif len(events) < len(events_df):
+        logger.warning(msgs.db.dropped_evt(len(events_df) - len(events), evt_query))
+
+    return events
 
 
 def get_datacenters(session, **query_args):
@@ -91,9 +98,11 @@ def get_datacenters(session, **query_args):
     query = get_query('http://geofon.gfz-potsdam.de/eidaws/routing/1/query', **query_args)
 #     query = ('http://geofon.gfz-potsdam.de/eidaws/routing/1/query?service=station&'
 #              'start=%s&end=%s&format=post') % (start_time.isoformat(), end_time.isoformat())
-    dc_result = url_read(query, decode='utf8', on_exc=lambda exc: logger.error("%s\nurl: %s",
-                                                                               str(exc), query))
+    dc_result = url_read(query, decode='utf8',
+                         on_exc=lambda exc: logger.error(msgs.format(exc, query)))
 
+    if not dc_result:
+        return {}
     # add to db the datacenters read. Two little hacks:
     # 1) parse dc_result string and assume any new line starting with http:// is a valid station
     # query url
@@ -113,6 +122,9 @@ def get_datacenters(session, **query_args):
         elif dcen is None:
             err += 1
 
+    if err > 0:
+        logger.warning(msgs.db.dropped_dc(err, query))
+
     dcenters = session.query(models.DataCenter).all()
 #     logger.debug("%d datacenters found, %d newly added, %d skipped (internal db error)\nurl: %s",
 #                  len(dcenters), new, err, query)
@@ -122,44 +134,40 @@ def get_datacenters(session, **query_args):
 
 def get_stations_df(session, url, raw_data, min_sample_rate):
     """FIXME: write doc!"""
-    try:
-        if not raw_data:
-            raise ValueError("No data")  # query2dframe below handles empty data,
-        # but we want meaningful log
-        stations_df = query2dframe(raw_data)
-        if empty(stations_df):
-            raise ValueError("Invalid data")
-        _ = len(stations_df)
-        stations_df = normalize_fdsn_dframe(stations_df, _STATION_LEVEL)
-        if empty(stations_df):
-            raise ValueError("malformed data")
-        elif _ > len(stations_df):
-            logger.warning("%d stations skipped (malformed data)\nurl: %s",
-                           _ - len(stations_df),
-                           url)
-        if min_sample_rate > 0:
-            srate_col = models.Channel.sample_rate.key
-            tmp = stations_df[stations_df[srate_col] >= min_sample_rate]
-            msg = "%d of %d stations discarded (sample rate < %s Hz)" % \
-                (len(stations_df) - len(tmp), len(stations_df), str(min_sample_rate))
-            if empty(tmp):
-                raise ValueError(msg)
-            elif len(stations_df) > len(tmp):
-                logger.warning("%s\nurl: %s", msg, url)
-            stations_df = tmp
-
-        _ = len(stations_df)
-        stations_df = save_stations_df(session, stations_df)
-        if empty(stations_df):
-            raise ValueError("Unable to save data to database, skipping station")
-        elif _ > len(stations_df):
-            logger.warning("%d stations skipped (internal db error)\nurl: %s",
-                           _ - len(stations_df),
-                           url)
-        return stations_df
-    except (ValueError,) as exc:
-        logger.warning("%s\nurl: %s", str(exc), url)
+    if not raw_data:
+        logger.warning(msgs.query.empty())  # query2dframe below handles empty data,
         return empty()
+    # but we want meaningful log
+    try:
+        stations_df = query2dframe(raw_data)
+    except ValueError as exc:
+        logger.warning(msgs.format(exc, url))
+
+    # stations_df surely not empty:
+    try:
+        olddf, stations_df = stations_df, normalize_fdsn_dframe(stations_df, _STATION_LEVEL)
+    except ValueError as exc:
+        logger.warning(msgs.query.dropped_sta(len(olddf), url, exc))
+
+    # stations_df surely not empty:
+    if len(olddf) > len(stations_df):
+        logger.warning(msgs.query.dropped_sta(len(olddf)-len(stations_df), url,
+                                              "malformed/invalid data, e.g.: NaN"))
+
+    if min_sample_rate > 0:
+        srate_col = models.Channel.sample_rate.key
+        olddf, stations_df = stations_df, stations_df[stations_df[srate_col] >= min_sample_rate]
+        reason = "sample rate < %s Hz" % str(min_sample_rate)
+        if len(olddf) > len(stations_df):
+            logger.warning(msgs.query.dropped_sta(len(olddf)-len(stations_df), reason, url))
+        if empty(stations_df):
+            return stations_df
+
+    olddf, stations_df = stations_df, save_stations_df(session, stations_df)
+    if len(olddf) > len(stations_df):
+        logger.warning(msgs.db.dropped_sta(len(olddf) - len(stations_df), url))
+
+    return stations_df  # might be empty
 
 
 def get_stations(session, events, datacenters, search_radius_args, station_timespan, channels,
@@ -202,13 +210,13 @@ def get_stations(session, events, datacenters, search_radius_args, station_times
             else:
                 ret[(evt.id, dcen.id)] = df
         else:
-            logger.warning("%s\nurl:%s", "empty data", url)
+            logger.warning(msgs.query.empty(url))
             stations_stats_df.loc['N/A empty', dcen.station_query_url] += 1
 
     def onerror(exc, url, index):  # pylint:disable=unused-argument
         """function executed when a given url has failed downloading data"""
         bar.update(1)
-        logger.warning("%s\nurl:%s", str(exc), url)
+        logger.warning(msgs.format(exc, url))
         dcen_station_query = urls2tuple[url][1].station_query_url
         stations_stats_df.loc['N/A server_error', dcen_station_query] += 1
 
@@ -233,32 +241,14 @@ def calculate_times(stations_df, evt, ptimespan, distances_cache_dict={}, times_
 
         coordinates = (degrees, evt.depth_km, evt.time)
         arr_time = times_cache_dict.get(coordinates, None)
-#         if arr_time is None:
-#             # get_arrival_time is ... time consuming. Use session to query for an already calculated
-#             # value:
-#             if session:
-#                 # Note on the query below: the filter on the Event class is made database side
-#                 # on the Event associated to the Segment thanks to sqlAlchemy relationships
-#                 # (see models.py).
-#                 # Thus, if seg is not None, we will have:
-#                 # seg.event_distance_deg == degrees (trivial)
-#                 # seg.event.time == evt.time
-#                 # seg.event.depth_km == evt.depth_km
-#                 # For info see:
-#                 # http://stackoverflow.com/questions/16589208/attributeerror-while-querying-neither-instrumentedattribute-object-nor-compa
-#                 seg = session.query(models.Segment).\
-#                         filter(and_(models.Segment.event_distance_deg == degrees,
-#                                     models.Event.time == evt.time,
-#                                     models.Event.depth_km == evt.depth_km)).first()
-#                 if seg:
-#                     arr_time = seg.arrival_time
         if arr_time is None:
             try:
                 arr_time = get_arrival_time(*(coordinates + (model,)))
                 times_cache_dict[coordinates] = arr_time
             except (TauModelError, ValueError) as exc:
-                logger.warning("skipping station %s, error in arrival time calculation: %s",
-                               str(sta.id), str(exc))
+                logger.warning(msgs.calc.dropped_sta(sta, "arrival time calculation", exc))
+#                 logger.warning("skipping station %s, error in arrival time calculation: %s",
+#                                str(sta.id), str(exc))
         arrival_times.append(arr_time)
 
     atime_colname = models.Segment.arrival_time.key  # limit length of next lines ...
@@ -336,7 +326,8 @@ def download_segments(session, segments_df, max_error_count, stats, bar):
     def onerror(exc, url, index):  # pylint:disable=unused-argument
         """function executed when a given url has failed"""
         bar.update(1)
-        logger.warning("%s\nurl:%s", str(exc), url)
+        logger.warning(msgs.query.dropped_seg(1, exc, url))
+        # logger.warning(msgs.join(exc, url))
         stats['N/A server_error'] += 1
         if stats['N/A server_error'] >= max_error_count:
             return False
@@ -371,50 +362,6 @@ def download_segments(session, segments_df, max_error_count, stats, bar):
         segments_df.reset_index(drop=False, inplace=True)
 
     return stats
-
-
-class dummyprogressbar(object):
-
-    def __init__(self, *a, **kw):
-        pass
-
-    def update(self, *a, **kw):
-        pass
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a, **kw):
-        pass
-
-# from click import progressbar
-from click._termui_impl import ProgressBar
-from click.globals import resolve_color_default
-def progressbar(iterable=None, length=None, label=None, show_eta=True,
-                show_percent=None, show_pos=False,
-                item_show_func=None, fill_char='#', empty_char='-',
-                bar_template='%(label)s  [%(bar)s]  %(info)s',
-                info_sep='  ', width=36, file=None, color=None):
-    color = resolve_color_default(color)
-    return Pbar(iterable=iterable, length=length, show_eta=show_eta,
-                       show_percent=show_percent, show_pos=show_pos,
-                       item_show_func=item_show_func, fill_char=fill_char,
-                       empty_char=empty_char, bar_template=bar_template,
-                       info_sep=info_sep, file=file, label=label,
-                       width=width, color=color)
-class Pbar(ProgressBar):
-    def __init__(self, iterable=None, **v):
-        v['width'] = 25
-        super(Pbar, self).__init__(iterable, **v)
-        self._s_buflen = int(self.length / float(self.width))
-        self._s_buf = 0
-
-    def update(self, n_steps):
-        self._s_buf += n_steps
-        if (self._s_buf >= self._s_buflen) or \
-           (self.length_known and (self.pos+self._s_buf) >= self.length):
-            super(Pbar, self).update(self._s_buf)
-            self._s_buf = 0
 
 
 def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, search_radius_args,

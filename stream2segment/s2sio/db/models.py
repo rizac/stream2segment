@@ -21,8 +21,9 @@ from sqlalchemy import (
     # CheckConstraint,
     # BigInteger,
     UniqueConstraint,
-)
+    event)
 import datetime
+from sqlalchemy.orm.mapper import validates
 # from stream2segment.s2sio.db.pd_sql_utils import get_col_names, get_cols
 # from sqlalchemy.sql.sqltypes import BigInteger, BLOB
 # from sqlalchemy.sql.schema import ForeignKey
@@ -53,12 +54,20 @@ class Base(_Base):
 #         return get_cols(cls)
 
     @classmethod
-    def get_col_names(cls):
+    def get_col_names(cls, primary_keys=True, foreign_keys=True):
         """Returns the column names, i.e. those attributes reflecting a db table column
         Note that this method is also implemented in pd_sql_utils but we copy it here for
         decoupling the two modules
         """
-        return cls.__table__.columns.keys()
+        if primary_keys and foreign_keys:
+            return cls.__table__.columns.keys()
+        elif not foreign_keys:
+            fkeys = set((fk.parent for fk in cls.__table__.foreign_keys))
+            return [k for k, c in cls.__table__.columns.items()
+                    if (primary_keys or not c.primary_key) and
+                    (foreign_keys or c not in fkeys)]
+        else:
+            return [k for k, c in cls.__table__.columns.items() if not c.primary_key]
 
     def __str__(self):
         return ",\n".join("%s=%s" % (str(c), str(getattr(self, c))) for c in self.get_col_names())
@@ -95,6 +104,11 @@ class Base(_Base):
         return attrdict(**{k: getattr(self, k) for k, c in self.__class__.__table__.columns.items()
                            if (primary_keys or not c.primary_key) and
                            (foreign_keys or c not in fkeys)})
+
+    def putindict(self, colnames=None):
+        if colnames is None:
+            colnames = self.get_col_names()
+        return attrdict(**{k: getattr(self, k) for k in colnames})
 
 
 class Run(Base):
@@ -158,8 +172,8 @@ class Event(Base):
     # segments = relationship("Segment", back_populates="event")
 
 
-def sta_pkey_default(context):
-    return context.current_parameters['network'] + "." + context.current_parameters['station']
+# def sta_pkey_default(context):
+#     return context.current_parameters['network'] + "." + context.current_parameters['station']
 
 
 class Station(Base):
@@ -167,7 +181,7 @@ class Station(Base):
 
     __tablename__ = "stations"
 
-    id = Column(String, primary_key=True, default=sta_pkey_default, onupdate=sta_pkey_default)
+    id = Column(String, primary_key=True)  # , default=sta_pkey_default, onupdate=sta_pkey_default)
     # datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
     network = Column(String, nullable=False)
     station = Column(String, nullable=False)
@@ -183,12 +197,32 @@ class Station(Base):
                       UniqueConstraint('network', 'station', name='net_sta_uc'),
                      )
 
+    # http://stackoverflow.com/questions/33708219/how-to-handle-sqlalchemy-onupdate-when-current-context-is-empty
+    # we prefer over event.listen_for cause the function is inside the class (clearer)
+    @validates('network', 'station')
+    def update_id(self, key, value):
+        vals = (value, self.station) if key == 'network' else (self.network, value)
+        if all(i is not None for i in vals):
+            self.id = "%s.%s" % vals
+        return value
+
     # datacenter = relationship("DataCenter", backref="stations")
 
 
-def cha_pkey_default(context):
-    return context.current_parameters['station_id'] + "." + \
-        context.current_parameters['location'] + "." + context.current_parameters['channel']
+# @event.listens_for(Station.network, 'set')
+# def update_id_from_network(target, value, oldvalue, initiator):
+#     if target.station:
+#         target.id = value + "." + target.station
+# 
+# 
+# @event.listens_for(Station.station, 'set')
+# def update_id_from_station(target, value, oldvalue, initiator):
+#     target.id = target
+
+
+# def cha_pkey_default(context):
+#     return context.current_parameters['station_id'] + "." + \
+#         context.current_parameters['location'] + "." + context.current_parameters['channel']
 
 
 class Channel(Base):
@@ -196,7 +230,7 @@ class Channel(Base):
 
     __tablename__ = "channels"
 
-    id = Column(String, primary_key=True, default=cha_pkey_default, onupdate=cha_pkey_default)
+    id = Column(String, primary_key=True)  # , default=cha_pkey_default, onupdate=cha_pkey_default)
     station_id = Column(String, ForeignKey("stations.id"), nullable=False)
     location = Column(String, nullable=False)
     channel = Column(String, nullable=False)
@@ -213,6 +247,17 @@ class Channel(Base):
                       UniqueConstraint('station_id', 'location', 'channel',
                                        name='net_sta_loc_cha_uc'),
                      )
+
+    # http://stackoverflow.com/questions/33708219/how-to-handle-sqlalchemy-onupdate-when-current-context-is-empty
+    # we prefer over event.listen_for cause the function is inside the class (clearer)
+    @validates('station_id', 'location', 'channel')
+    def update_id(self, key, value):
+        vals = (value, self.location, self.channel) if key == 'station_id' else \
+                (self.station_id, value, self.channel) if key == 'location' else \
+                (self.station_id, self.location, value)
+        if all(i is not None for i in vals):
+            self.id = "%s.%s.%s" % vals
+        return value
 
     station = relationship("Station", backref="channels")
 

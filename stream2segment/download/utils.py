@@ -135,9 +135,11 @@ def get_max_radia(events, *search_radius_args):
 # ==========================================
 def query2dframe(query_result_str, strip_cells=True):
     """
-        Returns a pandas dataframne fro the given query_result_str
+        Returns a pandas dataframne from the given query_result_str
         :param: query_result_str
-        :raise: ValueError in case of errors (mismatching row lengths)
+        :raise: ValueError in case of errors (mismatching row lengths), including the case
+        where the resulting dataframe is empty. Note that query_result_str evaluates to False, then
+        `empty()` is returned without raising
     """
     if not query_result_str:
         return empty()
@@ -159,11 +161,13 @@ def query2dframe(query_result_str, strip_cells=True):
             columns = evt_list
             colnum = len(columns)
         elif len(evt_list) != colnum:
-            raise ValueError("Column length mismatch while parsing query string")
+            raise ValueError("Column length mismatch while parsing query result")
         else:
             data.append(evt_list)
 
-    return empty() if not data or not columns else pd.DataFrame(data=data, columns=columns)
+    if not data or not columns:
+        raise ValueError("Data empty after parsing query result (malformed data)")
+    return pd.DataFrame(data=data, columns=columns)
 
 
 def rename_columns(query_df, query_type):
@@ -253,12 +257,15 @@ def normalize_fdsn_dframe(dframe, query_type):
     :param query_df: the dataframe resulting from the string url `query`
     :param query_type: either 'event', 'channel', 'station'
     :return: a new dataframe or :ref`empty()`
-    :raise: ValueError in case of errors (e.g., mismatching column number). Note that invalid cell
-    numbers are removed (their row is removed) and it does not raise any exception
+    :raise: ValueError in case of errors (e.g., mismatching column number, or returning
+    dataframe is empty, e.g. **all** rows have at least one invalid value: in fact, note that
+    invalid cell numbers are removed (their row is removed). If only zero or more rows are
+    removed (but *not all*) no exception is raised
     """
     dframe = rename_columns(dframe, query_type)
-    return harmonize_fdsn_dframe(dframe, query_type)
-
+    ret = harmonize_fdsn_dframe(dframe, query_type)
+    if empty(ret):
+        raise ValueError("Malformed data (invalid values, e.g., NaN's)")
 
 _EMPTY = pd.DataFrame()
 

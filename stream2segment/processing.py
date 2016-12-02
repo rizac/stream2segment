@@ -3,6 +3,14 @@ Created on Jul 20, 2016
 
 @author: riccardo
 '''
+import sys
+import os
+import urllib2
+import httplib
+import socket
+from contextlib import contextmanager
+from collections import defaultdict as defdict
+import warnings
 from StringIO import StringIO
 import concurrent.futures
 from click import progressbar
@@ -10,7 +18,6 @@ import logging
 from obspy.core.inventory.inventory import read_inventory
 from obspy.core.stream import read
 from obspy.core.utcdatetime import UTCDateTime
-
 from stream2segment.s2sio.db.pd_sql_utils import flush, commit
 from stream2segment.s2sio.dataseries import dumps, dumps_inv, loads_inv
 from stream2segment.async import url_read, read_async
@@ -19,82 +26,153 @@ from stream2segment.analysis.mseeds import remove_response, get_gaps, amp_ratio,
 from stream2segment.s2sio.db import models
 from stream2segment.download.utils import get_query
 from sqlalchemy.exc import SQLAlchemyError
-
-import urllib2
-import httplib
-import socket
-from collections import defaultdict as defdict
-from itertools import cycle
+from stream2segment import msgs
 
 logger = logging.getLogger(__name__)
-# from stream2segment.analysis import snr, mseeds
-# from sqlalchemy.exc import IntegrityError
-# from sqlalchemy import func
-# from sqlalchemy.engine import create_engine
-# from stream2segment.s2sio.db.models import Base
-# from sqlalchemy.orm.session import sessionmaker
 
-# from obspy.core.trace import Trace
 
-# def process_single(session, segments_model_instance, run_id,
-#                    if_exists='update',
-#                    logger=None,
-#                    station_inventories={},
-#                    amp_ratio_threshold=0.8, a_time_delay=0,
-#                    bandpass_freq_max=20, bandpass_max_nyquist_ratio=0.9, bandpass_corners=2,
-#                    remove_response_output='ACC', remove_response_water_level=60,
-#                    taper_max_percentage=0.05, savewindow_delta_in_sec=30,
-#                    snr_fixedwindow_in_sec=60, multievent_threshold1_percent=0.85,
-#                    multievent_threshold1_duration_sec=10,
-#                    multievent_threshold2_percent=0.05, **kwargs):
+# TWO UTILITIES REDIRECTING STANDARD ERROR/OUTPUT FROM EXTERNAL PROGRAM
+# The first (used here) restores the old stderr/ stdout
+# http://stackoverflow.com/questions/5081657/how-do-i-prevent-a-c-shared-library-to-print-on-stdout-in-python
+# the second is easier to understand but does not restore old std/err stdout
+# Added comments from
+# http://stackoverflow.com/questions/8804893/redirect-stdout-from-python-for-c-calls
+
+@contextmanager
+def redirected(what='err', to=os.devnull):
+    '''
+    import os
+
+    with stdout_redirected(to=filename):
+        print("from Python")
+        os.system("echo non-Python applications are also supported")
+    '''
+    fd = (sys.stdout if what == 'out' else sys.stderr).fileno()
+
+    ##### assert that Python and C stdio write using the same file descriptor
+    ####assert libc.fileno(ctypes.c_void_p.in_dll(libc, "stdout")) == fd == 1
+
+    def _redirect_(to):
+        if what == 'out':
+            sys.stdout.close()  # + implicit flush()
+        else:
+            sys.stderr.close()
+        os.dup2(to.fileno(), fd)  # fd writes to 'to' file
+        if what == 'out':
+            sys.stdout = os.fdopen(fd, 'w')  # Python writes to fd
+        else:
+            sys.stderr = os.fdopen(fd, 'w')
+
+    with os.fdopen(os.dup(fd), 'w') as old_stdout:
+        with open(to, 'w') as file_:
+            _redirect_(to=file_)
+        try:
+            yield  # allow code to be run with the redirected stdout/stderr
+        finally:
+            # restore stdout/ stderr. buffering and flags such as CLOEXEC may be different
+            _redirect_(to=old_stdout)
+
+
+def redirect_external_out(fileno=2):
+    out = sys.stdout if fileno == 1 else \
+        sys.stdin if fileno == 0 else sys.stderr
+    # print "Redirecting stderr"
+    out.flush()  # <--- important when redirecting to files
+    # Duplicate stdout/stderr/stdin (file descriptor 1)
+    # to a different file descriptor number
+    newstdout = os.dup(fileno)
+    # /dev/null is used just to discard what is being printed
+    devnull = os.open('/dev/null', os.O_WRONLY)
+    # Duplicate the file descriptor for /dev/null
+    # and overwrite the value for stdout (file descriptor fileno=1),
+    # stdin (fileno=0) or stderr (fileno=2)
+    os.dup2(devnull, fileno)
+    # Close devnull after duplication (no longer needed)
+    os.close(devnull)
+    # Use the original stdout/stderr/stdin to still be able
+    # to print to stdout/stderr/stdin within python
+    sys.stderr = os.fdopen(newstdout, 'w')
 
 
 def process_all(session, segments_model_instances, run_id,
                 **processing_args):
+    # suppress obspy warnings. Doing process-wise is more feasible FIXME: do it?
+    warnings.filterwarnings("default")  # https://docs.python.org/2/library/warnings.html#the-warnings-filter @IgnorePep8
+
+    s = StringIO()
+    logger_handler = logging.StreamHandler(s)
+    logger_handler.setLevel(logging.WARNING)
+
+    logging.captureWarnings(True)
+    warnings_logger = logging.getLogger("py.warnings")
+
+    warnings_logger.addHandler(logger_handler)
+
+    with redirected('err'):
+        process_all_(session, segments_model_instances, run_id,
+                     **processing_args)
+
+    captured_warnings = s.getvalue()
+    if captured_warnings:
+        logger.info("(external warnings captured, please see log for details)")
+        logger.info("")
+        logger.warning("Captured external warnings:")
+        logger.warning("%s", captured_warnings)
+        logger.warning("(only the first occurrence of an external warning for each location where "
+                       "the warning is issued is reported. Displaying the segment id which "
+                       "originated these warnings would require too much effort and performance "
+                       "issues compared to the benefits: in most cases, the process "
+                       "completed successfully, and if you want to check the correctness of the "
+                       "data please check the database results)")
+
+    logging.captureWarnings(True)  # form the docs the redirection of warnings to the logging
+    # system will stop, and warnings will be redirected to their original destinations
+    # (i.e. those in effect before captureWarnings(True) was called).
+
+    s.close()  # maybe not really necessary
+
+
+
+
+
+
+def process_all_(session, segments_model_instances, run_id,
+                 **processing_args):
     """
         Processes all segments_model_instances. FIXME: write detailed doc
     """
-    logger.info("Processing %d segments", len(segments_model_instances))
+    # redirect stndard error to devnull. FIXME if we can capture it segment-wise (that
+    # would be great but.. how much effort and how much performances decreasing?)
+    # redirect_external_out(2)
+
+    # set after how many processed segments we want to commit. Setting it higher might speed up
+    # calculations at expense of loosing max_session_new segment if just one is wrong
+    max_session_new = 10
+    # commit for safety:
+    commit(session, on_exc=lambda exc: logger.error(str(exc)))
+
+    calculated = 0
+    saved = 0
+
+    logger.info("Processing %d segments", len(segments_model_instances))  # , extra={'url':('a', 'b')})
     ret = []
-
-    # db operations complain if the same object instance is not only created but even 
-    # its properties are accessed within different threads
-    # (regardless of scoped_session or session). Thus we had to implement all db transaction
-    # on the child processes. BUT:
-    # sqlite has problems with concurrency (see http://www.sqlite.org/whentouse.html,
-    # http://docs.sqlalchemy.org/en/rel_0_9/dialects/sqlite.html#database-locking-behavior-concurrency
-    # http://stackoverflow.com/questions/13895176/sqlalchemy-and-sqlite-database-is-locked
-    # Thus we need to perform calculations in separate
-    # processes and write *ALL* at the end in the main process thread
-
-    def _process_(segment, station_inventory, **kwargs):
-        pro = models.Processing(run_id=run_id)
-        pro.segment = session.query(models.Segment).filter(models.Segment.id == seg_id).first()
-        pro = process(pro, station_inventory, **kwargs)
-        if pro is None:
-            return False
-        session.add(pro)
-        try:
-            session.commit()
-        except SQLAlchemyError as exc:
-            session.rollback()
-            raise
-        return True
 
     sta2segs = defdict(lambda: [])
     for seg in segments_model_instances:
         sta2segs[seg.channel.station_id].append(seg)
 
     with progressbar(length=len(segments_model_instances)) as bar:
-        seg.toattrdict()
+        # process segments station-like, so that we load only one inventory at a time
+        # and hopefully it will garbage collected (inventory object is big)
         for sta_id, segments in sta2segs.iteritems():
             inventory = None
             try:
-                inventory = get_inventory(segments[0], timeout=30)
+                inventory = get_inventory(segments[0], session, timeout=30)
             except SQLAlchemyError as exc:
                 logger.warning("Error while saving inventory (station id=%s), "
                                "%d segment will not be processed: %s",
                                str(sta_id), len(segments), str(exc))
+                session.rollback()
             except (urllib2.HTTPError, urllib2.URLError, httplib.HTTPException, socket.error) as _:
                 logger.warning("Error while downloading inventory (station id=%s), "
                                "%d segment will not be processed: %s URL: %s",
@@ -109,48 +187,39 @@ def process_all(session, segments_model_instances, run_id,
                 continue
                 # pass
 
-            sta_attdic = segments[0].channel.station.toattrdict()  # instantiate once
-            # We can use a with statement to ensure threads are cleaned up promptly
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                futures = {executor.submit(process, models.Processing().toattrdict(),
-                                           seg.toattrdict(),
-                                           seg.channel.toattrdict(),
-                                           sta_attdic,
-                                           seg.event.toattrdict(),
-                                           seg.datacenter.toattrdict(),
-                                           inventory,
-                                           **processing_args): seg.id for seg in segments}
-                for future in concurrent.futures.as_completed(futures):
-                    seg_id = futures[future]
-                    try:
-                        bar.update(1)
-                        pro_ = future.result()
-                        pro_.segment_id = seg_id
-                        ret.append(pro_)
-                    except Exception as exc:  # pylint:disable=broad-except
-                        logger.warning("Unable to process segment (id=%s): %s", seg_id, str(exc))
-#             for seg in segments:
-#                 bar.update(1)
-#                 pro = models.Processing(run_id=run_id)
-#                 pro.segment = seg
-#                 session.flush()
-#                 try:
-#                     pro = process(pro, station_inventory=inventory, **processing_args)
-#                     if pro and commit(session, on_exc=lambda exc: warn(seg, exc)):
-#                         ret.append(pro)
-#                 except Exception as exc:
-#                     logger.warning("Unable to process segment (id=%s): %s", seg.id, str(exc))
+            # THIS IS THE METHOD WITHOUT MULTIPROCESS: 28, 24.7 secs on 30 segments
+            for seg in segments:
+                bar.update(1)
+                pro = models.Processing(run_id=run_id)
+                # pro.segment = seg
+                # session.flush()
+                try:
+                    pro = process(pro, seg, seg.channel, seg.channel.station, seg.event,
+                                  seg.datacenter, inventory, **processing_args)
+                    pro.id = None
+                    pro.segment = seg
+                    calculated += 1
+                    ret.append(pro)
+                    # flush(session, on_exc=lambda exc: logger.error(str(exc)))
+                    if len(ret) >= max_session_new:
+                        added = len(ret)
+                        session.add_all(ret)
+                        ret = []
+                        if commit(session,
+                                  on_exc=lambda exc: logger.warning(msgs.db.dropped_seg(added,
+                                                                                        None,
+                                                                                        exc))):
+                            saved += added
+                except Exception as exc:  # pylint:disable=broad-except
+                    logger.warning(msgs.calc.dropped_seg(seg, "segments processing", exc))
 
+    added = len(ret)
+    if added and commit(session, on_exc=lambda exc: logger.warning(msgs.db.dropped_seg(added,
+                                                                                       None,
+                                                                                       exc))):
+        saved += added
     logger.info("")
-    logger.info("Writing %d processed segments to database", len(ret))
-    success_num = 0
-    for pro_ in ret:
-        propro = models.Processing(**pro_)
-        session.add(propro)
-        if commit(session, on_exc=lambda exc: logger.warning("Unable to write to db (seg_id:%s) %s",
-                                                             str(pro_.segment_id), str(exc))):
-            success_num += 1
-    logger.info("%d segments successfully processed", success_num)
+    logger.info("%d segments successfully processed, %d succesfully saved", calculated, saved)
     return ret
 
 
@@ -162,7 +231,10 @@ def get_inventory_query(segment):
 
 
 def get_inventory(segment, session=None, **kwargs):
-    """raises tons of exceptions (see process_all). FIXME: write doc"""
+    """raises tons of exceptions (see process_all). FIXME: write doc
+    :param session: if **not** None but a valid sqlalchemy session object, then
+    the inventory, if downloaded because not present, will be saveed to the db (compressed)
+    """
     data = segment.channel.station.inventory_xml
     if not data:
         query_url = get_inventory_query(segment)
@@ -175,27 +247,15 @@ def get_inventory(segment, session=None, **kwargs):
     return loads_inv(data)
 
 
-def warn(segment, exception_or_msg):
-    """ convenience function for logging warnings during processing"""
-    logger.warning("while processing segment.id='%s': %s", str(segment.id), str(exception_or_msg))
+# def warn(segment, exception_or_msg):
+#     """ convenience function for logging warnings during processing"""
+#     logger.warning("while processing segment.id='%s': %s", str(segment.id), str(exception_or_msg))
 
 
 def dtime(utcdatetime):
     """converts UtcDateTime to datetime, returns None if arg is None"""
     return None if utcdatetime is None else utcdatetime.datetime
 
-
-# dict: { 'arrival_time_delay': 0}
-
-# def process(session, segments_model_instance, run_id, overwrite_all=False,
-#             station_inventory=None,
-#             amp_ratio_threshold=0.8, arrival_time_delay=0,
-#             bandpass_freq_max=20, bandpass_max_nyquist_ratio=0.9, bandpass_corners=2,
-#             remove_response_output='ACC', remove_response_water_level=60,
-#             taper_max_percentage=0.05, savewindow_delta=30,
-#             snr_window_length=60, multievent_threshold1=0.85,
-#             multievent_threshold1_duration=10,
-#             multievent_threshold2=0.05, **kwargs):
 
 def process(pro,
             seg,
@@ -239,37 +299,6 @@ def process(pro,
         FIXME: write detailed doc!
         parameters and arguments must not conflict with imported functions
     """
-    # rename args (see config.yaml 'processing' section):
-
-#     multievent_threshold1 = multi_event['threshold1']
-#     multievent_threshold2 = multi_event['threshold2']
-#     multievent_threshold1_duration = multi_event['threshold1_duration']
-
-#     coda_subw_length = coda['subwindow_length']
-#     coda_subw_ovlap = coda['subwindow_overlap']
-#     coda_win_length = coda['window_length']
-#     coda_subw_amp_thr = coda['subwindow_amplitude_threshold']
-
-#    snr_window_length = snr['window_length']
-
-#     remove_response_output = remove_response['output']
-#     remove_response_water_level = remove_response['water_level']
-
-#     bandpass_corners = bandpass['corners']
-#     bandpass_freq_max = bandpass['freq_max']
-#     bandpass_max_nyquist_ratio = bandpass['max_nyquist_ratio']
-
-#    seg = pro.segment
-
-#     if overwrite_all:
-#         for pro in seg.processings:
-#             session.delete(pro)
-#         if not flush(session, on_exc=lambda exc: warn(seg, exc)):
-#             return None
-#     elif seg.processings:
-#         return seg.processings[0]
-
-#     pro = models.Processing(segment_id=seg.id, run_id=run_id)
 
     # convert to UTCDateTime for operations later:
     a_time = UTCDateTime(seg.arrival_time) + arrival_time_delay
@@ -399,37 +428,3 @@ def process(pro,
             # pro.coda_length_sec = Column(Float)
     return pro
 
-
-# def get_inventory(segment_instance, session):
-#     sta = segment_instance.channel.station
-#     inv_xml = sta.inventory_xml
-#     if not inv_xml:
-#         dcen = segment_instance.datacenter
-#         if dcen:
-#             inventory_url = query(dcen.station_query_url, station=sta.station, network=sta.network,
-#                                   level='response')
-# #             inventory_url = dcen.station_query_url + ("?station=%s&network=%s&level=response" %
-# #                                                       (sta.station, sta.network))
-#         try:
-#             xmlbytes = url_read(inventory_url)
-#         except (IOError, ValueError, TypeError) as exc:
-#             warn(segment_instance, "while reading inventory for station.id='%s': %s"
-#                  % (str(sta.id), str(exc)))
-#             return None
-# 
-# #        sta.inventory_xml = xmlbytes
-# 
-# ##         session.query(models.Station).filter(models.Station.id == sta.id).\
-# ##             update({"inventory_xml": xmlbytes})
-# 
-# #         if not flush(session,
-# #                      on_exc=lambda exc: warn(logger, segment_instance,
-# #                                              "while reading inventory for station.id='%s': %s"
-# #                                              % (str(sta.id), str(exc)))):
-# #             return None
-# 
-#     s = StringIO(xmlbytes)
-#     s.seek(0)
-#     inv = read_inventory(s, format="STATIONXML")
-#     s.close()
-#     return inv

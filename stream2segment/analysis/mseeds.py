@@ -294,6 +294,12 @@ def fft(trace, fixed_time=None, window_in_sec=None, taper_max_percentage=0.05, t
     # note that tt.stats.processing is a list of ALL processing applied on a given Trace,
     # so we have also the history of the stuff done (only for Trace class methods, but should be
     # enough)
+    t.stats.mseed.encoding = None  # suppress warnings when saving (raised if data has unsupported
+    # encoding, e.g. is complex).From obspy doc: The ``reclen``, ``encoding``, ``byteorder`` and
+    # ``sequence_count``
+    # keyword arguments can be set in the ``stats.mseed`` of
+    # each :class:`~obspy.core.trace.Trace` as well as ``kwargs`` of this
+    # function. If both are given the ``kwargs`` will be used.
     return t
 
 

@@ -16,18 +16,20 @@ import time
        To be decided!
 """
 import logging
+from StringIO import StringIO
+import datetime as dt
+import sys
+import yaml
+import click
+import pandas as pd
+from urlparse import urlparse, parse_qsl
 from sqlalchemy.engine import create_engine
 from stream2segment import __version__ as s2s_version
 from stream2segment.s2sio.db.models import Base
 from sqlalchemy.orm.session import sessionmaker
 from stream2segment.s2sio.db import models
 from stream2segment.processing import process, process_all
-from StringIO import StringIO
 from stream2segment.s2sio.db.pd_sql_utils import flush, commit
-import sys
-import yaml
-import click
-import datetime as dt
 from stream2segment.download.query import main as query_main
 from stream2segment.utils import datetime as dtime, tounicode, load_def_cfg, get_session
 
@@ -49,7 +51,7 @@ logger = logging.getLogger("stream2segment")
 
 def config_logger_and_return_run_instance(db_session, isterminal, out=sys.stdout,
                                           out_levels=(20, 50),
-                                          logfile_level=10):
+                                          logfile_level=20):
     class LevelFilter(object):
         """
         This is a filter which handles standard output: print only critical and info
@@ -83,8 +85,45 @@ def config_logger_and_return_run_instance(db_session, isterminal, out=sys.stdout
             self.run_row.program_version = ".".join(str(x) for x in s2s_version)
             session.add(self.run_row)
             session.commit()
+            self.stats = {
+                          "station": pd.DataFrame(),
+                          "event": pd.DataFrame(),
+                          "dataselect": pd.DataFrame()
+                          }
 
         def emit(self, record):
+            if hasattr(record, 'stats'):
+                try:
+                    url = record.stats[0]
+                    exc_or_msg = record.stats[1]
+                    num = record.stats[2]
+                    o = urlparse(url)
+                    domain = o.netloc
+                    if "/fdsnws/station/" in o.path:
+                        stat_type = "station"
+                    elif "/fdsnws/event/" in o.path:
+                        stat_type = "event"
+                    elif "/fdsnws/dataselect/" in o.path:
+                        stat_type = "dataselect"
+                    else:
+                        raise TypeError()
+                    dframe = self.stats[stat_type]
+                    if isinstance(exc_or_msg, Exception):
+                        msg = exc_or_msg.__class__.__name__
+                        if hasattr(exc_or_msg, "code"):
+                            msg += "%s [code: %s]" % (msg, str(exc_or_msg.code))
+                    else:
+                        msg = exc_or_msg
+                    if msg not in dframe.columns:  # add column
+                        dframe[msg] = 0
+                    if domain not in dframe.index:
+                        dframe.loc[domain] = 0
+                    # set value
+                    dframe.loc[domain, msg] += num
+
+                except (TypeError, KeyError, AttributeError, ValueError):
+                    pass
+
             if record.levelno == 30:
                 self.run_row.warnings += 1
             elif record.levelno == 40:
@@ -203,19 +242,18 @@ def run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespa
     session.commit()  # udpate run row. flush might be also used but we prever sotring to db
 
     ret = 0
-    down_com = None
-    proc_comp = None
     try:
         segments = []
         if 'd' in action:
-            _ = time.time()
+            starttime = time.time()
             ret = query_main(session, run_row.id, eventws, minmag, minlat, maxlat, minlon, maxlon,
                              search_radius_args, channels,
                              start, end, ptimespan, stimespan, min_sample_rate, isterminal)
-            print("Download completed in %s seconds" % str(dt.timedelta(seconds=time.time()-_)))
+            logger.info("Download completed in %s seconds",
+                        str(dt.timedelta(seconds=time.time()-starttime)))
 
         if 'p' in action.lower() and ret == 0:
-            _ = time.time()
+            starttime = time.time()
             if 'P' in action:
                 try:
                     _ = session.query(models.Processing).delete()  # returns num rows deleted
@@ -227,7 +265,8 @@ def run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespa
             segments = session.query(models.Segment).\
                 filter(~models.Segment.processings.any()).all()  # @UndefinedVariable
             process_all(session, segments, run_row.id, **processing)
-            print("Processing completed in %s seconds" % str(dt.timedelta(seconds=(time.time()-_))))
+            logger.info("Processing completed in %s seconds",
+                        str(dt.timedelta(seconds=time.time()-starttime)))
         logger.info("")
         logger.info("%d total error(s), %d total warning(s)", run_row.errors, run_row.warnings)
 
