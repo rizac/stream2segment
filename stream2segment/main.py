@@ -7,6 +7,7 @@
 # ----------------------------------------------------------------------
 from sqlalchemy.exc import SQLAlchemyError
 import time
+import os
 """
    :Platform:
        Linux, Mac OSX
@@ -24,7 +25,8 @@ import click
 import pandas as pd
 from urlparse import urlparse, parse_qsl
 from sqlalchemy.engine import create_engine
-from stream2segment import __version__ as s2s_version
+# from stream2segment import __version__ as s2s_version
+import pkg_resources  # part of setuptools
 from stream2segment.io.db.models import Base
 from sqlalchemy.orm.session import sessionmaker
 from stream2segment.io.db import models
@@ -82,7 +84,12 @@ def config_logger_and_return_run_instance(db_session, isterminal, out=sys.stdout
             self.run_row = models.Run()  # database model instance
             self.run_row.errors = 0
             self.run_row.warnings = 0
-            self.run_row.program_version = ".".join(str(x) for x in s2s_version)
+
+            try:
+                with open(os.path.join(os.path.dirname(__file__), "..", "version")) as _:
+                    self.run_row.program_version = _.read()
+            except IOError:
+                pass
             session.add(self.run_row)
             session.commit()
             self.stats = {

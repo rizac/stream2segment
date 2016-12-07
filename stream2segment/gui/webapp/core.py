@@ -12,7 +12,8 @@ from stream2segment.io.db.models import Segment, Processing, Event, Station, Cha
 import numpy as np
 # from numpy import interp
 from stream2segment.analysis.mseeds import cumsum, env, bandpass, amp_ratio,\
-    cumtimes, interpolate, loads
+    cumtimes, interpolate, dfreq
+from stream2segment.io.dataseries import loads    
 # from stream2segment.classification.handlabelling import ClassAnnotator
 from obspy.signal.konnoohmachismoothing import konno_ohmachi_smoothing as kos
 from itertools import izip
@@ -82,6 +83,7 @@ def get_data(session, seg_id):
 #     stream = loads(seg.data) if seg else Stream(traces=[Trace(np.array([]),
 #                                                               header={'id': 'Not found'})]*3)
 
+    # FIXME: better query with relationships possible!
     segs = []
     if seg:
         segs = [seg]
@@ -126,8 +128,8 @@ def get_data(session, seg_id):
     evlp_trace = env(filtered_stream[0])
     evlp_trace = interpolate(evlp_trace, times)
 
-    snr_stream = [[], []] if not pros[0] else \
-        [loads(pros[0].fft_rem_resp_until_atime), loads(pros[0].fft_rem_resp_t05_t95)]
+#     snr_stream = [[], []] if not pros[0] else \
+#         [loads(pros[0].fft_rem_resp_until_atime), loads(pros[0].fft_rem_resp_t05_t95)]
 
     time_data = {'labels': tojson(np.round(times * 1000.0)), 'datasets': []}
     datasets = time_data['datasets']
@@ -150,14 +152,18 @@ def get_data(session, seg_id):
     datasets.append(to_chart_dataset(evlp_trace.data, title +
                                      " (Envelope Rem.resp+filtered)"))
 
-    snr_stream[0].data = amp_spec(snr_stream[0].data, signal_is_fft=True)
-    snr_stream[1].data = amp_spec(snr_stream[1].data, signal_is_fft=True)
+    noisy_trace, sig_trace = (Trace(data=np.array([])), Trace(data=np.array([]))) \
+        if not pros[0] else \
+            (loads(pros[0].fft_rem_resp_until_atime)[0], loads(pros[0].fft_rem_resp_t05_t95)[0])
 
-    freqz = freqs(snr_stream[0].data, snr_stream[0].stats.delta, snr_stream[0].stats.startfreq)
+    noisy_trace.data = amp_spec(noisy_trace.data, signal_is_fft=True)
+    sig_trace.data = amp_spec(sig_trace.data, signal_is_fft=True)
+
+    freqz = freqs(noisy_trace.data, dfreq(noisy_trace))
 
     # interpolate (less pts):
-    newfreqz, snr_stream[0].data = analysis_interp(MAX_NUM_PTS_FREQSCALE, freqz, snr_stream[0].data)
-    _, snr_stream[1].data = analysis_interp(newfreqz, freqz, snr_stream[1].data)
+    newfreqz, noisy_trace.data = analysis_interp(MAX_NUM_PTS_FREQSCALE, freqz, noisy_trace.data)
+    _, sig_trace.data = analysis_interp(newfreqz, freqz, sig_trace.data)
     freqz = newfreqz
 
     freqs_log = np.log10(freqz[1:])
@@ -165,8 +171,8 @@ def get_data(session, seg_id):
     datasets = freq_data['datasets']
     # smooth signal:
     bwd = 100
-    noisy_amps = kos(snr_stream[0].data, freqz, bandwidth=bwd)
-    sig_amps = kos(snr_stream[1].data, freqz, bandwidth=bwd)
+    noisy_amps = kos(noisy_trace.data, freqz, bandwidth=bwd)
+    sig_amps = kos(sig_trace.data, freqz, bandwidth=bwd)
     datasets.append(to_chart_dataset(noisy_amps[1:], title +
                                      " (Noise Rem.resp+filtered)", freqs_log))
     datasets.append(to_chart_dataset(sig_amps[1:], title +
@@ -181,7 +187,7 @@ def get_data(session, seg_id):
     metadata.append(["sample_rate", seg.channel.sample_rate])
     for title, instance in [('SEGMENT', seg), ('PROCESSING', pros[0])]:
         metadata.append([title, ''])
-        for c in instance.get_cols():
+        for c in instance.__table__.columns:
             if isinstance(c.type, Binary) or len(c.foreign_keys):
                 # len(c.foreign_keys) tells if c is a fkey: found no nicer way to tell it
                 continue
