@@ -18,15 +18,15 @@ import logging
 from obspy.core.inventory.inventory import read_inventory
 from obspy.core.stream import read
 from obspy.core.utcdatetime import UTCDateTime
-from stream2segment.s2sio.db.pd_sql_utils import flush, commit
-from stream2segment.s2sio.dataseries import dumps, dumps_inv, loads_inv
+from stream2segment.io.db.pd_sql_utils import flush, commit
+from stream2segment.io.dataseries import dumps, dumps_inv, loads_inv
 from stream2segment.utils.url import url_read, read_async
 from stream2segment.analysis.mseeds import remove_response, get_gaps, amp_ratio, bandpass, cumsum,\
     cumtimes, fft, maxabs, simulate_wa, get_multievent, snr  # ,dfreq
-from stream2segment.s2sio.db import models
+from stream2segment.io.db import models
 from stream2segment.download.utils import get_query
 from sqlalchemy.exc import SQLAlchemyError
-from stream2segment import msgs
+from stream2segment.utils import msgs
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +94,7 @@ def redirect_external_out(fileno=2):
     sys.stderr = os.fdopen(newstdout, 'w')
 
 
-def process_all(session, segments_model_instances, run_id,
+def main(session, segments_model_instances, run_id,
                 **processing_args):
     # suppress obspy warnings. Doing process-wise is more feasible FIXME: do it?
     warnings.filterwarnings("default")  # https://docs.python.org/2/library/warnings.html#the-warnings-filter @IgnorePep8
@@ -231,7 +231,7 @@ def get_inventory_query(segment):
 
 
 def get_inventory(segment, session=None, **kwargs):
-    """raises tons of exceptions (see process_all). FIXME: write doc
+    """raises tons of exceptions (see main). FIXME: write doc
     :param session: if **not** None but a valid sqlalchemy session object, then
     the inventory, if downloaded because not present, will be saveed to the db (compressed)
     """

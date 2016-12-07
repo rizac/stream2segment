@@ -46,7 +46,7 @@ import signal
 import pandas as pd
 
 from sqlalchemy.engine import create_engine
-from stream2segment.s2sio.db.models import Base
+from stream2segment.io.db.models import Base
 from sqlalchemy.orm.session import sessionmaker
 
 

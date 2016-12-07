@@ -38,10 +38,10 @@ def example():
 
     # Let's import our models (PYTHON classes reflecting the database tables)
     # You should import them at module level, we do it here for code readability
-    from stream2segment.s2sio.db.models import Event, Station, Segment, Processing, Channel,\
+    from stream2segment.io.db.models import Event, Station, Segment, Processing, Channel,\
         Run, DataCenter
 
-    # have a look in stream2segment.s2sio.db.models for inspecting the TYPE of the value
+    # have a look in stream2segment.io.db.models for inspecting the TYPE of the value
     # of each column. For instance
     #
     # class Event(FDSNBase):
@@ -76,7 +76,7 @@ def example():
     seg_num = len(segments)
 
     # Each instance attributes represents the table columns.
-    # Again, if you forget which columns a table has, just look at the relative model in stream2segment.s2sio.db.models
+    # Again, if you forget which columns a table has, just look at the relative model in stream2segment.io.db.models
     # in this case it would be the 'Segment' model
     # So, if we are interested in the distance to the seismic event:
     first_seg = segments[0]

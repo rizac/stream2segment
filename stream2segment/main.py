@@ -25,11 +25,11 @@ import pandas as pd
 from urlparse import urlparse, parse_qsl
 from sqlalchemy.engine import create_engine
 from stream2segment import __version__ as s2s_version
-from stream2segment.s2sio.db.models import Base
+from stream2segment.io.db.models import Base
 from sqlalchemy.orm.session import sessionmaker
-from stream2segment.s2sio.db import models
-from stream2segment.processing import process, process_all
-from stream2segment.s2sio.db.pd_sql_utils import flush, commit
+from stream2segment.io.db import models
+from stream2segment.process.processing import main as process_main
+from stream2segment.io.db.pd_sql_utils import flush, commit
 from stream2segment.download.query import main as query_main
 from stream2segment.utils import datetime as dtime, tounicode, load_def_cfg, get_session
 
@@ -264,7 +264,7 @@ def run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespa
                                     "try again to run the program")
             segments = session.query(models.Segment).\
                 filter(~models.Segment.processings.any()).all()  # @UndefinedVariable
-            process_all(session, segments, run_row.id, **processing)
+            process_main(session, segments, run_row.id, **processing)
             logger.info("Processing completed in %s seconds",
                         str(dt.timedelta(seconds=time.time()-starttime)))
         logger.info("")

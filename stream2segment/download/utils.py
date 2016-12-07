@@ -11,8 +11,8 @@ from obspy.taup import TauPyModel
 from obspy.geodetics import locations2degrees
 from obspy.taup.helper_classes import TauModelError
 from stream2segment.utils.url import url_read
-from stream2segment.s2sio.db import models
-from stream2segment.s2sio.db.pd_sql_utils import harmonize_columns,\
+from stream2segment.io.db import models
+from stream2segment.io.db.pd_sql_utils import harmonize_columns,\
     harmonize_rows, df2dbiter, get_or_add_iter
 from obspy.taup.taup_time import TauPTime
 

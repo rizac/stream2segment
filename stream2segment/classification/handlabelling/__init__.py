@@ -1,4 +1,4 @@
-from stream2segment.s2sio.db import DbHandler
+from stream2segment.io.db import DbHandler
 from stream2segment.classification import UNKNOWN_CLASS_ID
 
 

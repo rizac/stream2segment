@@ -11,7 +11,7 @@ app = Flask(__name__)
 # this has to come AFTER app ABOVE
 from stream2segment.gui.webapp import views  # nopep8
 
-# from stream2segment.s2sio.db import ListReader
+# from stream2segment.io.db import ListReader
 # from flask import jsonify
 # from stream2segment.gui.webapp import core
 # from flask import request

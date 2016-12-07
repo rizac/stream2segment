@@ -9,7 +9,7 @@ Created on Feb 25, 2016
 import numpy as np
 from datetime import timedelta
 import sys
-from stream2segment.s2sio.db import ListReader as ClassAnnotator
+from stream2segment.io.db import ListReader as ClassAnnotator
 import matplotlib.pyplot as plt
 from matplotlib.widgets import RadioButtons
 # Overriding default buttons behaviour:

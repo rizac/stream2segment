@@ -24,7 +24,7 @@ from sqlalchemy import (
     event)
 import datetime
 from sqlalchemy.orm.mapper import validates
-# from stream2segment.s2sio.db.pd_sql_utils import get_col_names, get_cols
+# from stream2segment.io.db.pd_sql_utils import get_col_names, get_cols
 # from sqlalchemy.sql.sqltypes import BigInteger, BLOB
 # from sqlalchemy.sql.schema import ForeignKey
 

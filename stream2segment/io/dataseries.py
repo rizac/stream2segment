@@ -1,9 +1,9 @@
 #!/usr/local/bin/python2.7
 # encoding: utf-8
 '''
-stream2segment.s2sio.dataseries -- sdfsdf
+stream2segment.io.dataseries -- sdfsdf
 
-stream2segment.s2sio.dataseries is a description
+stream2segment.io.dataseries is a description
 
 It defines classes_and_methods
 

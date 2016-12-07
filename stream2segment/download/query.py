@@ -21,11 +21,11 @@ from click import progressbar
 from obspy.taup.tau import TauPyModel
 from obspy.geodetics.base import locations2degrees
 from obspy.taup.helper_classes import TauModelError
-from stream2segment import msgs
+from stream2segment.utils import msgs
 from stream2segment.utils.url import url_read
 from stream2segment.classification import class_labels_df
-from stream2segment.s2sio.db import models
-from stream2segment.s2sio.db.pd_sql_utils import df2dbiter, get_or_add_iter, commit
+from stream2segment.io.db import models
+from stream2segment.io.db.pd_sql_utils import df2dbiter, get_or_add_iter, commit
 from stream2segment.utils.url import read_async
 from stream2segment.utils import dc_stats_str
 from stream2segment.download.utils import empty, get_query, query2dframe, normalize_fdsn_dframe,\

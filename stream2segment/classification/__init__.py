@@ -1,6 +1,6 @@
 # from __future__ import unicode_literals
 import pandas as pd
-from stream2segment.s2sio.db import models
+from stream2segment.io.db import models
 
 
 UNKNOWN_CLASS_ID = -1

@@ -5,7 +5,7 @@ Created on Jul 31, 2016
 '''
 from stream2segment.utils import get_session
 # from flask import 
-from stream2segment.s2sio.db.models import Segment, Processing, Event, Station, Channel,\
+from stream2segment.io.db.models import Segment, Processing, Event, Station, Channel,\
     DataCenter, Run, SegmentClassAssociation, Class
 # from stream2segment.classification import class_labels_df
 
@@ -20,7 +20,7 @@ from obspy.core.stream import Stream
 from obspy.core.trace import Trace
 from obspy.core.utcdatetime import UTCDateTime
 import yaml
-from stream2segment.s2sio.db.pd_sql_utils import get_cols, get_col_names, commit
+from stream2segment.io.db.pd_sql_utils import get_cols, get_col_names, commit
 from sqlalchemy.sql.sqltypes import Binary, DateTime
 from stream2segment.analysis import amp_spec, freqs, interp as analysis_interp
 from stream2segment.main import load_def_cfg

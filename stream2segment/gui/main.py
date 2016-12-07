@@ -11,7 +11,7 @@ import webbrowser
 from stream2segment.main import cfg_dict
 
 
-# from stream2segment.s2sio.db import ClassAnnotator
+# from stream2segment.io.db import ClassAnnotator
 def main(db_uri, port, debug):
     app.config.update(
                       DATABASE_URI=db_uri
