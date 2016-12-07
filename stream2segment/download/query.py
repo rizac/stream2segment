@@ -22,11 +22,11 @@ from obspy.taup.tau import TauPyModel
 from obspy.geodetics.base import locations2degrees
 from obspy.taup.helper_classes import TauModelError
 from stream2segment import msgs
-from stream2segment.async import url_read
+from stream2segment.utils.url import url_read
 from stream2segment.classification import class_labels_df
 from stream2segment.s2sio.db import models
 from stream2segment.s2sio.db.pd_sql_utils import df2dbiter, get_or_add_iter, commit
-from stream2segment.async import read_async
+from stream2segment.utils.url import read_async
 from stream2segment.utils import dc_stats_str
 from stream2segment.download.utils import empty, get_query, query2dframe, normalize_fdsn_dframe,\
     get_search_radius, save_stations_df, purge_already_downloaded,\
@@ -159,9 +159,11 @@ def get_stations_df(session, url, raw_data, min_sample_rate):
         olddf, stations_df = stations_df, stations_df[stations_df[srate_col] >= min_sample_rate]
         reason = "sample rate < %s Hz" % str(min_sample_rate)
         if len(olddf) > len(stations_df):
-            logger.warning(msgs.query.dropped_sta(len(olddf)-len(stations_df), reason, url))
+            logger.warning(msgs.query.dropped_sta(len(olddf)-len(stations_df), url, reason))
         if empty(stations_df):
             return stations_df
+        # http://stackoverflow.com/questions/20625582/how-to-deal-with-settingwithcopywarning-in-pandas
+        stations_df.is_copy = False
 
     olddf, stations_df = stations_df, save_stations_df(session, stations_df)
     if len(olddf) > len(stations_df):
@@ -298,18 +300,18 @@ def get_segments(session, events, datacenters, stations, ptimespan, bar):
 
 def download_segments(session, segments_df, max_error_count, stats, bar):
 
-    stat_keys = ['OK saved', 'N/A empty', 'N/A server_error', 'N/A other_reason',
+    stat_keys = ['OK saved', 'N/A empty', 'N/A other_reason',
                  'N/A localdb_error']
 
     if stats is None:
-        stats = pd.Series(index=stat_keys, data=0)
-    else:
-        for key in stat_keys:
-            if key not in stats:
-                stats[key] = 0
+        stats = {}
+    stats.update({k: 0 for k in stat_keys})  # overrides existing, if any
 
     if empty(segments_df):
         return stats
+
+    # this will be removed at the end, its purpose is to keep track of url errors
+    stats['__url_errors__'] = 0
 
     segments_df[models.Segment.data.key] = None
 
@@ -326,10 +328,16 @@ def download_segments(session, segments_df, max_error_count, stats, bar):
     def onerror(exc, url, index):  # pylint:disable=unused-argument
         """function executed when a given url has failed"""
         bar.update(1)
-        logger.warning(msgs.query.dropped_seg(1, exc, url))
+        logger.warning(msgs.query.dropped_seg(1, url, exc))
         # logger.warning(msgs.join(exc, url))
-        stats['N/A server_error'] += 1
-        if stats['N/A server_error'] >= max_error_count:
+        key = "N/A %s" % str(exc.__class__.__name__)
+        if hasattr(exc, 'code'):
+            key += " [code=%s]" % str(exc.code)
+        elif hasattr(exc, 'reason'):
+            key += " [reason=%s]" % str(exc.reason)
+        stats[key] += 1
+        stats['__url_errors__'] += 1
+        if stats['__url_errors__'] >= max_error_count:
             return False
 
     # now download Data:
@@ -344,9 +352,10 @@ def download_segments(session, segments_df, max_error_count, stats, bar):
     stats['N/A empty'] = len(segments_df) - len(tmp_df)
     segments_df = tmp_df
 
-    stats['N/A other_reason'] = null_data_count - stats['N/A server_error']
-    if stats['N/A other_reason']:
-        bar.update(stats['N/A other_reason'])
+    key_skipped = "N/A skipped after %d fails" % max_error_count
+    stats[key_skipped] = null_data_count - stats['__url_errors__']
+    if stats[key_skipped]:
+        bar.update(stats[key_skipped])
 
     if not empty(segments_df):
         for model_instance in df2dbiter(segments_df, models.Segment, False, False):
@@ -361,6 +370,7 @@ def download_segments(session, segments_df, max_error_count, stats, bar):
         # Note: 'drop=False' to restore 'df_urls_colname' column:
         segments_df.reset_index(drop=False, inplace=True)
 
+    stats.pop('__url_errors__')
     return stats
 
 
@@ -464,7 +474,7 @@ def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, searc
             stats = download_segments(session, segments_df, max_error_count, None, bar)
             stats['Ok already_downloaded'] = skipped_already_d[dcen_id]
             # append dataframe column
-            d_stats_df[datacenters[dcen_id].dataselect_query_url] = stats
+            d_stats_df[datacenters[dcen_id].dataselect_query_url] = pd.Series(stats)
 
     logger.info("")
     logger.info("Summary Station WS query info:")

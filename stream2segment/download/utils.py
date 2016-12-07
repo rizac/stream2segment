@@ -10,7 +10,7 @@ from sqlalchemy import and_
 from obspy.taup import TauPyModel
 from obspy.geodetics import locations2degrees
 from obspy.taup.helper_classes import TauModelError
-from stream2segment.async import url_read
+from stream2segment.utils.url import url_read
 from stream2segment.s2sio.db import models
 from stream2segment.s2sio.db.pd_sql_utils import harmonize_columns,\
     harmonize_rows, df2dbiter, get_or_add_iter
@@ -256,16 +256,16 @@ def normalize_fdsn_dframe(dframe, query_type):
     saved to the internal database
     :param query_df: the dataframe resulting from the string url `query`
     :param query_type: either 'event', 'channel', 'station'
-    :return: a new dataframe or :ref`empty()`
+    :return: a new dataframe, whose length is <= `len(dframe)`
     :raise: ValueError in case of errors (e.g., mismatching column number, or returning
     dataframe is empty, e.g. **all** rows have at least one invalid value: in fact, note that
-    invalid cell numbers are removed (their row is removed). If only zero or more rows are
-    removed (but *not all*) no exception is raised
+    invalid cell numbers are removed (their row is removed from the returned data frame)
     """
     dframe = rename_columns(dframe, query_type)
     ret = harmonize_fdsn_dframe(dframe, query_type)
     if empty(ret):
         raise ValueError("Malformed data (invalid values, e.g., NaN's)")
+    return ret
 
 _EMPTY = pd.DataFrame()
 

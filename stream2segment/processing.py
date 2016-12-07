@@ -20,7 +20,7 @@ from obspy.core.stream import read
 from obspy.core.utcdatetime import UTCDateTime
 from stream2segment.s2sio.db.pd_sql_utils import flush, commit
 from stream2segment.s2sio.dataseries import dumps, dumps_inv, loads_inv
-from stream2segment.async import url_read, read_async
+from stream2segment.utils.url import url_read, read_async
 from stream2segment.analysis.mseeds import remove_response, get_gaps, amp_ratio, bandpass, cumsum,\
     cumtimes, fft, maxabs, simulate_wa, get_multievent, snr  # ,dfreq
 from stream2segment.s2sio.db import models

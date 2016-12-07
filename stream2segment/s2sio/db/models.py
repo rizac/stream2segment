@@ -264,7 +264,7 @@ class Channel(Base):
 
 class SegmentClassAssociation(Base):
 
-    __tablename__ = "segment_class_asociations"
+    __tablename__ = "segment_class_associations"
 
     id = Column(Integer, primary_key=True)
     segment_id = Column(Integer, ForeignKey("segments.id"), nullable=False)
