@@ -1,3 +1,4 @@
+#@PydevCodeAnalysisIgnore
 '''
 Created on Nov 18, 2016
 
@@ -12,8 +13,8 @@ import threading
 import urllib2
 import httplib
 import mock
-from stream2segment import async
-from stream2segment.async import _ismainthread, read_async
+# from stream2segment import async
+from stream2segment.utils.url import _ismainthread, read_async
 from mock import patch
 from itertools import product
 
@@ -57,7 +58,7 @@ class Test(unittest.TestCase):
         pass
 
 
-    @patch('stream2segment.async.urllib2.urlopen')
+    @patch('stream2segment.utils.url.urllib2.urlopen')
     def test_mocking_urlread(self, mock_urlopen):
         """Tests onsuccess. WE mock urllib2urlopen.read to return user defined strings"""
         
@@ -74,7 +75,7 @@ class Test(unittest.TestCase):
         assert sorted(data) == ['', ''] + sorted(self.successes)  # sort them as the order might differ
         assert a.read.call_count == len(data)
 
-    @patch('stream2segment.async.urllib2.urlopen')
+    @patch('stream2segment.utils.url.urllib2.urlopen')
     def test_urlerrors(self, mock_urlopen):
         """Tests onerror. WE mock urllib2urlopen.read to raise an excpected Exception"""
         
@@ -93,7 +94,7 @@ class Test(unittest.TestCase):
         assert a.read.call_count == len(self.urls)
 
 
-    @patch('stream2segment.async.urllib2.urlopen')
+    @patch('stream2segment.utils.url.urllib2.urlopen')
     def test_onerror_onsuccess_returning_false(self, mock_urlopen):
         """Tests onerror onsuccess returning False, i.e. onsuccess must be called once"""
         
@@ -110,7 +111,7 @@ class Test(unittest.TestCase):
         assert len(self.successes) == 1  # or alternatively:
         assert self.onsuccess.call_count == 1
         
-    @patch('stream2segment.async.urllib2.urlopen')
+    @patch('stream2segment.utils.url.urllib2.urlopen')
     def test_onerror_onsuccess_returning_false2(self, mock_urlopen):
         """Tests onerror onsuccess returning False, i.e. the they must be called N times, where
         N < len(self.urls). WE mock urllib2urlopen.read with a time to wait in order to be sure
@@ -158,7 +159,7 @@ class Test(unittest.TestCase):
         assert how_many_one_strictly_lower_than > 0
 
 
-    @patch('stream2segment.async.urllib2.urlopen')
+    @patch('stream2segment.utils.url.urllib2.urlopen')
     def test_string_perf(self, mock_urlopen):
         """tests string concat performances (result: ininfluent compared to time taken for urllib connection)"""
         

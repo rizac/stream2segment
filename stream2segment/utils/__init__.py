@@ -1,121 +1,38 @@
 # -*- coding: utf-8 -*-
-
-from __future__ import print_function  # , unicode_literals
-import yaml
-from sqlalchemy.orm.scoping import scoped_session
-
 """
-    Some utilities which share common functions which I often re-use across projects. Most of the
-    functions here are already implemented in many libraries, but none of which has all of them.
-    NOTES:
-      - Concerning type checking, for worshippers of duck-typing this might be blaspheme, but life
-        is to complex let handle all its circumstances in few rules
-      - Several functions are checking for string types and doing string conversion (a big complex
-        matter when migrating from python2 to 3). As a reminder, we write it here once:
-            ======= ============ ===============
-                    byte strings unicode strings
-            ======= ============ ===============
-            Python2 "abc" [*]    u"abc"
-            Python3 b"abc"       "abc" [*]
-            ======= ============ =================
-
-         [*]=default string object for the given python version
+    Common utilities for the program
 """
-try:
-    import numpy as np
-
-    def isnumpy(val):
-        """
-        :return: True if val is a numpy object (regarldess of its shape and dimension)
-        """
-        return type(val).__module__ == np.__name__
-except ImportError as ierr:
-    def isnumpy(val):
-        raise ierr
-
-import sys
-import datetime as dt
-import re
+# from __future__ import print_function  # , unicode_literals
 import os
-from urlparse import urlparse
-from os import strerror, errno
-import shutil
-import time
-import bisect
-import signal
-import pandas as pd
-
+import yaml
+import datetime as dt
+from sqlalchemy.orm.scoping import scoped_session
 from sqlalchemy.engine import create_engine
-from stream2segment.io.db.models import Base
 from sqlalchemy.orm.session import sessionmaker
-
-
-if 2 <= sys.version_info[0] < 3:
-    def ispy2():
-        """:return: True if the current python version is 2"""
-        return True
-
-    def ispy3():
-        """:return: True if the current python version is 3"""
-        return False
-elif 3 <= sys.version_info[0] < 4:
-    def ispy2():
-        """:return: True if the current python version is 2"""
-        return False
-
-    def ispy3():
-        """:return: True if the current python version is 3"""
-        return True
-else:
-    def ispy2():
-        """:return: True if the current python version is 2"""
-        return False
-
-    def ispy3():
-        """:return: True if the current python version is 3"""
-        return False
-
-# Python 2 and 3: we might use "try and catch" along the lines of:
-# http://python-future.org/compatible_idioms.html
-# BUT THIS HAS CONFLICTS WITH libraries importing __future__ (see e.g. obspy),
-# if those libraries are imported BEFORE this module. this is safer:
-if ispy3():
-    from urllib.parse import urlparse, urlencode  # @IgnorePep8 # @UnresolvedImport # pylint:disable=no-name-in-module,import-error
-    from urllib.request import urlopen, Request  # @IgnorePep8 # @UnresolvedImport # pylint:disable=no-name-in-module,import-error
-    from urllib.error import HTTPError  # @IgnorePep8 # @UnresolvedImport # pylint:disable=no-name-in-module,import-error
-else:
-    from urlparse import urlparse  # @Reimport
-    from urllib import urlencode  # @Reimport
-    from urllib2 import urlopen, Request, HTTPError  # @Reimport
+from stream2segment.io.db.models import Base
+from click import progressbar as click_progressbar
+from click._termui_impl import ProgressBar
 
 
 def isstr(val):
     """
-    :return: True if val denotes a string (`basestring` in python < 3 and `str` otherwise).
+    :return: True if val denotes a string (`basestring` in python2 and `str` otherwise).
     """
-    if ispy2():
+    try:
         return isinstance(val, basestring)
-    else:
+    except NameError:  # python3
         return isinstance(val, str)
 
 
 def isunicode(val):
     """
-    :return: True if val denotes a unicode string (`unicode` in python < 3 and `str` otherwise)
+    :return: True if val denotes a unicode string (`unicode` in python2 and `str` otherwise)
     """
-    isstr
-    if ispy2():
-        return isinstance(val, unicode)
-    else:
+    try:
+        if isinstance(val, basestring):
+            return isinstance(val, unicode)
+    except NameError:  # python3
         return isinstance(val, str)
-
-
-def isbytes(val):
-    """
-    :return: True if val denotes a byte string (`bytes` in both python 2 and 3). In py3, this means
-    val is a sequence of bytes (not necessarily to be treated as string)
-    """
-    return isinstance(val, bytes)
 
 
 def tobytes(unicodestr, encoding='utf-8'):
@@ -125,7 +42,7 @@ def tobytes(unicodestr, encoding='utf-8'):
         :param encoding: the encoding used. Defaults to 'utf-8' when missing
         :return: a `bytes` object (same as `str` in python2) resulting from encoding unicodestr
     """
-    if isbytes(unicodestr):
+    if isinstance(unicodestr, bytes):  # works for both py2 and py3
         return unicodestr
     return unicodestr.encode(encoding)
 
@@ -133,308 +50,108 @@ def tobytes(unicodestr, encoding='utf-8'):
 def tounicode(bytestr, decoding='utf-8'):
     """
         Converts bytestr to unicode string, with the given decoding. Python 2-3 compatible.
-        :param bytestr: a `bytes` object. If already unicode string, this method just returns it
+        :param bytestr: a `bytes` object. If already unicode string (`unicode` in python2,
+        `str` in python3) this method just returns it
         :param decoding: the decoding used. Defaults to 'utf-8' when missing
-        :return: a string (`unicode` string in python2) resulting from decoding bytestr
+        :return: a string (`str` in python3, `unicode` string in python2) resulting from decoding
+        `bytestr`
     """
-    if isstr(bytestr):
-        return bytestr
-    return bytestr.decode(decoding)
+    return bytestr.decode(decoding) if isinstance(bytestr, bytes) else bytestr
 
 
-def isiterable(obj, include_strings=False):
-    """Returns True if obj is an iterable and not a string (or both, if the second argument is True)
-    Py2-3 compatible method
-    :param obj: a python object
-    :param include_strings: boolean, False by default: if obj is a string, returns false
-    :Example:
-    isiterable([]) -> True
-    isiterable((x for x in xrange(3))) -> True
-    isiterable(numpy.array(['a'])) -> True
-    isiterable('a') -> False
-    isiterable('a', True) or isiterable('a', include_strings=True) -> True
-    """
-    return hasattr(obj, '__iter__') and (include_strings or not isstr(obj))
+# def isiterable(obj, include_strings=False):
+#     """Returns True if obj is an iterable and not a string (or both, if the second argument is True)
+#     Py2-3 compatible method
+#     :param obj: a python object
+#     :param include_strings: boolean, False by default: if obj is a string, returns false
+#     :Example:
+#     isiterable([]) -> True
+#     isiterable((x for x in xrange(3))) -> True
+#     isiterable(numpy.array(['a'])) -> True
+#     isiterable('a') -> False
+#     isiterable('a', True) or isiterable('a', include_strings=True) -> True
+#     """
+#     isiter = hasattr(obj, "__iter__")  # py2: obj is iterable NOT str, py3: obj iterable OR string
+#     isstring = not isiter or isinstance(obj, str)
+#     if include_strings:
+#         return isiter or isstring
+#     else:
+#         return isiter and not isstring
+#     # is string? In py2, check attr "__iter__". In py3, as it has the attr, go for isinstance:
+# 
+#     return hasattr(obj, '__iter__') and (include_strings or not isstr(obj))
 
 
-def isre(val):
-    """Returns true if val is a compiled regular expression"""
-    return isinstance(val, re.compile(".").__class__)
-
-
-def regex(arg, retval_if_none=re.compile(".*")):
-    """Returns a regular expression built as follows:
-        - if arg is already a regular expression, returns it
-        - if arg is None, returns retval_if_none, which by default is ".*" (matches everything)
-        - Returns the regular expression escaping str(arg) EXCEPT "?" and "*" which will be
-        converted to their regexp equivalent (thus arg might be a string with wildcards, as in many
-        string processing arguments)
-        :return: A regular expression from arg
-    """
-    if isre(arg):
-        return arg
-
-    if arg is None:
-        return retval_if_none
-
-    return re.compile(re.escape(str(arg)).replace("\\?", ".").replace("\\*", ".*"))
-
-
-def ensure(filepath, mode, mkdirs=False, error_type=OSError):
-    """checks for filepath according to mode, raises an Exception instanceof error_type if the check
-    returns false
-    :param mode: either 'd', 'dir', 'r', 'fr', 'w', 'fw' (case insensitive). Checks if file_name is,
-        respectively:
-            - 'd' or 'dir': an existing directory
-            - 'fr', 'r': file for reading (an existing file)
-            - 'fw', 'w': file for writing (basically, an existing file or a path whose dirname
-            exists)
-    :param mkdirs: boolean indicating, when mode is 'file_w' or 'dir', whether to attempt to
-        create the necessary path. Ignored when mode is 'r'
-    :param error_type: The error type to be raised in case (defaults to OSError. Some libraries
-        such as ArgumentPArser might require their own error
-    :type error_type: any class extending BaseException (OsError, TypeError, ValueError etcetera)
-    :raises: SyntaxError if some argument is invalid, or error_type if filepath is not valid
-        according to mode and mkdirs
-    :return: True if mkdir has been called
-    """
-    # to see OsError error numbers, see here
-    # https://docs.python.org/2/library/errno.html#module-errno
-    # Here we use two:
-    # errno.EINVAL ' invalid argument'
-    # errno.errno.ENOENT 'no such file or directory'
-    if not filepath:
-        raise error_type("{0}: '{1}' ({2})".format(strerror(errno.EINVAL),
-                                                   str(filepath),
-                                                   str(type(filepath))
-                                                   )
-                         )
-
-    keys = ('fw', 'w', 'fr', 'r', 'd', 'dir')
-
-    # normalize the mode argument:
-    if mode.lower() in keys[2:4]:
-        mode = 'r'
-    elif mode.lower() in keys[:2]:
-        mode = 'w'
-    elif mode.lower() in keys[4:]:
-        mode = 'd'
-    else:
-        raise error_type('{0}: mode argument must be in {1}'.format(strerror(errno.EINVAL),
-                                                                    str(keys)))
-
-    if errmsgfunc is None:  # build custom errormsgfunc if None
-        def errmsgfunc(filepath, mode):
-            if mode == 'w' or (mode == 'r' and not os.path.isdir(os.path.dirname(filepath))):
-                return "{0}: '{1}' ({2}: '{3}')".format(strerror(errno.ENOENT),
-                                                        os.path.basename(filepath),
-                                                        strerror(errno.ENOTDIR),
-                                                        os.path.dirname(filepath)
-                                                        )
-            elif mode == 'd':
-                return "{0}: '{1}'".format(strerror(errno.ENOTDIR), filepath)
-            elif mode == 'r':
-                return "{0}: '{1}'".format(strerror(errno.ENOENT), filepath)
-
-    if mode == 'w':
-        to_check = os.path.dirname(filepath)
-        func = os.path.isdir
-        mkdir_ = mkdirs
-    elif mode == 'd':
-        to_check = filepath
-        func = os.path.isdir
-        mkdir_ = mkdirs
-    else:  # mode == 'r':
-        to_check = filepath
-        func = os.path.isfile
-        mkdir_ = False
-
-    exists_ = func(to_check)
-    mkdirdone = False
-    if not func(to_check):
-        if mkdir_:
-            mkdirdone = True
-            os.makedirs(to_check)
-            exists_ = func(to_check)
-
-    if not exists_:
-        raise error_type(errmsgfunc(filepath, mode))
-
-    return mkdirdone
-
-
-# these methods are implemented to avoid complex workarounds in testing.
-# See http://blog.xelnor.net/python-mocking-datetime/
-_datetime_now = dt.datetime.now
-_datetime_utcnow = dt.datetime.utcnow
-_datetime_strptime = dt.datetime.strptime
-
-
-def datetime(string, formats=None, on_err=ValueError):
+def strptime(string, formats=None):
     """
         Converts a date in string format into a datetime python object. The inverse can be obtained
         by calling dt.isoformat() (which returns 'T' as date time separator, and optionally
-        microseconds if they are not zero). This method is mainly used in argument parser from
-        command line emulating an easy version of dateutil.parser.parse (without the need of that
-        dependency) and assuming string is an iso-like datetime format (e.g. fdnsws standard)
+        microseconds if they are not zero). This function is an easy version of
+        `dateutil.parser.parse` for parsing iso-like datetime format (e.g. fdnsws standard)
+        without the need of a module import
         :param: string: if a datetime object, returns it. If date object, converts to datetime
         and returns it. Otherwise must be a string representing a datetime
         :type: string: a string, a date or a datetime object (in that case just returns it)
         :param formats: if list or iterable, it holds the strings denoting the formats to be used
         to convert string (in the order they are declared). If None (the default), the datetime
-        format will be guessed from the string length among the following:
+        format will be guessed from the string length among the following (with optional 'Z', and
+        with 'T' replaced by space as vaild option):
            - '%Y-%m-%dT%H:%M:%S.%fZ'
            - '%Y-%m-%dT%H:%M:%SZ'
            - '%Y-%m-%dZ'
-        Note: once a candidate format is chosen, 'T' might be replaced by ' ' if string does not
-        have 'T', and ''Z' (the zulu timezone) will be appended if string ends with 'Z'
-        :param: on_err: if subclass of Exception, raises it in case of failure. Otherwise it is the
-        return value in case of failure (e.g., on_err=ValueError, on_err=None)
+        :raise: ValueError if the string cannot be parsed
         :type: on_err_return_none: object or Exception
         :return: a datetime object
         :Example:
-        to_datetime("2016-06-01T09:04:00.5600Z")
-        to_datetime("2016-06-01T09:04:00.5600")
-        to_datetime("2016-06-01 09:04:00.5600Z")
-        to_datetime("2016-06-01 09:04:00.5600Z")
-        to_datetime("2016-06-01")
+        ```
+            strptime("2016-06-01T09:04:00.5600Z")
+            strptime("2016-06-01T09:04:00.5600")
+            strptime("2016-06-01 09:04:00.5600Z")
+            strptime("2016-06-01T09:04:00Z")
+            strptime("2016-06-01T09:04:00")
+            strptime("2016-06-01 09:04:00Z")
+            strptime("2016-06-01")
+        ```
     """
     if isinstance(string, dt.datetime):
         return string
 
+    string = string.strip()
+
     if formats is None:
-        len_ = len(string)
-        if len_ <= 9:
-            formats = []  # alias as: raiseon_err or return it
+        has_z = string[-1] == 'Z'
+        has_t = 'T' in string
+        if has_t or has_z or ' ' in string:
+            t_str, z_str = 'T' if has_t else ' ', 'Z' if has_z else ''
+            formats = ['%Y-%m-%d{}%H:%M:%S.%f{}'.format(t_str, z_str),
+                       '%Y-%m-%d{}%H:%M:%S{}'.format(t_str, z_str)]
         else:
-            # string search is faster: try to guess the format instead of looping
-            end_ = 'Z' if string[-1] == 'Z' else ''
-            sep_ = 'T' if 'T' in string else ' '
-            if len_ > 19:
-                formats = ['%Y-%m-%d' + sep_ + '%H:%M:%S.%f' + end_]
-            elif len_ > 10:
-                formats = ['%Y-%m-%d' + sep_ + '%H:%M:%S' + end_]
-            else:
-                formats = ['%Y-%m-%d' + end_]
+            formats = ['%Y-%m-%d']
 
     for dtformat in formats:
         try:
-            return _datetime_strptime(string, dtformat)
+            return dt.datetime.strptime(string, dtformat)
         except ValueError:  # as exce:
             pass
-        except TypeError as terr:
-            try:
-                raise on_err(str(terr))
-            except TypeError:
-                return on_err
 
-    try:
-        raise on_err("%s: invalid date time" % string)
-    except TypeError:
-        return on_err
+    raise ValueError("%s: invalid date time" % string)
 
 
-def parsedb(string):
-    p = re.compile(r'^(?P<dialect>.*?)(?:\+(?P<driver>.*?))?\:\/\/(?:(?P<username>.*?)\:'
-                   '(?P<password>.*?)\@(?P<host>.*?)\:(?P<port>.*?))?\/(?P<database>.*?)$')
-    m = p.match(string)
-    return m
-
-
-def pd_str(dframe):
-    """Returns a dataframe to string with all rows and all columns, used for printing to log"""
-    with pd.option_context('display.max_rows', len(dframe),
-                           'display.max_columns', len(dframe.columns),
-                           'max_colwidth', 50, 'expand_frame_repr', False):
-        return str(dframe)
-
-
-class DataFrame(pd.DataFrame):
-    """An extension of pandas DataFrame, where indexing with [] (a.k.a. __getitem__ for those
-       familiar with implementing class behavior in Python), i.e. selecting out lower-dimensional
-       slices, works ignoring the case. This works obviously only if the argument of the slice
-       is either a string or an iterable of strings. Thus, given a DataFrame `d` with columns
-       'a' and 'B', d['A'] returns the same Series as d['a'] (using a pandas DataFrame, a KeyError
-       would be raised), and d[['a', 'b']] returns the same pandas DataFrame as d[['a', 'B']]
-       When the slicing would return a pandas DataFrame, a new DataFrame is returned so that the
-       same ignoring-case slicing works on the returned DataFrame.
-
-       For info see: http://pandas.pydata.org/pandas-docs/stable/indexing.html#basics
-    """
-
-    @staticmethod
-    def _isstr__(elm):
-        return isinstance(elm, basestring)
-
-    def __getitem__(self, key):
-        try:
-            dfm = pd.DataFrame.__getitem__(self, key)
-        except KeyError as kerr:
-            # try to see if key is a string:
-            reg = None
-            if self._isstr__(key):
-                reg = re.escape(key)
-                expected_col_num = 1
-            else:
-                regarray = []
-                try:
-                    for k in key:
-                        if not self._isstr__(k):
-                            raise kerr
-                        regarray.append("(?:%s)" % re.escape(k))
-                    expected_col_num = len(regarray)
-                    reg = "|".join([r for r in regarray])
-                except TypeError:
-                    raise kerr
-
-            if reg is None:  # for safety ...
-                raise kerr
-
-            dfm = self.filter(regex=re.compile(r"^"+reg+"$", re.IGNORECASE))
-            cols = len(dfm.columns)
-            if cols != expected_col_num:
-                raise kerr
-
-            # original pandas slicing returns a series when single string:
-            if cols == 1 and self._isstr__(key):
-                dfm = dfm[dfm.columns[0]]  # returns a Series
-
-        return DataFrame(dfm) if isinstance(dfm, pd.DataFrame) else dfm
-
-
-def dc_stats_str(dc_df, dc_axis=1,
-                 parse_urls=True, set_totals=True, transpose=False,  *args, **kwargs):
-    """
-        :param dc_axis: axis on which are the datacenter urls: {index (0), columns (1)}
-    """
-    if parse_urls:
-        if dc_axis == 0 or dc_axis == 'index':
-            dc_df.index = dc_df.index.map(lambda x: urlparse(x).netloc)
-        else:
-            dc_df.columns = dc_df.columns.map(lambda x: urlparse(x).netloc)
-
-    if set_totals:
-        # convert to numeric so that sum returns the correct number of rows/columns
-        # (with NaNs in case)
-        dc_df = dc_df.apply(pd.to_numeric, errors='coerce', axis=0)  # axis should be irrelevant
-        # append a row with sum:
-        dc_df.loc['total'] = dc_df.sum(axis=0)
-        # append a column with sums:
-        dc_df['total'] = dc_df.sum(axis=1)
-
-    if transpose:
-        dc_df = dc_df.T
-
-    return dc_df.to_string(*args, **kwargs)
+# def parsedb(string):
+#     p = re.compile(r'^(?P<dialect>.*?)(?:\+(?P<driver>.*?))?\:\/\/(?:(?P<username>.*?)\:'
+#                    '(?P<password>.*?)\@(?P<host>.*?)\:(?P<port>.*?))?\/(?P<database>.*?)$')
+#     m = p.match(string)
+#     return m
 
 
 def get_default_cfg_filepath():
+    """Returns the configuration file path (absolute path)"""
     config_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
     return os.path.normpath(os.path.abspath(os.path.join(config_dir, "config.yaml")))
 
 
 def load_def_cfg(filepath=None, raw=False):
-    """Loads default config from yaml file"""
+    """Loads default config from yaml file, normalizing relative sqlite file paths if any"""
     if filepath is None:
         filepath = get_default_cfg_filepath()
     with open(filepath, 'r') as stream:
@@ -476,7 +193,7 @@ def get_session(dbpath=None, scoped=False):
         dbpath = get_default_dbpath()
     # init the session:
     engine = create_engine(dbpath)
-    Base.metadata.create_all(engine)
+    Base.metadata.create_all(engine)  # @UndefinedVariable
     if not scoped:
         # create a configured "Session" class
         session = sessionmaker(bind=engine)
@@ -488,4 +205,92 @@ def get_session(dbpath=None, scoped=False):
         return scoped_session(session_factory)
 
 
-# ==end== 
+def get_progressbar(isterminal=False):
+    """Returns a class that will be display a progressbar (see `click.progressbar`), or a subclass
+    of click.progressbar if isterminal=True. The subclass implements all superclass methods
+    but it actually does not render anything nor performs any calculation (e.g. eta, percent
+    etcetera)
+    ```
+        pbar = utils.progressbar(isterminal)  # <-- class instance, not object!
+        with pbar(...) as bar:
+            # do your stuff in iterators and call
+            bar.update(num_increments)  # will update the terminal with a progressbar, or do nothing
+                                        # if isterminal=True
+    ```
+    """
+    if not isterminal:
+#         # note: click.progressbar returns an instance of ProgressBar (camel case). The arguments
+#         # are NOT in the same order but we are concerned about iterable and length argument only
+#         # With at least one of those arguments
+#         class DPB(ProgressBar):
+# 
+#             def __init__(self, *a, **v):
+#                 if len(a):
+#                     iterable = a[0]
+#                 else:
+#                     iterable = v.get('iterable', None)
+#                 if len(a) > 1:
+#                     length = a[1]
+#                 else:
+#                     length = v.get('length', None)
+#                 super(DPB, self).__init__(iterable, length=length, file='x', show_eta=False)
+#                 # file = 'x' should make this object hidden. For safety:
+#                 self.is_hidden = True
+#                 # If hidden, when rendering only ''.join([self.label]) will be printed, unless that
+#                 # value is == self._last_line. Thus:
+#                 self._last_line = ''.join([self.label])
+# 
+#             def make_step(self, n_steps):
+#                 """method called by self.update, performs some calculation before rendering.
+#                 Pass for performance reasons"""
+#                 pass
+# 
+#             def render_progress(self):
+#                 """This is called by several class method, including self.update (which calls
+#                 self.make_step and then this method).
+#                 In the constructor we setup arguments in order to make this
+#                 method not printint anything. However, for safety override this and
+#                 do not render anything at all"""
+#                 pass
+
+
+        class DPB(object):
+            # support for iteration, if iterator is given, support for update and __enter__ __exit__
+            def __init__(self, *a, **v):
+                if len(a):
+                    iterable = a[0]
+                else:
+                    iterable = v.get('iterable', None)
+                if len(a) > 1:
+                    length = a[1]
+                else:
+                    length = v.get('length', None)
+
+                if iterable is None and length is None:
+                    raise TypeError('iterable or length is required')  # copied from ProgressBar
+
+                self._i = iterable
+
+            def __enter__(self, *a, **v):
+                return self
+
+            def __iter__(self):   # @DontTrace # pylint:disable=non-iterator-returned
+                if not self._i:
+                    raise TypeError('object is not iterable, you should provide an iterator '
+                                    'in the constructor')
+                return self
+
+            def __next__(self):
+                return next(self.i)
+
+            def __exit__(self, *a, **v):
+                pass
+
+            def update(self, *a, **v):
+                pass
+
+        return DPB
+    else:
+        return click_progressbar
+
+# ==end==

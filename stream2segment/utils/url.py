@@ -3,24 +3,21 @@ Created on Nov 18, 2016
 
 @author: riccardo
 '''
-
-
-import concurrent.futures
 from contextlib import closing
 import threading
 import urllib2
 import httplib
 import socket
+import concurrent.futures
 # import time
 
 # maybe used in the future
-CONNECTION_ERRORS = (urllib2.HTTPError, urllib2.URLError, httplib.HTTPException, socket.timeout)
-
+# CONNECTION_ERRORS = (urllib2.HTTPError, urllib2.URLError, httplib.HTTPException, socket.timeout)
 
 # Retrieve a single page and report the url and contents
-def _load_url_default(url, timeout=60, blockSize=1024*1024, decode=None):
-    conn = urllib2.urlopen(url, timeout=timeout)
-    return conn.read().decode(decode) if decode else conn.read()
+# def _load_url_default(url, timeout=60, blockSize=1024*1024, decode=None):
+#     conn = urllib2.urlopen(url, timeout=timeout)
+#     return conn.read().decode(decode) if decode else conn.read()
 
 
 def _urlread(url, blocksize=-1, decode=None, **kwargs):
@@ -42,8 +39,8 @@ def url_read(url, blocksize=-1, decode=None, on_exc=None, **kwargs):
         Reads and return data from the given url. Returns the bytes read or the string read (if
         decode is specified). Returns None if on_exc is a callable and a specific "connection"
         exception is raised (see below), otherwise raises it
-        :param url: a valid url
-        :type url: string
+        :param url: a valid url or an urllib2.Request object
+        :type url: string or urllib2.Request
         :param blockSize: int, default: -1. The block size while reading, -1 means:
             read entire content at once
         :param: decode: string or None, default: None. The string used for decoding to string
@@ -64,7 +61,8 @@ def url_read(url, blocksize=-1, decode=None, on_exc=None, **kwargs):
         especially on error codes for the urllib2 module.
         in case of connection errors
     """
-    if on_exc is None or not hasattr(on_exc, "__call__"):
+    # The if branch below is a little bit verbose, but this way we preserve stack trace
+    if not hasattr(on_exc, "__call__"):  # note: None evaluates to False
         return _urlread(url, blocksize, decode, **kwargs)
     else:
         try:
@@ -158,6 +156,9 @@ def read_async(urls, onsuccess, onerror, max_workers=5, blocksize=1024*1024, dec
     # http://stackoverflow.com/questions/29177490/how-do-you-kill-futures-once-they-have-started
     cancel = False
 
+    # we need to implement an internal function which behaves exactly as url_read to handle
+    # the cancel flag also when reading per block. If removing the cancel check per block
+    # this function might be simply a wrapper around url_read (TODO: implement it?)
     def __urlread__(url, blocksize, decode, **kwargs):
         """Custom function which handles url read and checks the cancel flag"""
         # this is executed in a separate thread (thus not thread safe):
@@ -197,9 +198,10 @@ def read_async(urls, onsuccess, onerror, max_workers=5, blocksize=1024*1024, dec
                     # a future that has been cancelled should be skipped silently
                     pass
                 except (urllib2.HTTPError, urllib2.URLError, httplib.HTTPException,
-                        socket.error) as exc:
+                        socket.error, concurrent.futures.TimeoutError) as exc:
                     # http://stackoverflow.com/questions/666022/what-errors-exceptions-do-i-need-to-handle-with-urllib2-request-urlopen
-                    # Note that socket.timeout is not an urllib2.URLError in py2.7. See:
+                    # Note that socket.timeout (subclass of socket.error) is not an
+                    # urllib2.URLError subclass in py2.7. See:
                     # http://stackoverflow.com/questions/2712524/handling-urllib2s-timeout-python
                     ret = onerror(exc, url, index)
                 else:

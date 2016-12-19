@@ -112,6 +112,10 @@ def _id(obj):
     return str(obj.id) if hasattr(obj, "id") else str(obj)
 
 
+def _(num, singular, plural):
+    return singular if num == 1 else plural
+
+
 class calc(object):  # pylint:disable=invalid-name
     """ any error/message related to calculating/processing data"""
 
@@ -254,6 +258,15 @@ class db(object):  # pylint:disable=invalid-name
         Refer to the doc of :ref:`msgs.db.dropped_evt` replacing 'event' with 'station'
         '''
         return _discarded("%d station(s) discarded (not saved to db)" % num, url,
+                          msg_or_exc or "unknown db error")
+
+    @staticmethod
+    def dropped_cha(num, url=None, msg_or_exc=None):
+        '''
+        Formats an error or message related to a number of data centers not saved to db.
+        Refer to the doc of :ref:`msgs.db.dropped_evt` replacing 'event' with 'station'
+        '''
+        return _discarded("%d channel(s) discarded (not saved to db)" % num, url,
                           msg_or_exc or "unknown db error")
 
     @staticmethod

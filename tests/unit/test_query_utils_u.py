@@ -1,193 +1,313 @@
+#@PydevCodeAnalysisIgnore
+# -*- coding: utf-8 -*-
 '''
 Created on Feb 4, 2016
 
 @author: riccardo
 '''
-# from event2waveform import get_waveforms
-# from utils import date
-# assert sys.path[0] == os.path.realpath(myPath + '/../../')
+
+
 from mock import patch
 import pytest
 from mock import Mock
 from datetime import datetime, timedelta
-from stream2segment.query_utils import get_time_range, get_stations, get_events,\
-    get_travel_time, get_search_radius, url_read, save_waveforms
-from stream2segment.utils import datetime as dtime
 from StringIO import StringIO
 import stream2segment
+from stream2segment.download.utils import get_min_travel_time, get_search_radius, UrlStats,\
+    stats2str
+import numpy as np
+import code
+from itertools import count
 
 
-@patch('stream2segment.query_utils.TauPyModel')
-def test_get_travel_times(mock_taup):
+@patch('stream2segment.download.utils.TauPyModel')
+@patch('stream2segment.download.utils.TauPTime')
+def test_get_travel_times(mock_taup_t, mock_taup_m):
     
-    
-    a = get_travel_time('d', 'q', 'g')
-    assert a is None
-    mock_taup.assert_called_once_with('g')
+#     a = get_min_travel_time('d', 'q', ('P',), 'g')
+#     assert a is None
+#     mock_taup.assert_called_once_with('g')
     
     model = 'ak135'
-    
+#     
     from obspy.taup.tau import TauPyModel
-    realtpm = TauPyModel(model)
-    abc = Mock()
-    abc.get_travel_times.side_effect = lambda *args, **kw: realtpm.get_travel_times(*args, **kw) 
-    # gettt.side_effect = abc
-    mock_taup.return_value = abc
+    mock_taup_m.side_effect = lambda *a, **v: TauPyModel(*a, **v)
+    
+    from obspy.taup.taup_time import TauPTime
+    mock_taup_t.side_effect = lambda *a, **v: TauPTime(*a, **v)
 
-#     with pytest.raises(IOError):
-#         _ = get_arrival_time('d', 'q', 'g')
-    mock_taup.reset_mock()
-    tt = get_travel_time(distance_in_degree=52.474, source_depth_in_km=611.0, model=model)
+#     TauPTime
+#     abc = Mock()
+#     abc.model.return_value = realtpm.model  # lambda *args, **kw: realtpm.get_travel_times(*args, **kw)
+#      
+#     mock_taup.return_value = abc
+
+    mock_taup_m.reset_mock()
+    mock_taup_t.reset_mock()
+    tt = get_min_travel_time(distance_in_degree=52.474, source_depth_in_km=611.0, 
+                             traveltime_phases=('p', 'P'), model=model)
     # check for the value (account for round errors):
     assert tt > 497.525385547 and tt < 497.525385548
-    mock_taup.assert_called_once_with(model)
-    abc.get_travel_times.assert_called_once_with(611.0, 52.474)
+    mock_taup_m.assert_called_once_with(model)
+    mock_taup_t.assert_called()
+    
+    # now pass a model, assert is the same as passing the string denoting a model
+    assert tt == get_min_travel_time(distance_in_degree=52.474, source_depth_in_km=611.0, 
+                             traveltime_phases=('p', 'P'), model=TauPyModel(model))
 
 
-    mock_taup.reset_mock()
-#     abc.get_travel_times.reset_mock()
-    abc.get_travel_times.side_effect = lambda *args, **kw: []
-    a = get_travel_time(distance_in_degree=52.2, source_depth_in_km=611.0, model=model)
-    mock_taup.assert_called_once_with(model)
-    abc.get_travel_times.assert_called_once_with(611.0, 52.2)
-    assert a is None
+    # mock the case where no arrivals is returned, we should have a ValueError:
+    class MockedTauptime(object):
+        def __init__(self, *a, **v):
+            self.arrivals = []
+        def run(self, *a, **v): pass
+    
+    mock_taup_t.side_effect = lambda *a, **v: MockedTauptime(*a, **v)
+    with pytest.raises(ValueError):
+        a = get_min_travel_time(distance_in_degree=92.2, source_depth_in_km=611.0,
+                                traveltime_phases= ('P',), model=model)
+#     mock_taup.assert_called_once_with(model)
+#     abc.get_travel_times.assert_called_once_with(611.0, 52.2)
+#     assert a is None
 
 
 @pytest.mark.parametrize('mag, args, expected_val',
-                         [(5, None, 3), (2, None, 1), (-1, None, 1), (7, None, 5), (8, None, 5),
-                          (5, [3, 7, 1, 5], 3), (2, [3, 7, 1, 5], 1), (-1, [3, 7, 1, 5], 1),
-                          (7, [3, 7, 1, 5], 5), (8, [3, 7, 1, 5], 5)])
-def test_get_search_radius(mag, args, expected_val):
-    if args is None:
-        assert get_search_radius(mag) == expected_val
-    else:
-        args.insert(0, mag)
-        assert get_search_radius(*args) == expected_val
-
-@pytest.mark.parametrize('inargs, expected_dt',
                          [
-                           ((56,True,True), 56),
-                           ((56,False,True), 56),
-                           ((56,True,False), 56),
-                           ((56,False,False), 56),
-                           (('56',True,True), '56'),
-                           (('56',False,True), '56'),
-                           (('56',True,False), '56'),
-                           (('56',False,False), '56'),
-                           (('a sd ',True,True), 'aTsdT'),
-                           (('a sd ',False,True), 'aTsdT'),
-                           (('a sd ',True,False), 'a sd '),
-                           (('a sd ',False,False), 'a sd '),
-                           (('a sd Z',True,True), 'aTsdT'),
-                           (('a sd Z',False,True), 'aTsdTZ'),
-                           (('a sd Z',True,False), 'a sd '),
-                           (('a sd Z',False,False), 'a sd Z'),
-                           (('2015-01-03 22:22:22Z',True,True), '2015-01-03T22:22:22'),
-                           (('2015-01-03 22:22:22Z',False,True), '2015-01-03T22:22:22Z'),
-                           (('2015-01-03 22:22:22Z',True,False), '2015-01-03 22:22:22'),
-                           (('2015-01-03 22:22:22Z',False,False), '2015-01-03 22:22:22Z'),
-                           ]
-                         )
-def test_prepare_datestr(inargs, expected_dt):
-    from stream2segment.utils import prepare_datestr
-    assert prepare_datestr(*inargs) == expected_dt
-
-        
-@pytest.mark.parametrize('prepare_datestr_return_value, strptime_callcount, expected_dt',
-                         [
-                          (56, 1, TypeError()),
-                          ('abc', 3, ValueError()),
-                          ("2006", 3, ValueError()),
-                          ("2006-06", 3, ValueError()),
-                          ("2006-06-06", 2, datetime(2006, 6, 6)),
-                          ("2006-06-06T", 3, ValueError()),
-                          ("2006-06-06T03", 3, ValueError()),
-                          ("2006-06-06T03:22", 3, ValueError()),
-                          ("2006-06-06T03:22:12", 1, datetime(2006,6,6, 3,22,12)),
-                          ("2006-06-06T03:22:12.45", 3, datetime(2006,6,6, 3,22,12,450000)),
+                             (2, [3, 7, 1, 5], 1), (8, [3, 7, 1, 5], 5), (5, None, 3), (2, None, 1),
+                             (-1, None, 1), (7, None, 5), (8, None, 5),
+                             (5, [3, 7, 1, 5], 3), (-1, [3, 7, 1, 5], 1),
+                             (7, [3, 7, 1, 5], 5),
+                             ([2, 8, 5, -1], [3, 7, 1, 5], [1, 5, 3, 1]),
+                             ([2, 8, 5, -1], None, [1, 5, 3, 1]),
+                             (np.array([2, 8, 5, -1]), [3, 7, 1, 5], [1, 5, 3, 1]),
                           ]
                          )
-# for side effect below
-# see https://docs.python.org/3/library/unittest.mock-examples.html#partial-mocking
-@patch('stream2segment.utils._datetime_strptime', side_effect = lambda *args, **kw: datetime.strptime(*args, **kw))
-# @patch('stream2segment.utils.dt.datetime', spec=datetime, side_effect=lambda *args, **kw: datetime(*args, **kw))
-@patch('stream2segment.utils.prepare_datestr')
-def test_to_datetime_crap(mock_prepare_datestr, mock_strptime, prepare_datestr_return_value,
-                          strptime_callcount, expected_dt):
+def test_get_search_radius(mag, args, expected_val):
+    if args is None:
+        try:
+            assert get_search_radius(mag) == expected_val
+        except ValueError:  # we passed an array as magnitude, so check with numpy.all()
+            assert (get_search_radius(mag) == expected_val).all()
+    else:
+        args.insert(0, mag)
+        try:
+            assert get_search_radius(*args) == expected_val
+        except ValueError:  # we passed an array as magnitude, so check with numpy.all()
+            assert (get_search_radius(*args) == expected_val).all()
+            
+            
 
-    mock_prepare_datestr.return_value = prepare_datestr_return_value
+def test_stats_table():
+    
+    class MyExc(Exception):
+         def __init__(self, message, code=None, reason=None):
+             self.message = message
+             if code:
+                 self.code = code
+             if reason:
+                 self.reason = reason
+        
+         def __str__(self, *args, **kwargs):
+             return self.message
+    
+    s = UrlStats()
+    s['error 1'] += 5
+    assert s['error 1'] == 5
 
-    inarg = "x"
-    if isinstance(expected_dt, BaseException):
-        with pytest.raises(expected_dt.__class__):
-            dtime(inarg)
-        expected_dt = None
+    s[MyExc('e')] += 4
+    assert s['MyExc: e'] == 4
 
-    mock_prepare_datestr.reset_mock()
-    # mock_datetime.reset_mock()
-    mock_strptime.reset_mock()
- 
-    dt = dtime(inarg, on_err_return_none=True)
-    assert dt == expected_dt
-    mock_prepare_datestr.assert_called_once_with(inarg, True, True)
-    first_args_to_strptime = [c[0][0] for c in mock_strptime.call_args_list]
-    assert all(x == prepare_datestr_return_value for x in first_args_to_strptime)
-    assert mock_strptime.call_count == strptime_callcount
+    s[MyExc('e', 500)] += 0
+    assert 'MyExc: e [code=500]' in s.keys() and s['MyExc: e [code=500]'] == 0
+
+    assert len(s) == 3
+
+    # add a new myexc in which code is already present in message. Check that key string is
+    # correctly formatted
+    s[MyExc('e(500)', 500)] += 0
+    assert 'MyExc: e(500)' in s.keys() and s['MyExc: e(500)'] == 0
+    
+     # add a new myexc in which code is NOT already present in message. Check that key string is
+    # correctly formatted
+    s[MyExc('e(5000)', 500)] += 0
+    assert 'MyExc: e(5000) [code=500]' in s.keys() and s['MyExc: e(5000) [code=500]'] == 0
+
+    # now build a stats table
+    ret = stats2str(data={'col1': s}, totals_caption='total')  # by def is TOTAL
+    expected = u"""                           col1  total
+MyExc: e                      4      4
+MyExc: e [code=500]           0      0
+MyExc: e(500)                 0      0
+MyExc: e(5000) [code=500]     0      0
+error 1                       5      5
+total                         9      9"""
+    assert ret == expected
 
 
-# @patch('stream2segment.query_utils.ul.Request', return_value='Request')
-# @patch('stream2segment.query_utils.ul.urlopen', return_value=Urlopen('read'))
-@patch('stream2segment.query_utils.url_read', return_value='url_read')
-def test_get_events(mock_url_read):  # , mock_urlopen, mock_request):
-    with pytest.raises(KeyError):
-        get_events()
+    # append new data, with new rows and a new column
+    dic = {'a': 6, 'b': 15}
+    ret = stats2str(data={'col1': s, 'col2': dic}, totals_caption='total')  # by def is TOTAL
+    expected = u"""                           col1  col2  total
+MyExc: e                      4     0      4
+MyExc: e [code=500]           0     0      0
+MyExc: e(500)                 0     0      0
+MyExc: e(5000) [code=500]     0     0      0
+a                             0     6      6
+b                             0    15     15
+error 1                       5     0      5
+total                         9    21     30"""
+    assert ret != expected
+    # we should provide fillna=0
+    ret = stats2str(fillna=0, data={'col1': s, 'col2': dic}, totals_caption='total')  # by def is TOTAL
+    assert ret == expected
 
-    args = {'eventws': 'eventws', 'minmag': 1.1,
-            'start': datetime.now().isoformat(),
-            'end': datetime.now().isoformat(),
-            'minlon': '90', 'maxlon': '80',
-            'minlat': '85', 'maxlat': '57'}
+    # set on data, with some rows and some new column
+    dic = {'x': 56, 'MyExc: e(500)': -34}
+    ret = stats2str(data={'col1': s, 'col2': dic}, fillna=0, totals_caption='total')  # by def is TOTAL
+    expected = u"""                           col1  col2  total
+MyExc: e                      4     0      4
+MyExc: e [code=500]           0     0      0
+MyExc: e(500)                 0   -34    -34
+MyExc: e(5000) [code=500]     0     0      0
+error 1                       5     0      5
+x                             0    56     56
+total                         9    22     31"""
+    assert ret == expected
 
-    mock_url_read.reset_mock()
-    lst = get_events(**args)
-    assert lst.empty
-    assert mock_url_read.called
+    # same as above, but set transpose = True
+    dic = {'x': 56, 'MyExc: e(500)': -34}
+    ret = stats2str(fillna=0, data={'col1': s, 'col2': dic}, transpose=True, totals_caption='total')  # by def is TOTAL
+    expected = u"""       MyExc: e  MyExc: e [code=500]  MyExc: e(500)  MyExc: e(5000) [code=500]  error 1   x  total
+col1          4                    0              0                          0        5   0      9
+col2          0                    0            -34                          0        0  56     22
+total         4                    0            -34                          0        5  56     31"""
+    assert ret == expected
 
-    mock_url_read.reset_mock()
-    mock_url_read.return_value = 'header\na|b|c'
-    lst = get_events(**args)
-    assert lst.empty
-    assert mock_url_read.called
+    import pandas as pd
+    ret = stats2str(data={
+                          'col1': {'a': 9, 'b': 3},
+                          'col2': pd.Series({'a': -1, 'c': 0})
+                          })
+    h = 9
+# @pytest.mark.parametrize('inargs, expected_dt',
+#                          [
+#                            ((56,True,True), 56),
+#                            ((56,False,True), 56),
+#                            ((56,True,False), 56),
+#                            ((56,False,False), 56),
+#                            (('56',True,True), '56'),
+#                            (('56',False,True), '56'),
+#                            (('56',True,False), '56'),
+#                            (('56',False,False), '56'),
+#                            (('a sd ',True,True), 'aTsdT'),
+#                            (('a sd ',False,True), 'aTsdT'),
+#                            (('a sd ',True,False), 'a sd '),
+#                            (('a sd ',False,False), 'a sd '),
+#                            (('a sd Z',True,True), 'aTsdT'),
+#                            (('a sd Z',False,True), 'aTsdTZ'),
+#                            (('a sd Z',True,False), 'a sd '),
+#                            (('a sd Z',False,False), 'a sd Z'),
+#                            (('2015-01-03 22:22:22Z',True,True), '2015-01-03T22:22:22'),
+#                            (('2015-01-03 22:22:22Z',False,True), '2015-01-03T22:22:22Z'),
+#                            (('2015-01-03 22:22:22Z',True,False), '2015-01-03 22:22:22'),
+#                            (('2015-01-03 22:22:22Z',False,False), '2015-01-03 22:22:22Z'),
+#                            ]
+#                          )
 
-    # value error:
-    mock_url_read.reset_mock()
-    mock_url_read.return_value = 'header\na|'+datetime.now().isoformat()+'|c'
-    lst = get_events(**args)
-    assert lst.empty
-    assert mock_url_read.called
+        
+# @pytest.mark.parametrize('prepare_datestr_return_value, strptime_callcount, expected_dt',
+#                          [
+#                           (56, 1, TypeError()),
+#                           ('abc', 3, ValueError()),
+#                           ("2006", 3, ValueError()),
+#                           ("2006-06", 3, ValueError()),
+#                           ("2006-06-06", 2, datetime(2006, 6, 6)),
+#                           ("2006-06-06T", 3, ValueError()),
+#                           ("2006-06-06T03", 3, ValueError()),
+#                           ("2006-06-06T03:22", 3, ValueError()),
+#                           ("2006-06-06T03:22:12", 1, datetime(2006,6,6, 3,22,12)),
+#                           ("2006-06-06T03:22:12.45", 3, datetime(2006,6,6, 3,22,12,450000)),
+#                           ]
+#                          )
+# # for side effect below
+# # see https://docs.python.org/3/library/unittest.mock-examples.html#partial-mocking
+# @patch('stream2segment.utils._datetime_strptime', side_effect = lambda *args, **kw: datetime.strptime(*args, **kw))
+# # @patch('stream2segment.utils.dt.datetime', spec=datetime, side_effect=lambda *args, **kw: datetime(*args, **kw))
+# @patch('stream2segment.utils.prepare_datestr')
+# def test_to_datetime_crap(mock_prepare_datestr, mock_strptime, prepare_datestr_return_value,
+#                           strptime_callcount, expected_dt):
+# 
+#     mock_prepare_datestr.return_value = prepare_datestr_return_value
+# 
+#     inarg = "x"
+#     if isinstance(expected_dt, BaseException):
+#         with pytest.raises(expected_dt.__class__):
+#             dtime(inarg)
+#         expected_dt = None
+# 
+#     mock_prepare_datestr.reset_mock()
+#     # mock_datetime.reset_mock()
+#     mock_strptime.reset_mock()
+#  
+#     dt = dtime(inarg, on_err_return_none=True)
+#     assert dt == expected_dt
+#     mock_prepare_datestr.assert_called_once_with(inarg, True, True)
+#     first_args_to_strptime = [c[0][0] for c in mock_strptime.call_args_list]
+#     assert all(x == prepare_datestr_return_value for x in first_args_to_strptime)
+#     assert mock_strptime.call_count == strptime_callcount
 
-    # index error:
-    mock_url_read.reset_mock()
-    mock_url_read.return_value = 'header\na|'+datetime.now().isoformat()+'|1.1'
-    lst = get_events(**args)
-    assert lst.empty
-    assert mock_url_read.called
 
-    mock_url_read.reset_mock()
-    d = datetime.now()
-    mock_url_read.return_value = 'header\na|'+d.isoformat()+'|1.1|2|3.0|4.0|a|b|c|d|1.1'
-    lst = get_events(**args)
-    assert lst.empty
-    assert mock_url_read.called
-
-    mock_url_read.reset_mock()
-
-    d = datetime.now()
-    mock_url_read.return_value = 'header|a|b|c|d|e|f|g|h|i|j\na|'+d.isoformat()+'|1.1|2|3.0|4.0|a|b|c|d|1.1'
-    lst = get_events(**args)
-    assert len(lst) == 1
-    assert lst.values[0].tolist() == ['a', d, 1.1, 2.0, 3.0, '4.0', 'a', 'b', 'c', 'd', 1.1]
-    assert mock_url_read.called
+# @patch('stream2segment.download.utils.url_read', return_value='url_read')
+# def test_get_events(mock_url_read):  # , mock_urlopen, mock_request):
+#     with pytest.raises(KeyError):
+#         get_events()
+# 
+#     args = {'eventws': 'eventws', 'minmag': 1.1,
+#             'start': datetime.now().isoformat(),
+#             'end': datetime.now().isoformat(),
+#             'minlon': '90', 'maxlon': '80',
+#             'minlat': '85', 'maxlat': '57'}
+# 
+#     mock_url_read.reset_mock()
+#     lst = get_events(**args)
+#     assert lst.empty
+#     assert mock_url_read.called
+# 
+#     mock_url_read.reset_mock()
+#     mock_url_read.return_value = 'header\na|b|c'
+#     lst = get_events(**args)
+#     assert lst.empty
+#     assert mock_url_read.called
+# 
+#     # value error:
+#     mock_url_read.reset_mock()
+#     mock_url_read.return_value = 'header\na|'+datetime.now().isoformat()+'|c'
+#     lst = get_events(**args)
+#     assert lst.empty
+#     assert mock_url_read.called
+# 
+#     # index error:
+#     mock_url_read.reset_mock()
+#     mock_url_read.return_value = 'header\na|'+datetime.now().isoformat()+'|1.1'
+#     lst = get_events(**args)
+#     assert lst.empty
+#     assert mock_url_read.called
+# 
+#     mock_url_read.reset_mock()
+#     d = datetime.now()
+#     mock_url_read.return_value = 'header\na|'+d.isoformat()+'|1.1|2|3.0|4.0|a|b|c|d|1.1'
+#     lst = get_events(**args)
+#     assert lst.empty
+#     assert mock_url_read.called
+# 
+#     mock_url_read.reset_mock()
+# 
+#     d = datetime.now()
+#     mock_url_read.return_value = 'header|a|b|c|d|e|f|g|h|i|j\na|'+d.isoformat()+'|1.1|2|3.0|4.0|a|b|c|d|1.1'
+#     lst = get_events(**args)
+#     assert len(lst) == 1
+#     assert lst.values[0].tolist() == ['a', d, 1.1, 2.0, 3.0, '4.0', 'a', 'b', 'c', 'd', 1.1]
+#     assert mock_url_read.called
 
 # @patch('stream2segment.query_utils.url_read', return_value='url_read')
 # def test_get_waveforms(mock_url_read):
@@ -231,100 +351,100 @@ def test_get_events(mock_url_read):  # , mock_urlopen, mock_request):
 #         mock_get_tr.assert_called_with('d', minutes=('3','5'))
 
 
-@patch('stream2segment.query_utils.url_read', return_value='url_read')
-def test_get_stations(mock_url_read):
-    mock_url_read.reset_mock()
-    lst = get_stations('a', 'b', 'c', 'd', '5', '6')
-    assert lst.empty
-    assert not mock_url_read.called
+# @patch('stream2segment.query_utils.url_read', return_value='url_read')
+# def test_get_stations(mock_url_read):
+#     mock_url_read.reset_mock()
+#     lst = get_stations('a', 'b', 'c', 'd', '5', '6')
+#     assert lst.empty
+#     assert not mock_url_read.called
+# 
+#     mock_url_read.reset_mock()
+#     with pytest.raises(TypeError):
+#         lst = get_stations('a', 'b',  datetime.utcnow(), '4', '3', '5')
+#         # assert not mock_url_read.called
+# 
+#     mock_url_read.reset_mock()
+#     lst = get_stations('a', 'b',  datetime.utcnow(), 4, 3, 5)
+#     assert lst.empty
+#     assert mock_url_read.called
+# 
+#     with patch('stream2segment.query_utils.get_time_range') as mock_get_timerange:
+#         mock_url_read.reset_mock()
+#         mock_get_timerange.return_value = (datetime.now(), datetime.now()+timedelta(seconds=1))
+#         d = datetime.now()
+#         mock_url_read.return_value = 'header\na|b|c'
+#         with pytest.raises(TypeError):
+#             lst = get_stations('dc', ['listCha'], d, 'lat', 'lon', 'dist')
+#             # mock_get_timerange.assert_called_with(d, 1)
+#             # assert not mock_url_read.called
+# 
+#         mock_url_read.reset_mock()
+#         with pytest.raises(IndexError):
+#             lst = get_stations('dc', ['listCha'], d, 3.1, 2.5, 1.1)
+#             # mock_get_timerange.assert_called_with(d, 1)
+#             # assert mock_url_read.called
+# 
+#         mock_url_read.reset_mock()
+#         mock_url_read.return_value = 'header\na|b|c|d|e|f|g|h'
+#         lst = get_stations('dc', ['listCha'], d, 3.1, 2.5, 1.1)
+#         mock_get_timerange.assert_called_with(d, days=1)
+#         assert mock_url_read.called
+#         assert lst.empty
+# 
+#         mock_url_read.reset_mock()
+#         mock_url_read.return_value = 'header\na|b|1|1.1|2.0|f|'+d.isoformat()+'|h'
+#         lst = get_stations('dc', ['listCha'], d, 3.1, 2.5, 1.1)
+#         mock_get_timerange.assert_called_with(d, days=1)
+#         assert mock_url_read.called
+#         assert len(lst) == 1
+#         assert lst[0][6] == d
+#         assert lst[0][7] == None
+# 
+#         mock_url_read.reset_mock()
+#         d2 = datetime.now()
+#         mock_url_read.return_value = 'header\na|b|1|1.1|2.0|f|'+d.isoformat()+'|'+d2.isoformat()
+#         lst = get_stations('dc', ['listCha'], d, 3.1, 2.5, 1.1)
+#         mock_get_timerange.assert_called_with(d, days=1)
+#         assert mock_url_read.called
+#         assert len(lst) == 1
+#         assert lst[0][6] == d
+#         assert lst[0][7] == d2
 
-    mock_url_read.reset_mock()
-    with pytest.raises(TypeError):
-        lst = get_stations('a', 'b',  datetime.utcnow(), '4', '3', '5')
-        # assert not mock_url_read.called
 
-    mock_url_read.reset_mock()
-    lst = get_stations('a', 'b',  datetime.utcnow(), 4, 3, 5)
-    assert lst.empty
-    assert mock_url_read.called
-
-    with patch('stream2segment.query_utils.get_time_range') as mock_get_timerange:
-        mock_url_read.reset_mock()
-        mock_get_timerange.return_value = (datetime.now(), datetime.now()+timedelta(seconds=1))
-        d = datetime.now()
-        mock_url_read.return_value = 'header\na|b|c'
-        with pytest.raises(TypeError):
-            lst = get_stations('dc', ['listCha'], d, 'lat', 'lon', 'dist')
-            # mock_get_timerange.assert_called_with(d, 1)
-            # assert not mock_url_read.called
-
-        mock_url_read.reset_mock()
-        with pytest.raises(IndexError):
-            lst = get_stations('dc', ['listCha'], d, 3.1, 2.5, 1.1)
-            # mock_get_timerange.assert_called_with(d, 1)
-            # assert mock_url_read.called
-
-        mock_url_read.reset_mock()
-        mock_url_read.return_value = 'header\na|b|c|d|e|f|g|h'
-        lst = get_stations('dc', ['listCha'], d, 3.1, 2.5, 1.1)
-        mock_get_timerange.assert_called_with(d, days=1)
-        assert mock_url_read.called
-        assert lst.empty
-
-        mock_url_read.reset_mock()
-        mock_url_read.return_value = 'header\na|b|1|1.1|2.0|f|'+d.isoformat()+'|h'
-        lst = get_stations('dc', ['listCha'], d, 3.1, 2.5, 1.1)
-        mock_get_timerange.assert_called_with(d, days=1)
-        assert mock_url_read.called
-        assert len(lst) == 1
-        assert lst[0][6] == d
-        assert lst[0][7] == None
-
-        mock_url_read.reset_mock()
-        d2 = datetime.now()
-        mock_url_read.return_value = 'header\na|b|1|1.1|2.0|f|'+d.isoformat()+'|'+d2.isoformat()
-        lst = get_stations('dc', ['listCha'], d, 3.1, 2.5, 1.1)
-        mock_get_timerange.assert_called_with(d, days=1)
-        assert mock_url_read.called
-        assert len(lst) == 1
-        assert lst[0][6] == d
-        assert lst[0][7] == d2
-
-
-@patch('stream2segment.query_utils.timedelta', side_effect=lambda *args, **kw: timedelta(*args, **kw))
-def test_get_timerange(mock_timedelta):
-    mock_timedelta.reset_mock()
-    d = datetime.utcnow()
-    d1, d2 = get_time_range(d, days=1)
-    assert d-d1 == d2-d == timedelta(days=1)
-
-    mock_timedelta.reset_mock()
-    d = datetime.utcnow()
-    d1, d2 = get_time_range(d, days=1, minutes=(1, 2))
-    assert d-d1 == timedelta(days=1, minutes=1)
-    assert d2-d == timedelta(days=1, minutes=2)
-
-    mock_timedelta.reset_mock()
-    d = datetime.utcnow()
-    _, _ = get_time_range(d, days=1)
-    assert mock_timedelta.called
-
-    mock_timedelta.reset_mock()
-    _, _ = get_time_range(d)
-    assert mock_timedelta.called
-
-    mock_timedelta.reset_mock()
-    _, _ = get_time_range(d, days=(1, 2))
-    assert mock_timedelta.called
-
-    mock_timedelta.reset_mock()
-    _, _ = get_time_range(d, days=(1, 2), minutes=1)
-    assert mock_timedelta.called
-
-    mock_timedelta.reset_mock()
-    with pytest.raises(Exception):
-        _, _ = get_time_range(d, days="abc", minutes=1)
-        # assert mock_timedelta.called
+# @patch('stream2segment.query_utils.timedelta', side_effect=lambda *args, **kw: timedelta(*args, **kw))
+# def test_get_timerange(mock_timedelta):
+#     mock_timedelta.reset_mock()
+#     d = datetime.utcnow()
+#     d1, d2 = get_time_range(d, days=1)
+#     assert d-d1 == d2-d == timedelta(days=1)
+# 
+#     mock_timedelta.reset_mock()
+#     d = datetime.utcnow()
+#     d1, d2 = get_time_range(d, days=1, minutes=(1, 2))
+#     assert d-d1 == timedelta(days=1, minutes=1)
+#     assert d2-d == timedelta(days=1, minutes=2)
+# 
+#     mock_timedelta.reset_mock()
+#     d = datetime.utcnow()
+#     _, _ = get_time_range(d, days=1)
+#     assert mock_timedelta.called
+# 
+#     mock_timedelta.reset_mock()
+#     _, _ = get_time_range(d)
+#     assert mock_timedelta.called
+# 
+#     mock_timedelta.reset_mock()
+#     _, _ = get_time_range(d, days=(1, 2))
+#     assert mock_timedelta.called
+# 
+#     mock_timedelta.reset_mock()
+#     _, _ = get_time_range(d, days=(1, 2), minutes=1)
+#     assert mock_timedelta.called
+# 
+#     mock_timedelta.reset_mock()
+#     with pytest.raises(Exception):
+#         _, _ = get_time_range(d, days="abc", minutes=1)
+#         # assert mock_timedelta.called
 
 
 # @patch('mod_a.urllib2.urlopen')
@@ -340,65 +460,6 @@ def test_get_timerange(mock_timedelta):
 #     print res
 #     assert res == 'resp2'
 
-@patch('stream2segment.utils.Request')
-@patch('stream2segment.utils.urlopen')
-def test_url_read(mock_urlopen, mock_urllib_request):  # mock_ul_urlopen, mock_ul_request, mock_ul):
-    blockSize = 1024*1024
-
-    mock_urllib_request.side_effect = lambda arx: arx
-
-    def xyz(argss):
-        return StringIO(argss)
-
-    # mock_ul.urlopen = Mock()
-    mock_urlopen.side_effect = xyz
-    # mock_ul.urlopen.return_value = lambda arg: StringIO(arg)
-
-    val = 'url'
-    assert url_read(val, "name") == val
-    mock_urllib_request.assert_called_with(val)
-    mock_urlopen.assert_called_with(val)
-    # mock_ul.urlopen.read.assert_called_with(blockSize)
-
-    def ioerr(**kwargs):
-        ret = IOError()
-        for key, value in kwargs.iteritems():
-            setattr(ret, key, value)
-        return ret
-
-    for kwz in [{'reason':'reason'}, {'code': 'code'}, {}]:
-        def xyz2(**kw):
-            raise ioerr(**kw)
-
-        mock_urlopen.side_effect = lambda arg: xyz2(**kwz)
-        assert url_read(val, "name") == ''
-        mock_urllib_request.assert_called_with(val)
-        mock_urlopen.assert_called_with(val)
-        assert not mock_urlopen.read.called
-
-    def xyz3():
-        raise ValueError()
-    mock_urlopen.side_effect = lambda arg: xyz3()
-    assert url_read(val, "name") == ''
-    mock_urllib_request.assert_called_with(val)
-    mock_urlopen.assert_called_with(val)
-    assert not mock_urlopen.read.called
-
-    def xyz4():
-        raise AttributeError()
-    mock_urlopen.side_effect = lambda arg: xyz4()
-    with pytest.raises(AttributeError):
-        _ = url_read(val, "name")
-
-    def xyz5(argss):
-        class sio(StringIO):
-            def read(self, *args, **kw):
-                raise IOError('oops')
-        return sio(argss)
-    mock_urlopen.side_effect = lambda arg: xyz5(arg)
-    assert url_read(val, "name") == ''
-    mock_urllib_request.assert_called_with(val)
-    mock_urlopen.assert_called_with(val)
     # mock_ul.urlopen.read.assert_called_with(blockSize)
 
 #     def excp():

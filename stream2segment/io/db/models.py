@@ -6,7 +6,7 @@ Created on Jul 15, 2016
 from pandas import to_datetime, to_numeric
 # from sqlalchemy import engine
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 from sqlalchemy import (
     Column,
     ForeignKey,
@@ -24,22 +24,10 @@ from sqlalchemy import (
     event)
 import datetime
 from sqlalchemy.orm.mapper import validates
+from sqlalchemy.orm.attributes import InstrumentedAttribute
 # from stream2segment.io.db.pd_sql_utils import get_col_names, get_cols
 # from sqlalchemy.sql.sqltypes import BigInteger, BLOB
 # from sqlalchemy.sql.schema import ForeignKey
-
-
-class attrdict(dict):
-    """A dict-like object whose keys can be accessed also as attributes
-    ```
-    d = attrdict(a=9, b='g')
-    d['a'] == d.a  # True
-    d['b'] == d.b  # True
-    ```
-    """
-    def __init__(self, *args, **kwargs):
-        dict.__init__(self, *args, **kwargs)
-        self.__dict__ = self
 
 
 _Base = declarative_base()
@@ -49,66 +37,22 @@ class Base(_Base):
 
     __abstract__ = True
 
-#     @classmethod
-#     def get_cols(cls):
-#         return get_cols(cls)
-
-    @classmethod
-    def get_col_names(cls, primary_keys=True, foreign_keys=True):
-        """Returns the column names, i.e. those attributes reflecting a db table column
-        Note that this method is also implemented in pd_sql_utils but we copy it here for
-        decoupling the two modules
-        """
-        if primary_keys and foreign_keys:
-            return cls.__table__.columns.keys()
-        elif not foreign_keys:
-            fkeys = set((fk.parent for fk in cls.__table__.foreign_keys))
-            return [k for k, c in cls.__table__.columns.items()
-                    if (primary_keys or not c.primary_key) and
-                    (foreign_keys or c not in fkeys)]
-        else:
-            return [k for k, c in cls.__table__.columns.items() if not c.primary_key]
-
     def __str__(self):
-        return ",\n".join("%s=%s" % (str(c), str(getattr(self, c))) for c in self.get_col_names())
+        cls = self.__class__
+        ret = cls.__name__ + ":"
+        for c, v in cls.__dict__.iteritems():
+            if isinstance(v, InstrumentedAttribute):
+                attstr = None
+                try:
+                    if v.type.python_type not in (str, int, float, datetime.datetime):
+                        attstr = str(v.type) + " (value not shown)"
+                except AttributeError:
+                    continue  # it might be a relationship
+                ret += "\n  %s: %s" % (c, attstr if attstr is not None else getattr(self, c))
+        return ret
 
-    def copy(self):
-        """Returns a copy of this object. Modifications made on attributes of the copy will not
-        affect this instance"""
-        return self.__class__(**{c: getattr(self, c) for c in self.get_col_names()})
 
-    def toattrdict(self, primary_keys=False, foreign_keys=False):
-        """Returns a dict-like object representing this instance. For convenience, the returned dict
-        keys can be also accessed as attributes
-        :param primary_keys: boolean (False by default): whether or not primary keys should be
-        copied. If False, the returned dict won't have attributes and keys corresponding to this
-        instance primary keys
-        :param foreign_keys: boolean (False by default): whether or not foreign keys should be
-        copied. If False, the returned dict won't have attributes and keys corresponding to this
-        instance foreign keys.
-        :Example:
-        ```
-        Event(id='4', latitude=67).toattrdict().latitude # returns 60
-        Event(id='4', latitude=67).toattrdict()['latitude'] # same as above, it's a dict object
-        Event(id='4', latitude=67).toattrdict().latitude # AttributeError: id primary key
-        Event(id='4', latitude=67, primary_keys=True).toattrdict().id # returns '4'
-        Event(**Event(latitude='4').toattrdict())  # returns a copy of the inner event
-        ```
-        """
-        # see:
-        # http://stackoverflow.com/questions/2441796/how-to-discover-table-properties-from-sqlalchemy-mapped-object
-        fkeys = set([]) if foreign_keys is True else set((fk.parent
-                                                          for fk in self.__table__.foreign_keys))
-        # note below: we removed the option "autocommit" cause all columns seem to have that
-        # attribute set to True
-        return attrdict(**{k: getattr(self, k) for k, c in self.__class__.__table__.columns.items()
-                           if (primary_keys or not c.primary_key) and
-                           (foreign_keys or c not in fkeys)})
-
-    def putindict(self, colnames=None):
-        if colnames is None:
-            colnames = self.get_col_names()
-        return attrdict(**{k: getattr(self, k) for k in colnames})
+#Base = declarative_base()
 
 
 class Run(Base):
@@ -128,8 +72,8 @@ class Run(Base):
     program_version = Column(String)
 
 
-def dc_datasel_default(context):
-    return context.current_parameters['station_query_url'].replace("/station", "/dataselect")
+# def dc_datasel_default(context):
+#     return context.current_parameters['station_query_url'].replace("/station", "/dataselect")
 
 
 class DataCenter(Base):
@@ -138,8 +82,8 @@ class DataCenter(Base):
     __tablename__ = "data_centers"
 
     id = Column(Integer, primary_key=True, autoincrement=True)  # pylint:disable=invalid-name
-    station_query_url = Column(String, nullable=False)
-    dataselect_query_url = Column(String, default=dc_datasel_default, onupdate=dc_datasel_default)
+    station_query_url = Column(String, nullable=False)  # if you change attr, see BELOW!
+    dataselect_query_url = Column(String, nullable=False)  # , default=dc_datasel_default, onupdate=dc_datasel_default)
 
     # segments = relationship("Segment", backref="data_centers")
     # stations = relationship("Station", backref="data_centers")
@@ -148,6 +92,22 @@ class DataCenter(Base):
                       UniqueConstraint('station_query_url', 'dataselect_query_url',
                                        name='sta_data_uc'),
                      )
+
+
+# standard decorator style for event listener. Note: we cannot implement validators otherwise
+# we have an infinite recursion loop!
+@event.listens_for(DataCenter, 'before_insert')
+@event.listens_for(DataCenter, 'before_update')
+def receive_before_update(mapper, connection, target):
+    """listen for the 'before_update' event. For info on validation see:
+     https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf
+    """
+    if target.station_query_url is not None and \
+            '/station/' in target.station_query_url and target.dataselect_query_url is None:
+        target.dataselect_query_url = target.station_query_url.replace("/station/", "/dataselect/")
+    elif target.dataselect_query_url is not None and \
+            '/dataselect/' in target.dataselect_query_url and target.station_query_url is None:
+        target.station_query_url = target.dataselect_query_url.replace("/dataselect/", "/station/")
 
 
 class Event(Base):
@@ -182,7 +142,7 @@ class Station(Base):
     __tablename__ = "stations"
 
     id = Column(String, primary_key=True)  # , default=sta_pkey_default, onupdate=sta_pkey_default)
-    # datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
+    datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
     network = Column(String, nullable=False)
     station = Column(String, nullable=False)
     latitude = Column(Float, nullable=False)
@@ -206,7 +166,7 @@ class Station(Base):
             self.id = "%s.%s" % vals
         return value
 
-    # datacenter = relationship("DataCenter", backref="stations")
+    datacenter = relationship("DataCenter", backref=backref("stations", lazy="dynamic"))
 
 
 # @event.listens_for(Station.network, 'set')
@@ -259,7 +219,7 @@ class Channel(Base):
             self.id = "%s.%s.%s" % vals
         return value
 
-    station = relationship("Station", backref="channels")
+    station = relationship("Station", backref=backref("channels", lazy="dynamic"))
 
 
 class SegmentClassAssociation(Base):
@@ -305,10 +265,10 @@ class Segment(Base):
     end_time = Column(DateTime, nullable=False)
     run_id = Column(Integer, ForeignKey("runs.id"), nullable=False)
 
-    event = relationship("Event", backref="segments")
-    channel = relationship("Channel", backref="segments")
-    datacenter = relationship("DataCenter", backref="segments")
-    run = relationship("Run", backref="segments")
+    event = relationship("Event", backref=backref("segments", lazy="dynamic"))
+    channel = relationship("Channel", backref=backref("segments", lazy="dynamic"))
+    datacenter = relationship("DataCenter", backref=backref("segments", lazy="dynamic"))
+    run = relationship("Run", backref=backref("segments", lazy="dynamic"))
 
 #    processings = relationship("Processing", backref="segments")
 
@@ -362,8 +322,8 @@ class Processing(Base):
     coda_r_value = Column(Float)  # correlation coefficient
     coda_is_ok = Column(Boolean)
 
-    segment = relationship("Segment", backref="processings")
-    run = relationship("Run", backref="processings")
+    segment = relationship("Segment", backref=backref("processings", lazy="dynamic"))
+    run = relationship("Run", backref=backref("processings", lazy="dynamic"))
 
     __table_args__ = (UniqueConstraint('segment_id', 'run_id', name='seg_run_uc'),)
 

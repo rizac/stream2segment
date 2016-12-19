@@ -1,3 +1,4 @@
+#@PydevCodeAnalysisIgnore
 '''
 Created on Jul 15, 2016
 
@@ -8,16 +9,18 @@ import unittest
 import datetime
 import numpy as np
 import os
-from stream2segment.s2sio.db import models
-from stream2segment.s2sio.db.models import Base  # This is your declarative base class
+from stream2segment.io.db import models
+from stream2segment.io.db.models import Base  # This is your declarative base class
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 import pandas as pd
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from stream2segment.s2sio.db.pd_sql_utils import _harmonize_columns, harmonize_columns,\
-    get_or_add_iter
-from stream2segment.s2sio.dataseries import dumps_inv, loads_inv
+from stream2segment.io.db.pd_sql_utils import _harmonize_columns, harmonize_columns,\
+    get_or_add_iter, harmonize_rows, colnames
+from stream2segment.io.dataseries import dumps_inv, loads_inv
 from sqlalchemy.orm.exc import FlushError
+from sqlalchemy.orm.attributes import InstrumentedAttribute
+from sqlalchemy.inspection import inspect
 
 
 class Test(unittest.TestCase):
@@ -71,7 +74,10 @@ class Test(unittest.TestCase):
 
     def test_inventory_io(self):
         from obspy.core.inventory.inventory import Inventory
-        e = models.Station(network='abc', station='f')
+        e = models.Station(network='abcwerwre', station='gwdgafsf',
+                           datacenter_id=self.session.query(models.DataCenter)[0].id,
+                           latitude=3,
+                           longitude=3)
 
         parentdir = os.path.dirname(os.path.dirname(__file__))
         invname = os.path.join(parentdir, "data", "inventory_GE.APE.xml")
@@ -83,10 +89,33 @@ class Test(unittest.TestCase):
         assert len(dumped_inv) < len(data)
         e.inventory_xml = dumped_inv
 
+        self.session.add(e)
         self.session.commit()
         inv_xml = loads_inv(e.inventory_xml)
 
         assert isinstance(inv_xml, Inventory)
+        
+        inv_count = self.session.query(models.Station).filter(models.Station.inventory_xml != None).count()
+        stationsc = self.session.query(models.Station).count()
+        
+        # test what happens deleting it:
+        ret = self.session.query(models.Station).\
+            filter(models.Station.inventory_xml!=None).\
+            update({models.Station.inventory_xml: None})
+        assert ret == inv_count
+        
+        self.session.commit()
+        # assert we did not delete stations, but also their inventories:
+        assert self.session.query(models.Station).count() == stationsc
+        
+        # test what happens deleting it (DANGER: WE ARE NOT DELETING ONLY invenotry_xml, SEE BELOW):
+        ret = self.session.query(models.Station.inventory_xml).delete()
+        assert ret == stationsc
+        self.session.commit()
+        
+        # SHIT< WE DELETED ALL STATIONS IN THE COMMAND ABOVE, NOT ONLY inventory_xml!!
+        # now delete only nonnull, should return zero:
+        assert self.session.query(models.Station).count() == 0
         
         
     def testSqlAlchemy(self):
@@ -104,7 +133,8 @@ class Test(unittest.TestCase):
         assert run_row.id is None
 
         # test that methods of the base class work:
-        assert len(run_row.get_col_names()) > 0
+        cnames = list(colnames(run_row.__class__))
+        assert len(cnames) > 0
 
         # test id is auto added:
         self.session.add_all([run_row])
@@ -165,14 +195,23 @@ class Test(unittest.TestCase):
         self.session.commit()
         assert e.latitude == float(val)
 
+        # create a datacenter WITHOUT the two fields stations and dataselect
         dc = models.DataCenter(station_query_url='abc')
+        with pytest.raises(IntegrityError):
+            self.session.add(dc)
+            self.session.flush()
+            
+        self.session.rollback()
+        
+        # now add it properly:
+        dc = models.DataCenter(station_query_url='abc', dataselect_query_url='edf')
         self.session.add(dc)
         self.session.flush()
 
         # test stations auto id (concat):
-        # first test non-specified non-null fields (should reaise an IntegrityError)
+        # first test non-specified non-null fields datacenter_id (should reaise an IntegrityError)
         e = models.Station(network='abc', station='f')
-        assert e.id is None
+        assert e.id == "abc.f"
         self.session.add(e)
         # we do not have specified all non-null fields:
         with pytest.raises(IntegrityError):
@@ -180,29 +219,29 @@ class Test(unittest.TestCase):
         self.session.rollback()
 
         # now test auto id
-        e = models.Station(network='abc', station='f', latitude='89.5', longitude='56')
-        assert e.id is None
+        e = models.Station(network='abc', datacenter_id=dc.id, station='f', latitude='89.5', longitude='56')
+        assert e.id == "abc.f"
         self.session.add(e)
         # we do not have specified all non-null fields:
         self.session.commit()
         assert e.id == "abc.f"
 
         # test unique constraints by changing only network
-        sta = models.Station(network='a', station='f', latitude='89.5', longitude='56')
+        sta = models.Station(network='a', datacenter_id=dc.id, station='f', latitude='89.5', longitude='56')
         self.session.add(sta)
         # we do not have specified all non-null fields:
         self.session.commit()
         assert sta.id == "a.f"
 
         # now re-add it. Unique constraint failed
-        sta = models.Station(network='a', station='f', latitude='189.5', longitude='156')
+        sta = models.Station(network='a', datacenter_id=dc.id, station='f', latitude='189.5', longitude='156')
         self.session.add(sta)
         with pytest.raises(IntegrityError):
             self.session.commit()
         self.session.rollback()
 
         # test stations channels relationship:
-        sta = models.Station(network='ax', station='f', latitude='89.5', longitude='56')
+        sta = models.Station(network='ax', datacenter_id=dc.id, station='f', latitude='89.5', longitude='56')
         # write channels WITHOUT foreign key
         cha1 = models.Channel(location='l', channel='HHZ', sample_rate=56)
         cha2 = models.Channel(location='l', channel='HHN', sample_rate=12)
@@ -271,19 +310,22 @@ class Test(unittest.TestCase):
         assert len(self.session.query(models.Event).all()) == events+1
             
     def test_pd_to_sql(self):
-        dc = models.DataCenter(station_query_url='awergedfbvdbfnhfsnsbstndggf ')
+        dc = models.DataCenter(station_query_url='awergedfbvdbfnhfsnsbstndggf ',
+                               dataselect_query_url='edf')
         self.session.add(dc)
         self.session.commit()
         
         id = 'abcdefghilmnopq'
         utcnow = datetime.datetime.utcnow()
-        e = models.Station(id="a.b", network='a', station='b', latitude=56, longitude=78)
+        e = models.Station(id="a.b", network='a', datacenter_id=dc.id, station='b', latitude=56, longitude=78)
         self.session.add(e)
         self.session.commit()
-#         
-        df = pd.DataFrame(columns=models.Station.get_col_names(), data=[[None for _ in models.Station.get_col_names()]])
+
+        stacolnames = list(colnames(models.Station))
+        df = pd.DataFrame(columns=stacolnames, data=[[None for _ in stacolnames]])
         df.loc[0, 'id'] = id + '.j'
         df.loc[0, 'network'] = id
+        df.loc[0, 'datacenter_id'] = dc.id
         df.loc[0, 'station'] = 'j'
         df.loc[0, 'latitude'] = 43
         df.loc[0, 'longitude'] = 56.7
@@ -333,7 +375,7 @@ class Test(unittest.TestCase):
 
 
     def test_event_sta_channel_seg(self):
-        dc= models.DataCenter(station_query_url="345635434246354765879685432efbdfnrhytwfesdvfbgfnyhtgrefs")
+        dc= models.DataCenter(station_query_url="345fbgfnyhtgrefs", dataselect_query_url='edfawrefdc')
         self.session.add(dc)
 
         utcnow = datetime.datetime.utcnow()
@@ -345,8 +387,10 @@ class Test(unittest.TestCase):
         e = models.Event(id=id, time=utcnow, latitude=89.5, longitude=6,
                          depth_km=7.1, magnitude=56)
         self.session.add(e)
+        
+        self.session.commit()  # refresh datacenter id (alo flush works)
 
-        s = models.Station(network='sdf', station='_', latitude=90, longitude=-45)
+        s = models.Station(network='sdf', datacenter_id=dc.id, station='_', latitude=90, longitude=-45)
         self.session.add(s)
 
         c = models.Channel(location= 'tyu', channel='rty', sample_rate=6)
@@ -359,7 +403,7 @@ class Test(unittest.TestCase):
         e, added = self.get_or_add(self.session, e)
         assert added == False
 
-        s = models.Station(network='sdf', station='_', latitude=90, longitude=-45)
+        s = models.Station(network='sdf', datacenter_id=dc.id, station='_', latitude=90, longitude=-45)
         s, added = self.get_or_add(self.session, s, 'network', 'station')
         assert added == False
         
@@ -378,7 +422,7 @@ class Test(unittest.TestCase):
         with pytest.raises(IntegrityError):
             self.session.commit()
         self.session.rollback()
-        
+
         # set necessary attributes
         seg.event_id = e.id
         seg.datacenter_id = dc.id
@@ -387,20 +431,41 @@ class Test(unittest.TestCase):
         # and now it will work:
         self.session.add(seg)
         self.session.commit()
-        
-        # Create a copy of the instance, with same value. We should excpect a UniqueConstraint
+
+        # FUNCTION TO CREATE A DEEPCOPY OF AN INSTANCE
+        # NOTE: THE FUNCTION BELOW WAS A BOUND METHOD TO THE Base Class.
+        # (we kept the self argument for that reason) AND COPIES 'COLUMNS' (including primary keys)
+        # BUT ALSO RELATIONSHIPS (everything that is an InstrumentedAtrribute)
+        # This method might be handy but needs more investigation especially on two subjects:
+        # what detached elements, and relationships
+        # (http://stackoverflow.com/questions/20112850/sqlalchemy-clone-table-row-with-relations?lq=1
+        #  http://stackoverflow.com/questions/14636192/sqlalchemy-modification-of-detached-object)
+        # so let's move it here for the moment:
+        def COPY(self):
+            cls = self.__class__
+            mapper = inspect(cls)
+            # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper.mapped_table
+            table = mapper.mapped_table
+            return cls(**{c: getattr(self, c) for c in mapper.columns.keys()})
+
+        # Create a copy of the instance, with same value.
+        # We should excpect a UniqueConstraint
         # but we actually get a FlushErro (FIXME: check difference). Anyway the exception is:
         # FlushError: New instance <Segment at 0x11295cf10> with identity key
         # (<class 'stream2segment.s2sio.db.models.Segment'>, (1,)) conflicts with persistent
         # instance <Segment at 0x11289bb50>
-        seg_ = seg.copy()
+        # See this:
+        # http://stackoverflow.com/questions/14636192/sqlalchemy-modification-of-detached-object
+        k = str(seg)
+        seg_ = COPY(seg)  # seg.copy()
         self.session.add(seg_)
         with pytest.raises(FlushError):
             self.session.commit()
         self.session.rollback()
-        
+
         # It seems that qlalchemy keeps track
-        # of the instance object linked to a db row.
+        # of the instance object linked to a db row. Also see this link found later:
+        # (http://stackoverflow.com/questions/14636192/sqlalchemy-modification-of-detached-object)
         # Take the seg object (already added and committed) change ITS id to force even more
         # the "malformed" case, but we won't have any exceptions
         s1 = self.session.query(models.Segment).all()
@@ -409,10 +474,9 @@ class Test(unittest.TestCase):
         self.session.commit()
         s2 = self.session.query(models.Segment).all()
         assert len(s1) == len(s2)
-        
-        
+
         # anyway, now add a new segment
-        seg_ = seg.copy()
+        seg_ = COPY(seg)
         seg_.id = None  # autoincremented
         seg_.end_time += datetime.timedelta(seconds=1) # safe unique constraints
         self.session.add(seg_)
@@ -423,7 +487,7 @@ class Test(unittest.TestCase):
         # select segments which do not have processings (all)
         s = self.session.query(models.Segment).filter(~models.Segment.processings.any()).all()  # @UndefinedVariable
         assert len(s) == 2
-        
+
         seg1, seg2 = s[0], s[1]
         pro = models.Processing(run_id=run.id)
         pro.segment = seg1
@@ -431,8 +495,37 @@ class Test(unittest.TestCase):
         self.session.flush()  # updates id or foreign keys related to the relation above
         assert pro.segment_id == seg1.id
 
-        # check changing segment and segment id and see if the other gets updated
+        self.tst_get_cols(seg)
+
+
+    def tst_get_cols(self, seg):
         
+        clen = len(seg.__class__.__table__.columns)
+        
+        cols = seg.__table__.columns
+        c = list(colnames(seg.__class__))  # or models.Segment
+        assert len(c) == clen
+
+        c = list(colnames(seg.__class__, pkey=False))
+        assert len(c) == clen - 1
+
+        c = list(colnames(seg.__class__, pkey=True))
+        assert len(c) == 1
+
+        c = list(colnames(seg.__class__, fkey=False))
+        assert len(c) == clen - 4
+
+        c = list(colnames(seg.__class__, fkey=True))
+        assert len(c) == 4
+
+        c = list(colnames(seg.__class__, nullable=True))
+        assert len(c) == 0
+
+        c = list(colnames(seg.__class__, nullable=False))
+        assert len(c) == clen
+
+        # check changing segment and segment id and see if the other gets updated
+
         # what happens if we change segment_id?
 #         pro.segment_id = seg2.id
 #         assert pro.segment_id != seg2.id and pro.segment.id == seg1.id
@@ -484,25 +577,21 @@ class Test(unittest.TestCase):
 #         c.segments.append(seg)
 #         self.session.flush()
         
-    def test_toattrdict(self):
-#         e = models.Event(id='abc')
+#     def test_toattrdict(self):
 #         
-#         s = models.Station(network='n', station='s')
-        
-        c = models.Channel(location='l', channel='c')
-#         c.station = s
-        
-        adict = c.toattrdict()
-        assert 'id' not in adict and 'station_id' not in adict
-        
-        adict = c.toattrdict(primary_keys=True)
-        assert 'id' in adict and 'station_id' not in adict
-        
-        adict = c.toattrdict(foreign_keys=True)
-        assert 'id' not in adict and 'station_id' in adict
-        
-        adict = c.toattrdict(primary_keys=True, foreign_keys=True)
-        assert 'id' in adict and 'station_id' in adict
+#         c = models.Channel(location='l', channel='c')
+#         
+#         adict = c.toattrdict()
+#         assert 'id' not in adict and 'station_id' not in adict
+#         
+#         adict = c.toattrdict(primary_keys=True)
+#         assert 'id' in adict and 'station_id' not in adict
+#         
+#         adict = c.toattrdict(foreign_keys=True)
+#         assert 'id' not in adict and 'station_id' in adict
+#         
+#         adict = c.toattrdict(primary_keys=True, foreign_keys=True)
+#         assert 'id' in adict and 'station_id' in adict
         
         
         
@@ -511,18 +600,19 @@ class Test(unittest.TestCase):
         id = 'abcdefghilmnopq'
         utcnow = datetime.datetime.utcnow()
 
-        df = pd.DataFrame(columns=models.Event.get_col_names(),
-                          data=[[None for _ in models.Event.get_col_names()]])
+        eventcolnames = list(colnames(models.Event))
+        df = pd.DataFrame(columns=eventcolnames,
+                          data=[[None for _ in eventcolnames]])
 
 
         # add a column which is NOT on the table:
         colx = 'iassdvgdhrnjynhnt_________'
         df.insert(0, colx, 1)
 
-        colnames, df2 = _harmonize_columns(models.Event, df)
+        cnames, df2 = _harmonize_columns(models.Event, df)
 
         # colx is not part of the Event model:
-        assert colx not in colnames
+        assert colx not in cnames
 
         # df2 has been modified in place actually:
         assert (df.dtypes == df2.dtypes).all()
@@ -542,28 +632,39 @@ class Test(unittest.TestCase):
         assert df2types[models.Event.author.key] == object
         
         
-        df3 = harmonize_columns(models.Event, df2)[colnames] # this calls _harmonize_columns above
+        df3 = harmonize_columns(models.Event, df2)[cnames] # this calls _harmonize_columns above
         
         assert colx not in df3.columns
         
         
         
+        
+        
         # now try to see with invalid values for floats
-        dfx = pd.DataFrame(columns=models.Event.get_col_names(),
-                          data=[["a" for _ in models.Event.get_col_names()]])
+        evcolnames = list(colnames(models.Event))
+        dfx = pd.DataFrame(columns=evcolnames,
+                          data=[["a" for _ in evcolnames]])
         
         _harmonize_columns(models.Event, dfx)
         
         # df2 and dfx should have the same dtypes:
-        assert (dfx.dtypes == df2[colnames].dtypes).all()
+        assert (dfx.dtypes == df2[cnames].dtypes).all()
         
         # fast check: datetimes and a float field
         assert pd.isnull(dfx.loc[0, models.Event.time.key])
         assert pd.isnull(dfx.loc[0, models.Event.longitude.key])
         
+        # check harmonize rows: invalid rows should be removed (we have 1 invalid row)
+        oldlen = len(dfx)
+        dfrows = harmonize_rows(models.Event, dfx, inplace=False)
+        assert len(dfrows) ==0 and len(dfx) == oldlen
+        # check inplace = True
+        dfrows = harmonize_rows(models.Event, dfx, inplace=True)
+        assert len(dfrows) == len(dfx) == 0
         
-        dfx = pd.DataFrame(columns=models.Event.get_col_names(),
-                          data=[["a" for _ in models.Event.get_col_names()]])
+        # go on by checking harmonize_columns. FIXME: what are we doing here below?
+        dfx = pd.DataFrame(columns=evcolnames,
+                          data=[["a" for _ in evcolnames]])
         
         dfx.loc[0, models.Event.time.key] = utcnow
         dfx.loc[0, models.Event.latitude.key] = 6.5
@@ -580,8 +681,38 @@ class Test(unittest.TestCase):
         
         g = 9
         
-    def test_context_man(self):
-        pass
+    def test_query_get(self):
+        # query.get() is special in that it provides direct access to the identity map of the owning
+        # Session. If the given primary key identifier is present in the local identity map,
+        # the object is returned directly from this collection and no SQL is emitted,
+        # unless the object has been marked fully expired. If not present, a SELECT is performed
+        # in order to locate the object.
+        n = 'tyyugibib'
+        s = 'lbibjfd'
+        dc= models.DataCenter(station_query_url="345fbg666tgrefs", dataselect_query_url='edfawrptojfh')
+        self.session.add(dc)
+        assert dc.id == None
+        self.session.flush()  # or commit()
+        assert dc.id != None
+        
+        sta = models.Station(station=s, network=n, datacenter_id=dc.id,
+                             latitude=5, longitude=9)
+        q = self.session.query(models.Station)
+        
+        staq = q.get(n+"."+s)
+        assert staq is None
+        self.session.add(sta)
+        staq = q.get(n+"."+s)
+        assert staq is not None
+        
+        # works also with tuples, in case of primary key(s)
+        staq = q.get((n+"."+s,))
+        assert staq is not None
+        
+        # what if id is None? what does it return? well it should be None right?
+        staq = q.get((None,))
+        assert staq is None
+
 #     def dontrunthis_pdsql_utils(self): 
 #         event_rows = df_to_table_rows(models.Event, df3)
 #         

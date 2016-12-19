@@ -3,7 +3,9 @@ Created on Nov 25, 2016
 
 @author: riccardo
 '''
+import re
 from datetime import timedelta
+from collections import defaultdict
 import numpy as np
 import pandas as pd
 from sqlalchemy import and_
@@ -13,30 +15,34 @@ from obspy.taup.helper_classes import TauModelError
 from stream2segment.utils.url import url_read
 from stream2segment.io.db import models
 from stream2segment.io.db.pd_sql_utils import harmonize_columns,\
-    harmonize_rows, df2dbiter, get_or_add_iter
+    harmonize_rows, df2dbiter, get_or_add_iter, colnames
 from obspy.taup.taup_time import TauPTime
+from itertools import izip, count
+from stream2segment.io.dataseries import dumps_inv
 
 
-def get_min_travel_time(source_depth_in_km, distance_in_degree, model='ak135'):
+def get_min_travel_time(source_depth_in_km, distance_in_degree, traveltime_phases, model='ak135'):
     """
         Assess and return the minimum travel time of P phases.
         Uses obspy.getTravelTimes
         :param source_depth_in_km: (float) Depth in kilometer.
         :param distance_in_degree: (float) Distance in degrees.
-        :param model: string (optional, default 'ak135') the model. Either an internal obspy TauPy
+        :param model: string (optional, default 'ak135') or model. Either an internal obspy TauPy
         model name, as string (see https://docs.obspy.org/packages/obspy.taup.html) or an instance
         of :ref:`obspy.taup.tau.TauPyModel
+        :param traveltime_phases: a list of strings specifying the phases to calculate, e.g.
+        ['P', 'pP'].See FIXME: update ref
         :return the number of seconds of the assessed arrival time, or None in case of error
         :raises: TauModelError, ValueError (if no travel time was found)
     """
-    taupmodel = model if hasattr(model, 'get_travel_times') else TauPyModel(model)
+    try:
+        taupmodel = TauPyModel(model)
+    except TypeError:
+        taupmodel = model  # ok, we assume the argument is already a TaupModel then
 
-    phase_list = ('P', 'p', 'pP', 'PP')  # , 'pp')
-    # ("ttall",)  # FIXME: check if we can restrict!
-    # see:
-    # https://docs.obspy.org/packages/obspy.taup.html
+    # see: https://docs.obspy.org/packages/obspy.taup.html
     receiver_depth_in_km = 0.0
-    tt = TauPTime(taupmodel.model, phase_list, source_depth_in_km,
+    tt = TauPTime(taupmodel.model, traveltime_phases, source_depth_in_km,
                   distance_in_degree, receiver_depth_in_km)
     tt.run()
     # now instead of doing this (excpensive):
@@ -50,38 +56,7 @@ def get_min_travel_time(source_depth_in_km, distance_in_degree, model='ak135'):
         raise ValueError("No travel times found")
 
 
-# def _get_min_travel_time(source_depth_in_km, distance_in_degree, model='ak135'):
-#     """
-#         Assess and return the travel time of P phases.
-#         Uses obspy.getTravelTimes
-#         :param source_depth_in_km: Depth in kilometer.
-#         :type source_depth_in_km: float
-#         :param distance_in_degree: Distance in degrees.
-#         :type distance_in_degree: float
-#         :param model: Either ``'iasp91'`` or ``'ak135'`` velocity model.
-#          Defaults to 'ak135'.
-#         :type model: str, optional
-#         :return the number of seconds of the assessed arrival time, or None in case of error
-#         :raises: TauModelError, ValueError (if travel times is empty)
-#     """
-#     taupmodel = TauPyModel(model)
-#     try:
-#         tt = taupmodel.get_travel_times(source_depth_in_km, distance_in_degree)
-#         # return min((ele['time'] for ele in tt if (ele.get('phase_name') or ' ')[0] == 'P'))
-# 
-#         # Arrivals are returned already sorted by time!
-#         return tt[0].time
-# 
-#         # return min(tt, key=lambda x: x.time).time
-#         # return min((ele.time for ele in tt))
-#     except (TauModelError, ValueError, AttributeError) as err:
-#         raise ValueError(("Unable to find minimum travel time (dist=%s, depth=%s, model=%s). "
-#                           "Source error: %s: %s"),
-#                          str(distance_in_degree), str(source_depth_in_km), str(model),
-#                          err.__class__.__name__, str(err))
-
-
-def get_arrival_time(distance_in_degrees, ev_depth_km, ev_time, model='ak135'):
+def get_arrival_time(distance_in_degrees, ev_depth_km, ev_time, traveltime_phases, model='ak135'):
     """
         Returns the arrival time by calculating the minimum travel time of p-waves
         :param distance_in_degrees: (float) the distance in degrees between station and event
@@ -92,7 +67,7 @@ def get_arrival_time(distance_in_degrees, ev_depth_km, ev_time, model='ak135'):
         of :ref:`obspy.taup.tau.TauPyModel
         :return: the P-wave arrival time
     """
-    travel_time = get_min_travel_time(ev_depth_km, distance_in_degrees, model)
+    travel_time = get_min_travel_time(ev_depth_km, distance_in_degrees, traveltime_phases, model)
     arrival_time = ev_time + timedelta(seconds=float(travel_time))
     return arrival_time
 
@@ -112,24 +87,33 @@ def get_search_radius(mag, mmin=3, mmax=7, dmin=1, dmax=5):
              ---------+-------+------------
                     mmin     mmax
 
+    :return: the max radius (in degrees)
+    :param mag: (numeric or list or numbers/numpy.array) the magnitude
+    :param mmin: (int, float) the minimum magnitude
+    :param mmax: (int, float) the maximum magnitude
+    :param dmin: (int, float) the minimum distance (in degrees)
+    :param dmax: (int, float) the maximum distance (in degrees)
+    :return: a scalar if mag is scalar, or an numpy.array
     """
-    isscalar = np.isscalar(mag)  # for converting back to scalar later
-    mag = np.array(mag)  # copies data
-    mag[mag < mmin] = dmin
-    mag[mag > mmax] = dmax
-    mag[(mag >= mmin) & (mag <= mmax)] = dmin + (dmax - dmin) / (mmax - mmin) * \
-        (mag[(mag >= mmin) & (mag <= mmax)] - mmin)
+    dist = np.array(mag)  # copies data
+    isscalar = not dist.shape
+    if isscalar:
+        dist = np.array(mag, ndmin=1)  # copies data, assures an array of dim=1
+    dist = dmin + np.true_divide(dmax - dmin, mmax - mmin) * (dist - mmin)
+    dist[dist <= dmin] = dmin
+    dist[dist >= dmax] = dmax
 
-    return mag[0] if isscalar else mag
+    return dist[0] if isscalar else dist
+    # return mag[0] if isscalar else mag
 
 
-def get_max_radia(events, *search_radius_args):
-    """Returns the max radia for any event in events
-    :param events: an iterable of objects with the attribute `time` (numeric). ORM model instances
-    of the class `Event` are such objects (see `models.py`)
-    """
-    magnitudes = np.array([evt.magnitude for evt in events])
-    return get_search_radius(magnitudes, *search_radius_args)
+# def get_max_radia(events, *search_radius_args):
+#     """Returns the max radia for any event in events
+#     :param events: an iterable of objects with the attribute `time` (numeric). ORM model instances
+#     of the class `Event` are such objects (see `models.py`)
+#     """
+#     magnitudes = np.array([evt.magnitude for evt in events])
+#     return get_search_radius(magnitudes, *search_radius_args)
 
 
 # ==========================================
@@ -190,7 +174,7 @@ def rename_columns(query_df, query_type):
 
     Event, Station, Channel = models.Event, models.Station, models.Channel
     if query_type.lower() == "event" or query_type.lower() == "events":
-        columns = Event.get_col_names()
+        columns = list(colnames(Event))
     elif query_type.lower() == "station" or query_type.lower() == "stations":
         # these are the query_df columns for a station (level=station) query:
         #  #Network|Station|Latitude|Longitude|Elevation|SiteName|StartTime|EndTime
@@ -352,83 +336,241 @@ def get_query(*urlpath, **query_args):
                           "&".join("{}={}".format(k, v) for k, v in query_args.iteritems()))
 
 
-def save_stations_df(session, stations_df):
-    """
-        stations_df is already harmonized. If saved, it is appended a column 
-        `models.Channel.station_id.key` with nonNull values
-        FIXME: add logger capabilities!!!
-    """
-    sta_ids = []
-    for sta, _ in get_or_add_iter(session,
-                                  df2dbiter(stations_df, models.Station, False, False),
-                                  [models.Station.network, models.Station.station],
-                                  on_add='commit'):
-        sta_ids.append(None if sta is None else sta.id)
-
-    stations_df[models.Channel.station_id.key] = sta_ids
-    channels_df = stations_df.dropna(subset=[models.Channel.station_id.key])
-
-    cha_ids = []
-    for cha, _ in get_or_add_iter(session,
-                                  df2dbiter(channels_df, models.Channel, False, False),
-                                  [models.Channel.station_id, models.Channel.location,
-                                   models.Channel.channel],
-                                  on_add='commit'):
-        cha_ids.append(None if cha is None else cha.id)
-
-    channels_df = channels_df.drop(models.Channel.station_id.key, axis=1)  # del station_id column
-    channels_df[models.Channel.id.key] = cha_ids
-    channels_df.dropna(subset=[models.Channel.id.key], inplace=True)
-    channels_df.reset_index(drop=True, inplace=True)  # to be safe
-    return channels_df
+def get_inventory_query(station):
+    return get_query(station.datacenter.station_query_url, station=station.station, network=station.network,
+                     level='response')
 
 
-# def get_segments_df(session, stations_df, evt, ptimespan,
-#                     distances_cache_dict, arrivaltimes_cache_dict):
+# def get_inventory(station, session=None, **kwargs):
+#     """raises tons of exceptions (see main). FIXME: write doc
+#     :param session: if **not** None but a valid sqlalchemy session object, then
+#     the inventory, if downloaded because not present, will be saveed to the db (compressed)
 #     """
-#     FIXME: write doc
-#     stations_df must have a column named `models.Channel.id.key`
-#     Downloads stations and channels, saves them , returns a well formatted pd.DataFrame
-#     with the segments ready to be downloaded
+#     data = segment.channel.station.inventory_xml
+#     if not data:
+#         query_url = get_inventory_query(station)
+#         data = url_read(query_url, **kwargs)
+#         if session and data:
+#             station.inventory_xml = dumps_inv(data)
+#             session.commit()
+#         elif not data:
+#             raise ValueError("No data from server")
+#     return loads_inv(data)
+
+# def purge_already_downloaded(session, segments_df):  # FIXME: use apply?
+#     """Does what the name says removing all segments aready downloaded. Returns a new DataFrame
+#     which is equal to segments_df with rows, representing already downloaded segments, removed"""
+#     notyet_downloaded_filter =\
+#         [False if session.query(models.Segment).
+#          filter((models.Segment.channel_id == seg.channel_id) &
+#                 (models.Segment.start_time == seg.start_time) &
+#                 (models.Segment.end_time == seg.end_time)).first() else True
+#          for _, seg in segments_df.iterrows()]
+# 
+#     return segments_df[notyet_downloaded_filter]
+# 
+# 
+# def set_wav_queries(datacenter, stations_df, segments_df, queries_colname=' url '):
+#     """
+#     Appends a new column to `stations_df` with name `queries_colname` (which is supposed **not**
+#     to exist, otherwise data might be overridden or unexpected results might happen): the given
+#     column will have the datacenter query url for any given row representing a segment to be
+#     downloaded. The given dataframe must have all necessary columns
 #     """
 # 
-#     segments_df = calculate_times(stations_df, evt, ptimespan, distances_cache_dict,
-#                                   arrivaltimes_cache_dict, session=session)
+#     queries = [get_query(datacenter.dataselect_query_url,
+#                          network=sta[models.Station.network.key],
+#                          station=sta[models.Station.station.key],
+#                          location=sta[models.Channel.location.key],
+#                          channel=sta[models.Channel.channel.key],
+#                          start=seg[models.Segment.start_time.key].isoformat(),
+#                          end=seg[models.Segment.end_time.key].isoformat())
+#                for (_, sta), (_, seg) in zip(stations_df.iterrows(), segments_df.iterrows())]
 # 
-#     segments_df[models.Segment.channel_id.key] = stations_df[models.Channel.id.key]
-#     segments_df[models.Segment.event_id.key] = evt.id
+#     segments_df[queries_colname] = queries
 #     return segments_df
 
 
-def purge_already_downloaded(session, segments_df):  # FIXME: use apply?
-    """Does what the name says removing all segments aready downloaded. Returns a new DataFrame
-    which is equal to segments_df with rows, representing already downloaded segments, removed"""
-    notyet_downloaded_filter =\
-        [False if session.query(models.Segment).
-         filter((models.Segment.channel_id == seg.channel_id) &
-                (models.Segment.start_time == seg.start_time) &
-                (models.Segment.end_time == seg.end_time)).first() else True
-         for _, seg in segments_df.iterrows()]
-
-    return segments_df[notyet_downloaded_filter]
-
-
-def set_wav_queries(datacenter, stations_df, segments_df, queries_colname=' url '):
+class UrlStats(dict):
+    """A subclass of dict to store keys (usually messages, i.e. strings) mapped to their occurrence
+    (integers).
+    When getting a particular key, an instance of this class returns 0 if the key is not found (as
+    `colelctions.defaultdict` does) without raising any exception. When setting or getting a key,
+    `Exception`s are first converted to the string format:
+    ```
+    exception.__class__.__name__+ ": " + str(exception)
+    ```
+    and then handled normally. The name stems from the fact that this class is used to pass either
+    message strings or URL/HTTP/connection errors when querying data.
+    Example:
+    ```
+        s = UrlStats()
+        print s['a']
+        >>> 0
+        s['a'] += 3
+        print s
+        >>> {'a' : 3}
+        s[Exception('a')] = 5
+        print s[Exception('a')]
+        >>> 5
+        print s['Exception: a']
+        >>> 5
+    ```
     """
-    Appends a new column to `stations_df` with name `queries_colname` (which is supposed **not**
-    to exist, otherwise data might be overridden or unexpected results might happen): the given
-    column will have the datacenter query url for any given row representing a segment to be
-    downloaded. The given dataframe must have all necessary columns
+    @staticmethod
+    def re(value):
+        return re.compile("(?<!\\w)%s(?!\\w)" % re.escape(str(value)))
+
+    @staticmethod
+    def convert(key):
+        if isinstance(key, Exception):
+            exc_msg = str(key)
+            # be sure to print the 'reason' or 'code' attribute (if any, and if they are
+            # not already in exc_msg:
+            if hasattr(key, 'code') and not UrlStats.re(key.code).search(exc_msg):
+                # code not already in string (it should be the case in general), add it:
+                exc_msg += " [code=%s]" % str(key.code)
+            elif hasattr(key, 'reason') and not UrlStats.re(key.reason).search(exc_msg):
+                # reason not already in string, add it:
+                exc_msg += " [reason=%s]" % str(key.reason)
+            if not exc_msg.startswith("HTTP Error") or ":" not in exc_msg:
+                # HTTPError usually starts with "HTTP Error", so in that case skip this part:
+                key = "%s: %s" % (key.__class__.__name__, exc_msg)
+            else:
+                key = exc_msg
+        return key
+
+    def __setitem__(self, key, value):
+        super(UrlStats, self).__setitem__(UrlStats.convert(key), value)
+
+    def __missing__(self, key):
+        key = UrlStats.convert(key)
+        return self.get(key, 0)
+
+
+def stats2str(data, fillna=None, transpose=False,
+              lambdarow=None, lambdacol=None, sort=None,
+              totals='all', totals_caption='TOTAL', *args, **kwargs):
     """
+        Returns a string representation of `data` nicely formatted in a table. The argument `data`
+        is any valid object which can be passed to a pandas.DataFrame as 'data' argument. In the
+        most simple and typical case, it is a dict of string keys K mapped to dicts (or pandas
+        Series) D: {..., K: D, ....}.
+        **Each D will be represented in a column with its key k as column header** (unless transpose
+        is True, see below)
+        :Example:
+        ```
+        stats2str(data={
+                        'col1': {'a': 9, 'b': 3},
+                        'col2': pd.Series({'a': -1, 'c': 0})
+                       })
+        # result (note missing values filled with zero and totals calculated by default):
+                col1  col2  total
+        a         9    -1      8
+        b         3     0      3
+        c         0     0      0
+        total    12    -1     11
+        :param data: numpy ndarray (structured or homogeneous), dict, or DataFrame
+        Dict can contain Series, arrays, constants, or list-like objects. The data to display
+        If dict containing sub-dicts D, each D will be
+        displayed in columns, and `data.keys()` K will be the column names. In this case, the union
+        U of each D key will populate the row headers. If transpose=True, the table/DataFrame will
+        be transposed, thus columns become rows, and viceversa (see below). The cell table value
+        of a key found in a certain D and missing in another D will be displayed as nan in the
+        latter and can be customized with `fillna` (see below)
+        :param transpose: if False (the default) nothing happens. If true, before any further
+        processing the table/DataFrame will be transposed, thus columns become rows, and viceversa
+        :param fillna: (any object, default: None) the value used to fill missing values. This
+        method uses internally a pandas DataFrame which will convert the input data into a table,
+        filling by default missing values with NaN's. These NaN's can be converted to a suitable
+        value specified here (e.g., if the table specifies occurrences of the given keys, then a key
+        not found should be 0, and thus fillna=0). If this value is an int (or numpy int),
+        then a further attempt is made to **convert all table data to int**.
+        The same holds if this value is a float (or numpy float), then the data will be converted
+        (if possible) to float (this might result in NaN values which will NOT be converted again
+        according to `fillna`). In any other case, no conversion is made
+        :param lambdarow: (callable or None. Default:None) Function to customize row header(s).
+        If None, this argument is ignored. Otherwise it is a callable which accepts a single
+        argument (each row, usually string) and should return the new value to be displayed
+        :param lambdacol: (callable or None. Default:None) Function to customize column header(s).
+        If None, this argument is ignored. Otherwise it is a callable which accepts a single
+        argument (each column, usually string) and should return the new value to be displayed.
+        **Note**: contrarily to rows, if this function returns a *different* value than the
+        original column, a note is added to the new value and legend will be displayed after the
+        table. The legend will display the note and the full original column value
+        :param sort: string ('col', 'row', 'all' or None) Sorts data headers before displaying.
+        If 'row' or 'all', sorts rows ascending. If 'col' or 'all', sorts column ascending. If any
+        other value, this argument is ignored
+        :param totals: string ('col', 'row', 'all' or None. Default: 'all'). Display totals
+        (sum along table axis). If 'row' or 'all', display totals for each row (adding a further
+        column with header `totals_caption`. If 'col' or 'all', display totals for each column
+        (adding a further row with header `totals_caption`). If `sort` is enabled, this does not
+        affect the totals (which will be always displayed as last row or column). This argument
+        forces data numeric conversion, thus NaN's might appear and must be handled beforehand by
+        the user.
+        :param totals_caption: string, default: 'TOTAL'. Caption for the row or column displaying
+        totals. Ignored if `totals` is not in ('row', 'col' or 'all')
+        :param args: additional position arguments pased to `pandas.DataFrame.to_string`
+        :param kwargs: additional keyword arguments pased to `pandas.DataFrame.to_string`
+    """
+    dframe = pd.DataFrame(data=data)
+    # replace NaNs (for columns not shared) with zeros, and convert to int
+    if fillna is not None:
+        dframe.fillna(fillna, inplace=True)
+        if type(fillna) in (int, np.int8, np.int16, np.int32, np.int64):
+            try:
+                dframe = dframe.astype(int)
+            except ValueError:  # we do not have NaN's, but what if we have other kind of data? skip
+                pass
+        elif type(fillna) in (float, np.float16, np.float32, np.float64, np.float128):
+            try:
+                dframe = dframe.astype(float)
+            except ValueError:  # we do not have NaN's, but what if we have other kind of data? skip
+                pass
 
-    queries = [get_query(datacenter.dataselect_query_url,
-                         network=sta[models.Station.network.key],
-                         station=sta[models.Station.station.key],
-                         location=sta[models.Channel.location.key],
-                         channel=sta[models.Channel.channel.key],
-                         start=seg[models.Segment.start_time.key].isoformat(),
-                         end=seg[models.Segment.end_time.key].isoformat())
-               for (_, sta), (_, seg) in zip(stations_df.iterrows(), segments_df.iterrows())]
+    if transpose:
+        dframe = dframe.T
 
-    segments_df[queries_colname] = queries
-    return segments_df
+    if hasattr(lambdarow, "__call__"):
+        dframe.index = dframe.index.map(lambdarow)
+
+    columndetails = []
+    if hasattr(lambdacol, "__call__"):
+        new_columns = dframe.columns.map(lambdacol)
+        counter = 1
+        for new, old, i in izip(new_columns, dframe.columns, count()):
+            if old != new:
+                columndetails.append("[%d] %s" % (counter, old))
+                new_columns[i] = "%s[%d]" % (new, counter)
+                counter += 1
+        if columndetails:
+            dframe.columns = new_columns
+
+    if sort in ('col', 'all'):
+        dframe.sort_index(axis=1, inplace=True)
+    if sort in ('row', 'all'):
+        dframe.sort_index(axis=0, inplace=True)
+
+    if totals in ('row', 'all', 'col'):
+        # convert to numeric so that sum returns the correct number of rows/columns
+        # (with NaNs in case)
+        dframe = dframe.apply(pd.to_numeric, errors='coerce', axis=0)  # axis should be irrelevant
+        if totals in ('row', 'all'):
+            # append a row with sum:
+            dframe.loc[totals_caption] = dframe.sum(axis=0)
+        if totals in ('col', 'all'):
+            # append a column with sums:
+            dframe[totals_caption] = dframe.sum(axis=1)
+
+    ret = dframe.to_string(*args, **kwargs)
+
+    if columndetails:
+        legendtitle = "Detailed column headers:"
+        ret = "%s\n%s\n%s\n%s" % (ret, "-"*len(legendtitle), legendtitle, "\n".join(columndetails))
+
+    return ret
+
+#     with pd.option_context('display.max_rows', len(dframe),
+#                            'display.max_columns', len(dframe.columns),
+#                            'max_colwidth', 50, 'expand_frame_repr', False):
+#         return str(dframe)

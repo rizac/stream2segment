@@ -13,7 +13,6 @@ from collections import defaultdict as defdict
 import warnings
 from StringIO import StringIO
 import concurrent.futures
-from click import progressbar
 import logging
 from obspy.core.inventory.inventory import read_inventory
 from obspy.core.stream import read
@@ -24,9 +23,9 @@ from stream2segment.utils.url import url_read, read_async
 from stream2segment.analysis.mseeds import remove_response, get_gaps, amp_ratio, bandpass, cumsum,\
     cumtimes, fft, maxabs, simulate_wa, get_multievent, snr  # ,dfreq
 from stream2segment.io.db import models
-from stream2segment.download.utils import get_query
+from stream2segment.download.utils import get_query, get_inventory_query
 from sqlalchemy.exc import SQLAlchemyError
-from stream2segment.utils import msgs
+from stream2segment.utils import msgs, get_progressbar
 
 logger = logging.getLogger(__name__)
 
@@ -94,8 +93,7 @@ def redirect_external_out(fileno=2):
     sys.stderr = os.fdopen(newstdout, 'w')
 
 
-def main(session, segments_model_instances, run_id,
-                **processing_args):
+def main(session, segments_model_instances, run_id, isterminal=False, **processing_args):
     # suppress obspy warnings. Doing process-wise is more feasible FIXME: do it?
     warnings.filterwarnings("default")  # https://docs.python.org/2/library/warnings.html#the-warnings-filter @IgnorePep8
 
@@ -109,8 +107,10 @@ def main(session, segments_model_instances, run_id,
     warnings_logger.addHandler(logger_handler)
 
     with redirected('err'):
-        process_all_(session, segments_model_instances, run_id,
-                     **processing_args)
+        progressbar = get_progressbar(isterminal)
+        with progressbar(length=len(segments_model_instances)) as bar:
+            process_all(session, segments_model_instances, run_id, bar.update,
+                        **processing_args)
 
     captured_warnings = s.getvalue()
     if captured_warnings:
@@ -132,12 +132,8 @@ def main(session, segments_model_instances, run_id,
     s.close()  # maybe not really necessary
 
 
-
-
-
-
-def process_all_(session, segments_model_instances, run_id,
-                 **processing_args):
+def process_all(session, segments_model_instances, run_id,
+                notify_progress_func=lambda *a, **v: None, **processing_args):
     """
         Processes all segments_model_instances. FIXME: write detailed doc
     """
@@ -154,64 +150,63 @@ def process_all_(session, segments_model_instances, run_id,
     calculated = 0
     saved = 0
 
-    logger.info("Processing %d segments", len(segments_model_instances))  # , extra={'url':('a', 'b')})
+    logger.info("Processing %d segments", len(segments_model_instances))
     ret = []
 
     sta2segs = defdict(lambda: [])
     for seg in segments_model_instances:
         sta2segs[seg.channel.station_id].append(seg)
 
-    with progressbar(length=len(segments_model_instances)) as bar:
-        # process segments station-like, so that we load only one inventory at a time
-        # and hopefully it will garbage collected (inventory object is big)
-        for sta_id, segments in sta2segs.iteritems():
-            inventory = None
+    # process segments station-like, so that we load only one inventory at a time
+    # and hopefully it will garbage collected (inventory object is big)
+    for sta_id, segments in sta2segs.iteritems():
+        inventory = None
+        try:
+            inventory = get_inventory(segments[0], session, timeout=30)
+        except SQLAlchemyError as exc:
+            logger.warning("Error while saving inventory (station id=%s), "
+                           "%d segment will not be processed: %s",
+                           str(sta_id), len(segments), str(exc))
+            session.rollback()
+        except (urllib2.HTTPError, urllib2.URLError, httplib.HTTPException, socket.error) as _:
+            logger.warning("Error while downloading inventory (station id=%s), "
+                           "%d segment will not be processed: %s URL: %s",
+                           str(sta_id), len(segments), str(_), get_inventory_query(segments[0]))
+        except Exception as exc:  # pylint:disable=broad-except
+            logger.warning("Error while creating inventory (station id=%s), "
+                           "%d segment will not be processed: %s",
+                           str(sta_id), len(segments), str(exc))
+
+        if inventory is None:
+            notify_progress_func(len(segments))
+            continue
+            # pass
+
+        # THIS IS THE METHOD WITHOUT MULTIPROCESS: 28, 24.7 secs on 30 segments
+        for seg in segments:
+            notify_progress_func(1)
+            pro = models.Processing(run_id=run_id)
+            # pro.segment = seg
+            # session.flush()
             try:
-                inventory = get_inventory(segments[0], session, timeout=30)
-            except SQLAlchemyError as exc:
-                logger.warning("Error while saving inventory (station id=%s), "
-                               "%d segment will not be processed: %s",
-                               str(sta_id), len(segments), str(exc))
-                session.rollback()
-            except (urllib2.HTTPError, urllib2.URLError, httplib.HTTPException, socket.error) as _:
-                logger.warning("Error while downloading inventory (station id=%s), "
-                               "%d segment will not be processed: %s URL: %s",
-                               str(sta_id), len(segments), str(_), get_inventory_query(segments[0]))
+                pro = process(pro, seg, seg.channel, seg.channel.station, seg.event,
+                              seg.datacenter, inventory, **processing_args)
+                pro.id = None
+                pro.segment = seg
+                calculated += 1
+                ret.append(pro)
+                # flush(session, on_exc=lambda exc: logger.error(str(exc)))
+                if len(ret) >= max_session_new:
+                    added = len(ret)
+                    session.add_all(ret)
+                    ret = []
+                    if commit(session,
+                              on_exc=lambda exc: logger.warning(msgs.db.dropped_seg(added,
+                                                                                    None,
+                                                                                    exc))):
+                        saved += added
             except Exception as exc:  # pylint:disable=broad-except
-                logger.warning("Error while creating inventory (station id=%s), "
-                               "%d segment will not be processed: %s",
-                               str(sta_id), len(segments), str(exc))
-
-            if inventory is None:
-                bar.update(len(segments))
-                continue
-                # pass
-
-            # THIS IS THE METHOD WITHOUT MULTIPROCESS: 28, 24.7 secs on 30 segments
-            for seg in segments:
-                bar.update(1)
-                pro = models.Processing(run_id=run_id)
-                # pro.segment = seg
-                # session.flush()
-                try:
-                    pro = process(pro, seg, seg.channel, seg.channel.station, seg.event,
-                                  seg.datacenter, inventory, **processing_args)
-                    pro.id = None
-                    pro.segment = seg
-                    calculated += 1
-                    ret.append(pro)
-                    # flush(session, on_exc=lambda exc: logger.error(str(exc)))
-                    if len(ret) >= max_session_new:
-                        added = len(ret)
-                        session.add_all(ret)
-                        ret = []
-                        if commit(session,
-                                  on_exc=lambda exc: logger.warning(msgs.db.dropped_seg(added,
-                                                                                        None,
-                                                                                        exc))):
-                            saved += added
-                except Exception as exc:  # pylint:disable=broad-except
-                    logger.warning(msgs.calc.dropped_seg(seg, "segments processing", exc))
+                logger.warning(msgs.calc.dropped_seg(seg, "segments processing", exc))
 
     added = len(ret)
     if added and commit(session, on_exc=lambda exc: logger.warning(msgs.db.dropped_seg(added,
@@ -223,13 +218,6 @@ def process_all_(session, segments_model_instances, run_id,
     return ret
 
 
-def get_inventory_query(segment):
-    station = segment.channel.station
-    datacenter = segment.datacenter
-    return get_query(datacenter.station_query_url, station=station.station, network=station.network,
-                     level='response')
-
-
 def get_inventory(segment, session=None, **kwargs):
     """raises tons of exceptions (see main). FIXME: write doc
     :param session: if **not** None but a valid sqlalchemy session object, then
@@ -237,7 +225,7 @@ def get_inventory(segment, session=None, **kwargs):
     """
     data = segment.channel.station.inventory_xml
     if not data:
-        query_url = get_inventory_query(segment)
+        query_url = get_inventory_query(segment.channel.station)
         data = url_read(query_url, **kwargs)
         if session and data:
             segment.channel.station.inventory_xml = dumps_inv(data)

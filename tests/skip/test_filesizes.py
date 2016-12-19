@@ -9,7 +9,7 @@ from obspy import read as obspy_read
 from stream2segment.analysis.mseeds import remove_response, fft
 # , dumps__, dumps, np_dumps_compressed,\
 # loads__, np_loads_compressed, fft  # , dumps_new, loads_test, fft
-from stream2segment.s2sio.dataseries import dumps, loads # as dumps_new, loads as loads_new
+from stream2segment.io.dataseries import dumps, loads # as dumps_new, loads as loads_new
 from stream2segment.analysis import mseeds
 import tempfile
 import pickle

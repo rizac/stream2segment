@@ -1,4 +1,0 @@
-# matplotlib rc file.
-# For info, see: http://matplotlib.org/users/customizing.html#customizing-matplotlib
-interactive: True  # this seems to suppress the annoying printout 'Turning interactive backend on due to the choice of the backend (next line)' on Mac OsX
-backend: TkAgg  # this seems to make things work on a mac

@@ -1,75 +1,22 @@
 ###################################################################
 # stream2segment config file to tune the functionality.
-# IMPORTANT: THIS IS A YAML FILE, IF YOU ARE NEW TO IT BEFORE EDITING SEE e.g.:
+# IMPORTANT: THIS IS A YAML FILE, IF YOU ARE NEW TO IT BEFORE EDITING please take 5 minutes to see e.g.:
 # http://symfony.com/doc/current/components/yaml/yaml_format.html
-# or
-# http://docs.ansible.com/ansible/YAMLSyntax.html
 ###################################################################
 
-# channels (identifies short period, accelerometers but also broad band):
-channels: # sampling rate (hight to low) / type of data (broadband etcetera)
- - "HH?"
- - 'SH?'
-# - 'BH?'
- - 'HN?'
- - 'SN?'
-# - 'BN?'
- - 'HL?'
- - 'SL?'
-# - 'BL?'
+###################
+# POGRAM PARAMETERS
+###################
 
-# regardless of the config above (which sets also the sampling rates, see FIXME: link)
-# one can set the minimum frequency here (in Hz). Set to a number <=0 to skip it
-min_sample_rate: 60
-
-# FIXME: REMOVE THIS COMMENT BLOCK. IT's NOT ANYMORE USED!!!
-# Include only two datacentres to test. You can change to the full
-# set of datacentres as soon as you think it's working.
-#datacenters:
-#  GFZ: 'http://geofon.gfz-potsdam.de/fdsnws'
-#  ETH: 'http://arclink.ethz.ch/fdsnws'
-#  ODC: 'http://www.orfeus-eu.org/fdsnws'
-#  RESIF: 'http://ws.resif.fr/fdsnws'
-#  INGV: 'http://webservices.rm.ingv.it/fdsnws'
-#  BGR: 'http://eida.bgr.de/fdsnws'
-#  LMU: 'http://erde.geophysik.uni-muenchen.de/fdsnws'
-#  IPGP: 'http://eida.ipgp.fr/fdsnws'
-#  NIEP: 'http://eida-sc3.infp.ro/fdsnws'
-#  KOERI: 'http://eida.koeri.boun.edu.tr/fdsnws'
-
-# other sesmic specific parameters
-eventws: 'http://seismicportal.eu/fdsnws/event/1/'
-minmag: 3.0
-minlat: 30.0
-maxlat: 80.0
-minlon: -10.0
-maxlon: 60.0
-ptimespan:
- - 1.0 # minutes before a P wave arrival time
- - 3.0 # minutes after a P wave arrival time
-#search radius parameters (mag_min, max_max, dist_min, dist_max)
-search_radius_args:
- - 3 # min magnitude
- - 7 # max magnitude
- - 1 # min distance (deg)
- - 5 # max distance (deg)
-
-# these are optional, missing defaults to start:yesterday at midnight, today at midnight
-start: 2016-05-08T00:00:00
-end: 2016-05-09T00:00:00
-
-# program specific parameters:
-
-# dburi: specify a database uri
+# output database url (where data is saved)
 # Usually, it is a sqlite database, in which case just write the path to your local file
 # PREPENED with 'sqlite:///' (e.g., 'sqlite:////home/my_folder/db.sqlite')
 # Otherwise, the syntax is:
 # dialect+driver://username:password@host:port/database
 # (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)
-dburi: 'sqlite:///./mydb.sqlite'
+dburl: 'postgresql://riccardo:@localhost/s2s'  # 'sqlite:///./mydb.sqlite_nov_2016'
 # IMPORTANT: IF SQLITE, AND THE DBPATH IS RELATIVE (not starting with slash on unix or C:\ whatever on windows)
 # IT REFERS TO THIS FILE PATH!
-
 
 # action to be taken for the program. Possible values:
 # d   : download data only, no processing'
@@ -77,43 +24,137 @@ dburi: 'sqlite:///./mydb.sqlite'
 # P   : no download, clear processing and re-process *all* data'
 # dp  : download data, process only non-processed data (if any)'
 # dP  : download data, clear processing and re-process *all* data'
-# gui : show gui'
-action: 'dp'
+# gui : show gui
+action: 'd'  # 'dp'
 
-# processing stuff:
+# optional flag to tell whether to save stations inventory during stations download
+# the inventory is the obspy object representing the full response information for the requested station's
+# channels (equivalent to perform a an fdsn query with level="response") 
+# values can be n/no/false or y/yes/true.
+# **IMPORTANT**: if this argument is removed (or commented via #), all station inventories will
+# be deleted (this might be useful if the database gets bigger and is preferable to
+# download inventory during processing only when required, at the risk of slowing down processing)
+s_inventory: n
+
+
+#######################
+# DATA QUERY PARAMETERS
+#######################
+
+eventws: 'http://seismicportal.eu/fdsnws/event/1/query'
+minmag: 3.0
+minlat: 30.0
+maxlat: 80.0
+minlon: -10.0
+maxlon: 60.0
+# these are optional, missing values default to yesterday at midnight (start), today at midnight (end)
+start: 2015-05-06T00:00:00
+end: 2015-05-08T00:00:00
+
+# stations will be downloaded with level='channel'. Set here which channels to download. For info see e.g.:
+# https://ds.iris.edu/ds/nodes/dmc/tools/data_channels/#???
+channels:
+ - "HH?"
+ - 'SH?'
+ - 'HN?'
+ - 'SN?'
+ - 'HL?'
+ - 'SL?'
+stimespan:
+ - 0 # for each event, limit the search to stations installed at the event time minus this value (in hours)
+ - 24 # for each event, limit the search to stations installed at the event time plus this value (in hours)
+# search radius: for each event, stations will be searched within a circular area whose radius is a linear function
+# of the event magnitude:
+#
+#                   |
+#         maxradius +                oooooooooooo
+#                   |              o
+#                   |            o
+#                   |          o
+#         minradius + oooooooo
+#                   |
+#                   ---------+-------+------------
+#                         minmag   maxmag
+search_radius:
+ minmag: 3 # min magnitude
+ maxmag: 7 # max magnitude
+ minradius: 1 # min radius (deg)
+ maxradius: 5 # max radius (deg)
+min_sample_rate: 60 # regardless of the config above (which sets also the sampling rates), limit the search
+# to stations with at least min_sample_rate (in Hz). Set to 0 or negative number to ignore the sampling rate
+
+# Set here the phases to be calculated to asses the travel times of a wave from
+# the event location to each station location. The minimum of all travel times will be set as the
+# arrival time of a specific event at a specific station, and data will be queried to the datacenter
+# of that station in a window relative to its arrival time (see data_timespan below). The more items
+# you set here below, the more likely a minimum is found, but the more time is needed to calculate
+# all of them.
+# **be aware that the calculation of the travel times is quite time consuming!**
+# For info see: https://docs.obspy.org/packages/obspy.taup.html#phase-naming-in-obspy-taup
+traveltime_phases: 
+ - 'P'
+ - 'p'
+ - 'Pn'
+
+wtimespan:
+ - 1.0 # start time of the waveform segment to download, in minutes *before* the previously calculated arrival time
+ - 3.0 # end time of the waveform segment to download, in minutes *after* the previously calculated arrival time
+
+#######################
+# PROCESSING PARAMETERS
+#######################
+
 processing:
   amp_ratio_threshold: 0.8
   arrival_time_delay: 0  # the delay (in seconds) whereby to shift the P-arrival time T (calculated inside the code)
   # the real arrival time AT will be AT = T + fixed_delay for processing only
-  bandpass:
-    freq_max: 20 # the max frequency, in Hz
-    max_nyquist_ratio: 0.9 # the amount of freq_max to be taken. low-pass corner = max_nyquist_ratio * freq_max (defined above)
-    corners: 2 # the corners
-  remove_response:
-    output: 'ACC'
-    water_level: 60
+  bandpass_freq_max: 20 # the max frequency, in Hz
+  bandpass_max_nyquist_ratio: 0.9 # the amount of freq_max to be taken. low-pass corner = max_nyquist_ratio * freq_max (defined above)
+  bandpass_corners: 2 # the corners
+  remove_response_output: 'ACC'
+  remove_response_water_level: 60
   taper_max_percentage: 0.05  # the taper percentage used when tapering (applied on any tapered object)
   savewindow_delta: 30 # the window whereby the mseed and wood_anderson are saved (in seconds)
   # the window will be substracted from the arrival time and added to the t95 of the cumulative
-  snr:
- # the window length (in seconds). There will be two spectra, one calculated on
- # AT-window_length (noisy signal), the other on AT+window_length ('normal' signal)
-    window_length: 60  # snr_fixedwindow_in_sec
-  multi_event:
-    threshold1: 0.85 # in [0,1] (percentage units) threshold to apply on the main interval (usually t05 t95)
-    threshold1_duration: 10 # in seconds. Threshold to apply on the main interval (usually t05 t95)
-    threshold2: 0.05 # in [0,1] (percentage units). Threshold to apply on the second interval (usually after t95)
-  coda:
-    # max window length after which we stop iterations (in seconds):
-    window_length: 80
-    # for the coda analysis: sub-window length in seconds (used alo for moving average smoothing)
-    subwindow_length: 2.5
-    # for the coda analysis: sub-window overlap in percentage (i.e., in ]0,1])
-    subwindow_overlap: 0.5
-    # coda analysis threshold on snr sub-windows
-    subwindow_amplitude_threshold: 4
+  # --------------
+  # the window length (in seconds). There will be two spectra, one calculated on
+  # AT-window_length (noisy signal), the other on AT+window_length ('normal' signal)
+  snr_window_length: 60  # snr_fixedwindow_in_sec
+  # multievent
+  multi_event_threshold1: 0.85 # in [0,1] (percentage units) threshold to apply on the main interval (usually t05 t95)
+  multi_event_threshold1_duration: 10 # in seconds. Threshold to apply on the main interval (usually t05 t95)
+  multi_event_threshold2: 0.05 # in [0,1] (percentage units). Threshold to apply on the second interval (usually after t95)
+  # coda
+  # max window length after which we stop iterations (in seconds):
+  coda_window_length: 80
+  # for the coda analysis: sub-window length in seconds (used alo for moving average smoothing)
+  coda_subwindow_length: 2.5
+  # for the coda analysis: sub-window overlap in percentage (i.e., in ]0,1])
+  coda_subwindow_overlap: 0.5
+  # coda analysis threshold on snr sub-windows
+  coda_subwindow_amplitude_threshold: 4
 
-    
-    
-            
-    
+
+#####################################################################################################
+# Advanced settings (in principle, you should not care about these unless you know what you are doing
+#####################################################################################################
+
+advanced_settings:
+ # size of each block of data requested when downloading data (in bytes) until no data is available.
+ # If 0 or negative, all data will be read in a single call (if 0, it will be converted to -1).
+ download_blocksize: 1048576  # = 1024*1024
+ # how many parallel threads to start when downloading (one thread per download)
+ max_thread_workers: 5
+ # max time to wait (in seconds) while downloading stations (`urllib2.urlopen` timeout argument)
+ s_timeout: 5
+ # If the flag to download station inventories is on, max time to wait (in seconds) while downloading
+ #station inventories (`urllib2.urlopen` timeout argument)
+ i_timeout: 30
+ # max time to wait (in seconds) while downloading data (`urllib2.urlopen` timeout argument)
+ w_timeout: 10
+ # max number of (url, http...) errors per datacenter, while downloading data only (stations download requires less data and is not affected):
+ # after that, all remaining data queries will be discarded (for that datacenter only)
+ # Lower values might speed up consistently the download time, at the risk of discarding potentially good data
+ # Higher values might slower down consistently the download, reducing the risk of discarding potentually good data
+ # Set to zero or negative value to ignore this argument (try to download everything, wait until necessary) 
+ w_maxerr_per_dc: 5

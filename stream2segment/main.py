@@ -5,9 +5,16 @@
 # <XXXXXXX@gfz-potsdam.de>
 #
 # ----------------------------------------------------------------------
-from sqlalchemy.exc import SQLAlchemyError
+import logging
+import sys
+from StringIO import StringIO
+import datetime as dt
+import yaml
 import time
 import os
+from sqlalchemy.exc import SQLAlchemyError
+import click
+from click.exceptions import BadParameter
 """
    :Platform:
        Linux, Mac OSX
@@ -16,24 +23,11 @@ import os
    :License:
        To be decided!
 """
-import logging
-from StringIO import StringIO
-import datetime as dt
-import sys
-import yaml
-import click
-import pandas as pd
-from urlparse import urlparse, parse_qsl
-from sqlalchemy.engine import create_engine
-# from stream2segment import __version__ as s2s_version
-import pkg_resources  # part of setuptools
-from stream2segment.io.db.models import Base
-from sqlalchemy.orm.session import sessionmaker
 from stream2segment.io.db import models
 from stream2segment.process.processing import main as process_main
-from stream2segment.io.db.pd_sql_utils import flush, commit
+from stream2segment.io.db.pd_sql_utils import commit
 from stream2segment.download.query import main as query_main
-from stream2segment.utils import datetime as dtime, tounicode, load_def_cfg, get_session
+from stream2segment.utils import tounicode, load_def_cfg, get_session, strptime
 
 # set root logger if we are executing this module as script, otherwise as module name following
 # logger conventions. Discussion here:
@@ -92,45 +86,8 @@ def config_logger_and_return_run_instance(db_session, isterminal, out=sys.stdout
                 pass
             session.add(self.run_row)
             session.commit()
-            self.stats = {
-                          "station": pd.DataFrame(),
-                          "event": pd.DataFrame(),
-                          "dataselect": pd.DataFrame()
-                          }
 
         def emit(self, record):
-            if hasattr(record, 'stats'):
-                try:
-                    url = record.stats[0]
-                    exc_or_msg = record.stats[1]
-                    num = record.stats[2]
-                    o = urlparse(url)
-                    domain = o.netloc
-                    if "/fdsnws/station/" in o.path:
-                        stat_type = "station"
-                    elif "/fdsnws/event/" in o.path:
-                        stat_type = "event"
-                    elif "/fdsnws/dataselect/" in o.path:
-                        stat_type = "dataselect"
-                    else:
-                        raise TypeError()
-                    dframe = self.stats[stat_type]
-                    if isinstance(exc_or_msg, Exception):
-                        msg = exc_or_msg.__class__.__name__
-                        if hasattr(exc_or_msg, "code"):
-                            msg += "%s [code: %s]" % (msg, str(exc_or_msg.code))
-                    else:
-                        msg = exc_or_msg
-                    if msg not in dframe.columns:  # add column
-                        dframe[msg] = 0
-                    if domain not in dframe.index:
-                        dframe.loc[domain] = 0
-                    # set value
-                    dframe.loc[domain, msg] += num
-
-                except (TypeError, KeyError, AttributeError, ValueError):
-                    pass
-
             if record.levelno == 30:
                 self.run_row.warnings += 1
             elif record.levelno == 40:
@@ -143,8 +100,8 @@ def config_logger_and_return_run_instance(db_session, isterminal, out=sys.stdout
             super(CounterStreamHandler, self).close()
 
     class MyFormatter(logging.Formatter):
-        """Extends formatter to print custom messages according to levelname (or levelno)
-        Warning: don't do too complex stuff as logger gets hard to mantain then
+        """Extends formatter to print different formatted messages according to levelname
+        (or levelno). Warning: don't do too complex stuff as logger gets hard to mantain then
         """
         indent_n = 9
         indent = "%-{:d}s".format(indent_n)
@@ -189,7 +146,10 @@ def config_logger_and_return_run_instance(db_session, isterminal, out=sys.stdout
 def valid_date(string):
     """does a check on string to see if it's a valid datetime string.
     Returns the string on success, throws an ArgumentTypeError otherwise"""
-    return dtime(string, on_err=click.BadParameter)
+    try:
+        return strptime(string)
+    except ValueError as exc:
+        raise BadParameter(str(exc))
     # return string
 
 
@@ -203,12 +163,30 @@ def get_def_timerange():
     return startt, endt
 
 
+def tdstr(timdelta):
+    """Returns a formatted timedelta with seconds rounded up or down"""
+    # remainder. timedelta has already a nicer formatting with its str method:
+    # str(timedelta(hours=15000,seconds=4500))
+    # >>> '625 days, 1:15:00'
+    # str(timedelta(seconds=4500) - timedelta(microseconds=1))
+    # >>> '1:14:59.999999'
+    # so we just need to append 'hours' and round microseconds
+    add = 1 if timdelta.microseconds >= 500000 else 0
+    str_ = str(dt.timedelta(days=timdelta.days, seconds=timdelta.seconds+add, microseconds=0))
+    spl = str_.split(":")
+    return str_ if len(spl) != 3 else "%sh:%sm:%ss" % (spl[0], spl[1], spl[2])
+
 # a bit hacky maybe, should be checked:
 cfg_dict = load_def_cfg()
 
 
-def run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan, stimespan,
-        search_radius_args, channels, start, end, min_sample_rate, processing, isterminal=False):
+# IMPORTANT
+# IMPORTANT: THE ARGUMENT NAMES HERE MUST BE THE SAME AS THE CONFIG FILE!!!
+# IMPORTANT
+def run(action, dburl, eventws, minmag, minlat, maxlat, minlon, maxlon, start, end, stimespan,
+        search_radius,
+        channels, min_sample_rate, s_inventory, traveltime_phases, wtimespan,
+        processing, advanced_settings, isterminal=False):
     """
         Main run method. KEEP the ARGUMENT THE SAME AS THE config.yaml OTHERWISE YOU'LL GET
         A DIFFERENT CONFIG SAVED IN THE DB
@@ -220,20 +198,17 @@ def run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespa
 
     if action == 'gui':
         from stream2segment.gui import main as main_gui
-        main_gui.run_in_browser(dburi)
+        main_gui.run_in_browser(dburl)
         return 0
 
-    # init the session: FIXME: call utils function!
-    session = get_session(dburi, scoped=True)  # FIXME: is it necessary for multiprocessing in processing?
+    session = get_session(dburl, scoped=True)  # FIXME: is it necessary for multiprocessing in processing?
 
     # create logger handler
     run_row = config_logger_and_return_run_instance(session, isterminal)
 
     yaml_dict = load_def_cfg()
     # update with our current variables (only those present in the config_yaml):
-    for arg in _args_:
-        if arg in yaml_dict:
-            yaml_dict[arg] = _args_[arg]
+    yaml_dict.update(**{k: v for k, v in _args_.iteritems() if k in yaml_dict})
 
     # print local vars:
     yaml_content = StringIO()
@@ -250,14 +225,25 @@ def run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespa
 
     ret = 0
     try:
+        if s_inventory is None:
+            sta_del = session.query(models.Station).\
+                filter(models.Station.inventory_xml != None).\
+                update({models.Station.inventory_xml.key: None})
+            if sta_del:
+                session.commit()
+                logger.info("Deleted %d station inventories (set to null)" % sta_del)
+
         segments = []
         if 'd' in action:
             starttime = time.time()
             ret = query_main(session, run_row.id, eventws, minmag, minlat, maxlat, minlon, maxlon,
-                             search_radius_args, channels,
-                             start, end, ptimespan, stimespan, min_sample_rate, isterminal)
-            logger.info("Download completed in %s seconds",
-                        str(dt.timedelta(seconds=time.time()-starttime)))
+                             start, end, stimespan, search_radius['minmag'],
+                             search_radius['maxmag'], search_radius['minradius'],
+                             search_radius['maxradius'], channels,
+                             min_sample_rate, s_inventory is True, traveltime_phases, wtimespan, 
+                             advanced_settings, isterminal)
+            logger.info("Download completed in %s",
+                        tdstr(dt.timedelta(seconds=time.time()-starttime)))
 
         if 'p' in action.lower() and ret == 0:
             starttime = time.time()
@@ -268,12 +254,12 @@ def run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespa
                 except SQLAlchemyError:
                     session.rollback()
                     raise Exception("Unable to delete all processing (internal db error). Please"
-                                    "try again to run the program")
+                                    "try to run again the program")
             segments = session.query(models.Segment).\
                 filter(~models.Segment.processings.any()).all()  # @UndefinedVariable
-            process_main(session, segments, run_row.id, **processing)
-            logger.info("Processing completed in %s seconds",
-                        str(dt.timedelta(seconds=time.time()-starttime)))
+            process_main(session, segments, run_row.id, isterminal, **processing)
+            logger.info("Processing completed in %s",
+                        tdstr(dt.timedelta(seconds=time.time()-starttime)))
         logger.info("")
         logger.info("%d total error(s), %d total warning(s)", run_row.errors, run_row.warnings)
 
@@ -315,18 +301,15 @@ def run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespa
               help='Minimum longitude.')
 @click.option('--maxlon', default=cfg_dict['maxlon'], type=float,
               help='Maximum longitude.')
-@click.option('--ptimespan', nargs=2, type=float,
-              help='Minutes to account for before and after the P arrival time',
-              default=cfg_dict['ptimespan'])
+@click.option('--wtimespan', nargs=2, type=float,
+              help='Waveform segment time window: specify two positive integers denoting the '
+              'minutes to account for before and after the calculated arrival time',
+              default=cfg_dict['wtimespan'])
 @click.option('--stimespan', nargs=2, type=float,
-              help='Hours to account for before and after an event is found to set the start and '
+              help='Stations time window: specify two positive integers denoting the hours'
+              'before and after each event time, to set the start and '
               'end time of the stations search', default=cfg_dict['stimespan'])
-@click.option('--search_radius_args', default=cfg_dict['search_radius_args'], type=float, nargs=4,
-              help=('arguments to the function returning the search radius R whereby all '
-                    'stations within R will be queried from given event location. '
-                    'args are: min_mag max_mag min_distance_deg max_distance_deg'),
-              )
-@click.option('-d', '--dburi', default=cfg_dict.get('dburi', ''),
+@click.option('-d', '--dburl', default=cfg_dict.get('dburl', ''),
               help='Db path where to store waveforms, or db path from where to read the'
                    ' waveforms, if --gui is specified.')
 @click.option('-f', '--start', default=cfg_dict.get('start', get_def_timerange()[0]),
@@ -335,16 +318,19 @@ def run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespa
 @click.option('-t', '--end', default=cfg_dict.get('end', get_def_timerange()[1]),
               type=valid_date,
               help='Limit to events on or before the specified end time.')
+@click.option('--s_inventory', default=cfg_dict.get('s_inventory', None),
+              type=click.Choice(['y', 'n', 'c']),
+              help='download and save station inventories (y), do not save (n) or do not save and '
+              'clear all saved in the database')
 @click.option('--min_sample_rate', default=cfg_dict['min_sample_rate'],
               help='Limit to segments on a sample rate higher than a specific threshold')
-def main(action, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan, stimespan,
-         search_radius_args, dburi, start, end, min_sample_rate):
-
+def main(action, eventws, minmag, minlat, maxlat, minlon, maxlon, wtimespan, stimespan,
+         dburl, start, end, s_inventory, min_sample_rate):
     try:
-        ret = run(action, dburi, eventws, minmag, minlat, maxlat, minlon, maxlon, ptimespan,
-                  stimespan,
-                  search_radius_args, cfg_dict['channels'], start, end, min_sample_rate,
-                  cfg_dict['processing'], isterminal=True)
+        ret = run(action, dburl, eventws, minmag, minlat, maxlat, minlon, maxlon, start, end,
+                  stimespan, cfg_dict['search_radius'], cfg_dict['channels'], min_sample_rate,
+                  s_inventory, cfg_dict['traveltime_phases'], wtimespan, cfg_dict['processing'],
+                  cfg_dict['advanced_settings'], isterminal=True)
         sys.exit(ret)
     except KeyboardInterrupt:
         sys.exit(1)

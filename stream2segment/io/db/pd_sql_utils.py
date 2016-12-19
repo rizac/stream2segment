@@ -2,7 +2,64 @@
 
 Utilities for converting from pandas DataFrames to sqlalchemy tables objects
 (according to models.py)
-Basically, most of these functions are copied and pasted from pandas.io.sql.SqlTable
+Some of these functions are copied and pasted from pandas.io.sql.SqlTable
+A particular function, `colitems`, deals with SqlAlchemy mapping, returning the columns defined in
+a model class.
+This deserves a little description of the underlying mechanism of SqlAlchemy (skip
+this if you are not a developer).
+
+In SQLAlchemy, descriptors are used heavily in order to provide attribute behavior on mapped
+classes. When a class is mapped as such:
+```
+class MyClass(Base):
+    __tablename__ = 'foo'
+
+    id = Column(Integer, primary_key=True)
+    data = Column(String)
+```
+The `MyClass` class will be mapped when its definition is complete, at which point the id and
+data attributes, starting out as **Column** objects, will be replaced by the instrumentation
+system with instances of **InstrumentedAttribute**, which are descriptors that provide the
+`__get__()`, `__set__()` and `__delete__()` methods. The InstrumentedAttribute will generate a
+SQL expression when used at the class level:
+```
+>>> print(MyClass.data == 5)
+data = :data_1
+```
+(http://docs.sqlalchemy.org/en/latest/glossary.html#term-descriptor)
+Each InstrumentedAttribute has a **key** attribute which is the attribute name (as
+typed in python code), and can be used dynamically via python `setattr` and `getattr` function.
+This has **not to be confused** with the `key` attribute of the relative Column, which
+is "an optional string identifier which will identify this Column object on the Table."
+(http://docs.sqlalchemy.org/en/latest/core/metadata.html#sqlalchemy.schema.Column.params.key).
+
+Note that the Column has also a name attribute which is the name of this column as represented in
+the database. This argument may be the first positional argument, or specified via keyword ('name').
+See http://docs.sqlalchemy.org/en/latest/core/metadata.html#sqlalchemy.schema.Column.params.name
+
+Typically, one wants to work with **InstrumentedAttribute**s and their key (attribute names), not
+with **Column**s names and keys. But it is important the distinction.
+In a previous version of `colitems`, we used the `__table__.columns` dict-like object, but it is
+keyed according to the keys of the Column, which is by default the class attribute name, which means
+that the attribute names are lost if one provides custom keys for the Column objects.
+The `inspect` function called with a class or an instance produces a `Mapper` object
+(http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper)
+which apparently has also a `columns` dict like object of Column's object
+**keyed based on the attribute name defined in the mapping, not necessarily the key attribute of
+the Column itself**
+(http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper.columns),
+This is used in the method `colitems` which returns the **attribute names** mapped to the
+relative **Column**. All in all:
+```
+for att_name, column_obj in colitems(MyClass):
+    instrumented_attribute_obj = MyClass.getattr(att_name)
+    # create a SQL expression:
+    instrumented_attribute_obj == 5
+    # this actually also works and produces the same SQL expression,
+    # but I didn't found references about:
+    column_obj == 5
+```
+
 Created on Jul 17, 2016
 
 @author: riccardo
@@ -27,6 +84,7 @@ from pandas import to_numeric
 import pandas as pd
 from sqlalchemy.engine import create_engine
 from itertools import cycle
+from sqlalchemy.inspection import inspect
 
 
 def _get_dtype(sqltype):
@@ -54,28 +112,104 @@ def _get_dtype(sqltype):
     return object
 
 
-def get_cols(table, primary_key_only=False):
-    """table is either the table class or a table instance"""
-    cols = table.__table__.columns
-    return [c for c in cols if c.primary_key] if primary_key_only else cols
+# def nameof(column):
+#     """Given a column returned by `colsiter`, return `column.name`, i.e. 
+#     the name of this column as represented in the database. By default `column.name` is the
+#     attribute name of the model instance (as it is typed in python code). See:
+#     http://docs.sqlalchemy.org/en/latest/core/metadata.html#sqlalchemy.schema.Column.params.name
+#     """
+#     return column.name
 
 
-def get_col_names(table):
-    """table is either the table class or a table instance"""
-    return get_cols(table).keys()
+# def colsiter(table, pkey=None, fkey=None, nullable=None):
+#     """
+#         Returns an iterator over table columns
+#         :param pkey: boolean or None. If None, filter on primary keys is off. If True, only primary
+#         key columns are yielded, if False, only non-primary key columns are yielded
+#         :param fkey: boolean or None. If None, filter on foreign keys is off. If True, only foreign
+#         key columns are yielded, if False, only non-foreign key columns are yielded
+#         :param nullable: boolean or None. If None, filter on nullable columns is off.
+#         If True, only columns where nullable=True are yielded, if False, only columns where
+#         nullable=False are yielded
+#     """
+#     if hasattr(table, "__table__"):  # if instance, use its class
+#         table = table.__table__
+#     fkeys = set((fk.parent for fk in table.foreign_keys)) if fkey in (True, False) else set([])
+#     for c in table.columns:
+#         if (pkey is None or pkey == c.primary_key) and \
+#                 (fkey is None or (c in fkeys) == fkey) and \
+#                 (nullable is None or nullable == c.nullable):
+#             yield c
 
-
-def get_non_nullable_cols(table, dataframe):
+def colnames(table, pkey=None, fkey=None, nullable=None):
     """
-        Returns the dataframe column names which have a corresponding table attribute
-        (reflecting the db table column) which has been set to non-nullable
+        Returns an iterator returning the attributes names (as string) reflecting database
+        columns with the given properties specified as argument.
+        :param table: an ORM model class (python class)
+        :param pkey: boolean or None. If None, filter on primary keys is off. If True, only primary
+        key columns are yielded, if False, only non-primary key columns are yielded
+        :param fkey: boolean or None. If None, filter on foreign keys is off. If True, only foreign
+        key columns are yielded, if False, only non-foreign key columns are yielded
+        :param nullable: boolean or None. If None, filter on nullable columns is off.
+        If True, only columns where nullable=True are yielded, if False, only columns where
+        nullable=False are yielded
     """
-    non_nullable_cols = []
-    dframe_cols = dataframe.columns
-    for col in get_cols(table):
-        if not col.nullable and col.key in dframe_cols:
-            non_nullable_cols.append(col.key)
-    return non_nullable_cols
+    mapper = inspect(table)
+    # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper.mapped_table
+    table = mapper.mapped_table
+    fkeys_cols = set((fk.parent for fk in table.foreign_keys)) if fkey in (True, False) else set([])
+    for att_name, column in mapper.columns.items():
+        # the dict-like above is keyed based on the attribute name defined in the mapping,
+        # not necessarily the key attribute of the Column itself (column). See
+        # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper.columns
+        if (pkey is None or pkey == column.primary_key) and \
+                (fkey is None or (column in fkeys_cols) == fkey) and \
+                (nullable is None or nullable == column.nullable):
+            yield att_name
+
+
+def shared_colnames(table, dataframe, pkey=None, fkey=None, nullable=None):
+    """Returns an iterator with the columns shared between the given table (ORM model
+    instance or class) and the given pandas DataFrame. The table columns are its attribute names
+    (as typed in the code in the class definition), the DataFrame should thus have string columns
+    to avoid unexpected results in the comparison
+    :param table: the ORM table instance or the ORM table model
+    :param dataframe: a dataframe, with string columns
+    :param pkey: boolean or None. If None, filter on primary keys is off. If True, only primary
+    key columns shared between table and dataframe are yielded, if False, only shared non-primary
+    key columns are yielded
+    :param fkey: boolean or None. If None, filter on foreign keys is off. If True, only shared
+    foreign key columns are yielded, if False, only shared non-foreign key columns are yielded
+    :param nullable: boolean or None. If None, filter on nullable columns is off.
+    If True, only shared columns where nullable=True are yielded, if False, only shared columns
+    where nullable=False are yielded
+    """
+    dfcols = set(dataframe.columns)  # in operator is faster on sets
+    for colname in colnames(table, pkey=pkey, fkey=fkey, nullable=nullable):
+        if colname in dfcols:
+            yield colname
+# def get_cols(table, primary_key_only=False):
+#     """table is either the table class or a table instance"""
+#     cols = table.__table__.columns
+#     return [c for c in cols if c.primary_key] if primary_key_only else cols
+#  
+#  
+# def get_col_names(table):
+#     """table is either the table class or a table instance"""
+#     return get_cols(table).keys()
+# 
+# 
+# def get_non_nullable_cols(table, dataframe):
+#     """
+#         Returns the dataframe column names which have a corresponding table attribute
+#         (reflecting the db table column) which has been set to non-nullable
+#     """
+#     non_nullable_cols = []
+#     dframe_cols = dataframe.columns
+#     for col in get_cols(table):
+#         if not col.nullable and col.key in dframe_cols:
+#             non_nullable_cols.append(col.key)
+#     return non_nullable_cols
 
 
 def harmonize_rows(table, dataframe, inplace=True):
@@ -83,15 +217,18 @@ def harmonize_rows(table, dataframe, inplace=True):
     That is, removes the dataframe rows which are NA (None, NaN or NaT) for those values
     corresponding to `table` columns which were set to not be Null (nullable=False).
     Non nullable table attributes (reflecting db table columns) not present in dataframe columns
-    are not acounted for: in other words, the non-nullable condition on the dataframe is set for
+    are not accounted for: in other words, the non-nullable condition on the dataframe is set for
     those columns only which have a corresponding name in any of the table attributes.
     Consider calling `harmonize_cols` first to make sure the column values
     align with the table column types
-    :param inplace: argument to be passed to pandas dropna
+    :param inplace: argument to be passed to pandas `dropna`
     """
-    non_nullable_cols = get_non_nullable_cols(table, dataframe)
+    non_nullable_cols = list(shared_colnames(table, dataframe, nullable=False))
+    # FIXME: actually dropna accepts also generators, so the conversion to list is useless
     if non_nullable_cols:
-        dataframe.dropna(subset=[non_nullable_cols], inplace=inplace)
+        tmp = dataframe.dropna(subset=non_nullable_cols, axis=0, inplace=inplace)
+        if not inplace:  # if inplace, tmp is None and dataframe has been modified
+            dataframe = tmp
     return dataframe
 
 
@@ -99,8 +236,10 @@ def harmonize_columns(table, dataframe, parse_dates=None):
     """Make the DataFrame's column types align with the SQL table
     column types. Returns a new dataframe with "correct" types (according to table)
     Columns which are *not* shared with table columns (assuming dataframe columns are strings)
-    are left as they are.
+    are left as they are. Columns of the table are assumed to be its attribute names (as typed
+    in the code), thus the DataFrame is assumed to have string columns as well.
     The returned dataframe row numbers is not modified
+    :param table: an ORM model class
     """
     _, dfr = _harmonize_columns(table, dataframe, parse_dates)
     return dfr
@@ -142,8 +281,13 @@ def _harmonize_columns(table, dataframe, parse_dates=None):
         parse_dates = [parse_dates]
 
     column_names = []  # added by me
-    for sql_col in get_cols(table):
-        col_name = sql_col.name
+    # note below: it seems that the original pandas module uses Column objects
+    # however, some properties (such as type) are also available in InstrumentedAttribute
+    # (getattr(table, col_name)). So we use the latter
+    for col_name in colnames(table):
+        sql_col = getattr(table, col_name)
+        # changed, in pandas was: 'sql_col.name', but we want to harmonize according to
+        # the attribute names
         try:
             df_col = dataframe[col_name]
             # the type the dataframe column should have
@@ -203,7 +347,7 @@ def _harmonize_columns(table, dataframe, parse_dates=None):
     return column_names, dataframe
 
 
-def df2dbiter(dataframe, table_class, harmonize_columns_first=True, harmonize_rows=True,
+def df2dbiter(dataframe, table_class, harmonize_cols_first=True, harmonize_rows_first=True,
               parse_dates=None):
     """
         Returns a generator of of ORM model instances (reflecting the rows database table mapped by
@@ -214,21 +358,26 @@ def df2dbiter(dataframe, table_class, harmonize_columns_first=True, harmonize_ro
         columns. Some iterations might return None according to the parameters (see below)
         :param table_class: the CLASS of the table whose rows are instantiated and returned
         :param dataframe: the input dataframe
-        :param harmonize_columns_first: if True (default when missing), the dataframe column types
-        are FIRST harmonized to reflect the table_class column types, and columns without a match
-        in table_class are filtered out. See `harmonize_columns(dataframe)`
-        :param harmonize_rows: if True (default when missing), NA values are checked for
+        :param harmonize_cols_first: if True (default when missing), the dataframe column types
+        are harmonized to reflect the table_class column types, and columns without a match
+        in table_class are filtered out. See `harmonize_columns(dataframe)`. If
+        `harmonize_cols_first` and `harmonize_rows_first` are both True, the harmonization is
+        executed in that order (first columns, then rows).
+        :param harmonize_rows_first: if True (default when missing), NA values are checked for
         those table columns which have the property nullable set to False. In this case, the
         generator **might return None** (the user should in case handle it, e.g. skipping
-        these model instances which are not writable to the db)
+        these model instances which are not writable to the db). If
+        `harmonize_cols_first` and `harmonize_rows_first` are both True, the harmonization is
+        executed in that order (first columns, then rows).
         :param parse_dates: a list of strings denoting additional column names whose values should
-        be parsed as dates. Ignored if harmonize_columns_first is False
+        be parsed as dates. Ignored if harmonize_cols_first is False
     """
-    if harmonize_columns_first:
+    if harmonize_cols_first:
         colnames, dataframe = _harmonize_columns(table_class, dataframe, parse_dates)
     else:
-        table_col_names = get_col_names(table_class)
-        colnames = [c for c in dataframe.columns if c in table_col_names]  # FIXME: optimize this?
+        colnames = list(shared_colnames(table_class, dataframe))
+#         table_col_names = get_col_names(table_class)
+#         colnames = [c for c in dataframe.columns if c in table_col_names]  # FIXME: optimize this?
 
     new_df = dataframe[colnames]
 
@@ -238,11 +387,12 @@ def df2dbiter(dataframe, table_class, harmonize_columns_first=True, harmonize_ro
         return
 
     valid_rows = cycle([True])
-    if harmonize_rows:
-        non_nullable_cols = get_non_nullable_cols(table_class, new_df)
+    if harmonize_rows_first:
+        non_nullable_cols = list(shared_colnames(table_class, new_df, nullable=False))
         if non_nullable_cols:
-            df = ~pd_isnull(new_df[non_nullable_cols])
-            valid_rows = df.apply(lambda row: row.all(), axis=1).values
+            valid_rows = new_df[non_nullable_cols].notnull().all(axis=1).values
+#             df = ~pd_isnull(new_df[non_nullable_cols])
+#             valid_rows = df.apply(lambda row: row.all(), axis=1).values
 
     cols, datalist = _insert_data(new_df)
     # Note below: datalist is an array of N column, each of M rows (it would be nicer to return an
@@ -280,7 +430,7 @@ def _insert_data(dataframe):
     data_list = [None] * ncols
     blocks = dataframe._data.blocks
 
-    for i in range(len(blocks)):
+    for i in xrange(len(blocks)):
         b = blocks[i]
         if b.is_datetime:
             # convert to microsecond resolution so this yields
@@ -336,14 +486,14 @@ def commit(session, on_exc=None):
         return False
 
 
-def get_or_add_iter(session, model_instances, model_cols_or_colnames=None, on_add='flush'):
+def get_or_add_iter(session, model_instances, columns=None, on_add='flush'):
     """
         Iterates on all model_rows trying to add each
         instance to the session if it does not already exist on the database. All instances
         in `model_instances` should belong to the same model (python class). For each
-        instance, its existence is checked based on `model_cols_or_colnames`: if a database row
+        instance, its existence is checked based on `columns`: if a database row
         is found, whose values are the same as the given instance for **all** the columns defined
-        in `model_cols_or_colnames`, then the *first* database row instance is returned.
+        in `columns`, then the *first* database row instance is returned.
 
         Yields tuple: (model_instance, is_new_and_was_added)
 
@@ -352,21 +502,20 @@ def get_or_add_iter(session, model_instances, model_cols_or_colnames=None, on_ad
 
         :Example:
         ```
-        instances = ... # list or iterable of some model instances
-        # add all instances if they are not found on db according to their primary key
-        # (thus no need to specify the argument `model_cols_or_colnames`)
+        # assuming the model of each instance is a class named 'MyTable' with a primary key 'id':
+        instances = [MyTable(...), ..., MyTable(...)]
+        # add all instances if they are not found on db according to 'id'
+        # (thus no need to specify the argument `columns`)
         for instance, is_new in get_or_add_iter(session, instances, on_add='commit'):
             if instance is None:
                 # instance was not found on db but adding it raised an exception
-                # (including the case where the item of instances is None)
+                # (including the case where instances was already None)
             elif is_new:
                 # instance was not found on the db and was succesfully added
             else:
                # instance was found on the db and the first matching instance is returned
 
-        # assuming the model of each instance is a class named 'MyTable' with a primary key 'id':
-        instances = [MyTable(...), ..., MyTable(...)]
-        # the calls below produce the same results:
+        # Note that the calls below produce the same results:
         get_or_add_iter(session, instances):
         get_or_add_iter(session, instances, 'id'):
         get_or_add_iter(session, instances, MyTable.id):
@@ -376,15 +525,18 @@ def get_or_add_iter(session, model_instances, model_cols_or_colnames=None, on_ad
         All instances *MUST* belong to the same class, i.e., represent rows of the same db table.
         An ORM model is the python class reflecting a database table. An ORM model instance is
         simply a python instance of that class, and thus reflects a rows of the database table
-        :param model_cols_or_colnames: (iterable, model attribute, string or None) An iterable of
-        columns whereby the existience of a database row matching `model_instance` has to be checked
-        first. The parameter can be also given as "scalar" as model attribute or string denoting
-        a model attribute name (the comparison will be made on that single attribute in case)
-        Usually, provide primary keys or a combination of unique constraints.
-        The parameter can be given as column attributes of the given ORM model, or as strings
-        denoting the given ORM model columns. If None, the model primary keys are taken as
-        columns, thus if a row is found, whose primary key values are equal to the primary key
-        values of `model instance`, the instance reflecting that row is returned
+        :param columns: iterable of strings or class attributes (objects of type
+        InstrumentedAttribute), a single Instrumented Attribute, string, or None: the
+        column(s) to check if a model instance has a corresponding row in the database table
+        (in that case the instance reflecting that row is returned and nothing is added). A database
+        column matches the current model instance if **all** values of `columns`
+        are the same. If not iterable, the argument is converted to `[columns]`.
+        If None, the model primary keys are taken as columns.
+        **In most cases, also `Column` objects can be passed, but this method will fail for
+        Columns which override their `key` attribute, as Column's keys will not reflect
+        the class attribute names anymore**. For info see:
+        http://docs.sqlalchemy.org/en/latest/glossary.html#term-descriptor
+        http://docs.sqlalchemy.org/en/latest/core/metadata.html#sqlalchemy.schema.Column.params.key
         :param on_add: 'commit', 'flush' or None. Default: 'flush'. Tells whether a `session.flush`
         or a `session commit` has to be issued after each `session.add`. In case of failure, a
         `session.rollback` will be issued and the tuple (None, False) is yielded
@@ -395,7 +547,7 @@ def get_or_add_iter(session, model_instances, model_cols_or_colnames=None, on_ad
             yield None, False
         else:
             if not binexpfunc:
-                binexpfunc = _bin_exp_func_from_columns(row.__class__, model_cols_or_colnames)
+                binexpfunc = _bin_exp_func_from_columns(row.__class__, columns)
 
             yield _get_or_add(session, row, binexpfunc, on_add)
 
@@ -437,7 +589,14 @@ def _bin_exp_func_from_columns(model, model_cols_or_colnames):
         is 'a' **and** whose 'col_name_2' value is 5.5
     """
     if not model_cols_or_colnames:
-        model_cols_or_colnames = get_cols(model, primary_key_only=True)
+        # Note: the value of colitems are Column object. For those objects, SQL expressions
+        # such as column=5 are valid. But A Column key might differ from
+        # the attribute names, so use the keys of colitems, which are the attribute names.
+        # This does not prevent us from failing
+        # if model_cols_or_colnames is not empty and contains Column objects which have a
+        # particular key set and different from the attribute name.
+        # But we will raise an error in case
+        model_cols_or_colnames = colnames(model, pkey=True)
 
     # is string? In py2, check attr "__iter__". In py3, as it has the attr, go for isinstance:
     if not hasattr(model_cols_or_colnames, "__iter__") or isinstance(model_cols_or_colnames, str):
@@ -445,7 +604,8 @@ def _bin_exp_func_from_columns(model, model_cols_or_colnames):
 
     columns = []
     for col in model_cols_or_colnames:
-        if not hasattr(col, "key"):  # is a column object
+        if not hasattr(col, "key"):  # is NOT a Column object, nor an Instrumented attribute
+            # (http://docs.sqlalchemy.org/en/latest/glossary.html#term-descriptor)
             col = getattr(model, col)  # return the attribute object
         columns.append(col)
 
@@ -457,10 +617,10 @@ def _bin_exp_func_from_columns(model, model_cols_or_colnames):
     return ret_func
 
 
-def init_db(dbpath):
-    engine = create_engine(dbpath)
-    Base.metadata.create_all(engine)
-    # create a configured "Session" class
-    Session = sessionmaker(bind=engine)
-    # create a Session
-    session = Session()
+# def init_db(dbpath):
+#     engine = create_engine(dbpath)
+#     Base.metadata.create_all(engine)
+#     # create a configured "Session" class
+#     Session = sessionmaker(bind=engine)
+#     # create a Session
+#     session = Session()
