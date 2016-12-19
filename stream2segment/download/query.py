@@ -20,7 +20,7 @@ import pandas as pd
 from click import progressbar as click_pbar
 from obspy.taup.tau import TauPyModel
 from obspy.geodetics.base import locations2degrees
-from obspy.taup.helper_classes import TauModelError
+from obspy.taup.helper_classes import TauModelError, SlownessModelError
 from stream2segment.utils import msgs, get_progressbar
 from stream2segment.utils.url import url_read
 from stream2segment.classification import class_labels_df
@@ -445,7 +445,7 @@ def calculate_times(stations_df, evt, timespan, traveltime_phases, tau_p_model='
             try:
                 arr_time = get_arrival_time(degrees, evt.depth_km, evt.time, traveltime_phases,
                                             tau_p_model)
-            except (TauModelError, ValueError) as exc:
+            except (TauModelError, ValueError, SlownessModelError) as exc:
                 logger.warning(msgs.calc.dropped_sta(sta_id, "arrival time calculation", exc))
                 arr_time = None
             cache[sta_id] = (degrees, arr_time)

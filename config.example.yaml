@@ -75,6 +75,10 @@ stimespan:
 #                   |
 #                   ---------+-------+------------
 #                         minmag   maxmag
+# NOTE, IMPORTANT:
+# if maxradius == minradius=R, this is equivalent to a constant function returning always R regardless of the magnitude
+# if minmag == maxmag = M (and maxradius not equal to minradius), this function returns minradius for all magnitudes < M,
+#     maxradius for all magnitudes > M, and (minradius+maxradius)/2 for all magnitudes == M
 search_radius:
  minmag: 3 # min magnitude
  maxmag: 7 # max magnitude
@@ -149,7 +153,7 @@ advanced_settings:
  s_timeout: 5
  # If the flag to download station inventories is on, max time to wait (in seconds) while downloading
  #station inventories (`urllib2.urlopen` timeout argument)
- i_timeout: 30
+ i_timeout: 15
  # max time to wait (in seconds) while downloading data (`urllib2.urlopen` timeout argument)
  w_timeout: 10
  # max number of (url, http...) errors per datacenter, while downloading data only (stations download requires less data and is not affected):
@@ -158,3 +162,4 @@ advanced_settings:
  # Higher values might slower down consistently the download, reducing the risk of discarding potentually good data
  # Set to zero or negative value to ignore this argument (try to download everything, wait until necessary) 
  w_maxerr_per_dc: 5
+ 

@@ -71,29 +71,25 @@ def test_get_travel_times(mock_taup_t, mock_taup_m):
 #     assert a is None
 
 
-@pytest.mark.parametrize('mag, args, expected_val',
+@pytest.mark.parametrize('mag, minmag_maxmag_minradius_maxradius, expected_val',
                          [
-                             (2, [3, 7, 1, 5], 1), (8, [3, 7, 1, 5], 5), (5, None, 3), (2, None, 1),
-                             (-1, None, 1), (7, None, 5), (8, None, 5),
-                             (5, [3, 7, 1, 5], 3), (-1, [3, 7, 1, 5], 1),
-                             (7, [3, 7, 1, 5], 5),
-                             ([2, 8, 5, -1], [3, 7, 1, 5], [1, 5, 3, 1]),
-                             ([2, 8, 5, -1], None, [1, 5, 3, 1]),
-                             (np.array([2, 8, 5, -1]), [3, 7, 1, 5], [1, 5, 3, 1]),
+                            (5, [3,3,5,7], 7), (2, [3,3,5,7], 5), (3, [3,3,5,7], 6), ([5,2,3], [3,3,5,7], [7,5,6]), 
+                            (2, [3,3,7,7], 7), (3, [3,3,7,7], 7), (13, [3,3,7,7], 7), ([2,3,13], [3,3,7,7], [7,7,7]),
+                            (2, [3,5,7,7], 7), (3, [3,5,7,7], 7), (13, [3,5,7,7], 7), ([2,3,13], [3,5,7,7], [7,7,7]),
+                            (np.array(2), [3, 7, 1, 5], 1),
+                            (2, [3, 7, 1, 5], 1), (8, [3, 7, 1, 5], 5),
+                            (5, [3, 7, 1, 5], 3), (-1, [3, 7, 1, 5], 1),
+                            (7, [3, 7, 1, 5], 5),
+                            ([2, 8, 5, -1, 7], [3, 7, 1, 5], [1, 5, 3, 1, 5]),
+                            (np.array([2, 8, 5, -1, 7]), [3, 7, 1, 5], [1, 5, 3, 1, 5]),
                           ]
                          )
-def test_get_search_radius(mag, args, expected_val):
-    if args is None:
-        try:
-            assert get_search_radius(mag) == expected_val
-        except ValueError:  # we passed an array as magnitude, so check with numpy.all()
-            assert (get_search_radius(mag) == expected_val).all()
-    else:
-        args.insert(0, mag)
-        try:
-            assert get_search_radius(*args) == expected_val
-        except ValueError:  # we passed an array as magnitude, so check with numpy.all()
-            assert (get_search_radius(*args) == expected_val).all()
+def test_get_search_radius(mag, minmag_maxmag_minradius_maxradius, expected_val):
+    minmag_maxmag_minradius_maxradius.insert(0, mag)
+    try:
+        assert get_search_radius(*minmag_maxmag_minradius_maxradius) == expected_val
+    except ValueError:  # we passed an array as magnitude, so check with numpy.all()
+        assert (get_search_radius(*minmag_maxmag_minradius_maxradius) == expected_val).all()
             
             
 

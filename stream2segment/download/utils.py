@@ -11,7 +11,7 @@ import pandas as pd
 from sqlalchemy import and_
 from obspy.taup import TauPyModel
 from obspy.geodetics import locations2degrees
-from obspy.taup.helper_classes import TauModelError
+from obspy.taup.helper_classes import TauModelError, SlownessModelError
 from stream2segment.utils.url import url_read
 from stream2segment.io.db import models
 from stream2segment.io.db.pd_sql_utils import harmonize_columns,\
@@ -33,7 +33,9 @@ def get_min_travel_time(source_depth_in_km, distance_in_degree, traveltime_phase
         :param traveltime_phases: a list of strings specifying the phases to calculate, e.g.
         ['P', 'pP'].See FIXME: update ref
         :return the number of seconds of the assessed arrival time, or None in case of error
-        :raises: TauModelError, ValueError (if no travel time was found)
+        :raises: obspy.taup.helper_classes.TauModelError,
+        obspy.taup.helper_classes.SlownessModelError,
+        ValueError (if no travel time was found)
     """
     try:
         taupmodel = TauPyModel(model)
@@ -72,36 +74,43 @@ def get_arrival_time(distance_in_degrees, ev_depth_km, ev_time, traveltime_phase
     return arrival_time
 
 
-def get_search_radius(mag, mmin=3, mmax=7, dmin=1, dmax=5):
+def get_search_radius(mag, minmag, maxmag, minradius, maxradius):
     """From a given magnitude, determines and returns the max radius (in degrees).
-        Given dmin and dmax and mmin and mmax (FIXME: TO BE CALIBRATED!),
+        Given minradius and maxradius and minmag and maxmag (FIXME: TO BE CALIBRATED!),
         this function returns D from the f below:
 
-             |
-        dmax +                oooooooooooo
-             |              o
-             |            o
-             |          o
-        dmin + oooooooo
-             |
-             ---------+-------+------------
-                    mmin     mmax
+                  |
+        maxradius +                oooooooooooo
+                  |              o
+                  |            o
+                  |          o
+        minradius + oooooooo
+                  |
+                  ---------+-------+------------
+                        minmag     maxmag
 
     :return: the max radius (in degrees)
     :param mag: (numeric or list or numbers/numpy.array) the magnitude
-    :param mmin: (int, float) the minimum magnitude
-    :param mmax: (int, float) the maximum magnitude
-    :param dmin: (int, float) the minimum distance (in degrees)
-    :param dmax: (int, float) the maximum distance (in degrees)
+    :param minmag: (int, float) the minimum magnitude
+    :param maxmag: (int, float) the maximum magnitude
+    :param minradius: (int, float) the minimum distance (in degrees)
+    :param maxradius: (int, float) the maximum distance (in degrees)
     :return: a scalar if mag is scalar, or an numpy.array
     """
-    dist = np.array(mag)  # copies data
-    isscalar = not dist.shape
+    mag = np.asarray(mag)  # do NOT copies data for existing arrays
+    isscalar = not mag.shape
     if isscalar:
-        dist = np.array(mag, ndmin=1)  # copies data, assures an array of dim=1
-    dist = dmin + np.true_divide(dmax - dmin, mmax - mmin) * (dist - mmin)
-    dist[dist <= dmin] = dmin
-    dist[dist >= dmax] = dmax
+        mag = np.array(mag, ndmin=1)  # copies data, assures an array of dim=1
+
+    if minmag == maxmag:
+        dist = np.array(mag)
+        dist[mag < minmag] = minradius
+        dist[mag > minmag] = maxradius
+        dist[mag == minmag] = np.true_divide(minradius+maxradius, 2)
+    else:
+        dist = minradius + np.true_divide(maxradius - minradius, maxmag - minmag) * (mag - minmag)
+        dist[dist < minradius] = minradius
+        dist[dist > maxradius] = maxradius
 
     return dist[0] if isscalar else dist
     # return mag[0] if isscalar else mag
