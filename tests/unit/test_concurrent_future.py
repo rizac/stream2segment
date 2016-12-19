@@ -167,21 +167,26 @@ class Test(unittest.TestCase):
         import array
         import cStringIO
         
+        # DO NOT READ FROM ULR. TESTS ARE ASSUMED TO BE RUN ALSO WITHOUT CONNECTION
+        
         # read the page google.com once. Thus we are less dependent from urllib performances
         # and we can measure the string ones more precisely
-        import urllib  # hack: if we import urllib2.urlopen it is the mocked class
-        url = "http://www.google.com"
-        blocksize= 10  # 1024*1024
-        ret = b''
-        with closing(urllib.urlopen(url)) as conn:
-           if blocksize < 0:  # https://docs.python.org/2.4/lib/bltin-file-objects.html
-               ret = conn.read()
-           else:
-               while True:
-                   buf = conn.read(blocksize)
-                   if not buf:
-                       break
-                   ret += buf
+#         import urllib  # hack: if we import urllib2.urlopen it is the mocked class
+#         url = "http://www.google.com"
+#         blocksize= 10  # 1024*1024
+#         ret = b''
+#         with closing(urllib.urlopen(url)) as conn:
+#            if blocksize < 0:  # https://docs.python.org/2.4/lib/bltin-file-objects.html
+#                ret = conn.read()
+#            else:
+#                while True:
+#                    buf = conn.read(blocksize)
+#                    if not buf:
+#                        break
+#                    ret += buf
+        
+        # CREATE FAKE STRING OF 100000 CHARACTERS INSTEAD:
+        ret = b''.join(chr((i % 57)+65) for i in xrange(0,10000)) 
 
         def _(*a, **v):
             ret_ = cStringIO.StringIO(ret)

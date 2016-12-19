@@ -33,6 +33,7 @@ from urlparse import urlparse
 from itertools import izip, imap, repeat
 from sqlalchemy.exc import SQLAlchemyError
 from stream2segment.io.dataseries import dumps_inv
+import concurrent.futures
 
 
 logger = logging.getLogger(__name__)
@@ -353,20 +354,40 @@ def make_dc2seg(session, events, datacenters, evt2stations, wtimespan, traveltim
     skipped_already_d = {dc_id: 0 for dc_id in datacenters}
     distcache_dict = {}
     timecache_dict = {}
-    tau_p_model = TauPyModel('ak135')
+    # tau_p_model = TauPyModel('ak135')
+
+    ev2segs = {}
+    # We can use a with statement to ensure threads are cleaned up promptly
+    with concurrent.futures.ProcessPoolExecutor(max_workers=5) as executor:
+        # Start the load operations and mark each future with its URL
+        future_to_segments = {executor.submit(calculate_times, stations_df, events[evt_id],
+                                              wtimespan, traveltime_phases,
+                                              TauPyModel('ak135'), distcache_dict,
+                                              timecache_dict): evt_id
+                              for evt_id, stations_df in evt2stations.iteritems()}
+        for future in concurrent.futures.as_completed(future_to_segments):
+            notify_progress_func(1)
+            ev_id = future_to_segments[future]
+            try:
+                segments_df = future.result()
+                ev2segs[ev_id] = segments_df
+            except Exception as exc:
+                ev2segs[ev_id] = empty()
+                logger.warning(msgs.calc.dropped_sta(len(evt2stations[ev_id]),
+                                                     "calculating arrival time", exc))
+
 
     # create a columns which we know not being in the segments model
     cnames = colnames(models.Segment)
     _SEGMENTS_DATAURL_COLNAME = '__wquery__'
     while _SEGMENTS_DATAURL_COLNAME in cnames:
         _SEGMENTS_DATAURL_COLNAME += "_"
-    for evt_id, stations_df in evt2stations.iteritems():
-        notify_progress_func(1)
-        if empty(stations_df):  # for safety
+    for evt_id, segments_df in ev2segs.iteritems():
+        if empty(segments_df):  # for safety
             continue
-
-        segments_df = calculate_times(stations_df, events[evt_id], wtimespan, traveltime_phases,
-                                      tau_p_model, distcache_dict, timecache_dict)
+        stations_df = evt2stations[evt_id]
+#         segments_df = calculate_times(stations_df, events[evt_id], wtimespan, traveltime_phases,
+#                                       tau_p_model, distcache_dict, timecache_dict)
         where_valid = ~pd.isnull(segments_df[models.Segment.arrival_time.key])
         stations_df, segments_df = stations_df[where_valid], segments_df[where_valid]
         segments_df[models.Segment.channel_id.key] = stations_df[models.Channel.id.key]
@@ -461,34 +482,6 @@ def calculate_times(stations_df, evt, timespan, traveltime_phases, tau_p_model='
 
     return ret
 
-#     for _, sta in stations_df.iterrows():
-#         coordinates = (evt.latitude, evt.longitude,
-#                        sta[models.Station.latitude.key], sta[models.Station.longitude.key])
-#         degrees = None if distcache_dict is None else distcache_dict.get(coordinates, None)
-#         if degrees is None:
-#             degrees = locations2degrees(*coordinates)
-#             if distcache_dict is not None:
-#                 distcache_dict[coordinates] = degrees
-#         event_distances_degrees.append(degrees)
-# 
-#         coordinates = (degrees, evt.depth_km, evt.time)
-#         arr_time = None if timecache_dict is None else timecache_dict.get(coordinates, None)
-#         if arr_time is None:
-#             try:
-#                 arr_time = get_arrival_time(*(coordinates + (traveltime_phases, tau_p_model,)))
-#                 if timecache_dict is not None:
-#                     timecache_dict[coordinates] = arr_time
-#             except (TauModelError, ValueError) as exc:
-#                 logger.warning(msgs.calc.dropped_sta(sta, "arrival time calculation", exc))
-#         arrival_times.append(arr_time)
-
-#     atime_colname = models.Segment.arrival_time.key  # limit length of next lines ...
-#     ret = pd.DataFrame({models.Segment.event_distance_deg.key: event_distances_degrees,
-#                         atime_colname: arrival_times}).dropna(subset=[atime_colname], axis=0)
-#     ret[models.Segment.start_time.key] = ret[atime_colname] - timedelta(minutes=timespan[0])
-#     ret[models.Segment.end_time.key] = ret[atime_colname] + timedelta(minutes=timespan[1])
-# 
-#     return ret
 
 
 def download_segments(session, segments_df, run_id, max_error_count, max_thread_workers,
