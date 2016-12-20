@@ -309,125 +309,61 @@ def save_inventories(session, stations, max_thread_workers, timeout,
         notify_progress_func(1)
         logger.warning(msgs.format(err, url))
 
-
     read_async(urls, onsuccess, onerror, max_workers=max_thread_workers,
                blocksize=download_blocksize, timeout=timeout)
 
 
-
-# def get_segments_REMOVE(session, events, datacenters, stations, wtimespan, traveltime_phases,
-#                         notify_progress_func=lambda *a, **v: None):
-#     segments = {dcen_id: empty() for dcen_id in datacenters}
-#     skipped_already_d = {dcen_id: 0 for dcen_id in datacenters}
-#     distcache_dict = {}
-#     timecache_dict = {}
-#     tau_p_model = TauPyModel('ak135')
-#     for (evt_id, dcen_id), stations_df in stations.iteritems():
-#         notify_progress_func(1)
-#         if empty(stations_df):  # for safety
-#             continue
-#         segments_df = calculate_times(stations_df, events[evt_id], wtimespan, traveltime_phases,
-#                                       tau_p_model, distcache_dict, timecache_dict)
-#         segments_df[models.Segment.channel_id.key] = stations_df[models.Channel.id.key]
-#         segments_df[models.Segment.event_id.key] = evt_id
-# 
-#         # we will purge already downloaded segments, and use the index of the purged segments
-#         # to filter out stations, too. For this, we need to be sure they have the same index
-#         # before these operations:
-#         stations_df.reset_index(drop=True, inplace=True)
-#         segments_df.reset_index(drop=True, inplace=True)
-#         oldsegments_df, segments_df = segments_df, purge_already_downloaded(session, segments_df)
-#         skipped_already_d[dcen_id] += (len(oldsegments_df) - len(segments_df))
-#         # purge stations, too (see comment above):
-#         stations_df = stations_df[stations_df.index.isin(segments_df.index.values)]
-#         # set the wav query as dataframe index:
-#         segments_df = set_wav_queries(datacenters[dcen_id], stations_df, segments_df,
-#                                       _SEGMENTS_DATAURL_COLNAME)
-#         segments[dcen_id] = appenddf(segments[dcen_id], segments_df)
-# 
-#     return segments, skipped_already_d
-
-
 def make_dc2seg(session, events, datacenters, evt2stations, wtimespan, traveltime_phases,
-                notify_progress_func=lambda *a, **v: None):
+                taup_model='ak135', notify_progress_func=lambda *a, **v: None):
     segments = {dc_id: empty() for dc_id in datacenters}
     skipped_already_d = {dc_id: 0 for dc_id in datacenters}
-    distcache_dict = {}
-    timecache_dict = {}
     # tau_p_model = TauPyModel('ak135')
-
-    ev2segs = {}
-    # We can use a with statement to ensure threads are cleaned up promptly
-    with concurrent.futures.ProcessPoolExecutor(max_workers=5) as executor:
-        # Start the load operations and mark each future with its URL
-        future_to_segments = {executor.submit(calculate_times, stations_df, events[evt_id],
-                                              wtimespan, traveltime_phases,
-                                              TauPyModel('ak135'), distcache_dict,
-                                              timecache_dict): evt_id
-                              for evt_id, stations_df in evt2stations.iteritems()}
-        for future in concurrent.futures.as_completed(future_to_segments):
-            notify_progress_func(1)
-            ev_id = future_to_segments[future]
-            try:
-                segments_df = future.result()
-                ev2segs[ev_id] = segments_df
-            except Exception as exc:
-                ev2segs[ev_id] = empty()
-                logger.warning(msgs.calc.dropped_sta(len(evt2stations[ev_id]),
-                                                     "calculating arrival time", exc))
-
 
     # create a columns which we know not being in the segments model
     cnames = colnames(models.Segment)
     _SEGMENTS_DATAURL_COLNAME = '__wquery__'
     while _SEGMENTS_DATAURL_COLNAME in cnames:
         _SEGMENTS_DATAURL_COLNAME += "_"
-    for evt_id, segments_df in ev2segs.iteritems():
-        if empty(segments_df):  # for safety
-            continue
-        stations_df = evt2stations[evt_id]
-#         segments_df = calculate_times(stations_df, events[evt_id], wtimespan, traveltime_phases,
-#                                       tau_p_model, distcache_dict, timecache_dict)
-        where_valid = ~pd.isnull(segments_df[models.Segment.arrival_time.key])
-        stations_df, segments_df = stations_df[where_valid], segments_df[where_valid]
-        segments_df[models.Segment.channel_id.key] = stations_df[models.Channel.id.key]
-        segments_df[models.Segment.event_id.key] = evt_id
-        segments_df[models.Segment.datacenter_id.key] = stations_df[models.Station.datacenter_id.key]
 
-        # build queries, None's for already downloaded:
-        wqueries = []
-        for sta, seg in izip(stations_df.itertuples(), segments_df.itertuples()):
-            cha_id = getattr(seg, models.Segment.channel_id.key)
-            start_time = getattr(seg, models.Segment.start_time.key)
-            end_time = getattr(seg, models.Segment.end_time.key)
-            if session.query(models.Segment).\
-                filter((models.Segment.channel_id == cha_id) &
-                       (models.Segment.start_time == start_time) &
-                       (models.Segment.end_time == end_time)).\
-                    first():
-                wqueries.append(None)
-            else:
-                dc_id = getattr(seg, models.Segment.datacenter_id.key)
-                wqueries.append(get_query(datacenters[dc_id].dataselect_query_url,
-                                          network=getattr(sta, models.Station.network.key),
-                                          station=getattr(sta, models.Station.station.key),
-                                          location=getattr(sta, models.Channel.location.key),
-                                          channel=getattr(sta, models.Channel.channel.key),
-                                          start=start_time.isoformat(),
-                                          end=end_time.isoformat()))
-
-        segments_df[_SEGMENTS_DATAURL_COLNAME] = wqueries
-        dc_ids = pd.unique(segments_df[models.Segment.datacenter_id.key])
-        for dc_id in dc_ids:
-            dc_segments_df = segments_df[segments_df[models.Segment.datacenter_id.key] == dc_id]
-            if empty(dc_segments_df):
-                continue
-            old_dc_segments_df, dc_segments_df = dc_segments_df, \
-                dc_segments_df.dropna(subset=[_SEGMENTS_DATAURL_COLNAME], axis=0)
-            segments[dc_id] = appenddf(segments[dc_id], dc_segments_df)
-            skip_downld = len(old_dc_segments_df) - len(dc_segments_df)
-            if skip_downld:
-                skipped_already_d[dc_id] += skip_downld
+    # We can use a with statement to ensure threads are cleaned up promptly
+    with concurrent.futures.ProcessPoolExecutor(max_workers=5) as executor:
+        # Start the load operations and mark each future with its URL
+        future_to_segments = {executor.submit(calculate_times, stations_df, events[evt_id],
+                                              wtimespan, traveltime_phases,
+                                              taup_model): evt_id
+                              for evt_id, stations_df in evt2stations.iteritems()}
+        for future in concurrent.futures.as_completed(future_to_segments):
+            notify_progress_func(1)
+            evt_id = future_to_segments[future]
+            try:
+                segments_df = future.result()
+                if empty(segments_df):  # for safety
+                    continue
+                stations_df = evt2stations[evt_id]
+                where_valid = ~pd.isnull(segments_df[models.Segment.arrival_time.key])
+                stations_df, segments_df = stations_df[where_valid], segments_df[where_valid]
+                segments_df[models.Segment.channel_id.key] = stations_df[models.Channel.id.key]
+                segments_df[models.Segment.event_id.key] = evt_id
+                segments_df[models.Segment.datacenter_id.key] = \
+                    stations_df[models.Station.datacenter_id.key]
+                # build queries, None's for already downloaded:
+                wqueries = get_wqueries(session, datacenters, segments_df, stations_df)
+                segments_df[_SEGMENTS_DATAURL_COLNAME] = wqueries
+                dc_ids = pd.unique(segments_df[models.Segment.datacenter_id.key])
+                for dc_id in dc_ids:
+                    dc_segments_df = segments_df[segments_df[models.Segment.datacenter_id.key]
+                                                 == dc_id]
+                    if empty(dc_segments_df):
+                        continue
+                    old_dc_segments_df, dc_segments_df = dc_segments_df, \
+                        dc_segments_df.dropna(subset=[_SEGMENTS_DATAURL_COLNAME], axis=0)
+                    segments[dc_id] = appenddf(segments[dc_id], dc_segments_df)
+                    skip_downld = len(old_dc_segments_df) - len(dc_segments_df)
+                    if skip_downld:
+                        skipped_already_d[dc_id] += skip_downld
+            except Exception as exc:
+                logger.warning(msgs.calc.dropped_sta(len(evt2stations[evt_id]),
+                                                     "calculating arrival time", exc))
 
     # sets as indices the query urls, drop the relative column
     for dc_id in segments:
@@ -449,11 +385,12 @@ def make_dc2seg(session, events, datacenters, evt2stations, wtimespan, traveltim
     return segments, skipped_already_d
 
 
-def calculate_times(stations_df, evt, timespan, traveltime_phases, tau_p_model='ak135',
-                    distcache_dict=None, timecache_dict=None):
+def calculate_times(stations_df, evt, timespan, traveltime_phases, taup_model='ak135'):
     event_distances_degrees = []
     arrival_times = []
     latstr, lonstr = models.Station.latitude.key, models.Station.longitude.key
+    # create the taupmodel
+    taupmodel_obj = TauPyModel(taup_model)
     # cache already calculated results:
     cache = {}
     for sta in stations_df.itertuples():
@@ -465,7 +402,7 @@ def calculate_times(stations_df, evt, timespan, traveltime_phases, tau_p_model='
             degrees = locations2degrees(evt.latitude, evt.longitude, stalat, stalon)
             try:
                 arr_time = get_arrival_time(degrees, evt.depth_km, evt.time, traveltime_phases,
-                                            tau_p_model)
+                                            taupmodel_obj)
             except (TauModelError, ValueError, SlownessModelError) as exc:
                 logger.warning(msgs.calc.dropped_sta(sta_id, "arrival time calculation", exc))
                 arr_time = None
@@ -482,6 +419,32 @@ def calculate_times(stations_df, evt, timespan, traveltime_phases, tau_p_model='
 
     return ret
 
+
+def get_wqueries(session, datacenters, segments_df, stations_df):
+    """returns the wave queries and sets them to null if segments are already downloaded"""
+    # build queries, None's for already downloaded:
+    wqueries = []
+    for sta, seg in izip(stations_df.itertuples(), segments_df.itertuples()):
+        cha_id = getattr(seg, models.Segment.channel_id.key)
+        start_time = getattr(seg, models.Segment.start_time.key)
+        end_time = getattr(seg, models.Segment.end_time.key)
+        if session.query(models.Segment).\
+            filter((models.Segment.channel_id == cha_id) &
+                   (models.Segment.start_time == start_time) &
+                   (models.Segment.end_time == end_time)).\
+                first():
+            wqueries.append(None)
+        else:
+            dc_id = getattr(seg, models.Segment.datacenter_id.key)
+            wqueries.append(get_query(datacenters[dc_id].dataselect_query_url,
+                                      network=getattr(sta, models.Station.network.key),
+                                      station=getattr(sta, models.Station.station.key),
+                                      location=getattr(sta, models.Channel.location.key),
+                                      channel=getattr(sta, models.Channel.channel.key),
+                                      start=start_time.isoformat(),
+                                      end=end_time.isoformat()))
+
+    return wqueries
 
 
 def download_segments(session, segments_df, run_id, max_error_count, max_thread_workers,
@@ -519,11 +482,13 @@ def download_segments(session, segments_df, run_id, max_error_count, max_thread_
     old_df, segments_df = segments_df, segments_df.dropna(subset=[models.Segment.data.key])
     null_data_count = len(old_df) - len(segments_df)
 
-    # get empty data, then remove it:
-    segments_df[models.Segment.data.key].replace(b'', np.nan, inplace=True)
-    old_df, segments_df = segments_df, segments_df.dropna(subset=[models.Segment.data.key])
-    stats['Empty'] = len(old_df) - len(segments_df)
+#     # get empty data, then remove it:
+#     segments_df[models.Segment.data.key].replace(b'', np.nan, inplace=True)
+#     old_df, segments_df = segments_df, segments_df.dropna(subset=[models.Segment.data.key])
+#     stats['Empty'] = len(old_df) - len(segments_df)
 
+    # get empty data, DO NOT remove it:
+    stats['Empty'] = segments_df[models.Segment.data.key].apply(lambda x: 1 if x == '' else 0).sum()
     if errors[0] >= max_error_count:
         discarded_after_max_error_count = null_data_count - errors[0]
         key_skipped = ("Discarded: Remaining queries from the given domain ignored "
@@ -542,6 +507,7 @@ def download_segments(session, segments_df, run_id, max_error_count, max_thread_
                 # segments.append(model_instance)
                 stats['Saved'] += 1
             else:
+                # we rolled back
                 stats['DB Error: Local database error while saving data'] += 1
 
         # reset_index as integer. This might not be the old index if the old one was not a
@@ -658,7 +624,8 @@ def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, start
 
     with progressbar(length=len(evtid2stations)) as bar:
         dcid2seg, skipped_already_d = make_dc2seg(session, events, datacenters, evtid2stations,
-                                                  wtimespan, traveltime_phases, bar.update)
+                                                  wtimespan, traveltime_phases, 'ak135',
+                                                  bar.update)
 
     segments_count = sum([len(seg_df) for seg_df in dcid2seg.itervalues()])
     logger.info("")

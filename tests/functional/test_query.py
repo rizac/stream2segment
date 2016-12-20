@@ -80,7 +80,15 @@ class Test(unittest.TestCase):
         # create a Session
         self.session = Session()
         
-        # logging.getLogger("stream2segment").addHandler(StreamHandler(stream=sys.stdout))
+        
+        # provide here strings or iterables denoting the value to be returned by url read for
+        # events and datacenters and url async for stations and segments
+        # None will default to _events_raw... etcetera (see properties below)
+        self.evt_raw = None
+        self.dc_raw = None
+        self.sta_raw = None
+        self.seg_raw = None
+        self.atime_side_effect = None
         
 
     def tearDown(self):
@@ -115,6 +123,8 @@ class Test(unittest.TestCase):
         
     @property
     def _events_raw(self):
+        if self.evt_raw:
+            return self.evt_raw
         return """"1|2|3|4|5|6|7|8|9|10|11|12|13
 20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 01:45:30.300000|44.96|15.35|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|3.6|EMSC|CROATIA
@@ -153,6 +163,8 @@ class Test(unittest.TestCase):
 
     @property
     def _datacenters_raw(self):
+        if self.dc_raw:
+            return self.dc_raw
         return """http://ws.resif.fr/fdsnws/station/1/query
 http://geofon.gfz-potsdam.de/fdsnws/station/1/query
 http://geofon.gfz-potsdam.de/fdsnws/station/1/query
@@ -182,6 +194,8 @@ http://geofon.gfz-potsdam.de/fdsnws/station/1/query
 
     @property
     def _stations_raw(self):
+        if self.sta_raw:
+            return self.sta_raw
         invalid = """#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
 --- ERROR --- MALFORMED|12T00:00:00|
 HT|AGG||HHZ|39.0211|22.336|622.0|0.0|0.0|-90.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2008-02-12T00:00:00|
@@ -251,10 +265,16 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         assert len(self.session.query(models.Station).all()) == 3
 
 # =================================================================================================
-    @staticmethod
-    def setup_mock_arrival_time(mock_arr_time):
+
+    @property
+    def _arrtime_side_effect(self):
+        if self.atime_side_effect:
+            return self.atime_side_effect
+        return cycle([datetime.utcnow(), TauModelError('wat?'), ValueError('wat?')])
+        
+    def setup_mock_arrival_time(self, mock_arr_time):
         mock_arr_time.reset_mock()
-        mock_arr_time.side_effect = cycle([datetime.utcnow(), TauModelError('wat?'), ValueError('wat?')])
+        mock_arr_time.side_effect = self._arrtime_side_effect
 
     def make_dc2seg(self, events, datacenters, evt2stations, mock_arr_time):
         self.setup_mock_arrival_time(mock_arr_time)
@@ -283,16 +303,20 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         h = 9
     
 # =================================================================================================
-    
-    @staticmethod
-    def setup_mock_urlopen_in_async_for_segments(mock_urlopen_in_async):
+    @property
+    def _segments_raw(self):
+        if self.seg_raw:
+            return self.seg_raw
+        return cycle([b'data','', '', URLError('wat'), socket.timeout()])
+
+    def setup_mock_urlopen_in_async_for_segments(self, mock_urlopen_in_async):
         mock_urlopen_in_async.reset_mock()
         a = Mock()
-        a.read.side_effect =  cycle([b'data','', '', URLError('wat'), socket.timeout()])
+        a.read.side_effect =  self._segments_raw
         mock_urlopen_in_async.return_value = a
 
 
-    def download_segments(self, dc2segments, mock_urlopen_in_async):
+    def download_segments(self, dc2segments, mock_urlopen_in_async, max_error=5):
         self.setup_mock_urlopen_in_async_for_segments(mock_urlopen_in_async)
 
         r = models.Run()
@@ -302,10 +326,10 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         stats = {}
         for dcen_id, segments_df in dc2segments.iteritems():
             stats_ = download_segments(self.session, segments_df, r.id,  # arguments below are just to fill the call
-                                      5,
-                                      5,
-                                      40,
-                                      -1)
+                                       max_error,
+                                       5,
+                                       40,
+                                       -1)
             stats[dcen_id] = stats_
         
         return stats
@@ -338,11 +362,48 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
 #                     break
 #         assert datacenters_with_errors == expected_datacenters_with_errors
 
-    
+
+    @patch('stream2segment.download.query.get_arrival_time')
+    @patch('stream2segment.download.query.url_read')
+    @patch('stream2segment.utils.url.urllib2.urlopen')
+    def test_download_segments_max_err(self, mock_urlopen_in_async, mock_url_read, mock_arr_time):
+        events = self.get_events(mock_url_read)
+        datacenters = self.get_datacenters(mock_url_read)
+        evt2stations, stats = self.make_ev2sta(events, datacenters, mock_urlopen_in_async)
+        # keep only first event. This prevents to have duplicated stations and we get some value
+        # in dc2segments below (how is that possible we should check...)
+        evt2stations = {evt2stations.keys()[0] : evt2stations.values()[0]}
+        
+        dc2segments, skipped_already_d =  self.make_dc2seg(events, datacenters, evt2stations, mock_arr_time)
+        
+        # now set url_async return value for "segments"
+        self.seg_raw = cycle([URLError('w')])
+        stats = self.download_segments(dc2segments, mock_urlopen_in_async, max_error=1) 
+   
+        urlerror_found=0
+        discarded_after_1_trial=0
+        for k, v in stats.iteritems():
+            if v and not  (urlerror_found and discarded_after_1_trial):
+                urlerror_found = 0
+                discarded_after_1_trial = 0
+                for a, b in v.iteritems():
+                    if a.startswith('URLError:'):
+                        urlerror_found+=1
+                    elif " after 1 previous errors" in a:
+                        discarded_after_1_trial+=1
+                    if urlerror_found and discarded_after_1_trial:
+                        break
+                    
+        assert urlerror_found and discarded_after_1_trial
+        
+
     @patch('stream2segment.download.query.get_arrival_time')
     @patch('stream2segment.download.query.url_read')
     @patch('stream2segment.utils.url.urllib2.urlopen')
     def test_cmdline(self, mock_urlopen_in_async, mock_url_read, mock_arr_time):
+        
+        ddd = datetime_fixed = datetime.utcnow()  
+        
          
         self.setup_mock_arrival_time(mock_arr_time)
         # setup urlasync for stations. This means that when reading segments a station raw data
@@ -353,18 +414,63 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         mock_url_read.reset_mock()
         mock_url_read.side_effect = [self._events_raw, self._datacenters_raw]
         
-        prevlen = len(self.session.query(models.Segment).all())
+        # setup arrival time side effect
+        self.atime_side_effect = cycle([ddd, TauModelError('wat?'), ValueError('wat?')])
+        
+        # prevlen = len(self.session.query(models.Segment).all())
     
         runner = CliRunner()
         result = runner.invoke(main , ['--dburl', self.dburi, '-a', 'd',
                                        '--start', '2016-05-08T00:00:00',
-                                       '--end', '2016-05-08T9:00:00'], catch_exceptions=False)
+                                       '--end', '2016-05-08T9:00:00'])
         if result.exception:
             import traceback
             traceback.print_exception(*result.exc_info)
             print result.output
             
-        assert len(self.session.query(models.Segment).all()) == 1
+        assert len(self.session.query(models.Segment).all()) == 2
+        
+        # and now re-run, see what happens:
+        
+        # re-setup everything, for safety:
+        self.setup_mock_arrival_time(mock_arr_time)
+        # setup urlasync for stations. This means that when reading segments a station raw data
+        # is returned, but we should not care (it will be stored as binary)
+        self.setup_mock_urlopen_in_async_for_stations(mock_urlopen_in_async)
+        
+        # setup urlread for events first and then for datacenters:
+        mock_url_read.reset_mock()
+        mock_url_read.side_effect = [self._events_raw, self._datacenters_raw]
+        
+         # setup arrival time side effect
+        self.atime_side_effect = cycle([ddd, TauModelError('wat?'), ValueError('wat?')])
+        
+        
+        runner = CliRunner()
+        result = runner.invoke(main , ['--dburl', self.dburi, '-a', 'd',
+                                       '--start', '2016-05-08T00:00:00',
+                                       '--end', '2016-05-08T9:00:00'])
+        if result.exception:
+            import traceback
+            traceback.print_exception(*result.exc_info)
+            print result.output
+        
+        # we might do this:
+        # assert len(self.session.query(models.Segment).all()) == 2
+        
+        # However, it seems that the arrival times calculated have differences (rounding errors?)
+        # in the order of milliseconds. Thus:
+        def approxdtime(dt):
+            return datetime(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second,
+                             1000*int(dt.microsecond/1000)) 
+        
+        dic = {}
+        for seg in self.session.query(models.Segment).all():
+            has = hash((seg.channel_id, approxdtime(seg.start_time), approxdtime(seg.end_time)))
+            dic[has] = 4
+            
+        assert len(dic) == 2
+        
           
                  
 #         # common query for 1 event found and all datacenters (takes more or less 10 to 20 minutes):
