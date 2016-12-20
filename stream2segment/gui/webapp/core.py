@@ -21,7 +21,7 @@ from obspy.core.stream import Stream
 from obspy.core.trace import Trace
 from obspy.core.utcdatetime import UTCDateTime
 import yaml
-from stream2segment.io.db.pd_sql_utils import get_col_names, commit
+from stream2segment.io.db.pd_sql_utils import commit, colnames
 from sqlalchemy.sql.sqltypes import Binary, DateTime
 from stream2segment.analysis import amp_spec, freqs, interp as analysis_interp
 from stream2segment.main import load_def_cfg
@@ -47,7 +47,7 @@ def get_ids(session):
 def get_classes(session):
     clazzes = session.query(Class).all()
     ret = []
-    colz = get_col_names(Class)
+    colz = colnames(Class)
     for c in clazzes:
         row = {}
         for col in colz:

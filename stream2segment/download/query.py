@@ -133,7 +133,7 @@ def get_datacenters(session, **query_args):
 def get_stations_df(url, raw_data, min_sample_rate):
     """FIXME: write doc! """
     if not raw_data:
-        logger.warning(msgs.query.empty())  # query2dframe below handles empty data,
+        logger.warning(msgs.query.empty(url))  # query2dframe below handles empty data,
         return empty()
     # but we want meaningful log
     try:
