@@ -133,11 +133,12 @@ has been to update gcc and install python2.7-dev:
 	sudo apt-get upgrade gcc
 	sudo apt-get install python2.7-dev```
 	For details see http://stackoverflow.com/questions/18785063/install-numpy-in-python-virtualenv
- - ~~For matplotlib problems, `libpng-dev libfreetype6-dev` are required (see http://stackoverflow.com/questions/25593512/cant-install-matplotlib-using-pip and http://stackoverflow.com/questions/28914202/pip-install-matplotlib-fails-cannot-build-package-freetype-python-setup-py-e)~~
- - ~~For matplotlib problems, if running `stream2segment --gui` (after downloading some data), you get `ImportError: cannot import name _tkagg` you should install python-tk: ```apt-get install python-tk`` (see http://stackoverflow.com/questions/4783810/install-tkinter-for-python)~~
  - For scipy problems, `build-essential gfortran libatlas-base-dev` are required for scipy (see http://stackoverflow.com/questions/2213551/installing-scipy-with-pip/3865521#3865521)
  - For lxml problems, `libxml2-dev libxslt-dev` are required (see here: http://lxml.de/installation.html)
 
+(We do not use anymore matplotlib for responsive GUIs, you can skip the lines below)
+ - ~~For matplotlib problems, `libpng-dev libfreetype6-dev` are required (see http://stackoverflow.com/questions/25593512/cant-install-matplotlib-using-pip and http://stackoverflow.com/questions/28914202/pip-install-matplotlib-fails-cannot-build-package-freetype-python-setup-py-e)~~
+ - ~~For matplotlib problems, if running `stream2segment --gui` (after downloading some data), you get `ImportError: cannot import name _tkagg` you should install python-tk: ```apt-get install python-tk`` (see http://stackoverflow.com/questions/4783810/install-tkinter-for-python)~~
 
 ## Misc:
 
