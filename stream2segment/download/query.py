@@ -11,13 +11,18 @@
        To be decided!
 """
 import logging
-import urllib2
-import httplib
-import socket
+# import urllib2
+# import httplib
+# import socket
 from datetime import timedelta
 import numpy as np
 import pandas as pd
-from click import progressbar as click_pbar
+from urlparse import urlparse
+from itertools import izip, imap, repeat
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.sql.expression import func
+# from click import progressbar as click_pbar
+import concurrent.futures
 from obspy.taup.tau import TauPyModel
 from obspy.geodetics.base import locations2degrees
 from obspy.taup.helper_classes import TauModelError, SlownessModelError
@@ -29,11 +34,7 @@ from stream2segment.io.db.pd_sql_utils import df2dbiter, get_or_add_iter, commit
 from stream2segment.utils.url import read_async
 from stream2segment.download.utils import empty, get_query, query2dframe, normalize_fdsn_dframe,\
     get_search_radius, appenddf, get_arrival_time, UrlStats, stats2str, get_inventory_query
-from urlparse import urlparse
-from itertools import izip, imap, repeat
-from sqlalchemy.exc import SQLAlchemyError
 from stream2segment.io.dataseries import dumps_inv
-import concurrent.futures
 
 
 logger = logging.getLogger(__name__)
@@ -314,7 +315,8 @@ def save_inventories(session, stations, max_thread_workers, timeout,
 
 
 def make_dc2seg(session, events, datacenters, evt2stations, wtimespan, traveltime_phases,
-                taup_model='ak135', notify_progress_func=lambda *a, **v: None):
+                taup_model, retry_empty_segments,
+                notify_progress_func=lambda *a, **v: None):
     segments = {dc_id: empty() for dc_id in datacenters}
     skipped_already_d = {dc_id: 0 for dc_id in datacenters}
     # tau_p_model = TauPyModel('ak135')
@@ -346,8 +348,9 @@ def make_dc2seg(session, events, datacenters, evt2stations, wtimespan, traveltim
                 segments_df[models.Segment.event_id.key] = evt_id
                 segments_df[models.Segment.datacenter_id.key] = \
                     stations_df[models.Station.datacenter_id.key]
-                # build queries, None's for already downloaded:
-                wqueries = get_wqueries(session, datacenters, segments_df, stations_df)
+                # build queries, None's for "do not download'em":
+                wqueries = get_wqueries(session, datacenters, segments_df, stations_df,
+                                        retry_empty_segments)
                 segments_df[_SEGMENTS_DATAURL_COLNAME] = wqueries
                 dc_ids = pd.unique(segments_df[models.Segment.datacenter_id.key])
                 for dc_id in dc_ids:
@@ -414,13 +417,13 @@ def calculate_times(stations_df, evt, timespan, traveltime_phases, taup_model='a
                         models.Segment.arrival_time.key: arrival_times})
     td0, td1 = timedelta(minutes=timespan[0]), timedelta(minutes=timespan[1])
     # this works also if arrival time is None (sets NaT):
-    ret[models.Segment.start_time.key] = ret[models.Segment.arrival_time.key] - td0
-    ret[models.Segment.end_time.key] = ret[models.Segment.arrival_time.key] + td1
+    ret[models.Segment.start_time.key] = (ret[models.Segment.arrival_time.key] - td0).dt.round('s')
+    ret[models.Segment.end_time.key] = (ret[models.Segment.arrival_time.key] + td1).dt.round('s')
 
     return ret
 
 
-def get_wqueries(session, datacenters, segments_df, stations_df):
+def get_wqueries(session, datacenters, segments_df, stations_df, retry_empty_segments):
     """returns the wave queries and sets them to null if segments are already downloaded"""
     # build queries, None's for already downloaded:
     wqueries = []
@@ -428,13 +431,11 @@ def get_wqueries(session, datacenters, segments_df, stations_df):
         cha_id = getattr(seg, models.Segment.channel_id.key)
         start_time = getattr(seg, models.Segment.start_time.key)
         end_time = getattr(seg, models.Segment.end_time.key)
-        if session.query(models.Segment).\
+        existing_seg = session.query(models.Segment).\
             filter((models.Segment.channel_id == cha_id) &
                    (models.Segment.start_time == start_time) &
-                   (models.Segment.end_time == end_time)).\
-                first():
-            wqueries.append(None)
-        else:
+                   (models.Segment.end_time == end_time)).first()
+        if not existing_seg or (retry_empty_segments and not existing_seg.data):
             dc_id = getattr(seg, models.Segment.datacenter_id.key)
             wqueries.append(get_query(datacenters[dc_id].dataselect_query_url,
                                       network=getattr(sta, models.Station.network.key),
@@ -443,6 +444,28 @@ def get_wqueries(session, datacenters, segments_df, stations_df):
                                       channel=getattr(sta, models.Channel.channel.key),
                                       start=start_time.isoformat(),
                                       end=end_time.isoformat()))
+        else:
+            wqueries.append(None)
+#         if session.query(models.Segment).\
+#             filter((models.Segment.channel_id == cha_id) &
+#                    (models.Segment.start_time == start_time) &
+#                    (models.Segment.end_time == end_time)).\
+#                 first():
+#             wqueries.append(None)
+#         if session.query(models.Segment).\
+#             filter((models.Segment.channel_id == cha_id) &
+#                    (models.Segment.data != None) & (func.length(models.Segment.data) > 0)).\
+#                 first():
+#             wqueries.append(None)
+#         else:
+#             dc_id = getattr(seg, models.Segment.datacenter_id.key)
+#             wqueries.append(get_query(datacenters[dc_id].dataselect_query_url,
+#                                       network=getattr(sta, models.Station.network.key),
+#                                       station=getattr(sta, models.Station.station.key),
+#                                       location=getattr(sta, models.Channel.location.key),
+#                                       channel=getattr(sta, models.Channel.channel.key),
+#                                       start=start_time.isoformat(),
+#                                       end=end_time.isoformat()))
 
     return wqueries
 
@@ -521,7 +544,9 @@ def download_segments(session, segments_df, run_id, max_error_count, max_thread_
 def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, start, end, stimespan,
          sradius_minmag, sradius_maxmag, sradius_minradius, sradius_maxradius,
          channels, min_sample_rate, download_s_inventory, traveltime_phases,
-         wtimespan, advanced_settings, isterminal=False):
+         wtimespan,
+         retry_empty_segments,
+         advanced_settings, isterminal=False):
     """
         Downloads waveforms related to events to a specific path
         :param eventws: Event WS to use in queries. E.g. 'http://seismicportal.eu/fdsnws/event/1/'
@@ -625,6 +650,7 @@ def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, start
     with progressbar(length=len(evtid2stations)) as bar:
         dcid2seg, skipped_already_d = make_dc2seg(session, events, datacenters, evtid2stations,
                                                   wtimespan, traveltime_phases, 'ak135',
+                                                  retry_empty_segments,
                                                   bar.update)
 
     segments_count = sum([len(seg_df) for seg_df in dcid2seg.itervalues()])

@@ -185,7 +185,7 @@ cfg_dict = load_def_cfg()
 # IMPORTANT
 def run(action, dburl, eventws, minmag, minlat, maxlat, minlon, maxlon, start, end, stimespan,
         search_radius,
-        channels, min_sample_rate, s_inventory, traveltime_phases, wtimespan,
+        channels, min_sample_rate, traveltime_phases, wtimespan,
         processing, advanced_settings, isterminal=False):
     """
         Main run method. KEEP the ARGUMENT THE SAME AS THE config.yaml OTHERWISE YOU'LL GET
@@ -225,22 +225,23 @@ def run(action, dburl, eventws, minmag, minlat, maxlat, minlon, maxlon, start, e
 
     ret = 0
     try:
-        if s_inventory is None:
-            sta_del = session.query(models.Station).\
-                filter(models.Station.inventory_xml != None).\
-                update({models.Station.inventory_xml.key: None})
-            if sta_del:
-                session.commit()
-                logger.info("Deleted %d station inventories (set to null)" % sta_del)
+#         if s_inventory is None:
+#             sta_del = session.query(models.Station).\
+#                 filter(models.Station.inventory_xml != None).\
+#                 update({models.Station.inventory_xml.key: None})
+#             if sta_del:
+#                 session.commit()
+#                 logger.info("Deleted %d station inventories (set to null)" % sta_del)
 
         segments = []
-        if 'd' in action:
+        if 'd' in action.lower():
             starttime = time.time()
             ret = query_main(session, run_row.id, eventws, minmag, minlat, maxlat, minlon, maxlon,
                              start, end, stimespan, search_radius['minmag'],
                              search_radius['maxmag'], search_radius['minradius'],
                              search_radius['maxradius'], channels,
-                             min_sample_rate, s_inventory is True, traveltime_phases, wtimespan, 
+                             min_sample_rate, 'i' in action, traveltime_phases, wtimespan,
+                             'D' in action,
                              advanced_settings, isterminal)
             logger.info("Download completed in %s",
                         tdstr(dt.timedelta(seconds=time.time()-starttime)))
@@ -278,18 +279,24 @@ def run(action, dburl, eventws, minmag, minlat, maxlat, minlon, maxlon, start, e
 
 @click.command()
 @click.option('--action', '-a', type=click.Choice(['d', 'p', 'P', 'dp', 'dP', 'gui']),
-              help=('Action to be taken for the program. Choices are:'
-                    '\nd   : download data only, no processing'
-                    '\np   : no download, process only non-processed data (if any)'
-                    '\nP   : no download, clear processing and re-process *all* data'
-                    '\ndp  : download data, process only non-processed data (if any)'
-                    '\ndP  : download data, clear processing and re-process *all* data'
-                    '\ngui : show gui'
+              help=('action to be taken for the program. Possible values are (you can type a '
+                    'combination of them, e.g. d, diP):'
+                    '\nd   : download data. Already downloaded segments are not downloaded'
+                    '\nD   : download data. Already downloaded segments are downloaded again '
+                    'only if empty or with errors'
+                    '\ni   : download station inventories. Already downloaded inventories are '
+                    'not downloaded'
+                    '\nI   : download station inventories. Already downloaded inventories are '
+                    'downloaded again only if empty or with errors'
+                    '\np   : Process segments. Already processed segments are not processed again'
+                    '\nP   : Process segments (all). Already processed segments are processed again'
+                    '\ngui : show gui. this option cannot be used in combination with the other '
+                    'options'
                     '\n'
                     '\ne.g.: stream2segment --action dp'
                     '\n      stream2segment --action gui'),
               default=cfg_dict['action'])
-@click.option('-e', '--eventws', default=cfg_dict['eventws'],
+@click.option('-E', '--eventws', default=cfg_dict['eventws'],
               help='Event WS to use in queries.')
 @click.option('--minmag', default=cfg_dict['minmag'],
               help='Minimum magnitude.', type=float)
@@ -312,20 +319,16 @@ def run(action, dburl, eventws, minmag, minlat, maxlat, minlon, maxlon, start, e
 @click.option('-d', '--dburl', default=cfg_dict.get('dburl', ''),
               help='Db path where to store waveforms, or db path from where to read the'
                    ' waveforms, if --gui is specified.')
-@click.option('-f', '--start', default=cfg_dict.get('start', get_def_timerange()[0]),
+@click.option('-s', '--start', default=cfg_dict.get('start', get_def_timerange()[0]),
               type=valid_date,
               help='Limit to events on or after the specified start time.')
-@click.option('-t', '--end', default=cfg_dict.get('end', get_def_timerange()[1]),
+@click.option('-e', '--end', default=cfg_dict.get('end', get_def_timerange()[1]),
               type=valid_date,
               help='Limit to events on or before the specified end time.')
-@click.option('--s_inventory', default=cfg_dict.get('s_inventory', None),
-              type=click.Choice(['y', 'n', 'c']),
-              help='download and save station inventories (y), do not save (n) or do not save and '
-              'clear all saved in the database')
 @click.option('--min_sample_rate', default=cfg_dict['min_sample_rate'],
               help='Limit to segments on a sample rate higher than a specific threshold')
 def main(action, eventws, minmag, minlat, maxlat, minlon, maxlon, wtimespan, stimespan,
-         dburl, start, end, s_inventory, min_sample_rate):
+         dburl, start, end, min_sample_rate):
     try:
         ret = run(action, dburl, eventws, minmag, minlat, maxlat, minlon, maxlon, start, end,
                   stimespan, cfg_dict['search_radius'], cfg_dict['channels'], min_sample_rate,

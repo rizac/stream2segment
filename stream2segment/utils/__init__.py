@@ -181,7 +181,7 @@ def load_def_cfg(filepath=None, raw=False):
 def get_default_dbpath(config_filepath=None):
     if config_filepath is None:
         config_filepath = get_default_cfg_filepath()
-    return load_def_cfg(config_filepath)['dburi']
+    return load_def_cfg(config_filepath)['dburl']
 
 
 def get_session(dbpath=None, scoped=False):

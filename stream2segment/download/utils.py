@@ -8,17 +8,17 @@ from datetime import timedelta
 from collections import defaultdict
 import numpy as np
 import pandas as pd
-from sqlalchemy import and_
+# from sqlalchemy import and_
 from obspy.taup import TauPyModel
-from obspy.geodetics import locations2degrees
-from obspy.taup.helper_classes import TauModelError, SlownessModelError
-from stream2segment.utils.url import url_read
+# from obspy.geodetics import locations2degrees
+# from obspy.taup.helper_classes import TauModelError, SlownessModelError
+# from stream2segment.utils.url import url_read
 from stream2segment.io.db import models
 from stream2segment.io.db.pd_sql_utils import harmonize_columns,\
-    harmonize_rows, df2dbiter, get_or_add_iter, colnames
+    harmonize_rows, colnames
 from obspy.taup.taup_time import TauPTime
 from itertools import izip, count
-from stream2segment.io.dataseries import dumps_inv
+# from stream2segment.io.dataseries import dumps_inv
 
 
 def get_min_travel_time(source_depth_in_km, distance_in_degree, traveltime_phases, model='ak135'):

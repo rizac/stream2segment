@@ -38,7 +38,7 @@ import logging
 from logging import StreamHandler
 import sys
 from stream2segment.main import logger as main_logger
-
+from sqlalchemy.sql.expression import func
 
 class Test(unittest.TestCase):
     
@@ -429,6 +429,8 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
             print result.output
             
         assert len(self.session.query(models.Segment).all()) == 2
+        
+        self.session.query(models.Segment).filter((models.Segment.channel_id == 'HT.AGG..HHE') & ((models.Segment.data == None) | (func.length(models.Segment.data) == 0))).first()
         
         # and now re-run, see what happens:
         

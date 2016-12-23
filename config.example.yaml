@@ -14,28 +14,18 @@
 # Otherwise, the syntax is:
 # dialect+driver://username:password@host:port/database
 # (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)
-dburl: 'postgresql://riccardo:@localhost/s2s'  # 'sqlite:///./mydb.sqlite_nov_2016'
+dburl: 'postgresql://me:@localhost/s2s'  # 'sqlite:///./mydb.sqlite_nov_2016'
 # IMPORTANT: IF SQLITE, AND THE DBPATH IS RELATIVE (not starting with slash on unix or C:\ whatever on windows)
 # IT REFERS TO THIS FILE PATH!
 
-# action to be taken for the program. Possible values:
-# d   : download data only, no processing'
-# p   : no download, process only non-processed data (if any)'
-# P   : no download, clear processing and re-process *all* data'
-# dp  : download data, process only non-processed data (if any)'
-# dP  : download data, clear processing and re-process *all* data'
-# gui : show gui
+# action to be taken for the program. Possible values are (you can type a combination of them, e.g. 'd', 'diP'):
+# d   : download data. Already downloaded segments are not downloaded
+# D   : download data. Already downloaded segments are downloaded again only if empty or with errors 
+# i   : (in conjunction with d or D, otherwise ignored) download station inventories. Already downloaded inventories are not downloaded
+# p   : Process segments. Already processed segments are not processed again
+# P   : Process segments (all). Already processed segments are processed again
+# gui : show gui. this option cannot be used in combination with the other options
 action: 'd'  # 'dp'
-
-# optional flag to tell whether to save stations inventory during stations download
-# the inventory is the obspy object representing the full response information for the requested station's
-# channels (equivalent to perform a an fdsn query with level="response") 
-# values can be n/no/false or y/yes/true.
-# **IMPORTANT**: if this argument is removed (or commented via #), all station inventories will
-# be deleted (this might be useful if the database gets bigger and is preferable to
-# download inventory during processing only when required, at the risk of slowing down processing)
-s_inventory: n
-
 
 #######################
 # DATA QUERY PARAMETERS
