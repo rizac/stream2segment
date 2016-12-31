@@ -278,20 +278,18 @@ def run(action, dburl, eventws, minmag, minlat, maxlat, minlon, maxlon, start, e
 
 
 @click.command()
-@click.option('--action', '-a', type=click.Choice(['d', 'p', 'P', 'dp', 'dP', 'gui']),
-              help=('action to be taken for the program. Possible values are (you can type a '
-                    'combination of them, e.g. d, diP):'
-                    '\nd   : download data. Already downloaded segments are not downloaded'
-                    '\nD   : download data. Already downloaded segments are downloaded again '
-                    'only if empty or with errors'
-                    '\ni   : download station inventories. Already downloaded inventories are '
-                    'not downloaded'
-                    '\nI   : download station inventories. Already downloaded inventories are '
-                    'downloaded again only if empty or with errors'
-                    '\np   : Process segments. Already processed segments are not processed again'
-                    '\nP   : Process segments (all). Already processed segments are processed again'
-                    '\ngui : show gui. this option cannot be used in combination with the other '
-                    'options'
+@click.option('--action', '-a', # type=click.Choice(['d', 'p', 'P', 'dp', 'dP', 'gui']),
+              help=('action to be taken for the program. Possible values are a combination of '
+                    'the following values (without square brackets):'
+                    '\n[d]: download data (skip already downloaded segments). '
+                    '[D]: download data (already downloaded segments: retry downloading if '
+                    'empty/with errors, otherwise skip). '
+                    '[i]: (in conjunction with d or D, otherwise ignored) download station '
+                    'inventories (skipping already downloaded). '
+                    '[p]: Process segments (skip already processed segments). '
+                    '[P]: Process segments (all: already processed segments are processed again). '
+                    '[gui]: show gui. this option cannot be used in combination with the '
+                    'other options (i.e. dgui is invalid). '
                     '\n'
                     '\ne.g.: stream2segment --action dp'
                     '\n      stream2segment --action gui'),
@@ -332,7 +330,7 @@ def main(action, eventws, minmag, minlat, maxlat, minlon, maxlon, wtimespan, sti
     try:
         ret = run(action, dburl, eventws, minmag, minlat, maxlat, minlon, maxlon, start, end,
                   stimespan, cfg_dict['search_radius'], cfg_dict['channels'], min_sample_rate,
-                  s_inventory, cfg_dict['traveltime_phases'], wtimespan, cfg_dict['processing'],
+                  cfg_dict['traveltime_phases'], wtimespan, cfg_dict['processing'],
                   cfg_dict['advanced_settings'], isterminal=True)
         sys.exit(ret)
     except KeyboardInterrupt:

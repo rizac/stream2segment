@@ -349,13 +349,14 @@ def make_dc2seg(session, events, datacenters, evt2stations, wtimespan, traveltim
                 segments_df[models.Segment.datacenter_id.key] = \
                     stations_df[models.Station.datacenter_id.key]
                 # build queries, None's for "do not download'em":
-                wqueries = get_wqueries(session, datacenters, segments_df, stations_df,
-                                        retry_empty_segments)
+                wqueries, ids = get_wqueries_and_ids(session, datacenters, segments_df, stations_df,
+                                                     retry_empty_segments)
                 segments_df[_SEGMENTS_DATAURL_COLNAME] = wqueries
-                dc_ids = pd.unique(segments_df[models.Segment.datacenter_id.key])
-                for dc_id in dc_ids:
-                    dc_segments_df = segments_df[segments_df[models.Segment.datacenter_id.key]
-                                                 == dc_id]
+                segments_df[models.Segment.id.key] = ids
+                # dc_ids = pd.unique(segments_df[models.Segment.datacenter_id.key])
+                for dc_id in datacenters:
+                    dc_segments_df = segments_df[segments_df[models.Segment.datacenter_id.key] ==
+                                                 dc_id]
                     if empty(dc_segments_df):
                         continue
                     old_dc_segments_df, dc_segments_df = dc_segments_df, \
@@ -364,7 +365,7 @@ def make_dc2seg(session, events, datacenters, evt2stations, wtimespan, traveltim
                     skip_downld = len(old_dc_segments_df) - len(dc_segments_df)
                     if skip_downld:
                         skipped_already_d[dc_id] += skip_downld
-            except Exception as exc:
+            except Exception as exc:  # FIXME: do we need this try catch??
                 logger.warning(msgs.calc.dropped_sta(len(evt2stations[evt_id]),
                                                      "calculating arrival time", exc))
 
@@ -378,7 +379,7 @@ def make_dc2seg(session, events, datacenters, evt2stations, wtimespan, traveltim
             lendf = len(dataframe)
             dataframe.drop_duplicates(subset=[_SEGMENTS_DATAURL_COLNAME], keep=False, inplace=True)
             if lendf != len(dataframe):
-                logger.warning(msgs.format(("datacenter (id=%d): Can not handle "
+                logger.warning(msgs.format(("datacenter (id=%d): Cannot handle "
                                             "%d duplicates in segments urls: discarded")),
                                dc_id, lendf-len(dataframe))
             dataframe.set_index(_SEGMENTS_DATAURL_COLNAME, inplace=True)  # drops the column
@@ -423,55 +424,44 @@ def calculate_times(stations_df, evt, timespan, traveltime_phases, taup_model='a
     return ret
 
 
-def get_wqueries(session, datacenters, segments_df, stations_df, retry_empty_segments):
-    """returns the wave queries and sets them to null if segments are already downloaded"""
+def get_wqueries_and_ids(session, datacenters, segments_df, stations_df, retry_empty_segments):
+    """returns the wave queries and sets them to null if segments are already downloaded.
+    Returns also the ids of each segment which indicates if the segment already exists"""
     # build queries, None's for already downloaded:
     wqueries = []
+    ids = []
+    nonemptydata_flt = None if not retry_empty_segments else \
+        (models.Segment.data != None) & (func.length(models.Segment.data) > 0)  # @IgnorePep8
     for sta, seg in izip(stations_df.itertuples(), segments_df.itertuples()):
         cha_id = getattr(seg, models.Segment.channel_id.key)
         start_time = getattr(seg, models.Segment.start_time.key)
         end_time = getattr(seg, models.Segment.end_time.key)
-        existing_seg = session.query(models.Segment).\
-            filter((models.Segment.channel_id == cha_id) &
-                   (models.Segment.start_time == start_time) &
-                   (models.Segment.end_time == end_time)).first()
-        if not existing_seg or (retry_empty_segments and not existing_seg.data):
-            dc_id = getattr(seg, models.Segment.datacenter_id.key)
-            wqueries.append(get_query(datacenters[dc_id].dataselect_query_url,
-                                      network=getattr(sta, models.Station.network.key),
-                                      station=getattr(sta, models.Station.station.key),
-                                      location=getattr(sta, models.Channel.location.key),
-                                      channel=getattr(sta, models.Channel.channel.key),
-                                      start=start_time.isoformat(),
-                                      end=end_time.isoformat()))
-        else:
-            wqueries.append(None)
-#         if session.query(models.Segment).\
-#             filter((models.Segment.channel_id == cha_id) &
-#                    (models.Segment.start_time == start_time) &
-#                    (models.Segment.end_time == end_time)).\
-#                 first():
-#             wqueries.append(None)
-#         if session.query(models.Segment).\
-#             filter((models.Segment.channel_id == cha_id) &
-#                    (models.Segment.data != None) & (func.length(models.Segment.data) > 0)).\
-#                 first():
-#             wqueries.append(None)
-#         else:
-#             dc_id = getattr(seg, models.Segment.datacenter_id.key)
-#             wqueries.append(get_query(datacenters[dc_id].dataselect_query_url,
-#                                       network=getattr(sta, models.Station.network.key),
-#                                       station=getattr(sta, models.Station.station.key),
-#                                       location=getattr(sta, models.Channel.location.key),
-#                                       channel=getattr(sta, models.Channel.channel.key),
-#                                       start=start_time.isoformat(),
-#                                       end=end_time.isoformat()))
+        flt = (models.Segment.channel_id == cha_id) & \
+            (models.Segment.start_time == start_time) & \
+            (models.Segment.end_time == end_time)
+        existing_seg_id = session.query(models.Segment.id).filter(flt).first()
+        already_downloaded = True if existing_seg_id else False
+        if existing_seg_id and retry_empty_segments:
+            already_downloaded = True if session.query(models.Segment.id).\
+                    filter(flt & nonemptydata_flt).first() else False
 
-    return wqueries
+        ids.append(existing_seg_id[0] if existing_seg_id else None)
+        if already_downloaded:
+            wqueries.append(None)
+            continue
+        dc_id = getattr(seg, models.Segment.datacenter_id.key)
+        wqueries.append(get_query(datacenters[dc_id].dataselect_query_url,
+                                  network=getattr(sta, models.Station.network.key),
+                                  station=getattr(sta, models.Station.station.key),
+                                  location=getattr(sta, models.Channel.location.key),
+                                  channel=getattr(sta, models.Channel.channel.key),
+                                  start=start_time.isoformat(),
+                                  end=end_time.isoformat()))
+    return wqueries, ids
 
 
 def download_segments(session, segments_df, run_id, max_error_count, max_thread_workers,
-                      timeout, download_blocksize,
+                      timeout, download_blocksize, sync_session_on_update='evaluate',
                       notify_progress_func=lambda *a, **v: None):
 
     stats = UrlStats()
@@ -481,7 +471,6 @@ def download_segments(session, segments_df, run_id, max_error_count, max_thread_
     segments_df[models.Segment.data.key] = None
     # set_index as urls (this is much faster when locating a dframe row compared to
     # df[df[df_urls_colname] == some_url]):
-    # segments_df.set_index(_SEGMENTS_DATAURL_COLNAME, inplace=True)  # FIXME: check drop!
     urls = segments_df.index.values
 
     def onsuccess(data, url, index):  # pylint:disable=unused-argument
@@ -525,7 +514,16 @@ def download_segments(session, segments_df, run_id, max_error_count, max_thread_
         segments_df.is_copy = False
         segments_df[models.Segment.run_id.key] = run_id
         for model_instance in df2dbiter(segments_df, models.Segment, False, False):
-            session.add(model_instance)
+            already_downloaded = model_instance.id is not None
+            # if we have tried an already saved instance, and no data is found, skip it
+            if already_downloaded and not model_instance.data:  # for safety, this should not happen
+                continue
+            elif already_downloaded:
+                session.query(models.Segment).filter(models.Segment.id == model_instance.id).\
+                    update({models.Segment.data.key: model_instance.data},
+                           synchronize_session=sync_session_on_update)
+            else:
+                session.add(model_instance)
             if commit(session):
                 # segments.append(model_instance)
                 stats['Saved'] += 1
@@ -665,6 +663,7 @@ def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, start
                                       advanced_settings['max_thread_workers'],
                                       advanced_settings['w_timeout'],
                                       advanced_settings['download_blocksize'],
+                                      False,  # do not sync on update
                                       bar.update)
             stats['Discarded: Already saved'] = skipped_already_d[dcen_id]
             # Note above: provide ":" to auto split column if too long

@@ -20,10 +20,10 @@ dburl: 'postgresql://me:@localhost/s2s'  # 'sqlite:///./mydb.sqlite_nov_2016'
 
 # action to be taken for the program. Possible values are (you can type a combination of them, e.g. 'd', 'diP'):
 # d   : download data. Already downloaded segments are not downloaded
-# D   : download data. Already downloaded segments are downloaded again only if empty or with errors 
+# D   : download data. Already downloaded segments are downloaded again only if empty or NULL (=query errors) 
 # i   : (in conjunction with d or D, otherwise ignored) download station inventories. Already downloaded inventories are not downloaded
 # p   : Process segments. Already processed segments are not processed again
-# P   : Process segments (all). Already processed segments are processed again
+# P   : Process segments. Process all segments. I.e., already processed segments are processed again
 # gui : show gui. this option cannot be used in combination with the other options
 action: 'd'  # 'dp'
 
@@ -144,12 +144,12 @@ advanced_settings:
  # If the flag to download station inventories is on, max time to wait (in seconds) while downloading
  #station inventories (`urllib2.urlopen` timeout argument)
  i_timeout: 15
- # max time to wait (in seconds) while downloading data (`urllib2.urlopen` timeout argument)
+ # max time to wait (in seconds) while downloading waveform data (`urllib2.urlopen` timeout argument)
  w_timeout: 10
  # max number of (url, http...) errors per datacenter, while downloading data only (stations download requires less data and is not affected):
  # after that, all remaining data queries will be discarded (for that datacenter only)
  # Lower values might speed up consistently the download time, at the risk of discarding potentially good data
  # Higher values might slower down consistently the download, reducing the risk of discarding potentually good data
  # Set to zero or negative value to ignore this argument (try to download everything, wait until necessary) 
- w_maxerr_per_dc: 5
+ w_maxerr_per_dc: -1
  

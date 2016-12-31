@@ -25,7 +25,7 @@ from click.testing import CliRunner
 from stream2segment.io.db import models
 # from stream2segment.s2sio.db.pd_sql_utils import df2dbiter, get_col_names
 import pandas as pd
-from stream2segment.download.query import get_datacenters as gdc_orig, get_events, get_datacenters,\
+from stream2segment.download.query import get_events, get_datacenters,\
     make_ev2sta, make_dc2seg, download_segments
 from obspy.core.stream import Stream
 from stream2segment.io.db.models import DataCenter
@@ -34,41 +34,53 @@ from urllib2 import URLError
 import socket
 from obspy.taup.helper_classes import TauModelError
 
-import logging
-from logging import StreamHandler
+# import logging
+# from logging import StreamHandler
 import sys
-from stream2segment.main import logger as main_logger
+# from stream2segment.main import logger as main_logger
 from sqlalchemy.sql.expression import func
 
 class Test(unittest.TestCase):
     
-    engine = None
     dburi = ""
+    file = None
 
+    @staticmethod
+    def cleanup(session, file, *patchers):
+        if session:
+            session.close()
+        if file and os.path.isfile(file):
+            os.remove(file)
+        for patcher in patchers:
+            patcher.stop()
 
-#     @classmethod
-#     def setUpClass(cls):
-#         file = os.path.dirname(__file__)
-#         filedata = os.path.join(file,"..","data")
-#         url = os.path.join(filedata, "_test.sqlite")
-#         Test.dburi = 'sqlite:///' + url
-#         # an Engine, which the Session will use for connection
-#         # resources
-#         # some_engine = create_engine('postgresql://scott:tiger@localhost/')
-#         Test.engine = create_engine(Test.dburi)
-#         # Base.metadata.drop_all(cls.engine)
-#         Base.metadata.create_all(cls.engine)
-# 
-#     @classmethod
-#     def tearDownClass(cls):
-#         Base.metadata.drop_all(cls.engine)
-
-    def setUp(self):
+    @classmethod
+    def setUpClass(cls):
         file = os.path.dirname(__file__)
         filedata = os.path.join(file,"..","data")
         url = os.path.join(filedata, "_test.sqlite")
-        self.dburi = 'sqlite:///' + url
-        self.file = url
+        cls.dburi = 'sqlite:///' + url
+        cls.file = url
+
+    @classmethod
+    def tearDownClass(cls):
+        if os.path.isfile(cls.file):
+            os.remove(cls.file)
+        
+
+    def setUp(self):
+        # remove file if not removed:
+        Test.cleanup(None, self.file)
+        
+        self.patcher = patch('stream2segment.utils.url.urllib2.urlopen')
+        self.mock_urlopen = self.patcher.start()
+        
+        self.patcher2 = patch('stream2segment.download.query.get_arrival_time')
+        self.mock_arrival_time = self.patcher2.start()
+        
+        self.patcher3 = patch('stream2segment.main.logger')
+        self.mock_main_logger = self.patcher3.start()
+        
         # an Engine, which the Session will use for connection
         # resources
         # some_engine = create_engine('postgresql://scott:tiger@localhost/')
@@ -80,173 +92,122 @@ class Test(unittest.TestCase):
         # create a Session
         self.session = Session()
         
-        
-        # provide here strings or iterables denoting the value to be returned by url read for
-        # events and datacenters and url async for stations and segments
-        # None will default to _events_raw... etcetera (see properties below)
-        self.evt_raw = None
-        self.dc_raw = None
-        self.sta_raw = None
-        self.seg_raw = None
-        self.atime_side_effect = None
-        
+        # setup a run_id:
+        r = models.Run()
+        self.session.add(r)
+        self.session.commit()
+        self.run = r
 
-    def tearDown(self):
-        self.session.close()
-        Base.metadata.drop_all(self.engine)  # @UndefinedVariable
-        os.remove(self.file)
-        for hand in main_logger.handlers:
-            # IMPOERTANT TO REMOVE LOGGER CAUSE MAIN COFNIGURES LOGGERS AND
-            # USES THE DB, EVERYTHING IS MESSED UP THEN AND IT's NOT BECAUSE OF ERRORS WE SHOULD
-            # CATCH
-            main_logger.removeHandler(hand)
-
-#     @staticmethod
-#     def checkstats(stats, check_hasok=True, check_haserrors=True, check_hasempty=True):
-#         numok=numerrors=numemtpy=0
-#         for k in stats.keys():
-#             substat = stats[k]
-#             for msg in substat.keys():
-#                 if msg.lower() == 'ok':
-#                     numok+=1
-#                 elif "empty" == msg.lower():
-#                     numemtpy += 1
-#                 else:
-#                     numerrors += 1
-#         
-#         if check_hasok and not numok:
-#             raise ValueError('stats has no "ok" key')
-#         elif check_hasempty and not numemtpy:
-#             raise ValueError('stats has no "empty" key')
-#         elif check_haserrors and not numerrors:
-#             raise ValueError('stats has no errors')
+        # side effects:
         
-    @property
-    def _events_raw(self):
-        if self.evt_raw:
-            return self.evt_raw
-        return """"1|2|3|4|5|6|7|8|9|10|11|12|13
+        self._evt_urlread_sideeffect =  ["""1|2|3|4|5|6|7|8|9|10|11|12|13
 20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 01:45:30.300000|44.96|15.35|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|3.6|EMSC|CROATIA
 20160508_0000113|2016-05-08 22:37:20.100000|45.68|26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
 20160508_0000113|2016-05-08 22:37:20.100000|45.68|26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
 --- ERRROR --- THIS IS MALFORMED 20160508_abc0113|2016-05-08 22:37:20.100000| --- ERROR --- |26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
-"""
-
-    def geteventsargs(self):
-        return ["eventws", "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso"], {}
-
-
-    def get_events(self, mock_url_read):
-        mock_url_read.reset_mock()
-        mock_url_read.return_value = self._events_raw
-        args = self.geteventsargs()
-        return get_events(self.session, *args[0], **args[1])
-
-
-    @patch('stream2segment.download.query.get_query', return_value='a')
-    @patch('stream2segment.download.query.url_read')
-    def test_get_events(self, mock_urlread, mock_query):
-        data = self.get_events(mock_urlread)
-
-        # addert only three events where succesfully saved to db
-        # (one is
-        assert len(self.session.query(Event).all()) == len(data) == 3
-#         argz = {k:k for k in args}
-#         argz.update({'format': 'text'})
-#         argz.pop(args[0])
-#         mock_query.assert_called_with(args[0], minmagnitude=args[1], minlat=args[2], maxlat=args[3],
-#                           minlon=args[4], maxlon=args[5], start=args[6], end=args[7], format='text')
-        assert mock_urlread.call_args[0] == (mock_query.return_value, )
-
-# =================================================================================================
-
-    @property
-    def _datacenters_raw(self):
-        if self.dc_raw:
-            return self.dc_raw
-        return """http://ws.resif.fr/fdsnws/station/1/query
+""", ""]
+        self._dc_urlread_sideeffect = ["""http://ws.resif.fr/fdsnws/station/1/query
 http://geofon.gfz-potsdam.de/fdsnws/station/1/query
 http://geofon.gfz-potsdam.de/fdsnws/station/1/query
-    (indentation is bad! :)    http://geofon.gfz-potsdam.de/fdsnws/station/1/query"""
+    (indentation is bad! :)    http://geofon.gfz-potsdam.de/fdsnws/station/1/query""", ""]
 
-    def getdatacentersargs(self):
-        return [], {}
-
-
-    def get_datacenters(self, mock_url_read):
-        mock_url_read.reset_mock()
-        mock_url_read.return_value = self._datacenters_raw
-        args = self.getdatacentersargs()
-        return get_datacenters(self.session, *args[0], **args[1])
-
-
-    @patch('stream2segment.download.query.get_query', return_value='a')
-    @patch('stream2segment.download.query.url_read')
-    def test_get_dcs(self, mock_urlread, mock_query):
-        data = self.get_datacenters(mock_urlread)
-        assert len(self.session.query(DataCenter).all()) == len(data) == 2
-        mock_query.assert_called_once()  # we might be more fine grained, see code
-        mock_urlread.assert_called_once()  # we might be more fine grained, see code
-        assert len(self.session.query(models.DataCenter).all()) == 2
-
-# =================================================================================================
-
-    @property
-    def _stations_raw(self):
-        if self.sta_raw:
-            return self.sta_raw
-        invalid = """#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
+        self._sta_urlread_sideeffect  = ["""#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
 --- ERROR --- MALFORMED|12T00:00:00|
 HT|AGG||HHZ|39.0211|22.336|622.0|0.0|0.0|-90.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2008-02-12T00:00:00|
 HT|LKD2||HHE|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
-"""
-        partial_valid = """#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
+""", "", """#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
 HT|AGG||HHE|--- ERROR --- NONNUMERIC |22.336|622.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2008-02-12T00:00:00|
 HT|AGG||HHE|95.6|22.336|622.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2008-02-12T00:00:00|
 HT|AGG||HHZ|39.0211|22.336|622.0|0.0|0.0|-90.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2008-02-12T00:00:00|
 HT|LKD2||HHE|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
 HT|LKD2||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
 BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
-"""     
-        return cycle([partial_valid, '', invalid, '', '', URLError('wat'), socket.timeout()])
+""", "",  URLError('wat'), socket.timeout()]
+        # self._sta_urlread_sideeffect = cycle([partial_valid, '', invalid, '', '', URLError('wat'), socket.timeout()])
 
+        self._atime_sideeffect = [datetime.utcnow(), TauModelError('wat?'), ValueError('wat?')]
+        self._seg_urlread_sideeffect = [b'data','', '', URLError('wat'), socket.timeout()]
+
+        #add cleanup (in case tearDown is not 
+        self.addCleanup(Test.cleanup, self.session, self.file, self.patcher, self.patcher2,
+                        self.patcher3)
+
+        
+    def tearDown(self):
+        # see cleanup static method
+        pass
     
-    def setup_mock_urlopen_in_async_for_stations(self, mock_urlopen_in_async):
-        mock_urlopen_in_async.reset_mock()
+    def setup_urlopen(self, urlread_side_effect):
+        """setup urlopen return value. 
+        :param urlread_side_effect: a LIST of strings or exceptions returned by urlopen.read, that will be converted
+        to an itertools.cycle(side_effect) REMEMBER that any element of urlread_side_effect which is a nonempty
+        string must be followed by an EMPTY
+        STRINGS TO STOP reading otherwise we fall into an infinite loop if the argument
+        blocksize of url read is not negative !"""
+        self.mock_urlopen.reset_mock()
         a = Mock()
-        a.read.side_effect =  self._stations_raw
-        mock_urlopen_in_async.return_value = a
-       
-    
-    def make_ev2sta(self, events, datacenters, mock_urlopen_in_async):
-        kw = dict(
-            session=self.session,
-            events = events,
-        datacenters = datacenters,
-        sradius_minmag=5, sradius_maxmag=6, 
-        sradius_minradius=7, 
-        sradius_maxradius=8,
-        station_timespan = [1,3],
-        channels= ['a', 'b', 'c'],
-        min_sample_rate = 100,
-        max_thread_workers=5,
-        timeout=10,
-        blocksize=5)
-        self.setup_mock_urlopen_in_async_for_stations(mock_urlopen_in_async)
-         
-        return make_ev2sta(**kw)
+        a.read.side_effect =  cycle(urlread_side_effect)
+        self.mock_urlread = a.read
+        self.mock_urlopen.return_value = a
 
-    @patch('stream2segment.download.query.url_read')
-    @patch('stream2segment.utils.url.urllib2.urlopen')
-    def test_make_ev2sta(self, mock_urlopen_in_async, mock_url_read):
-        events = self.get_events(mock_url_read)
-        datacenters = self.get_datacenters(mock_url_read)
-        evt2stations, stats = self.make_ev2sta(events, datacenters, mock_urlopen_in_async)
+
+    def get_events(self, url_read_side_effect=None, *a, **kw):
+        self.setup_urlopen(self._evt_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
+        return get_events( *a, **kw)
+
+
+    @patch('stream2segment.download.query.get_query', return_value='a')
+    def test_get_events(self, mock_query):
+        data = self.get_events(None, self.session,
+                               "eventws", "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
+        # assert only three events where succesfully saved to db
+        # (one is
+        assert len(self.session.query(Event).all()) == len(data) == 3
+        # assert mock_urlread.call_args[0] == (mock_query.return_value, )
+
+# =================================================================================================
+
+    def get_datacenters(self, url_read_side_effect=None, *a, **kw):
+        self.setup_urlopen(self._dc_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
+        return get_datacenters(*a, **kw)
+
+
+    @patch('stream2segment.download.query.get_query', return_value='a')
+    def test_get_dcs(self, mock_query):
+        data = self.get_datacenters(session=self.session)
+        assert len(self.session.query(DataCenter).all()) == len(data) == 2
+        mock_query.assert_called_once()  # we might be more fine grained, see code
+        assert len(self.session.query(models.DataCenter).all()) == 2
+
+# =================================================================================================
+    
+    def make_ev2sta(self, url_read_side_effect=None, *a, **kw):
+        self.setup_urlopen(self._sta_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
+        return make_ev2sta(*a, **kw)
+    
+    def test_make_ev2sta(self):
+        events = self.get_events(None, self.session,
+                               "eventws", "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
+        datacenters = self.get_datacenters(session=self.session)
+        evt2stations, stats = self.make_ev2sta(None,  # use self._seg_urlread_side_effect
+                                               **dict(session=self.session,
+                                                      events = events,
+                                                      datacenters = datacenters,
+                                                      sradius_minmag=5, sradius_maxmag=6, 
+                                                      sradius_minradius=7, 
+                                                      sradius_maxradius=8,
+                                                      station_timespan = [1,3],
+                                                      channels= ['a', 'b', 'c'],
+                                                      min_sample_rate = 100,
+                                                      max_thread_workers=5,
+                                                      timeout=10,
+                                                      blocksize=5)
+                                               )
         
         # we should have called mock_urlopen_in_async datacenters * events:
         numcalls_urlopen_in_async = len(events) * len(datacenters)
-        assert mock_urlopen_in_async.call_count == numcalls_urlopen_in_async
+        assert self.mock_urlopen.call_count == numcalls_urlopen_in_async
 
         # we expect each datacenter has at least one error (_stations_raw return value)
         expected_datacenters_with_errors = len(datacenters)
@@ -266,28 +227,35 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
 
 # =================================================================================================
 
-    @property
-    def _arrtime_side_effect(self):
-        if self.atime_side_effect:
-            return self.atime_side_effect
-        return cycle([datetime.utcnow(), TauModelError('wat?'), ValueError('wat?')])
+    def make_dc2seg(self, atime_side_effect=None, *a, **kw) : # , ):
+        self.mock_arrival_time.reset_mock()
+        self.mock_arrival_time.side_effect = self._atime_sideeffect if atime_side_effect is None else atime_side_effect
+        # self.setup_mock_arrival_time(mock_arr_time)
+        return make_dc2seg(*a, **kw)
+
+    def test_make_dc2seg(self):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
+        events = self.get_events(None, self.session,
+                               "eventws", "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
+        datacenters = self.get_datacenters(session=self.session)
+        evt2stations, stats = self.make_ev2sta(None,  # use self._seg_urlread_side_effect
+                                               **dict(session=self.session,
+                                                      events = events,
+                                                      datacenters = datacenters,
+                                                      sradius_minmag=5, sradius_maxmag=6, 
+                                                      sradius_minradius=7, 
+                                                      sradius_maxradius=8,
+                                                      station_timespan = [1,3],
+                                                      channels= ['a', 'b', 'c'],
+                                                      min_sample_rate = 100,
+                                                      max_thread_workers=5,
+                                                      timeout=10,
+                                                      blocksize=5)
+                                               )
         
-    def setup_mock_arrival_time(self, mock_arr_time):
-        mock_arr_time.reset_mock()
-        mock_arr_time.side_effect = self._arrtime_side_effect
-
-    def make_dc2seg(self, events, datacenters, evt2stations, mock_arr_time):
-        self.setup_mock_arrival_time(mock_arr_time)
-        return make_dc2seg(self.session, events, datacenters, evt2stations, [1,2], ['P', 'Q'])
-
-    @patch('stream2segment.download.query.get_arrival_time')
-    @patch('stream2segment.download.query.url_read')
-    @patch('stream2segment.utils.url.urllib2.urlopen')
-    def test_make_dc2seg(self, mock_urlopen_in_async, mock_url_read, mock_arr_time):
-        events = self.get_events(mock_url_read)
-        datacenters = self.get_datacenters(mock_url_read)
-        evt2stations, stats = self.make_ev2sta(events, datacenters, mock_urlopen_in_async)
-        segments, skipped_already_d =  self.make_dc2seg(events, datacenters, evt2stations, mock_arr_time)
+        segments, skipped_already_d =  self.make_dc2seg(None,  # atime_side_effect
+                                                        self.session, events,
+                                                        datacenters, evt2stations, [1,2], ['P', 'Q'],
+                                                        'ak135', False)
         
         # as database is empty by default, skipped already downloaded should have zeros
         for val in skipped_already_d.itervalues():
@@ -303,82 +271,86 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         h = 9
     
 # =================================================================================================
-    @property
-    def _segments_raw(self):
-        if self.seg_raw:
-            return self.seg_raw
-        return cycle([b'data','', '', URLError('wat'), socket.timeout()])
 
-    def setup_mock_urlopen_in_async_for_segments(self, mock_urlopen_in_async):
-        mock_urlopen_in_async.reset_mock()
-        a = Mock()
-        a.read.side_effect =  self._segments_raw
-        mock_urlopen_in_async.return_value = a
-
-
-    def download_segments(self, dc2segments, mock_urlopen_in_async, max_error=5):
-        self.setup_mock_urlopen_in_async_for_segments(mock_urlopen_in_async)
-
-        r = models.Run()
-        self.session.add(r)
-        self.session.commit()
+    def download_segments(self, url_read_side_effect=None, *a, **kw):
+        self.setup_urlopen(self._seg_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
+        
+        return download_segments(*a, **kw)
+ 
+ 
+    def test_download_segments(self):
+        events = self.get_events(None, self.session,
+                               "eventws", "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
+        datacenters = self.get_datacenters(session=self.session)
+        evt2stations, stats = self.make_ev2sta(None,  # use self._seg_urlread_side_effect
+                                               **dict(session=self.session,
+                                                      events = events,
+                                                      datacenters = datacenters,
+                                                      sradius_minmag=5, sradius_maxmag=6, 
+                                                      sradius_minradius=7, 
+                                                      sradius_maxradius=8,
+                                                      station_timespan = [1,3],
+                                                      channels= ['a', 'b', 'c'],
+                                                      min_sample_rate = 100,
+                                                      max_thread_workers=5,
+                                                      timeout=10,
+                                                      blocksize=5)
+                                               )
+        dc2segments, skipped_already_d =  self.make_dc2seg(None,  # None: self.atime_side_effect is default 
+                                                           self.session, events,
+                                                           datacenters, evt2stations, [1,2], ['P', 'Q'],
+                                                           'ak135', False)
         
         stats = {}
         for dcen_id, segments_df in dc2segments.iteritems():
-            stats_ = download_segments(self.session, segments_df, r.id,  # arguments below are just to fill the call
-                                       max_error,
-                                       5,
-                                       40,
-                                       -1)
-            stats[dcen_id] = stats_
+            stats[dcen_id] = self.download_segments(None, # None: self._seg_urlread_sideeffect is default
+                                                    self.session, segments_df, self.run.id,
+                                                    max_error_count=5, max_thread_workers=5,
+                                                    timeout=40, download_blocksize=-1)
         
-        return stats
-        
-    @patch('stream2segment.download.query.get_arrival_time')
-    @patch('stream2segment.download.query.url_read')
-    @patch('stream2segment.utils.url.urllib2.urlopen')
-    def test_download_segments(self, mock_urlopen_in_async, mock_url_read, mock_arr_time):
-        events = self.get_events(mock_url_read)
-        datacenters = self.get_datacenters(mock_url_read)
-        evt2stations, stats = self.make_ev2sta(events, datacenters, mock_urlopen_in_async)
-        dc2segments, skipped_already_d =  self.make_dc2seg(events, datacenters, evt2stations, mock_arr_time)
-        stats = self.download_segments(dc2segments, mock_urlopen_in_async) 
+        # stats = self.download_segments(dc2segments) 
    
         # we expect not all segments are written (mock side_effect set it self.download_segments
         # returns errors and emtpy)
         numsegmentssaved = len(self.session.query(models.Segment).all())
-        assert numsegmentssaved == 0
+        assert numsegmentssaved == 2
         assert numsegmentssaved <= sum(len(d) for d in dc2segments.itervalues())
-        assert 0 == sum(len(stats[d]) for d in stats)
+        assert 4 == sum(len(stats[d]) for d in stats)
         
-        # we expect each datacenter has at least one error (mock side_effect set it self.download_segments)
-#         expected_datacenters_with_errors = len(datacenters)
-#         datacenters_with_errors = 0
-#         for k in stats.keys():
-#             substat = stats[k]
-#             for msg in substat.keys():
-#                 if msg.lower() != 'Ok':
-#                     datacenters_with_errors +=1
-#                     break
-#         assert datacenters_with_errors == expected_datacenters_with_errors
 
-
-    @patch('stream2segment.download.query.get_arrival_time')
-    @patch('stream2segment.download.query.url_read')
-    @patch('stream2segment.utils.url.urllib2.urlopen')
-    def test_download_segments_max_err(self, mock_urlopen_in_async, mock_url_read, mock_arr_time):
-        events = self.get_events(mock_url_read)
-        datacenters = self.get_datacenters(mock_url_read)
-        evt2stations, stats = self.make_ev2sta(events, datacenters, mock_urlopen_in_async)
+    def test_download_segments_max_err(self):
+        events = self.get_events(None, self.session,
+                               "eventws", "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
+        datacenters = self.get_datacenters(session=self.session)
+        evt2stations, stats = self.make_ev2sta(None,  # use self._seg_urlread_side_effect
+                                               **dict(session=self.session,
+                                                      events = events,
+                                                      datacenters = datacenters,
+                                                      sradius_minmag=5, sradius_maxmag=6, 
+                                                      sradius_minradius=7, 
+                                                      sradius_maxradius=8,
+                                                      station_timespan = [1,3],
+                                                      channels= ['a', 'b', 'c'],
+                                                      min_sample_rate = 100,
+                                                      max_thread_workers=5,
+                                                      timeout=10,
+                                                      blocksize=5)
+                                               )
         # keep only first event. This prevents to have duplicated stations and we get some value
         # in dc2segments below (how is that possible we should check...)
         evt2stations = {evt2stations.keys()[0] : evt2stations.values()[0]}
         
-        dc2segments, skipped_already_d =  self.make_dc2seg(events, datacenters, evt2stations, mock_arr_time)
+        dc2segments, skipped_already_d =  self.make_dc2seg(None,  # None: atime_side_effect is default 
+                                                           self.session, events,
+                                                           datacenters, evt2stations, [1,2], ['P', 'Q'],
+                                                           'ak135', False)
         
-        # now set url_async return value for "segments"
-        self.seg_raw = cycle([URLError('w')])
-        stats = self.download_segments(dc2segments, mock_urlopen_in_async, max_error=1) 
+        stats = {}
+        for dcen_id, segments_df in dc2segments.iteritems():
+            stats[dcen_id] = self.download_segments([URLError('w')], # raise always exception is url read
+                                                    self.session, segments_df, self.run.id,
+                                                    max_error_count=1, max_thread_workers=5,
+                                                    timeout=40, download_blocksize=-1)
    
         urlerror_found=0
         discarded_after_1_trial=0
@@ -397,25 +369,43 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         assert urlerror_found and discarded_after_1_trial
         
 
-    @patch('stream2segment.download.query.get_arrival_time')
-    @patch('stream2segment.download.query.url_read')
-    @patch('stream2segment.utils.url.urllib2.urlopen')
-    def test_cmdline(self, mock_urlopen_in_async, mock_url_read, mock_arr_time):
+    @patch('stream2segment.download.query.get_events')
+    @patch('stream2segment.download.query.get_datacenters')
+    @patch('stream2segment.download.query.make_ev2sta')
+    @patch('stream2segment.download.query.make_dc2seg')
+    @patch('stream2segment.download.query.download_segments')
+    @patch('stream2segment.main.get_session')
+    def test_cmdline(self, mock_get_sess, mock_download_segments, mock_make_dc2seg, mock_make_ev2sta,
+                     mock_get_datacenter, mock_get_events):
         
-        ddd = datetime_fixed = datetime.utcnow()  
+        ddd = datetime.utcnow()
+        # setup arrival time side effect with a constant date (by default is datetime.utcnow)
+        # we might pass it as custom argument below actually
+        self._atime_sideeffect[0] = ddd
         
-         
-        self.setup_mock_arrival_time(mock_arr_time)
-        # setup urlasync for stations. This means that when reading segments a station raw data
-        # is returned, but we should not care (it will be stored as binary)
-        self.setup_mock_urlopen_in_async_for_stations(mock_urlopen_in_async)
+        mock_get_sess.return_value = self.session
+
+        def dsegs(*a, **v):
+            return self.download_segments(None, *a, **v)
+        mock_download_segments.side_effect = dsegs
         
-        # setup urlread for events first and then for datacenters:
-        mock_url_read.reset_mock()
-        mock_url_read.side_effect = [self._events_raw, self._datacenters_raw]
+        def dc2seg(*a, **v):
+            return self.make_dc2seg(None, *a, **v)
+        mock_make_dc2seg.side_effect = dc2seg
+
+        def ev2sta(*a, **v):
+            return self.make_ev2sta(None, *a, **v)
+        mock_make_ev2sta.side_effect = ev2sta
+
+        def getdc(*a, **v):
+            return self.get_datacenters(None, *a, **v)
+        mock_get_datacenter.side_effect = getdc
+
+        def getev(*a, **v):
+            return self.get_events(None, *a, **v)
+        mock_get_events.side_effect = getev
         
-        # setup arrival time side effect
-        self.atime_side_effect = cycle([ddd, TauModelError('wat?'), ValueError('wat?')])
+        
         
         # prevlen = len(self.session.query(models.Segment).all())
     
@@ -427,27 +417,22 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
             import traceback
             traceback.print_exception(*result.exc_info)
             print result.output
+            assert False
+            return
             
-        assert len(self.session.query(models.Segment).all()) == 2
+        segments = self.session.query(models.Segment).all()
+        assert len(segments) == 2
+        assert segments[0].data == b'data'
+        assert not segments[1].data
+        emptySegId = segments[1].id
         
-        self.session.query(models.Segment).filter((models.Segment.channel_id == 'HT.AGG..HHE') & ((models.Segment.data == None) | (func.length(models.Segment.data) == 0))).first()
+        # re-launch with the same setups.
+        # what we want to test is the addition of an already downloaded segment which was empty
+        # before and now is not. So:
+        newdata = b'dataABC'
+        self._seg_urlread_sideeffect = [newdata, '']  # empty STRING at end otherwise urlread has infinite loop!
         
-        # and now re-run, see what happens:
-        
-        # re-setup everything, for safety:
-        self.setup_mock_arrival_time(mock_arr_time)
-        # setup urlasync for stations. This means that when reading segments a station raw data
-        # is returned, but we should not care (it will be stored as binary)
-        self.setup_mock_urlopen_in_async_for_stations(mock_urlopen_in_async)
-        
-        # setup urlread for events first and then for datacenters:
-        mock_url_read.reset_mock()
-        mock_url_read.side_effect = [self._events_raw, self._datacenters_raw]
-        
-         # setup arrival time side effect
-        self.atime_side_effect = cycle([ddd, TauModelError('wat?'), ValueError('wat?')])
-        
-        
+        # relaunch with 'd' (empty segments no retry):
         runner = CliRunner()
         result = runner.invoke(main , ['--dburl', self.dburi, '-a', 'd',
                                        '--start', '2016-05-08T00:00:00',
@@ -456,25 +441,82 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
             import traceback
             traceback.print_exception(*result.exc_info)
             print result.output
+            assert False
+            return
+        # test that nothing happened:
+        segments = self.session.query(models.Segment).all()
+        assert segments[1].id == emptySegId and not segments[1].data
         
-        # we might do this:
-        # assert len(self.session.query(models.Segment).all()) == 2
+        # relaunch with 'D' (retry empty or Null segments data)
+        runner = CliRunner()
+        result = runner.invoke(main , ['--dburl', self.dburi, '-a', 'D',
+                                       '--start', '2016-05-08T00:00:00',
+                                       '--end', '2016-05-08T9:00:00'])
+        if result.exception:
+            import traceback
+            traceback.print_exception(*result.exc_info)
+            print result.output
+            assert False
+            return
+        # test that now empty segment has new data:
+        segments = self.session.query(models.Segment).all()
+        assert segments[1].id == emptySegId and segments[1].data == newdata
         
-        # However, it seems that the arrival times calculated have differences (rounding errors?)
-        # in the order of milliseconds. Thus:
-        def approxdtime(dt):
-            return datetime(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second,
-                             1000*int(dt.microsecond/1000)) 
+
+
+    @patch('stream2segment.download.query.get_events')
+    @patch('stream2segment.download.query.get_datacenters')
+    @patch('stream2segment.download.query.make_ev2sta')
+    @patch('stream2segment.download.query.make_dc2seg')
+    @patch('stream2segment.download.query.download_segments')
+    @patch('stream2segment.main.get_session')
+    def test_cmdline_singleevent_singledatacenter(self, mock_get_sess, mock_download_segments, mock_make_dc2seg, mock_make_ev2sta,
+                     mock_get_datacenter, mock_get_events):
         
-        dic = {}
-        for seg in self.session.query(models.Segment).all():
-            has = hash((seg.channel_id, approxdtime(seg.start_time), approxdtime(seg.end_time)))
-            dic[has] = 4
+        mock_get_sess.return_value = self.session
+
+        def dsegs(*a, **v):
+            return self.download_segments(None, *a, **v)
+        mock_download_segments.side_effect = dsegs
+        
+        def dc2seg(*a, **v):
+            return self.make_dc2seg(None, *a, **v)
+        mock_make_dc2seg.side_effect = dc2seg
+
+        def ev2sta(*a, **v):
+            return self.make_ev2sta(None, *a, **v)
+        mock_make_ev2sta.side_effect = ev2sta
+
+        def getdc(*a, **v):
+            # return only one datacenter
+            return self.get_datacenters(["""http://ws.resif.fr/fdsnws/station/1/query""", ""], *a, **v)
+        mock_get_datacenter.side_effect = getdc
+
+        def getev(*a, **v):
+            # return only one event
+            url_read_side_effect = ["""1|2|3|4|5|6|7|8|9|10|11|12|13
+20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN)""", ""]
+            _ =  self.get_events(url_read_side_effect, *a, **v)
+            return _
+        mock_get_events.side_effect = getev
+
+        ddd = datetime.utcnow()
+        # setup arrival time side effect
+        self._atime_sideeffect = cycle([ddd, TauModelError('wat?'), ValueError('wat?')])
+        
+        # prevlen = len(self.session.query(models.Segment).all())
+    
+        runner = CliRunner()
+        result = runner.invoke(main , ['--dburl', self.dburi, '-a', 'd',
+                                       '--start', '2016-05-08T00:00:00',
+                                       '--end', '2016-05-08T9:00:00'])
+        if result.exception:
+            import traceback
+            traceback.print_exception(*result.exc_info)
+            print result.output
+            assert False
+            return
             
-        assert len(dic) == 2
+        segments = self.session.query(models.Segment).all()
+        assert len(segments) == 0
         
-          
-                 
-#         # common query for 1 event found and all datacenters (takes more or less 10 to 20 minutes):
-#         # stream2segment -f 2016-05-08T22:45:00 -t 2016-05-08T23:00:00
-#         
