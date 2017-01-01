@@ -5,7 +5,7 @@ Created on Nov 25, 2016
 '''
 import re
 from datetime import timedelta
-from collections import defaultdict
+# from collections import defaultdict
 import numpy as np
 import pandas as pd
 # from sqlalchemy import and_
@@ -113,16 +113,6 @@ def get_search_radius(mag, minmag, maxmag, minradius, maxradius):
         dist[dist > maxradius] = maxradius
 
     return dist[0] if isscalar else dist
-    # return mag[0] if isscalar else mag
-
-
-# def get_max_radia(events, *search_radius_args):
-#     """Returns the max radia for any event in events
-#     :param events: an iterable of objects with the attribute `time` (numeric). ORM model instances
-#     of the class `Event` are such objects (see `models.py`)
-#     """
-#     magnitudes = np.array([evt.magnitude for evt in events])
-#     return get_search_radius(magnitudes, *search_radius_args)
 
 
 # ==========================================
@@ -281,20 +271,20 @@ def empty(*obj):
     return obj is None or (hasattr(obj, 'empty') and obj.empty)
 
 
-def appenddf(df1, df2):
-    """
-    Merges "vertically" the two dataframes provided as argument, handling empty values without
-    errors: if the first dataframe is empty (`empty(df1)==True`) returns the second, if the
-    second is empty returns the first. Otherwise calls `df1.append(df2, ignore_index=True)`
-    :param df1: the first dataframe
-    :param df2: the second dataframe
-    """
-    if empty(df1):
-        return df2
-    elif empty(df2):
-        return df1
-    else:
-        return df1.append(df2, ignore_index=True)
+# def appenddf(df1, df2):
+#     """
+#     Merges "vertically" the two dataframes provided as argument, handling empty values without
+#     errors: if the first dataframe is empty (`empty(df1)==True`) returns the second, if the
+#     second is empty returns the first. Otherwise calls `df1.append(df2, ignore_index=True)`
+#     :param df1: the first dataframe
+#     :param df2: the second dataframe
+#     """
+#     if empty(df1):
+#         return df2
+#     elif empty(df2):
+#         return df1
+#     else:
+#         return df1.append(df2, ignore_index=True)
 
 
 def get_query(*urlpath, **query_args):
@@ -348,56 +338,6 @@ def get_query(*urlpath, **query_args):
 def get_inventory_query(station):
     return get_query(station.datacenter.station_query_url, station=station.station, network=station.network,
                      level='response')
-
-
-# def get_inventory(station, session=None, **kwargs):
-#     """raises tons of exceptions (see main). FIXME: write doc
-#     :param session: if **not** None but a valid sqlalchemy session object, then
-#     the inventory, if downloaded because not present, will be saveed to the db (compressed)
-#     """
-#     data = segment.channel.station.inventory_xml
-#     if not data:
-#         query_url = get_inventory_query(station)
-#         data = url_read(query_url, **kwargs)
-#         if session and data:
-#             station.inventory_xml = dumps_inv(data)
-#             session.commit()
-#         elif not data:
-#             raise ValueError("No data from server")
-#     return loads_inv(data)
-
-# def purge_already_downloaded(session, segments_df):  # FIXME: use apply?
-#     """Does what the name says removing all segments aready downloaded. Returns a new DataFrame
-#     which is equal to segments_df with rows, representing already downloaded segments, removed"""
-#     notyet_downloaded_filter =\
-#         [False if session.query(models.Segment).
-#          filter((models.Segment.channel_id == seg.channel_id) &
-#                 (models.Segment.start_time == seg.start_time) &
-#                 (models.Segment.end_time == seg.end_time)).first() else True
-#          for _, seg in segments_df.iterrows()]
-# 
-#     return segments_df[notyet_downloaded_filter]
-# 
-# 
-# def set_wav_queries(datacenter, stations_df, segments_df, queries_colname=' url '):
-#     """
-#     Appends a new column to `stations_df` with name `queries_colname` (which is supposed **not**
-#     to exist, otherwise data might be overridden or unexpected results might happen): the given
-#     column will have the datacenter query url for any given row representing a segment to be
-#     downloaded. The given dataframe must have all necessary columns
-#     """
-# 
-#     queries = [get_query(datacenter.dataselect_query_url,
-#                          network=sta[models.Station.network.key],
-#                          station=sta[models.Station.station.key],
-#                          location=sta[models.Channel.location.key],
-#                          channel=sta[models.Channel.channel.key],
-#                          start=seg[models.Segment.start_time.key].isoformat(),
-#                          end=seg[models.Segment.end_time.key].isoformat())
-#                for (_, sta), (_, seg) in zip(stations_df.iterrows(), segments_df.iterrows())]
-# 
-#     segments_df[queries_colname] = queries
-#     return segments_df
 
 
 class UrlStats(dict):
@@ -523,6 +463,8 @@ def stats2str(data, fillna=None, transpose=False,
         :param kwargs: additional keyword arguments pased to `pandas.DataFrame.to_string`
     """
     dframe = pd.DataFrame(data=data)
+    if dframe.empty:
+        return ""
     # replace NaNs (for columns not shared) with zeros, and convert to int
     if fillna is not None:
         dframe.fillna(fillna, inplace=True)
