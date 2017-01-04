@@ -26,7 +26,7 @@ from stream2segment.io.db import models
 # from stream2segment.s2sio.db.pd_sql_utils import df2dbiter, get_col_names
 import pandas as pd
 from stream2segment.download.query import get_events, get_datacenters,\
-    make_ev2sta, make_dc2seg, download_segments
+    make_ev2sta, get_segments_df, download_segments
 from obspy.core.stream import Stream
 from stream2segment.io.db.models import DataCenter
 from itertools import cycle, repeat, count
@@ -227,13 +227,13 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
 
 # =================================================================================================
 
-    def make_dc2seg(self, atime_side_effect=None, *a, **kw) : # , ):
+    def get_segments_df(self, atime_side_effect=None, *a, **kw) : # , ):
         self.mock_arrival_time.reset_mock()
         self.mock_arrival_time.side_effect = self._atime_sideeffect if atime_side_effect is None else atime_side_effect
         # self.setup_mock_arrival_time(mock_arr_time)
-        return make_dc2seg(*a, **kw)
+        return get_segments_df(*a, **kw)
 
-    def test_make_dc2seg(self):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
+    def test_get_segments_df(self):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
         events = self.get_events(None, self.session,
                                "eventws", "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
         datacenters = self.get_datacenters(session=self.session)
@@ -252,7 +252,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
                                                       blocksize=5)
                                                )
         
-        segments, skipped_already_d =  self.make_dc2seg(None,  # atime_side_effect
+        segments, skipped_already_d =  self.get_segments_df(None,  # atime_side_effect
                                                         self.session, events,
                                                         datacenters, evt2stations, [1,2], ['P', 'Q'],
                                                         'ak135', False)
@@ -264,7 +264,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         # as get_arrival_time raises errors, some segments are not written. Assert that the
         # total number of segments is lower than the total number of channels
         numchannels = sum(len(d) for d in evt2stations.itervalues())
-        numsegments = sum(len(d) for d in segments.itervalues())
+        numsegments = len(segments)
         
         assert numchannels > numsegments
         
@@ -274,7 +274,6 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
 
     def download_segments(self, url_read_side_effect=None, *a, **kw):
         self.setup_urlopen(self._seg_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
-        
         return download_segments(*a, **kw)
  
  
@@ -296,17 +295,15 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
                                                       timeout=10,
                                                       blocksize=5)
                                                )
-        dc2segments, skipped_already_d =  self.make_dc2seg(None,  # None: self.atime_side_effect is default 
+        segments_df, skipped_already_d =  self.get_segments_df(None,  # None: self.atime_side_effect is default 
                                                            self.session, events,
                                                            datacenters, evt2stations, [1,2], ['P', 'Q'],
                                                            'ak135', False)
         
-        stats = {}
-        for dcen_id, segments_df in dc2segments.iteritems():
-            stats[dcen_id] = self.download_segments(None, # None: self._seg_urlread_sideeffect is default
-                                                    self.session, segments_df, self.run.id,
-                                                    max_error_count=5, max_thread_workers=5,
-                                                    timeout=40, download_blocksize=-1)
+        stats = self.download_segments(None, # None: self._seg_urlread_sideeffect is default
+                                       self.session, segments_df, self.run.id,
+                                       max_error_count=5, max_thread_workers=5,
+                                       timeout=40, download_blocksize=-1)
         
         # stats = self.download_segments(dc2segments) 
    
@@ -314,7 +311,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         # returns errors and emtpy)
         numsegmentssaved = len(self.session.query(models.Segment).all())
         assert numsegmentssaved == 2
-        assert numsegmentssaved <= sum(len(d) for d in dc2segments.itervalues())
+        assert numsegmentssaved <= len(segments_df)
         assert 4 == sum(len(stats[d]) for d in stats)
         
 
@@ -340,14 +337,12 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         # in dc2segments below (how is that possible we should check...)
         evt2stations = {evt2stations.keys()[0] : evt2stations.values()[0]}
         
-        dc2segments, skipped_already_d =  self.make_dc2seg(None,  # None: atime_side_effect is default 
+        segments_df, skipped_already_d =  self.get_segments_df(None,  # None: atime_side_effect is default 
                                                            self.session, events,
                                                            datacenters, evt2stations, [1,2], ['P', 'Q'],
                                                            'ak135', False)
         
-        stats = {}
-        for dcen_id, segments_df in dc2segments.iteritems():
-            stats[dcen_id] = self.download_segments([URLError('w')], # raise always exception is url read
+        stats = self.download_segments([URLError('w')], # raise always exception is url read
                                                     self.session, segments_df, self.run.id,
                                                     max_error_count=1, max_thread_workers=5,
                                                     timeout=40, download_blocksize=-1)
@@ -372,10 +367,10 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
     @patch('stream2segment.download.query.get_events')
     @patch('stream2segment.download.query.get_datacenters')
     @patch('stream2segment.download.query.make_ev2sta')
-    @patch('stream2segment.download.query.make_dc2seg')
+    @patch('stream2segment.download.query.get_segments_df')
     @patch('stream2segment.download.query.download_segments')
     @patch('stream2segment.main.get_session')
-    def test_cmdline(self, mock_get_sess, mock_download_segments, mock_make_dc2seg, mock_make_ev2sta,
+    def test_cmdline(self, mock_get_sess, mock_download_segments, mock_get_seg_df, mock_make_ev2sta,
                      mock_get_datacenter, mock_get_events):
         
         ddd = datetime.utcnow()
@@ -389,9 +384,9 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
             return self.download_segments(None, *a, **v)
         mock_download_segments.side_effect = dsegs
         
-        def dc2seg(*a, **v):
-            return self.make_dc2seg(None, *a, **v)
-        mock_make_dc2seg.side_effect = dc2seg
+        def segdf(*a, **v):
+            return self.get_segments_df(None, *a, **v)
+        mock_get_seg_df.side_effect = segdf
 
         def ev2sta(*a, **v):
             return self.make_ev2sta(None, *a, **v)
@@ -467,10 +462,11 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
     @patch('stream2segment.download.query.get_events')
     @patch('stream2segment.download.query.get_datacenters')
     @patch('stream2segment.download.query.make_ev2sta')
-    @patch('stream2segment.download.query.make_dc2seg')
+    @patch('stream2segment.download.query.get_segments_df')
     @patch('stream2segment.download.query.download_segments')
     @patch('stream2segment.main.get_session')
-    def test_cmdline_singleevent_singledatacenter(self, mock_get_sess, mock_download_segments, mock_make_dc2seg, mock_make_ev2sta,
+    def test_cmdline_singleevent_singledatacenter(self, mock_get_sess, mock_download_segments,
+                                                  mock_get_seg_df, mock_make_ev2sta,
                      mock_get_datacenter, mock_get_events):
         
         mock_get_sess.return_value = self.session
@@ -479,9 +475,9 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
             return self.download_segments(None, *a, **v)
         mock_download_segments.side_effect = dsegs
         
-        def dc2seg(*a, **v):
-            return self.make_dc2seg(None, *a, **v)
-        mock_make_dc2seg.side_effect = dc2seg
+        def segdf(*a, **v):
+            return self.get_segments_df(None, *a, **v)
+        mock_get_seg_df.side_effect = segdf
 
         def ev2sta(*a, **v):
             return self.make_ev2sta(None, *a, **v)

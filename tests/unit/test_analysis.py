@@ -14,9 +14,8 @@ import pandas as pd
 from stream2segment.analysis import env, cumsum, fft
 from scipy.signal import hilbert
 from stream2segment.analysis.mseeds import remove_response #, loads as s2s_loads, dumps
-from stream2segment.io.dataseries import loads, dumps
-from stream2segment.analysis.mseeds import _IO_FORMAT_FFT, _IO_FORMAT_STREAM, _IO_FORMAT_TIME,\
-    _IO_FORMAT_TRACE
+from stream2segment.io.utils import loads, dumps
+
 
 from obspy.core.inventory import read_inventory
 from obspy.core import read as obspy_read

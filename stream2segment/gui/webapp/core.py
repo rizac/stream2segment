@@ -13,7 +13,7 @@ import numpy as np
 # from numpy import interp
 from stream2segment.analysis.mseeds import cumsum, env, bandpass, amp_ratio,\
     cumtimes, interpolate, dfreq
-from stream2segment.io.dataseries import loads    
+from stream2segment.io.utils import loads    
 # from stream2segment.classification.handlabelling import ClassAnnotator
 from obspy.signal.konnoohmachismoothing import konno_ohmachi_smoothing as kos
 from itertools import izip

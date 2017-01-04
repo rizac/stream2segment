@@ -207,6 +207,8 @@ def get_session(dbpath=None, scoped=False):
         return scoped_session(session_factory)
 
 
+# FIXME: stuff below should be cleaned!!!
+
 def get_progressbar(isterminal=False):
     """Returns a class that will be display a progressbar (see `click.progressbar`), or a subclass
     of click.progressbar if isterminal=True. The subclass implements all superclass methods

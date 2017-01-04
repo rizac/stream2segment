@@ -18,7 +18,7 @@ from stream2segment.io.db.pd_sql_utils import harmonize_columns,\
     harmonize_rows, colnames
 from obspy.taup.taup_time import TauPTime
 from itertools import izip, count
-# from stream2segment.io.dataseries import dumps_inv
+# from stream2segment.io.utils import dumps_inv
 
 
 def get_min_travel_time(source_depth_in_km, distance_in_degree, traveltime_phases, model='ak135'):

@@ -9,7 +9,7 @@ import numpy as np
 import jinja2
 from stream2segment.utils import get_session
 from stream2segment.io.db import models
-from stream2segment.io.dataseries import loads
+from stream2segment.io.utils import loads
 from click import progressbar
 from obspy.io.mseed.core import InternalMSEEDReadingError
 

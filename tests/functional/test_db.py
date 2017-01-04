@@ -17,7 +17,7 @@ import pandas as pd
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from stream2segment.io.db.pd_sql_utils import _harmonize_columns, harmonize_columns,\
     get_or_add_iter, harmonize_rows, colnames
-from stream2segment.io.dataseries import dumps_inv, loads_inv
+from stream2segment.io.utils import dumps_inv, loads_inv
 from sqlalchemy.orm.exc import FlushError
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.inspection import inspect

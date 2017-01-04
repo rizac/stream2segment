@@ -18,8 +18,8 @@ from obspy.core.inventory.inventory import read_inventory
 from obspy.core.stream import read
 from obspy.core.utcdatetime import UTCDateTime
 from stream2segment.io.db.pd_sql_utils import flush, commit
-from stream2segment.io.dataseries import dumps, dumps_inv, loads_inv
-from stream2segment.utils.url import url_read, read_async
+from stream2segment.io.utils import dumps, dumps_inv, loads_inv, dumps_time
+from stream2segment.utils.url import url_read
 from stream2segment.analysis.mseeds import remove_response, get_gaps, amp_ratio, bandpass, cumsum,\
     cumtimes, fft, maxabs, simulate_wa, get_multievent, snr  # ,dfreq
 from stream2segment.io.db import models
@@ -240,9 +240,9 @@ def get_inventory(segment, session=None, **kwargs):
 #     logger.warning("while processing segment.id='%s': %s", str(segment.id), str(exception_or_msg))
 
 
-def dtime(utcdatetime):
-    """converts UtcDateTime to datetime, returns None if arg is None"""
-    return None if utcdatetime is None else utcdatetime.datetime
+# def dtime(utcdatetime):
+#     """converts UtcDateTime to datetime, returns None if arg is None"""
+#     return None if utcdatetime is None else utcdatetime.datetime
 
 
 def process(pro,
@@ -392,16 +392,16 @@ def process(pro,
             pro.pga_atime_t95 = PGA
             pro.pgv_atime_t95 = PGV
             pro.pwa_atime_t95 = PWA
-            pro.t_pga_atime_t95 = dtime(t_PGA)
-            pro.t_pgv_atime_t95 = dtime(t_PGV)
-            pro.t_pwa_atime_t95 = dtime(t_PWA)
-            pro.cum_t05 = dtime(t05)
-            pro.cum_t10 = dtime(t10)
-            pro.cum_t25 = dtime(cum_times[2])
-            pro.cum_t50 = dtime(cum_times[3])
-            pro.cum_t75 = dtime(cum_times[4])
-            pro.cum_t90 = dtime(t90)
-            pro.cum_t95 = dtime(t95)
+            pro.t_pga_atime_t95 = dumps_time(t_PGA)
+            pro.t_pgv_atime_t95 = dumps_time(t_PGV)
+            pro.t_pwa_atime_t95 = dumps_time(t_PWA)
+            pro.cum_t05 = dumps_time(t05)
+            pro.cum_t10 = dumps_time(t10)
+            pro.cum_t25 = dumps_time(cum_times[2])
+            pro.cum_t50 = dumps_time(cum_times[3])
+            pro.cum_t75 = dumps_time(cum_times[4])
+            pro.cum_t90 = dumps_time(t90)
+            pro.cum_t95 = dumps_time(t95)
             pro.snr_rem_resp_fixedwindow = snr_rem_resp_fixed_window
             pro.snr_rem_resp_t05_t95 = snr_rem_resp_t05_t95
             pro.snr_rem_resp_t10_t90 = snr_rem_resp_t10_t90
@@ -409,7 +409,7 @@ def process(pro,
             # pro.is_saturated = Column(Boolean)
             # pro.has_gaps = Column(Boolean)
             pro.double_event_result = double_evt[0]
-            pro.secondary_event_time = dtime(double_evt[1])
+            pro.secondary_event_time = dumps_time(double_evt[1])
 
             # WITH JESSIE IMPLEMENT CODA ANALYSIS:
             # pro.coda_tmax = Column(DateTime)
