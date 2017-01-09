@@ -1,2 +1,23 @@
--e git+https://github.com/obspy/obspy.git@61e297ef1dc6246322c3dc5bc36a9e270ebcd9c0#egg=obspy
-PyYAML==3.11
+click==6.7
+cycler==0.10.0
+decorator==4.0.10
+Flask==0.12
+future==0.16.0
+futures==3.0.5
+itsdangerous==0.24
+Jinja2==2.9.3
+lxml==3.7.2
+MarkupSafe==0.23
+matplotlib==1.5.3
+numpy==1.11.3
+obspy==1.0.2
+pandas==0.19.2
+pyparsing==2.1.10
+python-dateutil==2.6.0
+pytz==2016.10
+PyYAML==3.12
+requests==2.12.4
+scipy==0.18.1
+six==1.10.0
+SQLAlchemy==1.1.4
+Werkzeug==0.11.15

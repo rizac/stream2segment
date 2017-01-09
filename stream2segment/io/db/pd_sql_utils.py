@@ -67,7 +67,7 @@ Created on Jul 17, 2016
 from __future__ import division
 from datetime import datetime, date
 from pandas.io.sql import _handle_date_column
-from pandas.types.api import DatetimeTZDtype
+# from pandas.types.api import DatetimeTZDtype
 import numpy as np
 # pandas zip seems a wrapper around itertools.izip (generator instead than list):
 from pandas.compat import (lzip, map, zip, raise_with_traceback,
@@ -85,6 +85,7 @@ import pandas as pd
 from sqlalchemy.engine import create_engine
 from itertools import cycle
 from sqlalchemy.inspection import inspect
+from pandas.types.dtypes import DatetimeTZDtype
 
 
 def _get_dtype(sqltype):
