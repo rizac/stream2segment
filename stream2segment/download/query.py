@@ -172,8 +172,7 @@ def make_ev2sta(session, events, datacenters, sradius_minmag, sradius_maxmag, sr
                             sradius_maxradius, station_timespan, channels)
 
     read_async(iterable, ondone, urlkey=lambda obj: obj[-1], blocksize=blocksize,
-                max_workers=max_thread_workers, decode='utf8',
-                timeout=timeout)
+               max_workers=max_thread_workers, decode='utf8', timeout=timeout)
 
     return {eid: pd.concat(ret[eid], axis=0, ignore_index=True, copy=False) for eid in ret}, stats
 
@@ -287,24 +286,6 @@ def save_stations_and_channels(session, stations_df):
 
 def save_inventories(session, stations, max_thread_workers, timeout,
                      download_blocksize, notify_progress_func=lambda *a, **v: None):
-#     urls = {get_inventory_query(sta): sta for sta in stations}
-# 
-#     def onsuccess(data, url, index):
-#         notify_progress_func(1)
-#         if not data:
-#             logger.warning(msgs.format("Empty inventory", url))
-#             return
-#         try:
-#             urls[url].inventory_xml = dumps_inv(data)
-#             session.commit()
-#         except SQLAlchemyError as exc:
-#             session.rollback()
-#             logger.warning(msgs.format(exc, url))
-# 
-#     def onerror(err, url, index):
-#         notify_progress_func(1)
-#         logger.warning(msgs.format(err, url))
-
     def ondone(obj, exc, res, url):
         notify_progress_func(1)
         if exc:
@@ -324,8 +305,8 @@ def save_inventories(session, stations, max_thread_workers, timeout,
                 logger.warning(msgs.format(sqlexc, url))
 
     read_async(stations, ondone, urlkey=lambda sta: get_inventory_query(sta),
-                max_workers=max_thread_workers,
-                blocksize=download_blocksize, timeout=timeout)
+               max_workers=max_thread_workers,
+               blocksize=download_blocksize, timeout=timeout)
 
 
 def get_segments_df(session, events, datacenters, evt2stations, wtimespan, traveltime_phases,
@@ -675,7 +656,7 @@ def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, start
             save_inventories(session, stations,
                              advanced_settings['max_thread_workers'],
                              advanced_settings['i_timeout'],
-                             advanced_settings['download_blocksize'], bar)
+                             advanced_settings['download_blocksize'], bar.update)
 
     logger.info("")
     logger.info(("STEP %s: Preparing segments download: calculating P-arrival times "

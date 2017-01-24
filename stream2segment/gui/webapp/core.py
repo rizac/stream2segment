@@ -40,7 +40,7 @@ def _get_session(app):
 
 def get_ids(session):
     segs = session.query(Segment).all()
-    segs = [seg.id for seg in segs]
+    segs = [seg.id for seg in segs if seg.data]
     return {'segment_ids': segs}
 
 
