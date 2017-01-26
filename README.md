@@ -72,9 +72,13 @@ Activate your virtual environment
 
 ### Install and config packages
 
-Install numpy, to be done first of all
+Install via requirements file:
 ```
-pip install numpy==1.10.4
+pip install ./requirements.txt
+```
+Or, if you want to run tests (recommended),:
+```
+pip install ./requirements.dev.txt
 ```
 
 Install the current package
@@ -88,18 +92,10 @@ cp config.example.yaml config.yaml
 ```
 and edit it if you whish
 
-### Install and run tests (suggested but **optional**)
-
-If you want to install and run tests, move in the project directory and run the command:
+To run tests, move in the project directory and run the command:
 ```
-	pip install -e .[test]
+py.test ./tests/
 ```
-
-Then, always in the project directory, run:
-```
-	py.test .
-```
-
 (you should see a message with no errors, such as "===== 8 passed in 1.30 seconds ======")
 
 ## Usage
@@ -143,7 +139,7 @@ has been to update gcc and install python2.7-dev:
 ## Misc:
 
 ### sqlitebrowser
-The program saves data on a sql database (tested with postresql and sqlite). If sqlite is used ite database (whose path is specified in the config file). To visualize the sqlite content, you can download sqlitebrowser (http://sqlitebrowser.org/). The installation on Mac is straightforward (use brew cask or go to the link above) whereas on Ubuntu can be done as follows:
+The program saves data on a sql database (tested with postresql and sqlite). If sqlite is used as database, to visualize the sqlite content you can download sqlitebrowser (http://sqlitebrowser.org/). The installation on Mac is straightforward (use brew cask or go to the link above) whereas on Ubuntu can be done as follows:
 ```
 sudo add-apt-repository ppa:linuxgndu/sqlitebrowser
 sudo apt-get install sqlitebrowser
