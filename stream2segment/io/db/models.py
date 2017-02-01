@@ -115,7 +115,8 @@ class Event(Base):
 
     __tablename__ = "events"
 
-    id = Column(String, primary_key=True, autoincrement=False)  # pylint:disable=invalid-name
+    id = Column(String, primary_key=True, autoincrement=False,
+                nullable=False)  # pylint:disable=invalid-name
     time = Column(DateTime, nullable=False)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
@@ -239,14 +240,9 @@ class Class(Base):  # pylint: disable=no-init
     """
     __tablename__ = 'classes'
 
-    id = Column(Integer, primary_key=True, autoincrement=False)
+    id = Column(Integer, primary_key=True)
     label = Column(String)
     description = Column(String)
-
-#     segments = relationship(
-#         "Segment",
-#         secondary=SegmentClassAssociation,
-#         back_populates="classes")
 
 
 class Segment(Base):

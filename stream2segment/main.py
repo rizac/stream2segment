@@ -183,10 +183,10 @@ cfg_dict = load_def_cfg()
 # IMPORTANT
 # IMPORTANT: THE ARGUMENT NAMES HERE MUST BE THE SAME AS THE CONFIG FILE!!!
 # IMPORTANT
-def run(action, dburl, eventws, minmag, minlat, maxlat, minlon, maxlon, start, end, stimespan,
+def run(action, dburl, start, end, eventws, eventws_query_args, stimespan,
         search_radius,
         channels, min_sample_rate, traveltime_phases, wtimespan,
-        processing, advanced_settings, isterminal=False):
+        processing, advanced_settings, class_labels=None, isterminal=False):
     """
         Main run method. KEEP the ARGUMENT THE SAME AS THE config.yaml OTHERWISE YOU'LL GET
         A DIFFERENT CONFIG SAVED IN THE DB
@@ -225,24 +225,15 @@ def run(action, dburl, eventws, minmag, minlat, maxlat, minlon, maxlon, start, e
 
     ret = 0
     try:
-#         if s_inventory is None:
-#             sta_del = session.query(models.Station).\
-#                 filter(models.Station.inventory_xml != None).\
-#                 update({models.Station.inventory_xml.key: None})
-#             if sta_del:
-#                 session.commit()
-#                 logger.info("Deleted %d station inventories (set to null)" % sta_del)
-
         segments = []
         if 'd' in action.lower():
             starttime = time.time()
-            ret = query_main(session, run_row.id, eventws, minmag, minlat, maxlat, minlon, maxlon,
-                             start, end, stimespan, search_radius['minmag'],
+            ret = query_main(session, run_row.id, start, end, eventws, eventws_query_args,
+                             stimespan, search_radius['minmag'],
                              search_radius['maxmag'], search_radius['minradius'],
                              search_radius['maxradius'], channels,
                              min_sample_rate, 'i' in action, traveltime_phases, wtimespan,
-                             'D' in action,
-                             advanced_settings, isterminal)
+                             'D' in action, advanced_settings, class_labels, isterminal)
             logger.info("Download completed in %s",
                         tdstr(dt.timedelta(seconds=time.time()-starttime)))
 
@@ -278,7 +269,7 @@ def run(action, dburl, eventws, minmag, minlat, maxlat, minlon, maxlon, start, e
 
 
 @click.command()
-@click.option('--action', '-a', # type=click.Choice(['d', 'p', 'P', 'dp', 'dP', 'gui']),
+@click.option('--action', '-a',  # type=click.Choice(['d', 'p', 'P', 'dp', 'dP', 'gui']),
               help=('action to be taken for the program. Possible values are a combination of '
                     'the following values (without square brackets):'
                     '\n[d]: download data (skip already downloaded segments). '
@@ -294,18 +285,14 @@ def run(action, dburl, eventws, minmag, minlat, maxlat, minlon, maxlon, start, e
                     '\ne.g.: stream2segment --action dp'
                     '\n      stream2segment --action gui'),
               default=cfg_dict['action'])
+@click.option('-s', '--start', default=cfg_dict.get('start', get_def_timerange()[0]),
+              type=valid_date,
+              help='Limit to events on or after the specified start time.')
+@click.option('-e', '--end', default=cfg_dict.get('end', get_def_timerange()[1]),
+              type=valid_date,
+              help='Limit to events on or before the specified end time.')
 @click.option('-E', '--eventws', default=cfg_dict['eventws'],
               help='Event WS to use in queries.')
-@click.option('--minmag', default=cfg_dict['minmag'],
-              help='Minimum magnitude.', type=float)
-@click.option('--minlat', default=cfg_dict['minlat'], type=float,
-              help='Minimum latitude.')
-@click.option('--maxlat', default=cfg_dict['maxlat'], type=float,
-              help='Maximum latitude.')
-@click.option('--minlon', default=cfg_dict['minlon'], type=float,
-              help='Minimum longitude.')
-@click.option('--maxlon', default=cfg_dict['maxlon'], type=float,
-              help='Maximum longitude.')
 @click.option('--wtimespan', nargs=2, type=float,
               help='Waveform segment time window: specify two positive integers denoting the '
               'minutes to account for before and after the calculated arrival time',
@@ -317,21 +304,16 @@ def run(action, dburl, eventws, minmag, minlat, maxlat, minlon, maxlon, start, e
 @click.option('-d', '--dburl', default=cfg_dict.get('dburl', ''),
               help='Db path where to store waveforms, or db path from where to read the'
                    ' waveforms, if --gui is specified.')
-@click.option('-s', '--start', default=cfg_dict.get('start', get_def_timerange()[0]),
-              type=valid_date,
-              help='Limit to events on or after the specified start time.')
-@click.option('-e', '--end', default=cfg_dict.get('end', get_def_timerange()[1]),
-              type=valid_date,
-              help='Limit to events on or before the specified end time.')
 @click.option('--min_sample_rate', default=cfg_dict['min_sample_rate'],
               help='Limit to segments on a sample rate higher than a specific threshold')
-def main(action, eventws, minmag, minlat, maxlat, minlon, maxlon, wtimespan, stimespan,
-         dburl, start, end, min_sample_rate):
+def main(action, start, end, eventws, wtimespan, stimespan,
+         dburl, min_sample_rate):
     try:
-        ret = run(action, dburl, eventws, minmag, minlat, maxlat, minlon, maxlon, start, end,
+        ret = run(action, dburl, start, end, eventws, cfg_dict['eventws_query_args'],
                   stimespan, cfg_dict['search_radius'], cfg_dict['channels'], min_sample_rate,
                   cfg_dict['traveltime_phases'], wtimespan, cfg_dict['processing'],
-                  cfg_dict['advanced_settings'], isterminal=True)
+                  cfg_dict['advanced_settings'], cfg_dict.get('class_labels', {}),
+                  isterminal=True)
         sys.exit(ret)
     except KeyboardInterrupt:
         sys.exit(1)

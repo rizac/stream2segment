@@ -487,6 +487,10 @@ def commit(session, on_exc=None):
         return False
 
 
+def get_or_add(session, model_instances, columns=None, on_add='flush'):
+    return [x for x in get_or_add_iter(session, model_instances, columns, on_add)]
+
+
 def get_or_add_iter(session, model_instances, columns=None, on_add='flush'):
     """
         Iterates on all model_rows trying to add each
@@ -551,105 +555,6 @@ def get_or_add_iter(session, model_instances, columns=None, on_add='flush'):
                 binexpfunc = _bin_exp_func_from_columns(row.__class__, columns)
 
             yield _get_or_add(session, row, binexpfunc, on_add)
-
-
-def get_or_add_iter2(session, model_instances, columns=None, on_add='flush', block=10):
-    """
-        Iterates on all model_rows trying to add each
-        instance to the session if it does not already exist on the database. All instances
-        in `model_instances` should belong to the same model (python class). For each
-        instance, its existence is checked based on `columns`: if a database row
-        is found, whose values are the same as the given instance for **all** the columns defined
-        in `columns`, then the *first* database row instance is returned.
-
-        Yields tuple: (model_instance, is_new_and_was_added)
-
-        Note that if `on_add`="flush" (the default) or `on_add`="commit", model_instance might be
-        None (see below)
-
-        :Example:
-        ```
-        # assuming the model of each instance is a class named 'MyTable' with a primary key 'id':
-        instances = [MyTable(...), ..., MyTable(...)]
-        # add all instances if they are not found on db according to 'id'
-        # (thus no need to specify the argument `columns`)
-        for instance, is_new in get_or_add_iter(session, instances, on_add='commit'):
-            if instance is None:
-                # instance was not found on db but adding it raised an exception OR
-                # instances was already None
-            elif is_new:
-                # instance was not found on the db and was succesfully added
-            else:
-               # instance was found on the db and the first matching instance is returned
-
-        # Note that the calls below produce the same results:
-        get_or_add_iter(session, instances):
-        get_or_add_iter(session, instances, 'id'):
-        get_or_add_iter(session, instances, MyTable.id):
-        ```
-        :param model_instances: an iterable (list tuple generator ...) of ORM model instances. None
-        values are valid and will yield the tuple (None, False)
-        All instances *MUST* belong to the same class, i.e., represent rows of the same db table.
-        An ORM model is the python class reflecting a database table. An ORM model instance is
-        simply a python instance of that class, and thus reflects a rows of the database table
-        :param columns: iterable of strings or class attributes (objects of type
-        InstrumentedAttribute), a single Instrumented Attribute, string, or None: the
-        column(s) to check if a model instance has a corresponding row in the database table
-        (in that case the instance reflecting that row is returned and nothing is added). A database
-        column matches the current model instance if **all** values of `columns`
-        are the same. If not iterable, the argument is converted to `[columns]`.
-        If None, the model primary keys are taken as columns.
-        **In most cases, also `Column` objects can be passed, but this method will fail for
-        Columns which override their `key` attribute, as Column's keys will not reflect
-        the class attribute names anymore**. For info see:
-        http://docs.sqlalchemy.org/en/latest/glossary.html#term-descriptor
-        http://docs.sqlalchemy.org/en/latest/core/metadata.html#sqlalchemy.schema.Column.params.key
-        :param on_add: 'commit', 'flush' or None. Default: 'flush'. Tells whether a `session.flush`
-        or a `session commit` has to be issued after each `session.add`. In case of failure, a
-        `session.rollback` will be issued and the tuple (None, False) is yielded
-    """
-    binexpfunc = None  # cache dict for expressions
-    model_class = None
-    buf = []
-    for row in model_instances:
-        if row is None:
-            yield None, False
-        else:
-            if not binexpfunc:
-                binexpfunc = _bin_exp_func_from_columns(row.__class__, columns)
-                model_class = row.__class__
-
-            row_ = session.query(model_class).filter(binexpfunc(row)).first()
-            if row_:
-                yield row_, False
-            else:
-                buf.append(row)
-
-            if len(buf) == block:
-                isnew = _add_all(session, buf, on_add)
-                for inst in buf:
-                    yield inst if isnew else None, isnew
-                buf = []
-
-    if len(buf):
-        isnew = _add_all(session, buf, on_add)
-        for inst in buf:
-            yield inst if isnew else None, isnew
-
-
-def _add_all(session, instances, on_add='flush'):
-    session.add_all(instances)
-    if (on_add == 'flush' and not flush(session)) or \
-            (on_add == 'commit' and not commit(session)):
-        return False
-    else:
-        return True
-
-
-def get_or_add(session, model_instances, columns=None, on_add='flush', block=10,
-               ret_func=None):
-    itr = get_or_add_iter2(session, model_instances, columns, on_add, block)
-    return [ret_func(inst, isnew) if hasattr(ret_func, "__call__") else inst for inst, isnew in itr]
 
 
 def _get_or_add(session, row, binexpr_for_get, on_add='flush'):
@@ -724,3 +629,102 @@ def _bin_exp_func_from_columns(model, model_cols_or_colnames):
 #     Session = sessionmaker(bind=engine)
 #     # create a Session
 #     session = Session()
+
+
+# def get_or_add_iter2(session, model_instances, columns=None, on_add='flush', block=10):
+#     """
+#         Iterates on all model_rows trying to add each
+#         instance to the session if it does not already exist on the database. All instances
+#         in `model_instances` should belong to the same model (python class). For each
+#         instance, its existence is checked based on `columns`: if a database row
+#         is found, whose values are the same as the given instance for **all** the columns defined
+#         in `columns`, then the *first* database row instance is returned.
+# 
+#         Yields tuple: (model_instance, is_new_and_was_added)
+# 
+#         Note that if `on_add`="flush" (the default) or `on_add`="commit", model_instance might be
+#         None (see below)
+# 
+#         :Example:
+#         ```
+#         # assuming the model of each instance is a class named 'MyTable' with a primary key 'id':
+#         instances = [MyTable(...), ..., MyTable(...)]
+#         # add all instances if they are not found on db according to 'id'
+#         # (thus no need to specify the argument `columns`)
+#         for instance, is_new in get_or_add_iter(session, instances, on_add='commit'):
+#             if instance is None:
+#                 # instance was not found on db but adding it raised an exception OR
+#                 # instances was already None
+#             elif is_new:
+#                 # instance was not found on the db and was succesfully added
+#             else:
+#                # instance was found on the db and the first matching instance is returned
+# 
+#         # Note that the calls below produce the same results:
+#         get_or_add_iter(session, instances):
+#         get_or_add_iter(session, instances, 'id'):
+#         get_or_add_iter(session, instances, MyTable.id):
+#         ```
+#         :param model_instances: an iterable (list tuple generator ...) of ORM model instances. None
+#         values are valid and will yield the tuple (None, False)
+#         All instances *MUST* belong to the same class, i.e., represent rows of the same db table.
+#         An ORM model is the python class reflecting a database table. An ORM model instance is
+#         simply a python instance of that class, and thus reflects a rows of the database table
+#         :param columns: iterable of strings or class attributes (objects of type
+#         InstrumentedAttribute), a single Instrumented Attribute, string, or None: the
+#         column(s) to check if a model instance has a corresponding row in the database table
+#         (in that case the instance reflecting that row is returned and nothing is added). A database
+#         column matches the current model instance if **all** values of `columns`
+#         are the same. If not iterable, the argument is converted to `[columns]`.
+#         If None, the model primary keys are taken as columns.
+#         **In most cases, also `Column` objects can be passed, but this method will fail for
+#         Columns which override their `key` attribute, as Column's keys will not reflect
+#         the class attribute names anymore**. For info see:
+#         http://docs.sqlalchemy.org/en/latest/glossary.html#term-descriptor
+#         http://docs.sqlalchemy.org/en/latest/core/metadata.html#sqlalchemy.schema.Column.params.key
+#         :param on_add: 'commit', 'flush' or None. Default: 'flush'. Tells whether a `session.flush`
+#         or a `session commit` has to be issued after each `session.add`. In case of failure, a
+#         `session.rollback` will be issued and the tuple (None, False) is yielded
+#     """
+#     binexpfunc = None  # cache dict for expressions
+#     model_class = None
+#     buf = []
+#     for row in model_instances:
+#         if row is None:
+#             yield None, False
+#         else:
+#             if not binexpfunc:
+#                 binexpfunc = _bin_exp_func_from_columns(row.__class__, columns)
+#                 model_class = row.__class__
+# 
+#             row_ = session.query(model_class).filter(binexpfunc(row)).first()
+#             if row_:
+#                 yield row_, False
+#             else:
+#                 buf.append(row)
+# 
+#             if len(buf) == block:
+#                 isnew = _add_all(session, buf, on_add)
+#                 for inst in buf:
+#                     yield inst if isnew else None, isnew
+#                 buf = []
+# 
+#     if len(buf):
+#         isnew = _add_all(session, buf, on_add)
+#         for inst in buf:
+#             yield inst if isnew else None, isnew
+# 
+# 
+# def _add_all(session, instances, on_add='flush'):
+#     session.add_all(instances)
+#     if (on_add == 'flush' and not flush(session)) or \
+#             (on_add == 'commit' and not commit(session)):
+#         return False
+#     else:
+#         return True
+# 
+# 
+# def get_or_add(session, model_instances, columns=None, on_add='flush', block=10,
+#                ret_func=None):
+#     itr = get_or_add_iter2(session, model_instances, columns, on_add, block)
+#     return [ret_func(inst, isnew) if hasattr(ret_func, "__call__") else inst for inst, isnew in itr]

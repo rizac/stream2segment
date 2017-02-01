@@ -17,7 +17,7 @@ from StringIO import StringIO
 
 import unittest, os
 from sqlalchemy.engine import create_engine
-from stream2segment.io.db.models import Base, Event
+from stream2segment.io.db.models import Base, Event, Class
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import IntegrityError
 from stream2segment.main import main
@@ -26,7 +26,7 @@ from stream2segment.io.db import models
 # from stream2segment.s2sio.db.pd_sql_utils import df2dbiter, get_col_names
 import pandas as pd
 from stream2segment.download.query import get_events, get_datacenters,\
-    make_ev2sta, get_segments_df, download_segments
+    make_ev2sta, get_segments_df, download_segments, add_classes
 from obspy.core.stream import Stream
 from stream2segment.io.db.models import DataCenter
 from itertools import cycle, repeat, count
@@ -160,7 +160,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
     @patch('stream2segment.download.query.get_query', return_value='a')
     def test_get_events(self, mock_query):
         data = self.get_events(None, self.session,
-                               "eventws", "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
+                               "eventws")  # , "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
         # assert only three events where succesfully saved to db
         # (one is
         assert len(self.session.query(Event).all()) == len(data) == 3
@@ -172,6 +172,14 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         self.setup_urlopen(self._dc_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
         return get_datacenters(*a, **kw)
 
+
+    def test_add_classes(self):
+        cls = {'a' : 'bla', 'b' :'c'}
+        add_classes(self.session, cls)
+        assert len(self.session.query(Class).all()) == 2
+        add_classes(self.session, cls)
+        assert len(self.session.query(Class).all()) == 2
+        
 
     @patch('stream2segment.download.query.get_query', return_value='a')
     def test_get_dcs(self, mock_query):
@@ -188,7 +196,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
     
     def test_make_ev2sta(self):
         events = self.get_events(None, self.session,
-                               "eventws", "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
+                               "eventws")  # , "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
         datacenters = self.get_datacenters(session=self.session)
         evt2stations, stats = self.make_ev2sta(None,  # use self._seg_urlread_side_effect
                                                **dict(session=self.session,
@@ -235,7 +243,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
 
     def test_get_segments_df(self):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
         events = self.get_events(None, self.session,
-                               "eventws", "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
+                               "eventws", )  # "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
         datacenters = self.get_datacenters(session=self.session)
         evt2stations, stats = self.make_ev2sta(None,  # use self._seg_urlread_side_effect
                                                **dict(session=self.session,
@@ -279,7 +287,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
  
     def test_download_segments(self):
         events = self.get_events(None, self.session,
-                               "eventws", "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
+                               "eventws", )  # "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
         datacenters = self.get_datacenters(session=self.session)
         evt2stations, stats = self.make_ev2sta(None,  # use self._seg_urlread_side_effect
                                                **dict(session=self.session,
@@ -317,7 +325,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
 
     def test_download_segments_max_err(self):
         events = self.get_events(None, self.session,
-                               "eventws", "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
+                               "eventws", )  # "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
         datacenters = self.get_datacenters(session=self.session)
         evt2stations, stats = self.make_ev2sta(None,  # use self._seg_urlread_side_effect
                                                **dict(session=self.session,
@@ -515,4 +523,5 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
             
         segments = self.session.query(models.Segment).all()
         assert len(segments) == 0
-        
+
+

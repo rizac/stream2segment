@@ -13,21 +13,21 @@
 import logging
 from collections import defaultdict
 from datetime import timedelta
-import numpy as np
-import pandas as pd
 from urlparse import urlparse
 from itertools import izip, imap, repeat
+import concurrent.futures
+import numpy as np
+import pandas as pd
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql.expression import func
-import concurrent.futures
 from obspy.taup.tau import TauPyModel
 from obspy.geodetics.base import locations2degrees
 from obspy.taup.helper_classes import TauModelError, SlownessModelError
 from stream2segment.utils import msgs, get_progressbar
 from stream2segment.utils.url import url_read, read_async
-from stream2segment.classification import class_labels_df
 from stream2segment.io.db import models
-from stream2segment.io.db.pd_sql_utils import df2dbiter, get_or_add_iter, commit, colnames
+from stream2segment.io.db.pd_sql_utils import df2dbiter, get_or_add_iter, commit, colnames,\
+    get_or_add
 from stream2segment.download.utils import empty, get_query, query2dframe, normalize_fdsn_dframe,\
     get_search_radius, get_arrival_time, UrlStats, stats2str, get_inventory_query
 from stream2segment.io.utils import dumps_inv
@@ -36,10 +36,8 @@ from stream2segment.io.utils import dumps_inv
 logger = logging.getLogger(__name__)
 
 
-def get_events(session, eventws, minmag, minlat, maxlat, minlon, maxlon, startiso, endiso):
-    evt_query = get_query(eventws, minmagnitude=minmag, minlat=minlat, maxlat=maxlat,
-                          minlon=minlon, maxlon=maxlon, start=startiso,
-                          end=endiso, format='text')
+def get_events(session, eventws, **args):
+    evt_query = get_query(eventws, format='text', **args)
     raw_data = url_read(evt_query, decode='utf8',
                         on_exc=lambda exc: logger.error(msgs.format(exc, evt_query)))
 
@@ -498,11 +496,12 @@ def download_segments(session, segments_df, run_id, max_error_count, max_thread_
                 # skip remaining datacenters
                 return lambda obj: obj[1] == dcen_id
         else:
-            segments_df.loc[url, models.Segment.data.key] = res  # avoid pandas SettingWithCopyWarning
+            # avoid pandas SettingWithCopyWarning:
+            segments_df.loc[url, models.Segment.data.key] = res
 
     def oncancelled(obj, *_):
         notify_progress_func(1)
-        url, dcen_id = obj[0], obj[1]
+        url, dcen_id = obj[0], obj[1]  # @UnusedVariable
         key_skipped = ("Discarded: Remaining queries from the given datacenter ignored "
                        "after %d previous errors") % max_error_count
         stats[dcen_id][key_skipped] += 1
@@ -556,26 +555,25 @@ def download_segments(session, segments_df, run_id, max_error_count, max_thread_
     return stats
 
 
-def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, start, end, stimespan,
+def add_classes(session, class_labels):
+    if class_labels:
+        get_or_add(session, (models.Class(label=lab, description=desc)
+                             for lab, desc in class_labels.iteritems()), models.Class.label,
+                   on_add='commit')
+
+
+def main(session, run_id, start, end, eventws, eventws_query_args, stimespan,
          sradius_minmag, sradius_maxmag, sradius_minradius, sradius_maxradius,
          channels, min_sample_rate, download_s_inventory, traveltime_phases,
          wtimespan,
          retry_empty_segments,
-         advanced_settings, isterminal=False):
+         advanced_settings, class_labels=None, isterminal=False):
     """
         Downloads waveforms related to events to a specific path
         :param eventws: Event WS to use in queries. E.g. 'http://seismicportal.eu/fdsnws/event/1/'
         :type eventws: string
-        :param minmaa: Minimum magnitude. E.g. 3.0
-        :type minmaa: float
-        :param minlat: Minimum latitude. E.g. 30.0
-        :type minlat: float
-        :param maxlat: Maximum latitude E.g. 80.0
-        :type maxlon: float
-        :param minlon: Minimum longitude E.g. -10.0
-        :type minlon: float
-        :param maxlon: Maximum longitude E.g. 60.0
-        :type maxlon: float
+        :param eventws_query_args: a dict of fdsn arguments to be passed to the eventws query. E.g.
+        {'minmag' : 3.0}
         :param search_radius_args: The arguments required to get the search radius R whereby all
             stations within R will be queried from a given event location E_lat, E_lon
         :type search_radius_args: list or iterable of numeric values:
@@ -612,11 +610,7 @@ def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, start
                     repeat(5 if download_s_inventory else 4))
 
     # write the class labels:
-    for _, _ in get_or_add_iter(session, df2dbiter(class_labels_df,
-                                                   models.Class,
-                                                   harmonize_cols_first=True,
-                                                   harmonize_rows_first=True), on_add='commit'):
-        pass
+    add_classes(session, class_labels)
 
     startiso = start.isoformat()
     endiso = end.isoformat()
@@ -625,7 +619,7 @@ def main(session, run_id, eventws, minmag, minlat, maxlat, minlon, maxlon, start
     logger.info("STEP %s: Querying events and datacenters", next(stepiter))
     # Get events, store them in the db, returns the event instances (db rows) correctly added:
 
-    events = get_events(session, eventws, minmag, minlat, maxlat, minlon, maxlon, startiso, endiso)
+    events = get_events(session, eventws, start=startiso, end=endiso, **eventws_query_args)
     if not events:
         return 1
 
