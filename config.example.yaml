@@ -14,7 +14,7 @@
 # Otherwise, the syntax is:
 # dialect+driver://username:password@host:port/database
 # (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)
-dburl: 'postgresql://me:@localhost/s2s'  # 'sqlite:///./mydb.sqlite_nov_2016'
+dburl: 'sqlite:////path/to/my/file.sqlite'  # 'postgresql://user:@localhost/database'  # 
 # IMPORTANT: IF SQLITE, AND THE DBPATH IS RELATIVE (not starting with slash on unix or C:\ whatever on windows)
 # IT REFERS TO THIS FILE PATH!
 
@@ -31,25 +31,35 @@ action: 'd'  # 'dp'
 # DATA QUERY PARAMETERS
 #######################
 
-eventws: 'http://seismicportal.eu/fdsnws/event/1/query'
-minmag: 3.0
-minlat: 30.0
-maxlat: 80.0
-minlon: -10.0
-maxlon: 60.0
 # these are optional, missing values default to yesterday at midnight (start), today at midnight (end)
-start: 2015-05-06T00:00:00
-end: 2015-05-08T00:00:00
+# they will be used for the eventws query_args above
+start: 2006-01-01T00:00:00
+end: 2016-12-25T00:00:00
+
+# the event web service
+eventws: 'http://seismicportal.eu/fdsnws/event/1/query'
+
+# a dict of fdns ws arguments for the eventws query. All values are permitted except 'format', 'start' 
+# and 'end' (the latter are taken from the values of the relative config parameters specified above)
+eventws_query_args:
+  minmag: 3.0
+  minlat: 47.0
+  maxlat: 57.0
+  minlon: 4.0
+  maxlon: 17.0
+  mindepth: 1
+  maxdepth: 50
+
 
 # stations will be downloaded with level='channel'. Set here which channels to download. For info see e.g.:
 # https://ds.iris.edu/ds/nodes/dmc/tools/data_channels/#???
 channels:
  - "HH?"
- - 'SH?'
+ # - 'SH?'
  - 'HN?'
- - 'SN?'
+ # - 'SN?'
  - 'HL?'
- - 'SL?'
+ # - 'SL?'
 stimespan:
  - 0 # for each event, limit the search to stations installed at the event time minus this value (in hours)
  - 24 # for each event, limit the search to stations installed at the event time plus this value (in hours)
@@ -70,10 +80,10 @@ stimespan:
 # if minmag == maxmag = M (and maxradius not equal to minradius), this function returns minradius for all magnitudes < M,
 #     maxradius for all magnitudes > M, and (minradius+maxradius)/2 for all magnitudes == M
 search_radius:
- minmag: 3 # min magnitude
+ minmag: 6 # min magnitude
  maxmag: 7 # max magnitude
- minradius: 1 # min radius (deg)
- maxradius: 5 # max radius (deg)
+ minradius: 3 # min radius (deg)
+ maxradius: 3 # max radius (deg)
 min_sample_rate: 60 # regardless of the config above (which sets also the sampling rates), limit the search
 # to stations with at least min_sample_rate (in Hz). Set to 0 or negative number to ignore the sampling rate
 
@@ -128,6 +138,18 @@ processing:
   # coda analysis threshold on snr sub-windows
   coda_subwindow_amplitude_threshold: 4
 
+
+###############################################
+# Classes (label: description) This is used for labelling:
+# optional argument, you can remove it completely for no labelling
+###############################################
+class_labels:
+  Discarded: "Segment which does not fall in any other cathegory (e.g., unknown artifacts, bad formats etcetera)"
+  Unknown: "Segment which is either: unlabeled (not annotated) or unclassified"
+  Ok: "Segment with no artifact"
+  LowS2N: "Segment has a low signal-to-noise ratio"
+  MultiEvent: "Segment with overlapping multi-events recorded"
+  BadCoda: "Segment with a bad coda (bad decay)"
 
 #####################################################################################################
 # Advanced settings (in principle, you should not care about these unless you know what you are doing
