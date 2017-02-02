@@ -63,8 +63,6 @@ def get_stats():
                             for g in mseed.get_gaps():
                                 missing = g[-1]
                                 if missing < 0:
-                                    if ch_id == 'SK.ZST':
-                                        h = 9
                                     warnings[ch_id]['negative missing points'] += 1
                                     missing = -missing
                                 missing_samples += missing

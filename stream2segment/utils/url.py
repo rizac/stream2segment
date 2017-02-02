@@ -37,12 +37,12 @@ def _urlread(url, blocksize=-1, decode=None, **kwargs):
 class _urlreader(object):
 
     def __init__(self):
-        self._cancelled = False
+        self._kill = False
 
     def __call__(self, url, blocksize=-1, decode=None, **kwargs):
         """Custom function which handles url read and checks the cancel flag"""
         # this is executed in a separate thread (thus not thread safe):
-        if self._cancelled:
+        if self._kill:
             return None
         ret = b''
         # urlib2 does not support with statement in py2. See:
@@ -52,12 +52,12 @@ class _urlreader(object):
             if blocksize < 0:  # https://docs.python.org/2.4/lib/bltin-file-objects.html
                 ret = conn.read()
             else:
-                while not self._cancelled:
+                while not self._kill:
                     buf = conn.read(blocksize)
                     if not buf:
                         break
                     ret += buf
-        if self._cancelled:
+        if self._kill:
             return None
         return ret.decode(decode) if decode else ret
 
@@ -250,7 +250,7 @@ def read_async(iterable, ondone, oncanc=lambda *a, **v: None,
                     obj, url
             for future in concurrent.futures.as_completed(future_to_obj):
                 # this is executed in the main thread (thus is thread safe):
-                if urlreader._cancelled:  # pylint:disable=protected-access
+                if urlreader._kill:  # pylint:disable=protected-access
                     continue
                 ret = None
                 obj, url = future_to_obj.pop(future)
@@ -278,11 +278,11 @@ def read_async(iterable, ondone, oncanc=lambda *a, **v: None,
             # According to this post:
             # http://stackoverflow.com/questions/29177490/how-do-you-kill-futures-once-they-have-started,
             # after a KeyboardInterrupt this method does not return until all
-            # working threads have finished. Thus, we implement the urlreader._cancelled flag
+            # working threads have finished. Thus, we implement the urlreader._kill flag
             # which makes them exit immediately, and hopefully this function will return within
             # seconds at most. We catch  a bare except cause we want the same to apply to all
             # other exceptions which we might raise (see few line above)
-            urlreader._cancelled = True  # pylint:disable=protected-access
+            urlreader._kill = True  # pylint:disable=protected-access
             # the time here before executing 'raise' below is the time taken to finish all threads.
             # Without the line above, it might be a lot (minutes, hours), now it is much shorter
             # (in the order of few seconds max) and the command below can be executed quickly:
