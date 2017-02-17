@@ -15,7 +15,7 @@
 # Otherwise, the syntax is:
 # dialect+driver://username:password@host:port/database
 # (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)
-dburl: 'sqlite:////Users/riccardo/work/gfz/data/dec_2016.sqlite'
+dburl: 'sqlite:////path/to/my/db.sqlite'
 
 # Set what to do with already saved segments which are empty
 # (the datacenter query returned zero bytes) or null (the datacenter query resulted in a connection error).
@@ -116,40 +116,6 @@ wtimespan:
  - 1.0 # start time of the waveform segment to download, in minutes *before* the previously calculated arrival time
  - 3.0 # end time of the waveform segment to download, in minutes *after* the previously calculated arrival time
 
-#######################
-# PROCESSING PARAMETERS
-#######################
-
-processing:
-  amp_ratio_threshold: 0.8
-  arrival_time_delay: 0  # the delay (in seconds) whereby to shift the P-arrival time T (calculated inside the code)
-  # the real arrival time AT will be AT = T + fixed_delay for processing only
-  bandpass_freq_max: 20 # the max frequency, in Hz
-  bandpass_max_nyquist_ratio: 0.9 # the amount of freq_max to be taken. low-pass corner = max_nyquist_ratio * freq_max (defined above)
-  bandpass_corners: 2 # the corners
-  remove_response_output: 'ACC'
-  remove_response_water_level: 60
-  taper_max_percentage: 0.05  # the taper percentage used when tapering (applied on any tapered object)
-  savewindow_delta: 30 # the window whereby the mseed and wood_anderson are saved (in seconds)
-  # the window will be substracted from the arrival time and added to the t95 of the cumulative
-  # --------------
-  # the window length (in seconds). There will be two spectra, one calculated on
-  # AT-window_length (noisy signal), the other on AT+window_length ('normal' signal)
-  snr_window_length: 60  # snr_fixedwindow_in_sec
-  # multievent
-  multi_event_threshold1: 0.85 # in [0,1] (percentage units) threshold to apply on the main interval (usually t05 t95)
-  multi_event_threshold1_duration: 10 # in seconds. Threshold to apply on the main interval (usually t05 t95)
-  multi_event_threshold2: 0.05 # in [0,1] (percentage units). Threshold to apply on the second interval (usually after t95)
-  # coda
-  # max window length after which we stop iterations (in seconds):
-  coda_window_length: 80
-  # for the coda analysis: sub-window length in seconds (used alo for moving average smoothing)
-  coda_subwindow_length: 2.5
-  # for the coda analysis: sub-window overlap in percentage (i.e., in ]0,1])
-  coda_subwindow_overlap: 0.5
-  # coda analysis threshold on snr sub-windows
-  coda_subwindow_amplitude_threshold: 4
-
 
 ######################################################################################################
 # Advanced settings (in principle, you should not care about these unless you know what you are doing)
@@ -176,10 +142,10 @@ advanced_settings:
  w_maxerr_per_dc: -1
 
 
-##################################################################
-# Classes (label: description) This is used for labelling:
+###############################################################################
+# Classes (label: description) This is used for labelling (annotating via GUI):
 # optional argument, you can remove it completely for no labelling
-##################################################################
+###############################################################################
 
 class_labels:
   Discarded: "Segment which does not fall in any other cathegory (e.g., unknown artifacts, bad formats etcetera)"
