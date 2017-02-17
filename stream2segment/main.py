@@ -12,9 +12,10 @@ import datetime as dt
 import yaml
 import time
 import os
-from sqlalchemy.exc import SQLAlchemyError
 import click
 from click.exceptions import BadParameter
+from contextlib import contextmanager
+import csv
 """
    :Platform:
        Linux, Mac OSX
@@ -24,10 +25,10 @@ from click.exceptions import BadParameter
        To be decided!
 """
 from stream2segment.io.db import models
-from stream2segment.process.processing import main as process_main
 from stream2segment.io.db.pd_sql_utils import commit
+from stream2segment.process.wrapper import run as process_run
 from stream2segment.download.query import main as query_main
-from stream2segment.utils import tounicode, load_def_cfg, get_session, strptime
+from stream2segment.utils import tounicode, yaml_load, get_session, strptime, yaml_load_doc
 
 # set root logger if we are executing this module as script, otherwise as module name following
 # logger conventions. Discussion here:
@@ -177,16 +178,23 @@ def tdstr(timdelta):
     return str_ if len(spl) != 3 else "%sh:%sm:%ss" % (spl[0], spl[1], spl[2])
 
 # a bit hacky maybe, should be checked:
-cfg_dict = load_def_cfg()
+cfg_dict = yaml_load()
+cfg_doc = yaml_load_doc()
 
 
-# IMPORTANT
-# IMPORTANT: THE ARGUMENT NAMES HERE MUST BE THE SAME AS THE CONFIG FILE!!!
-# IMPORTANT
-def run(action, dburl, start, end, eventws, eventws_query_args, stimespan,
-        search_radius,
-        channels, min_sample_rate, traveltime_phases, wtimespan,
-        processing, advanced_settings, class_labels=None, isterminal=False):
+def showgui(dburl):
+    from stream2segment.gui import main as main_gui
+    main_gui.run_in_browser(dburl)
+    return 0
+
+
+# IMPORTANT !!!
+# IMPORTANT: THE ARGUMENT NAMES HERE MUST BE THE SAME AS THE CONFIG FILE!!! SEE FUNCTION DOC BELOW
+# IMPORTANT !!!
+def download(dburl, start, end, eventws, eventws_query_args, stimespan,
+             search_radius,
+             channels, min_sample_rate, inventory, traveltime_phases, wtimespan,
+             processing, retry, advanced_settings, class_labels=None, isterminal=False):
     """
         Main run method. KEEP the ARGUMENT THE SAME AS THE config.yaml OTHERWISE YOU'LL GET
         A DIFFERENT CONFIG SAVED IN THE DB
@@ -196,127 +204,214 @@ def run(action, dburl, start, end, eventws, eventws_query_args, stimespan,
     # no local variable (none has been declared yet). Note: dict(locals()) avoids problems with
     # variables created inside loops, when iterating over _args_ (see below)
 
-    if action == 'gui':
-        from stream2segment.gui import main as main_gui
-        main_gui.run_in_browser(dburl)
-        return 0
+    with closing(dburl) as session:
+        # create logger handler
+        run_row = config_logger_and_return_run_instance(session, isterminal)
+        yaml_dict = yaml_load()
+        # update with our current variables (only those present in the config_yaml):
+        yaml_dict.update(**{k: v for k, v in _args_.iteritems() if k in yaml_dict})
+        # print local vars:
+        yaml_content = StringIO()
+        # use safe_dump to avoid python types. See:
+        # http://stackoverflow.com/questions/1950306/pyyaml-dumping-without-tags
+        yaml_content.write(yaml.safe_dump(yaml_dict, default_flow_style=False))
+        config_text = yaml_content.getvalue()
+        if isterminal:
+            print("Arguments:")
+            tab = "   "
+            print(tab + config_text.replace("\n", "\n%s" % tab))
+        run_row.config = tounicode(config_text)
+        session.commit()  # udpate run row. flush might be also used but we prefer storing to db
 
-    session = get_session(dburl, scoped=True)  # FIXME: is it necessary for multiprocessing in processing?
-
-    # create logger handler
-    run_row = config_logger_and_return_run_instance(session, isterminal)
-
-    yaml_dict = load_def_cfg()
-    # update with our current variables (only those present in the config_yaml):
-    yaml_dict.update(**{k: v for k, v in _args_.iteritems() if k in yaml_dict})
-
-    # print local vars:
-    yaml_content = StringIO()
-    # use safe_dump to avoid python types. See:
-    # http://stackoverflow.com/questions/1950306/pyyaml-dumping-without-tags
-    yaml_content.write(yaml.safe_dump(yaml_dict, default_flow_style=False))
-    config_text = yaml_content.getvalue()
-    if isterminal:
-        print("Arguments:")
-        tab = "   "
-        print(tab + config_text.replace("\n", "\n%s" % tab))
-    run_row.config = tounicode(config_text)
-    session.commit()  # udpate run row. flush might be also used but we prever sotring to db
-
-    ret = 0
-    try:
-        segments = []
-        if 'd' in action.lower():
-            starttime = time.time()
-            ret = query_main(session, run_row.id, start, end, eventws, eventws_query_args,
-                             stimespan, search_radius['minmag'],
-                             search_radius['maxmag'], search_radius['minradius'],
-                             search_radius['maxradius'], channels,
-                             min_sample_rate, 'i' in action, traveltime_phases, wtimespan,
-                             'D' in action, advanced_settings, class_labels, isterminal)
-            logger.info("Download completed in %s",
-                        tdstr(dt.timedelta(seconds=time.time()-starttime)))
-
-        if 'p' in action.lower() and ret == 0:
-            starttime = time.time()
-            if 'P' in action:
-                try:
-                    _ = session.query(models.Processing).delete()  # returns num rows deleted
-                    session.commit()
-                except SQLAlchemyError:
-                    session.rollback()
-                    raise Exception("Unable to delete all processing (internal db error). Please"
-                                    "try to run again the program")
-            segments = session.query(models.Segment).\
-                filter(~models.Segment.processings.any()).all()  # @UndefinedVariable
-            process_main(session, segments, run_row.id, isterminal, **processing)
-            logger.info("Processing completed in %s",
-                        tdstr(dt.timedelta(seconds=time.time()-starttime)))
+        starttime = time.time()
+        ret = query_main(session, run_row.id, start, end, eventws, eventws_query_args,
+                         stimespan, search_radius['minmag'],
+                         search_radius['maxmag'], search_radius['minradius'],
+                         search_radius['maxradius'], channels,
+                         min_sample_rate, inventory, traveltime_phases, wtimespan,
+                         retry, advanced_settings, class_labels, isterminal)
+        logger.info("Download completed in %s",
+                    tdstr(dt.timedelta(seconds=time.time()-starttime)))
         logger.info("")
         logger.info("%d total error(s), %d total warning(s)", run_row.errors, run_row.warnings)
-
-    except Exception as exc:
-        logger.critical(str(exc))
-        raise
-    finally:
-        for handler in logger.handlers:
-            try:
-                handler.close()
-            except (AttributeError, TypeError, IOError, ValueError):
-                pass
 
     return 0
 
 
-@click.command()
-@click.option('--action', '-a',  # type=click.Choice(['d', 'p', 'P', 'dp', 'dP', 'gui']),
-              help=('action to be taken for the program. Possible values are a combination of '
-                    'the following values (without square brackets):'
-                    '\n[d]: download data (skip already downloaded segments). '
-                    '[D]: download data (already downloaded segments: retry downloading if '
-                    'empty/with errors, otherwise skip). '
-                    '[i]: (in conjunction with d or D, otherwise ignored) download station '
-                    'inventories (skipping already downloaded). '
-                    '[p]: Process segments (skip already processed segments). '
-                    '[P]: Process segments (all: already processed segments are processed again). '
-                    '[gui]: show gui. this option cannot be used in combination with the '
-                    'other options (i.e. dgui is invalid). '
-                    '\n'
-                    '\ne.g.: stream2segment --action dp'
-                    '\n      stream2segment --action gui'),
-              default=cfg_dict['action'])
-@click.option('-s', '--start', default=cfg_dict.get('start', get_def_timerange()[0]),
-              type=valid_date,
-              help='Limit to events on or after the specified start time.')
-@click.option('-e', '--end', default=cfg_dict.get('end', get_def_timerange()[1]),
-              type=valid_date,
-              help='Limit to events on or before the specified end time.')
-@click.option('-E', '--eventws', default=cfg_dict['eventws'],
-              help='Event WS to use in queries.')
-@click.option('--wtimespan', nargs=2, type=float,
-              help='Waveform segment time window: specify two positive integers denoting the '
-              'minutes to account for before and after the calculated arrival time',
-              default=cfg_dict['wtimespan'])
-@click.option('--stimespan', nargs=2, type=float,
-              help='Stations time window: specify two positive integers denoting the hours'
-              'before and after each event time, to set the start and '
-              'end time of the stations search', default=cfg_dict['stimespan'])
-@click.option('-d', '--dburl', default=cfg_dict.get('dburl', ''),
-              help='Db path where to store waveforms, or db path from where to read the'
-                   ' waveforms, if --gui is specified.')
-@click.option('--min_sample_rate', default=cfg_dict['min_sample_rate'],
-              help='Limit to segments on a sample rate higher than a specific threshold')
-def main(action, start, end, eventws, wtimespan, stimespan,
-         dburl, min_sample_rate):
+def process(dburl, pysourcefile, configsourcefile, outcsvfile, isterminal=False):
+    """
+        Main run method. KEEP the ARGUMENT THE SAME AS THE config.yaml OTHERWISE YOU'LL GET
+        A DIFFERENT CONFIG SAVED IN THE DB
+        :param processing: a dict as load from the config
+    """
+    with closing(dburl) as session:
+        starttime = time.time()
+        # config logger (FIXME: merge with download logger?):
+        logger.setLevel(logging.INFO)  # this is necessary to configure logger HERE, otherwise the
+        # handler below does not work. FIXME: better implementation!!
+        logger_handler = logging.FileHandler(outcsvfile + ".log")
+        logger_handler.setLevel(logging.DEBUG)
+        logger.addHandler(logger_handler)
+
+        csvwriter = [None]  # bad hack: in python3, we might use 'nonlocal' @UnusedVariable
+        kwargs = dict(delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        with open(outcsvfile, 'wb') as csvfile:
+
+            def ondone(result):
+                if csvwriter[0] is None:
+                    if isinstance(result, dict):
+                        csvwriter[0] = csv.DictWriter(csvfile, fieldnames=result.keys(), **kwargs)
+                        csvwriter[0].writeheader()
+                    else:
+                        csvwriter[0] = csv.writer(csvfile,  **kwargs)
+                csvwriter[0].writerow(result)
+
+            process_run(session, pysourcefile, ondone, configsourcefile, isterminal)
+
+            logger.info("Processing completed in %s",
+                        tdstr(dt.timedelta(seconds=time.time()-starttime)))
+    return 0
+
+
+@contextmanager
+def closing(dburl, scoped=False, close_logger=True):
+    """Opens a sqlalchemy session and closes it. Also closes and removes all logger handlers if
+    close_logger is True (the default)
+    :example:
+        # configure logger ...
+        with closing(dburl) as session:
+            # ... do stuff, print to logger etcetera ...
+        # session is closed and also the logger handlers
+    """
     try:
-        ret = run(action, dburl, start, end, eventws, cfg_dict['eventws_query_args'],
-                  stimespan, cfg_dict['search_radius'], cfg_dict['channels'], min_sample_rate,
-                  cfg_dict['traveltime_phases'], wtimespan, cfg_dict['processing'],
-                  cfg_dict['advanced_settings'], cfg_dict.get('class_labels', {}),
-                  isterminal=True)
+        session = get_session(dburl, scoped=scoped)
+        yield session
+    except Exception as exc:
+        logger.critical(str(exc))
+        raise
+    finally:
+        try:
+            session.close()
+            session.bind.dispose()
+        except NameError:
+            pass
+        if close_logger:
+            handlers = logger.handlers[:]  # make a copy:
+            for handler in handlers:
+                try:
+                    handler.close()
+                    logger.removeHandler(handler)
+                except (AttributeError, TypeError, IOError, ValueError):
+                    pass
+
+
+def click_option(*args, **kwargs):
+    """Returns a click.option doing some pre-process: provides custom help from config.example and
+    sets the default as config.example OR the default provided in kwargs"""
+    for name in args:
+        if name[:2] == '--':
+            name = name[2:]
+            break
+
+    if 'default' in kwargs:
+        kwargs['default'] = cfg_dict.get(name, kwargs['default'])
+    else:
+        kwargs['default'] = cfg_dict[name]
+
+    kwargs['help'] = cfg_doc[name]
+    return click.option(*args, **kwargs)
+
+
+@click.group()
+def main():
+    """stream2segment is a program to download, process, visualize or annotate EIDA web services
+    waveform data segments.
+    According to the given command, segments can be:
+
+    \b
+    - efficiently downloaded (with metadata) in a custom database without polluting the filesystem
+    - processed with little implementation effort by supplying a custom python file
+    - visualized and annotated in a web browser
+
+    Type:
+
+    \b
+    stream2segment COMMAND --help
+
+    \b
+    for details"""
+    pass
+
+
+@main.command(short_help='Efficiently download waveform data segments')
+@click_option('-s', '--start', default=get_def_timerange()[0], type=valid_date)
+@click_option('-e', '--end', default=get_def_timerange()[1], type=valid_date)
+@click_option('-E', '--eventws')
+@click_option('--wtimespan', nargs=2, type=int)
+@click_option('--stimespan', nargs=2, type=int)
+@click_option('-d', '--dburl')
+@click_option('--min_sample_rate')
+@click_option('-r', '--retry', default=False, is_flag=True)
+@click_option('-i', '--inventory', default=False, is_flag=True)
+@click.argument('eventws_query_args', nargs=-1, type=click.UNPROCESSED)
+def d(start, end, eventws, wtimespan, stimespan, dburl, min_sample_rate, retry, inventory,
+      eventws_query_args):
+    """Efficiently download waveform data segments and relative events, stations and channels
+    metadata (plus additional class labels, if needed)
+    into a specified database for further processing or visual inspection in a
+    browser. Options are listed below: when not specified, their default
+    values are those set in the config file (`config.yaml`).
+    [EVENTWS_QUERY_ARGS] is an optional list of space separated arguments to be passed
+    to the event web service query (exmple: 'minmag 5.5 minlon 34.5') and will be merged with
+    (overriding if needed) the arguments of `eventws_query_args` specified in in the config file,
+    if any.
+    All FDSN query arguments are valid
+    *EXCEPT* 'start', 'end' and 'format' (the first two are set via the relative options, the
+    format will default in most cases to 'text' for performance reasons)
+    """
+    # merge eventws_query_args
+    eventws_query_args_ = cfg_dict.get('eventws_query_args', {})
+    # stupid way to iterate as pair (key, value) in eventws_query_args as the latter is supposed to
+    # be in the form (key, value, key, value,...):
+    key = None
+    for val in eventws_query_args:
+        if key is None:
+            key = val
+        else:
+            eventws_query_args_[key] = val
+            key = None
+
+    try:
+        ret = download(dburl, start, end, eventws, eventws_query_args_,
+                       stimespan, cfg_dict['search_radius'], cfg_dict['channels'], min_sample_rate,
+                       inventory,
+                       cfg_dict['traveltime_phases'], wtimespan, cfg_dict['processing'], retry,
+                       cfg_dict['advanced_settings'], cfg_dict.get('class_labels', {}),
+                       isterminal=True)
         sys.exit(ret)
     except KeyboardInterrupt:
         sys.exit(1)
+
+
+@main.command(short_help='Process downloaded waveform data segments')
+@click.argument('pyfile')
+@click.argument('configfile')
+@click.argument('outfile')
+@click_option('-d', '--dburl')
+def p(pyfile, configfile, outfile, dburl):
+    """Process downloaded waveform data segments via a custom python file and a configuration
+    file. Options are listed below. When missing, they default to the values provided in the
+    config file `config.yaml`"""
+    process(dburl, pyfile, configfile, outfile, isterminal=True)
+
+
+@main.command(short_help='Visualize downloaded waveform data segments in a browser')
+@click_option('-d', '--dburl')
+def v(dburl):
+    """Visualize downloaded waveform data segments in a browser.
+    Options are listed below. When missing, they default to the values provided in the
+    config file `config.yaml`"""
+    showgui(dburl)
 
 
 if __name__ == '__main__':

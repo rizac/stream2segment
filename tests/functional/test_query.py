@@ -129,7 +129,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         self._atime_sideeffect = [datetime.utcnow(), TauModelError('wat?'), ValueError('wat?')]
         self._seg_urlread_sideeffect = [b'data','', '', URLError('wat'), socket.timeout()]
 
-        #add cleanup (in case tearDown is not 
+        #add cleanup (in case tearDown is not called due to exceptions):
         self.addCleanup(Test.cleanup, self.session, self.file, self.patcher, self.patcher2,
                         self.patcher3)
 
@@ -413,7 +413,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         # prevlen = len(self.session.query(models.Segment).all())
     
         runner = CliRunner()
-        result = runner.invoke(main , ['--dburl', self.dburi, '-a', 'd',
+        result = runner.invoke(main , ['d', '--dburl', self.dburi,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         if result.exception:
@@ -437,7 +437,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         
         # relaunch with 'd' (empty segments no retry):
         runner = CliRunner()
-        result = runner.invoke(main , ['--dburl', self.dburi, '-a', 'd',
+        result = runner.invoke(main , ['d', '--dburl', self.dburi,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         if result.exception:
@@ -452,7 +452,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         
         # relaunch with 'D' (retry empty or Null segments data)
         runner = CliRunner()
-        result = runner.invoke(main , ['--dburl', self.dburi, '-a', 'D',
+        result = runner.invoke(main , ['d', '--dburl', self.dburi, '--retry',
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         if result.exception:
@@ -511,7 +511,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         # prevlen = len(self.session.query(models.Segment).all())
     
         runner = CliRunner()
-        result = runner.invoke(main , ['--dburl', self.dburi, '-a', 'd',
+        result = runner.invoke(main , ['d', '--dburl', self.dburi,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         if result.exception:

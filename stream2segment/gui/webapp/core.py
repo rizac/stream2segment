@@ -24,7 +24,7 @@ import yaml
 from stream2segment.io.db.pd_sql_utils import commit, colnames
 from sqlalchemy.sql.sqltypes import Binary, DateTime
 from stream2segment.analysis import amp_spec, freqs, interp as analysis_interp
-from stream2segment.main import load_def_cfg
+from stream2segment.main import yaml_load
 
 
 def _get_session(app):
@@ -314,7 +314,7 @@ def to_chart_data(np_xvalues, chart_datasets_list):
 # simple script that converted badly formatte config to safe_dumps / safe_loads configs
 
 # if __name__ ==  "__main__":
-#     cfg = load_def_cfg()
+#     cfg = yaml_load()
 #     session = get_session(cfg['dburi'])
 #     runs = session.query(Run).all()
 #     import re

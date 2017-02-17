@@ -28,7 +28,7 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 # from stream2segment.io.db.pd_sql_utils import get_col_names, get_cols
 # from sqlalchemy.sql.sqltypes import BigInteger, BLOB
 # from sqlalchemy.sql.schema import ForeignKey
-
+from sqlalchemy.inspection import inspect
 
 _Base = declarative_base()
 
@@ -39,17 +39,19 @@ class Base(_Base):
 
     def __str__(self):
         cls = self.__class__
-        ret = cls.__name__ + ":"
-        for c, v in cls.__dict__.iteritems():
-            if isinstance(v, InstrumentedAttribute):
-                attstr = None
-                try:
-                    if v.type.python_type not in (str, int, float, datetime.datetime):
-                        attstr = str(v.type) + " (value not shown)"
-                except AttributeError:
-                    continue  # it might be a relationship
-                ret += "\n  %s: %s" % (c, attstr if attstr is not None else getattr(self, c))
-        return ret
+        ret = [cls.__name__ + ":"]
+        insp = inspect(cls)
+        for colname, col in insp.columns.items():
+            typ = col.type
+            typ_str = str(typ)
+            try:
+                val = "(not shown)" if type(typ) == Binary else str(getattr(self, colname))
+            except Exception as exc:
+                val = "(not shown: %s)" % str(exc)
+            ret.append("%s %s: %s" % (colname, typ_str, val))
+        for relationship in insp.relationships.keys():
+            ret.append("%s: relationship" % relationship)
+        return "\n".join(ret)
 
 
 #Base = declarative_base()
@@ -255,7 +257,7 @@ class Segment(Base):
     channel_id = Column(String, ForeignKey("channels.id"), nullable=False)
     datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
     event_distance_deg = Column(Float, nullable=False)
-    data = Column(Binary, nullable=False)
+    data = Column(Binary)  # , nullable=False)
     start_time = Column(DateTime, nullable=False)
     arrival_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
@@ -279,49 +281,49 @@ class Segment(Base):
                      )
 
 
-class Processing(Base):
-
-    __tablename__ = "processing"
-
-    id = Column(Integer, primary_key=True)
-    segment_id = Column(Integer, ForeignKey("segments.id"))
-    run_id = Column(Integer, ForeignKey("runs.id"))
-    mseed_rem_resp_savewindow = Column(Binary)
-    fft_rem_resp_t05_t95 = Column(Binary)
-    fft_rem_resp_until_atime = Column(Binary)
-    wood_anderson_savewindow = Column(Binary)
-    cum_rem_resp = Column(Binary)
-    pga_atime_t95 = Column(Float)
-    pgv_atime_t95 = Column(Float)
-    pwa_atime_t95 = Column(Float)
-    t_pga_atime_t95 = Column(DateTime)
-    t_pgv_atime_t95 = Column(DateTime)
-    t_pwa_atime_t95 = Column(DateTime)
-    cum_t05 = Column(DateTime)
-    cum_t10 = Column(DateTime)
-    cum_t25 = Column(DateTime)
-    cum_t50 = Column(DateTime)
-    cum_t75 = Column(DateTime)
-    cum_t90 = Column(DateTime)
-    cum_t95 = Column(DateTime)
-    snr_rem_resp_fixedwindow = Column(Float)
-    snr_rem_resp_t05_t95 = Column(Float)
-    snr_rem_resp_t10_t90 = Column(Float)
-    amplitude_ratio = Column(Float)
-    is_saturated = Column(Boolean)
-    has_gaps = Column(Boolean)
-    double_event_result = Column(Integer)
-    secondary_event_time = Column(DateTime)
-    coda_start_time = Column(DateTime)  # the coda start time
-    coda_slope = Column(Float)  # slope of the regression line
-    # coda_intercept : float  # intercept of the regression line
-    coda_r_value = Column(Float)  # correlation coefficient
-    coda_is_ok = Column(Boolean)
-
-    segment = relationship("Segment", backref=backref("processings", lazy="dynamic"))
-    run = relationship("Run", backref=backref("processings", lazy="dynamic"))
-
-    __table_args__ = (UniqueConstraint('segment_id', 'run_id', name='seg_run_uc'),)
+# class Processing(Base):
+# 
+#     __tablename__ = "processing"
+# 
+#     id = Column(Integer, primary_key=True)
+#     segment_id = Column(Integer, ForeignKey("segments.id"))
+#     run_id = Column(Integer, ForeignKey("runs.id"))
+#     mseed_rem_resp_savewindow = Column(Binary)
+#     fft_rem_resp_t05_t95 = Column(Binary)
+#     fft_rem_resp_until_atime = Column(Binary)
+#     wood_anderson_savewindow = Column(Binary)
+#     cum_rem_resp = Column(Binary)
+#     pga_atime_t95 = Column(Float)
+#     pgv_atime_t95 = Column(Float)
+#     pwa_atime_t95 = Column(Float)
+#     t_pga_atime_t95 = Column(DateTime)
+#     t_pgv_atime_t95 = Column(DateTime)
+#     t_pwa_atime_t95 = Column(DateTime)
+#     cum_t05 = Column(DateTime)
+#     cum_t10 = Column(DateTime)
+#     cum_t25 = Column(DateTime)
+#     cum_t50 = Column(DateTime)
+#     cum_t75 = Column(DateTime)
+#     cum_t90 = Column(DateTime)
+#     cum_t95 = Column(DateTime)
+#     snr_rem_resp_fixedwindow = Column(Float)
+#     snr_rem_resp_t05_t95 = Column(Float)
+#     snr_rem_resp_t10_t90 = Column(Float)
+#     amplitude_ratio = Column(Float)
+#     is_saturated = Column(Boolean)
+#     has_gaps = Column(Boolean)
+#     double_event_result = Column(Integer)
+#     secondary_event_time = Column(DateTime)
+#     coda_start_time = Column(DateTime)  # the coda start time
+#     coda_slope = Column(Float)  # slope of the regression line
+#     # coda_intercept : float  # intercept of the regression line
+#     coda_r_value = Column(Float)  # correlation coefficient
+#     coda_is_ok = Column(Boolean)
+# 
+#     segment = relationship("Segment", backref=backref("processings", lazy="dynamic"))
+#     run = relationship("Run", backref=backref("processings", lazy="dynamic"))
+# 
+#     __table_args__ = (UniqueConstraint('segment_id', 'run_id', name='seg_run_uc'),)
 
 
 
