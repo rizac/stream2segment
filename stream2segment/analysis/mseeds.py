@@ -209,8 +209,9 @@ def cumsum(trace):
 @stream_compliant
 def cumtimes(cum_trace, *percentages):
     """Given cum_trace (a trace or stream resulting from cumsum, i.e. the
-    normalized cumulative of a given trace or stream), calculates the time(s) where the signal
-    reaches the given percentage(s) of the toal signal (which is 1)
+    normalized cumulative of a given trace or stream whose values are in [0,1]),
+    calculates the time(s) where the signal
+    reaches the given percentage(s) of the total signal (which is 1)
     Called P = len(percentages), returns a list of length P if the first argument is a Trace, or
     a list of M lists if the argument is a stream of M traces, where each sub-list is
     a list of length P.

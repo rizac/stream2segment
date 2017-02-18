@@ -75,7 +75,7 @@ def run_async(iterable, func, ondone, func_posargs=None, func_kwargs=None,
         :param max_workers: integer defaulting to 5 denoting the max workers of the
         `ThreadPoolExecutor` or `ProcessPoolExecutor`
         :param timeout: the timeout to be set for each worker processes/threads to finish. For
-        each `ondone` completed if the next `func` result isn’t available after timeout seconds
+        each `ondone` completed if the next `func` result is not available after timeout seconds
         from the start of the process/thread pool then a `concurrent.futures.TimeoutError` is
         raised, thus, in principle, stopping remaining threads / subprocesses. THIS FUNCTION HAS
         NOT BEEN TESTED, SETTING A VALUE DIFFERENT THAN None is deprecated

@@ -1,0 +1,118 @@
+# set to True or False if station inventories should be saved when they need to be downloaded
+# If missing, it defaults to False. This parameter has effect only if station_inventory above is True
+# When True, further processing will be most likely faster as the inventory has not to be downloaded again
+inventory: False
+
+# custom parameters:
+arrival_time_delay: 0
+amp_ratio_threshold: 0.8
+bandpass_freq_max: 20  # the max frequency, in Hz
+bandpass_max_nyquist_ratio: 0.9  # the amount of freq_max to be taken. low-pass corner = max_nyquist_ratio * freq_max (defined above)
+bandpass_corners: 2  # the corners
+# the window length (in seconds). There will be two spectra, one calculated on
+# AT-window_length (noisy signal), the other on AT+window_length ('normal' signal):
+snr_window_length: 60  # snr_fixedwindow_in_sec
+remove_response_water_level: 60
+remove_response_output: 'ACC'  # or 'VEL', 'DISP'
+taper_max_percentage: 0.05  # the taper percentage used when tapering (applied on any tapered object)
+freqs_interp:
+ - 0.1
+ - 0.106365
+ - 0.113136
+ - 0.120337
+ - 0.127997
+ - 0.136145
+ - 0.144811
+ - 0.154028
+ - 0.163833
+ - 0.174261
+ - 0.185354
+ - 0.197152
+ - 0.209701
+ - 0.22305
+ - 0.237248
+ - 0.252349
+ - 0.268412
+ - 0.285497
+ - 0.30367
+ - 0.323
+ - 0.34356
+ - 0.365429
+ - 0.388689
+ - 0.413431
+ - 0.439747
+ - 0.467739
+ - 0.497512
+ - 0.52918
+ - 0.562864
+ - 0.598692
+ - 0.636801
+ - 0.677336
+ - 0.72045
+ - 0.766309
+ - 0.815088
+ - 0.866971
+ - 0.922156
+ - 0.980855
+ - 1.04329
+ - 1.1097
+ - 1.18033
+ - 1.25547
+ - 1.33538
+ - 1.42038
+ - 1.5108
+ - 1.60696
+ - 1.70925
+ - 1.81805
+ - 1.93378
+ - 2.05687
+ - 2.18779
+ - 2.32705
+ - 2.47518
+ - 2.63273
+ - 2.80031
+ - 2.97856
+ - 3.16816
+ - 3.36982
+ - 3.58432
+ - 3.81248
+ - 4.05516
+ - 4.31328
+ - 4.58784
+ - 4.87987
+ - 5.19049
+ - 5.52088
+ - 5.8723
+ - 6.24609
+ - 6.64368
+ - 7.06657
+ - 7.51638
+ - 7.99483
+ - 8.50372
+ - 9.04501
+ - 9.62076
+ - 10.2332
+ - 10.8845
+ - 11.5774
+ - 12.3143
+ - 13.0982
+ - 13.9319
+ - 14.8187
+ - 15.762
+ - 16.7653
+ - 17.8324
+ - 18.9675
+ - 20.1749
+ - 21.4591
+ - 22.825
+ - 24.2779
+ - 25.8233
+ - 27.467
+ - 29.2154
+ - 31.075
+ - 33.0531
+ - 35.157
+ - 37.3949
+ - 39.7752
+ - 42.307
+ - 45.

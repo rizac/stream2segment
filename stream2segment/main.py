@@ -16,6 +16,7 @@ import click
 from click.exceptions import BadParameter
 from contextlib import contextmanager
 import csv
+import shutil
 """
    :Platform:
        Linux, Mac OSX
@@ -28,7 +29,8 @@ from stream2segment.io.db import models
 from stream2segment.io.db.pd_sql_utils import commit
 from stream2segment.process.wrapper import run as process_run
 from stream2segment.download.query import main as query_main
-from stream2segment.utils import tounicode, yaml_load, get_session, strptime, yaml_load_doc
+from stream2segment.utils import tounicode, yaml_load, get_session, strptime, yaml_load_doc,\
+    get_proc_template_files
 
 # set root logger if we are executing this module as script, otherwise as module name following
 # logger conventions. Discussion here:
@@ -182,7 +184,21 @@ cfg_dict = yaml_load()
 cfg_doc = yaml_load_doc()
 
 
-def showgui(dburl):
+def get_template_config_path(filepath):
+    root, _ = os.path.splitext(filepath)
+    outconfigpath = root + ".config.yaml"
+    return outconfigpath
+
+
+def create_template(outpath):
+    pyfile, configfile = get_proc_template_files()
+    shutil.copy2(pyfile, outpath)
+    outconfigpath = get_template_config_path(outpath)
+    shutil.copy2(configfile, outconfigpath)
+    return outpath, outconfigpath
+
+
+def visualize(dburl):
     from stream2segment.gui import main as main_gui
     main_gui.run_in_browser(dburl)
     return 0
@@ -411,7 +427,27 @@ def v(dburl):
     """Visualize downloaded waveform data segments in a browser.
     Options are listed below. When missing, they default to the values provided in the
     config file `config.yaml`"""
-    showgui(dburl)
+    visualize(dburl)
+
+
+@main.command(short_help='Creates processing template file(s)')
+@click.argument('outfile')
+def t(outfile):
+    """Creates a template python file which can be inspected and edited for launching processing.
+    A config file in the same path is also created with the same name and suffix 'config.yaml'
+    """
+    try:
+        outconfigfile = get_template_config_path(outfile)
+        msgs = ["'%s' already exists" % outfile if os.path.isfile(outfile) else "",
+                "'%s' already exists" % outconfigfile if os.path.isfile(outconfigfile) else ""]
+        msgs = [m for m in msgs if m]  # remove empty strings
+        if not msgs or click.confirm("%s.\nOverwrite?" % "\n".join(msgs)):
+            out1, out2 = create_template(outfile)
+            sys.stdout.write("template processing python file written to '%s'\n" % out1)
+            sys.stdout.write("template config yaml file written to '%s'\n" % out2)
+    except Exception as exc:
+        sys.stderr.write(str(exc))
+        sys.stderr.write("")
 
 
 if __name__ == '__main__':
