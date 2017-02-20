@@ -94,45 +94,53 @@ def run_async(iterable, func, ondone, func_posargs=None, func_kwargs=None,
         concurrent.futures.ProcessPoolExecutor
     pendingcancelledfutures = {}
 
+    mngr = multiprocessing.Manager()
+    lock = mngr.Lock()
+    func_wrap = wrapper(lock)
+
     args, kwargs = func_posargs or [], func_kwargs or {}
-
-    def cancelfutures(cancelfunc):
-        for future in future_to_obj:
-            if future.cancelled() or future in pendingcancelledfutures:
-                continue
-            a, b = 0
-            if cancelfunc(future_to_obj[future]) is True:
-                a += 1
-                future.cancel()
-                if not future.cancelled():
-                    b += 1
-                    pendingcancelledfutures[future] = True  # will be handled later
-
-        print "%d attempts, %d cancelled" % (a, a-b)
 
     # We can use a with statement to ensure threads/subprocesses are cleaned up promptly
     with pool_executor(max_workers=max_workers) as executor:
         try:
             # Start the load operations and mark each future with its iterable item
-            future_to_obj = {executor.submit(func, obj, *args, **kwargs): obj
+            future_to_obj = {executor.submit(func_wrap, func, obj, *args, **kwargs): obj
                              for obj in iterable}
             for future in concurrent.futures.as_completed(future_to_obj, timeout):
+                # this is executed in the main thread (thus is thread safe):
+                if func_wrap._kill:
+                    continue
 
                 obj = future_to_obj.pop(future)
                 cancelled = None if pendingcancelledfutures.pop(future, None) is None else True
                 ret = ondone(obj, future if cancelled is None else FutureLikeObj(future, cancelled))
 
                 if ret is True:
-                    cancelfutures(lambda obj: True)  # @IgnorePep8
+                    ret = lambda obj: True  # @IgnorePep8
                 elif not hasattr(ret, "__call__"):
                     continue
 
-                cancelfutures(ret)
+                for future in future_to_obj:
+                    if future.cancelled() or future in pendingcancelledfutures:
+                        continue
+                    if ret(future_to_obj[future]) is True:
+                        future.cancel()
+                        if not future.cancelled():
+                            pendingcancelledfutures[future] = True  # will be handled later
+
         except:
             # According to this post:
             # http://stackoverflow.com/questions/29177490/how-do-you-kill-futures-once-they-have-started,
-            # we cannot set a global variable for multiprocesses. Do this:
-            cancelfutures(lambda obj: True)
+            # after a KeyboardInterrupt this method does not return until all
+            # working threads/processes have finished. Thus, we implement the urlreader._kill flag
+            # which makes them exit immediately, and hopefully this function will return within
+            # seconds at most. We catch  a bare except cause we want the same to apply to all
+            # other exceptions which we might raise (see few line above)
+            func_wrap.kill()  # pylint:disable=protected-access
+            # the time here before executing 'raise' below is the time taken to finish all threads/
+            # processes.
+            # Without the line above, it might be a lot (minutes, hours), now it is much shorter
+            # (in the order of few seconds max) and the command below can be executed quickly:
             raise
 
 
@@ -160,3 +168,22 @@ class FutureLikeObj(object):
 
     def done(self):
         return self._future.done()
+
+
+class wrapper(object):
+
+    def __init__(self, lock):
+        self._kill = False
+        self._lock = lock
+
+    def kill(self):
+        with self._lock:
+            print "killing"
+            self._kill = True
+
+    def __call__(self, func, iterable_elm, *args, **kwargs):
+        with self._lock:
+            if self._kill:
+                print "killed"
+                return
+        return func(iterable_elm, *args, **kwargs)

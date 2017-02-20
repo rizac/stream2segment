@@ -23,6 +23,8 @@ import pytest
 import multiprocessing
 from stream2segment.process.wrapper import load_proc_cfg
 from stream2segment import process
+from stream2segment.utils import resources
+from obspy.core.stream import read
 
 class Test(unittest.TestCase):
 
@@ -122,33 +124,31 @@ class Test(unittest.TestCase):
         self.session.commit()
         self.cha_none = c_none
 
+        data = self.read_stream_raw('trace_GE.APE.mseed')
+        
         # "normal" segment
-        start_time, a_time, end_time = self._get_seg_times()
         sg1 = models.Segment(channel_id=c_ok.id, datacenter_id=d.id, event_id=e.id, run_id=r.id,
-                             event_distance_deg=45, data=self.read_data_raw('trace_GE.APE.mseed'),
-                             start_time=start_time, end_time=end_time, arrival_time=a_time)
+                             event_distance_deg=45, **data)
 
         # this segment should have inventory returning an exception (see url_read above)
         sg2 = models.Segment(channel_id=c_err.id, datacenter_id=d.id, event_id=e.id, run_id=r.id,
-                             event_distance_deg=45, data=self.read_data_raw('trace_GE.APE.mseed'),
-                             start_time=start_time, end_time=end_time, arrival_time=a_time)
+                             event_distance_deg=45, **data)
         # segment with gaps
-        start_time, a_time, end_time = self._get_seg_times()
+        data = self.read_stream_raw('IA.BAKI..BHZ.D.2016.004.head')
         sg3 = models.Segment(channel_id=c_ok.id, datacenter_id=d.id, event_id=e.id, run_id=r.id,
-                             event_distance_deg=45, data=self.read_data_raw('IA.BAKI..BHZ.D.2016.004.head'),
-                             start_time=start_time, end_time=end_time, arrival_time=a_time)
+                             event_distance_deg=45, **data)
 
         # empty segment
-        start_time, a_time, end_time = self._get_seg_times()
+        data['data'] = b''
+        data['start_time'] += timedelta(seconds=1)  # avoid unique constraint
         sg4 = models.Segment(channel_id=c_ok.id, datacenter_id=d.id, event_id=e.id, run_id=r.id,
-                             event_distance_deg=45, data=b'',
-                             start_time=start_time, end_time=end_time, arrival_time=a_time)
+                             event_distance_deg=45, **data)
 
         # null segment
-        start_time, a_time, end_time = self._get_seg_times()
+        data['data'] = None
+        data['start_time'] += timedelta(seconds=2)  # avoid unique constraint
         sg5 = models.Segment(channel_id=c_ok.id, datacenter_id=d.id, event_id=e.id, run_id=r.id,
-                             event_distance_deg=45, data=None,
-                             start_time=start_time, end_time=end_time, arrival_time=a_time)
+                             event_distance_deg=45, **data)
 
 
         self.session.add_all([sg1, sg2, sg3, sg4, sg5])
@@ -163,12 +163,27 @@ class Test(unittest.TestCase):
         self.addCleanup(Test.cleanup, self.session, self.file, self.patcher)
 
 
+#     @staticmethod
+#     def _get_seg_times():
+#         start_time = datetime.utcnow()
+#         end_time = start_time+timedelta(seconds=5)
+#         a_time = start_time + timedelta(seconds=2)
+#         return start_time, a_time, end_time
+
     @staticmethod
-    def _get_seg_times():
-        start_time = datetime.utcnow()
-        end_time = start_time+timedelta(seconds=5)
-        a_time = start_time + timedelta(seconds=2)
-        return start_time, a_time, end_time
+    def read_stream_raw(file_name):
+        stream=read(Test.get_file(file_name))
+
+        start_time = stream[0].stats.starttime
+        end_time = stream[0].stats.endtime
+
+        # set arrival time to one third duration
+        return dict(
+        data = Test.read_data_raw(file_name),
+        arrival_time = (start_time + (end_time - start_time)/3).datetime,
+        start_time = start_time.datetime,
+        end_time = end_time.datetime,
+        )
 
     @staticmethod
     def read_data_raw(file_name):
@@ -190,6 +205,9 @@ class Test(unittest.TestCase):
         path = os.path.abspath(os.path.join(folder, filename))
         assert os.path.isfile(path)
         return path
+
+    def get_processing_files(self):
+        return resources.get_proc_template_files()
 
     def run_async(self, iterable, func_wrapper, ondone_, func_posargs=[],
                       func_kwargs={}, use_thread=False, max_workers=5, timeout=None):
@@ -226,9 +244,10 @@ class Test(unittest.TestCase):
         mock_run_async.side_effect = self.run_async
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
+            pyfile, conffile = self.get_processing_files()
             result = runner.invoke(main, ['p', '--dburl', self.dburi,
-                                   self.get_file("processing_test_freqs2csv.py"),
-                                   self.get_file('processing.config.yaml'),
+                                   pyfile,
+                                   conffile,
                                    file.name])
 
             if result.exception:
@@ -278,9 +297,9 @@ class Test(unittest.TestCase):
 
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
+            pyfile, conffile = self.get_processing_files()
             result = runner.invoke(main, ['p', '--dburl', self.dburi,
-                                   self.get_file("processing_test_freqs2csv.py"),
-                                   self.get_file('processing.config.yaml'),
+                                   pyfile, conffile,
                                    file.name])
 
             if result.exception:
@@ -324,10 +343,9 @@ class Test(unittest.TestCase):
         process.wrapper._inventories={}
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
+            pyfile, conffile = self.get_processing_files()
             result = runner.invoke(main, ['p', '--dburl', self.dburi,
-                                   self.get_file("processing_test_freqs2csv.py"),
-                                   self.get_file('processing.config.yaml'),
-                                   file.name])
+                                   pyfile, conffile, file.name])
 
             if result.exception:
                 import traceback
@@ -363,9 +381,9 @@ class Test(unittest.TestCase):
     def test_simple_run_dict(self, mock_url_read):
         mock_url_read.side_effect = self.url_read
         runner = CliRunner()
-        name = None
+
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            name = file.name
+            pyfile, conffile = self.get_processing_files()
             result = runner.invoke(main, ['p', '--dburl', self.dburi,
                                    self.get_file("processing_test_freqs2csv_dict.py"),
                                    self.get_file('processing.config.yaml'),

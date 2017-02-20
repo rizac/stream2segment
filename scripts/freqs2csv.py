@@ -8,7 +8,7 @@ from cStringIO import StringIO
 import sys
 import numpy as np
 from obspy.core.stream import read
-from stream2segment.utils import get_session
+from stream2segment.utils import get_session, timedelta2str
 from stream2segment.io.db import models
 from stream2segment.analysis.mseeds import get_gaps, dfreq
 from stream2segment.analysis.mseeds import remove_response, get_gaps, amp_ratio, bandpass, cumsum,\
@@ -20,9 +20,10 @@ from obspy.core.utcdatetime import UTCDateTime
 from stream2segment.analysis import amp_spec, freqs
 import pandas as pd
 import csv
+import time
 import click
 from click.termui import progressbar
-
+from datetime import timedelta
 
 def getid(segment):
     return str(segment.channel.id) + "[%s,%s].dbId=%s" % (segment.start_time.isoformat(),
@@ -55,6 +56,7 @@ def docalc(outcsvfile, sta_inv_required=True, sta_inv_save=False):
     errlog = StringIO()
     sys.stdout.write("Processing, please wait\n")
     sys.stdout.write("Output file: '%s'\n" % outcsvfile)
+    start = time.time()
     with open(outcsvfile, 'wb') as csvfile:
         csvwriter = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
 
@@ -80,6 +82,8 @@ def docalc(outcsvfile, sta_inv_required=True, sta_inv_save=False):
                 pbar.update(1)
 
     sys.stderr.write(errlog.getvalue())
+    
+    sys.stdout.write("Completed in %s" % timedelta2str(timedelta(time.time()-start)))
 
 station_inv_required = True  # True or False if station inventory must be used for calculations
 station_inv_save = False  # if the above is False, it is ignored. Otherwise, tells whether we should save non-saved inventories

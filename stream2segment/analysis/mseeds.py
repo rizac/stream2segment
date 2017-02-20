@@ -208,21 +208,14 @@ def cumsum(trace):
 
 @stream_compliant
 def cumtimes(cum_trace, *percentages):
-    """Given cum_trace (a trace or stream resulting from cumsum, i.e. the
-    normalized cumulative of a given trace or stream whose values are in [0,1]),
-    calculates the time(s) where the signal
-    reaches the given percentage(s) of the total signal (which is 1)
-    Called P = len(percentages), returns a list of length P if the first argument is a Trace, or
-    a list of M lists if the argument is a stream of M traces, where each sub-list is
-    a list of length P.
-    Note that each element of the list is an obspy.UTCTimeStamp have the timestamp attribute which
-    returns the relative timestamp, in case
-    a numeric value is needed
+    """Given cum_trace (a monotonically increasing trace, e.g. as resulting from `cumsum`),
+    calculates the time(s) where the signal reaches the given percentage(s) of the total signal.
+    Called P = len(percentages), returns a list of `len(percentages)` `obspy.UTCTimeStamp`s
+    increasing items
     :param cum_trace: the input obspy.core.Trace (cumulative)
     :param: percentages: the precentages to be calculated, e.g. 0.05, 0.95 (5% and 95%)
     :return: a list of length P = len(percentages) denoting the the obspy.UTCTimeStamp(s) where
-    the given percentages occur. If the argument
-    is a stream, returns a list of lists, where each sub-list (of length P) refers to the i-th trace
+    the given percentages occur
     """
     starttime = cum_trace.stats.starttime
     delta = cum_trace.stats.delta
@@ -248,9 +241,11 @@ def env(trace):
 @stream_compliant
 def fft(trace, fixed_time=None, window_in_sec=None, taper_max_percentage=0.05, taper_type='hann'):
     """
-    FIXME: rewrite doc!!!
-    Returns a numpy COMPLEX array (or a list of numpy arrays, if the first argument is a Stream)
-    resulting from the fft applied on (a sliced version of) the argument
+    Returns a trace T resulting from applying the fft on `trace`. The resulting trace
+    has **complex** values and thus can only be saved with `trace.write(..., format='PICKLE')`
+    The `T.stats` attribute is copied from `trace`, thus referencing the source
+    trace. This way, you can call e.g., `D=dfreq(T)` to return the delta frequency of T for building
+    the frequency (x axis) values [0, D, 2*D, ...]
     :param trace: the input obspy.core.Trace
     :param fixed_time: the fixed time where to set the start (if `window_in_sec` > 0) or end
     (if `window_in_sec` < 0) of the trace slice on which to apply the fft. If None, it defaults
@@ -260,7 +255,7 @@ def fft(trace, fixed_time=None, window_in_sec=None, taper_max_percentage=0.05, t
     :param window_in_sec: the window, in sec, of the trace slice where to apply the fft. If None,
     it defaults to the amount of time from `fixed_time` till the end of each trace
     :type window_in_sec: numeric
-    :return: a NUMPY obspy stream (regardless of whether the argument is a trace or stream object)
+    :return: an obspy.Trace with *complex* values in trace.data
     """
     fixed_time = utcdatetime(fixed_time)
 

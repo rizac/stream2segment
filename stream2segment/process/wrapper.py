@@ -8,6 +8,7 @@ import logging
 from cStringIO import StringIO
 import os
 import sys
+import inspect
 from obspy.core.stream import read
 from stream2segment.utils import get_session, yaml_load, get_progressbar
 from stream2segment.io.db import models
@@ -26,6 +27,11 @@ from stream2segment.download.query import save_inventories
 logger = logging.getLogger(__name__)
 
 
+# THE FUNCTION BELOW REDIRECTS STANDARD ERROR/OUTPUT FROM EXTERNAL PROGRAM
+# http://stackoverflow.com/questions/5081657/how-do-i-prevent-a-c-shared-library-to-print-on-stdout-in-python
+# there's a second one easier to understand but does not restore old std/err stdout
+# Added comments from
+# http://stackoverflow.com/questions/8804893/redirect-stdout-from-python-for-c-calls
 @contextmanager
 def redirect(src=sys.stdout, dst=os.devnull):
     '''
@@ -127,6 +133,9 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
     else:
         funcname = 'main'
 
+    # not implemented, but the following var is used below for exceptions info
+    pysourcefilename = os.path.basename(pysourcefile)
+
     try:
         func = load_source(pysourcefile).__dict__[funcname]
     except Exception as exc:
@@ -151,11 +160,9 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
     query = session.query(models.Segment.channel_id,
                           models.Segment.start_time, models.Segment.end_time, models.Segment.id)
     seg_len = query.count()
-    logger.info("Processing, please wait")
-    logger.info("(If run from terminal with a progressbar, and inventories have to be loaded, "
-                "the remaining time might be biased by the fact that a station inventory needs to "
-                "be loaded but only the first time is required (another segment with the same "
-                "station will re-use the loaded inventory)")
+    logger.info("Executing '%s' in '%s' for all segments", funcname, pysourcefile)
+    logger.info("(iteratively for all segments in '%s)", str(session.bind.engine.url))
+    logger.info("Config. file: %s", str(configsourcefile))
 
     save_station_inventory = config.get('inventory', False)
 
@@ -170,7 +177,21 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
                     return
                 exc = future.exception()
                 if exc:
-                    logger.warning("%s: %s", str(light_segment), str(exc))
+                    excinfo = ''
+                    # EXPERIMENTAL (commented): get file name and line number. UNCOMMENT TO SHOW IT
+                    ## get line number and function name:
+                    # traceback = sys.exc_info()[-1]
+                    # while traceback.tb_frame:
+                    #     finfo = inspect.getframeinfo(traceback.tb_frame)
+                    #     if os.path.basename(finfo.filename) == pysourcefilename and \
+                    #         finfo.function == funcname:
+                    #         excinfo = ' (File "<%s>", line %d, in <%s>)' % \
+                    #             (finfo.filename, finfo.lineno, finfo.function)
+                    #         break
+                    #     traceback = traceback.tb_next
+
+                    # print to log:
+                    logger.warning("%s: %s%s", str(light_segment), str(exc), excinfo)
                 else:
                     array = future.result()
                     if isinstance(array, dict):
@@ -211,7 +232,7 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
                        "completed successfully, and if you want to check the correctness of the "
                        "data please check the results)")
 
-    logging.captureWarnings(True)  # form the docs the redirection of warnings to the logging
+    logging.captureWarnings(False)  # form the docs the redirection of warnings to the logging
     # system will stop, and warnings will be redirected to their original destinations
     # (i.e. those in effect before captureWarnings(True) was called).
 
@@ -237,7 +258,7 @@ def _inventory(seg, lock, session=None):
             except Exception as exc:
                 inv = Exception("Unable to load inventory: %s: %s" %
                                 (str(exc.__class__.__name__), str(exc)))
-            logger.warning("loaded " + str(inv))
+            # logger.warning("loaded " + str(inv))
             _inventories[sta.id] = inv
     if isinstance(inv, Exception):
         raise inv
@@ -295,25 +316,3 @@ class LightSegment(object):
 
     def __str__(self):
         return "segment '{}' [{}, {}] (id: {})".format(*self.values(True))
-
-
-def _func(segment, config):
-    """
-        User-defined function processing a single segment: it must return an iterable (list, tuple,
-        numpy array) of values representing the processed segment.
-        If called from command line when generating a csv file, the returned iterable will be
-        a single row of the csv content, and the row will be
-        prefixed with the segment id, start time and end time automatically (first, second and
-        third row respectively)
-        :param segment: the segment, as an object with attributes defined in
-        :ref:`stream2segment.io.db.models.Segment`. `segment.channel`, `segment.channel.station`,
-        `segment.event`, `segment.run` are all objects accessible and with attributes defined in
-        :ref:`stream2segment.io.db.models`. Additionally, `segment.stream` returns the obspy.stream
-        object (representing the waveform data) and `segment.inventory` returns the inventory
-        object
-        :ref config: the object representing the configuration file, as a python dictionary.
-        Note that you can access also the config keys via attributes e.g. `config['name']` or
-        `config.name`
-    """
-    pass
-

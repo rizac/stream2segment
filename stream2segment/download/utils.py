@@ -18,7 +18,24 @@ from stream2segment.io.db.pd_sql_utils import harmonize_columns,\
     harmonize_rows, colnames
 from obspy.taup.taup_time import TauPTime
 from itertools import izip, count
+from stream2segment.utils.resources import version
 # from stream2segment.io.utils import dumps_inv
+
+
+def run_instance(session=None, **args):
+    """Same as models.Run() but sets the "version" field column (unless specified in `args`).
+    It also add it to the session
+    if the argument session is not None.
+    We might want to implement it as attribute default in io.models but that requires importing
+    other stuff inthere and we do not want it for the moment
+    """
+    if 'program_version' not in args:
+        args['program_version'] = version()
+    run_row = models.Run(**args)
+    if session is not None:
+        session.add(run_row)
+        session.commit()
+    return run_row
 
 
 def get_min_travel_time(source_depth_in_km, distance_in_degree, traveltime_phases, model='ak135'):

@@ -5,18 +5,6 @@
 # <XXXXXXX@gfz-potsdam.de>
 #
 # ----------------------------------------------------------------------
-import logging
-import sys
-from StringIO import StringIO
-import datetime as dt
-import yaml
-import time
-import os
-import click
-from click.exceptions import BadParameter
-from contextlib import contextmanager
-import csv
-import shutil
 """
    :Platform:
        Linux, Mac OSX
@@ -25,12 +13,27 @@ import shutil
    :License:
        To be decided!
 """
+import logging
+import sys
+from StringIO import StringIO
+import datetime as dt
+import yaml
+import os
+import click
+from click.exceptions import BadParameter
+from contextlib import contextmanager
+import csv
+import shutil
+from stream2segment.utils.log import configlog4download, configlog4processing,\
+    elapsedtime2logger_when_finished
+from stream2segment.download.utils import run_instance
+from stream2segment.utils.resources import get_proc_template_files, get_default_cfg_filepath
 from stream2segment.io.db import models
 from stream2segment.io.db.pd_sql_utils import commit
 from stream2segment.process.wrapper import run as process_run
 from stream2segment.download.query import main as query_main
 from stream2segment.utils import tounicode, yaml_load, get_session, strptime, yaml_load_doc,\
-    get_proc_template_files
+    get_default_dbpath, printfunc, indent
 
 # set root logger if we are executing this module as script, otherwise as module name following
 # logger conventions. Discussion here:
@@ -39,111 +42,6 @@ from stream2segment.utils import tounicode, yaml_load, get_session, strptime, ya
 # 'stream2segment.main', which messes up all hineritances. So basically setup a main logger
 # with the package name
 logger = logging.getLogger("stream2segment")
-
-# CRITICAL    50
-# ERROR    40
-# WARNING    30
-# INFO    20
-# DEBUG    10
-# NOTSET    0
-
-
-def config_logger_and_return_run_instance(db_session, isterminal, out=sys.stdout,
-                                          out_levels=(20, 50),
-                                          logfile_level=20):
-    class LevelFilter(object):
-        """
-        This is a filter which handles standard output: print only critical and info
-        messages (it might inherit by logging.Filter but the docs says it's enough to
-        implement a filter method)
-        """
-        def __init__(self, levels):
-            self._levels = set(levels)
-
-        def filter(self, record):
-            """returns True or False to dictate whether the given record must be processed or not"""
-            return True if record.levelno in self._levels else False
-
-    class CounterStreamHandler(logging.StreamHandler):
-        """A StreamHandler which counts errors and warnings. See
-        http://stackoverflow.com/questions/812477/how-many-times-was-logging-error-called
-        NOTE: we might want to send immediately the log to a database, but that requires a lot
-        of refactoring and problem is, we should update (concat) the log field: don't know
-        how much is efficient. Better keep it in a StringIO and commit at the end for the
-        moment (see how an object of this class is instantiated few lines below)
-        FOR AN EXAMPLE USING LOG AND SQLALCHEMY, SEE:
-        http://docs.pylonsproject.org/projects/pyramid_cookbook/en/latest/logging/sqlalchemy_logger.html
-        """
-        def __init__(self, session):
-            super(CounterStreamHandler, self).__init__(stream=StringIO())
-            # access the stream with self.stream
-            self.session = session
-            self.run_row = models.Run()  # database model instance
-            self.run_row.errors = 0
-            self.run_row.warnings = 0
-
-            try:
-                with open(os.path.join(os.path.dirname(__file__), "..", "version")) as _:
-                    self.run_row.program_version = _.read()
-            except IOError:
-                pass
-            session.add(self.run_row)
-            session.commit()
-
-        def emit(self, record):
-            if record.levelno == 30:
-                self.run_row.warnings += 1
-            elif record.levelno == 40:
-                self.run_row.errors += 1
-            super(CounterStreamHandler, self).emit(record)
-
-        def close(self):
-            self.run_row.log = self.stream.getvalue()
-            commit(self.session)  # does not throw, so we can call super.close() here:
-            super(CounterStreamHandler, self).close()
-
-    class MyFormatter(logging.Formatter):
-        """Extends formatter to print different formatted messages according to levelname
-        (or levelno). Warning: don't do too complex stuff as logger gets hard to mantain then
-        """
-        indent_n = 9
-        indent = "%-{:d}s".format(indent_n)
-
-        def format(self, record):
-            string = super(MyFormatter, self).format(record)  # defaults to "%(message)s"
-            if record.levelno != 20:  # insert levelname, indent newlines
-                indent = self.indent
-                lname = indent % record.levelname
-                if "\n" in string:
-                    string = "\n{}".format(indent % "").join(string.split("\n"))
-                string = "%s%s" % (lname, string)
-            return string
-
-    root_logger = logger
-    root_logger.setLevel(min(min(out_levels), logfile_level))  # necessary to forward to handlers
-
-    # =============================
-    # configure log file/db handler:
-    # =============================
-    # custom StreamHandler: count errors and warnings
-    db_handler = CounterStreamHandler(db_session)
-    db_handler.setLevel(logfile_level)
-    db_handler.setFormatter(MyFormatter())
-    root_logger.addHandler(db_handler)
-
-    # ==========================================
-    # configure out (by default, stdout) handler:
-    # ==========================================
-    if isterminal:
-        console_handler = logging.StreamHandler(out)
-        console_handler.setLevel(min(out_levels))
-        # custom filtering: do not print certain levels (default: print info and critical):
-        console_handler.addFilter(LevelFilter(out_levels))
-        # console_handler.setLevel(20) don't set level, we use filter above
-        console_handler.setFormatter(MyFormatter())
-        root_logger.addHandler(console_handler)
-
-    return db_handler.run_row
 
 
 def valid_date(string):
@@ -158,30 +56,12 @@ def valid_date(string):
 
 def get_def_timerange():
     """ Returns the default time range when  not specified, for downloading data
-    the reutnred tuple has two datetime objects: yesterday, at midniight and
+    the returned tuple has two datetime objects: yesterday, at midniight and
     today, at midnight"""
     dnow = dt.datetime.utcnow()
     endt = dt.datetime(dnow.year, dnow.month, dnow.day)
     startt = endt - dt.timedelta(days=1)
     return startt, endt
-
-
-def tdstr(timdelta):
-    """Returns a formatted timedelta with seconds rounded up or down"""
-    # remainder. timedelta has already a nicer formatting with its str method:
-    # str(timedelta(hours=15000,seconds=4500))
-    # >>> '625 days, 1:15:00'
-    # str(timedelta(seconds=4500) - timedelta(microseconds=1))
-    # >>> '1:14:59.999999'
-    # so we just need to append 'hours' and round microseconds
-    add = 1 if timdelta.microseconds >= 500000 else 0
-    str_ = str(dt.timedelta(days=timdelta.days, seconds=timdelta.seconds+add, microseconds=0))
-    spl = str_.split(":")
-    return str_ if len(spl) != 3 else "%sh:%sm:%ss" % (spl[0], spl[1], spl[2])
-
-# a bit hacky maybe, should be checked:
-cfg_dict = yaml_load()
-cfg_doc = yaml_load_doc()
 
 
 def get_template_config_path(filepath):
@@ -210,67 +90,58 @@ def visualize(dburl):
 def download(dburl, start, end, eventws, eventws_query_args, stimespan,
              search_radius,
              channels, min_sample_rate, inventory, traveltime_phases, wtimespan,
-             processing, retry, advanced_settings, class_labels=None, isterminal=False):
+             retry, advanced_settings, class_labels=None, isterminal=False):
     """
         Main run method. KEEP the ARGUMENT THE SAME AS THE config.yaml OTHERWISE YOU'LL GET
         A DIFFERENT CONFIG SAVED IN THE DB
         :param processing: a dict as load from the config
     """
-    _args_ = dict(locals())  # this must be the first statement, so that we catch all arguments and
-    # no local variable (none has been declared yet). Note: dict(locals()) avoids problems with
+    yaml_dict = dict(locals())  # this must be the first statement, so that we catch all arguments
+    # and no local variable (none has been declared yet). Note: dict(locals()) avoids problems with
     # variables created inside loops, when iterating over _args_ (see below)
+    yaml_dict.pop('isterminal')  # not a yaml var
 
     with closing(dburl) as session:
-        # create logger handler
-        run_row = config_logger_and_return_run_instance(session, isterminal)
-        yaml_dict = yaml_load()
-        # update with our current variables (only those present in the config_yaml):
-        yaml_dict.update(**{k: v for k, v in _args_.iteritems() if k in yaml_dict})
         # print local vars:
         yaml_content = StringIO()
         # use safe_dump to avoid python types. See:
         # http://stackoverflow.com/questions/1950306/pyyaml-dumping-without-tags
         yaml_content.write(yaml.safe_dump(yaml_dict, default_flow_style=False))
         config_text = yaml_content.getvalue()
-        if isterminal:
-            print("Arguments:")
-            tab = "   "
-            print(tab + config_text.replace("\n", "\n%s" % tab))
-        run_row.config = tounicode(config_text)
-        session.commit()  # udpate run row. flush might be also used but we prefer storing to db
+        run_inst = run_instance(session, config=tounicode(config_text))
 
-        starttime = time.time()
-        ret = query_main(session, run_row.id, start, end, eventws, eventws_query_args,
-                         stimespan, search_radius['minmag'],
-                         search_radius['maxmag'], search_radius['minradius'],
-                         search_radius['maxradius'], channels,
-                         min_sample_rate, inventory, traveltime_phases, wtimespan,
-                         retry, advanced_settings, class_labels, isterminal)
-        logger.info("Download completed in %s",
-                    tdstr(dt.timedelta(seconds=time.time()-starttime)))
-        logger.info("")
-        logger.info("%d total error(s), %d total warning(s)", run_row.errors, run_row.warnings)
+        echo = printfunc(isterminal)  # no-op if argument is False
+        echo("Arguments:")
+        echo(indent(config_text, 2))
+
+        configlog4download(logger, session, run_inst, isterminal)
+        with elapsedtime2logger_when_finished(logger):
+            query_main(session, run_inst.id, start, end, eventws, eventws_query_args,
+                       stimespan, search_radius['minmag'],
+                       search_radius['maxmag'], search_radius['minradius'],
+                       search_radius['maxradius'], channels,
+                       min_sample_rate, inventory, traveltime_phases, wtimespan,
+                       retry, advanced_settings, class_labels, isterminal)
+            logger.info("%d total error(s), %d total warning(s)", run_inst.errors,
+                        run_inst.warnings)
 
     return 0
 
 
 def process(dburl, pysourcefile, configsourcefile, outcsvfile, isterminal=False):
     """
-        Main run method. KEEP the ARGUMENT THE SAME AS THE config.yaml OTHERWISE YOU'LL GET
-        A DIFFERENT CONFIG SAVED IN THE DB
+        Process the segment saved in the db and saves the results into a csv file
         :param processing: a dict as load from the config
     """
     with closing(dburl) as session:
-        starttime = time.time()
-        # config logger (FIXME: merge with download logger?):
-        logger.setLevel(logging.INFO)  # this is necessary to configure logger HERE, otherwise the
-        # handler below does not work. FIXME: better implementation!!
-        logger_handler = logging.FileHandler(outcsvfile + ".log")
-        logger_handler.setLevel(logging.DEBUG)
-        logger.addHandler(logger_handler)
+        echo = printfunc(isterminal)  # no-op if argument is False
+        echo("Processing, please wait")
+        logger.info('Output file: %s', outcsvfile)
 
+        configlog4processing(logger, outcsvfile, isterminal)
         csvwriter = [None]  # bad hack: in python3, we might use 'nonlocal' @UnusedVariable
         kwargs = dict(delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+
         with open(outcsvfile, 'wb') as csvfile:
 
             def ondone(result):
@@ -282,10 +153,9 @@ def process(dburl, pysourcefile, configsourcefile, outcsvfile, isterminal=False)
                         csvwriter[0] = csv.writer(csvfile,  **kwargs)
                 csvwriter[0].writerow(result)
 
-            process_run(session, pysourcefile, ondone, configsourcefile, isterminal)
+            with elapsedtime2logger_when_finished(logger):
+                process_run(session, pysourcefile, ondone, configsourcefile, isterminal)
 
-            logger.info("Processing completed in %s",
-                        tdstr(dt.timedelta(seconds=time.time()-starttime)))
     return 0
 
 
@@ -312,30 +182,13 @@ def closing(dburl, scoped=False, close_logger=True):
         except NameError:
             pass
         if close_logger:
-            handlers = logger.handlers[:]  # make a copy:
+            handlers = logger.handlers[:]  # make a copy
             for handler in handlers:
                 try:
                     handler.close()
                     logger.removeHandler(handler)
                 except (AttributeError, TypeError, IOError, ValueError):
                     pass
-
-
-def click_option(*args, **kwargs):
-    """Returns a click.option doing some pre-process: provides custom help from config.example and
-    sets the default as config.example OR the default provided in kwargs"""
-    for name in args:
-        if name[:2] == '--':
-            name = name[2:]
-            break
-
-    if 'default' in kwargs:
-        kwargs['default'] = cfg_dict.get(name, kwargs['default'])
-    else:
-        kwargs['default'] = cfg_dict[name]
-
-    kwargs['help'] = cfg_doc[name]
-    return click.option(*args, **kwargs)
 
 
 @click.group()
@@ -349,61 +202,109 @@ def main():
     - processed with little implementation effort by supplying a custom python file
     - visualized and annotated in a web browser
 
-    Type:
+    For details, type:
 
     \b
     stream2segment COMMAND --help
 
     \b
-    for details"""
+    where COMMAND is one of the commands listed below"""
     pass
 
 
+def setup_help(ctx, param, value):
+    """this function does not check the value (it simply returns it) but
+    dynamically sets help and default values from config. It must be
+    attached to an eager click.Option so that the option is executed FIRST (before even --help)
+    """
+    # define iterator over options (no arguments):
+    def _optsiter():
+        for option in ctx.command.params:
+            if option.param_type_name == 'option':
+                yield option
+
+    # cfg_dict = yaml_load(get_default_cfg_filepath(filename='config.example.yaml'))
+    cfg_doc = yaml_load_doc()
+
+    for option in _optsiter():
+        if option.help is None:
+            option.help = cfg_doc[option.name]
+
+    return value
+
+
+def proc_e(ctx, param, value):
+    """parses optional event query args into a dict"""
+    # stupid way to iterate as pair (key, value) in eventws_query_args as the latter is supposed to
+    # be in the form (key, value, key, value,...):
+    ret = {}
+    key = None
+    for val in value:
+        if key is None:
+            key = val
+        else:
+            ret[key] = val
+            key = None
+    return ret
+
+
+def config_defaults_when_missing():
+    """defaults for download cannot be set via click cause they need to be set only if
+    missing in the config file"""
+    start_def, end_def = get_def_timerange()
+    return dict(start=start_def, end=end_def, retry=False, inventory=False)
+
+
 @main.command(short_help='Efficiently download waveform data segments')
-@click_option('-s', '--start', default=get_def_timerange()[0], type=valid_date)
-@click_option('-e', '--end', default=get_def_timerange()[1], type=valid_date)
-@click_option('-E', '--eventws')
-@click_option('--wtimespan', nargs=2, type=int)
-@click_option('--stimespan', nargs=2, type=int)
-@click_option('-d', '--dburl')
-@click_option('--min_sample_rate')
-@click_option('-r', '--retry', default=False, is_flag=True)
-@click_option('-i', '--inventory', default=False, is_flag=True)
-@click.argument('eventws_query_args', nargs=-1, type=click.UNPROCESSED)
-def d(start, end, eventws, wtimespan, stimespan, dburl, min_sample_rate, retry, inventory,
-      eventws_query_args):
+@click.option("-c", "--configfile", default=get_default_cfg_filepath(),
+              help=("The path to the configuration file. If missing, it defaults to `config.yaml` "
+                    "in the stream2segment directory"), type=click.Path(exists=True,
+                                                                        file_okay=True,
+                                                                        dir_okay=False,
+                                                                        writable=False,
+                                                                        readable=True),
+              is_eager=True, callback=setup_help)
+@click.option('-d', '--dburl')
+@click.option('-s', '--start', type=valid_date)
+@click.option('-e', '--end', type=valid_date)
+@click.option('-E', '--eventws')
+@click.option('--wtimespan', nargs=2, type=int)
+@click.option('--stimespan', nargs=2, type=int)
+@click.option('--min_sample_rate')
+@click.option('-r', '--retry', is_flag=True)
+@click.option('-i', '--inventory', is_flag=True)
+@click.argument('eventws_query_args', nargs=-1, type=click.UNPROCESSED, callback=proc_e)
+def d(configfile, dburl, start, end, eventws, wtimespan, stimespan, min_sample_rate, retry,
+      inventory, eventws_query_args):
     """Efficiently download waveform data segments and relative events, stations and channels
     metadata (plus additional class labels, if needed)
     into a specified database for further processing or visual inspection in a
     browser. Options are listed below: when not specified, their default
-    values are those set in the config file (`config.yaml`).
+    values are those set in the configfile option value.
     [EVENTWS_QUERY_ARGS] is an optional list of space separated arguments to be passed
-    to the event web service query (exmple: 'minmag 5.5 minlon 34.5') and will be merged with
+    to the event web service query (exmple: minmag 5.5 minlon 34.5) and will be merged with
     (overriding if needed) the arguments of `eventws_query_args` specified in in the config file,
     if any.
     All FDSN query arguments are valid
     *EXCEPT* 'start', 'end' and 'format' (the first two are set via the relative options, the
-    format will default in most cases to 'text' for performance reasons)
+    format will default in most cases to 'text' for performance reasons) {}None()[]
     """
-    # merge eventws_query_args
-    eventws_query_args_ = cfg_dict.get('eventws_query_args', {})
-    # stupid way to iterate as pair (key, value) in eventws_query_args as the latter is supposed to
-    # be in the form (key, value, key, value,...):
-    key = None
-    for val in eventws_query_args:
-        if key is None:
-            key = val
-        else:
-            eventws_query_args_[key] = val
-            key = None
+    _ = dict(locals())
+    cfg_dict = yaml_load(_.pop('configfile'))
+
+    # override with command line values, if any:
+    for var, val in _.iteritems():
+        if val not in (None, (), {}, []):
+            cfg_dict[var] = val
+    # set defaults when missing. This cannot be set via click.Option(default=...) because
+    # we wouldn't diistinguish the cases [provided as command line / not provided as command line]
+    # when the option is also provided in the config
+    for key, val in config_defaults_when_missing().iteritems():
+        if key not in cfg_dict:
+            cfg_dict[key] = val
 
     try:
-        ret = download(dburl, start, end, eventws, eventws_query_args_,
-                       stimespan, cfg_dict['search_radius'], cfg_dict['channels'], min_sample_rate,
-                       inventory,
-                       cfg_dict['traveltime_phases'], wtimespan, cfg_dict['processing'], retry,
-                       cfg_dict['advanced_settings'], cfg_dict.get('class_labels', {}),
-                       isterminal=True)
+        ret = download(isterminal=True, **cfg_dict)
         sys.exit(ret)
     except KeyboardInterrupt:
         sys.exit(1)
@@ -413,7 +314,7 @@ def d(start, end, eventws, wtimespan, stimespan, dburl, min_sample_rate, retry, 
 @click.argument('pyfile')
 @click.argument('configfile')
 @click.argument('outfile')
-@click_option('-d', '--dburl')
+@click.option('-d', '--dburl', callback=setup_help, is_eager=True, default=get_default_dbpath())
 def p(pyfile, configfile, outfile, dburl):
     """Process downloaded waveform data segments via a custom python file and a configuration
     file. Options are listed below. When missing, they default to the values provided in the
@@ -422,7 +323,7 @@ def p(pyfile, configfile, outfile, dburl):
 
 
 @main.command(short_help='Visualize downloaded waveform data segments in a browser')
-@click_option('-d', '--dburl')
+@click.option('-d', '--dburl', callback=setup_help, is_eager=True, default=get_default_dbpath())
 def v(dburl):
     """Visualize downloaded waveform data segments in a browser.
     Options are listed below. When missing, they default to the values provided in the
@@ -434,7 +335,8 @@ def v(dburl):
 @click.argument('outfile')
 def t(outfile):
     """Creates a template python file which can be inspected and edited for launching processing.
-    A config file in the same path is also created with the same name and suffix 'config.yaml'
+    A config file in the same path is also created with the same name and suffix 'config.yaml'.
+    If either file already exists, the program will ask for confirmation
     """
     try:
         outconfigfile = get_template_config_path(outfile)
@@ -446,8 +348,7 @@ def t(outfile):
             sys.stdout.write("template processing python file written to '%s'\n" % out1)
             sys.stdout.write("template config yaml file written to '%s'\n" % out2)
     except Exception as exc:
-        sys.stderr.write(str(exc))
-        sys.stderr.write("")
+        sys.stderr.write("%s\n" % str(exc))
 
 
 if __name__ == '__main__':

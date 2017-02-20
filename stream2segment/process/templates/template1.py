@@ -176,8 +176,8 @@ def main(seg, config):
 
     # calculate cumulative:
     cum_trace = cumsum(trace_rem_resp)
-    # and then calculate t005, t010, t025, t050, t075, t90, t95 (converting as float):
-    cum_times = [float(t) for t in cumtimes(cum_trace, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95)]
+    # and then calculate t005, t010, t025, t050, t075, t90, t95 (UTCDateTime objects):
+    cum_times = cumtimes(cum_trace, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95)
     # then, for instance:
     # mseed_rem_resp_t05_t95 = trace_rem_resp.slice(t05, t95)
 
@@ -193,5 +193,7 @@ def main(seg, config):
     required_freqs = config['freqs_interp']
     required_amplitudes = np.interp(required_freqs, ampspec_freqs, ampspec)
 
+    # convert cum_times to float for saving
+    cum_times_float = [float(t) for t in cum_times]
     # save as csv row fft amplitudes, times of cumulative, t_PGA and PGA:
-    return np.concatenate(required_amplitudes, cum_times, [float(t_PGA), PGA])
+    return np.hstack((required_amplitudes, cum_times_float, [float(t_PGA), PGA]))

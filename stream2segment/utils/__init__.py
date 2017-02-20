@@ -2,54 +2,53 @@
 """
     Common utilities for the program
 """
-# from __future__ import print_function  # , unicode_literals
+from __future__ import print_function  # , unicode_literals
 import os
 import yaml
 import re
+import time
 import datetime as dt
 from sqlalchemy.orm.scoping import scoped_session
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm.session import sessionmaker
-from stream2segment.io.db.models import Base
-# from click import progressbar as click_progressbar
-from click._termui_impl import ProgressBar as ClickProgressBar
-from click.globals import resolve_color_default
 from click import progressbar as click_progressbar
-import time
 from collections import defaultdict
+from stream2segment.io.db.models import Base
+from stream2segment.utils.resources import get_default_cfg_filepath
 
 
-def isstr(val):
-    """
-    :return: True if val denotes a string (`basestring` in python2 and `str` otherwise).
-    """
-    try:
-        return isinstance(val, basestring)
-    except NameError:  # python3
-        return isinstance(val, str)
-
-
-def isunicode(val):
-    """
-    :return: True if val denotes a unicode string (`unicode` in python2 and `str` otherwise)
-    """
-    try:
-        if isinstance(val, basestring):
-            return isinstance(val, unicode)
-    except NameError:  # python3
-        return isinstance(val, str)
-
-
-def tobytes(unicodestr, encoding='utf-8'):
-    """
-        Converts unicodestr to a byte sequence, with the given encoding. Python 2-3 compatible.
-        :param unicodestr: a unicode string. If already byte string, this method just returns it
-        :param encoding: the encoding used. Defaults to 'utf-8' when missing
-        :return: a `bytes` object (same as `str` in python2) resulting from encoding unicodestr
-    """
-    if isinstance(unicodestr, bytes):  # works for both py2 and py3
-        return unicodestr
-    return unicodestr.encode(encoding)
+# THESE FUNCTIONS WERE IMPLEMENTED TO BE PYTHON2 AND 3 COMPLIANT, BUT WE DO NOT USE THEM ANYWHERE...
+# def isstr(val):
+#     """
+#     :return: True if val denotes a string (`basestring` in python2 and `str` otherwise).
+#     """
+#     try:
+#         return isinstance(val, basestring)
+#     except NameError:  # python3
+#         return isinstance(val, str)
+# 
+# 
+# def isunicode(val):
+#     """
+#     :return: True if val denotes a unicode string (`unicode` in python2 and `str` otherwise)
+#     """
+#     try:
+#         if isinstance(val, basestring):
+#             return isinstance(val, unicode)
+#     except NameError:  # python3
+#         return isinstance(val, str)
+# 
+# 
+# def tobytes(unicodestr, encoding='utf-8'):
+#     """
+#         Converts unicodestr to a byte sequence, with the given encoding. Python 2-3 compatible.
+#         :param unicodestr: a unicode string. If already byte string, this method just returns it
+#         :param encoding: the encoding used. Defaults to 'utf-8' when missing
+#         :return: a `bytes` object (same as `str` in python2) resulting from encoding unicodestr
+#     """
+#     if isinstance(unicodestr, bytes):  # works for both py2 and py3
+#         return unicodestr
+#     return unicodestr.encode(encoding)
 
 
 def tounicode(bytestr, decoding='utf-8'):
@@ -117,20 +116,6 @@ def strptime(string, formats=None):
             pass
 
     raise ValueError("%s: invalid date time" % string)
-
-
-def get_proc_template_files():
-    """Returns the tuple (pyton file, yaml config file) to be used for a processing template"""
-    proc_template_dir = os.path.join(os.path.join(os.path.dirname(os.path.dirname(__file__)),
-                                                  'process'), "templates")
-    return os.path.abspath(os.path.join(proc_template_dir, "template1.py")),\
-        os.path.abspath(os.path.join(proc_template_dir, "template1.conf.yaml"))
-
-
-def get_default_cfg_filepath(filename='config.yaml'):
-    """Returns the configuration file path (absolute path)"""
-    config_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-    return os.path.normpath(os.path.abspath(os.path.join(config_dir, filename)))
 
 
 def yaml_load(filepath=None, raw=False):
@@ -226,6 +211,39 @@ def get_session(dbpath=None, scoped=False):
         return scoped_session(session_factory)
 
 
+def timedeltaround(tdelta):
+    """Rounds a timedelta to seconds"""
+    add = 1 if tdelta.microseconds >= 500000 else 0
+    return dt.timedelta(days=tdelta.days, seconds=tdelta.seconds+add, microseconds=0)
+
+
+# def timedelta2str(tdelta):
+#     """Returns a formatted timedelta with seconds rounded up or down.
+#     It is basically str(tdelta) but with timedelta rounded up to seconds, and 'h', 'm' 's'
+#     labels added:
+#     ```
+#     >>> t = timedelta(hours=15000,seconds=4500)
+#     >>> str(t)
+#     '625 days, 1:15:00'
+#     >>>timedelta2str(t)
+#     '625 days, 1h:15m:00s'
+#     >>> t = timedelta(hours=15000, seconds=4500, microseconds=1)
+#     >>> str(t)
+#     '625 days, 1:15:00.000001'
+#     >>>timedelta2str(t)
+#     '625 days, 1h:15m:00s'
+#     ```
+#     """
+#     # remainder. timedelta has already a nicer formatting with its str method:
+#     # str(timedelta(hours=15000,seconds=4500))
+#     # >>> '625 days, 1:15:00'
+#     # str(timedelta(seconds=4500) - timedelta(microseconds=1))
+#     # >>> '1:14:59.999999'
+#     # so we just need to append 'hours' and round microseconds
+#     spl = str(timedeltaround(tdelta)).split(":")
+#     return "".join(spl) if len(spl) != 3 else "%sh:%sm:%ss" % (spl[0], spl[1], spl[2])
+
+
 def get_progressbar(isterminal=False):
     """Returns a click progressbar if isterminal is True or, if False, a mock class which supports
     `with` statement and the .update(N) method (no-op). In this latter case the returned object
@@ -256,3 +274,20 @@ def get_progressbar(isterminal=False):
         return DPB
     else:
         return click_progressbar
+
+
+def indent(string, n_chars=3):
+    """Indents the given string (or each line of string if multi-line)
+    with n_chars spaces.
+    :param n_chars: int or string: the number of spaces to use for indentation. If 'tab',
+    indents using the tab character"""
+    reg = re.compile("^", re.MULTILINE)
+    return reg.sub("\t" if n_chars == 'tab' else " " * n_chars, string)
+
+
+def printfunc(isterminal=False):
+    """Returns the print function if isterminal is True else a no-op function"""
+    if isterminal:
+        return print
+    else:
+        return lambda *a, **v: None
