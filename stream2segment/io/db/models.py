@@ -265,6 +265,13 @@ class Segment(Base):
     channel = relationship("Channel", backref=backref("segments", lazy="dynamic"))
     datacenter = relationship("DataCenter", backref=backref("segments", lazy="dynamic"))
     run = relationship("Run", backref=backref("segments", lazy="dynamic"))
+    # http://stackoverflow.com/questions/17580649/sqlalchemy-relationships-across-multiple-tables
+    # this method will work better, as the ORM can also handle
+    # eager loading with this one.
+    station = relationship("Station", secondary="channels",  # <-  must be table name in metadata
+                           primaryjoin="Segment.channel_id == Channel.id",
+                           secondaryjoin="Channel.station_id == Station.id",
+                           viewonly=True, backref=backref("segments", lazy="dynamic"))
 
 #    processings = relationship("Processing", backref="segments")
 
