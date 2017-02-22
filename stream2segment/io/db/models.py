@@ -237,8 +237,7 @@ class SegmentClassAssociation(Base):
 
 
 class Class(Base):  # pylint: disable=no-init
-    """A Building.
-    """
+    """A class label"""
     __tablename__ = 'classes'
 
     id = Column(Integer, primary_key=True)

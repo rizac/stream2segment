@@ -19,13 +19,12 @@ import concurrent.futures
 import numpy as np
 import pandas as pd
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.sql.expression import func
 from obspy.taup.tau import TauPyModel
 from obspy.geodetics.base import locations2degrees
 from obspy.taup.helper_classes import TauModelError, SlownessModelError
 from stream2segment.utils import msgs, get_progressbar
 from stream2segment.utils.url import url_read, read_async
-from stream2segment.io.db import models
+from stream2segment.io.db.models import Class, Event, DataCenter, Segment, Channel, Station
 from stream2segment.io.db.pd_sql_utils import df2dbiter, get_or_add_iter, commit, colnames,\
     get_or_add, withdata
 from stream2segment.download.utils import empty, get_query, query2dframe, normalize_fdsn_dframe,\
@@ -64,7 +63,7 @@ def get_events(session, eventws, **args):
                                               "malformed/invalid data, e.g.: NaN"))
 
     events = {}  # loop below a bit verbose, but better for debug
-    for inst, _ in get_or_add_iter(session, df2dbiter(events_df, models.Event),
+    for inst, _ in get_or_add_iter(session, df2dbiter(events_df, Event),
                                    on_add='commit'):
         if inst is not None:
             events[inst.id] = inst
@@ -103,12 +102,12 @@ def get_datacenters(session, **query_args):
     # in this case) is assumed to be the same as station_query_url by replacing "/station" with
     # "/dataselect". See https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf
 
-    datacenters = [models.DataCenter(station_query_url=dcen) for dcen in dc_result.split("\n")
+    datacenters = [DataCenter(station_query_url=dcen) for dcen in dc_result.split("\n")
                    if dcen[:7] == "http://"]
 
     new = 0
     err = 0
-    for dcen, isnew in get_or_add_iter(session, datacenters, [models.DataCenter.station_query_url],
+    for dcen, isnew in get_or_add_iter(session, datacenters, [DataCenter.station_query_url],
                                        on_add='commit'):
         if isnew:
             new += 1
@@ -118,7 +117,7 @@ def get_datacenters(session, **query_args):
     if err > 0:
         logger.warning(msgs.db.dropped_dc(err, query))
 
-    dcenters = session.query(models.DataCenter).all()
+    dcenters = session.query(DataCenter).all()
     # do not return only new datacenters, return all of them
     return {dcen.id: dcen for dcen in dcenters}
 
@@ -129,7 +128,7 @@ def make_ev2sta(session, events, datacenters, sradius_minmag, sradius_maxmag, sr
                 notify_progress_func=lambda *a, **v: None):
     """Returns dict {event_id: stations_df} where stations_df is an already normalized and
     harmonized dataframe with the stations saved or already present, and the JOINT fields
-    of models.Station and models.Channel. The id column values refers to models.Channel id's
+    of Station and Channel. The id column values refers to Channel id's
     though"""
     stats = {d.station_query_url: UrlStats() for d in datacenters.itervalues()}
 
@@ -155,12 +154,12 @@ def make_ev2sta(session, events, datacenters, sradius_minmag, sradius_maxmag, sr
             else:
                 stats[dcen.station_query_url]['OK'] += 1
                 all_channels = len(df)
-                df[models.Station.datacenter_id.key] = dcen.id
+                df[Station.datacenter_id.key] = dcen.id
                 df, new_sta, new_cha = save_stations_and_channels(session, df)
                 if new_cha:
-                    stats[dcen.station_query_url]['Channels: number of new channels saved'] += new_cha
+                    stats[dcen.station_query_url]['Channels: new channels saved'] += new_cha
                 if new_sta:
-                    stats[dcen.station_query_url]['Stations: number of new stations saved'] += new_sta
+                    stats[dcen.station_query_url]['Stations: new stations saved'] += new_sta
                 if all_channels - len(df):
                     stats[dcen.station_query_url][('DB Error: local database '
                                                    'errors while saving data')] += 1  # FIXME
@@ -221,7 +220,7 @@ def get_stations_df(url, raw_data, min_sample_rate):
                                               "malformed/invalid data, e.g.: NaN"))
 
     if min_sample_rate > 0:
-        srate_col = models.Channel.sample_rate.key
+        srate_col = Channel.sample_rate.key
         olddf, stations_df = stations_df, stations_df[stations_df[srate_col] >= min_sample_rate]
         reason = "sample rate < %s Hz" % str(min_sample_rate)
         if len(olddf) > len(stations_df):
@@ -237,21 +236,21 @@ def get_stations_df(url, raw_data, min_sample_rate):
 def save_stations_and_channels(session, stations_df):
     """
         stations_df is already harmonized. If saved, it is appended a column
-        `models.Channel.station_id.key` with nonNull values
+        `Channel.station_id.key` with nonNull values
     """
     new_stations = new_channels = 0
     sta_ids = []
     for sta, isnew in get_or_add_iter(session,
-                                      df2dbiter(stations_df, models.Station, False, False),
-                                      [models.Station.network, models.Station.station],
+                                      df2dbiter(stations_df, Station, False, False),
+                                      [Station.network, Station.station],
                                       on_add='commit'):
         if isnew:
             new_stations += 1
         sta_ids.append(None if sta is None else sta.id)
 
-    stations_df[models.Channel.station_id.key] = sta_ids
+    stations_df[Channel.station_id.key] = sta_ids
     old_len = len(stations_df)
-    stations_df.dropna(subset=[models.Channel.station_id.key], inplace=True)
+    stations_df.dropna(subset=[Channel.station_id.key], inplace=True)
 
     if old_len > len(stations_df):
         logger.warning(msgs.db.dropped_sta(old_len - len(stations_df), url=None,
@@ -262,18 +261,17 @@ def save_stations_and_channels(session, stations_df):
     channels_df = stations_df  # rename just for making clear what we are handling from here on...
     cha_ids = []
     for cha, isnew in get_or_add_iter(session,
-                                      df2dbiter(channels_df, models.Channel, False, False),
-                                      [models.Channel.station_id, models.Channel.location,
-                                       models.Channel.channel],
+                                      df2dbiter(channels_df, Channel, False, False),
+                                      [Channel.station_id, Channel.location,
+                                       Channel.channel],
                                       on_add='commit'):
         if isnew:
             new_channels += 1
         cha_ids.append(None if cha is None else cha.id)
 
-    # channels_df = channels_df.drop(models.Channel.station_id.key, axis=1)  # del station_id column
-    channels_df[models.Channel.id.key] = cha_ids
+    channels_df[Channel.id.key] = cha_ids
     old_len = len(channels_df)
-    channels_df.dropna(subset=[models.Channel.id.key], inplace=True)
+    channels_df.dropna(subset=[Channel.id.key], inplace=True)
     if old_len > len(channels_df):
         logger.warning(msgs.db.dropped_cha(old_len - len(channels_df), url=None,
                                            msg_or_exc=None))
@@ -290,17 +288,17 @@ def save_inventories(session, stations, max_thread_workers, timeout,
             if res:
                 logger.warning(msgs.format(exc, url))
             else:
-                raise exc
+                raise exc  # oops, not an url exception?!!
         else:
             if not res:
-                logger.warning(msgs.format("Empty inventory", url))
+                logger.warning(msgs.query.empty(url))
                 return
             try:
                 obj.inventory_xml = dumps_inv(res)
                 session.commit()
             except SQLAlchemyError as sqlexc:
                 session.rollback()
-                logger.warning(msgs.format(sqlexc, url))
+                logger.warning(msgs.db.dropped_inv(obj.id, url, sqlexc))
 
     read_async(stations, ondone, urlkey=lambda sta: get_inventory_query(sta),
                max_workers=max_thread_workers,
@@ -311,7 +309,7 @@ def get_segments_df(session, events, datacenters, evt2stations, wtimespan, trave
                     taup_model, retry_empty_segments,
                     notify_progress_func=lambda *a, **v: None):
     # create a columns which we know not being in the segments model
-    cnames = colnames(models.Segment)
+    cnames = colnames(Segment)
     _SEGMENTS_DATAURL_COLNAME = '__wquery__'
     while _SEGMENTS_DATAURL_COLNAME in cnames:
         _SEGMENTS_DATAURL_COLNAME += "_"
@@ -334,7 +332,7 @@ def get_segments_df(session, events, datacenters, evt2stations, wtimespan, trave
                     continue
                 stations_df = evt2stations[evt_id]
                 stationslist.append(stations_df)
-                segments_df[models.Segment.event_id.key] = evt_id
+                segments_df[Segment.event_id.key] = evt_id
                 segmentslist.append(segments_df)
             except Exception as exc:
                 logger.warning(msgs.calc.dropped_sta(len(evt2stations[evt_id]),
@@ -347,24 +345,23 @@ def get_segments_df(session, events, datacenters, evt2stations, wtimespan, trave
     stations_df = pd.concat(stationslist, axis=0, ignore_index=True, copy=False)
     segments_df = pd.concat(segmentslist, axis=0, ignore_index=True, copy=False)
     # remove invalid arrival times:
-    where_valid = ~pd.isnull(segments_df[models.Segment.arrival_time.key])
+    where_valid = ~pd.isnull(segments_df[Segment.arrival_time.key])
     # set segments attributes from relative stations
     stations_df, segments_df = stations_df[where_valid], segments_df[where_valid]
-    segments_df[models.Segment.channel_id.key] = stations_df[models.Channel.id.key]
-    segments_df[models.Segment.datacenter_id.key] = stations_df[models.Station.datacenter_id.key]
+    segments_df[Segment.channel_id.key] = stations_df[Channel.id.key]
+    segments_df[Segment.datacenter_id.key] = stations_df[Station.datacenter_id.key]
     # set start time and end time. Round to seconds cause arrival time has rounding errors
     # NOTE THAT - although we don't have NaT's now - THERE IS A BUG in pandas (0.18.1) with NATs
     # when using e.g. .dt.round('5min') instead of .dt.round('s')
     td0, td1 = timedelta(minutes=wtimespan[0]), timedelta(minutes=wtimespan[1])
-    segments_df[models.Segment.start_time.key] = \
-        (segments_df[models.Segment.arrival_time.key] - td0).dt.round('s')
-    segments_df[models.Segment.end_time.key] = \
-        (segments_df[models.Segment.arrival_time.key] + td1).dt.round('s')
+    segments_df[Segment.start_time.key] = \
+        (segments_df[Segment.arrival_time.key] - td0).dt.round('s')
+    segments_df[Segment.end_time.key] = (segments_df[Segment.arrival_time.key] + td1).dt.round('s')
     # build queries, None's for "do not download'em":
     wqueries, ids, skipped_already_d = prepare_for_wdownload(session, datacenters, segments_df,
                                                              stations_df, retry_empty_segments)
     segments_df[_SEGMENTS_DATAURL_COLNAME] = wqueries
-    segments_df[models.Segment.id.key] = ids
+    segments_df[Segment.id.key] = ids
     # remove already downloaded:
     segments_df.dropna(subset=[_SEGMENTS_DATAURL_COLNAME], axis=0, inplace=True)
 
@@ -374,8 +371,7 @@ def get_segments_df(session, events, datacenters, evt2stations, wtimespan, trave
     lendf = len(segments_df)
     segments_df.drop_duplicates(subset=[_SEGMENTS_DATAURL_COLNAME], keep=False, inplace=True)
     if lendf != len(segments_df):
-        logger.warning(msgs.format(("Cannot handle "
-                                    "%d duplicates in segments urls: discarded")),
+        logger.warning(msgs.format(("Cannot handle %d duplicates in segments urls: discarded")),
                        lendf-len(segments_df))
     # set index as the queries to download. Search by index is faster. Note that the column
     # _SEGMENTS_DATAURL_COLNAME is removed by default in set_index, but the index name keeps
@@ -398,9 +394,9 @@ def calculate_times(stations_df, evt, traveltime_phases, taup_model='ak135'):
     # BUT IT DOES NOT RETURN pd.TimeStamp objects for date-time-like columns but np.datetim64
     # instead. As the former subclasses python datetime (so it's sqlalchemy compatible) and the
     # latter does not, we go for the latter ONLY BECAUSE WE DO NOT HAVE DATETIME LIKE OBJECTS:
-    for sta_id, stalat, stalon in izip(stations_df[models.Channel.station_id.key].values,
-                                       stations_df[models.Station.latitude.key].values,
-                                       stations_df[models.Station.longitude.key].values):
+    for sta_id, stalat, stalon in izip(stations_df[Channel.station_id.key].values,
+                                       stations_df[Station.latitude.key].values,
+                                       stations_df[Station.longitude.key].values):
         if sta_id in cache:
             degrees, arr_time = cache[sta_id]
         else:
@@ -416,8 +412,8 @@ def calculate_times(stations_df, evt, traveltime_phases, taup_model='ak135'):
         event_distances_degrees.append(degrees)
         arrival_times.append(arr_time)
 
-    ret = pd.DataFrame({models.Segment.event_distance_deg.key: event_distances_degrees,
-                        models.Segment.arrival_time.key: arrival_times})
+    ret = pd.DataFrame({Segment.event_distance_deg.key: event_distances_degrees,
+                        Segment.arrival_time.key: arrival_times})
     return ret
 
 
@@ -428,7 +424,7 @@ def prepare_for_wdownload(session, datacenters, segments_df, stations_df, retry_
     wqueries = []
     ids = []
     alreadydownloadeddict = defaultdict(int)
-    withdata_flt = None if not retry_empty_segments else withdata(models.Segment.data)
+    withdata_flt = None if not retry_empty_segments else withdata(Segment.data)
     # iteration over dframe columns is faster than
     # DataFrame.itertuples (as it does not have to convert each row to tuple)
     # and is more readable. Note: we zip using dataframe[columname] iterables. Using
@@ -438,25 +434,24 @@ def prepare_for_wdownload(session, datacenters, segments_df, stations_df, retry_
     # we do not go for this solution, nor
     # for calling pd.TimeStamp(numpy_datetime) inside the loop (which is less readable):
     for cha_id, start_time, end_time, dc_id, net, sta, loc, cha \
-        in izip(segments_df[models.Segment.channel_id.key],
-                segments_df[models.Segment.start_time.key],
-                segments_df[models.Segment.end_time.key],
-                segments_df[models.Segment.datacenter_id.key],
-                stations_df[models.Station.network.key],
-                stations_df[models.Station.station.key],
-                stations_df[models.Channel.location.key],
-                stations_df[models.Channel.channel.key]
+        in izip(segments_df[Segment.channel_id.key],
+                segments_df[Segment.start_time.key],
+                segments_df[Segment.end_time.key],
+                segments_df[Segment.datacenter_id.key],
+                stations_df[Station.network.key],
+                stations_df[Station.station.key],
+                stations_df[Channel.location.key],
+                stations_df[Channel.channel.key]
                 ):
-        flt = (models.Segment.channel_id == cha_id) & \
-            (models.Segment.start_time == start_time) & \
-            (models.Segment.end_time == end_time)
-        existing_seg_id = session.query(models.Segment.id).filter(flt).first()
+        flt = (Segment.channel_id == cha_id) & (Segment.start_time == start_time) & \
+            (Segment.end_time == end_time)
+        existing_seg_id = session.query(Segment.id).filter(flt).first()
         already_downloaded = True if existing_seg_id else False
         # already_downloaded is set to False if retry_empty_segments is True and the segment.data
         # is empty:
         if existing_seg_id and retry_empty_segments:
-            already_downloaded = True if session.query(models.Segment.id).\
-                    filter(flt & withdata_flt).first() else False
+            already_downloaded = True if session.query(Segment.id).\
+                filter(flt & withdata_flt).first() else False
 
         ids.append(existing_seg_id[0] if existing_seg_id else None)
         if already_downloaded:
@@ -481,7 +476,7 @@ def download_segments(session, segments_df, run_id, max_error_count, max_thread_
     if empty(segments_df):
         return stats
     errors = defaultdict(int)
-    segments_df[models.Segment.data.key] = None
+    segments_df[Segment.data.key] = None
 
     def ondone(obj, exc, res, *_):  # pylint:disable=unused-argument
         """function executed when a given url has succesfully downloaded `data`"""
@@ -498,7 +493,7 @@ def download_segments(session, segments_df, run_id, max_error_count, max_thread_
                 return lambda obj: obj[1] == dcen_id
         else:
             # avoid pandas SettingWithCopyWarning:
-            segments_df.loc[url, models.Segment.data.key] = res  # might be empty: b''
+            segments_df.loc[url, Segment.data.key] = res  # might be empty: b''
 
     def oncancelled(obj, *_):
         notify_progress_func(1)
@@ -511,7 +506,7 @@ def download_segments(session, segments_df, run_id, max_error_count, max_thread_
     # we use the index as urls cause it's much faster when locating a dframe row compared to
     # df[df[df_urls_colname] == some_url]). We zip it with the datacenters for faster search
     read_async(izip(segments_df.index.values,
-                    segments_df[models.Segment.datacenter_id.key].values),
+                    segments_df[Segment.datacenter_id.key].values),
                urlkey=lambda obj: obj[0],
                ondone=ondone, oncanc=oncancelled, max_workers=max_thread_workers,
                timeout=timeout, blocksize=download_blocksize)
@@ -526,8 +521,8 @@ def download_segments(session, segments_df, run_id, max_error_count, max_thread_
     if not empty(segments_df):
         # http://stackoverflow.com/questions/20625582/how-to-deal-with-settingwithcopywarning-in-pandas
         segments_df.is_copy = False  # FIXME: still need it?
-        segments_df[models.Segment.run_id.key] = run_id
-        for model_instance in df2dbiter(segments_df, models.Segment, False, False):
+        segments_df[Segment.run_id.key] = run_id
+        for model_instance in df2dbiter(segments_df, Segment, False, False):
             already_downloaded = model_instance.id is not None
             # if we have tried an already saved instance, and no data is found
             # (empty or error), skip it:
@@ -539,8 +534,8 @@ def download_segments(session, segments_df, run_id, max_error_count, max_thread_
                 # (if we attempted an already downloaded, it means segment.data was empty or None):
                 # note that we do not update run_id
                 stats[model_instance.datacenter_id][RETRY_WITHDATA_MSG] += 1
-                session.query(models.Segment).filter(models.Segment.id == model_instance.id).\
-                    update({models.Segment.data.key: model_instance.data},
+                session.query(Segment).filter(Segment.id == model_instance.id).\
+                    update({Segment.data.key: model_instance.data},
                            synchronize_session=sync_session_on_update)
             else:
                 session.add(model_instance)
@@ -561,9 +556,8 @@ def download_segments(session, segments_df, run_id, max_error_count, max_thread_
 
 def add_classes(session, class_labels):
     if class_labels:
-        get_or_add(session, (models.Class(label=lab, description=desc)
-                             for lab, desc in class_labels.iteritems()), models.Class.label,
-                   on_add='commit')
+        get_or_add(session, (Class(label=lab, description=desc) for lab, desc
+                             in class_labels.iteritems()), Class.label, on_add='commit')
 
 
 def main(session, run_id, start, end, eventws, eventws_query_args, stimespan,
@@ -649,8 +643,7 @@ def main(session, run_id, start, end, eventws, eventws_query_args, stimespan,
                                               bar.update)
 
     if download_s_inventory:
-        stations = session.query(models.Station).\
-            filter(~withdata(models.Station.inventory_xml)).all()
+        stations = session.query(Station).filter(~withdata(Station.inventory_xml)).all()
         logger.info("")
         logger.info(("STEP %s: Downloading %d stations inventories"), next(stepiter), len(stations))
         with progressbar(length=len(stations)) as bar:

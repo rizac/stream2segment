@@ -10,7 +10,7 @@ import os
 import sys
 import inspect
 from obspy.core.stream import read
-from stream2segment.utils import get_session, yaml_load, get_progressbar
+from stream2segment.utils import get_session, yaml_load, get_progressbar, msgs
 from stream2segment.io.db import models
 from stream2segment.download.utils import get_inventory_query
 from stream2segment.utils.url import url_read
@@ -24,6 +24,7 @@ import multiprocessing
 import types
 from stream2segment.download.query import save_inventories
 from stream2segment.io.db.pd_sql_utils import withdata
+from sqlalchemy.exc import SQLAlchemyError
 
 logger = logging.getLogger(__name__)
 
@@ -98,9 +99,12 @@ def get_inventory(seg_or_sta, session=None, **kwargs):
         data = url_read(query_url, **kwargs)
         if session and data:
             station.inventory_xml = dumps_inv(data)
-            session.commit()
+            try:
+                session.commit()
+            except SQLAlchemyError as exc:
+                raise ValueError(msgs.db.dropped_inv(station.id, query_url, exc))
         elif not data:
-            raise ValueError("No data from server")
+            raise ValueError(msgs.query.empty(query_url))
     return loads_inv(data)
 
 
@@ -229,9 +233,9 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
         logger.warning("Captured external warnings:")
         logger.warning("%s", captured_warnings)
         logger.warning("(only the first occurrence of an external warning for each location where "
-                       "the warning is issued is reported. Displaying the segment id which "
-                       "originated these warnings would require too much effort and performance "
-                       "issues compared to the benefits: in most cases, the process "
+                       "the warning is issued is reported. Because of maintainability and "
+                       "performance potential issues, the segment id which originated "
+                       "these warnings cannot be shown. However, in most cases the process "
                        "completed successfully, and if you want to check the correctness of the "
                        "data please check the results)")
 
@@ -264,8 +268,7 @@ def _inventory(seg, lock, session=None):
             try:
                 inv = get_inventory(sta, session)
             except Exception as exc:
-                inv = Exception("Unable to load inventory: %s: %s" %
-                                (str(exc.__class__.__name__), str(exc)))
+                inv = exc
             # logger.warning("loaded " + str(inv))
             _inventories[sta.id] = inv
     if isinstance(inv, Exception):

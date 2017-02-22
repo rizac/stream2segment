@@ -278,6 +278,16 @@ class db(object):  # pylint:disable=invalid-name
         return _discarded("%d segment(s) discarded (not saved to db)" % num, url,
                           msg_or_exc or "unknown db error")
 
+    @staticmethod
+    def dropped_inv(sta_id, url=None, msg_or_exc=None):
+        '''
+        Formats an error or message related to a station inventory not saved to db.
+        Refer to the doc of :ref:`msgs.db.dropped_evt` replacing 'event' with 'segment'
+        '''
+        return _discarded("inventory (station id=%s) discarded (not saved to db)" % str(sta_id),
+                          url,
+                          msg_or_exc or "unknown db error")
+
 
 if __name__ == "__main__":
     from itertools import product
