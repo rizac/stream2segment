@@ -126,7 +126,9 @@ advanced_settings:
  # If 0 or negative, all data will be read in a single call (if 0, it will be converted to -1).
  download_blocksize: 1048576  # = 1024*1024
  # how many parallel threads to start when downloading (one thread per download)
- max_thread_workers: 5
+ # If 0 or negative, is automatically set according to the machine CPU
+ # (https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor)
+ max_thread_workers: 0
  # max time to wait (in seconds) while downloading stations (`urllib2.urlopen` timeout argument)
  s_timeout: 5
  # If the flag to download station inventories is on, max time to wait (in seconds) while downloading

@@ -86,6 +86,7 @@ from sqlalchemy.engine import create_engine
 from itertools import cycle
 from sqlalchemy.inspection import inspect
 from pandas.types.dtypes import DatetimeTZDtype
+from sqlalchemy.sql.expression import func
 
 
 def _get_dtype(sqltype):
@@ -449,6 +450,27 @@ def _insert_data(dataframe):
             data_list[col_loc] = col
 
     return column_names, data_list
+
+
+def withdata(model_column):
+    """
+    Returns a filter argument for returning instances with values of
+    `model_column` NOT *empty* nor *null*. `model_column` type must be STRING or BLOB
+    :param model_column: A valid column name, e.g. an attribute Column defined in some
+    sqlalchemy orm model class (e.g., 'User.data'). **The type of the column must be STRING or BLOB**,
+    otherwise result is undefined. For instance, numeric column with zero as value
+    are *not* empty (as the sql length function applied to numeric returns the number of
+    bytes)
+    :example:
+    ```
+    # given a table User, return empty or none via "~"
+    session.query(User.id).filter(~withdata(User.data)).all()
+
+    # return "valid" columns:
+    session.query(User.id).filter(withdata(User.data)).all()
+    ```
+    """
+    return (model_column.isnot(None)) & (func.length(model_column) > 0)
 
 
 def flush(session, on_exc=None):

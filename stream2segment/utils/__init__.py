@@ -273,7 +273,15 @@ def get_progressbar(isterminal=False):
 
         return DPB
     else:
-        return click_progressbar
+        def pb(*a, **v):
+            if 'fill_char' not in v:
+                v['fill_char'] = "●"
+            if 'empty_char' not in v:
+                v['empty_char'] = '○'
+            if 'bar_template' not in v:
+                v['bar_template'] = '%(label)s %(bar)s %(info)s'
+            return click_progressbar(*a, **v)
+        return pb
 
 
 def indent(string, n_chars=3):

@@ -27,7 +27,7 @@ from stream2segment.utils import msgs, get_progressbar
 from stream2segment.utils.url import url_read, read_async
 from stream2segment.io.db import models
 from stream2segment.io.db.pd_sql_utils import df2dbiter, get_or_add_iter, commit, colnames,\
-    get_or_add
+    get_or_add, withdata
 from stream2segment.download.utils import empty, get_query, query2dframe, normalize_fdsn_dframe,\
     get_search_radius, get_arrival_time, UrlStats, stats2str, get_inventory_query
 from stream2segment.io.utils import dumps_inv
@@ -319,7 +319,7 @@ def get_segments_df(session, events, datacenters, evt2stations, wtimespan, trave
     stationslist = []
     segmentslist = []
     # We can use a with statement to ensure threads are cleaned up promptly
-    with concurrent.futures.ProcessPoolExecutor(max_workers=5) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=None) as executor:
         # Start the load operations and mark each future with its URL
         future_to_segments = {executor.submit(calculate_times, stations_df, events[evt_id],
                                               traveltime_phases,
@@ -428,8 +428,7 @@ def prepare_for_wdownload(session, datacenters, segments_df, stations_df, retry_
     wqueries = []
     ids = []
     alreadydownloadeddict = defaultdict(int)
-    nonemptydata_flt = None if not retry_empty_segments else \
-        (models.Segment.data != None) & (func.length(models.Segment.data) > 0)  # @IgnorePep8
+    withdata_flt = None if not retry_empty_segments else withdata(models.Segment.data)
     # iteration over dframe columns is faster than
     # DataFrame.itertuples (as it does not have to convert each row to tuple)
     # and is more readable. Note: we zip using dataframe[columname] iterables. Using
@@ -453,9 +452,11 @@ def prepare_for_wdownload(session, datacenters, segments_df, stations_df, retry_
             (models.Segment.end_time == end_time)
         existing_seg_id = session.query(models.Segment.id).filter(flt).first()
         already_downloaded = True if existing_seg_id else False
+        # already_downloaded is set to False if retry_empty_segments is True and the segment.data
+        # is empty:
         if existing_seg_id and retry_empty_segments:
             already_downloaded = True if session.query(models.Segment.id).\
-                    filter(flt & nonemptydata_flt).first() else False
+                    filter(flt & withdata_flt).first() else False
 
         ids.append(existing_seg_id[0] if existing_seg_id else None)
         if already_downloaded:
@@ -487,7 +488,7 @@ def download_segments(session, segments_df, run_id, max_error_count, max_thread_
         notify_progress_func(1)
         url, dcen_id = obj[0], obj[1]
         if exc:
-            if not res:
+            if not res:  # not url-like exception, something worng, raise ... (should never happen)
                 raise exc
             logger.warning(msgs.query.dropped_seg(1, url, exc))
             stats[dcen_id][exc] += 1
@@ -497,12 +498,12 @@ def download_segments(session, segments_df, run_id, max_error_count, max_thread_
                 return lambda obj: obj[1] == dcen_id
         else:
             # avoid pandas SettingWithCopyWarning:
-            segments_df.loc[url, models.Segment.data.key] = res
+            segments_df.loc[url, models.Segment.data.key] = res  # might be empty: b''
 
     def oncancelled(obj, *_):
         notify_progress_func(1)
         url, dcen_id = obj[0], obj[1]  # @UnusedVariable
-        key_skipped = ("Discarded: Remaining queries from the given datacenter ignored "
+        key_skipped = ("Discarded: Remaining queries from the given data-center ignored "
                        "after %d previous errors") % max_error_count
         stats[dcen_id][key_skipped] += 1
 
@@ -515,37 +516,40 @@ def download_segments(session, segments_df, run_id, max_error_count, max_thread_
                ondone=ondone, oncanc=oncancelled, max_workers=max_thread_workers,
                timeout=timeout, blocksize=download_blocksize)
 
-    # segments = []
+    # messages:
+    RETRY_NODATA_MSG = "Discarded: retry failed (zero bytes received or query error)"
+    RETRY_WITHDATA_MSG = "Saved: retry successful (waveform data received)"
+    NEW_NODATA_MSG = "Saved, no waveform data: zero bytes received or query error"
+    NEW_WITHDATA_MSG = "Saved, with waveform data"
+    DB_FAILED_MSG = "Discarded, error while saving data: local db error"
+
     if not empty(segments_df):
         # http://stackoverflow.com/questions/20625582/how-to-deal-with-settingwithcopywarning-in-pandas
         segments_df.is_copy = False  # FIXME: still need it?
         segments_df[models.Segment.run_id.key] = run_id
         for model_instance in df2dbiter(segments_df, models.Segment, False, False):
             already_downloaded = model_instance.id is not None
-            # if we have tried an already saved instance, and no data is found, skip it
+            # if we have tried an already saved instance, and no data is found
+            # (empty or error), skip it:
             if already_downloaded and not model_instance.data:
-                stats[model_instance.datacenter_id]['Discarded: empty waveform data, '
-                                                    'already downloaded segment'] += 1
+                stats[model_instance.datacenter_id][(RETRY_NODATA_MSG)] += 1
                 continue
             elif already_downloaded:
-                stats[model_instance.datacenter_id]['Saved: non-empty waveform data, '
-                                                    'already downloaded segment'] += 1
+                # already downloaded, but this time data was found
+                # (if we attempted an already downloaded, it means segment.data was empty or None):
+                # note that we do not update run_id
+                stats[model_instance.datacenter_id][RETRY_WITHDATA_MSG] += 1
                 session.query(models.Segment).filter(models.Segment.id == model_instance.id).\
                     update({models.Segment.data.key: model_instance.data},
                            synchronize_session=sync_session_on_update)
             else:
                 session.add(model_instance)
             if commit(session):
-                if model_instance.data:
-                    stats[model_instance.datacenter_id]['Saved: non-empty waveform data, '
-                                                        'new segment'] += 1
-                else:
-                    stats[model_instance.datacenter_id]['Saved: empty waveform data, '
-                                                        'new segment'] += 1
+                msg = NEW_WITHDATA_MSG if model_instance.data else NEW_NODATA_MSG
+                stats[model_instance.datacenter_id][msg] += 1
             else:
                 # we rolled back
-                stats[model_instance.datacenter_id]['Discarded: Local database '
-                                                    'error while saving data'] += 1
+                stats[model_instance.datacenter_id][DB_FAILED_MSG] += 1
 
         # reset_index as integer. This might not be the old index if the old one was not a
         # RangeIndex (0,1,2 etcetera). But it shouldn't be an issue
@@ -601,8 +605,10 @@ def main(session, run_id, start, end, eventws, eventws_query_args, stimespan,
         :type outpath: string
     """
     # set blocksize if zero:
-    if advanced_settings['download_blocksize'] == 0:
+    if advanced_settings['download_blocksize'] <= 0:
         advanced_settings['download_blocksize'] = -1
+    if advanced_settings['max_thread_workers'] <= 0:
+        advanced_settings['max_thread_workers'] = None
 
     progressbar = get_progressbar(isterminal)
 
@@ -643,7 +649,8 @@ def main(session, run_id, start, end, eventws, eventws_query_args, stimespan,
                                               bar.update)
 
     if download_s_inventory:
-        stations = session.query(models.Station).filter(models.Station.inventory_xml == None).all()
+        stations = session.query(models.Station).\
+            filter(~withdata(models.Station.inventory_xml)).all()
         logger.info("")
         logger.info(("STEP %s: Downloading %d stations inventories"), next(stepiter), len(stations))
         with progressbar(length=len(stations)) as bar:

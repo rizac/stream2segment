@@ -6,7 +6,7 @@ Created on Jul 15, 2016
 from pandas import to_datetime, to_numeric
 # from sqlalchemy import engine
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship, backref
+from sqlalchemy.orm import relationship, backref, deferred
 from sqlalchemy import (
     Column,
     ForeignKey,
@@ -54,8 +54,7 @@ class Base(_Base):
         return "\n".join(ret)
 
 
-#Base = declarative_base()
-
+# Base = declarative_base()
 
 class Run(Base):
     """The runs"""
@@ -64,13 +63,13 @@ class Run(Base):
 
     id = Column(Integer, primary_key=True)  # pylint:disable=invalid-name
     run_time = Column(DateTime, unique=True, default=datetime.datetime.utcnow)
-    log = Column(String)
+    log = deferred(Column(String))
     warnings = Column(Integer)
     errors = Column(Integer)
     # segments_found = Column(Integer)
     # segments_written = Column(Integer)
     # segments_skipped = Column(Integer)
-    config = Column(String)
+    config = deferred(Column(String))
     program_version = Column(String)
 
 
@@ -154,7 +153,7 @@ class Station(Base):
     site_name = Column(String)
     start_time = Column(DateTime)
     end_time = Column(DateTime)
-    inventory_xml = Column(Binary)
+    inventory_xml = deferred(Column(Binary))  # lazy load: only upon direct access
 
     __table_args__ = (
                       UniqueConstraint('network', 'station', name='net_sta_uc'),
@@ -257,7 +256,7 @@ class Segment(Base):
     channel_id = Column(String, ForeignKey("channels.id"), nullable=False)
     datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
     event_distance_deg = Column(Float, nullable=False)
-    data = Column(Binary)  # , nullable=False)
+    data = deferred(Column(Binary))  # lazy load only upon access
     start_time = Column(DateTime, nullable=False)
     arrival_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)

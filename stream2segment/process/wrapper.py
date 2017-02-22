@@ -23,6 +23,7 @@ from stream2segment.utils.poolexecutor import run_async
 import multiprocessing
 import types
 from stream2segment.download.query import save_inventories
+from stream2segment.io.db.pd_sql_utils import withdata
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +135,7 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
         funcname = 'main'
 
     # not implemented, but the following var is used below for exceptions info
-    pysourcefilename = os.path.basename(pysourcefile)
+    # pysourcefilename = os.path.basename(pysourcefile)
 
     try:
         func = load_source(pysourcefile).__dict__[funcname]
@@ -165,6 +166,8 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
     logger.info("Config. file: %s", str(configsourcefile))
 
     save_station_inventory = config.get('inventory', False)
+
+    inv_ok = session.query(models.Station).filter(withdata(models.Station.inventory_xml)).count()
 
     done = [0]
     progressbar = get_progressbar(isterminal)
@@ -237,6 +240,11 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
     # (i.e. those in effect before captureWarnings(True) was called).
 
     s.close()  # maybe not really necessary
+
+    inv_ok2 = session.query(models.Station).filter(withdata(models.Station.inventory_xml)).count()
+
+    if inv_ok2 > inv_ok:
+        logger.info("station inventories saved: %d", inv_ok2 - inv_ok)
 
     logger.info("%d of %d segments successfully processed\n" % (done[0], seg_len))
 
