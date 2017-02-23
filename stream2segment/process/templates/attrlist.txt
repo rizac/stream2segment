@@ -1,0 +1,141 @@
+    bytes BLOB (bytes=str in python2)
+    int INTEGER
+    str VARCHAR
+    float FLOAT
+    datetime.datetime    DATETIME
+    
+	* without foreign keys *:
+    
+    segment.data                            bytes
+    segment.id                              int
+    segment.event_distance_deg              float
+    segment.start_time                      datetime.datetime
+    segment.arrival_time                    datetime.datetime
+    segment.end_time                        datetime.datetime
+
+    segment.event                           object (attributes below)
+    segment.event.id                        str
+    segment.event.time                      datetime.datetime
+    segment.event.latitude                  float
+    segment.event.longitude                 float
+    segment.event.depth_km                  float
+    segment.event.author                    str
+    segment.event.catalog                   str
+    segment.event.contributor               str
+    segment.event.contributor_id            str
+    segment.event.mag_type                  str
+    segment.event.magnitude                 float
+    segment.event.mag_author                str
+    segment.event.event_location_name       str
+    
+    segment.channel                         object (attributes below)
+    segment.channel.id                      str
+    segment.channel.location                str
+    segment.channel.channel                 str
+    segment.channel.depth                   float
+    segment.channel.azimuth                 float
+    segment.channel.dip                     float
+    segment.channel.sensor_description      str
+    segment.channel.scale                   float
+    segment.channel.scale_freq              float
+    segment.channel.scale_units             str
+    segment.channel.sample_rate             float
+    segment.channel.station					object (same as segment.station, see below)
+    
+    segment.station							object (attributes below)
+    segment.station.id                      str
+    segment.station.network                 str
+    segment.station.station                 str
+    segment.station.latitude                float
+    segment.station.longitude               float
+    segment.station.elevation               float
+    segment.station.site_name               str
+    segment.station.start_time              datetime.datetime
+    segment.station.end_time                datetime.datetime
+    segment.station.inventory_xml           bytes
+    segment.station.datacenter           	object (same as segment.datacenter, see below)
+    
+    segment.datacenter                      object (attributes below)
+    segment.datacenter.id                   int
+    segment.datacenter.station_query_url    str
+    segment.datacenter.dataselect_query_url str
+    
+    segment.run                             object (attributes below)
+    segment.run.id                          int
+    segment.run.run_time                    datetime.datetime
+    segment.run.log                         str
+    segment.run.warnings                    int
+    segment.run.errors                      int
+    segment.run.config                      str
+    segment.run.program_version             str
+
+
+	* with foreign keys *:
+
+    segment.data                            bytes
+    segment.id                              int
+    segment.event_id                        str
+    segment.channel_id                      str
+    segment.datacenter_id                   int
+    segment.event_distance_deg              float
+    segment.start_time                      datetime.datetime
+    segment.arrival_time                    datetime.datetime
+    segment.end_time                        datetime.datetime
+    segment.run_id                          int
+
+    segment.event                           object (attributes below)
+    segment.event.id                        str
+    segment.event.time                      datetime.datetime
+    segment.event.latitude                  float
+    segment.event.longitude                 float
+    segment.event.depth_km                  float
+    segment.event.author                    str
+    segment.event.catalog                   str
+    segment.event.contributor               str
+    segment.event.contributor_id            str
+    segment.event.mag_type                  str
+    segment.event.magnitude                 float
+    segment.event.mag_author                str
+    segment.event.event_location_name       str
+
+    segment.channel                         object (attributes below)
+    segment.channel.id                      str
+    segment.channel.station_id              str
+    segment.channel.location                str
+    segment.channel.channel                 str
+    segment.channel.depth                   float
+    segment.channel.azimuth                 float
+    segment.channel.dip                     float
+    segment.channel.sensor_description      str
+    segment.channel.scale                   float
+    segment.channel.scale_freq              float
+    segment.channel.scale_units             str
+    segment.channel.sample_rate             float
+
+    segment.station							object (attributes below)
+    segment.station.id                      str
+    segment.station.datacenter_id           int
+    segment.station.network                 str
+    segment.station.station                 str
+    segment.station.latitude                float
+    segment.station.longitude               float
+    segment.station.elevation               float
+    segment.station.site_name               str
+    segment.station.start_time              datetime.datetime
+    segment.station.end_time                datetime.datetime
+    segment.station.inventory_xml           bytes
+
+    segment.datacenter                      object (attributes below)
+    segment.datacenter.id                   int
+    segment.datacenter.station_query_url    str
+    segment.datacenter.dataselect_query_url str
+
+    segment.run                             object (attributes below)
+    segment.run.id                          int
+    segment.run.run_time                    datetime.datetime
+    segment.run.log                         str
+    segment.run.warnings                    int
+    segment.run.errors                      int
+    segment.run.config                      str
+    segment.run.program_version             str
+

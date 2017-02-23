@@ -270,8 +270,8 @@ class Segment(Base):
     # eager loading with this one.
     station = relationship("Station", secondary="channels",  # <-  must be table name in metadata
                            primaryjoin="Segment.channel_id == Channel.id",
-                           secondaryjoin="Channel.station_id == Station.id",
-                           viewonly=True, backref=backref("segments", lazy="dynamic"))
+                           secondaryjoin="Station.id == Channel.station_id",
+                           viewonly=True, uselist=False, backref=backref("segments", lazy="dynamic"))
 
 #    processings = relationship("Processing", backref="segments")
 

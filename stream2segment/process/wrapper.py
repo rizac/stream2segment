@@ -290,12 +290,28 @@ def func_wrapper(light_segment, func, lock, config, dburl, save_inventories_if_n
     try:
         # http://stackoverflow.com/questions/9619789/sqlalchemy-proper-session-handling-in-multi-thread-applications
         session = get_session(dburl, True)
-        segment = session.query(models.Segment).filter(models.Segment.id == seg_id).first()
+
+        # for efficiency, do two queries: the first getting the segment id with data. If None,
+        # it has no data so re-do the query without the hasdata constraint
+        # Store a flag _has_data which produces a function more efficient than calling
+        # if segment.data
+        # as segment.data is a deferred column and when called will load all bynary data (which
+        # for the purpose of checking if has data is inefficient)
+        _has_data = True
+        segment = session.query(models.Segment).filter((models.Segment.id == seg_id) &
+                                                       withdata(models.Segment.data)).first()
+        if not segment:
+            _has_data = False
+            segment = session.query(models.Segment).filter(models.Segment.id == seg_id).first()
+
+        if not segment:
+            raise ValueError("segment (id=%s) not found" % seg_id)
 
         segment.stream = types.MethodType(lambda self: read(StringIO(self.data)), segment)
         sess_or_none = session if save_inventories_if_needed else None
         segment.inventory = \
             types.MethodType(lambda self: _inventory(self, lock, session=sess_or_none), segment)
+        segment.has_data = types.MethodType(lambda self: _has_data, segment)
 
         return func(segment, config)
     finally:

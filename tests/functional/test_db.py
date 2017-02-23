@@ -432,6 +432,13 @@ class Test(unittest.TestCase):
         self.session.add(seg)
         self.session.commit()
 
+        # let's do some assertion about relationship segment <-> station
+        cha__ = self.session.query(models.Channel).filter(models.Channel.id==seg.channel_id).first()
+        sta__ = self.session.query(models.Station).filter(models.Station.id==cha__.station_id).first()
+        assert seg.station.id == sta__.id        
+        segs__ = sta__.segments.all()
+        assert len(segs__)==1 and segs__[0].id == seg.id
+
         # FUNCTION TO CREATE A DEEPCOPY OF AN INSTANCE
         # NOTE: THE FUNCTION BELOW WAS A BOUND METHOD TO THE Base Class.
         # (we kept the self argument for that reason) AND COPIES 'COLUMNS' (including primary keys)

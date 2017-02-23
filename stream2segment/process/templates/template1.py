@@ -64,6 +64,15 @@ Created on Feb 2, 2017
 '''
 # import numpy for fatser numeric array processing:
 import numpy as np
+# import ordered dict if you want to create a csv with the header columns ordered as you want
+from collections import OrderedDict as odict
+# Example from above: python dicts do not preserve the keys order (as they where inserted), so
+# returning {'a':7, 'b':56} might write 'b' as first column and 'a' as second in the csv.
+# To set the order you want:
+# dic = odict()
+# dic['a'] = 7
+# dic['b'] = 56
+
 # strem2segment functions for processing mseeds
 # If you need to use them, import them like this:
 from stream2segment.analysis.mseeds import remove_response, get_gaps, amp_ratio, bandpass, cumsum,\
@@ -84,47 +93,110 @@ def main(seg, config):
     the exception message (with the segment id) will be written to a `logger`.
     If this file is run for csv output, the logger output will be a .log file in the same
     folder than the output csv file.
+    For info about possible function to use, please have a look at `stream2segment.analysis.mseeds`
+    and obviously at `obpsy <https://docs.obspy.org/packages/index.html>`_, in particular:
+
+    *  `obspy.core.Stream <https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.html#obspy.core.stream.Stream>_`
+    *  `obspy.core.Trace <https://docs.obspy.org/packages/autogen/obspy.core.trace.Trace.html#obspy.core.trace.Trace>_`
 
     :param: segment (ptyhon object): An object representing a waveform data to be processed,
     reflecting the relative database table row.
 
     Technically it's an 'SqlAlchemy` (modified) ORM instance but for the user it is enough to
-    consider and treat as a normal python object whose attributes are "simple" python types
-    (boolean, numeric, string, datetime, bytes) returning the relative db table column value.
-    E.g.: `segment.arrival_time` returns the segment arrival time as a datetime object.
+    consider and treat it as a normal python object. It has three special methods:
 
-    `segment` is intented to be used to retrieve properties (you don't need and you should not
-    set any attribute on it) and has two special methods:
+    * `segment.has_data()` which returns a boolean indicating if the segment has waveform data
+      on the database. Some queries resulted in errors or returned zero bytes, so this is usually
+      the first check to do
+    * `segment.stream()` which returns the waveform data in the form of an `obspy.Stream` object
+    * `segment.inventory()` which returns an `obspy.core.inventory.inventory.Inventory` object
+      (e.g., for removing the instrumental response from the stream data)
 
-    * `segment.stream()` which returns the waveform data in the form of
-      an `obspy.Stream` object, and
-    * `segment.inventory()` which returns an `obspy.Inventory`
-    object (e.g., for removing the instrumental response from the stream data)
+    and the following attributes (with relative python type) which return the values
+    of the relative database table columns. The attributes are mainly self-explanatory
+    (Note: 'bytes' attributes, if accessed, are time consuming and you should not usually need them)
 
-    Moreover, it has some special attributes not returning simple python types but other objects.
-    These objects reflect the rows of other database tables related to the segment table row. E.g.,
-    `segment.event`, `segment.channel` access the segment event and the segment table,
-    respectively. Thus, for accessing the magnitude of the event originating the waveform data,
-    use `segment.event.magnitude` (float).
-    To access the station db object, don't use `segment.station` but `segment.channel.station`
+    segment.data                            bytes (the raw data for building `segment.stream()`)
+    segment.id                              int
+    segment.event_distance_deg              float
+    segment.start_time                      datetime.datetime
+    segment.arrival_time                    datetime.datetime
+    segment.end_time                        datetime.datetime
+
+    segment.event                           object (attributes below)
+    segment.event.id                        str
+    segment.event.time                      datetime.datetime
+    segment.event.latitude                  float
+    segment.event.longitude                 float
+    segment.event.depth_km                  float
+    segment.event.author                    str
+    segment.event.catalog                   str
+    segment.event.contributor               str
+    segment.event.contributor_id            str
+    segment.event.mag_type                  str
+    segment.event.magnitude                 float
+    segment.event.mag_author                str
+    segment.event.event_location_name       str
+
+    segment.channel                         object (attributes below)
+    segment.channel.id                      str
+    segment.channel.location                str
+    segment.channel.channel                 str
+    segment.channel.depth                   float
+    segment.channel.azimuth                 float
+    segment.channel.dip                     float
+    segment.channel.sensor_description      str
+    segment.channel.scale                   float
+    segment.channel.scale_freq              float
+    segment.channel.scale_units             str
+    segment.channel.sample_rate             float
+    segment.channel.station                 object (same as segment.station, see below)
+
+    segment.station                         object (attributes below)
+    segment.station.id                      str
+    segment.station.network                 str
+    segment.station.station                 str
+    segment.station.latitude                float
+    segment.station.longitude               float
+    segment.station.elevation               float
+    segment.station.site_name               str
+    segment.station.start_time              datetime.datetime
+    segment.station.end_time                datetime.datetime
+    segment.station.inventory_xml           bytes (the raw data for building `segment.inventory()`)
+    segment.station.datacenter              object (same as segment.datacenter, see below)
+
+    segment.datacenter                      object (attributes below)
+    segment.datacenter.id                   int
+    segment.datacenter.station_query_url    str
+    segment.datacenter.dataselect_query_url str
+
+    segment.run                             object (attributes below)
+    segment.run.id                          int
+    segment.run.run_time                    datetime.datetime
+    segment.run.log                         str
+    segment.run.warnings                    int
+    segment.run.errors                      int
+    segment.run.config                      str
+    segment.run.program_version             str
 
 
     :param: config (python dict): a dictionary reflecting what has been implemented in $CONFIG.
     You can write there whatever you want (in yaml format, e.g. "propertyname: 6.7" ) and it
     will be accessible as usual via `config['propertyname']`
 
-    Has a single "special" argument, 'inventory', which if True, will save all inventories in
-    the database, if not already present. This might slow down the processing the first time,
-    but might be handy if you did not save inventories during download and you want to try to
-    speed up further processing requiring the inventory
+    The config has a single "special" property name, 'inventory', which if True, will save all
+    inventories in the database, if not already present (i.e., if you did not save inventories
+    during download). This will slow down the processing the first time, but will most likely
+    speed up further processing runs
 
 
     :return: an iterable (list, tuple, numpy array, dict...) of values. The returned iterable
     will be written as a row of the resulting csv file. If dict, the keys of the dict
     will populate the first row header of the resulting csv file, otherwise the csv file
     will have no header. Please be consistent: always return the same type of iterable for
-    all segments, if dict, always return the same keys for all dicts, if list, always
-    return the same length, etcetera
+    all segments; if dict, always return the same keys for all dicts; if list, always
+    return the same length, etcetera. If you want to preserve the order of the dict keys as
+    inserted in the code, use `OrderedDict`
 
     The iterable should return numeric or string data only. For instance, in case of obspy
     `UTCDateTime`s you should return either `float(utcdatetime)` (numeric) or
@@ -136,7 +208,7 @@ def main(seg, config):
     """
 
     # if the segment has no data downloaded, no need to proceed:
-    if not seg.data:
+    if not seg.has_data():
         raise ValueError('empty data')
 
     # get the obpsy Stream. Calling stream() several times might be time consuming, so better
