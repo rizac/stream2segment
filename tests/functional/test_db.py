@@ -4,7 +4,7 @@ Created on Jul 15, 2016
 
 @author: riccardo
 '''
-import pytest
+import pytest, os
 import unittest
 import datetime
 import numpy as np
@@ -21,6 +21,7 @@ from stream2segment.io.utils import dumps_inv, loads_inv
 from sqlalchemy.orm.exc import FlushError
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.inspection import inspect
+from datetime import timedelta
 
 
 class Test(unittest.TestCase):
@@ -32,6 +33,9 @@ class Test(unittest.TestCase):
         file = os.path.dirname(__file__)
         filedata = os.path.join(file,"..","data")
         url = os.path.join(filedata, "_test.sqlite")
+        cls.dbfile = url
+        cls.deletefile()
+        
         # an Engine, which the Session will use for connection
         # resources
         # some_engine = create_engine('postgresql://scott:tiger@localhost/')
@@ -41,9 +45,16 @@ class Test(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        cls.deletefile()
         Base.metadata.drop_all(cls.engine)
-        
+    
+    @classmethod
+    def deletefile(cls):
+        if os.path.isfile(cls.dbfile):
+            os.remove(cls.dbfile)
+
     def setUp(self):
+        
         # create a configured "Session" class
         Session = sessionmaker(bind=self.engine)
         # create a Session
@@ -206,7 +217,7 @@ class Test(unittest.TestCase):
         # now add it properly:
         dc = models.DataCenter(station_query_url='abc', dataselect_query_url='edf')
         self.session.add(dc)
-        self.session.flush()
+        self.session.commit()
 
         # test stations auto id (concat):
         # first test non-specified non-null fields datacenter_id (should reaise an IntegrityError)
@@ -439,6 +450,13 @@ class Test(unittest.TestCase):
         segs__ = sta__.segments.all()
         assert len(segs__)==1 and segs__[0].id == seg.id
 
+
+        # test segment-class associations:
+        clabel1 = models.Class(label='class1')
+        clabel2 = models.Class(label='class2')
+        self.session.add_all([clabel1, clabel2])
+        self.session.commit()
+        
         # FUNCTION TO CREATE A DEEPCOPY OF AN INSTANCE
         # NOTE: THE FUNCTION BELOW WAS A BOUND METHOD TO THE Base Class.
         # (we kept the self argument for that reason) AND COPIES 'COLUMNS' (including primary keys)
@@ -455,6 +473,43 @@ class Test(unittest.TestCase):
             table = mapper.mapped_table
             return cls(**{c: getattr(self, c) for c in mapper.columns.keys()})
 
+        seg__1 = COPY(seg)
+        # make it unique
+        seg__1.id=None
+        seg__1.end_time += timedelta(seconds=1)
+        seg__2 = COPY(seg)
+        # make it unique
+        seg__2.id=None
+        seg__2.end_time += timedelta(seconds=2)
+        
+        self.session.add_all([seg__1, seg__2])
+        self.session.commit()
+        
+        labelings = [models.ClassLabeling(class_id=clabel1.id, segment_id=seg__1.id),
+               models.ClassLabeling(class_id=clabel2.id, segment_id=seg__1.id),
+               models.ClassLabeling(class_id=clabel1.id, segment_id=seg__2.id)
+        ]
+        self.session.add_all(labelings)
+        self.session.commit()
+
+        assert not seg.classes
+        assert len(seg__1.classes) == 2
+        assert len(seg__2.classes) == 1
+        
+        # test on update and on delete:
+        old_labellings = sorted([labelings[0].class_id, labelings[1].class_id])
+        assert sorted(c.id for c in seg__1.classes) == old_labellings
+        # NOTE: DOING THIS WITH SQLITE MSUT HAVE PRAGMA foreign key = ON issued
+        #THIS IS DONE BY DEFAULT IN models.py, BUT WATCH OUT!!:
+        old_clabel1_id = clabel1.id
+        clabel1.id=56
+        self.session.commit()
+        # this still equal (sqlalachemy updated also labellings)
+        assert sorted(c.id for c in seg__1.classes) == sorted([labelings[0].class_id, labelings[1].class_id])
+        assert sorted(c.id for c in seg__1.classes) != old_labellings
+        assert 56 in [c.id for c in seg__1.classes]
+        assert old_clabel1_id not in [c.id for c in seg__1.classes]
+
         # Create a copy of the instance, with same value.
         # We should excpect a UniqueConstraint
         # but we actually get a FlushErro (FIXME: check difference). Anyway the exception is:
@@ -470,25 +525,28 @@ class Test(unittest.TestCase):
             self.session.commit()
         self.session.rollback()
 
-        # It seems that qlalchemy keeps track
-        # of the instance object linked to a db row. Also see this link found later:
-        # (http://stackoverflow.com/questions/14636192/sqlalchemy-modification-of-detached-object)
-        # Take the seg object (already added and committed) change ITS id to force even more
-        # the "malformed" case, but we won't have any exceptions
+        # keep track of all segments added:
         s1 = self.session.query(models.Segment).all()
-        seg.id += 1
+
+        # Add a new segment. We cannot do like this
+        # (http://stackoverflow.com/questions/14636192/sqlalchemy-modification-of-detached-object):
+        seg.id += 1110
+        seg.start_time += timedelta(seconds=-25)  # this is just to avoid unique constraints
         self.session.add(seg)
         self.session.commit()
+        # a new segment wasn't added. Try:
         s2 = self.session.query(models.Segment).all()
         assert len(s1) == len(s2)
+    
 
-        # anyway, now add a new segment
+        # Ok go on: now add a new segment. Use the hack of COPY, but there are better ways
+        # (see link above)
         seg_ = COPY(seg)
         seg_.id = None  # autoincremented
         seg_.end_time += datetime.timedelta(seconds=1) # safe unique constraints
         self.session.add(seg_)
         self.session.commit()
-        assert len(self.session.query(models.Segment).all()) == 2
+        assert len(self.session.query(models.Segment).all()) == len(s1)+1
 
 
         # select segments which do not have processings (all)

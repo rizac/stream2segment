@@ -198,13 +198,11 @@ def main(seg, config):
     return the same length, etcetera. If you want to preserve the order of the dict keys as
     inserted in the code, use `OrderedDict`
 
-    The iterable should return numeric or string data only. For instance, in case of obspy
-    `UTCDateTime`s you should return either `float(utcdatetime)` (numeric) or
-    `utcdatetime.isoformat()` (string). Returning other types of object *should* be safe
-    (not tested) but will most lilely convert
-    the values to string according to python `__str__` function and might be out of control
-    for the user
-
+    Pay attention when setting complex objects (e.g., everything neither string nor numeric) as
+    elements of the returned iterable: the values will be most likely converted to string according
+    to python `__str__` function and might be out of control for the user.
+    Thus, it is suggested to convert everything to string or number. For `UTCDateTime`s for instance
+    you could return either `float(utcdatetime)` (numeric) or `utcdatetime.isoformat()` (string)
     """
 
     # if the segment has no data downloaded, no need to proceed:

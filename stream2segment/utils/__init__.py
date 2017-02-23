@@ -188,7 +188,7 @@ def get_default_dbpath(config_filepath=None):
     return yaml_load(config_filepath)['dburl']
 
 
-def get_session(dbpath=None, scoped=False):
+def get_session(dbpath=None, scoped=False):  # , enable_fk_if_sqlite=True):
     """
     Create an sql alchemy session for IO db operations
     :param dbpath: the path to the database, e.g. sqlite:///path_to_my_dbase.sqlite
@@ -200,6 +200,11 @@ def get_session(dbpath=None, scoped=False):
     # init the session:
     engine = create_engine(dbpath)
     Base.metadata.create_all(engine)  # @UndefinedVariable
+
+    # enable fkeys if sqlite. This can be added also as event listener as outlined here:
+    # http://stackoverflow.com/questions/13712381/how-to-turn-on-pragma-foreign-keys-on-in-sqlalchemy-migration-script-or-conf
+    # NOT implemented YET. See models.py
+
     if not scoped:
         # create a configured "Session" class
         session = sessionmaker(bind=engine)

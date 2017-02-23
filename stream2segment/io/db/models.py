@@ -3,13 +3,12 @@ Created on Jul 15, 2016
 
 @author: riccardo
 '''
-from pandas import to_datetime, to_numeric
 # from sqlalchemy import engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, backref, deferred
 from sqlalchemy import (
     Column,
-    ForeignKey,
+    ForeignKey as SqlAlchemyForeignKey,  # we override it (see below)
     Integer,
     String,
     Boolean,
@@ -22,15 +21,26 @@ from sqlalchemy import (
     # BigInteger,
     UniqueConstraint,
     event)
-import datetime
+# import datetime
+from sqlalchemy.sql.expression import func
 from sqlalchemy.orm.mapper import validates
-from sqlalchemy.orm.attributes import InstrumentedAttribute
-# from stream2segment.io.db.pd_sql_utils import get_col_names, get_cols
-# from sqlalchemy.sql.sqltypes import BigInteger, BLOB
-# from sqlalchemy.sql.schema import ForeignKey
+# from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.inspection import inspect
+import sqlite3
 
 _Base = declarative_base()
+
+from sqlalchemy.engine import Engine  # @IgnorePep8
+
+
+# http://stackoverflow.com/questions/13712381/how-to-turn-on-pragma-foreign-keys-on-in-sqlalchemy-migration-script-or-conf
+# for setting foreign keys in sqlite:
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    if type(dbapi_connection) is sqlite3.Connection:  # play well with other DB backends
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 
 class Base(_Base):
@@ -54,7 +64,20 @@ class Base(_Base):
         return "\n".join(ret)
 
 
-# Base = declarative_base()
+def ForeignKey(*pos, **kwa):
+    """Overrides the ForeignKey defined in SqlAlchemy by providing default
+    `onupdate='CASCADE'` and `ondelete='CASCADE'` if the two keyword argument are missing in `kwa`.
+    As all Foreign keys defined here have nullable=False, this seem to be a reasonable choice.
+    If this behavior needs to be modified for some column in the future,
+    just provide the arguments in the constructor as one would do with sqlalchemy ForeignKey class
+    E.g.: column = Column(..., ForeignKey(..., onupdate='SET NULL',...), nullable=True)
+    """
+    if 'onupdate' not in kwa:
+        kwa['onupdate'] = 'CASCADE'
+    if 'ondelete' not in kwa:
+        kwa['ondelete'] = 'CASCADE'
+    return SqlAlchemyForeignKey(*pos, **kwa)
+
 
 class Run(Base):
     """The runs"""
@@ -62,7 +85,7 @@ class Run(Base):
     __tablename__ = "runs"
 
     id = Column(Integer, primary_key=True)  # pylint:disable=invalid-name
-    run_time = Column(DateTime, unique=True, default=datetime.datetime.utcnow)
+    run_time = Column(DateTime, unique=True, server_default=func.now())
     log = deferred(Column(String))
     warnings = Column(Integer)
     errors = Column(Integer)
@@ -224,29 +247,8 @@ class Channel(Base):
     station = relationship("Station", backref=backref("channels", lazy="dynamic"))
 
 
-class SegmentClassAssociation(Base):
-
-    __tablename__ = "segment_class_associations"
-
-    id = Column(Integer, primary_key=True)
-    segment_id = Column(Integer, ForeignKey("segments.id"), nullable=False)
-    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
-    class_id_hand_labelled = Column(Boolean)
-
-    __table_args__ = (UniqueConstraint('segment_id', 'class_id', name='seg_class_uc'),)
-
-
-class Class(Base):  # pylint: disable=no-init
-    """A class label"""
-    __tablename__ = 'classes'
-
-    id = Column(Integer, primary_key=True)
-    label = Column(String)
-    description = Column(String)
-
-
 class Segment(Base):
-    """Segments"""
+    """The Segments table"""
 
     __tablename__ = "segments"
 
@@ -271,14 +273,11 @@ class Segment(Base):
     station = relationship("Station", secondary="channels",  # <-  must be table name in metadata
                            primaryjoin="Segment.channel_id == Channel.id",
                            secondaryjoin="Station.id == Channel.station_id",
-                           viewonly=True, uselist=False, backref=backref("segments", lazy="dynamic"))
-
-#    processings = relationship("Processing", backref="segments")
-
-#     classes = relationship(
-#         "Class",
-#         secondary=SegmentClassAssociation,
-#         back_populates="segments")
+                           viewonly=True, uselist=False,
+                           backref=backref("segments", lazy="dynamic"))
+    classes = relationship("Class",
+                           secondary="class_labelings",  # <-  must be table name in metadata
+                           viewonly=True, backref=backref("segments", lazy="dynamic"))
 
     __table_args__ = (
                       UniqueConstraint('channel_id', 'start_time', 'end_time',
@@ -286,54 +285,22 @@ class Segment(Base):
                      )
 
 
-# class Processing(Base):
-# 
-#     __tablename__ = "processing"
-# 
-#     id = Column(Integer, primary_key=True)
-#     segment_id = Column(Integer, ForeignKey("segments.id"))
-#     run_id = Column(Integer, ForeignKey("runs.id"))
-#     mseed_rem_resp_savewindow = Column(Binary)
-#     fft_rem_resp_t05_t95 = Column(Binary)
-#     fft_rem_resp_until_atime = Column(Binary)
-#     wood_anderson_savewindow = Column(Binary)
-#     cum_rem_resp = Column(Binary)
-#     pga_atime_t95 = Column(Float)
-#     pgv_atime_t95 = Column(Float)
-#     pwa_atime_t95 = Column(Float)
-#     t_pga_atime_t95 = Column(DateTime)
-#     t_pgv_atime_t95 = Column(DateTime)
-#     t_pwa_atime_t95 = Column(DateTime)
-#     cum_t05 = Column(DateTime)
-#     cum_t10 = Column(DateTime)
-#     cum_t25 = Column(DateTime)
-#     cum_t50 = Column(DateTime)
-#     cum_t75 = Column(DateTime)
-#     cum_t90 = Column(DateTime)
-#     cum_t95 = Column(DateTime)
-#     snr_rem_resp_fixedwindow = Column(Float)
-#     snr_rem_resp_t05_t95 = Column(Float)
-#     snr_rem_resp_t10_t90 = Column(Float)
-#     amplitude_ratio = Column(Float)
-#     is_saturated = Column(Boolean)
-#     has_gaps = Column(Boolean)
-#     double_event_result = Column(Integer)
-#     secondary_event_time = Column(DateTime)
-#     coda_start_time = Column(DateTime)  # the coda start time
-#     coda_slope = Column(Float)  # slope of the regression line
-#     # coda_intercept : float  # intercept of the regression line
-#     coda_r_value = Column(Float)  # correlation coefficient
-#     coda_is_ok = Column(Boolean)
-# 
-#     segment = relationship("Segment", backref=backref("processings", lazy="dynamic"))
-#     run = relationship("Run", backref=backref("processings", lazy="dynamic"))
-# 
-#     __table_args__ = (UniqueConstraint('segment_id', 'run_id', name='seg_run_uc'),)
+class Class(Base):  # pylint: disable=no-init
+    """A class label"""
+    __tablename__ = 'classes'
+
+    id = Column(Integer, primary_key=True)
+    label = Column(String)
+    description = Column(String)
 
 
+class ClassLabeling(Base):
 
-# FIXME: implement runs datetime server side, and run test to see it's utc!
-# FIXME: test joins with relations
-# fixme: implement DataFrame write, and test it
-# fixme: implement ondelete and oncascade when possible
-# FIXME: many to one with respect to segments table!!
+    __tablename__ = "class_labelings"
+
+    id = Column(Integer, primary_key=True)
+    segment_id = Column(Integer, ForeignKey("segments.id"), nullable=False)
+    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
+    is_hand_labelled = Column(Boolean, server_default="1")  # Note: "TRUE" fails in sqlite!
+
+    __table_args__ = (UniqueConstraint('segment_id', 'class_id', name='seg_class_uc'),)
