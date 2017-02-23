@@ -3,7 +3,7 @@ Created on Jul 15, 2016
 
 @author: riccardo
 '''
-# from sqlalchemy import engine
+import datetime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, backref, deferred
 from sqlalchemy import (
@@ -21,16 +21,15 @@ from sqlalchemy import (
     # BigInteger,
     UniqueConstraint,
     event)
-# import datetime
 from sqlalchemy.sql.expression import func
 from sqlalchemy.orm.mapper import validates
 # from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.inspection import inspect
-import sqlite3
 
 _Base = declarative_base()
 
 from sqlalchemy.engine import Engine  # @IgnorePep8
+import sqlite3  # @IgnorePep8
 
 
 # http://stackoverflow.com/questions/13712381/how-to-turn-on-pragma-foreign-keys-on-in-sqlalchemy-migration-script-or-conf
@@ -85,7 +84,16 @@ class Run(Base):
     __tablename__ = "runs"
 
     id = Column(Integer, primary_key=True)  # pylint:disable=invalid-name
-    run_time = Column(DateTime, unique=True, server_default=func.now())
+    # run_time below has server_default as `func.now()`. This issues a CURRENT TIMESTAMP
+    # on the SQL side. That's ok, BUT the column CANNOT BE UNIQUE!!
+    # the CURRENT TIMESTAMP is evaluated once at the beginning of an SQL Statement,
+    # so two references in the same session will result in the same value
+    # (https://www.ibm.com/developerworks/community/blogs/SQLTips4DB2LUW/entry/current_timestamp?lang=en)
+    # If we need to make a datetime unique, then either specify
+    # 1) default=datetime.datetime.utcnow() BUT NO server_default (the latter seems to have
+    # priority if both are provided)
+    # 2) or don't make the column unique (what we did)
+    run_time = Column(DateTime, server_default=func.now())
     log = deferred(Column(String))
     warnings = Column(Integer)
     errors = Column(Integer)

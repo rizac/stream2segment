@@ -153,6 +153,24 @@ class Test(unittest.TestCase):
         self.session.commit()
         assert run_row.id is not None
 
+        # assert run_row.run_time is not None:
+        assert run_row.run_time
+        
+        # check if we can add a new run_row safely. According to the server_default specified
+        # in models.py that would
+        # fail cause within the same transaction the db issues always the same value
+        # BUT we specified also a python default which should make the trick:
+        self.session.add(models.Run())
+        # self.session.flush()
+        self.session.commit()
+        runz = self.session.query(models.Run).all()
+        assert len(runz) == 2
+        
+        # assert the two timestamps are equal cause issued within the same session:
+        # (https://www.ibm.com/developerworks/community/blogs/SQLTips4DB2LUW/entry/current_timestamp?lang=en)
+        assert runz[0].run_time == runz[1].run_time
+        
+        
         # now pass a utcdatetime and see if we keep that value:
         utcnow = datetime.datetime.utcnow()
         run_row = models.Run(run_time=utcnow)
