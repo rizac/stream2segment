@@ -13,7 +13,7 @@ Edit this file (plus additional config file, if any) and run processing via the 
 where:
   - $FILE is the path of this file,
   - $CONFIG is a path to an (otpional) configuration yaml file (if this file was auto generated,
-    it should be a file named $FILE.yaml), and
+    it should be a file named $FILE.yaml)
   - $OUTPUT is the csv file where data (one row per segment) will to be saved
 
 This module must implement a `main` function (processing function) that will be called by the
@@ -26,14 +26,14 @@ program for each database segment. The processing function:
     ```
   - Must implement the actual processing for the segment and must return an
     iterable (list, tuple, numpy array, dict...) of values. The returned iterable
-    will be written as a row of the resulting csv file $OUTPUT. If dict, the keys of the dict 
+    will be written as a row of the resulting csv file $OUTPUT. If dict, the keys of the dict
     will populate the first row header of the resulting csv file, otherwise the csv file will have
     no header. Please be consistent: always return the same type of iterable for all segments,
     if dict, always return the same keys for all dicts, if list, always return the same length,
     etcetera
   - Should return numeric or string data only. For instance, in case of obspy `UTCDateTime`s you
     should return either `float(utcdatetime)` (numeric) or `utcdatetime.isoformat()` (string).
-    Returning other types of object *should* be safe (not tested) but will most lilely convert
+    Returning other types of object *should* be safe (not tested) but will most likely convert
     the values to string according to python `__str__` function and might be out of control for
     the user
   - Can raise any Exception, or return None. In both cases, the segment will not be written to the
@@ -52,7 +52,7 @@ program for each database segment. The processing function:
 
 **IMPORTANT: please note** that the first three columns of the resulting csv will be *always*
 populated with the segment channel id, the segment start time and the segment end time
-(these three values identify univocally the segment). Thus the first value returned by the iterable
+(these three values identify uniquely the segment). Thus the first value returned by the iterable
 of `main` will be in the csv file fourth column, the second in the fifth column, and so on ...
 
 Please refer to the docstring of the `main` function below for further details on how to implement
@@ -73,8 +73,8 @@ from collections import OrderedDict as odict
 # dic['a'] = 7
 # dic['b'] = 56
 
-# strem2segment functions for processing mseeds
-# If you need to use them, import them like this:
+# strem2segment functions for processing mseeds. This is just a list of possible functions
+# to show how to import them:
 from stream2segment.analysis.mseeds import remove_response, get_gaps, amp_ratio, bandpass, cumsum,\
     cumtimes, fft, maxabs, simulate_wa, get_multievent, snr, dfreq
 # when working with times, use obspy UTCDateTime:
@@ -112,7 +112,7 @@ def main(seg, config):
     * `segment.inventory()` which returns an `obspy.core.inventory.inventory.Inventory` object
       (e.g., for removing the instrumental response from the stream data)
 
-    and the following attributes (with relative python type) which return the values
+    `segment` has the following attributes (with relative python type) which return the values
     of the relative database table columns. The attributes are mainly self-explanatory
     (Note: 'bytes' attributes, if accessed, are time consuming and you should not usually need them)
 
@@ -196,12 +196,12 @@ def main(seg, config):
     will have no header. Please be consistent: always return the same type of iterable for
     all segments; if dict, always return the same keys for all dicts; if list, always
     return the same length, etcetera. If you want to preserve the order of the dict keys as
-    inserted in the code, use `OrderedDict`
+    inserted in the code, use `OrderedDict` instead of `dict` or `{}`
 
     Pay attention when setting complex objects (e.g., everything neither string nor numeric) as
     elements of the returned iterable: the values will be most likely converted to string according
     to python `__str__` function and might be out of control for the user.
-    Thus, it is suggested to convert everything to string or number. For `UTCDateTime`s for instance
+    Thus, it is suggested to convert everything to string or number. E.g., for `UTCDateTime`s
     you could return either `float(utcdatetime)` (numeric) or `utcdatetime.isoformat()` (string)
     """
 

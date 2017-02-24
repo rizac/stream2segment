@@ -209,8 +209,7 @@ class Test(unittest.TestCase):
     def get_processing_files(self):
         return resources.get_proc_template_files()
 
-    def run_async(self, iterable, func_wrapper, ondone_, func_posargs=[],
-                      func_kwargs={}, use_thread=False, max_workers=5, timeout=None):
+    def mocked_ascompleted(self, iterable):
         """mocks run_async cause we want to test also without multiprocessing (see below)"""
         class mockfuture(object):
             def __init__(self, res, cnc):
@@ -232,16 +231,33 @@ class Test(unittest.TestCase):
 
         for obj in iterable:
             try:
-                res = func_wrapper(obj, *func_posargs, **func_kwargs)
+                res = obj[0](*obj[1], **obj[2])
             except Exception as exc:
                 res = exc
-            ondone_(obj, mockfuture(res, False))
+            yield mockfuture(res, False)
+
+    def mocked_processpoolexecutor(self):
+
+        class mppe(object):
+            self.elements = []
+            def __enter__(self, *a, **v):
+                return self
+
+            def __exit__(self, *a, **v):
+                pass
+
+            def submit(self, func, *a, **kw):
+                return (func, a, kw)
+
+        return mppe()
 
     # FIRST TEST. to workaround the fact that self.mock_url read.call_count seems not to work woth
     # multiprocessing: mock multiprocessing
-    @mock.patch('stream2segment.process.wrapper.run_async')
-    def test_simple_run(self, mock_run_async):
-        mock_run_async.side_effect = self.run_async
+    @mock.patch('stream2segment.process.wrapper.ProcessPoolExecutor')
+    @mock.patch('stream2segment.process.wrapper.as_completed')
+    def test_simple_run(self, mock_as_completed, mock_ppe):
+        mock_as_completed.side_effect = lambda iterable: self.mocked_ascompleted(iterable)
+        mock_ppe.return_value = self.mocked_processpoolexecutor()
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             pyfile, conffile = self.get_processing_files()

@@ -29,10 +29,11 @@ def urlread(url, blocksize=-1, decode=None, urlexc=True, killfunc=None, **kwargs
         ```urllib2.HTTPError, urllib2.URLError, httplib.HTTPException, socket.error```
         will be caught and an `URLException` will be raised (the original exception can always
         be retrieved via 'URLException.exc')
-        :param killfunc: (function or None). Advanced parameter used for
+        :param killfunc: (function or None). Advanced parameter (in most the cases, this argument
+        is not relevant for the user, drop it or set it to None) used for
         multi-threading when the user wants to kill worker threads rapidly
         A flag-function which is called repeatedly with url as argument to check if the
-        function should return. In 99% of the cases, this argument is not relevant for the user
+        function should return. Used by `read_async`
         :param kwargs: optional arguments for `urllib2.urlopen` function (e.g., timeout=60)
         :return: the bytes read. If on_exc is a callable and an IOException is raised, returns None
         :rtype bytes of data (equivalent to string in python2), or unicode string, or the tuple

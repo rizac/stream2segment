@@ -18,13 +18,12 @@ from contextlib import contextmanager
 import warnings
 import re
 from collections import OrderedDict as odict
-from stream2segment.utils.poolexecutor import run_async
 import multiprocessing
 import types
 from stream2segment.io.db.pd_sql_utils import withdata
 from sqlalchemy.exc import SQLAlchemyError
 from concurrent.futures.process import ProcessPoolExecutor
-import concurrent.futures
+from concurrent.futures import as_completed
 
 logger = logging.getLogger(__name__)
 
@@ -174,13 +173,13 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
 
     inv_ok = session.query(models.Station).filter(withdata(models.Station.inventory_xml)).count()
 
-    # So, now run each processing ina  separate system process
+    # So, now run each processing in a separate system process
     # We would have liked to implement (along the lines of utils.url.read_async)
     # a way to cancel some or all of remaining processes, and to give ctrl+c functionality
     # The former is not possible within an 'concurrent.futures.as_completed' iteration. The latter
     # is not possible with current status of ProcessPoolExecutor, which does not have all
     # the features of multiprocess.Pool
-    # I struglled a lot implementing a custom multiprocess.Pool, where at least ctrl+c is
+    # I struggled a lot implementing a custom multiprocess.Pool, where at least ctrl+c is
     # implemented (see here:
     # http://stackoverflow.com/questions/1408356/keyboard-interrupts-with-pythons-multiprocessing-pool
     # the idea is to issue:
@@ -203,8 +202,9 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
     # of processors on the machine, multiplied by 5, assuming that ThreadPoolExecutor is often
     # used to overlap I/O instead of CPU work and the number of workers should be higher than the
     # number of workers for ProcessPoolExecutor. But the source code seems not to set this value
-    # at all!! (at least in python2, probably in pyhton 3 is fine). So let's do it manually:
-    max_workers = 5 * multiprocessing.cpu_count()
+    # at all!! (at least in python2, probably in pyhton3 is fine). So let's do it manually
+    # (remember, for multiprocessing don't multiply to 5):
+    max_workers = multiprocessing.cpu_count()
 
     # do an iteration on the main process to check when AsyncResults is ready
     done = [0]
@@ -222,7 +222,7 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
                                                                   save_station_inventory])
                              for obj in iterable)
             with progressbar(length=seg_len) as pbar:
-                for future in concurrent.futures.as_completed(future_to_obj):
+                for future in as_completed(future_to_obj):
                     pbar.update(1)
                     if future.cancelled():  # FIXME: should never happen, however...
                         return
@@ -247,11 +247,6 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
                                    % (funcname, pysourcefile)
                             logger.error(msg)
                         done[0] += 1
-
-#             run_async(iterable, func_wrapper, ondone_, func_posargs=[func, lock, config,
-#                                                                      str(session.bind.engine.url),
-#                                                                      save_station_inventory],
-#                       func_kwargs={}, use_thread=False, max_workers=5, timeout=None)
 
     captured_warnings = s.getvalue()
     if captured_warnings:
