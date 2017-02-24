@@ -23,7 +23,7 @@ from obspy.taup.tau import TauPyModel
 from obspy.geodetics.base import locations2degrees
 from obspy.taup.helper_classes import TauModelError, SlownessModelError
 from stream2segment.utils import msgs, get_progressbar
-from stream2segment.utils.url import url_read, read_async
+from stream2segment.utils.url import urlread, read_async, URLException
 from stream2segment.io.db.models import Class, Event, DataCenter, Segment, Channel, Station
 from stream2segment.io.db.pd_sql_utils import df2dbiter, get_or_add_iter, commit, colnames,\
     get_or_add, withdata
@@ -37,8 +37,11 @@ logger = logging.getLogger(__name__)
 
 def get_events(session, eventws, **args):
     evt_query = get_query(eventws, format='text', **args)
-    raw_data = url_read(evt_query, decode='utf8',
-                        on_exc=lambda exc: logger.error(msgs.format(exc, evt_query)))
+    try:
+        raw_data = urlread(evt_query, decode='utf8')
+    except URLException as urlexc:
+        logger.error(msgs.format(urlexc.exc, evt_query))
+        raw_data = None
 
     empty_result = {}  # Create once an empty result consistent with the excpetced return value
     if raw_data is None:
@@ -90,8 +93,11 @@ def get_datacenters(session, **query_args):
     query = get_query('http://geofon.gfz-potsdam.de/eidaws/routing/1/query', **query_args)
 #     query = ('http://geofon.gfz-potsdam.de/eidaws/routing/1/query?service=station&'
 #              'start=%s&end=%s&format=post') % (start_time.isoformat(), end_time.isoformat())
-    dc_result = url_read(query, decode='utf8',
-                         on_exc=lambda exc: logger.error(msgs.format(exc, query)))
+    try:
+        dc_result = urlread(query, decode='utf8')
+    except URLException as urlexc:
+        logger.error(msgs.format(urlexc.exc, query))
+        dc_result = None
 
     if not dc_result:
         return empty_result

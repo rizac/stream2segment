@@ -9,40 +9,40 @@ import urllib2
 import httplib
 import socket
 import concurrent.futures
-# import time
-
-# maybe used in the future
-# CONNECTION_ERRORS = (urllib2.HTTPError, urllib2.URLError, httplib.HTTPException, socket.timeout)
-
-# Retrieve a single page and report the url and contents
-# def _load_url_default(url, timeout=60, blockSize=1024*1024, decode=None):
-#     conn = urllib2.urlopen(url, timeout=timeout)
-#     return conn.read().decode(decode) if decode else conn.read()
 
 
-def _urlread(url, blocksize=-1, decode=None, **kwargs):
-    ret = b''
-    with closing(urllib2.urlopen(url, **kwargs)) as conn:
-        if blocksize < 0:  # https://docs.python.org/2.4/lib/bltin-file-objects.html
-            ret = conn.read()
-        else:
-            while True:
-                buf = conn.read(blocksize)
-                if not buf:
-                    break
-                ret += buf
-    return ret.decode(decode) if decode else ret
+def urlread(url, blocksize=-1, decode=None, urlexc=True, killfunc=None, **kwargs):
+    """
+        Reads and return data from the given url, featuring some afvanced options.
+        Returns the bytes read or the string read (if
+        decode is specified). Returns None if killfunc is a callable which will
+        evaluate to True somewhere the function
 
-
-class _urlreader(object):
-
-    def __init__(self):
-        self._kill = False
-
-    def __call__(self, url, blocksize=-1, decode=None, **kwargs):
-        """Custom function which handles url read and checks the cancel flag"""
+        :param url: (string or urllib2.Request) a valid url or an urllib2.Request object
+        :param blockSize: int, default: -1. The block size while reading, -1 means:
+            read entire content at once
+        :param: decode: string or None, default: None. The string used for decoding to string
+        (e.g., 'utf8'). If None, the result is returned as it is (byte string, note that in
+        Python2 this is equivalent to string), otherwise as unicode string
+        :param urlexc: if True (the default), all url-related exceptions
+        ```urllib2.HTTPError, urllib2.URLError, httplib.HTTPException, socket.error```
+        will be caught and an `URLException` will be raised (the original exception can always
+        be retrieved via 'URLException.exc')
+        :param killfunc: (function or None). Advanced parameter used for
+        multi-threading when the user wants to kill worker threads rapidly
+        A flag-function which is called repeatedly with url as argument to check if the
+        function should return. In 99% of the cases, this argument is not relevant for the user
+        :param kwargs: optional arguments for `urllib2.urlopen` function (e.g., timeout=60)
+        :return: the bytes read. If on_exc is a callable and an IOException is raised, returns None
+        :rtype bytes of data (equivalent to string in python2), or unicode string, or the tuple
+        bytes of data or unicode string, exception (the latter might be None)
+        :raise: `URLException` if `urlexc` is True. Otherwise
+        `urllib2.HTTPError`, `urllib2.URLError`, `httplib.HTTPException`, `socket.error``
+        (the latter is the superclass of all `socket` exceptions such as `socket.timeout` etcetera)
+    """
+    try:
         # this is executed in a separate thread (thus not thread safe):
-        if self._kill:
+        if killfunc is not None and killfunc(url):
             return None
         ret = b''
         # urlib2 does not support with statement in py2. See:
@@ -52,59 +52,100 @@ class _urlreader(object):
             if blocksize < 0:  # https://docs.python.org/2.4/lib/bltin-file-objects.html
                 ret = conn.read()
             else:
-                while not self._kill:
+                while killfunc is None or not killfunc(url):
                     buf = conn.read(blocksize)
                     if not buf:
                         break
                     ret += buf
-        if self._kill:
+        if killfunc is not None and killfunc(url):
             return None
         return ret.decode(decode) if decode else ret
+    except (urllib2.HTTPError, urllib2.URLError, httplib.HTTPException, socket.error) as exc:
+        if urlexc:
+            raise URLException(exc)
+        else:
+            raise exc
 
 
-def url_read(url, blocksize=-1, decode=None, on_exc=None, **kwargs):
-    """
-        Reads and return data from the given url. Returns the bytes read or the string read (if
-        decode is specified). Returns None if on_exc is a callable and a specific "connection"
-        exception is raised (see below), otherwise raises it
-        :param url: a valid url or an urllib2.Request object
-        :type url: string or urllib2.Request
-        :param blockSize: int, default: -1. The block size while reading, -1 means:
-            read entire content at once
-        :param: decode: string or None, default: None. The string used for decoding to string
-        (e.g., 'utf8'). If None, the result is returned as it is (byte string, note that in
-        Python2 this is equivalent to string), otherwise as unicode string
-        :param on_exc: callable or None, default: None. A callable which has a single argument,
-        the exception thrown, that will be called in case of IOExceptions. Any other exception
-        will be raised normally. If None, also IOExceptions will be raised normally
-        :param kwargs: optional arguments for `urllib2.urlopen` function (e.g., timeout=60)
-        :return: the bytes read. If on_exc is a callable and an IOException is raised, returns None
-        :rtype bytes of data (equivalent to string in python2), or unicode string, or the tuple
-        bytes of data or unicode string, exception (the latter might be None)
-        :raise: `urllib2.HTTPError`, `urllib2.URLError`, `httplib.HTTPException`, `socket.error``
-        (the latter is the superclass of all `socket` exceptions such as `socket.timeout` etcetera)
-        Note that socket errors have to be caught because they are not included in the other
-        exceptions (not in all python versions).
-        See https://docs.python.org/2/howto/urllib2.html#handling-exceptions for more information,
-        especially on error codes for the urllib2 module.
-        in case of connection errors
-    """
-    # The if branch below is a little bit verbose, but this way we preserve stack trace
-    if not hasattr(on_exc, "__call__"):  # note: None evaluates to False
-        return _urlread(url, blocksize, decode, **kwargs)
-    else:
+class URLException(Exception):
+    def __init__(self, original_exception):
+        self.exc = original_exception
+
+    def __str__(self):
+        return str(self.exc)
+
+
+def read_async(iterable, ondone, cancel=False,
+               urlkey=lambda obj: obj,
+               max_workers=5, blocksize=1024*1024,
+               decode=None, **kwargs):  # pylint:disable=too-many-arguments
+
+    # working futures which cannot be cancelled set their url here so that maybe
+    # the urlread returns faster
+    cancelled_urls = set()
+    # flag for CTRL-C
+    kill = False
+
+    # function called from within urlread to check if go on or not
+    def killf(url):
+        return kill or (url in cancelled_urls)
+
+    # set for futures that should be cancelled but they couldnt in order to know how to
+    # process them when finished (they might NOT raise CancelledError)
+    cancelled_futures = set()
+
+    # We can use a with statement to ensure threads are cleaned up promptly
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         try:
-            return _urlread(url, blocksize, decode, **kwargs)
-        except (urllib2.HTTPError, urllib2.URLError, httplib.HTTPException, socket.error) as exc:
-            # http://stackoverflow.com/questions/666022/what-errors-exceptions-do-i-need-to-handle-with-urllib2-request-urlopen
-            # Note that socket.timeout (subclass of socket.error) is not an urllib2.URLError
-            # in py2.7. See:
-            # http://stackoverflow.com/questions/2712524/handling-urllib2s-timeout-python
-            on_exc(exc)
-            return None
+            # Start the load operations and mark each future with its iterable item and URL
+            future_to_obj = {}
+            for obj in iterable:
+                url = urlkey(obj)
+                future_to_obj[executor.submit(urlread, url, blocksize, decode, True,
+                                              killf, **kwargs)] = (obj, url)
+            for future in concurrent.futures.as_completed(future_to_obj):
+                # this is executed in the main thread (thus is thread safe):
+                if kill:  # pylint:disable=protected-access
+                    continue
+                ret = None
+                obj, url = future_to_obj.pop(future)
+                if future in cancelled_futures:
+                    ondone(obj, None, None, True)
+                    continue
+                try:
+                    data = future.result()
+                except concurrent.futures.CancelledError:
+                    ondone(obj, None, None, True)
+                except URLException as urlexc:
+                    ret = ondone(obj, None, urlexc, False)
+                else:
+                    ret = ondone(obj, data, None, False)
+
+                if hasattr(ret, "__call__"):
+                    for future in future_to_obj:
+                        if future not in cancelled_futures and ret(future_to_obj[future][0]):
+                            future.cancel()
+                            if not future.cancelled():
+                                # this might be let url return faster if stuck in a loop:
+                                cancelled_urls.add(future_to_obj[future][1])
+                                cancelled_futures.add(future)  # will be handled later
+
+        except:
+            # According to this post:
+            # http://stackoverflow.com/questions/29177490/how-do-you-kill-futures-once-they-have-started,
+            # after a KeyboardInterrupt this method does not return until all
+            # working threads have finished. Thus, we implement the urlreader._kill flag
+            # which makes them exit immediately, and hopefully this function will return within
+            # seconds at most. We catch  a bare except cause we want the same to apply to all
+            # other exceptions which we might raise (see few line above)
+            kill = True  # pylint:disable=protected-access
+            # the time here before executing 'raise' below is the time taken to finish all threads.
+            # Without the line above, it might be a lot (minutes, hours), now it is much shorter
+            # (in the order of few seconds max) and the command below can be executed quickly:
+            raise
 
 
-def read_async(iterable, ondone, oncanc=lambda *a, **v: None,
+def read_async_(iterable, ondone, oncanc=lambda *a, **v: None,
                urlkey=lambda obj: obj,
                max_workers=5, blocksize=1024*1024,
                decode=None, **kwargs):  # pylint:disable=too-many-arguments

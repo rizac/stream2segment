@@ -18,6 +18,7 @@ from stream2segment.utils.url import _ismainthread, read_async
 from mock import patch
 from itertools import product, cycle
 import pytest
+from urllib2 import URLError
 
 class Test(unittest.TestCase):
 
@@ -40,9 +41,6 @@ class Test(unittest.TestCase):
         self.ondone = mock.Mock()
         self.ondone.side_effect = self._ondone
         
-        self.oncanc = mock.Mock()
-        self.oncanc.side_effect = self._oncanc
-        
         self.patcher = patch('stream2segment.utils.url.urllib2.urlopen')
         self.mock_urlopen = self.patcher.start()
         #add cleanup (in case tearDown is not 
@@ -53,19 +51,15 @@ class Test(unittest.TestCase):
         for patcher in patchers:
             patcher.stop()
         
-    def _ondone(self, obj, exc, res, url):
+    def _ondone(self, obj, res, exc, cancelled):
         assert _ismainthread()
-        if exc:
-            if not res:
-                raise exc
+        if cancelled:
+            self.cancelled.append(obj)
+        elif exc:
             self.errors.append(exc)
         else:
             self.successes.append(res)
         return self.ondone_return_value
-    
-    def _oncanc(self, obj,url):
-        assert _ismainthread()
-        self.cancelled.append(obj)
 
     def tearDown(self):
         self.successes = []
@@ -107,10 +101,14 @@ class Test(unittest.TestCase):
 
         assert len(self.errors) == 2
         assert self.mock_urlread.call_count == len(self.urls)
+        # check also argument calls:
+        call_args = [a[0] for a in self.ondone.call_args_list]
+        assert all(c[2] for c in call_args)  # all exc argument are truthy
+        assert not any(c[1] for c in call_args) # all result argument are falsy
 
 
-    def test_onerror_onsuccess_returning_false(self):
-        """Tests onerror onsuccess returning False, i.e. onsuccess must be called once"""
+    def test_cancelled1(self):
+        """Tests cancelled, when url returns without errors"""
         
         data = ['none', '', 'google', '']  # supply an empty string otherwise urllib.read does not stop
         self.config_urlopen(data)
@@ -118,11 +116,44 @@ class Test(unittest.TestCase):
         self.ondone_return_value = lambda obj: True
         # self.urls has a valid url (which should execute onsuccess) and an invalid one
         # which should execute onerror)
-        read_async(self.urls, self.ondone, oncanc=self.oncanc)
+        read_async(self.urls, self.ondone, cancel=True)
 
         assert len(self.successes) == 1  # or alternatively:
-        assert self.ondone.call_count == 1
-        assert len(self.cancelled)
+        assert self.ondone.call_count == 2
+        # assert there was a call to ondone with cancel argument (the last) as False,
+        # and another with cancel argument as true. We do not care about the order
+        # as with threading is not deterministic
+        call_args = [a[0] for a in self.ondone.call_args_list]
+        cancelled_args = [c[-1] for c in call_args]
+        assert cancelled_args.count(True) == 1  # amazing python feature!!!
+        assert cancelled_args.count(False) == 1  # amazing python feature!!!
+        
+                
+        assert len(self.cancelled)==1
+    
+    def test_cancelled2(self):
+        """Tests cancelled, when url returns with errors"""
+        
+        data = [URLError(""), 'google', '']  # supply an empty string otherwise urllib.read does not stop
+        self.config_urlopen(data)
+
+        self.ondone_return_value = lambda obj: True
+        # self.urls has a valid url (which should execute onsuccess) and an invalid one
+        # which should execute onerror)
+        read_async(self.urls, self.ondone, cancel=True)
+
+        assert len(self.errors) == 1  # or alternatively:
+        assert self.ondone.call_count == 2
+        # assert there was a call to ondone with cancel argument (the last) as False,
+        # and another with cancel argument as true. We do not care about the order
+        # as with threading is not deterministic
+        call_args = [a[0] for a in self.ondone.call_args_list]
+        cancelled_args = [c[-1] for c in call_args]
+        assert cancelled_args.count(True) == 1  # amazing python feature!!!
+        assert cancelled_args.count(False) == 1  # amazing python feature!!!
+        
+                
+        assert len(self.cancelled)==1
         
     def test_general_exception(self):
         self.config_urlopen([ValueError("")])

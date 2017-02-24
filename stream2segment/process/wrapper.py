@@ -13,7 +13,7 @@ from obspy.core.stream import read
 from stream2segment.utils import get_session, yaml_load, get_progressbar, msgs
 from stream2segment.io.db import models
 from stream2segment.download.utils import get_inventory_query
-from stream2segment.utils.url import url_read
+from stream2segment.utils.url import urlread
 from stream2segment.io.utils import loads_inv, dumps_inv
 from contextlib import contextmanager
 import warnings
@@ -96,7 +96,7 @@ def get_inventory(seg_or_sta, session=None, **kwargs):
 
     if not data:
         query_url = get_inventory_query(station)
-        data = url_read(query_url, **kwargs)
+        data = urlread(query_url, **kwargs)
         if session and data:
             station.inventory_xml = dumps_inv(data)
             try:

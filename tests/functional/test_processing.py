@@ -60,7 +60,7 @@ class Test(unittest.TestCase):
         self.save_inventory=False
 
         # mock get inventory:
-        self.patcher = patch('stream2segment.process.wrapper.url_read')
+        self.patcher = patch('stream2segment.process.wrapper.urlread')
         self.mock_url_read = self.patcher.start()
 
         self.mock_url_read.side_effect = self.url_read
@@ -288,7 +288,7 @@ class Test(unittest.TestCase):
         cfg['inventory'] = self.save_inventory
         return cfg
 
-    @mock.patch('stream2segment.process.wrapper.url_read')
+    @mock.patch('stream2segment.process.wrapper.urlread')
     @mock.patch('stream2segment.process.wrapper.load_proc_cfg')
     def test_simple_run_list_nosave(self, mock_load_cfg, mock_url_read):
         mock_url_read.side_effect = self.url_read
@@ -332,7 +332,7 @@ class Test(unittest.TestCase):
         assert not any(s.inventory_xml for s in stas)
 
 
-    @mock.patch('stream2segment.process.wrapper.url_read')
+    @mock.patch('stream2segment.process.wrapper.urlread')
     @mock.patch('stream2segment.process.wrapper.load_proc_cfg')
     def test_simple_run_list_save(self, mock_load_cfg, mock_url_read):
         mock_url_read.side_effect = self.url_read
@@ -377,7 +377,7 @@ class Test(unittest.TestCase):
         assert any(s.inventory_xml for s in stas)
         assert self.session.query(models.Station).filter(models.Station.id == self.sta_ok.id).first().inventory_xml
 
-    @mock.patch('stream2segment.process.wrapper.url_read')
+    @mock.patch('stream2segment.process.wrapper.urlread')
     def test_simple_run_dict(self, mock_url_read):
         mock_url_read.side_effect = self.url_read
         runner = CliRunner()
