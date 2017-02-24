@@ -33,6 +33,11 @@ class DbStreamHandler(logging.StreamHandler):
     http://docs.pylonsproject.org/projects/pyramid_cookbook/en/latest/logging/sqlalchemy_logger.html
     """
     def __init__(self, session, run_instance, min_level=20, close_session_on_close=False):
+        """
+        :param run_instance: a database instance reflecting a row of the Run table.
+        THE INSTANCE MUST BE ADDED TO THE DATABASE ALREADY. It will be
+        notified with each error and warning issued by this log
+        """
         super(DbStreamHandler, self).__init__(stream=StringIO())
         # access the stream with self.stream
         self.session = session
@@ -82,6 +87,8 @@ class SysOutStreamHandler(logging.StreamHandler):
         self.setLevel(min(levels))
         # custom filtering: do not print certain levels (default: print info and critical):
         self.addFilter(LevelFilter(levels))
+        # this should be the default, but for safety set it again:
+        self.setFormatter(logging.Formatter('%(message)s'))
 
 
 def configlog4processing(logger, outcsvfile, isterminal):

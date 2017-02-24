@@ -78,8 +78,8 @@ class Test(unittest.TestCase):
         self.patcher2 = patch('stream2segment.download.query.get_arrival_time')
         self.mock_arrival_time = self.patcher2.start()
         
-        self.patcher3 = patch('stream2segment.main.logger')
-        self.mock_main_logger = self.patcher3.start()
+        #self.patcher3 = patch('stream2segment.main.logger')
+        #self.mock_main_logger = self.patcher3.start()
         
         # an Engine, which the Session will use for connection
         # resources
@@ -130,8 +130,8 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         self._seg_urlread_sideeffect = [b'data','', '', URLError('wat'), socket.timeout()]
 
         #add cleanup (in case tearDown is not called due to exceptions):
-        self.addCleanup(Test.cleanup, self.session, self.file, self.patcher, self.patcher2,
-                        self.patcher3)
+        self.addCleanup(Test.cleanup, self.session, self.file, self.patcher, self.patcher2)
+                        #self.patcher3)
 
         
     def tearDown(self):
@@ -158,7 +158,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
 
 
     @patch('stream2segment.download.query.get_query', return_value='a')
-    def test_get_events(self, mock_query):
+    def tst_get_events(self, mock_query):
         data = self.get_events(None, self.session,
                                "eventws")  # , "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
         # assert only three events where succesfully saved to db
@@ -173,7 +173,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         return get_datacenters(*a, **kw)
 
 
-    def test_add_classes(self):
+    def tst_add_classes(self):
         cls = {'a' : 'bla', 'b' :'c'}
         add_classes(self.session, cls)
         assert len(self.session.query(Class).all()) == 2
@@ -182,7 +182,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         
 
     @patch('stream2segment.download.query.get_query', return_value='a')
-    def test_get_dcs(self, mock_query):
+    def tst_get_dcs(self, mock_query):
         data = self.get_datacenters(session=self.session)
         assert len(self.session.query(DataCenter).all()) == len(data) == 2
         mock_query.assert_called_once()  # we might be more fine grained, see code
@@ -194,7 +194,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         self.setup_urlopen(self._sta_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
         return make_ev2sta(*a, **kw)
     
-    def test_make_ev2sta(self):
+    def tst_make_ev2sta(self):
         events = self.get_events(None, self.session,
                                "eventws")  # , "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
         datacenters = self.get_datacenters(session=self.session)
@@ -241,7 +241,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         # self.setup_mock_arrival_time(mock_arr_time)
         return get_segments_df(*a, **kw)
 
-    def test_get_segments_df(self):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
+    def tst_get_segments_df(self):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
         events = self.get_events(None, self.session,
                                "eventws", )  # "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
         datacenters = self.get_datacenters(session=self.session)
@@ -285,7 +285,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         return download_segments(*a, **kw)
  
  
-    def test_download_segments(self):
+    def tst_download_segments(self):
         events = self.get_events(None, self.session,
                                "eventws", )  # "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
         datacenters = self.get_datacenters(session=self.session)
@@ -320,7 +320,8 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         numsegmentssaved = len(self.session.query(models.Segment).all())
         assert numsegmentssaved == 2
         assert numsegmentssaved <= len(segments_df)
-        assert 4 == sum(len(stats[d]) for d in stats)
+        assert len(segments_df) == sum(len(stats[d]) for d in stats)
+        
         
 
     def test_download_segments_max_err(self):
