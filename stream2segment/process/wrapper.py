@@ -165,14 +165,40 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
     query = session.query(models.Segment.channel_id,
                           models.Segment.start_time, models.Segment.end_time, models.Segment.id)
     seg_len = query.count()
-    logger.info("Executing '%s' in '%s' for all segments", funcname, pysourcefile)
-    logger.info("(iteratively for all segments in '%s)", str(session.bind.engine.url))
+    logger.info("Executing '%s' in '%s'", funcname, pysourcefile)
+    logger.info(" for all segments in '%s", str(session.bind.engine.url))
     logger.info("Config. file: %s", str(configsourcefile))
+    logger.info("", str(configsourcefile))
 
     save_station_inventory = config.get('inventory', False)
 
     inv_ok = session.query(models.Station).filter(withdata(models.Station.inventory_xml)).count()
 
+    # So, now run each processing ina  separate system process
+    # We would have liked to implement (along the lines of utils.url.read_async)
+    # a way to cancel some or all of remaining processes, and to give ctrl+c functionality
+    # The former is not possible within an 'concurrent.futures.as_completed' iteration. The latter
+    # is not possible with current status of ProcessPoolExecutor, which does not have all
+    # the features of multiprocess.Pool
+    # I struglled a lot implementing a custom multiprocess.Pool, where at least ctrl+c is
+    # implemented (see here:
+    # http://stackoverflow.com/questions/1408356/keyboard-interrupts-with-pythons-multiprocessing-pool
+    # the idea is to issue:
+    # def init_worker():
+    #     signal.signal(signal.SIGINT, signal.SIG_IGN)
+    # and then:
+    # def main()
+    #    pool = multiprocessing.Pool(size, init_worker)
+    #    async_results = map_async(...)
+    #    # now check when a.ready() for a in async.result()...
+    #
+    #  BUT: that method does not work with sqlalchemy session. ProcessPoolExecutor actually
+    #  uses queues which use Threads in some sort, and that let sqlalchemy work in each thread
+    #  whatever, it's complex. Let's stick to processpoolexecutor knowing that we cannot
+    # cancel processes. Ctrl+c still works but MUST BE HIT several times and prints weird stuff
+    # on the screen. Fine for now
+
+    # do an iteration on the main process to check when AsyncResults is ready
     done = [0]
     progressbar = get_progressbar(isterminal)
     with redirect(sys.stderr):
@@ -225,6 +251,8 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
                                                                      str(session.bind.engine.url),
                                                                      save_station_inventory],
                       func_kwargs={}, use_thread=False, max_workers=5, timeout=None)
+
+
 
     captured_warnings = s.getvalue()
     if captured_warnings:

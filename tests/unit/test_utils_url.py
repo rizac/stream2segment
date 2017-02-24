@@ -142,18 +142,24 @@ class Test(unittest.TestCase):
         # which should execute onerror)
         read_async(self.urls, self.ondone, cancel=True)
 
-        assert len(self.errors) == 1  # or alternatively:
         assert self.ondone.call_count == 2
-        # assert there was a call to ondone with cancel argument (the last) as False,
-        # and another with cancel argument as true. We do not care about the order
-        # as with threading is not deterministic
         call_args = [a[0] for a in self.ondone.call_args_list]
         cancelled_args = [c[-1] for c in call_args]
+        assert len(self.cancelled) == 1
+
+        # now the tricky part: which url has been read first?
+        # if the one giving errors, then self.errors has one element
+        # otherwise, not, because the url giving error has been
+        # cancelled! So:
+        if not len(self.errors):
+            assert len(self.successes) == 1
+        else:
+            assert len(self.errors) == 1
+        # assert there was a call to ondone with cancel argument (the last) as False,
+        # and another with cancel argument as true. This should be True
+        # regardless of the urlread function execution order
         assert cancelled_args.count(True) == 1  # amazing python feature!!!
         assert cancelled_args.count(False) == 1  # amazing python feature!!!
-        
-                
-        assert len(self.cancelled)==1
         
     def test_general_exception(self):
         self.config_urlopen([ValueError("")])

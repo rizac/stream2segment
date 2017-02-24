@@ -140,23 +140,24 @@ def make_ev2sta(session, events, datacenters, sradius_minmag, sradius_maxmag, sr
 
     ret = defaultdict(list)
 
-    def ondone(obj, exc, res, *_):  # pylint:disable=unused-argument
+    def ondone(obj, result, exc, cancelled):  # pylint:disable=unused-argument
         """function executed when a given url has successfully downloaded data"""
         notify_progress_func(1)
         evt, dcen, url = obj[0], obj[1], obj[2]
-        if exc:
-            if not res:
-                raise exc
+        if cancelled:  # should never happen, however...
+            msg = "Download cancelled"
+            logger.warning(msgs.format(msg, url))
+            stats[dcen.station_query_url][msg] += 1
+        elif exc:
             logger.warning(msgs.format(exc, url))
-            dcen_station_query = dcen.station_query_url
-            stats[dcen_station_query][exc] += 1
+            stats[dcen.station_query_url][exc] += 1
         else:
-            df = get_stations_df(url, res, min_sample_rate)
+            df = get_stations_df(url, result, min_sample_rate)
             if empty(df):
-                if res:
-                    stats[dcen.station_query_url]['malformed'] += 1
+                if result:
+                    stats[dcen.station_query_url]['Malformed'] += 1
                 else:
-                    stats[dcen.station_query_url]['empty'] += 1
+                    stats[dcen.station_query_url]['Empty'] += 1
             else:
                 stats[dcen.station_query_url]['OK'] += 1
                 all_channels = len(df)
@@ -288,25 +289,24 @@ def save_stations_and_channels(session, stations_df):
 
 def save_inventories(session, stations, max_thread_workers, timeout,
                      download_blocksize, notify_progress_func=lambda *a, **v: None):
-    def ondone(obj, exc, res, url):
+    def ondone(obj, result, exc, cancelled):
         notify_progress_func(1)
+        sta, url = obj
         if exc:
-            if res:
-                logger.warning(msgs.format(exc, url))
-            else:
-                raise exc  # oops, not an url exception?!!
+            logger.warning(msgs.format(exc, url))
         else:
-            if not res:
+            if not result:
                 logger.warning(msgs.query.empty(url))
                 return
             try:
-                obj.inventory_xml = dumps_inv(res)
+                sta.inventory_xml = dumps_inv(result)
                 session.commit()
             except SQLAlchemyError as sqlexc:
                 session.rollback()
-                logger.warning(msgs.db.dropped_inv(obj.id, url, sqlexc))
+                logger.warning(msgs.db.dropped_inv(sta.id, url, sqlexc))
 
-    read_async(stations, ondone, urlkey=lambda sta: get_inventory_query(sta),
+    iterable = izip(stations, (get_inventory_query(sta) for sta in stations))
+    read_async(iterable, ondone, urlkey=lambda obj: obj[1],
                max_workers=max_thread_workers,
                blocksize=download_blocksize, timeout=timeout)
 
@@ -484,13 +484,15 @@ def download_segments(session, segments_df, run_id, max_error_count, max_thread_
     errors = defaultdict(int)
     segments_df[Segment.data.key] = None
 
-    def ondone(obj, exc, res, *_):  # pylint:disable=unused-argument
+    def ondone(obj, result, exc, cancelled):
         """function executed when a given url has succesfully downloaded `data`"""
         notify_progress_func(1)
         url, dcen_id = obj[0], obj[1]
-        if exc:
-            if not res:  # not url-like exception, something worng, raise ... (should never happen)
-                raise exc
+        if cancelled:
+            key_skipped = ("Discarded: Cancelled remaining downloads from the given data-center "
+                           "after %d previous errors") % max_error_count
+            stats[dcen_id][key_skipped] += 1
+        elif exc:
             logger.warning(msgs.query.dropped_seg(1, url, exc))
             stats[dcen_id][exc] += 1
             errors[dcen_id] += 1
@@ -499,22 +501,17 @@ def download_segments(session, segments_df, run_id, max_error_count, max_thread_
                 return lambda obj: obj[1] == dcen_id
         else:
             # avoid pandas SettingWithCopyWarning:
-            segments_df.loc[url, Segment.data.key] = res  # might be empty: b''
-
-    def oncancelled(obj, *_):
-        notify_progress_func(1)
-        url, dcen_id = obj[0], obj[1]  # @UnusedVariable
-        key_skipped = ("Discarded: Remaining queries from the given data-center ignored "
-                       "after %d previous errors") % max_error_count
-        stats[dcen_id][key_skipped] += 1
+            segments_df.loc[url, Segment.data.key] = result  # might be empty: b''
 
     # now download Data:
     # we use the index as urls cause it's much faster when locating a dframe row compared to
     # df[df[df_urls_colname] == some_url]). We zip it with the datacenters for faster search
+    # REMEMBER: iterating over series values is FASTER BUT USES underlying numpy types, and for
+    # datetime's is a problem cause pandas sublasses datetime, numpy not
     read_async(izip(segments_df.index.values,
                     segments_df[Segment.datacenter_id.key].values),
                urlkey=lambda obj: obj[0],
-               ondone=ondone, oncanc=oncancelled, max_workers=max_thread_workers,
+               ondone=ondone, max_workers=max_thread_workers,
                timeout=timeout, blocksize=download_blocksize)
 
     # messages:
