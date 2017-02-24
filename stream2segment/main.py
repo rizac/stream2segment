@@ -280,14 +280,14 @@ def d(configfile, dburl, start, end, eventws, wtimespan, stimespan, min_sample_r
     metadata (plus additional class labels, if needed)
     into a specified database for further processing or visual inspection in a
     browser. Options are listed below: when not specified, their default
-    values are those set in the configfile option value.
+    values are those set in the value of the configfile option.
     [EVENTWS_QUERY_ARGS] is an optional list of space separated arguments to be passed
-    to the event web service query (exmple: minmag 5.5 minlon 34.5) and will be merged with
-    (overriding if needed) the arguments of `eventws_query_args` specified in in the config file,
+    to the event web service query (exmple: minmag 5.5 minlon 34.5) and will be added to
+    (or override) the arguments of `eventws_query_args` specified in in the config file,
     if any.
     All FDSN query arguments are valid
     *EXCEPT* 'start', 'end' and 'format' (the first two are set via the relative options, the
-    format will default in most cases to 'text' for performance reasons) {}None()[]
+    format will default in most cases to 'text' for performance reasons)
     """
     _ = dict(locals())
     cfg_dict = yaml_load(_.pop('configfile'))

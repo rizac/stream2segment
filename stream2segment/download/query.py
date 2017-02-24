@@ -184,7 +184,7 @@ def make_ev2sta(session, events, datacenters, sradius_minmag, sradius_maxmag, sr
 def evdcurl_iter(events, datacenters, sradius_minmag, sradius_maxmag, sradius_minradius,
                  sradius_maxradius, station_timespan, channels):
     """returns an iterable of tuple (event, datacenter, station_query_url) where the last element
-    is build with sradius arguments and station_timespan and channels"""
+    is build with sradius_* arguments and station_timespan and channels"""
     # calculate search radia:
     magnitudes = np.array([evt.magnitude for evt in events.itervalues()])
     max_radia = get_search_radius(magnitudes, sradius_minmag, sradius_maxmag,

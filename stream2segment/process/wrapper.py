@@ -225,7 +225,7 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
                 for future in as_completed(future_to_obj):
                     pbar.update(1)
                     if future.cancelled():  # FIXME: should never happen, however...
-                        return
+                        continue
                     light_segment, value, is_exc = future.result()
                     if is_exc:
                         exc = value
@@ -243,7 +243,7 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
                             ondone(list(light_segment.values(to_str=True)) + list(array))
                         elif array is not None:
                             msg = ("'%s' in '%s' must return None (=skip item), "
-                                   "an iterable (list, tuple, ...) or a dict") \
+                                   "or an iterable (list, tuple, numpy array, dict...)") \
                                    % (funcname, pysourcefile)
                             logger.error(msg)
                         done[0] += 1
@@ -276,8 +276,9 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
 
 
 _inventories = {}
-"""private dict to store inventory objects. It is accessed by subprocesses with a lock. Do
-not access directly"""
+"""private dict to store inventory objects. It is accessed by subprocesses with a lock.
+How this works with ProcessPoolExecutor and not with custom multiprocess.Pool is still to
+be investigated. However, do not access directly"""
 
 
 def _inventory(seg, lock, session=None):

@@ -8,7 +8,7 @@ import sys
 import random
 import threading
 import webbrowser
-from stream2segment.main import cfg_dict
+from stream2segment.utils.resources import get_default_cfg_filepath
 
 
 # from stream2segment.io.db import ClassAnnotator
@@ -29,7 +29,7 @@ def run_in_browser(db_uri):
 
 
 if __name__ == '__main__':
-    db_uri = cfg_dict['dburi']
+    db_uri = get_default_cfg_filepath()
     print "Using config.py dburi: %s" % db_uri
 
     # global files

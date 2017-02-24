@@ -503,9 +503,9 @@ class Test(unittest.TestCase):
         self.session.add_all([seg__1, seg__2])
         self.session.commit()
         
-        labelings = [models.ClassLabeling(class_id=clabel1.id, segment_id=seg__1.id),
-               models.ClassLabeling(class_id=clabel2.id, segment_id=seg__1.id),
-               models.ClassLabeling(class_id=clabel1.id, segment_id=seg__2.id)
+        labelings = [models.ClassLabelling(class_id=clabel1.id, segment_id=seg__1.id),
+               models.ClassLabelling(class_id=clabel2.id, segment_id=seg__1.id),
+               models.ClassLabelling(class_id=clabel1.id, segment_id=seg__2.id)
         ]
         self.session.add_all(labelings)
         self.session.commit()

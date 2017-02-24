@@ -284,7 +284,7 @@ class Segment(Base):
                            viewonly=True, uselist=False,
                            backref=backref("segments", lazy="dynamic"))
     classes = relationship("Class",
-                           secondary="class_labelings",  # <-  must be table name in metadata
+                           secondary="class_labellings",  # <-  must be table name in metadata
                            viewonly=True, backref=backref("segments", lazy="dynamic"))
 
     __table_args__ = (
@@ -302,9 +302,9 @@ class Class(Base):  # pylint: disable=no-init
     description = Column(String)
 
 
-class ClassLabeling(Base):
+class ClassLabelling(Base):
 
-    __tablename__ = "class_labelings"
+    __tablename__ = "class_labellings"
 
     id = Column(Integer, primary_key=True)
     segment_id = Column(Integer, ForeignKey("segments.id"), nullable=False)
