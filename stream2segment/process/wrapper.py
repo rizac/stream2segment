@@ -8,7 +8,6 @@ import logging
 from cStringIO import StringIO
 import os
 import sys
-import inspect
 from obspy.core.stream import read
 from stream2segment.utils import get_session, yaml_load, get_progressbar, msgs
 from stream2segment.io.db import models
@@ -22,9 +21,10 @@ from collections import OrderedDict as odict
 from stream2segment.utils.poolexecutor import run_async
 import multiprocessing
 import types
-from stream2segment.download.query import save_inventories
 from stream2segment.io.db.pd_sql_utils import withdata
 from sqlalchemy.exc import SQLAlchemyError
+from concurrent.futures.process import ProcessPoolExecutor
+import concurrent.futures
 
 logger = logging.getLogger(__name__)
 
@@ -198,61 +198,60 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
     # cancel processes. Ctrl+c still works but MUST BE HIT several times and prints weird stuff
     # on the screen. Fine for now
 
+    # another thing experienced with ThreadPoolExecutor:
+    # we experienced some problems if max_workers is None. The doc states that it is the number
+    # of processors on the machine, multiplied by 5, assuming that ThreadPoolExecutor is often
+    # used to overlap I/O instead of CPU work and the number of workers should be higher than the
+    # number of workers for ProcessPoolExecutor. But the source code seems not to set this value
+    # at all!! (at least in python2, probably in pyhton 3 is fine). So let's do it manually:
+    max_workers = 5 * multiprocessing.cpu_count()
+
     # do an iteration on the main process to check when AsyncResults is ready
     done = [0]
     progressbar = get_progressbar(isterminal)
     with redirect(sys.stderr):
-        with progressbar(length=seg_len) as pbar:
+        mngr = multiprocessing.Manager()
+        lock = mngr.Lock()
+        iterable = (LightSegment(ids_tuple) for ids_tuple in query)
 
-            def ondone_(light_segment, future):
-                pbar.update(1)
-                if future.cancelled():
-                    return
-                exc = future.exception()
-                if exc:
-                    excinfo = ''
-                    # EXPERIMENTAL (commented): get file name and line number. UNCOMMENT TO SHOW IT
-                    ## get line number and function name:
-                    # traceback = sys.exc_info()[-1]
-                    # while traceback.tb_frame:
-                    #     finfo = inspect.getframeinfo(traceback.tb_frame)
-                    #     if os.path.basename(finfo.filename) == pysourcefilename and \
-                    #         finfo.function == funcname:
-                    #         excinfo = ' (File "<%s>", line %d, in <%s>)' % \
-                    #             (finfo.filename, finfo.lineno, finfo.function)
-                    #         break
-                    #     traceback = traceback.tb_next
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            # use a generator, it might be faster as processpoolexecutor converts it
+            # to set internally, so specify a light object here not to create two array-like objs
+            future_to_obj = (executor.submit(func_wrapper, obj, *[func, lock, config,
+                                                                  str(session.bind.engine.url),
+                                                                  save_station_inventory])
+                             for obj in iterable)
+            with progressbar(length=seg_len) as pbar:
+                for future in concurrent.futures.as_completed(future_to_obj):
+                    pbar.update(1)
+                    if future.cancelled():  # FIXME: should never happen, however...
+                        return
+                    light_segment, value, is_exc = future.result()
+                    if is_exc:
+                        exc = value
+                        # print to log:
+                        logger.warning("%s: %s", str(light_segment), str(exc))
+                    else:
+                        array = value
+                        if isinstance(array, dict):
+                            ddd = odict()
+                            for att, val in light_segment.items(to_str=True):
+                                ddd['_segment_' + att] = val
+                            ddd.update(array)
+                            ondone(ddd)
+                        elif hasattr(array, '__iter__') and not isinstance(array, str):
+                            ondone(list(light_segment.values(to_str=True)) + list(array))
+                        elif array is not None:
+                            msg = ("'%s' in '%s' must return None (=skip item), "
+                                   "an iterable (list, tuple, ...) or a dict") \
+                                   % (funcname, pysourcefile)
+                            logger.error(msg)
+                        done[0] += 1
 
-                    # print to log:
-                    logger.warning("%s: %s%s", str(light_segment), str(exc), excinfo)
-                else:
-                    array = future.result()
-                    if isinstance(array, dict):
-                        ddd = odict()
-                        for att, val in light_segment.items(to_str=True):
-                            ddd['_segment_' + att] = val
-                        ddd.update(array)
-                        ondone(ddd)
-                    elif hasattr(array, '__iter__') and not isinstance(array, str):
-                        ondone(list(light_segment.values(to_str=True)) + list(array))
-                    elif array is not None:
-                        msg = ("'%s' in '%s' must return None (=skip item), "
-                               "an iterable (list, tuple, ...) or a dict") \
-                               % (funcname, pysourcefile)
-                        logger.error(msg)
-                        raise ValueError(msg)  # this should kill (by quitting rapidly)
-                        # all remaining processes
-                    done[0] += 1
-
-            mngr = multiprocessing.Manager()
-            lock = mngr.Lock()
-            iterable = (LightSegment(ids_tuple) for ids_tuple in query)
-            run_async(iterable, func_wrapper, ondone_, func_posargs=[func, lock, config,
-                                                                     str(session.bind.engine.url),
-                                                                     save_station_inventory],
-                      func_kwargs={}, use_thread=False, max_workers=5, timeout=None)
-
-
+#             run_async(iterable, func_wrapper, ondone_, func_posargs=[func, lock, config,
+#                                                                      str(session.bind.engine.url),
+#                                                                      save_station_inventory],
+#                       func_kwargs={}, use_thread=False, max_workers=5, timeout=None)
 
     captured_warnings = s.getvalue()
     if captured_warnings:
@@ -341,7 +340,9 @@ def func_wrapper(light_segment, func, lock, config, dburl, save_inventories_if_n
             types.MethodType(lambda self: _inventory(self, lock, session=sess_or_none), segment)
         segment.has_data = types.MethodType(lambda self: _has_data, segment)
 
-        return func(segment, config)
+        return light_segment, func(segment, config), False
+    except Exception as exc:
+        return light_segment, exc, True
     finally:
         session.close()
         session.bind.dispose()
