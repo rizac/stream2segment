@@ -90,7 +90,7 @@ def get_inventory(seg_or_sta, session=None, **kwargs):
         data = seg_or_sta.inventory_xml
         station = seg_or_sta
     except AttributeError:
-        station = seg_or_sta.channel.station
+        station = seg_or_sta.station
         data = station.inventory_xml
 
     if not data:

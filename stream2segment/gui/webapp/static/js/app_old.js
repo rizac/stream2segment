@@ -1,112 +1,30 @@
 var myApp = angular.module('myApp',[]);
  
-myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', function($scope, $http, $window, $timeout) {
+myApp.controller('myController', ['$scope', '$http', '$window', function($scope, $http, $window) {
 	$scope.elements = [];
 	$scope.currentIndex = -1;
-	$scope.data = {}; // the data: it is an array of arrays. Each element has:
-	// data title, data x0, data xdelta, data y values
-	$scope.plots = new Array(3 + $window._NUM_CUSTOM_PLOTS); // will be set in configPlots called by refreshElements
+	$scope.data = {};
 	$scope.showFiltered = true;
 	$scope.isEditingIndex = false;
 	$scope.classes = [];
 	$scope.currentSegmentClassIds = [];
 	$scope.currentSegmentText = "";
 
-	$scope.init = function(){  // update classes and elements
+	$scope.init = function(){
 		var data = {}; //maybe in the future pass some data
 		$http.post("/get_classes", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
 	        $scope.classes = response.data.classes;
-	        $scope.refreshElements();
+	        $scope.refresh();
 	    });
 	};
 	
-	$scope.refreshElements = function(){  // update elements
-		var data = {}; //maybe in the future pass some data
+	$scope.refresh = function(data){   // data not used. FIXME: remove??
+		//var classIds = data.class_ids;
 		$http.post("/get_elements", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
 	        $scope.elements = response.data.segment_ids;
-	        $timeout(function () { 
-	        	$scope.configPlots(); // this will be called once the dom has rendered
-	          }, 0, false);
+	        $scope.setCurrentIndex(0);
 	    });
 	};
-	
-	$scope.configPlots = function(){
-		var numPlots = $scope.plots.length;
-		var plotly = $window.Plotly;
-		$scope.plots = [];
-		
-		var mseedLayout = { //https://plot.ly/javascript/axes/
-				margin:{'l':50, 't':35, 'b':30, 'r':15},
-				xaxis: {
-					type: 'date'
-				},
-				yaxis: {
-					fixedrange: true
-				}
-			};
-		var fftLayout = { //https://plot.ly/javascript/axes/
-				xaxis: {
-					//type: 'date'
-				},
-				yaxis: {
-					fixedrange: true
-				}
-			};
-		var customPlotLayout = {
-				xaxis: {
-					type: 'date'
-				},
-				yaxis: {
-					fixedrange: true
-				}
-		};
-		
-		// create function for notifting zoom. On all plots except
-		// other components
-		var zoomListenerFunc = function(plotIndex){
-			return function(eventdata){
-				// check that this function is called from zoom
-				// (it is called from any relayout command also)
-				var isZoom = 'xaxis.range[0]' in eventdata && 'xaxis.range[1]' in eventdata;
-				if(!isZoom){
-					return;
-				}
-				if (plotIndex==1 || plotIndex==2 || plotIndex==3){
-					indices = [0,1,2];
-				}else{
-					indices = [plotIndex];
-				}
-				indices.forEach(function(element, index, array){
-					$scope.plots[index].zoom = [eventdata['xaxis.range[0]'], eventdata['xaxis.range[1]']];
-				});
-				$scope.refreshCurrentIndex();
-		    }
-		};
-		
-		var layouts = [mseedLayout,mseedLayout,mseedLayout,fftLayout];
-		var emptyData = [{x0:0, dx:1, y:[0], type:'scatter'}];
-
-		for(var i=0; i < numPlots; i++){
-			var plotId = 'plot-' + i;
-			var div = $window.document.getElementById(plotId);
-			$scope.plots[i] = {
-				'div': div,
-				'zoom': [null, null]
-			};
-			var layout = i < layouts.length ? layouts[i] : customPlotLayout;
-			plotly.newPlot(div, emptyData, layout);
-			div.on('plotly_relayout', zoomListenerFunc(i));
-		};
-
-		// update data (if currentIndex undefined, then set it to zero if we have elements
-		// and refresh plots)
-		if ($scope.currentIndex < 0){
-			if ($scope.elements.length){
-				$scope.currentIndex = 0;
-			}
-		}
-		$scope.refreshCurrentIndex();
-	}
 	
 	$scope.setNextIndex = function(){
 		var currentIndex = ($scope.currentIndex + 1) % ($scope.elements.length);
@@ -115,92 +33,23 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	
 	$scope.setPreviousIndex = function(){
 		var currentIndex = $scope.currentIndex == 0 ? $scope.elements.length - 1 : $scope.currentIndex - 1;
-        $scope.setCurrentIndex(currentIndex);
+		$scope.setCurrentIndex(currentIndex);
 	};
 	
-	$scope.refreshCurrentIndex = function(index){
-		$scope.setCurrentIndex($scope.currentIndex);
-	}
-
 	$scope.setCurrentIndex = function(index){
-		$scope.currentIndex = index;
-		if (index < 0){
-			return;
-		}
 		$scope.isEditingIndex = false;
-		
-		var zooms = $scope.plots.map(function(elm, idx, array){
-			zoom = elm.zoom; //2 element array
-			//set zoom to zero:
-			$scope.plots[idx].zoom = [null, null];
-			if ($scope.plots[idx].div.layout.xaxis){
-				// remove the properties set by a previous zoom, if any:
-				$scope.plots[idx].div.layout.xaxis.autorange=true;
-				delete $scope.plots[idx].div.layout.range;
-			}
-			return zoom;
-		});
-		var param = {segId: $scope.elements[index], filteredRemResp: $scope.showFiltered,
-				zooms:zooms};
+		var param = {segId: $scope.elements[index], filteredRemResp: $scope.showFiltered};
 		$http.post("/get_data", param, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
-			$scope.data = response.data;
+			$scope.currentIndex = index;
+	        $scope.data = response.data;
 	        $scope.currentSegmentClassIds = response.data.class_ids;
-	        $scope.redrawPlots();
+	        $scope.updatePlots();
+
 	    });
 	};
 	
-	$scope.redrawPlots = function(){
-		var scopeData = $scope.data;
-		var plotly = $window.Plotly;
-		for (var i=0; i< Math.min($scope.plots.length, scopeData.length); i++){
-			var div = $scope.plots[i].div;
-			var plotData = scopeData[i];
-			var title = plotData[0];
-			var x0 = plotData[1];
-			var dx = plotData[2];
-			var y = plotData[3];
-			var data = [
-			            {
-			              x0: x0,
-			              dx: dx,
-			              y: y,
-			              type: 'scatter'
-			            }
-			          ];
-
-			//div.layout.title = title;
-			if (div.data){
-				var indices = div.data.map(function(elm, index, array){
-					return index;
-				});
-				plotly.deleteTraces(div, indices);
-			}
-			plotly.addTraces(div, data);
-			
-			//re-layout will trigger a zoom event, which will trigger a setCurrentIndex,
-			// which will call this method and so on
-			plotly.relayout(div, {title: title});
-			
-//			plotly.animate(div, {
-//			    data: data,
-//			    traces: [0],
-//			    layout: {title: title}
-//			  }, {
-//			    transition: {
-//			      duration: 500,
-//			      easing: 'cubic-in-out'
-//			    }
-//			  });
-		}
-	};
 	
 	
-	
-	
-	//$scope.configPlots();
-	
-	
-	//===============================================================================
 	
 	$scope.setCurrentIndexFromText = function(){
 		var index = parseInt($scope.currentSegmentText);
@@ -280,7 +129,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	
 	
 	
-	$scope.updatePlots_old = function(updateFilterOnly){ // update filter only is not actually used anymore
+	$scope.updatePlots = function(updateFilterOnly){ // update filter only is not actually used anymore
 	    
 	    var index = $scope.showFiltered ? 1 : 0;
         var SCOPEDATA =  $scope.data.time_data;
