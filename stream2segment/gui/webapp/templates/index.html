@@ -17,7 +17,6 @@
 var _NUM_CUSTOM_PLOTS = {{ numCustomPlots }};
 </script>
 </head>
-
 <body ng-app="myApp" ng-controller="myController">
 	<div class="main v-container">
 		<div class=top>
@@ -36,10 +35,34 @@ var _NUM_CUSTOM_PLOTS = {{ numCustomPlots }};
     					</label>
   					</div>
 				</div>
-				<div class=center>
-					
+				<div class="center metadata">
+					<div ng-repeat="elm in segData.metadata">
+						<div ng-click="toggleDivVisibility('{{ '{{' }} elm[0] {{ '}}' }}')">
+							{{ '{{' }} elm[0] {{ '}}' }} <div class="isDivVisible('{{ '{{' }} elm[0] {{ '}}' }}') ? 'arrow-up' : 'arrow-down'"></div>
+						</div>
+						<div ng-show="isDivVisible('{{ '{{' }} elm[0] {{ '}}' }}')">
+							<div ng-repeat="subElm in elm[1]">
+								<span>{{ '{{' }} subElm[0] {{ '}}' }}</span><span>{{ '{{' }} subElm[1] {{ '}}' }}</span>
+							</div>
+						</div>
+					</div>
 				</div>
 				<div class=bottom>
+					<div class=annotations >
+						<div>Set classes: <button ng-click="toggleDivVisibility('classes')">{{ '{{' }} showAnnotations ? 'hide' : 'show' {{ '}}' }}</button></div>
+						<div ng-show="isDivVisible('classes')">
+							<div ng-repeat="class in classes">
+		  						<label>
+									<input
+									    type="checkbox"
+									    value="{{ '{{' }} class.id {{ '}}' }}"
+									    ng-checked="currentSegmentClassIds.indexOf(class.id) > -1"
+									    ng-click="toggleClassLabelForCurrentSegment(class.id)"
+									> {{ '{{' }} class.id {{ '}}' }}: <strong>{{ '{{' }} class.label {{ '}}' }}</strong> ({{ '{{' }} class.count {{ '}}' }})
+								</label>
+							</div>
+						</div>
+					</div>
 					<!-- <div class="progress-bar blue stripes">
     					<span style="width: 40%"></span>
 					</div> -->

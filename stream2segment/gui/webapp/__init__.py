@@ -27,6 +27,7 @@ def get_session():
 
 
 def create_app(dbpath, config_py_file=None, config_object=None):
+    global _app
     if _app is not None:
         return _app
 
@@ -50,7 +51,6 @@ def create_app(dbpath, config_py_file=None, config_object=None):
         if hasattr(g, 'session'):
             g.session.close()
 
-    global _app
     _app = app
     return app
 

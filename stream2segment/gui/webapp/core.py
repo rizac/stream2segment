@@ -37,12 +37,13 @@ from stream2segment.process.wrapper import get_inventory
 from stream2segment.analysis.mseeds import bandpass, remove_response, stream_compliant, utcdatetime,\
     snr, cumsum, cumtimes, fft, dfreq
 from obspy.core.utcdatetime import UTCDateTime
-from itertools import cycle, chain
+from itertools import cycle, chain, izip
 from sqlalchemy.orm.session import Session
 from stream2segment.analysis import amp_spec
 import json
 from stream2segment.gui.webapp import get_session
 from collections import OrderedDict as odict
+from stream2segment.io.db import models
 
 
 NPTS_WIDE = 900
@@ -62,7 +63,7 @@ def get_classes():
     session = get_session()
     clazzes = session.query(Class).all()
     ret = []
-    colz = colnames(Class)
+    colz = list(colnames(Class))
     for c in clazzes:
         row = {}
         for col in colz:
@@ -73,7 +74,7 @@ def get_classes():
     return ret
 
 
-def get_data(seg_id, filtered, zooms):
+def get_segment_data(seg_id, filtered, zooms):
     session = get_session()
     seg = session.query(Segment).filter(Segment.id == seg_id).first()
     ret = [Plot.fromsegment(seg, zooms[0], NPTS_WIDE, filtered, copy=True)]
@@ -94,7 +95,35 @@ def get_data(seg_id, filtered, zooms):
         ret.append(Plot())
         ret.append(Plot())
 
-    return [r.tojson() for r in ret]
+    session = get_session()
+    classes = [c[0] for c in
+               session.query(ClassLabelling.segment_id).
+               filter(ClassLabelling.segment_id == seg_id).all()]
+
+    return {'plot_data': [r.tojson() for r in ret], 'class_ids': classes,
+            'metadata': get_metadata(seg)}
+
+
+def get_metadata(segment):
+    ret = []
+    exclude = set([models.Station.inventory_xml.key, models.Segment.data.key])
+    for prefix, inst in izip(["segment", "event", "channel", "station"],
+                             [segment, segment.event, segment.channel, segment.station]):
+        subdata = []
+        block = [prefix, subdata]
+        colz = colnames(inst.__class__, pkey=False, fkey=False)
+        for c in colz:
+            if c in exclude:
+                continue
+            val = getattr(inst, c)
+            if isinstance(val, datetime):
+                val = val.isoformat()
+            subdata.append((c, val))
+        ret.append(block)
+
+    ret.append(['misc', ('misc.datacenter', segment.datacenter.dataselect_query_url),
+                ('downloaded@', segment.run.run_time.isoformat())])
+    return ret
 
 
 def downsample(array, npts):
@@ -311,7 +340,7 @@ class Plot(object):
             range_noise = [arrival_time, -window_in_sec]
         else:
             range_signal = [arrival_time, atime_window]
-            range_noise = [arrival_time, atime_window]
+            range_noise = [arrival_time, -atime_window]
 
         fft_noise = fft(trace, *range_noise)
         fft_signal = fft(trace, *range_signal)
@@ -347,21 +376,10 @@ class Plot(object):
         if start is not None or end is not None:
             trace = trace.copy()
             trace.trim(start, end, pad=True, nearest_sample=False, fill_value=0)
-
         x0 = jsontimestamp(trace.stats.starttime)
-#         y = downsample(trace.data, npts)
-#         # adjust sampling rate:
-#         dx = (trace.stats.endtime - trace.stats.starttime) / (y.size-1)
-#         # utcdatetime to float returns the seconds (as float). Js libraries want unix timestamps
-#         # (milliseconds). x0 has already been converted, the same for delta time:
-#         dx *= 1000
-#         # print datarow[-1]  # this is just for printing and inspecting the size via:
-#         # http://bytesizematters.com/
-
         dx, y = Plot.downsample(trace.data, trace.stats.delta, npts)
-
         # utcdatetime to float returns the seconds (as float). Js libraries want unix timestamps
-#         # (milliseconds). x0 has already been converted, the same for delta time:
+        # (milliseconds). x0 has already been converted, the same for delta time:
         dx *= 1000
 
         trace_id = trace.get_id()
@@ -410,9 +428,8 @@ class Plot(object):
             data.append([Plot.float(x0, 0), Plot.float(dx, 1),
                          y.tolist() if hasattr(y, 'tolist') else y,
                          label or ''])
+
+        # uncomment to have arough estimation of the file sizes (around 200 kb for 5 plots)
+        # print len(json.dumps([self.title or '', data, "".join(self.warnings), self.xrange]))
         # set the title if there is only one item and a single label??
-        return [self.title or '',
-                data,
-                "".join(self.warnings),
-                self.xrange
-                ]
+        return [self.title or '', data, "".join(self.warnings), self.xrange]

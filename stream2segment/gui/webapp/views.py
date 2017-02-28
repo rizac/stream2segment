@@ -13,33 +13,30 @@ from flask import Blueprint
 from flask import current_app
 main_page = Blueprint('main_page', __name__, template_folder='templates')
 
+
 @main_page.route("/")
 def main():
-    ncp =get_num_custom_plots()
+    ncp = get_num_custom_plots()
     return render_template('index.html', title=current_app.config["DATABASE"],
                            numCustomPlots=ncp,
                            customPlots=range(5, 5+ncp))  # app.config['DB_URI'])
 
 
-@main_page.route("/get_elements", methods=['POST'])
+@main_page.route("/init", methods=['POST'])
 def get_elements():
     dic = core.get_ids()
+    dic['classes'] = core.get_classes()
     return jsonify(dic)
 
 
-@main_page.route("/get_classes", methods=['POST'])
-def get_classes():
-    return jsonify({'classes': core.get_classes()})
-
-
-@main_page.route("/get_data", methods=['POST'])
-def get_data():
+@main_page.route("/get_segment_data", methods=['POST'])
+def get_segment_data():
     data = request.get_json()
     seg_id = data['segId']
     rem_resp_filtered = data['filteredRemResp']
     zooms = data['zooms']
     # NOTE: seg_id is a unicode string, but the query to the db works as well
-    return jsonify(core.get_data(seg_id, rem_resp_filtered, zooms))
+    return jsonify(core.get_segment_data(seg_id, rem_resp_filtered, zooms))
 
 
 #

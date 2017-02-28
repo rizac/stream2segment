@@ -2,6 +2,11 @@
 html, body, div.main{
 	height:100%;
 }
+
+body{
+	padding: 8px;
+}
+
 div.container{
 	position:relative;
 	height: 100%;
@@ -40,6 +45,14 @@ div.custom_plots_wrapper{
 
 div.plot{
 	/*border: 1px solid #000;*/
+}
+
+div.metadata{
+	overflow: auto;
+}
+
+div.metadata > div > *:first-child{
+	margin-right: 1em;
 }
 
 /*

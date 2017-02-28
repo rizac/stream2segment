@@ -1,37 +1,29 @@
 var myApp = angular.module('myApp',[]);
  
 myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', function($scope, $http, $window, $timeout) {
-	$scope.elements = [];
-	$scope.currentIndex = -1;
-	$scope.data = {}; // the data: it is an array of arrays. Each element has:
-	// data title, data x0, data xdelta, data y values
-	$scope.plots = new Array(5 + $window._NUM_CUSTOM_PLOTS).fill(undefined); // will be set in configPlots called by refreshElements
+	$scope.segIds = [];  // segment indices
+	$scope.segIdx = -1;  // current segment index
+	$scope.segData = {}; // the segment data (classes, plot data, metadata etc...)
+	$scope.plots = new Array(5 + $window._NUM_CUSTOM_PLOTS).fill(undefined); // will be set in configPlots called by init below
 	$scope.showFiltered = true;
 	$scope.isEditingIndex = false;
 	$scope.classes = [];
 	$scope.currentSegmentClassIds = [];
-	$scope.currentSegmentText = "";
+	//$scope.currentSegmentText = "";
 	$scope.loading=true;
 	$scope.globalZoom = true;
 
 	$scope.init = function(){  // update classes and elements
 		var data = {}; //maybe in the future pass some data
-		$http.post("/get_classes", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
+		$http.post("/init", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
 	        $scope.classes = response.data.classes;
-	        $scope.refreshElements();
-	    });
-	};
-	
-	$scope.refreshElements = function(){  // update elements
-		var data = {}; //maybe in the future pass some data
-		$http.post("/get_elements", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
-	        $scope.elements = response.data.segment_ids;
+	        $scope.segIds = response.data.segment_ids;
 	        $timeout(function () { 
 	        	$scope.configPlots(); // this will be called once the dom has rendered
 	          }, 0, false);
 	    });
 	};
-	
+
 	$scope.configPlots = function(){
 		var plotly = $window.Plotly;
 		
@@ -134,30 +126,30 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		
 		// update data (if currentIndex undefined, then set it to zero if we have elements
 		// and refresh plots)
-		if ($scope.currentIndex < 0){
-			if ($scope.elements.length){
-				$scope.currentIndex = 0;
+		if ($scope.segIdx < 0){
+			if ($scope.segIds.length){
+				$scope.segIdx = 0;
 			}
 		}
 		$scope.refreshView();
 	}
 	
 	$scope.setNextSegment = function(){
-		var currentIndex = ($scope.currentIndex + 1) % ($scope.elements.length);
+		var currentIndex = ($scope.segIdx + 1) % ($scope.segIds.length);
 		$scope.setSegment(currentIndex);
 	};
 	
 	$scope.setPreviousSegment = function(){
-		var currentIndex = $scope.currentIndex == 0 ? $scope.elements.length - 1 : $scope.currentIndex - 1;
+		var currentIndex = $scope.segIdx == 0 ? $scope.segIds.length - 1 : $scope.segIdx - 1;
         $scope.setSegment(currentIndex);
 	};
 	
 	$scope.refreshView = function(){
-		$scope.setSegment($scope.currentIndex);
+		$scope.setSegment($scope.segIdx);
 	}
 
 	$scope.setSegment = function(index){
-		$scope.currentIndex = index;
+		$scope.segIdx = index;
 		if (index < 0){
 			return;
 		}
@@ -169,21 +161,20 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			elm.zoom = [null, null];
 			return zoom;
 		});
-		var param = {segId: $scope.elements[index], filteredRemResp: $scope.showFiltered, zooms:zooms};
+		var param = {segId: $scope.segIds[index], filteredRemResp: $scope.showFiltered, zooms:zooms};
 		$scope.loading = true;
-		$http.post("/get_data", param, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
-			$scope.data = response.data;
-	        $scope.currentSegmentClassIds = response.data.class_ids;
+		$http.post("/get_segment_data", param, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
+			$scope.segData = response.data;
 	        $scope.redrawPlots();
 	    });
 	};
 	
 	$scope.redrawPlots = function(){
-		var scopeData = $scope.data;
+		var plotsData = $scope.segData.plot_data;
 		var plotly = $window.Plotly;
-		for (var i=0; i< Math.min($scope.plots.length, scopeData.length); i++){
+		for (var i=0; i< Math.min($scope.plots.length, plotsData.length); i++){
 			var div = $scope.plots[i].div;
-			var plotData = scopeData[i];
+			var plotData = plotsData[i];
 			var title = plotData[0];
 			var elements = plotData[1];
 			var warnings = plotData[2] || "";
@@ -200,7 +191,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 					y: line[2],
 					name: line[3],
 					type: 'scatter',
-		            opacity: 0,  // 0.95,
+		            opacity: 0.95,  // set to zero and uncomment the "use animations" below if you wish,
 		            line: {
 		            	  width: 1,
 		            	  color: (i==1 || i==2) ? '#dddddd' : color
@@ -228,34 +219,61 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			div.data = data;
 			plotly.redraw(div);
 			
-			if (!elements){
-				continue;
-			}
-
-			//use animation:
-			plotly.animate(div, {
-			    data: elements.map(function(obj,idx){return {opacity: 0.95};}), // [{opacity: 0.95}],
-			    traces: elements.map(function(obj,idx){return idx;}),
-			    layout: {}
-			  }, {
-			    transition: {
-			      duration: 500,
-			      easing: 'cubic-in-out'
-			    }
-			  })
+			//use animation: (commented: it takes too much)
+//			if (!elements){
+//				continue;
+//			}			
+//			plotly.animate(div, {
+//			    data: elements.map(function(obj,idx){return {opacity: 0.95};}), // [{opacity: 0.95}],
+//			    traces: elements.map(function(obj,idx){return idx;}),
+//			    layout: {}
+//			  }, {
+//			    transition: {
+//			      duration: 500,
+//			      easing: 'cubic-in-out'
+//			    }
+//			  })
 			
 		}
 		$scope.loading=false;
 	};
-	
 	
 	$scope.toggleFilter = function(){
 		//$scope.showFiltered = !$scope.showFiltered; THIS IS HANDLED BY ANGULAR!
 		$scope.refreshView();
 	};
 	
-	//$scope.configPlots();
+	$scope.toggleClassLabelForCurrentSegment = function(classId){
+		
+		var param = {class_id: classId, segment_id: $scope.segIds[$scope.segIdx]};
+	    $http.post("/toggle_class_id", param, {headers: {'Content-Type': 'application/json'}}).
+	    success(function(data, status, headers, config) {
+	        $scope.segData.class_ids = data.class_ids;
+	      }).
+	      error(function(data, status, headers, config) {
+	        // called asynchronously if an error occurs
+	        // or server returns response with an error status.
+	      });
+	};
 	
+	//visibility of some panels
+	$scope.isHidden = {};
+
+	$scope.divPanels = {};
+	$scope.isDivVisible = function(key){
+		if(!(key in $scope.divPanels)){
+			$scope.divPanels[key] = true;
+		}
+		return $scope.divPanels[key];
+	}
+	$scope.toggleDivVisibility = function(key){
+		var status = !$scope.isDivVisible(key); //adds the key if not present
+		$scope.divPanels[key] = status;
+		return status
+	}
+	
+	// init our app:
+	$scope.init();
 	
 	//===============================================================================
 	
@@ -311,21 +329,6 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			ts = ts.substring(0, ts.length - 1);
 		}
 		return ts.split("T");
-	};
-
-	
-	$scope.toggleClassIdSelectionForCurrentSegment = function(classId){
-		
-		var param = {class_id: classId, segment_id: $scope.elements[$scope.currentIndex]};
-	    $http.post("/toggle_class_id", param, {headers: {'Content-Type': 'application/json'}}).
-	    success(function(data, status, headers, config) {
-	        $scope.classes = data.classes;
-	        $scope.currentSegmentClassIds = data.segment_class_ids;
-	      }).
-	      error(function(data, status, headers, config) {
-	        // called asynchronously if an error occurs
-	        // or server returns response with an error status.
-	      });
 	};
 	
 	
@@ -418,8 +421,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	    }
 	};
 	
-	// init our app:
-	$scope.init();
+	
 	
 
 }]);
