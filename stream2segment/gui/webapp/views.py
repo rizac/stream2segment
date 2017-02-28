@@ -4,43 +4,45 @@ Created on Jun 20, 2016
 @author: riccardo
 '''
 
-from stream2segment.gui.webapp import app
+# from stream2segment.gui.webapp import app
 from stream2segment.gui.webapp import core
 from flask import render_template, request, jsonify
 from stream2segment.gui.webapp.core import get_num_custom_plots
+from flask import Blueprint
+# http://flask.pocoo.org/docs/0.12/patterns/appfactories/#basic-factories:
+from flask import current_app
+main_page = Blueprint('main_page', __name__, template_folder='templates')
 
-
-@app.route("/")
+@main_page.route("/")
 def main():
     ncp =get_num_custom_plots()
-    return render_template('index.html', title=app.config["DATABASE_URI"],
+    return render_template('index.html', title=current_app.config["DATABASE"],
                            numCustomPlots=ncp,
-                           customPlots=range(3, 3+ncp))  # app.config['DB_URI'])
+                           customPlots=range(5, 5+ncp))  # app.config['DB_URI'])
 
 
-@app.route("/get_elements", methods=['POST'])
+@main_page.route("/get_elements", methods=['POST'])
 def get_elements():
-    session = core._get_session(app)
-    dic = core.get_ids(session)
+    dic = core.get_ids()
     return jsonify(dic)
 
 
-@app.route("/get_classes", methods=['POST'])
+@main_page.route("/get_classes", methods=['POST'])
 def get_classes():
-    session = core._get_session(app)
-    return jsonify({'classes': core.get_classes(session)})
+    return jsonify({'classes': core.get_classes()})
 
 
-@app.route("/get_data", methods=['POST'])
+@main_page.route("/get_data", methods=['POST'])
 def get_data():
     data = request.get_json()
     seg_id = data['segId']
     rem_resp_filtered = data['filteredRemResp']
     zooms = data['zooms']
     # NOTE: seg_id is a unicode string, but the query to the db works as well
-    session = core._get_session(app)
-    return jsonify(core.get_data(session, seg_id, rem_resp_filtered, zooms))
-# 
+    return jsonify(core.get_data(seg_id, rem_resp_filtered, zooms))
+
+
+#
 # @app.route("/toggle_class_id", methods=['POST'])
 # def toggle_class_id():
 # #    db_uri = app.config['DATABASE_URI']

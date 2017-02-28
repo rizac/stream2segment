@@ -61,7 +61,7 @@ def itertrace(trace_or_stream):
 
 @stream_compliant
 def bandpass(trace, magnitude, freq_max=20, max_nyquist_ratio=0.9,
-             corners=2):
+             corners=2, copy=True):
     """filters a signal trace.
     :param trace: the input obspy.core.Trace
     :param magnitude: the magnitude which originated the trace (or stream). It dictates the value
@@ -71,7 +71,7 @@ def bandpass(trace, magnitude, freq_max=20, max_nyquist_ratio=0.9,
     be set as max_nyquist_ratio * freq_max (default: 0.9, i.e. 90%)
     :param corners: the corners (i.e., the order of the filter)
     """
-    tra = trace.copy()
+    tra = trace.copy() if copy is True else trace
 
     # get freq_min according to magnitude (see e.g. RRSM or ISM)
     # (this might change in the future)

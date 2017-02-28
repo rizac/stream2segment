@@ -3,7 +3,7 @@ Created on Jun 20, 2016
 
 @author: riccardo
 '''
-from stream2segment.gui.webapp import app
+from stream2segment.gui.webapp import create_app
 import sys
 import random
 import threading
@@ -14,9 +14,7 @@ from stream2segment.utils import get_default_dbpath
 
 # from stream2segment.io.db import ClassAnnotator
 def main(db_uri, port, debug):
-    app.config.update(
-                      DATABASE_URI=db_uri
-                      )
+    app = create_app(db_uri)
     app.run(port=port, debug=debug)
 
 
@@ -27,7 +25,7 @@ def run_in_browser(db_uri, port=None, debug=False):
     if not debug:
         threading.Timer(1.25, lambda: webbrowser.open(url)).start()
 
-    main(db_uri, port=port, debug=False)
+    main(db_uri, port=port, debug=debug)
 
 
 if __name__ == '__main__':

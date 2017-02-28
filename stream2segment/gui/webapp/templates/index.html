@@ -2,7 +2,8 @@
 <html>
 <head>
 <!-- <script src="static/js/moment.min.js"></script> -->
-<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<!-- <script src="https://cdn.plot.ly/plotly-latest.min.js"></script> -->
+<script src="static/js/plotly-latest.min.js"></script>
 <!-- <script src="static/js/Chart.js"></script> -->
 <script src="static/js/angular.min.js"></script>
 <link href="static/css/bootstrap.min.css" rel="stylesheet" media="screen">
@@ -22,18 +23,29 @@ var _NUM_CUSTOM_PLOTS = {{ numCustomPlots }};
 		<div class=top>
 	
 		</div>
-		<div class="center h-container">			
+		<div class="center h-container">
 			<div class="left v-container">
 				<div class=top>
 					Segment {{ '{{' }} currentIndex + 1 {{ '}}' }} of {{ '{{' }} elements.length {{ '}}' }}	
-					<button  ng-show="!isEditingIndex" class='btn btn-default' ng-click="setNextIndex()" >&rarr;</button>
-					<button  ng-show="!isEditingIndex" class='btn btn-default' ng-click="setPreviousIndex()">&larr;</button>
+					<button  ng-show="!isEditingIndex" class='btn btn-default' ng-click="setPreviousSegment()">&larr;</button>
+					<button  ng-show="!isEditingIndex" class='btn btn-default' ng-click="setNextSegment()" >&rarr;</button>
+					<div class="checkbox">
+						<label>
+      					<input type="checkbox" ng-model="showFiltered"
+      						ng-change="toggleFilter()"> Rem.resp&filter
+    					</label>
+  					</div>
 				</div>
 				<div class=center>
 					
 				</div>
 				<div class=bottom>
-					
+					<!-- <div class="progress-bar blue stripes">
+    					<span style="width: 40%"></span>
+					</div> -->
+					<div ng-show=loading class="alert alert-info">
+  						<strong>Loading</strong> please wait...
+					</div>
 				</div>
 			</div>
 			<div class="center h-container">
@@ -41,12 +53,14 @@ var _NUM_CUSTOM_PLOTS = {{ numCustomPlots }};
 				 We set height and width explicitly here below
 				 (not in the css, we need to mark this style important here)
 				  -->
-				<div class=mseed_plots_wrapper style="width:66%">
-					<div id="plot-0" class='plot' style="height:33%"></div>
-					<div id="plot-1" class='plot' style="height:33%"></div>
-					<div id="plot-2" class='plot' style="height:33%"></div>
+				<div class=mseed_plots_wrapper style="width:60%">
+					<div id="plot-0" class='plot' plot-type='time-series' style="height:33%"></div>
+					<div id="plot-1" class='plot' plot-type='time-series' style="height:33%"></div>
+					<div id="plot-2" class='plot' plot-type='time-series' style="height:33%"></div>
 				</div>
-				<div class=custom_plots_wrapper style="width:34%">
+				<div class=custom_plots_wrapper style="width:40%">
+					<div id="plot-3" style="height:{{ 100.0/(2+customPlots|length) }}%" class='plot' plot-type='freq-series'></div>
+					<div id="plot-4" style="height:{{ 100.0/(2+customPlots|length) }}%" class='plot' plot-type='time-series'></div>
 					{% for customPlotIndex in customPlots %}
 	  				<div id="plot-{{customPlotIndex}}" style="height:{{ 100.0/loop.length }}%" class='plot'></div>
 					{% endfor %}

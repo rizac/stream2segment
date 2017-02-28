@@ -5,12 +5,14 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	$scope.currentIndex = -1;
 	$scope.data = {}; // the data: it is an array of arrays. Each element has:
 	// data title, data x0, data xdelta, data y values
-	$scope.plots = new Array(3 + $window._NUM_CUSTOM_PLOTS); // will be set in configPlots called by refreshElements
+	$scope.plots = new Array(5 + $window._NUM_CUSTOM_PLOTS).fill(undefined); // will be set in configPlots called by refreshElements
 	$scope.showFiltered = true;
 	$scope.isEditingIndex = false;
 	$scope.classes = [];
 	$scope.currentSegmentClassIds = [];
 	$scope.currentSegmentText = "";
+	$scope.loading=true;
+	$scope.globalZoom = true;
 
 	$scope.init = function(){  // update classes and elements
 		var data = {}; //maybe in the future pass some data
@@ -31,37 +33,68 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	};
 	
 	$scope.configPlots = function(){
-		var numPlots = $scope.plots.length;
 		var plotly = $window.Plotly;
-		$scope.plots = [];
 		
-		var mseedLayout = { //https://plot.ly/javascript/axes/
-				margin:{'l':50, 't':35, 'b':30, 'r':15},
+		var tSeriesLayout = { //https://plot.ly/javascript/axes/
+				margin:{'l':50, 't':30, 'b':40, 'r':15},
 				xaxis: {
-					type: 'date'
+					autorange: true,
+					tickangle: 0,
+					type: 'date',
+					titlefont: {
+					      color: '#df2200'
+					}
 				},
 				yaxis: {
-					fixedrange: true
-				}
+					autorange: true,
+					//fixedrange: true
+				},
+				annotations: [{
+				    xref: 'paper',
+				    yref: 'paper',
+				    x: 0,
+				    xanchor: 'left',
+				    y: 1,
+				    yanchor: 'bottom',
+				    text: '',
+				    showarrow: false,
+				    //bordercolor: '#c7c7c7',
+				    //borderwidth: 2,
+				    borderpad: 5,
+				    bgcolor: 'rgba(31, 119, 180, .1)',  // = '#1f77b4',
+				    // opacity: 0.1,
+				    font: {
+				        // family: 'Courier New, monospace',
+				        // size: 16,
+				        color: '#000000'
+				      },
+				  }]
 			};
-		var fftLayout = { //https://plot.ly/javascript/axes/
-				xaxis: {
-					//type: 'date'
-				},
-				yaxis: {
-					fixedrange: true
-				}
-			};
-		var customPlotLayout = {
-				xaxis: {
-					type: 'date'
-				},
-				yaxis: {
-					fixedrange: true
-				}
-		};
 		
-		// create function for notifting zoom. On all plots except
+		// create a deep copy (assuming we have simple dict-like objects
+ 		// see http://stackoverflow.com/questions/728360/how-do-i-correctly-clone-a-javascript-object
+ 		var fftLayout = JSON.parse(JSON.stringify(tSeriesLayout));
+		fftLayout.xaxis.type = 'log';
+		fftLayout.yaxis.type = 'log';
+		
+		var divs = [];
+		$scope.plots = $scope.plots.map(function(element, i){
+			var plotId = 'plot-' + i;
+			var div = $window.document.getElementById(plotId);
+			divs.push(div);
+			var idf = 9;
+			var layout = i == 3 ? fftLayout : tSeriesLayout;
+			//COPY OBJECTS!!!
+			plotly.newPlot(div, [{x0:0, dx:1, y:[0], type:'scatter', 'opacity': 0}], JSON.parse(JSON.stringify(layout)));
+			return {
+				'div': div,
+				'zoom': [null, null],
+				'type': div.getAttribute('plot-type')
+			};
+		});
+
+		//setup listener (we could have done it in the loop above but is more readable like this)
+		// create function for notifying zoom. On all plots except
 		// other components
 		var zoomListenerFunc = function(plotIndex){
 			return function(eventdata){
@@ -71,33 +104,34 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 				if(!isZoom){
 					return;
 				}
-				if (plotIndex==1 || plotIndex==2 || plotIndex==3){
-					indices = [0,1,2];
+				var zoom = [eventdata['xaxis.range[0]'], eventdata['xaxis.range[1]']];
+				var plot = $scope.plots[plotIndex];
+				var plotType = plot.type;
+				if ($scope.globalZoom){
+					$scope.plots.forEach(function(plot){
+						if (plot.type === plotType){
+							plot.zoom = [zoom[0], zoom[1]];  // copy (for safety)
+						}
+					});
 				}else{
-					indices = [plotIndex];
+					plot.zoom = [zoom[0], zoom[1]];  // copy (for safety)
 				}
-				indices.forEach(function(element, index, array){
-					$scope.plots[index].zoom = [eventdata['xaxis.range[0]'], eventdata['xaxis.range[1]']];
-				});
-				$scope.refreshCurrentIndex();
+				$scope.refreshView();
+		    }
+		};
+
+		var autoZoomListenerFunc = function(plotIndex){
+			return function(eventdata){
+				$scope.refreshView(); // zooms are reset after use, so this redraw normal bounds
 		    }
 		};
 		
-		var layouts = [mseedLayout,mseedLayout,mseedLayout,fftLayout];
-		var emptyData = [{x0:0, dx:1, y:[0], type:'scatter'}];
-
-		for(var i=0; i < numPlots; i++){
-			var plotId = 'plot-' + i;
-			var div = $window.document.getElementById(plotId);
-			$scope.plots[i] = {
-				'div': div,
-				'zoom': [null, null]
-			};
-			var layout = i < layouts.length ? layouts[i] : customPlotLayout;
-			plotly.newPlot(div, emptyData, layout);
+		divs.forEach(function(div, i){
 			div.on('plotly_relayout', zoomListenerFunc(i));
-		};
-
+			div.on('plotly_doubleclick', autoZoomListenerFunc(i));
+		});
+		
+		
 		// update data (if currentIndex undefined, then set it to zero if we have elements
 		// and refresh plots)
 		if ($scope.currentIndex < 0){
@@ -105,43 +139,38 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 				$scope.currentIndex = 0;
 			}
 		}
-		$scope.refreshCurrentIndex();
+		$scope.refreshView();
 	}
 	
-	$scope.setNextIndex = function(){
+	$scope.setNextSegment = function(){
 		var currentIndex = ($scope.currentIndex + 1) % ($scope.elements.length);
-		$scope.setCurrentIndex(currentIndex);
+		$scope.setSegment(currentIndex);
 	};
 	
-	$scope.setPreviousIndex = function(){
+	$scope.setPreviousSegment = function(){
 		var currentIndex = $scope.currentIndex == 0 ? $scope.elements.length - 1 : $scope.currentIndex - 1;
-        $scope.setCurrentIndex(currentIndex);
+        $scope.setSegment(currentIndex);
 	};
 	
-	$scope.refreshCurrentIndex = function(index){
-		$scope.setCurrentIndex($scope.currentIndex);
+	$scope.refreshView = function(){
+		$scope.setSegment($scope.currentIndex);
 	}
 
-	$scope.setCurrentIndex = function(index){
+	$scope.setSegment = function(index){
 		$scope.currentIndex = index;
 		if (index < 0){
 			return;
 		}
 		$scope.isEditingIndex = false;
 		
-		var zooms = $scope.plots.map(function(elm, idx, array){
+		var zooms = $scope.plots.map(function(elm){
 			zoom = elm.zoom; //2 element array
-			//set zoom to zero:
-			$scope.plots[idx].zoom = [null, null];
-			if ($scope.plots[idx].div.layout.xaxis){
-				// remove the properties set by a previous zoom, if any:
-				$scope.plots[idx].div.layout.xaxis.autorange=true;
-				delete $scope.plots[idx].div.layout.range;
-			}
+			//set zoom to zero, otherwise these value are persistent and affect further plots:
+			elm.zoom = [null, null];
 			return zoom;
 		});
-		var param = {segId: $scope.elements[index], filteredRemResp: $scope.showFiltered,
-				zooms:zooms};
+		var param = {segId: $scope.elements[index], filteredRemResp: $scope.showFiltered, zooms:zooms};
+		$scope.loading = true;
 		$http.post("/get_data", param, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
 			$scope.data = response.data;
 	        $scope.currentSegmentClassIds = response.data.class_ids;
@@ -156,46 +185,74 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			var div = $scope.plots[i].div;
 			var plotData = scopeData[i];
 			var title = plotData[0];
-			var x0 = plotData[1];
-			var dx = plotData[2];
-			var y = plotData[3];
-			var data = [
-			            {
-			              x0: x0,
-			              dx: dx,
-			              y: y,
-			              type: 'scatter'
-			            }
-			          ];
-
-			//div.layout.title = title;
-			if (div.data){
-				var indices = div.data.map(function(elm, index, array){
-					return index;
-				});
-				plotly.deleteTraces(div, indices);
+			var elements = plotData[1];
+			var warnings = plotData[2] || "";
+			var xrange = plotData[3] || null;
+			//http://stackoverflow.com/questions/40673490/how-to-get-plotly-js-default-colors-list
+			var colors = Plotly.d3.scale.category20();
+			var data = [];
+			for (var j=0; j<elements.length; j++){
+				var color = colors[j % colors.length];
+				var line = elements[j];
+				data.push({
+					x0: line[0],
+					dx: line[1],
+					y: line[2],
+					name: line[3],
+					type: 'scatter',
+		            opacity: 0,  // 0.95,
+		            line: {
+		            	  width: 1,
+		            	  color: (i==1 || i==2) ? '#dddddd' : color
+		            }
+				})
 			}
-			plotly.addTraces(div, data);
+			if (div.layout){
+				// hack for setting the title left (so that the tool-bar does not overlap
+				// so easily). Comment this:
+				// div.layout.title = title;
+				// and set the first annotation (provided in configPlots)
+				if (div.layout.annotations){
+					div.layout.annotations[0].text = title;
+				}
+				if (div.layout.xaxis){
+					div.layout.xaxis.autorange = true;
+					if (xrange){
+						div.layout.xaxis.autorange = false;
+						div.layout.xaxis.range = xrange;
+					}
+					div.layout.xaxis.title = warnings;
+					div.layout.margin['b'] = warnings ? 80 : 40;
+				}
+			}
+			div.data = data;
+			plotly.redraw(div);
 			
-			//re-layout will trigger a zoom event, which will trigger a setCurrentIndex,
-			// which will call this method and so on
-			plotly.relayout(div, {title: title});
+			if (!elements){
+				continue;
+			}
+
+			//use animation:
+			plotly.animate(div, {
+			    data: elements.map(function(obj,idx){return {opacity: 0.95};}), // [{opacity: 0.95}],
+			    traces: elements.map(function(obj,idx){return idx;}),
+			    layout: {}
+			  }, {
+			    transition: {
+			      duration: 500,
+			      easing: 'cubic-in-out'
+			    }
+			  })
 			
-//			plotly.animate(div, {
-//			    data: data,
-//			    traces: [0],
-//			    layout: {title: title}
-//			  }, {
-//			    transition: {
-//			      duration: 500,
-//			      easing: 'cubic-in-out'
-//			    }
-//			  });
 		}
+		$scope.loading=false;
 	};
 	
 	
-	
+	$scope.toggleFilter = function(){
+		//$scope.showFiltered = !$scope.showFiltered; THIS IS HANDLED BY ANGULAR!
+		$scope.refreshView();
+	};
 	
 	//$scope.configPlots();
 	
@@ -205,14 +262,9 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	$scope.setCurrentIndexFromText = function(){
 		var index = parseInt($scope.currentSegmentText);
 		if (index >0 && index <= $scope.elements.length){
-			$scope.setCurrentIndex(index-1);
+			$scope.setSegment(index-1);
 		}
 	}
-	
-	$scope.toggleFilter = function(){
-		//$scope.showFiltered = !$scope.showFiltered; THIS IS HANDLED BY ANGULAR!
-		$scope.updatePlots(true);
-	};
 	
 	$scope.getCurrentSegmentName = function(){
 		if (!$scope.data || !$scope.data.metadata){
