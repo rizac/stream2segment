@@ -22,7 +22,7 @@ from sqlalchemy.orm.exc import FlushError
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.inspection import inspect
 from datetime import timedelta
-
+from sqlalchemy.orm.session import object_session
 
 class Test(unittest.TestCase):
     
@@ -147,10 +147,18 @@ class Test(unittest.TestCase):
         cnames = list(colnames(run_row.__class__))
         assert len(cnames) > 0
 
+        assert object_session(run_row) is not self.session
         # test id is auto added:
         self.session.add_all([run_row])
+        # assert we have a session
+        assert object_session(run_row) is self.session
+        
         # self.session.flush()
         self.session.commit()
+        
+        # assert we still have a session
+        assert object_session(run_row) is self.session
+        
         assert run_row.id is not None
 
         # assert run_row.run_time is not None:

@@ -176,11 +176,6 @@ def closing(dburl, scoped=False, close_logger=True):
         logger.critical(str(exc))
         raise
     finally:
-        try:
-            session.close()
-            session.bind.dispose()
-        except NameError:
-            pass
         if close_logger:
             handlers = logger.handlers[:]  # make a copy
             for handler in handlers:
@@ -189,6 +184,12 @@ def closing(dburl, scoped=False, close_logger=True):
                     logger.removeHandler(handler)
                 except (AttributeError, TypeError, IOError, ValueError):
                     pass
+        # close the session at the **real** end! we might need it above when closing loggers!!!!!
+        try:
+            session.close()
+            session.bind.dispose()
+        except NameError:
+            pass
 
 
 @click.group()

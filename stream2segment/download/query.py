@@ -95,21 +95,23 @@ def get_datacenters(session, **query_args):
 #              'start=%s&end=%s&format=post') % (start_time.isoformat(), end_time.isoformat())
     try:
         dc_result = urlread(query, decode='utf8')
+        # add to db the datacenters read. Two little hacks:
+        # 1) parse dc_result string and assume any new line starting with http:// is a valid station
+        # query url
+        # 2) When adding the datacenter, the table column dataselect_query_url (when not provided,
+        # as in this case) is assumed to be the same as station_query_url by replacing "/station"
+        # with "/dataselect". See https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf
+        datacenters = [DataCenter(station_query_url=dcen) for dcen in dc_result.split("\n")
+                       if dcen[:7] == "http://"]
     except URLException as urlexc:
-        logger.error(msgs.format(urlexc.exc, query))
+        logger.warning(msgs.format(urlexc.exc, query))
         dc_result = None
+        datacenters = []
 
+    # if we got some errors, try to get the datacenters already downloaded
     if not dc_result:
-        return empty_result
-    # add to db the datacenters read. Two little hacks:
-    # 1) parse dc_result string and assume any new line starting with http:// is a valid station
-    # query url
-    # 2) When adding the datacenter, the table column dataselect_query_url (when not provided, as
-    # in this case) is assumed to be the same as station_query_url by replacing "/station" with
-    # "/dataselect". See https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf
-
-    datacenters = [DataCenter(station_query_url=dcen) for dcen in dc_result.split("\n")
-                   if dcen[:7] == "http://"]
+        logger.info(msgs.format("No datacenter downloaded, trying to work with already "
+                                "saved datacenters"))
 
     new = 0
     err = 0
@@ -123,9 +125,13 @@ def get_datacenters(session, **query_args):
     if err > 0:
         logger.warning(msgs.db.dropped_dc(err, query))
 
-    dcenters = session.query(DataCenter).all()
+    dcenters = session.query(DataCenter)
     # do not return only new datacenters, return all of them
-    return {dcen.id: dcen for dcen in dcenters}
+    ret = {dcen.id: dcen for dcen in dcenters}
+    if not dc_result:
+        logger.error(msgs.format("No datacenters available"))
+
+    return ret
 
 
 def make_ev2sta(session, events, datacenters, sradius_minmag, sradius_maxmag, sradius_minradius,

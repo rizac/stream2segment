@@ -158,7 +158,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
 
 
     @patch('stream2segment.download.query.get_query', return_value='a')
-    def tst_get_events(self, mock_query):
+    def test_get_events(self, mock_query):
         data = self.get_events(None, self.session,
                                "eventws")  # , "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
         # assert only three events where succesfully saved to db
@@ -173,7 +173,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         return get_datacenters(*a, **kw)
 
 
-    def tst_add_classes(self):
+    def test_add_classes(self):
         cls = {'a' : 'bla', 'b' :'c'}
         add_classes(self.session, cls)
         assert len(self.session.query(Class).all()) == 2
@@ -182,7 +182,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         
 
     @patch('stream2segment.download.query.get_query', return_value='a')
-    def tst_get_dcs(self, mock_query):
+    def test_get_dcs(self, mock_query):
         data = self.get_datacenters(session=self.session)
         assert len(self.session.query(DataCenter).all()) == len(data) == 2
         mock_query.assert_called_once()  # we might be more fine grained, see code
@@ -194,7 +194,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         self.setup_urlopen(self._sta_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
         return make_ev2sta(*a, **kw)
     
-    def tst_make_ev2sta(self):
+    def test_make_ev2sta(self):
         events = self.get_events(None, self.session,
                                "eventws")  # , "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
         datacenters = self.get_datacenters(session=self.session)
@@ -241,7 +241,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         # self.setup_mock_arrival_time(mock_arr_time)
         return get_segments_df(*a, **kw)
 
-    def tst_get_segments_df(self):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
+    def test_get_segments_df(self):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
         events = self.get_events(None, self.session,
                                "eventws", )  # "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
         datacenters = self.get_datacenters(session=self.session)
@@ -285,7 +285,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         return download_segments(*a, **kw)
  
  
-    def tst_download_segments(self):
+    def test_download_segments(self):
         events = self.get_events(None, self.session,
                                "eventws", )  # "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
         datacenters = self.get_datacenters(session=self.session)
@@ -525,4 +525,45 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         segments = self.session.query(models.Segment).all()
         assert len(segments) == 0
 
+
+
+    @patch('stream2segment.download.query.make_ev2sta')
+    @patch('stream2segment.download.query.get_events')
+    @patch('stream2segment.download.query.get_datacenters')
+    def test_cmdline_datacenter_query_error(self, mock_get_datacenter, mock_get_events,
+                                            mock_make_ev2sta):
+        
+        def getev(*a, **v):
+            # return only one event (assure event does not raise errors, we want to test the datacenters)
+            url_read_side_effect = ["""1|2|3|4|5|6|7|8|9|10|11|12|13
+20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN)""", ""]
+            _ =  self.get_events(url_read_side_effect, *a, **v)
+            return _
+        mock_get_events.side_effect = getev
+        
+        
+        def getdc(*a, **v):
+            return self.get_datacenters([URLError('oops')], *a, **v)
+        mock_get_datacenter.side_effect = getdc
+
+        def ev2sta(*a, **v):
+            # whatever is ok, as we will test to NOT have called this function!
+            return self.make_ev2sta(None, *a, **v)
+        mock_make_ev2sta.side_effect = ev2sta
+        # prevlen = len(self.session.query(models.Segment).all())
+    
+        runner = CliRunner()
+        result = runner.invoke(main , ['d', '--dburl', self.dburi,
+                                       '--start', '2016-05-08T00:00:00',
+                                       '--end', '2016-05-08T9:00:00'])
+        if result.exception:
+            import traceback
+            traceback.print_exception(*result.exc_info)
+            print result.output
+            assert False
+            return
+        
+        assert not mock_make_ev2sta.called
+        segments = self.session.query(models.Segment).all()
+        assert len(segments) == 0
 
