@@ -121,8 +121,8 @@ def get_metadata(segment):
             subdata.append((c, val))
         ret.append(block)
 
-    ret.append(['misc', ('misc.datacenter', segment.datacenter.dataselect_query_url),
-                ('downloaded@', segment.run.run_time.isoformat())])
+    ret.append(['misc', [('datacenter', segment.datacenter.dataselect_query_url),
+                ('downloaded@', segment.run.run_time.isoformat())]])
     return ret
 
 
