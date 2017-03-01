@@ -167,7 +167,6 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
     logger.info("Executing '%s' in '%s'", funcname, pysourcefile)
     logger.info(" for all segments in '%s", str(session.bind.engine.url))
     logger.info("Config. file: %s", str(configsourcefile))
-    logger.info("", str(configsourcefile))
 
     save_station_inventory = config.get('inventory', False)
 

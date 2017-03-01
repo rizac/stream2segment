@@ -12,7 +12,8 @@ from contextlib import contextmanager
 import time
 from stream2segment.io.db.pd_sql_utils import commit
 from stream2segment.utils import timedeltaround
-
+from sqlalchemy.orm.session import object_session
+from stream2segment.io.db.models import Run
 # CRITICAL    50
 # ERROR    40
 # WARNING    30
@@ -42,6 +43,8 @@ class DbStreamHandler(logging.StreamHandler):
         # access the stream with self.stream
         self.session = session
         self.run_row = run_instance
+        # for safety:
+        self.run_row.errors = self.run_row.warnings = 0
         self.csoc = close_session_on_close
         # configure level and formatter
         self.setLevel(min_level)
