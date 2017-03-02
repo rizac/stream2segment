@@ -530,7 +530,7 @@ def download_segments(session, segments_df, run_id, max_error_count, max_thread_
     if not empty(segments_df):
         # http://stackoverflow.com/questions/20625582/how-to-deal-with-settingwithcopywarning-in-pandas
         segments_df.is_copy = False  # FIXME: still need it?
-        segments_df[Segment.run_id.key] = run_id
+        # segments_df[Segment.run_id.key] = run_id  # we will do it later
         for model_instance in df2dbiter(segments_df, Segment, False, False):
             already_downloaded = model_instance.id is not None
             # if we have tried an already saved instance, and no data is found
@@ -538,15 +538,17 @@ def download_segments(session, segments_df, run_id, max_error_count, max_thread_
             if already_downloaded and not model_instance.data:
                 stats[model_instance.datacenter_id][(RETRY_NODATA_MSG)] += 1
                 continue
-            elif already_downloaded:
+            # now we will either update or add the new segment. Set the run_id first:
+            if already_downloaded:
                 # already downloaded, but this time data was found
                 # (if we attempted an already downloaded, it means segment.data was empty or None):
                 # note that we do not update run_id
                 stats[model_instance.datacenter_id][RETRY_WITHDATA_MSG] += 1
                 session.query(Segment).filter(Segment.id == model_instance.id).\
-                    update({Segment.data.key: model_instance.data},
+                    update({Segment.data.key: model_instance.data, Segment.run_id.key: run_id},
                            synchronize_session=sync_session_on_update)
             else:
+                model_instance.run_id = run_id
                 session.add(model_instance)
             if commit(session):
                 msg = NEW_WITHDATA_MSG if model_instance.data else NEW_NODATA_MSG
