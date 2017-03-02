@@ -450,8 +450,9 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         # test that nothing happened:
         segments = self.session.query(models.Segment).all()
         assert segments[1].id == emptySegId and not segments[1].data
+        run_id = segments[1].run_id
         
-        # relaunch with 'D' (retry empty or Null segments data)
+        # relaunch (retry empty or Null segments data)
         runner = CliRunner()
         result = runner.invoke(main , ['d', '--dburl', self.dburi, '--retry',
                                        '--start', '2016-05-08T00:00:00',
@@ -465,7 +466,8 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         # test that now empty segment has new data:
         segments = self.session.query(models.Segment).all()
         assert segments[1].id == emptySegId and segments[1].data == newdata
-        
+        # assert run_id changed:
+        assert segments[1].run_id != run_id
 
 
     @patch('stream2segment.download.query.get_events')
