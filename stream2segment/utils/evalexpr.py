@@ -2,6 +2,7 @@ import numpy as np
 import math
 import json
 from datetime import datetime
+from datetime import MAXYEAR, MINYEAR
 import re
 from __builtin__ import eval as builtin_eval
 
@@ -30,12 +31,6 @@ def _isbool(val):
 def _isstr(val):
     """see doc for _isnum applied to booleans"""
     return type(val) in _strtypes or (_isnumpy(val) and val.dtype.kind in 'SU')
-
-
-# datetime regexp, to do a preliminary check and see if it's a datetime.
-# In any case, we will parse it with numpy to be sure. The latter accepts leading and trailing
-# spaces so we do it as well
-_dtyme_re = re.compile(r'^\s*\d\d\d\d-\d\d-\d\d(?:[T ]\d\d:\d\d:\d\d(?:.\d{1,6})?)?\s*$')
 
 
 def _isdtime(val):
@@ -76,7 +71,7 @@ def _get_domain_bounds(bound):
     if _isnum(bound):
         return -float('inf'), +float('inf')
     elif _isdtime(bound):  # note: comparison of dtimes must be done before _isstr
-        return None, None
+        return datetime(MINYEAR, 1, 1), datetime(MAXYEAR, 12, 31, 23, 59, 59, 999999)
     elif _isstr(bound):
         return '', None
     elif type(bound) == bool:
@@ -132,7 +127,6 @@ class interval(object):
     _OPERATORS1 = set(('<', '>', '='))
     _OPERATORS2 = set(('==', '>=', '<='))
     single_equal_is_operator = True
-    # _inf = float('inf')
     _nan = float('nan')
     _funcarg_varname = "__x__"
 
@@ -174,10 +168,10 @@ class interval(object):
         # and the other not, we will check the error later
         is_l_dtime = l_bound is not None and _isdtime(l_bound)
         is_u_dtime = u_bound is not None and _isdtime(u_bound)
-        self._dtype = 'datetime64[us]' if any([is_l_dtime, is_u_dtime]) else None
         # set a flag cause if datetime we need to convert strings into datetime(s) in __call__
-        # comparison via __eq__, __ne__ on the other hand is fine because bounds are stored as numpy
-        # datetime(s)
+        # comparison via __eq__, __ne__ on the other hand is fine because bounds are stored as
+        # python datetime(s)
+        self._dtype = 'datetime64[us]' if any([is_l_dtime, is_u_dtime]) else None
         self.l_bound, self.u_bound = l_bound, u_bound
         self.l_isopen, self.u_isopen = l_isopen, u_isopen
 
@@ -237,18 +231,8 @@ class interval(object):
         # note: need to check what happens for [inf]. Is it scalar? If yes, this should not
         # be accounted for here if we specified None as u_bound for instance
         none_isnone = self.l_bound is not None and self.u_bound is not None
-        return none_isnone and self.l_bound == self.u_bound and not self.l_isopen and not self.u_isopen
-
-    @classmethod
-    def _get_condition(cls, direction, bound, isopen, val):
-        cond = None
-        if bound is None:
-            return cond  # skip any comparison on this side of the interval
-        elif direction == -1:  # left
-            cond = val > bound if isopen else val >= bound
-        else:  # right
-            cond = val < bound if isopen else val <= bound
-        return cond
+        return none_isnone and self.l_bound == self.u_bound and\
+            not self.l_isopen and not self.u_isopen
 
     def __call__(self, val):
         """
@@ -260,75 +244,55 @@ class interval(object):
         # problems in numpy==1.11.3:
         #
         # Operation               Result and type(result)                         Problems
-        # ======================  ======================================== ====================================
+        # ======================  ======================================== ======================
         # 5 <= 5                  True <type 'bool'>
         # np.array(5) <= 5        True <type 'numpy.bool_'>
         #
-        # [4,5,6] <= 5            False <type 'bool'>                      should be same output as np (row below)
+        # [4,5,6] <= 5            False <type 'bool'>
         # np.array([4,5,6]) <= 5  [True True False] <type 'numpy.ndarray'>
         #
         # "5" <= 5                False <type 'bool'>
-        # np.array("5") <= 5      False <type 'bool'>                      WTF?!!! should return a np.bool_!!!!
+        # np.array("5") <= 5      False <type 'bool'>                      WTF?!!! no a np.bool_?
         # np.array(5) <= 4        False <type 'numpy.bool_'>               WTF?!! type is now ok!
         #
-        # WE CHOOSE TO RETURN ALWAYS np objects. We need to correct the case where the result is False
-        # (i.e., python False)
+        # WE CHOOSE TO RETURN ALWAYS np objects. The latter case issues from dtypes uncomparable
+        # so we will use the module function _types_comparable
 
-        # Another issue when calling np.asarray: self._dtype is usually None, *except* for
-        # datetimes. In the latter
-        # case, np.asarray will coerce strings or datetimes into an appropriate 
-        # (and hopefully, performance efifcient) numpy
-        # datetime. BUT in this case we might have ValueError's, which we do not have for other
-        # types where numpy infers it from the data.
-
-        # Thus, we decide to set cond=False in case of dtype coerce errors, or interval empty,
-        # which is the same as the case outlined in the table above where no errors are thrown
-        # but numpy compares apples with oranges
         cond = False
         shape = None
-        if not self.empty:
-            try:
-                np_val = np.asarray(val)  # does not copy if already numpy array
+        np_val = np.asarray(val)
+        try:
+            if self.empty:
+                raise TypeError()
 
-                # if datetime, numpy might have created an array of objects. Let's convert them:
-                if self._dtype and np_val.dtype.kind == 'O':
-                    np_val = np_val.astype(self._dtype)
+            # if datetime and val is datetime (or a list of datetime's),
+            # numpy has created an array of objects. This lets convert them:
+            if self._dtype and np_val.dtype.kind == 'O':
+                np_val = np_val.astype(self._dtype)
 
-                if not _types_comparable(np_val, self._refval):
-                    raise ValueError('')
+            # this should avoid tht cond is False (see above)
+            if not _types_comparable(np_val, self._refval):
+                raise TypeError()
 
-                # check if isscalar first (for speed): (e.g. [5], closed interval of just one
-                # element)
-                shape = np_val.shape
-                if self.isscalar:
-                    cond = np_val == self._refval
+            if self.isscalar:
+                cond = np_val == self._refval
+            else:
+                l_cond = None if self.l_bound is None else \
+                    np_val > self.l_bound if self.l_isopen else np_val >= self.l_bound
+                u_cond = None if self.u_bound is None else \
+                    np_val < self.u_bound if self.u_isopen else np_val <= self.u_bound
+
+                if l_cond is None and u_cond is None:
+                    return np.ones(shape=np_val.shape, dtype=bool)
+                elif l_cond is None:
+                    cond = u_cond
+                elif u_cond is None:
+                    cond = l_cond
                 else:
-                    l_cond = self._get_condition(-1, self.l_bound, self.l_isopen, np_val)
-                    u_cond = self._get_condition(1, self.u_bound, self.u_isopen, np_val)
+                    cond = l_cond & u_cond
+        except TypeError:
+            return np.zeros(shape=shape, dtype=bool)
 
-                    if l_cond is None and u_cond is None:
-                        return np.ones(shape=np_val.shape, dtype=bool)
-                    elif l_cond is None:
-                        cond = u_cond
-                    elif u_cond is None:
-                        cond = l_cond
-                    else:
-                        if l_cond is False or u_cond is False:  # see above commented text
-                            cond = False
-                        else:
-                            cond = l_cond & u_cond
-            except (TypeError, ValueError):
-                pass
-
-        # see above commented text
-        if cond is False:
-            if shape is None:  # we didn't convert val to numpy array, we need a shape.
-                # Try to infer it without allocating a whole array:
-                if hasattr(val, "__len__") and not isinstance(val, str):
-                    shape = (len(val),)
-                else:  # ok, try to get the shape by allocating a numpy array:
-                    shape = np.asarray(val).shape
-            cond = np.zeros(shape=shape, dtype=bool)
         return cond
 
     def __contains__(self, value):
@@ -386,16 +350,20 @@ class interval(object):
             val = cls._evalchunk(chunk)
             return interval(l_isopen=False, l_bound=val, u_bound=val, u_isopen=False)
 
+    # datetime regexp, used to eval otherwise unrecognized strings to datetime's
+    # See interval.eval_chunk
+    _dtyme_re = re.compile(r'^\s*\d\d\d\d-\d\d-\d\d(?:[T ]\d\d:\d\d:\d\d(?:.\d{1,6})?)?\s*$')
+
     @classmethod
     def _evalchunk(cls, chunk):
         try:
             return eval(chunk)
         except Exception:
-            if _dtyme_re.match(chunk):
+            if cls._dtyme_re.match(chunk):
                 return np.array(chunk, dtype='datetime64[us]').item()
             raise SyntaxError('Invalid syntax: "%s"' % chunk)
 
-    def _cmp_(self, other):
+    def __cmp__(self, other):
         try:
             if isinstance(other, interval) and \
                 _types_comparable(self._refval, other._refval) and \
@@ -423,7 +391,7 @@ class interval(object):
     def _cmp_result(self, other):
         # used below. Just return something that evaluates to False if NotImplemented
         # (the latter is not comparable, e.g. NotImplemented > 1 is True!
-        res = self._cmp_(other)
+        res = self.__cmp__(other)
         return self._nan if res is NotImplemented else res
 
     def __lt__(self, other):

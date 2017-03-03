@@ -11,7 +11,7 @@ from datetime import datetime
 import numpy as np
 import unittest
 import pytest
-from itertools import product, izip
+from itertools import product, izip, count
 import time
 
 
@@ -330,15 +330,19 @@ def test_perf():
     print "numpy filter: %s" % (time.time() - start)
     
     start = time.time()
-    i1 = interval(True, None, val, False)
-    i2 = interval(True, None, val, True)
-    i3 = interval(True, val, val, True)
-    i4 = interval(True, val, None, True)
-    i5 = interval(False, val, None, True)
+    i1 = interval(False, None, val, False)
+    i2 = interval(False, None, val, True)
+    i3 = interval(False, val, val, False)
+    i4 = interval(True, val, None, False)
+    i5 = interval(False, val, None, False)
     int1 = [i1(a), i2(a), i3(a), i4(a), i5(a)]
     print "interval with constructor: %s" % (time.time() - start)
 
     assert all(np.array_equal(n, i) for n, i in izip(nps, int1))
+
+#     for i, n, idx in izip(nps, int1, count()):
+#         if not np.array_equal(n, i):
+#             dfg = 9
 
 def test_str():
     print "Printing some stuff to check str(interval), please ignore"
