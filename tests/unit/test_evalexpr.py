@@ -239,18 +239,19 @@ def test_intervals():
     with pytest.raises(Exception):
         i1 = interval(True, "2006-01-01", 45, True)
 
+    # datetimes. Quoted are interpreted as strings:
     i0 = i_parse('["2016-08-17T05:04:04", "2016-09-17T05:04:04"]')
-    assert i0._dtype == 'datetime64[us]'
+    assert i0._dtype != 'datetime64[us]'
     assert '2016-08-23T05:04:09' in i0
     assert datetime.utcnow() not in i0
     
-    # check without quotes, it should work anyway
+    # check without quotes, it should work
     i1 = i_parse('[2016-08-17T05:04:04, 2016-09-17T05:04:04]')
-    assert i0._dtype == 'datetime64[us]'
-    assert i0 == i1
+    assert i1._dtype == 'datetime64[us]'
+    assert i0 != i1
 
     # what about rounding?
-    i1 = i_parse('[2016-08-17T05:04:04.000, 2016-09-17T05:04:04.000]')
+    i0 = i_parse('[2016-08-17T05:04:04.000, 2016-09-17T05:04:04.000]')
     assert i0._dtype == 'datetime64[us]'
     assert i0 == i1
 
@@ -260,10 +261,10 @@ def test_intervals():
     assert '2017-08-23T05:14:04' not in i0
     assert '2015-08-23T05:24:01' not in i0
 
-    assert '2016-08-17T05:04:04' in i0
-    assert '2016-09-17T05:04:04' in i0
-    i0 = i_parse(']"2016-08-17T05:04:04", "2016-09-17T05:04:04"]')
-    assert '2016-08-17T05:04:04' not in i0
+    assert datetime(2016, 8, 17, 5, 4, 4) in i0
+
+    i0 = i_parse(']2016-08-17T05:04:04, 2016-09-17T05:04:04]')
+    assert datetime(2016, 8, 17, 5, 4, 4) not in i0
 
     d1 = datetime.utcnow()
     d2 = datetime.utcnow()
@@ -275,22 +276,29 @@ def test_intervals():
                                                                    ubstr))
 
     i0 = i_parse(']"2016-08-17T05:04:04", "2016-09-17T05:04:04"[')
-    assert '2016-09-17T05:04:04' not in i0
-
-    i0 = i_parse('["2016-08-17T05:04:04", "2016-09-17T05:04:04"[')
-    assert '2016-09-17T05:04:04' not in i0
-
-    i0 = i_parse('<"2016-08-17T05:04:04"')
+    assert not i0._dtype
+    assert '2016-09-17T05:04:04' not in i0  # string, out of bounds
+    assert '2016-09-17T05:04:03' in i0  # is a string
+    assert datetime(2016,8,25) not in i0  # datetime, not same type
+    
+    i0 = i_parse(']2016-08-17T05:04:04, 2016-09-17T05:04:04[')
     assert i0._dtype == 'datetime64[us]'
-    assert '2016-08-17T05:04:04' not in i0
-    assert '2017-08-17T05:04:04' not in i0
-    assert '2015-08-23T05:24:01' in i0
+    assert '2016-09-17T05:04:05' not in i0  # is a string not same type
+    assert datetime(2016,8,25) in i0  # datetime, in range
+    assert datetime(2014,8,25) not in i0  # datetime, not in range
+    
 
-    i0 = i_parse('<="2016-08-17T05:04:04"')
+    i0 = i_parse('<2016-08-17T05:04:04')
     assert i0._dtype == 'datetime64[us]'
-    assert '2016-08-17T05:04:04' in i0
-    assert '2017-08-17T05:04:04' not in i0
-    assert '2015-08-23T05:24:01' in i0
+    assert datetime(2016, 8, 17, 5, 4, 4) not in i0
+    assert datetime(1968, 8, 17, 5, 4, 4) in i0
+    
+    i0 = i_parse('<=2016-08-17T05:04:04')
+    assert i0._dtype == 'datetime64[us]'
+    assert datetime(2016, 8, 17, 5, 4, 4) in i0
+    assert datetime(1968, 8, 17, 5, 4, 4) in i0
+    
+    assert i0 == interval(False, None, datetime(2016, 8, 17, 5, 4, 4), False)
 
     i0 = i_parse("[False, True]")
     assert not i0._dtype

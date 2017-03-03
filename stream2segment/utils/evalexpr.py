@@ -42,16 +42,7 @@ def _isdtime(val):
     """see doc for _isnum applied to booleans. This evaluates to True also
     if val is a scalar string (e.g., not array of strings) and has the iso format of a datetime
     """
-    ret = isinstance(val, datetime) or (_isnumpy(val) and val.dtype.kind == 'M')
-    if not ret and type(val) in _strtypes and _dtyme_re.match(val):
-        # ok, we have a format like \d\d\d\d-\d\d-\d\d... but are months correct??
-        # delegate numpy:
-        try:
-            np.array(val, dtype='datetime64[us]')
-            ret = True
-        except ValueError:
-            ret = False
-    return ret
+    return isinstance(val, datetime) or (_isnumpy(val) and val.dtype.kind == 'M')
 
 
 def _isnum(val):
@@ -74,7 +65,6 @@ def _types_comparable(val1, val2):
     # relations. The last two conditions checks the type equality IF val1 and val2 are not a numpy
     # array, because if they are (4th condition) a further check on dtype.kind must be done
 
-    # note: comparison of dtimes must be done before _isstr
     return (_isnum(val1) and _isnum(val2)) \
          or (_isdtime(val1) and _isdtime(val2)) \
          or (_isstr(val1) and _isstr(val2)) \
@@ -185,8 +175,6 @@ class interval(object):
         is_l_dtime = l_bound is not None and _isdtime(l_bound)
         is_u_dtime = u_bound is not None and _isdtime(u_bound)
         self._dtype = 'datetime64[us]' if any([is_l_dtime, is_u_dtime]) else None
-        l_bound = np.array(l_bound, dtype='datetime64[us]').item() if is_l_dtime else l_bound
-        u_bound = np.array(u_bound, dtype='datetime64[us]').item() if is_u_dtime else u_bound
         # set a flag cause if datetime we need to convert strings into datetime(s) in __call__
         # comparison via __eq__, __ne__ on the other hand is fine because bounds are stored as numpy
         # datetime(s)
@@ -300,7 +288,15 @@ class interval(object):
         shape = None
         if not self.empty:
             try:
-                np_val = np.asarray(val, dtype=self._dtype)  # does not copy if already numpy array
+                np_val = np.asarray(val)  # does not copy if already numpy array
+
+                # if datetime, numpy might have created an array of objects. Let's convert them:
+                if self._dtype and np_val.dtype.kind == 'O':
+                    np_val = np_val.astype(self._dtype)
+
+                if not _types_comparable(np_val, self._refval):
+                    raise ValueError('')
+
                 # check if isscalar first (for speed): (e.g. [5], closed interval of just one
                 # element)
                 shape = np_val.shape
@@ -321,7 +317,7 @@ class interval(object):
                             cond = False
                         else:
                             cond = l_cond & u_cond
-            except ValueError:
+            except (TypeError, ValueError):
                 pass
 
         # see above commented text
@@ -395,6 +391,8 @@ class interval(object):
         try:
             return eval(chunk)
         except Exception:
+            if _dtyme_re.match(chunk):
+                return np.array(chunk, dtype='datetime64[us]').item()
             raise SyntaxError('Invalid syntax: "%s"' % chunk)
 
     def _cmp_(self, other):
