@@ -193,8 +193,9 @@ class interval(object):
         self.l_bound, self.u_bound = l_bound, u_bound
         self.l_isopen, self.u_isopen = l_isopen, u_isopen
 
+        global_min, global_max = _get_domain_bounds(u_bound if l_bound is None else l_bound)
         if l_bound is None:
-            self.l_bound = _get_domain_bounds(u_bound)[0]
+            self.l_bound = global_min
             # we just set the minimum as the domain default. If the domain default is not None
             # (e.g. '' for strings) and the upper interval
             # is the same (''), then we might be now in a situation like ['', ''[.
@@ -207,7 +208,7 @@ class interval(object):
                 self.l_isopen = self.u_isopen
             self._refval = u_bound
         elif u_bound is None:
-            self.u_bound = _get_domain_bounds(l_bound)[1]
+            self.u_bound = global_max
             # we just set the maximum as the domain default. If the domain default is not None
             # (e.g. inf for numbers) and the lower interval
             # is the same (inf), then we might be now in a situation like [inf, inf[.
@@ -230,6 +231,13 @@ class interval(object):
             if not self.l_bound < self.u_bound:
                 if not (self.l_bound == self.u_bound and self.l_isopen == self.u_isopen):
                     raise ValueError('Malformed interval, check bounds')
+
+            # if both bounds are not None, check if there is one which equals the type min/max
+            # and that is closed. Then set it to None to speed up calculations
+            if global_min is not None and self.l_bound == global_min and not self.l_isopen:
+                self.l_bound = None
+            elif global_max is not None and self.u_bound == global_max and not self.u_isopen:
+                self.u_bound = None
 
     @property
     def empty(self):
