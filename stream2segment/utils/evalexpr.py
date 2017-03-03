@@ -224,8 +224,9 @@ class interval(object):
                 raise ValueError('bound types not compatible (e.g., str and int)')
             self._refval = l_bound  # maybe pick float if int, float?
 
-        some_none = self.l_bound is None or self.u_bound is None
-        if not some_none:
+        l_bound_defined = self.l_bound is not None
+        u_bound_defined = self.u_bound is not None
+        if l_bound_defined and u_bound_defined:
             if not self.l_bound < self.u_bound:
                 if not (self.l_bound == self.u_bound and self.l_isopen == self.u_isopen):
                     raise ValueError('Malformed interval, check bounds')
@@ -292,7 +293,8 @@ class interval(object):
         if not self.empty:
             try:
                 np_val = np.asarray(val, dtype=self._dtype)  # does not copy if already numpy array
-                # check if isscalar first (for speed): (e.g. [5], closed interval of just one element)
+                # check if isscalar first (for speed): (e.g. [5], closed interval of just one
+                # element)
                 shape = np_val.shape
                 if self.isscalar:
                     cond = np_val == self._refval
@@ -385,7 +387,7 @@ class interval(object):
         try:
             return eval(chunk)
         except Exception:
-            raise SyntaxError('Invalid syntax: %s' % chunk)
+            raise SyntaxError('Invalid syntax: "%s"' % chunk)
 
     def _cmp_(self, other):
         try:
