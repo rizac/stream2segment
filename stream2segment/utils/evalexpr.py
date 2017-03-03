@@ -139,21 +139,12 @@ def eval(expr, vars=None):
 
 
 class interval(object):
-
-#     _EQ = "=="
-#     _GT = ">"
-#     _LT = "<"
-#     _GE = ">="
-#     _LE = "<="
     _OPERATORS1 = set(('<', '>', '='))
     _OPERATORS2 = set(('==', '>=', '<='))
     single_equal_is_operator = True
-    
     # _inf = float('inf')
     _nan = float('nan')
     _funcarg_varname = "__x__"
-#     _booltype = type(True)
-#     _npbooltype = np.bool_
 
     def __init__(self, l_isopen, l_bound, u_bound, u_isopen):
         """
@@ -194,8 +185,8 @@ class interval(object):
         is_l_dtime = l_bound is not None and _isdtime(l_bound)
         is_u_dtime = u_bound is not None and _isdtime(u_bound)
         self._dtype = 'datetime64[us]' if any([is_l_dtime, is_u_dtime]) else None
-        l_bound = np.array(l_bound, dtype='datetime64[us]') if is_l_dtime else l_bound
-        u_bound = np.array(u_bound, dtype='datetime64[us]') if is_u_dtime else u_bound
+        l_bound = np.array(l_bound, dtype='datetime64[us]').item() if is_l_dtime else l_bound
+        u_bound = np.array(u_bound, dtype='datetime64[us]').item() if is_u_dtime else u_bound
         # set a flag cause if datetime we need to convert strings into datetime(s) in __call__
         # comparison via __eq__, __ne__ on the other hand is fine because bounds are stored as numpy
         # datetime(s)
@@ -338,12 +329,6 @@ class interval(object):
         return self(value).all()
 
     @classmethod
-    def interval(cls, obj):
-        if isinstance(obj, interval):
-            return obj
-        return cls._parse(obj)
-
-    @classmethod
     def parse(cls, jsonlike_string):
         """
             Parses the given string to produce an interval.
@@ -458,20 +443,29 @@ class interval(object):
         # remember: if self.l_bound is None it means we passed None in the constructor
         # and the domain (str, numeric) has no given min. So we can avoid to display open-closed
         # interval. Same for self.u_bound
+
+        def jsondumps(val):
+            try:
+                return json.dumps(val)
+            except TypeError:
+                try:
+                    return val.isoformat()
+                except AttributeError:
+                    return str(val)
         ret = None
         equal = self.l_bound == self.u_bound  # remember: they cannot be both None
         if equal:
             if not self.l_isopen and not self.u_isopen:
-                ret = "==%s" % json.dumps(self.l_bound)
+                ret = "==%s" % jsondumps(self.l_bound)
         elif self.l_bound is None or (self.l_bound == min_ and not equal and not self.l_isopen):
-            ret = "%s%s" % ("<" if self.u_isopen else "<=", json.dumps(self.u_bound))
+            ret = "%s%s" % ("<" if self.u_isopen else "<=", jsondumps(self.u_bound))
         elif self.u_bound is None or (self.u_bound == max_ and not equal and not self.u_isopen):
-            ret = "%s%s" % (">" if self.l_isopen else ">=", json.dumps(self.l_bound))
+            ret = "%s%s" % (">" if self.l_isopen else ">=", jsondumps(self.l_bound))
 
         if ret is None:
             br1 = "]" if self.l_isopen else '['
             br2 = "[" if self.u_isopen else ']'
-            ret = "%s%s, %s%s" % (br1, json.dumps(self.l_bound), json.dumps(self.u_bound), br2)
+            ret = "%s%s, %s%s" % (br1, jsondumps(self.l_bound), jsondumps(self.u_bound), br2)
 
         if self.empty:
             ret += " (empty set)"

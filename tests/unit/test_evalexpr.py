@@ -348,7 +348,8 @@ def test_str():
               (True, -112, float('inf'), True),
               (False, -112, float('inf'), False),
               (True, -112, -112, True),
-              (False, -112, -112, False)]:
+              (False, -112, -112, False),
+              (False, None, datetime.utcnow(), True)]:
         print str(interval(*i))
 
 
