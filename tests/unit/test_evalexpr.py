@@ -214,12 +214,20 @@ def test_intervals():
     
     i0 = interval('[','a', None, '[')
     assert 'a' in i0
+    assert i0 == interval('[','a', None, ']')
+
+    # on the other hand numbers have domain boundary (-inf inf) thus:
+    assert interval('[', 1, None, ']') != interval('[',1, None, '[')
+
 
     i0 = i_parse("''")
     i1 = i_parse('""')
     assert i0 == i1
 
+    i0 = i_parse("]'', ''[")
+    assert not i0.degenerate  # only a single point
     i0 = i_parse("''")
+    assert i0.degenerate
     i1 = i_parse(">=''")
     assert i1 >= i0
     i1 = i_parse(">''")
@@ -242,24 +250,30 @@ def test_intervals():
     with pytest.raises(Exception):
         i1 = interval(']', "2006-01-01", 45, '[')
 
+    i0 = i_parse("[inf, inf]")
+    assert i0.degenerate
+    i0 = interval("[", float('inf'), float('inf'),']')
+    assert i0.degenerate
+    
+
     #datetimes, test if parses works. In principle, it parses what numpy can parse
     # (at least after some tries)
-    i0 = i_parse('["2016-08-17", "2016-09-17T05:04:04"]')
-    i0 = i_parse('["2016-08-17T05:34:21", "2016-08-17T05:34:21."]')
-    i0 = i_parse('["2016-08-17T05:34:21.1", "2016-08-17T05:34:21.21"]')
-    i0 = i_parse('["2016-08-17T05:34:21.100", "2016-08-17T05:34:21.2034"]')
-    i0 = i_parse('["2016-08-17T05:34:21.1098", "2016-08-17T05:34:21.45621"]')
-    i0 = i_parse('["2016-08-17T05:34:21.098897", "2016-08-17T05:34:21.456217"]')
+    i0 = i_parse('[2016-08-17, 2016-09-17T05:04:04]')
+    i0 = i_parse('[2016-08-17T05:34:21, 2016-08-17T05:34:21.]')
+    i0 = i_parse('[2016-08-17T05:34:21.1, 2016-08-17T05:34:21.21]')
+    i0 = i_parse('[2016-08-17T05:34:21.100, 2016-08-17T05:34:21.2034]')
+    i0 = i_parse('[2016-08-17T05:34:21.1098, 2016-08-17T05:34:21.45621]')
+    i0 = i_parse('[2016-08-17T05:34:21.098897, 2016-08-17T05:34:21.456217]')
     # now try with spaces:
-    i0 = i_parse('["2016-08-17", "2016-09-17 05:04:04"]')
-    i0 = i_parse('["2016-08-17 05:34:21", "2016-08-17 05:34:21."]')
-    i0 = i_parse('["2016-08-17 05:34:21.1", "2016-08-17 05:34:21.21"]')
-    i0 = i_parse('["2016-08-17 05:34:21.100", "2016-08-17 05:34:21.2034"]')
-    i0 = i_parse('["2016-08-17 05:34:21.1098", "2016-08-17 05:34:21.45621"]')
-    i0 = i_parse('["2016-08-17 05:34:21.098897", "2016-08-17 05:34:21.456217"]')
+    i0 = i_parse('[2016-08-17, 2016-09-17 05:04:04]')
+    i0 = i_parse('[2016-08-17 05:34:21, 2016-08-17 05:34:21.]')
+    i0 = i_parse('[2016-08-17 05:34:21.1, 2016-08-17 05:34:21.21]')
+    i0 = i_parse('[2016-08-17 05:34:21.100, 2016-08-17 05:34:21.2034]')
+    i0 = i_parse('[2016-08-17 05:34:21.1098, 2016-08-17 05:34:21.45621]')
+    i0 = i_parse('[2016-08-17 05:34:21.098897, 2016-08-17 05:34:21.456217]')
 
     # datetimes. Quoted are interpreted as strings:
-    i0 = i_parse('["2016-08-17T05:04:04", "2016-09-17T05:04:04"]')
+    i0 = i_parse('''["2016-08-17T05:04:04", '2016-09-17T05:04:04']''')
     assert i0._dtype != 'datetime64[us]'
     assert '2016-08-23T05:04:09' in i0
     assert datetime.utcnow() not in i0

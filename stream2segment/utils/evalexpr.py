@@ -1,3 +1,4 @@
+import sys
 import numpy as np
 import math
 import json
@@ -5,8 +6,8 @@ from datetime import datetime
 from datetime import MAXYEAR, MINYEAR
 import re
 from __builtin__ import eval as builtin_eval
+from itertools import izip
 
-import sys
 if sys.version_info[0] == 2:
     _strtypes = (bytes, str, unicode)
     _numtypes = (int, float, long)
@@ -204,11 +205,11 @@ class interval(object):
     =========
 
     Any python source code string can be parsed to produce an interval (e.g. "<=5.35 * pi").
-    In addition, syntax like "['a', 'b')" is also valid, and datetimes are recognized if input
+    In addition, syntax like "['a', 'b')" is also valid, and `datetime`s are recognized if input
     as iso-format (e.g. "2006-01-01", ""2006-01-01T13:21:45" or "2006-01-01T12:45.45.5000"). Note:
-    that datetimes should not be quoted otherwise they will be recognized as strings. Any python
+    `datetime`s should not be quoted otherwise they will be recognized as strings. Any python
     expression will be evaluated (e.g. "['a'+'b', 'c']) and the user can supply all `math` package
-    functions and constants (without preceeding them with `math.`). Datetimes, as they are not
+    functions and constants (without typing `math.` before it). Datetimes, as they are not
     standard python, do not supports expressions. The expression in a string interval is not
     intended to be optimized for performances. However, numpy is available in expressions if
     strings are pre-pended with 'np.'
@@ -228,6 +229,16 @@ class interval(object):
     [1,4] < (4,6] (left-open, it does not include the point)
     [1,4] == [1,4]
     [1,4] != [2,5]
+
+    Equality between two intervals I1, I2 means that for any object holds:
+    `obj in I1 == obj inI2`. Note
+    a suble difference in open/closed intervals due to domain bounds. This is True:
+    `interval('[', 'a', None, ']') == interval('[', 'a', None, ')')`
+    because any possible string that belongs to the first interval belongs to the second, and
+    vice-versa. On the other hand
+    `interval('[', 1, None, ']') != interval('[', 1, None, ')')`
+    because numbers have -inf and inf as bounds and thus float('inf') belongs to the first
+    interval, but not to the second
     """
 
     _OPERATORS1 = set(('<', '>', '='))
@@ -252,7 +263,7 @@ class interval(object):
         2 elements specifying the interval end-points (left, right).
         Reflecting the mathematical notation:
         "[a,b]" for closed intervals (i.e., which include their end-points),
-        "(a, b)" for open intervals (i.e., which do not include their end-points),
+        "(a, b)" or "]a, b[" for open intervals (i.e., which do not include their end-points),
         Then a list (or numpy array) will create a closed interval, a tuple an open one.
 
         An interval that is nor closed neither open, i.e. is left-closed or right-closed only,
@@ -260,10 +271,29 @@ class interval(object):
 
         * `l_bracket` is a string in '[', '(' or ']'
         * `l_pt` and `r_pt` are the end-points of the interval (left, right), and
-        * `r_bracket` is a string in ']', '[' or '('
+        * `r_bracket` is a string in ']', ')' or '['
 
-        The end-points of the interval can be None. In that case it means the interval is
-        left-unbounded (or right unbounded). The end-points cannot be both None as otherwsie
+        The end-points of the interval can be None. In that case they will be replaced with the
+        domain minimum and maximum, i.e. the python constant value which is lower / greater than
+        all other python values of the same type (if they exist): the interval
+        can be still closed or open, but if such a python value does not exist,
+        being closed or open is obviously meaningless and ignored in calculations or interval
+        comparisons.
+        For instance, for strings there is no python constant value denoting the maximum and the
+        following are the same:
+        ```
+        interval('[', 'a', None, "]")
+        interval('[', 'a', None, ")")
+        ```
+        because any string belonging to the first interval belongs to the second, and vice-versa.
+        On the other hand, given that numbers have defined bounds `-float('inf')` and
+        `float('inf')`, the following are different intervals:
+        ```
+        interval('[', 1, None, "]")
+        interval('[', 1, None, ")")
+        ```
+        as `float('inf')` belongs to the first interval only.
+        Finally, the end-points cannot be both None as otherwise
         this object cannot infer the type of its elements, which is necessary for its
         functionality
         """
@@ -305,35 +335,14 @@ class interval(object):
 
         global_min, global_max = _get_domain_bounds(u_bound if l_bound is None else l_bound)
         if l_bound is None:
-            l_bound = global_min
-            # we just set the minimum as the domain default. If the domain default is not None
-            # (e.g. '' for strings) and the upper interval
-            # is the same (''), then we might be now in a situation like ['', ''[.
-            # As the lower bound was None, it was asked to infer it, thus change the left interval
-            # to get ]'', ''[  which is empty instead of rising exceptions in the check at the
-            # end
-
-            # so, if we changed the value of l_bound and now is equal to u_bound:
-            if l_bound is not None and u_bound == l_bound:
-                l_isopen = u_isopen
             self._refval = u_bound
         elif u_bound is None:
-            u_bound = global_max
-            # we just set the maximum as the domain default. If the domain default is not None
-            # (e.g. inf for numbers) and the lower interval
-            # is the same (inf), then we might be now in a situation like [inf, inf[.
-            # As the upper bound was None, it was asked to infer it, thus change the right interval
-            # to get ]inf, inf[  which is empty instead of rising exceptions in the check at the
-            # end
-
-            # so, if we changed the value of u_bound and now is equal to l_bound:
-            if u_bound is not None and u_bound == l_bound:
-                u_isopen = l_isopen
             self._refval = l_bound
         else:
-            if not _types_comparable(l_bound, u_bound):
-                raise ValueError('bound types not compatible (e.g., str and int)')
             self._refval = l_bound  # maybe pick float if int, float?
+            if not _types_comparable(l_bound, u_bound):
+                raise ValueError('bound types not compatible: %s and %s' %
+                                 (str(type(l_bound)), str(type(u_bound))))
 
         l_bound_defined = l_bound is not None
         u_bound_defined = u_bound is not None
@@ -342,15 +351,16 @@ class interval(object):
                 if not (l_bound == u_bound and l_isopen == u_isopen):
                     raise ValueError('Malformed interval, check bounds')
 
-            # if both bounds are not None, check if there is one which equals the type min/max
-            # and that is closed. Then set it to None to speed up calculations
-            if global_min is not None and l_bound == global_min and not l_isopen:
-                l_bound = None
-            elif global_max is not None and u_bound == global_max and not u_isopen:
-                u_bound = None
+        # if both bounds are not None, check if there is one which equals the type min/max
+        # and that is closed. Then set it to None to speed up calculations
+        if l_bound_defined and l_bound == global_min and not l_isopen and l_bound != u_bound:
+            l_bound = None
+        if u_bound_defined and u_bound == global_max and not u_isopen and l_bound != u_bound:
+            u_bound = None
 
         self._endpoints = l_bound, u_bound
         self._lopen, self._ropen = l_isopen, u_isopen
+        self._globalbounds = global_min, global_max
 
     @property
     def leftopen(self):
@@ -378,24 +388,41 @@ class interval(object):
 
     @property
     def endpoints(self):
-        return self._endpoints
+        """Returns the end points of this interval, possibly converting None's passed in the
+        constructor with relative boundary values
+        :return : a list of two elements indicating the interval end points. They might be None
+        to indicate unbound interval
+        """
+        return [self._globalbounds[0] if self._endpoints[0] is None else self._endpoints[0],
+                self._globalbounds[1] if self._endpoints[1] is None else self._endpoints[1]]
+
+    @property
+    def unbounded(self):
+        return self.leftunbounded and self.rightunbounded
+
+    @property
+    def leftunbounded(self):
+        return self._endpoints[0] is None and (self.leftclosed or self._globalbounds[0] is None)
+
+    @property
+    def rightunbounded(self):
+        return self._endpoints[1] is None and (self.rightclosed or self._globalbounds[1] is None)
 
     @property
     def empty(self):
+        if self.closed:
+            return False
         epts = self.endpoints
-        if all(pt is not None for pt in epts):
-            return epts[0] == epts[1] and self.open
-        return False
+        return epts[0] == epts[1] and epts[0] is not None
 
     @property
     def degenerate(self):
         """Returns if this interval is degenerate, i.e. consisting of a single element"""
-        # note: need to check what happens for [inf]. Is it scalar? If yes, this should not
-        # be accounted for here if we specified None as u_bound for instance
+        # note: for numbers, [inf, inf] IS degenerate (inf is a point as it's a float)
+        if not self.closed:
+            return False
         epts = self.endpoints
-        if all(pt is not None for pt in epts):
-            return epts[0] == epts[1] and self.closed
-        return False
+        return epts[0] == epts[1] and epts[0] is not None
 
     def __call__(self, val):
         """Calls the interval in order to return a numpy boolean array of values, where each value
@@ -440,9 +467,9 @@ class interval(object):
                 cond = np_val == self._refval
             else:
                 l_bound, u_bound = self.endpoints
-                l_cond = None if l_bound is None else \
+                l_cond = None if self.leftunbounded else \
                     np_val > l_bound if self.leftopen else np_val >= l_bound
-                u_cond = None if u_bound is None else \
+                u_cond = None if self.rightunbounded else \
                     np_val < u_bound if self.rightopen else np_val <= u_bound
 
                 if l_cond is None and u_cond is None:
@@ -523,17 +550,16 @@ class interval(object):
 
     # datetime regexp, used to eval otherwise unrecognized strings to datetime's
     # See interval.eval_chunk
-    _dtyme_re = re.compile(r'^\s*\d\d\d\d-\d\d-\d\d(?:[T ]\d\d:\d\d:\d\d(?:.\d{0,6})?)?\s*$')
+    _dtyme_re = re.compile(r'''(?<![\w\d_'"])\s*(\d\d\d\d-\d\d-\d\d(?:[T ]\d\d:\d\d:\d\d(?:.\d{0,6})?)?)\s*(?![\w\d_'"])''')
 
     @classmethod
     def _evalchunk(cls, chunk):
         """evaluates a chunk of json-like string into a python value. The chunk must be
         the result of an interval parsable string"""
+        chunk = cls._dtyme_re.sub(r"""np.array("\1", dtype='datetime64[us]').item()""", chunk)
         try:
-            return _eval(chunk)
+            return _eval(chunk, {'np': np})  # np is included in _eval, but for safety ...
         except Exception:
-            if cls._dtyme_re.match(chunk):
-                return np.array(chunk, dtype='datetime64[us]').item()
             raise SyntaxError('Invalid syntax: "%s"' % chunk)
 
     def __cmp__(self, other):
@@ -554,8 +580,8 @@ class interval(object):
                 my_min, my_max = self.endpoints
                 its_min, its_max = other.endpoints
                 if my_min == its_min and my_max == its_max:
-                    if (self.leftopen == other.leftopen) and\
-                            (self.rightopen == other.rightopen):
+                    if (my_min is None or self.leftopen == other.leftopen) and\
+                            (my_max is None or self.rightopen == other.rightopen):
                         return 0
                 elif my_min >= its_max and not any(x is None for x in [my_min, its_max]):
                     if my_min == its_max:
