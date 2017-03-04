@@ -147,6 +147,9 @@ def test_intervals():
 
     with pytest.raises(Exception):
         i1 = i_parse("]1.34, 'a']")
+        
+    with pytest.raises(Exception):
+        i1 = i_parse("]a.b, 'a']")
 
     with pytest.raises(Exception):
         i1 = i_parse(True, np.array([1,2,3]), 5, False)
@@ -158,21 +161,21 @@ def test_intervals():
         i1 = i_parse(True, -1, [1,2, 5], False)
 
     # test unicodes and strings:
-    i0 = interval(True, np.array([u'a'])[0], 'acd', False)
-    i0 = interval(True, np.array([u'a'])[0], u'acd', False)
+    i0 = interval(']', np.array([u'a'])[0], 'acd', ']')
+    i0 = interval(']', np.array([u'a'])[0], u'acd',']')
     with pytest.raises(Exception):
         # lbound not greater than ubound
         i1 = i_parse(True, np.array([u'z'])[0], 'acd', False)
 
     # test different numbers:
-    i0 = interval(True, np.array([1], dtype=int)[0], 23.5, False)
-    i1 = interval(True, np.array([1], dtype=float)[0], 23, False)
+    i0 = interval(']', np.array([1], dtype=int)[0], 23.5, ']')
+    i1 = interval(']', np.array([1], dtype=float)[0], 23, ']')
     
     
     i0 = i_parse('<5')
     i1 = i_parse(']-inf, 5[')
     assert i0 != i1
-    i1 = i_parse('[-inf, 5[')
+    i1 = i_parse('[-inf, 5.[')
     assert i0 == i1
 
     i0 = i_parse(">=6.87")
@@ -194,7 +197,7 @@ def test_intervals():
     assert np.array(1) in i0
     assert i0 == i1
     
-    i0 = i_parse("['a', 'sdf'[")
+    i0 = i_parse("['a', 's.df'[")
     i1 = i_parse("]'ase', 'rty']")
     
     assert i0 != i1
@@ -209,7 +212,7 @@ def test_intervals():
     assert "sdf" in i1
     assert "sd" not in i1
     
-    i0 = interval(False,'a', None, True)
+    i0 = interval('[','a', None, '[')
     assert 'a' in i0
 
     i0 = i_parse("''")
@@ -237,14 +240,30 @@ def test_intervals():
 
     # datetime(s):
     with pytest.raises(Exception):
-        i1 = interval(True, "2006-01-01", 45, True)
+        i1 = interval(']', "2006-01-01", 45, '[')
+
+    #datetimes, test if parses works. In principle, it parses what numpy can parse
+    # (at least after some tries)
+    i0 = i_parse('["2016-08-17", "2016-09-17T05:04:04"]')
+    i0 = i_parse('["2016-08-17T05:34:21", "2016-08-17T05:34:21."]')
+    i0 = i_parse('["2016-08-17T05:34:21.1", "2016-08-17T05:34:21.21"]')
+    i0 = i_parse('["2016-08-17T05:34:21.100", "2016-08-17T05:34:21.2034"]')
+    i0 = i_parse('["2016-08-17T05:34:21.1098", "2016-08-17T05:34:21.45621"]')
+    i0 = i_parse('["2016-08-17T05:34:21.098897", "2016-08-17T05:34:21.456217"]')
+    # now try with spaces:
+    i0 = i_parse('["2016-08-17", "2016-09-17 05:04:04"]')
+    i0 = i_parse('["2016-08-17 05:34:21", "2016-08-17 05:34:21."]')
+    i0 = i_parse('["2016-08-17 05:34:21.1", "2016-08-17 05:34:21.21"]')
+    i0 = i_parse('["2016-08-17 05:34:21.100", "2016-08-17 05:34:21.2034"]')
+    i0 = i_parse('["2016-08-17 05:34:21.1098", "2016-08-17 05:34:21.45621"]')
+    i0 = i_parse('["2016-08-17 05:34:21.098897", "2016-08-17 05:34:21.456217"]')
 
     # datetimes. Quoted are interpreted as strings:
     i0 = i_parse('["2016-08-17T05:04:04", "2016-09-17T05:04:04"]')
     assert i0._dtype != 'datetime64[us]'
     assert '2016-08-23T05:04:09' in i0
     assert datetime.utcnow() not in i0
-    
+
     # check without quotes, it should work
     i1 = i_parse('[2016-08-17T05:04:04, 2016-09-17T05:04:04]')
     assert i1._dtype == 'datetime64[us]'
@@ -256,8 +275,7 @@ def test_intervals():
     assert i0 == i1
 
     assert np.array_equal(i0(['2016-08-23T05:04:09.000', datetime.utcnow()]), [True, False])
-    
-    assert not '2006-01abc' in i0
+    assert '2006-01abc' not in i0
     assert '2017-08-23T05:14:04' not in i0
     assert '2015-08-23T05:24:01' not in i0
 
@@ -271,7 +289,7 @@ def test_intervals():
     for lb, ub in product([True, False], [True, False]):
         lbstr = ']' if lb else '['
         ubstr = '[' if ub else ']'
-        assert interval(lb, d1, d2, ub) == i_parse("%s%s, %s%s" % (lbstr, d1.isoformat(),
+        assert interval(lbstr, d1, d2, ubstr) == i_parse("%s%s, %s%s" % (lbstr, d1.isoformat(),
                                                                    d2.isoformat(),
                                                                    ubstr))
 
@@ -298,7 +316,7 @@ def test_intervals():
     assert datetime(2016, 8, 17, 5, 4, 4) in i0
     assert datetime(1968, 8, 17, 5, 4, 4) in i0
     
-    assert i0 == interval(False, None, datetime(2016, 8, 17, 5, 4, 4), False)
+    assert i0 == interval('[', None, datetime(2016, 8, 17, 5, 4, 4), ']')
 
     i0 = i_parse("[False, True]")
     assert not i0._dtype
@@ -330,11 +348,11 @@ def test_perf():
     print "numpy filter: %s" % (time.time() - start)
     
     start = time.time()
-    i1 = interval(False, None, val, False)
-    i2 = interval(False, None, val, True)
-    i3 = interval(False, val, val, False)
-    i4 = interval(True, val, None, False)
-    i5 = interval(False, val, None, False)
+    i1 = interval('[', None, val, ']')
+    i2 = interval('[', None, val, '[')
+    i3 = interval('[', val, val, ']')
+    i4 = interval(']', val, None, ']')
+    i5 = interval('[', val, None, ']')
     int1 = [i1(a), i2(a), i3(a), i4(a), i5(a)]
     print "interval with constructor: %s" % (time.time() - start)
 
@@ -345,24 +363,25 @@ def test_perf():
 #             dfg = 9
 
 def test_str():
-    print "Printing some stuff to check str(interval), please ignore"
-    print ""
-    for i in [(True, None, 'a', True),
-              (False, None, 'a', False),
-              (True, 'f', None, True),
-              (False, 'f', None, False),
-              (True, None, 123.5, True),
-              (False, None, 123.5, False),
-              (True, -112, None, True),
-              (False, -112, None, False),
-              (True, -float('inf'), 123.5, True),
-              (False, float('-inf'), 123.5, False),
-              (True, -112, float('inf'), True),
-              (False, -112, float('inf'), False),
-              (True, -112, -112, True),
-              (False, -112, -112, False),
-              (False, None, datetime.utcnow(), True)]:
-        print str(interval(*i))
+    pass
+#     print "Printing some stuff to check str(interval), please ignore"
+#     print ""
+#     for i in [(True, None, 'a', True),
+#               (False, None, 'a', False),
+#               (True, 'f', None, True),
+#               (False, 'f', None, False),
+#               (True, None, 123.5, True),
+#               (False, None, 123.5, False),
+#               (True, -112, None, True),
+#               (False, -112, None, False),
+#               (True, -float('inf'), 123.5, True),
+#               (False, float('-inf'), 123.5, False),
+#               (True, -112, float('inf'), True),
+#               (False, -112, float('inf'), False),
+#               (True, -112, -112, True),
+#               (False, -112, -112, False),
+#               (False, None, datetime.utcnow(), True)]:
+#         print str(interval(*i))
 
 
 # import pytest

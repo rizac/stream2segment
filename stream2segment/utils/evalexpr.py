@@ -24,26 +24,34 @@ def _isnumpy(value):
 
 
 def _isbool(val):
-    """see doc for _isnum applied to booleans"""
+    """return true if val is a boolean type.
+    Works in python 2 and 3 and also with if `val` is a `numpy` array (does not check if `val`
+    shape or length, just `val`s dtype)
+    """
     return type(val) == bool or (_isnumpy(val) and val.dtype.kind == 'b')
 
 
 def _isstr(val):
-    """see doc for _isnum applied to booleans"""
+    """return true if val is a datetime type.
+    Works in python 2 and 3. For instance, in python 2: _isstr('abc') == _isstr(u'abc').
+    Works and also with if `val` is a `numpy` array (does not check if `val` shape or length,
+    just `val`s dtype)
+    """
     return type(val) in _strtypes or (_isnumpy(val) and val.dtype.kind in 'SU')
 
 
 def _isdtime(val):
-    """see doc for _isnum applied to booleans. This evaluates to True also
-    if val is a scalar string (e.g., not array of strings) and has the iso format of a datetime
+    """return true if val is a datetime type. Works in python 2 and 3,
+    and also with if `val` is a `numpy` array (does not check if `val` shape or length,
+    just `val`s dtype)
     """
     return isinstance(val, datetime) or (_isnumpy(val) and val.dtype.kind == 'M')
 
 
 def _isnum(val):
-    """return true if val is a numeric type. _isnum(5) == _isnum(5.6). Takes into
-    account the case where val is a numpy array (but does not check if it's scalar or not,
-    just that the dtype is numeric)"""
+    """return true if val is a numeric type: _isnum(5) == _isnum(5.6). Works in python 2 and 3,
+    and also with if `val` is a `numpy` array (does not check if `val` shape or length,
+    just `val`s dtype)"""
     # important: DO NOT SET AS _isnum types WHICH ARE NOT COMPARABLE with other isnum!
     # IT MUST hold:
     # _types_comparable(v1, v2) for any v1, v2 in any of the type
@@ -56,25 +64,42 @@ def _isnum(val):
 
 
 def _types_comparable(val1, val2):
+    """Returns true if `val1` and `val2` are meningful comparable. The algorithm checks
+    (stopping at the first true result):
+    - if they are both numeric, i.e. both in (int, float, long if python2, numpy array with one of
+      the numeric dtypes)
+    - if they are both strings, i.e. both in (str, unicode if python2, numpy array with one of the
+      strings dtypes)
+    - if they are both datetimes, i.e. both in (datetime, numpy array with the datetime dtype)
+    - if they are both boolean, i.e. both in (bool, numpy array with the bool dtype)
+    - if they are both numpy arrays with the same dtype
+    - if type(val1) == type(val2)
+    If any of the previous conditions matches, returns False
+    """
     # the first three are functions which take into account types compatibility for order
     # relations. The last two conditions checks the type equality IF val1 and val2 are not a numpy
     # array, because if they are (4th condition) a further check on dtype.kind must be done
 
     return (_isnum(val1) and _isnum(val2)) \
-         or (_isdtime(val1) and _isdtime(val2)) \
-         or (_isstr(val1) and _isstr(val2)) \
-         or (_isbool(val1) and _isbool(val2)) or (not _isnumpy(val1) and type(val1) == type(val2)) \
-         or (_isnumpy(val1) and _isnumpy(val2) and val1.dtype.kind == val2.dtype.kind)
+        or (_isdtime(val1) and _isdtime(val2)) \
+        or (_isstr(val1) and _isstr(val2)) \
+        or (_isbool(val1) and _isbool(val2)) or (not _isnumpy(val1) and type(val1) == type(val2)) \
+        or (_isnumpy(val1) and _isnumpy(val2) and val1.dtype.kind == val2.dtype.kind)
 
 
-def _get_domain_bounds(bound):
-    if _isnum(bound):
+def _get_domain_bounds(obj):
+    """Returns the bounds (ranges) of minima nd maxima values the type associated to
+    `obj` can have. The type of obj is given by the `_is*` functions (e.g. `_isnum`, `_isstr`, ...)
+    thus is in a wider sense than the python type. If the object has no bounds known, return the
+    tuple None, None
+    """
+    if _isnum(obj):
         return -float('inf'), +float('inf')
-    elif _isdtime(bound):  # note: comparison of dtimes must be done before _isstr
+    elif _isdtime(obj):  # note: comparison of dtimes must be done before _isstr
         return datetime(MINYEAR, 1, 1), datetime(MAXYEAR, 12, 31, 23, 59, 59, 999999)
-    elif _isstr(bound):
+    elif _isstr(obj):
         return '', None
-    elif type(bound) == bool:
+    elif type(obj) == bool:
         return False, True
     else:
         return None, None
@@ -104,17 +129,43 @@ class Piecewisefunc():
         return ret
 
 
-_eval_imports = {'np': np, 'math': math, 'inf': np.inf, 'nan': np.nan, 'e': np.e, 'pi': np.pi,
-                 'sqrt': np.sqrt, "False": False, "false": False,
+_eval_imports = {'np': np, 'inf': float('inf'), 'nan': float('nan'), 'e': math.e,  # for safety
+                 'pi': math.pi,  # for safety
+                 # by disabling builtins, boolean are not recognized (but str are.Why?)
+                 # so set boolean values (being javascript compatible and adding ucase compatiblity)
+                 "False": False, "false": False,
                  "FALSE": False, "True": True, "true": True,
                  "TRUE": True}
 
+# import math functions, so we can refer to them without "math." in string expressions
+for name in math.__dict__:
+    elm = math.__dict__[name]
+    if hasattr(elm, '__call__') or _isnum(elm):
+        _eval_imports[name] = elm
 
-def eval(expr, vars=None):
-    if _isdtime(expr):
-        return expr
+
+def _eval(expr, vars=None):  # @ReservedAssignment
+    """eval is evil, eval is evil. But we are not paranoid: we studied the risks, this software
+    will not be online, this function is already provided with some security (see below), so if
+    somebody wants to kill his/her computer via this function, wow please let us know we will be
+    honored.
+    By the way, this function calls python `eval` on `expr`. The globals variables can be set in
+    `vars`, but for security reasons `__builtins__`, if provided as key in `vars`, will be
+    overridden and cannot be set.
+
+    This function has access to all functions and constant defined in the `math` package (by typing
+    as they are, so `pow`, not `math.pow`) and is intended - although not mandatory - to produce a
+    scalar. In any case, it is not optimized for speed or to produce complex numpy operations
+    on arrays (`numpy` is used in the `interval` object for performances, and therein is
+    recommended to use them). However, `numpy` can be accessed via `numpy` or `np` in `expr`,
+    if needed.
+    """
+    # safety1: any dot must be preceeded by numpy, np, a space or a number, and must be
+    # followed by a space or a number
+#     if re.match(r'(?<!numpy)\.|(?<!np)\.|(?<!\s)\.|(?<!\d)\.|\.(?![\d\s])', expr):
+#         raise ValueError("Invalid string expression: '%s'" % expr)
     if not vars:
-        vars = {}
+        vars = {}  # @ReservedAssignment
     vars.update(_eval_imports)
     # add some safety:
     # (https://nedbatchelder.com/blog/201206/eval_really_is_dangerous.html)
@@ -124,37 +175,116 @@ def eval(expr, vars=None):
 
 
 class interval(object):
+    """Class extending a mathematical interval, i.e an set of real numbers with the property
+    that any number that lies between two numbers in the set is also included in the set.
+    This object can represent an interval of any python type which has
+    an order relation set between elements (e.g. bool, datetime's, strings)
+
+    The interval of numbers, strings, datetime's or booleans between a and b, including a and b,
+    is often denoted [a, b]. If the interval does not include a and b, is indicated as
+    (a, b) or ]a, b[. Thus (a, b] or ]a, b] denote an interval including b and not a,
+    and so on. The points a and b are called left end-point and right end-point,
+    respectively.
+
+    This class supports the `in` operator, is callable, can parse python-like syntax to produce
+    an interval (for instance, if the string is given from a form request or a config file),
+    and supports order relations with other intervals
+
+    As callable
+    ===========
+
+    When called with an argument 'arg', this object will return a numpy array of
+    booleans indicating whether each of the points of 'arg' belong to it.
+    If 'arg' is not iterable, then returns a single element boolean array.
+
+    The `in` operator basically calls this object and returns a boolean (specifically, the
+    `array.all()` on the returned `numpy` boolean array).
+
+    As parser
+    =========
+
+    Any python source code string can be parsed to produce an interval (e.g. "<=5.35 * pi").
+    In addition, syntax like "['a', 'b')" is also valid, and datetimes are recognized if input
+    as iso-format (e.g. "2006-01-01", ""2006-01-01T13:21:45" or "2006-01-01T12:45.45.5000"). Note:
+    that datetimes should not be quoted otherwise they will be recognized as strings. Any python
+    expression will be evaluated (e.g. "['a'+'b', 'c']) and the user can supply all `math` package
+    functions and constants (without preceeding them with `math.`). Datetimes, as they are not
+    standard python, do not supports expressions. The expression in a string interval is not
+    intended to be optimized for performances. However, numpy is available in expressions if
+    strings are pre-pended with 'np.'
+
+    Relation orders
+    ===============
+
+    Intervals support also order relations. Note only that, given two intervals `I1` and `I2`,
+    `I1 <= I2` does not mean that all points of `I1` are lower or equal than all points of `I2`.
+    `I1 <= I2` means that all points of `I1` are lower than all points of `I2` *except* one
+    point which belongs to both intervals I1 right end-point and I2 left end-point.
+
+    Thus:
+    [1,4] < [5,6]
+    [1,4] != [5,6]
+    [1,4] <= [4,6]
+    [1,4] < (4,6] (left-open, it does not include the point)
+    [1,4] == [1,4]
+    [1,4] != [2,5]
+    """
+
     _OPERATORS1 = set(('<', '>', '='))
     _OPERATORS2 = set(('==', '>=', '<='))
+    _L_BRACKETS = set(['(', ']', '['])
+    _R_BRACKETS = set([')', ']', '['])
+    _L_OPENBRACKETS = set(['(', ']'])
+    _R_OPENBRACKETS = set([')', '['])
     single_equal_is_operator = True
     _nan = float('nan')
     _funcarg_varname = "__x__"
 
-    def __init__(self, l_isopen, l_bound, u_bound, u_isopen):
+    def __init__(self, *args):
+        """Creates a new interval. The __init__ function can be called with these arguments:
+
+        * interval(list)
+        * interval(numpy_array)
+        * interval(tuple)
+        * interval(l_bracket, l_pt, r_pt, r_bracket)
+
+        If the argument is a single list/tuple/array, then it must have
+        2 elements specifying the interval end-points (left, right).
+        Reflecting the mathematical notation:
+        "[a,b]" for closed intervals (i.e., which include their end-points),
+        "(a, b)" for open intervals (i.e., which do not include their end-points),
+        Then a list (or numpy array) will create a closed interval, a tuple an open one.
+
+        An interval that is nor closed neither open, i.e. is left-closed or right-closed only,
+        can be instantiated via the last constructor, where
+
+        * `l_bracket` is a string in '[', '(' or ']'
+        * `l_pt` and `r_pt` are the end-points of the interval (left, right), and
+        * `r_bracket` is a string in ']', '[' or '('
+
+        The end-points of the interval can be None. In that case it means the interval is
+        left-unbounded (or right unbounded). The end-points cannot be both None as otherwsie
+        this object cannot infer the type of its elements, which is necessary for its
+        functionality
         """
-            :param l_isopen: boolean indicating if the lower bound is 'open'. An interval
-            with an open bound X does NOT include X, e.g.: the expression `x>6`, if seen as
-            an interval from `6` to `inf`, has an open lower upper bound (6). On the other
-            hand, `x>=6` has a closed upper bound.
-            :param l_bound: the lower bound. None has the specific meaning of inferring it from
-            the domain (string, numeric). If that min does not exist (e.g., minimum of datetimes -
-            although there is currently not support for datetimes), the interval upper bound is to
-            be considered "endless", and the argument 'u_isopen' is irrelevant.
-            On the other hand, if that maximum exists (e.g. inf for numbers, '' for strings), note
-            that in some (rare) edge cases `u_isopen` might be set equal to `l_isopen` to create
-            an empty interval instead of raising an exception
-            :param u_bound: the upper bound. None has the specific meaning of inferring it from
-            the domain (string, numeric). If that max does not exist (e.g., maximum of strings),
-            the interval upper bound is to be considered "endless", and the argument 'u_isopen'
-            is irrelevant.
-            On the other hand, if that maximum exists (e.g. inf for numbers), note that in some
-            (rare) edge cases `u_isopen` might be set equal to `l_isopen` to create an empty
-            interval instead of raising an exception
-            :param u_isopen: boolean indicating if the upper bound is 'open'. An interval
-            with an open bound X does NOT include X, e.g.: the expression `x>6`, if seen as
-            an interval from `-inf` to 6, has an open upper bound (6). On the other
-            hand, `x<=6` has a closed upper bound.
-        """
+
+        if args[0] in self._L_BRACKETS:
+            l_isopen = args[0] in self._L_OPENBRACKETS
+            l_bound = args[1]
+            u_bound = args[2]
+            u_isopen = args[3] in self._R_OPENBRACKETS
+            assert args[0] in self._L_BRACKETS and args[3] in self._R_BRACKETS
+        else:
+            argz = args[0]
+            if _isnumpy(argz):
+                argz = argz.tolist()
+            assert type(argz) in (tuple, list) and len(args[0]) == 2, \
+                'Specify a 2- element tuple / list or numpy array as interval single argument'
+
+            l_bound, u_bound = argz[0], argz[1]
+            _open = type(argz) == tuple
+            l_isopen, u_isopen = _open, _open
+
         if hasattr(l_bound, "__iter__") and not isinstance(l_bound, str):
             raise SyntaxError("Lower bound interval iterable not string: invalid value")
 
@@ -172,12 +302,10 @@ class interval(object):
         # comparison via __eq__, __ne__ on the other hand is fine because bounds are stored as
         # python datetime(s)
         self._dtype = 'datetime64[us]' if any([is_l_dtime, is_u_dtime]) else None
-        self.l_bound, self.u_bound = l_bound, u_bound
-        self.l_isopen, self.u_isopen = l_isopen, u_isopen
 
         global_min, global_max = _get_domain_bounds(u_bound if l_bound is None else l_bound)
         if l_bound is None:
-            self.l_bound = global_min
+            l_bound = global_min
             # we just set the minimum as the domain default. If the domain default is not None
             # (e.g. '' for strings) and the upper interval
             # is the same (''), then we might be now in a situation like ['', ''[.
@@ -186,11 +314,11 @@ class interval(object):
             # end
 
             # so, if we changed the value of l_bound and now is equal to u_bound:
-            if self.l_bound is not None and self.u_bound == self.l_bound:
-                self.l_isopen = self.u_isopen
+            if l_bound is not None and u_bound == l_bound:
+                l_isopen = u_isopen
             self._refval = u_bound
         elif u_bound is None:
-            self.u_bound = global_max
+            u_bound = global_max
             # we just set the maximum as the domain default. If the domain default is not None
             # (e.g. inf for numbers) and the lower interval
             # is the same (inf), then we might be now in a situation like [inf, inf[.
@@ -199,44 +327,78 @@ class interval(object):
             # end
 
             # so, if we changed the value of u_bound and now is equal to l_bound:
-            if self.u_bound is not None and self.u_bound == self.l_bound:
-                self.u_isopen = self.l_isopen
+            if u_bound is not None and u_bound == l_bound:
+                u_isopen = l_isopen
             self._refval = l_bound
         else:
             if not _types_comparable(l_bound, u_bound):
                 raise ValueError('bound types not compatible (e.g., str and int)')
             self._refval = l_bound  # maybe pick float if int, float?
 
-        l_bound_defined = self.l_bound is not None
-        u_bound_defined = self.u_bound is not None
+        l_bound_defined = l_bound is not None
+        u_bound_defined = u_bound is not None
         if l_bound_defined and u_bound_defined:
-            if not self.l_bound < self.u_bound:
-                if not (self.l_bound == self.u_bound and self.l_isopen == self.u_isopen):
+            if not l_bound < u_bound:
+                if not (l_bound == u_bound and l_isopen == u_isopen):
                     raise ValueError('Malformed interval, check bounds')
 
             # if both bounds are not None, check if there is one which equals the type min/max
             # and that is closed. Then set it to None to speed up calculations
-            if global_min is not None and self.l_bound == global_min and not self.l_isopen:
-                self.l_bound = None
-            elif global_max is not None and self.u_bound == global_max and not self.u_isopen:
-                self.u_bound = None
+            if global_min is not None and l_bound == global_min and not l_isopen:
+                l_bound = None
+            elif global_max is not None and u_bound == global_max and not u_isopen:
+                u_bound = None
+
+        self._endpoints = l_bound, u_bound
+        self._lopen, self._ropen = l_isopen, u_isopen
+
+    @property
+    def leftopen(self):
+        return self._lopen
+
+    @property
+    def rightopen(self):
+        return self._ropen
+
+    @property
+    def leftclosed(self):
+        return not self.leftopen
+
+    @property
+    def rightclosed(self):
+        return not self.rightopen
+
+    @property
+    def closed(self):
+        return self.leftclosed and self.rightclosed
+
+    @property
+    def open(self):
+        return self.leftopen and self.rightopen
+
+    @property
+    def endpoints(self):
+        return self._endpoints
 
     @property
     def empty(self):
-        none_isnone = self.l_bound is not None and self.u_bound is not None
-        return none_isnone and self.l_bound == self.u_bound and self.l_isopen and self.u_isopen
+        epts = self.endpoints
+        if all(pt is not None for pt in epts):
+            return epts[0] == epts[1] and self.open
+        return False
 
     @property
-    def isscalar(self):
+    def degenerate(self):
+        """Returns if this interval is degenerate, i.e. consisting of a single element"""
         # note: need to check what happens for [inf]. Is it scalar? If yes, this should not
         # be accounted for here if we specified None as u_bound for instance
-        none_isnone = self.l_bound is not None and self.u_bound is not None
-        return none_isnone and self.l_bound == self.u_bound and\
-            not self.l_isopen and not self.u_isopen
+        epts = self.endpoints
+        if all(pt is not None for pt in epts):
+            return epts[0] == epts[1] and self.closed
+        return False
 
     def __call__(self, val):
-        """
-        Calls the interval in order to return a numpy boolean array of values, where each value
+        """Calls the interval in order to return a numpy boolean array of values, where each value
         returns if the corresponding element of val belongs to this interval. If val is a scalar,
         return a numpy array of 1 value.
 
@@ -267,20 +429,21 @@ class interval(object):
 
             # if datetime and val is datetime (or a list of datetime's),
             # numpy has created an array of objects. This lets convert them:
-            if self._dtype and np_val.dtype.kind == 'O':
+            if self._dtype == 'datetime64[us]' and np_val.dtype.kind == 'O':
                 np_val = np_val.astype(self._dtype)
 
             # this should avoid tht cond is False (see above)
             if not _types_comparable(np_val, self._refval):
                 raise TypeError()
 
-            if self.isscalar:
+            if self.degenerate:  # only a single pt:
                 cond = np_val == self._refval
             else:
-                l_cond = None if self.l_bound is None else \
-                    np_val > self.l_bound if self.l_isopen else np_val >= self.l_bound
-                u_cond = None if self.u_bound is None else \
-                    np_val < self.u_bound if self.u_isopen else np_val <= self.u_bound
+                l_bound, u_bound = self.endpoints
+                l_cond = None if l_bound is None else \
+                    np_val > l_bound if self.leftopen else np_val >= l_bound
+                u_cond = None if u_bound is None else \
+                    np_val < u_bound if self.rightopen else np_val <= u_bound
 
                 if l_cond is None and u_cond is None:
                     return np.ones(shape=np_val.shape, dtype=bool)
@@ -321,6 +484,13 @@ class interval(object):
               python syntax. The expression recognizes also by default 'inf', 'nan', 'e', booleans,
               plus 'numpy' and 'math' modules. Thus "<inf+np.e*4/2" or "]-inf, e/2]" are valid
               (numpy can be references via 'np', too)
+            - For inputting datetimes, type them as iso format WITHOUT QUOTES (2016-01-01, or
+              2016-02-15T01:45:23.450), otherwise they
+              will be interpreted as strings. Unlike numbers, strings and boolean, `datetimes`
+              thus cannot contain cannot thus be evaluated as expressions. `datetime.datetime`
+              could be imported, but would make the syntax hard for non-python users, and this
+              function is intended to create a python object from e.g. json request strings like
+              "<=2014-0313T01:02:59"
         """
         chunk = jsonlike_string
         opr, bound = (chunk[:2], chunk[2:]) if chunk[:2] in cls._OPERATORS2 else \
@@ -331,57 +501,70 @@ class interval(object):
         if opr is not None:
             bound = cls._evalchunk(bound)
             if opr == '==':
-                return interval(l_isopen=False, l_bound=bound, u_bound=bound, u_isopen=False)
+                return interval('[', bound, bound, ']')
             elif opr == '<':
-                return interval(l_isopen=False, l_bound=None, u_bound=bound, u_isopen=True)
+                return interval('[', None, bound, ')')
             elif opr == '<=':
-                return interval(l_isopen=False, l_bound=None, u_bound=bound, u_isopen=False)
+                return interval('[', None, bound, ']')
             elif opr == '>':
-                return interval(l_isopen=True, l_bound=bound, u_bound=None, u_isopen=False)
-            else:  # opr == '<=':
-                return interval(l_isopen=False, l_bound=bound, u_bound=None, u_isopen=False)
-        elif chunk[0] in ('[', ']') and chunk[-1] in ('[', ']'):
+                return interval('(', bound, None, ']')
+            else:  # opr == '>=':
+                return interval('[', bound, None, ']')
+
+        elif chunk[0] in cls._L_BRACKETS and chunk[-1] in cls._R_BRACKETS:
             bounds = chunk[1:-1].split(',')
             assert len(bounds) == 2, "Invalid syntax (no comma): %s" % chunk
-            l_b, u_b = cls._evalchunk(bounds[0]), cls._evalchunk(bounds[1])
-            l_open, u_open = chunk[0] == ']', chunk[-1] == '['
-            return interval(l_isopen=l_open, l_bound=l_b, u_bound=u_b, u_isopen=u_open)
+            l_b, r_b = cls._evalchunk(bounds[0]), cls._evalchunk(bounds[1])
+            return interval(chunk[0], l_b, r_b, chunk[-1])
+
         else:
             val = cls._evalchunk(chunk)
-            return interval(l_isopen=False, l_bound=val, u_bound=val, u_isopen=False)
+            return interval('[', val, val, ']')
 
     # datetime regexp, used to eval otherwise unrecognized strings to datetime's
     # See interval.eval_chunk
-    _dtyme_re = re.compile(r'^\s*\d\d\d\d-\d\d-\d\d(?:[T ]\d\d:\d\d:\d\d(?:.\d{1,6})?)?\s*$')
+    _dtyme_re = re.compile(r'^\s*\d\d\d\d-\d\d-\d\d(?:[T ]\d\d:\d\d:\d\d(?:.\d{0,6})?)?\s*$')
 
     @classmethod
     def _evalchunk(cls, chunk):
+        """evaluates a chunk of json-like string into a python value. The chunk must be
+        the result of an interval parsable string"""
         try:
-            return eval(chunk)
+            return _eval(chunk)
         except Exception:
             if cls._dtyme_re.match(chunk):
                 return np.array(chunk, dtype='datetime64[us]').item()
             raise SyntaxError('Invalid syntax: "%s"' % chunk)
 
     def __cmp__(self, other):
+        """Compares this interval with another one. Returns 2 if this interval is greater
+        than the other (=all points of interval are greater), 1 if greater or equal (=all points
+        of this interval are greater, ONE is shared), zero if intervals are equal (each element
+        of this interval belongs to the other, and viceversa), -1 and -2 accordingly (other
+        greater or equal, other greater.
+        NOTE: An interval is greater or equal than another if it is "contiguous": i.e., the
+        biggest point of the other interval is the smallest point of the interval.
+        Thus, i0 >= i1 DOES NOT MEAN: all points of i0 >= i1, but:
+        max(i1) == min(i0), all other points of i0 are > than all other points of i1
+        """
         try:
             if isinstance(other, interval) and \
                 _types_comparable(self._refval, other._refval) and \
                     not self.empty and not other.empty:
-                my_min, my_max = self.l_bound, self.u_bound
-                its_min, its_max = other.l_bound, other.u_bound
+                my_min, my_max = self.endpoints
+                its_min, its_max = other.endpoints
                 if my_min == its_min and my_max == its_max:
-                    if (self.l_isopen == other.l_isopen) and\
-                            (self.u_isopen == other.u_isopen):
+                    if (self.leftopen == other.leftopen) and\
+                            (self.rightopen == other.rightopen):
                         return 0
                 elif my_min >= its_max and not any(x is None for x in [my_min, its_max]):
                     if my_min == its_max:
-                        if not self.l_isopen and not other.u_isopen:
+                        if self.leftclosed and other.rightclosed:
                             return 1
                     return 2
                 elif my_max <= its_min and not any(x is None for x in [my_max, its_min]):
                     if my_max == its_min:
-                        if not self.u_isopen and not other.l_isopen:
+                        if self.rightclosed and other.leftclosed:
                             return -1
                     return -2
         except:
@@ -414,7 +597,6 @@ class interval(object):
 
     def __str__(self):
         """The string representation of the interval"""
-        min_, max_ = _get_domain_bounds(self._refval)
         # try to get a nicer representation
         # remember: if self.l_bound is None it means we passed None in the constructor
         # and the domain (str, numeric) has no given min. So we can avoid to display open-closed
@@ -429,19 +611,18 @@ class interval(object):
                 except AttributeError:
                     return str(val)
         ret = None
-        equal = self.l_bound == self.u_bound  # remember: they cannot be both None
-        if equal:
-            if not self.l_isopen and not self.u_isopen:
-                ret = "==%s" % jsondumps(self.l_bound)
-        elif self.l_bound is None or (self.l_bound == min_ and not equal and not self.l_isopen):
-            ret = "%s%s" % ("<" if self.u_isopen else "<=", jsondumps(self.u_bound))
-        elif self.u_bound is None or (self.u_bound == max_ and not equal and not self.u_isopen):
-            ret = "%s%s" % (">" if self.l_isopen else ">=", jsondumps(self.l_bound))
+        endpts = self.endpoints  # remember: they cannot be both None
+        if self.degenerate:
+            ret = "==%s" % jsondumps(endpts[0])
+        elif endpts[0] is None:
+            ret = "%s%s" % ("<" if self.rightopen else "<=", jsondumps(endpts[1]))
+        elif endpts[1] is None:
+            ret = "%s%s" % (">" if self.leftopen else ">=", jsondumps(endpts[0]))
 
         if ret is None:
-            br1 = "]" if self.l_isopen else '['
-            br2 = "[" if self.u_isopen else ']'
-            ret = "%s%s, %s%s" % (br1, jsondumps(self.l_bound), jsondumps(self.u_bound), br2)
+            br1 = "]" if self.leftopen else '['
+            br2 = "[" if self.rightopen else ']'
+            ret = "%s%s, %s%s" % (br1, jsondumps(endpts[0]), jsondumps(endpts[1]), br2)
 
         if self.empty:
             ret += " (empty set)"
@@ -468,7 +649,7 @@ def match(condition_expr, values, on_type_mismatch='raise'):
     if condition_expr is None:
         return np.zeros(shape=a.shape, dtype=bool)
     elif condition_expr.startswith("!="):
-        match_val = eval(condition_expr[2:])
+        match_val = _eval(condition_expr[2:])
         cmd = np.ones(shape=a.shape, dtype=type(match_val))
         if not _types_comparable(a, cmd):
             if on_type_mismatch == 'ignore':
