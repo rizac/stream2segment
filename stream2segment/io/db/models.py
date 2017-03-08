@@ -283,7 +283,7 @@ class Segment(Base):
                            secondaryjoin="Station.id == Channel.station_id",
                            viewonly=True, uselist=False,
                            backref=backref("segments", lazy="dynamic"))
-    classes = relationship("Class",
+    classes = relationship("Class", lazy='dynamic',
                            secondary="class_labellings",  # <-  must be table name in metadata
                            viewonly=True, backref=backref("segments", lazy="dynamic"))
 

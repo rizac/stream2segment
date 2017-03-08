@@ -6,7 +6,6 @@ from datetime import datetime
 from datetime import MAXYEAR, MINYEAR
 import re
 from __builtin__ import eval as builtin_eval
-from itertools import izip
 
 if sys.version_info[0] == 2:
     _strtypes = (bytes, str, unicode)
@@ -130,7 +129,8 @@ class Piecewisefunc():
         return ret
 
 
-_eval_imports = {'np': np, 'inf': float('inf'), 'nan': float('nan'), 'e': math.e,  # for safety
+_eval_imports = {'np': np, 'numpy': np, 'inf': float('inf'), 'nan': float('nan'),
+                 'e': math.e,  # for safety
                  'pi': math.pi,  # for safety
                  # by disabling builtins, boolean are not recognized (but str are.Why?)
                  # so set boolean values (being javascript compatible and adding ucase compatiblity)
@@ -161,10 +161,9 @@ def _eval(expr, vars=None):  # @ReservedAssignment
     recommended to use them). However, `numpy` can be accessed via `numpy` or `np` in `expr`,
     if needed.
     """
-    # safety1: any dot must be preceeded by numpy, np, a space or a number, and must be
-    # followed by a space or a number
-#     if re.match(r'(?<!numpy)\.|(?<!np)\.|(?<!\s)\.|(?<!\d)\.|\.(?![\d\s])', expr):
-#         raise ValueError("Invalid string expression: '%s'" % expr)
+    # safety1: no double underscores, no 'eval' string
+    if re.match(r'eval(?!\w)|__\w+__', expr):
+        raise ValueError("Invalid string expression: '%s'" % expr)
     if not vars:
         vars = {}  # @ReservedAssignment
     vars.update(_eval_imports)
@@ -187,7 +186,7 @@ class interval(object):
     and so on. The points a and b are called left end-point and right end-point,
     respectively.
 
-    This class supports the `in` operator, is callable, can parse python-like syntax to produce
+    This class supports the `in` operator, is callable, can split python-like syntax to produce
     an interval (for instance, if the string is given from a form request or a config file),
     and supports order relations with other intervals
 
@@ -300,9 +299,9 @@ class interval(object):
 
         if args[0] in self._L_BRACKETS:
             l_isopen = args[0] in self._L_OPENBRACKETS
-            l_bound = args[1]
-            u_bound = args[2]
-            u_isopen = args[3] in self._R_OPENBRACKETS
+            l_endpoint = args[1]
+            r_endpoint = args[2]
+            r_isopen = args[3] in self._R_OPENBRACKETS
             assert args[0] in self._L_BRACKETS and args[3] in self._R_BRACKETS
         else:
             argz = args[0]
@@ -311,55 +310,55 @@ class interval(object):
             assert type(argz) in (tuple, list) and len(args[0]) == 2, \
                 'Specify a 2- element tuple / list or numpy array as interval single argument'
 
-            l_bound, u_bound = argz[0], argz[1]
+            l_endpoint, r_endpoint = argz[0], argz[1]
             _open = type(argz) == tuple
-            l_isopen, u_isopen = _open, _open
+            l_isopen, r_isopen = _open, _open
 
-        if hasattr(l_bound, "__iter__") and not isinstance(l_bound, str):
-            raise SyntaxError("Lower bound interval iterable not string: invalid value")
+        if hasattr(l_endpoint, "__iter__") and not isinstance(l_endpoint, str):
+            raise ValueError("Lower bound interval iterable not string: invalid value")
 
-        if hasattr(u_bound, "__iter__") and not isinstance(u_bound, str):
-            raise SyntaxError("Upper bound interval iterable not string: invalid value")
+        if hasattr(r_endpoint, "__iter__") and not isinstance(r_endpoint, str):
+            raise ValueError("Upper bound interval iterable not string: invalid value")
 
-        if l_bound is None and u_bound is None:
+        if l_endpoint is None and r_endpoint is None:
             raise ValueError('lower and upper bounds both None')
 
         # coerce to datetime if any is can be coerced. If only one of the two is datetime
         # and the other not, we will check the error later
-        is_l_dtime = l_bound is not None and _isdtime(l_bound)
-        is_u_dtime = u_bound is not None and _isdtime(u_bound)
+        is_l_dtime = l_endpoint is not None and _isdtime(l_endpoint)
+        is_r_dtime = r_endpoint is not None and _isdtime(r_endpoint)
         # set a flag cause if datetime we need to convert strings into datetime(s) in __call__
         # comparison via __eq__, __ne__ on the other hand is fine because bounds are stored as
         # python datetime(s)
-        self._dtype = 'datetime64[us]' if any([is_l_dtime, is_u_dtime]) else None
+        self._dtype = 'datetime64[us]' if any([is_l_dtime, is_r_dtime]) else None
 
-        global_min, global_max = _get_domain_bounds(u_bound if l_bound is None else l_bound)
-        if l_bound is None:
-            self._refval = u_bound
-        elif u_bound is None:
-            self._refval = l_bound
+        if l_endpoint is None:
+            self._refval = r_endpoint
+        elif r_endpoint is None:
+            self._refval = l_endpoint
         else:
-            self._refval = l_bound  # maybe pick float if int, float?
-            if not _types_comparable(l_bound, u_bound):
+            self._refval = l_endpoint  # maybe pick float if int, float?
+            if not _types_comparable(l_endpoint, r_endpoint):
                 raise ValueError('bound types not compatible: %s and %s' %
-                                 (str(type(l_bound)), str(type(u_bound))))
+                                 (str(type(l_endpoint)), str(type(r_endpoint))))
 
-        l_bound_defined = l_bound is not None
-        u_bound_defined = u_bound is not None
-        if l_bound_defined and u_bound_defined:
-            if not l_bound < u_bound:
-                if not (l_bound == u_bound and l_isopen == u_isopen):
+        l_isdefined = l_endpoint is not None
+        r_isdefined = r_endpoint is not None
+        if l_isdefined and r_isdefined:
+            if not l_endpoint < r_endpoint:
+                if not (l_endpoint == r_endpoint and l_isopen == r_isopen):
                     raise ValueError('Malformed interval, check bounds')
 
         # if both bounds are not None, check if there is one which equals the type min/max
         # and that is closed. Then set it to None to speed up calculations
-        if l_bound_defined and l_bound == global_min and not l_isopen and l_bound != u_bound:
-            l_bound = None
-        if u_bound_defined and u_bound == global_max and not u_isopen and l_bound != u_bound:
-            u_bound = None
+        global_min, global_max = _get_domain_bounds(self._refval)
+        if l_isdefined and l_endpoint == global_min and not l_isopen and l_endpoint != r_endpoint:
+            l_endpoint = None
+        if r_isdefined and r_endpoint == global_max and not r_isopen and l_endpoint != r_endpoint:
+            r_endpoint = None
 
-        self._endpoints = l_bound, u_bound
-        self._lopen, self._ropen = l_isopen, u_isopen
+        self._endpoints = l_endpoint, r_endpoint
+        self._lopen, self._ropen = l_isopen, r_isopen
         self._globalbounds = global_min, global_max
 
     @property
@@ -448,7 +447,6 @@ class interval(object):
         # so we will use the module function _types_comparable
 
         cond = False
-        shape = None
         np_val = np.asarray(val)
         try:
             if self.empty:
@@ -466,22 +464,22 @@ class interval(object):
             if self.degenerate:  # only a single pt:
                 cond = np_val == self._refval
             else:
-                l_bound, u_bound = self.endpoints
+                l_endpoint, r_endpoint = self.endpoints
                 l_cond = None if self.leftunbounded else \
-                    np_val > l_bound if self.leftopen else np_val >= l_bound
-                u_cond = None if self.rightunbounded else \
-                    np_val < u_bound if self.rightopen else np_val <= u_bound
+                    np_val > l_endpoint if self.leftopen else np_val >= l_endpoint
+                r_cond = None if self.rightunbounded else \
+                    np_val < r_endpoint if self.rightopen else np_val <= r_endpoint
 
-                if l_cond is None and u_cond is None:
+                if l_cond is None and r_cond is None:
                     return np.ones(shape=np_val.shape, dtype=bool)
                 elif l_cond is None:
-                    cond = u_cond
-                elif u_cond is None:
+                    cond = r_cond
+                elif r_cond is None:
                     cond = l_cond
                 else:
-                    cond = l_cond & u_cond
+                    cond = l_cond & r_cond
         except TypeError:
-            return np.zeros(shape=shape, dtype=bool)
+            return np.zeros(shape=np_val.shape, dtype=bool)
 
         return cond
 
@@ -489,35 +487,34 @@ class interval(object):
         return self(value).all()
 
     @classmethod
-    def parse(cls, jsonlike_string):
-        """
-            Parses the given string to produce an interval.
-            :param jsonlike_string: A string denoting an interval
-            as a mathematical expression either with open/closed brackets ("['a', 'b'+'c'[")
-            or relational operators ("<= e*2". Note that "==" - e.g. "==45.6" - is valid and
-            indicates an interval of a single point). It is "json-like" with the
-            following additions / exceptions:
+    def split(cls, jsonlike_string):
+        """Parses the given string to produce an interval.
+        :param jsonlike_string: A string denoting an interval
+        as a mathematical expression either with open/closed brackets ("['a', 'b'+'c'[")
+        or relational operators ("<= e*2". Note that "==" is valid and
+        indicates an interval of a single point. E.g.: "==45.6"). It is "json-like" with the
+        following additions / exceptions:
 
-            - Brackets symbols indicate interval bounds. Thus "['a', 'd']" indicates the interval
-              of all strings greater or equal than 'a', and lower or equal than 'd'.
-            - Brackets can be set as "open", as commonly used in mathematics.
-              Thus "]-12.5, 5]" is the interval of all numbers greater than -12.5, and lower or
-              equal than 5
-            - The string can start with any relational operator like '<', '>=', '==' etcetera,
-              followed by a valid expression
-            - Interval bounds **can be any kind of expression that will be evaluated**.
-              This module uses the `eval` function python
-              function (for safety using `eval`, see module doc) and thus recognizes any valid
-              python syntax. The expression recognizes also by default 'inf', 'nan', 'e', booleans,
-              plus 'numpy' and 'math' modules. Thus "<inf+np.e*4/2" or "]-inf, e/2]" are valid
-              (numpy can be references via 'np', too)
-            - For inputting datetimes, type them as iso format WITHOUT QUOTES (2016-01-01, or
-              2016-02-15T01:45:23.450), otherwise they
-              will be interpreted as strings. Unlike numbers, strings and boolean, `datetimes`
-              thus cannot contain cannot thus be evaluated as expressions. `datetime.datetime`
-              could be imported, but would make the syntax hard for non-python users, and this
-              function is intended to create a python object from e.g. json request strings like
-              "<=2014-0313T01:02:59"
+        - Brackets symbols indicate interval bounds. Thus "['a', 'd']" indicates the interval
+          of all strings greater or equal than 'a', and lower or equal than 'd'.
+        - Brackets can be set as "open", as commonly used in mathematics.
+          Thus "]-12.5, 5]" or "(-12.5, 5]" is the interval of all numbers greater than -12.5,
+          and lower or equal than 5
+        - The string can start with any relational operator like '<', '>=', '==' etcetera,
+          followed by a valid expression
+        - Interval bounds **can be any kind of expression that will be evaluated**.
+          This module uses the `eval` function python
+          function (for safety using `eval`, see module doc) and thus recognizes any valid
+          python syntax. The expression recognizes also by default 'inf', 'nan', 'e', booleans,
+          plus 'numpy' (by prefixing the function with 'np.' or 'numpy') and all 'math' module
+          functions (without prefixing them with `math.`).
+          Thus "<np.inf+e*4/2" or "]-inf, e/2]" are valid
+        - For inputting `datetime`s, type them as iso format WITHOUT QUOTES (2016-01-01, or
+          2016-02-15T01:45:23.450), otherwise they
+          will be interpreted as strings. `datetime.datetime`
+          could be imported, but would make the syntax hard for non-python users, and this
+          function is intended to create a python object from e.g. json request strings like
+          "<=2014-0313T01:02:59"
         """
         chunk = jsonlike_string
         opr, bound = (chunk[:2], chunk[2:]) if chunk[:2] in cls._OPERATORS2 else \
@@ -685,7 +682,7 @@ def match(condition_expr, values, on_type_mismatch='raise'):
         cmd.fill(match_val)
         return a != cmd
     else:
-        return interval.parse(condition_expr)(values)
+        return interval.split(condition_expr)(values)
 
 
 def where(condition_expr, values, on_type_mismatch='raise'):  # @ReservedAssignment

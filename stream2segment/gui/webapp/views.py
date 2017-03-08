@@ -23,9 +23,9 @@ def main():
 
 
 @main_page.route("/init", methods=['POST'])
-def get_elements():
-    dic = core.get_ids()
-    dic['classes'] = core.get_classes()
+def init():
+    data = request.get_json()
+    dic = core.get_init_data(data.get('order', []))
     return jsonify(dic)
 
 
@@ -35,17 +35,19 @@ def get_segment_data():
     seg_id = data['segId']
     rem_resp_filtered = data['filteredRemResp']
     zooms = data['zooms']
+    metadata_keys = data['metadataKeys']
     # NOTE: seg_id is a unicode string, but the query to the db works as well
-    return jsonify(core.get_segment_data(seg_id, rem_resp_filtered, zooms))
+    return jsonify(core.get_segment_data(seg_id, rem_resp_filtered, zooms, metadata_keys))
 
 
-#
-# @app.route("/toggle_class_id", methods=['POST'])
-# def toggle_class_id():
-# #    db_uri = app.config['DATABASE_URI']
-#     json_req = request.get_json()
-# #     class_ids = [] if json_req is None else json_req.get('class_ids', [])
-# #     if class_ids:
-# #         class_ids = [int(c) for c in class_ids]
-#     session = core._get_session(app)
-#     return jsonify(core.toggle_class_id(session, json_req['segment_id'], json_req['class_id']))
+@main_page.route("/select_segments", methods=['POST'])
+def select_segments():
+    data = request.get_json()
+    # NOTE: seg_id is a unicode string, but the query to the db works as well
+    return jsonify(core.select_segments(data))
+
+
+@main_page.route("/toggle_class_id", methods=['POST'])
+def toggle_class_id():
+    json_req = request.get_json()
+    return jsonify(core.toggle_class_id(json_req['segment_id'], json_req['class_id']))

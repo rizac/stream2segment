@@ -29,7 +29,7 @@ import time
 from datetime import datetime
 
 from stream2segment.io.db.models import Segment, Class, ClassLabelling
-from stream2segment.io.db.pd_sql_utils import colnames
+from stream2segment.io.db.pd_sql_utils import colnames, commit
 from stream2segment.process.utils import get_stream, itercomponents
 import numpy as np
 from obspy.core.stream import Stream
@@ -43,16 +43,70 @@ from stream2segment.analysis import amp_spec
 import json
 from stream2segment.gui.webapp import get_session
 from collections import OrderedDict as odict
-from stream2segment.io.db import models
+from stream2segment.io.db.models import Segment, Class, Station, Channel, DataCenter, Event
+from stream2segment.utils.sqlevalexpr import get_condition, get_columns,\
+    get_order_by_args, query
+from sqlalchemy.sql.expression import and_, asc, desc
 
 
 NPTS_WIDE = 900
 NPTS_SHORT = 900
+# FIXME: automatic retrieve by means of Segment class relationships?
+METADATA = [("", Segment), ("event", Event), ("channel", Channel),
+            ("station", Station), ("datacenter", DataCenter)]
 
 
-def get_ids():
+def get_init_data(order_list):
+    classes = get_classes()
+    metadata = create_metadata_list()
+    return {'segment_ids': get_segment_ids(),
+            'classes': classes,
+            'metadata': metadata}
+
+
+def create_metadata_list():
+    ret = []
+    exclude = set([Station.inventory_xml.key, Segment.data.key])
+    for prefix, model in METADATA:
+        colz = colnames(model, fkey=False)
+        for c in colz:
+            if c in exclude:
+                continue
+            column = getattr(model, c)
+            try:
+                typename = type2str(column.type.python_type)
+            except:
+                continue
+            ret.append([("%s." % prefix) + c if prefix else c, typename])
+
     session = get_session()
-    return {'segment_ids': [seg[0] for seg in session.query(Segment.id)]}
+    if session.query(Class).count():
+        ret.append(['classes', type2str(Class.id.type.python_type)])  # @UndefinedVariable
+
+    return ret
+
+
+def type2str(python_type):
+    return python_type.__name__
+
+
+def select_segments(filterdata):
+    # return get_segment_ids(get_queryfilter(Segment, **data))
+    return get_segment_ids(filterdata)
+
+
+def get_segment_ids(filterdata=None, order_by=None):
+    qry = query(get_session(), Segment.id, filterdata, order_by)
+    return [seg[0] for seg in qry]
+#     session = get_session()
+#     query = session.query(Segment.id)
+#     if queryfilter is not None:
+#         query = query.filter(queryfilter)
+#     if order_by:
+#         args = get_order_by_args(Segment, order_by)
+#         query = query.order_by(*args)
+#     ret = [seg[0] for seg in query]
+#     return ret
 
 
 def get_num_custom_plots():
@@ -74,15 +128,15 @@ def get_classes():
     return ret
 
 
-def get_segment_data(seg_id, filtered, zooms):
+def get_segment_data(seg_id, filtered, zooms, metadata_keys):
     session = get_session()
     seg = session.query(Segment).filter(Segment.id == seg_id).first()
     ret = [Plot.fromsegment(seg, zooms[0], NPTS_WIDE, filtered, copy=True)]
 
-    for i, seg in enumerate(itercomponents(seg, session), 1):
+    for i, seg_ in enumerate(itercomponents(seg, session), 1):
         if i > 2:
             break
-        ret.append(Plot.fromsegment(seg, zooms[i], NPTS_WIDE, False, False))
+        ret.append(Plot.fromsegment(seg_, zooms[i], NPTS_WIDE, False, False))
 
     try:
         trace = Traces.get(seg, filtered)
@@ -95,35 +149,42 @@ def get_segment_data(seg_id, filtered, zooms):
         ret.append(Plot())
         ret.append(Plot())
 
+    metadata = get_columns(seg, metadata_keys)
+    if session.query(Class).count():
+        # convert classes instances to their id's
+        metadata['classes'] = [c.id for c in metadata['classes']]
+
+    return {'plotData': [r.tojson() for r in ret],  #  'classIds': get_segment_class_ids(seg_id),
+            'metadata': metadata}
+
+
+# def get_segment_class_ids(segment_id):
+#     session = get_session()
+#     return [c[0] for c in
+#             session.query(ClassLabelling.class_id).
+#             filter(ClassLabelling.segment_id == segment_id).all()]
+
+
+
+def toggle_class_id(segment_id, class_id):
     session = get_session()
-    classes = [c[0] for c in
-               session.query(ClassLabelling.segment_id).
-               filter(ClassLabelling.segment_id == seg_id).all()]
+    elms = session.query(ClassLabelling).\
+        filter((ClassLabelling.class_id == class_id) &
+               (ClassLabelling.segment_id == segment_id)).all()
 
-    return {'plot_data': [r.tojson() for r in ret], 'class_ids': classes,
-            'metadata': get_metadata(seg)}
+    if elms:
+        for elm in elms:
+            session.delete(elm)
+    else:
+        sca = ClassLabelling(class_id=class_id, segment_id=segment_id, is_hand_labelled=True)
+        session. add(sca)
 
+    commit(session)
 
-def get_metadata(segment):
-    ret = []
-    exclude = set([models.Station.inventory_xml.key, models.Segment.data.key])
-    for prefix, inst in izip(["segment", "event", "channel", "station"],
-                             [segment, segment.event, segment.channel, segment.station]):
-        subdata = []
-        block = [prefix, subdata]
-        colz = colnames(inst.__class__, pkey=False, fkey=False)
-        for c in colz:
-            if c in exclude:
-                continue
-            val = getattr(inst, c)
-            if isinstance(val, datetime):
-                val = val.isoformat()
-            subdata.append((c, val))
-        ret.append(block)
-
-    ret.append(['misc', [('datacenter', segment.datacenter.dataselect_query_url),
-                ('downloaded@', segment.run.run_time.isoformat())]])
-    return ret
+    # re-query the database to be sure:
+    segm = session.query(Segment).filter(Segment.id == segment_id).first()
+    return {'classes': get_classes(),
+            'segment_class_ids': [] if not segm else [c.id for c in segm.classes]}
 
 
 def downsample(array, npts):

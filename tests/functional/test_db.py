@@ -6,7 +6,6 @@ Created on Jul 15, 2016
 '''
 import pytest, os
 import unittest
-import datetime
 import numpy as np
 import os
 from stream2segment.io.db import models
@@ -21,7 +20,7 @@ from stream2segment.io.utils import dumps_inv, loads_inv
 from sqlalchemy.orm.exc import FlushError
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.inspection import inspect
-from datetime import timedelta
+from datetime import datetime, timedelta
 from sqlalchemy.orm.session import object_session
 
 class Test(unittest.TestCase):
@@ -180,7 +179,7 @@ class Test(unittest.TestCase):
         
         
         # now pass a utcdatetime and see if we keep that value:
-        utcnow = datetime.datetime.utcnow()
+        utcnow = datetime.utcnow()
         run_row = models.Run(run_time=utcnow)
         assert run_row.run_time == utcnow
         self.session.add_all([run_row])
@@ -225,7 +224,7 @@ class Test(unittest.TestCase):
 
         # test types. String floats are parsed automatically? YES
         val = '6.7'
-        e = models.Event(id='abc', time=datetime.datetime.utcnow(),
+        e = models.Event(id='abc', time=datetime.utcnow(),
                          latitude=val, longitude=78, magnitude=56, depth_km=45)
         assert e.latitude != float(val)
         self.session.add(e)
@@ -314,7 +313,7 @@ class Test(unittest.TestCase):
 
     def test_add_and_flush(self):
         # bad event entry (no id):
-        e = models.Event(time = datetime.datetime.utcnow(), latitude = 6, longitude=8, depth_km=6,
+        e = models.Event(time = datetime.utcnow(), latitude = 6, longitude=8, depth_km=6,
                          magnitude=56)
         events = len(self.session.query(models.Event).all())
         
@@ -326,7 +325,7 @@ class Test(unittest.TestCase):
         
         # single flush after two add: rollback rolls back BOTH
         e2 = models.Event(id = 'Column(String, primary_key=True', 
-                         time = datetime.datetime.utcnow(), latitude = 6, longitude=8, depth_km=6,
+                         time = datetime.utcnow(), latitude = 6, longitude=8, depth_km=6,
                          magnitude=56)
         self.session.add(e)
         self.session.add(e2)
@@ -353,7 +352,7 @@ class Test(unittest.TestCase):
         self.session.commit()
         
         id = 'abcdefghilmnopq'
-        utcnow = datetime.datetime.utcnow()
+        utcnow = datetime.utcnow()
         e = models.Station(id="a.b", network='a', datacenter_id=dc.id, station='b', latitude=56, longitude=78)
         self.session.add(e)
         self.session.commit()
@@ -382,7 +381,7 @@ class Test(unittest.TestCase):
 
     def test_add_or_get(self):
         id = 'some_id_not_used_elsewhere'
-        utcnow = datetime.datetime.utcnow()
+        utcnow = datetime.utcnow()
         e = models.Event(id=id, time=utcnow, latitude=89.5, longitude=6,
                          depth_km=7, magnitude=56)
         e_, new_added = self.get_or_add(self.session, e)
@@ -415,7 +414,7 @@ class Test(unittest.TestCase):
         dc= models.DataCenter(station_query_url="345fbgfnyhtgrefs", dataselect_query_url='edfawrefdc')
         self.session.add(dc)
 
-        utcnow = datetime.datetime.utcnow()
+        utcnow = datetime.utcnow()
 
         run = models.Run(run_time=utcnow)
         self.session.add(run)
@@ -435,7 +434,7 @@ class Test(unittest.TestCase):
         self.session.commit()
         
         id = '__abcdefghilmnopq'
-        utcnow = datetime.datetime.utcnow()
+        utcnow = datetime.utcnow()
         e = models.Event(id=id, time=utcnow)
         e, added = self.get_or_add(self.session, e)
         assert added == False
@@ -448,10 +447,10 @@ class Test(unittest.TestCase):
         
 #         c, added = add_or_get2(self.session, c)
 #
-        seg = models.Segment(start_time=datetime.datetime.utcnow(),
-                             end_time=datetime.datetime.utcnow(),
+        seg = models.Segment(start_time=datetime.utcnow(),
+                             end_time=datetime.utcnow(),
                              event_distance_deg=9,
-                             arrival_time=datetime.datetime.utcnow(),
+                             arrival_time=datetime.utcnow(),
                              data=b'')
 
         self.session.add(seg)
@@ -518,23 +517,23 @@ class Test(unittest.TestCase):
         self.session.add_all(labelings)
         self.session.commit()
 
-        assert not seg.classes
-        assert len(seg__1.classes) == 2
-        assert len(seg__2.classes) == 1
+        assert not seg.classes.all()
+        assert len(seg__1.classes.all()) == 2
+        assert len(seg__2.classes.all()) == 1
         
         # test on update and on delete:
         old_labellings = sorted([labelings[0].class_id, labelings[1].class_id])
-        assert sorted(c.id for c in seg__1.classes) == old_labellings
+        assert sorted(c.id for c in seg__1.classes.all()) == old_labellings
         # NOTE: DOING THIS WITH SQLITE MSUT HAVE PRAGMA foreign key = ON issued
         #THIS IS DONE BY DEFAULT IN models.py, BUT WATCH OUT!!:
         old_clabel1_id = clabel1.id
         clabel1.id=56
         self.session.commit()
         # this still equal (sqlalachemy updated also labellings)
-        assert sorted(c.id for c in seg__1.classes) == sorted([labelings[0].class_id, labelings[1].class_id])
-        assert sorted(c.id for c in seg__1.classes) != old_labellings
-        assert 56 in [c.id for c in seg__1.classes]
-        assert old_clabel1_id not in [c.id for c in seg__1.classes]
+        assert sorted(c.id for c in seg__1.classes.all()) == sorted([labelings[0].class_id, labelings[1].class_id])
+        assert sorted(c.id for c in seg__1.classes.all()) != old_labellings
+        assert 56 in [c.id for c in seg__1.classes.all()]
+        assert old_clabel1_id not in [c.id for c in seg__1.classes.all()]
 
         # Create a copy of the instance, with same value.
         # We should excpect a UniqueConstraint
@@ -569,7 +568,7 @@ class Test(unittest.TestCase):
         # (see link above)
         seg_ = COPY(seg)
         seg_.id = None  # autoincremented
-        seg_.end_time += datetime.timedelta(seconds=1) # safe unique constraints
+        seg_.end_time += timedelta(seconds=1) # safe unique constraints
         self.session.add(seg_)
         self.session.commit()
         assert len(self.session.query(models.Segment).all()) == len(s1)+1
@@ -689,7 +688,7 @@ class Test(unittest.TestCase):
     def test_harmonize_columns(self):
 
         id = 'abcdefghilmnopq'
-        utcnow = datetime.datetime.utcnow()
+        utcnow = datetime.utcnow()
 
         eventcolnames = list(colnames(models.Event))
         df = pd.DataFrame(columns=eventcolnames,
@@ -804,6 +803,7 @@ class Test(unittest.TestCase):
         staq = q.get((None,))
         assert staq is None
 
+        
 #     def dontrunthis_pdsql_utils(self): 
 #         event_rows = df_to_table_rows(models.Event, df3)
 #         

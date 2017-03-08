@@ -20,6 +20,26 @@ var _NUM_CUSTOM_PLOTS = {{ numCustomPlots }};
 <!--  from here on, start angular so curly braces refer to it and not jinja2. See endraw at the end -->
 {% raw %}
 <body ng-app="myApp" ng-controller="myController">
+	<div ng-show="metadata.showSelectionForm" class="select alert">
+		Select segments where:
+		<a href="#" class="close" data-dismiss="alert" aria-label="close" onclick="return false;"
+			ng-click="metadata.showSelectionForm=!metadata.showSelectionForm">&times;</a>
+		<div class="center">
+			<table style='width:100%'>
+				<tr ng-repeat="(idx, values) in metadata">
+					<td>{{ values[0] }}</td>
+					<td style='width:100%'><input style='width:100%' type=text
+					ng-model="selection.data[values[0]]"
+					placeholder="({{ values[1] }})"/></td>
+				</tr>
+			</table>
+		</div>
+		<div class='bottom'>
+			<button class='btn btn-default' ng-click="selectSegments()">Select</button>
+			<span>{{ selection.errorMsg }}</span>
+		</div>
+		<!-- </form> -->
+	</div>
 	<div class="main v-container">
 		<div class=top>
 	
@@ -27,32 +47,34 @@ var _NUM_CUSTOM_PLOTS = {{ numCustomPlots }};
 		<div class="center h-container">
 			<div class="left v-container panel-left">
 				<div class="top panel-heading segment-panel-heading">
-					Segment {{ currentIndex + 1 }} of {{ segIds.length }}	
+					Segment {{ segIdx + 1 }} of {{ segIds.length }}	
 					<button  ng-show="!isEditingIndex" class='btn btn-default' ng-click="setPreviousSegment()">&larr;</button>
 					<button  ng-show="!isEditingIndex" class='btn btn-default' ng-click="setNextSegment()" >&rarr;</button>
+					<button  ng-show="!isEditingIndex" class='btn btn-default' ng-click="metadata.showSelectionForm=true">Select</button>
+					
 					<div class="checkbox">
 						<label>
-      					<input type="checkbox" ng-model="showFiltered"
-      						ng-change="toggleFilter()"> Rem.resp&filter
+      						<input type="checkbox" ng-model="showFiltered"
+      							ng-change="toggleFilter()"> Rem.resp&filter
     					</label>
   					</div>
 				</div>
 				<div class="center metadata">
-					<div ng-repeat="elm in segData.metadata" class="panel panel-default">
-						<div ng-click="toggleDivVisibility(elm[0])" class="panel-heading">
-							{{ elm[0] }} <div ng-class="isDivVisible(elm[0]) ? 'arrow-up' : 'arrow-down'"></div>
+					<div ng-repeat="(key, vals) in segData.metadata" class="panel panel-default">
+						<div ng-click="toggleDivVisibility(key)" class="panel-heading">
+							{{ key }} <div ng-class="isDivVisible(key) ? 'arrow-up' : 'arrow-down'"></div>
 						</div>
-						<div ng-show="isDivVisible(elm[0])" class="panel-body">
+						<div ng-show="isDivVisible(key)" class="panel-body">
 							<table>
-								<tr ng-repeat="subElm in elm[1]">
-									<td>{{ subElm[0] }}</td><td>{{ subElm[1] }}</td>
+								<tr ng-repeat="(subKey, subVal) in vals">
+									<td>{{ subKey }}</td><td>{{ subVal }}</td>
 								</tr>
 							</table>
 						</div>
 					</div>
 				</div>
 				<div class=bottom>
-					<div class="annotations panel panel-default">
+					<div ng-show="classes" class="annotations panel panel-default">
 						<div ng-click="toggleDivVisibility('classes')" class="panel-heading">
 							Class Labels: <div ng-class="isDivVisible('classes') ? 'arrow-down' : 'arrow-up'"></div>
 						</div>
@@ -62,7 +84,7 @@ var _NUM_CUSTOM_PLOTS = {{ numCustomPlots }};
 									<input
 									    type="checkbox"
 									    value="{{ class.id }}"
-									    ng-checked="currentSegmentClassIds.indexOf(class.id) > -1"
+									    ng-checked="segData.classIds.indexOf(class.id) > -1"
 									    ng-click="toggleClassLabelForCurrentSegment(class.id)"
 									> {{ class.id }}: {{ class.label }} ({{ class.count }})
 								</label>

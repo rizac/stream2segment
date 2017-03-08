@@ -52,8 +52,18 @@ div.plot{
 	width: 20vw;
 }
 
+.panel-left .panel-body table{
+	table-layout: fixed;
+	width:100%;
+}
+
 .panel-left .panel-body td:first-child {
     padding-right: 12px;
+}
+
+.panel-left .panel-body td:last-child {
+    word-break: break-all;
+    word-wrap: break-word;
 }
 
 div.metadata{
@@ -95,6 +105,24 @@ label {
      */
     margin-bottom: 2px;
     font-weight: normal !important;
+}
+
+div.select{
+	position:fixed;
+	top:10vh;
+	width: 50vw;
+	left:25vw;
+	z-index: 100000;
+	-webkit-box-shadow: 0px 0px 22px 0px rgba(0,0,0,0.44);
+	-moz-box-shadow: 0px 0px 22px 0px rgba(0,0,0,0.44);
+	box-shadow: 0px 0px 22px 0px rgba(0,0,0,0.44);
+	background-color: white;
+}
+
+div.select > div.center{
+	overflow:auto;
+	height: 70vh;
+	margin-bottom: 16px;
 }
 
 /*
