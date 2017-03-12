@@ -36,37 +36,53 @@ div.h-container > div.center, div.v-container div.center{
 	flex: 1 1 auto;
 }
 
-div.mseed_plots_wrapper{
-	
+div.plots_left{
+	width:60%;
 }
 
-div.custom_plots_wrapper{
-	
+div.plots_right{
+	width:40%;
 }
 
-div.plot{
-	/*border: 1px solid #000;*/
+/* div.plots_left > div, div.plots_right > div{
+	height:50%;
+	width: 100%;
+} */
+
+/* div.plot{
+	height: 100%;
+	width: 100%;
 }
 
-.panel-left{
+div#plot_main div.plot-component{
+	height: 50% !important;
+} */
+
+/* .panel-left{
 	width: 20vw;
-}
+} */
 
-.panel-left .panel-body table{
+/* div.metadata table{
 	table-layout: fixed;
 	width:100%;
+} */
+
+div.metadata table td{
+	vertical-align: top;
 }
 
-.panel-left .panel-body td:first-child {
+div.metadata table td:first-child {
+	text-align: right;
     padding-right: 12px;
 }
 
-.panel-left .panel-body td:last-child {
+div.metadata table td:last-child {
     word-break: break-all;
     word-wrap: break-word;
 }
 
-div.metadata{
+div.metadata > div.panel-body{
+	max-height:45%;
 	overflow: auto;
 }
 
@@ -87,14 +103,15 @@ div.metadata{
 	border-top: 6px solid black;
 }
 
-.segment-panel-heading{  /* copied from bootstrap */
+/* .segment-panel-heading{  copied from bootstrap
     color: #333;
     background-color: #f5f5f5;
     border: 1px solid #ddd;
-}
+    margin-bottom:12px;
+} */
 
 /* adjust margin bottoms */
-.panel, .segment-panel-heading, .metadata{
+.panel, .metadata{
 	margin-bottom:12px;
 }
 
@@ -107,22 +124,38 @@ label {
     font-weight: normal !important;
 }
 
-div.select{
+.popup-center{
 	position:fixed;
 	top:10vh;
 	width: 50vw;
 	left:25vw;
-	z-index: 100000;
-	-webkit-box-shadow: 0px 0px 22px 0px rgba(0,0,0,0.44);
-	-moz-box-shadow: 0px 0px 22px 0px rgba(0,0,0,0.44);
-	box-shadow: 0px 0px 22px 0px rgba(0,0,0,0.44);
-	background-color: white;
 }
 
-div.select > div.center{
+.popup > div.center{
 	overflow:auto;
 	height: 70vh;
 	margin-bottom: 16px;
+}
+
+
+/* copied from bootstrap, where divider works only inside a dropdown-menu */
+.divider {
+    height: 1px;
+    margin: 9px 0;
+    overflow: hidden;
+    background-color: #e5e5e5;
+}
+
+.popup{
+	z-index: 100000;
+	background-color: #fff;
+    -webkit-background-clip: padding-box;
+    background-clip: padding-box;
+    border: 1px solid #ccc;
+    border: 1px solid rgba(0,0,0,.15);
+    border-radius: 4px;
+    -webkit-box-shadow: 0 6px 12px rgba(0,0,0,.175);
+    box-shadow: 0 6px 12px rgba(0,0,0,.175);
 }
 
 /*

@@ -1,4 +1,7 @@
 '''
+Module for extracting queries / queries result from input given from strings
+Easing the effort for users to do queries in a simplified manner
+
 Created on Mar 6, 2017
 
 @author: riccardo
@@ -7,13 +10,27 @@ import shlex
 import numpy as np
 from datetime import datetime
 from sqlalchemy import asc, and_, desc, inspect
-import pytest
-from stream2segment.io.db.models import Segment, Class
+from sqlalchemy.exc import InvalidRequestError
 
 _NONES = ("null", "NULL", "None")
 
 
 def split(expr):
+    """
+        Splits the expression into its operator(s) and its value.
+
+        :param: expression: a string which is first stripped (i.e., leading and trailing spaces
+        are omitted) and then either:
+        1. starts with (zero or more spaces and):
+            "<", "=", "==", "!=", ">", "<=", ">="
+        2. starts with "[", "(", "]" **and** ends with "]" , "[", ")", where "[", "]" denote the
+        closed interval (endpoints included) and the other symbols an open interval (endpoints
+        excluded)
+
+        :return: the operator (one of the symbol above) and the remaining string. Note that the
+        operator is normalized to "=" in case 1 if either "=" or "==", and in case 2 is "open",
+        "leftopen", "rightopen", "closed"
+    """
     expr = expr.strip()
     if expr[:2] in ("<=", ">=", "==", "!="):
         return '=' if expr[:2] == '==' else expr[:2], expr[2:].strip()
@@ -33,9 +50,17 @@ def split(expr):
 
 
 def parsevals(column, expr_value):
+    """
+        parses `expr_value` according to the model column type. Supports `int`s, `float`s,
+        `datetime`s, `bool`s and `str`s
+
+        :Example:
+        ```
+        # given a model with int column 'column1'
+        parsevals(model.column1, '4 null 5 6') = [4, None, 5, 6]
+        ```
+    """
     pythontype = column.type.python_type
-    if pythontype is None:
-        return None
     vals = shlex.split(expr_value)
     if pythontype == float:
         return [None if x in _NONES else float(x) for x in vals]
@@ -47,11 +72,23 @@ def parsevals(column, expr_value):
         return np.array(vals, dtype="datetime64[us]").tolist()  # works with None's
     elif pythontype == str:
         return [None if x in _NONES else str(x) for x in vals]
-    else:
-        raise ValueError('unsupported python type: %s' % pythontype)
+
+    raise ValueError('%s has unsupported python type %s' % (str(column), pythontype))
 
 
 def get_condition(column, expr):
+    """Returns an sql alchemy binary expression to be used as `query.filter` argument
+    from the given column and the given expression. Supports the operators given in `split` and the
+    types given in `parsevals` ()
+    :param column: an sqlkalchemy model column
+    :param expr: a string expression (see `split`)
+
+    :example:
+    ```
+    # given a model with column `column1`
+    get_condition(model.column1, '>=5')
+    ```
+    """
     operator, values = split(expr)
     values = parsevals(column, values)
     if operator == '=':
@@ -80,98 +117,132 @@ def get_condition(column, expr):
     raise ValueError("Invalid expression %s" % expr)
 
 
-# def get_queryfilter(model, **atts_and_conditionexprs):
-#     columns = get_columns(model, [k for k, v in atts_and_conditionexprs.iteritems() if v])
-#     conditions = []
-#     for attname, condition_expr in atts_and_conditionexprs.iteritems():
-#         if not condition_expr or attname not in columns:
-#             continue
-#         column = columns[attname]
-#         if column is Segment.classes:
-#             # pre-split: if None, set the expression accordingly:
-#             operator, values = split(condition_expr)
-#             _any = Segment.classes.any  # @UndefinedVariable
-#             if values in _NONES and operator in ("=", "!="):
-#                 condition = ~_any() if operator == '=' else _any()
-#             else:
-#                 # fall back to the "normal" case, but using Class.id as column, not Segment.classes
-#                 condition = _any(get_condition(Class.id, condition_expr))  # @UndefinedVariable
-#         else:
-#             condition = get_condition(column, condition_expr)
-#         conditions.append(condition)
-#     return None if not conditions else and_(*conditions)
+def query(session, query_arg, conditions, orderby=None, *sqlalchemy_query_expressions):
+    """
+    Builds a query object as:
+    `session.query(query_arg).join(...).filter(...).order_by(...)`
 
+    where the last three arguments are calculated in the function according to
+    `conditions` and `orderby`
 
-def query(session, query_arg, atts_and_conditionexprs, orderby_list=None):
-    # columns = get_columns(model, [k for k, v in atts_and_conditionexprs.iteritems() if v])
-    conditions = []
-    joins = []
+    The returned query can be further manipulated e.g. by applying a group_by if multiple
+    elements are returned, e.g.:
+    ```
+        query(session, mytable.id, ....).group_by(mytable.id).all()
+    ```
+
+    :param session: an sql-alchemy session
+    :param query_arg: the argument to the query: can be a model instance ('mymodel')
+    or one of its attribute ('mymodel.id')
+    :param conditions: a dict of string columns mapped to strings expression, e.g.
+    "column2": "[1, 45]".
+    A string column is an expression denoting an attribute of the underlying model (retrieved
+    from `query_arg`) and can include relationships. Example: if query arg is 'mymodel' or
+    'mymodel.id', then a string column 'name' will refer to 'mymodel.name', 'name.id' denotes
+    on the other hand a relationship 'name' on 'mymodel' and will refer to the 'id' attribute of the
+    table mapped by 'mymodel.name'.
+    The values of the dict on the other hand are string expressions in the form recognized
+    by `get_condition`. E.g. '>=5', '["4", "5"]' ...
+    If this argument is None or evaluates to False, no filter is applied
+    :param orderby: a list of string columns (same format
+    as `conditions` keys), or a list of tuples where the first element is
+    a string column, and the second is either "asc" (scending, the default) or "desc" (descending)
+    """
+
+    # contrarily to query_args, this function returns the arguments for
+    # an sqlalchemy join(...).filter(...).order_by(...).
+    # Thus, providing query_arg ans session, it builds:
+    parsed_conditions = sqlalchemy_query_expressions or []
+    joins = set()  # relationships have an hash, this assures no duplicates
+
     # if its'an InstrumentedAttribute, use the class
     model = query_arg.class_ if hasattr(query_arg, "class_") else query_arg
     relations = inspect(model).relationships
 
-    if atts_and_conditionexprs:
-        for attname, condition_expr in atts_and_conditionexprs.iteritems():
-            if not condition_expr:
+    if conditions:
+        for attname, expression in conditions.iteritems():
+            if not expression:
                 continue
             relationship, column = get_rel_and_column(model, attname, relations)
-            if column is Segment.classes:
-                # pre-split: if None, set the expression accordingly:
-                operator, values = split(condition_expr)
-                _any = Segment.classes.any  # @UndefinedVariable
-                if values in _NONES and operator in ("=", "!="):
-                    condition = ~_any() if operator == '=' else _any()
-                else:
-                    # fall back to the "normal" case, but using Class.id as column, not Segment.classes
-                    condition = _any(get_condition(Class.id, condition_expr))  # @UndefinedVariable
-            else:
-                if relationship is not None:
-                    joins.append(relationship)
-                try:
-                    condition = get_condition(column, condition_expr)
-                except AttributeError:
-                    operator, values = split(condition_expr)
-                    _any = relationship.any  # @UndefinedVariable
-                    if values in _NONES and operator in ("=", "!="):
-                        condition = ~_any() if operator == '=' else _any()
-                    else:
-                        obj = column
-                        column = inspect(obj).primary_key[0].key
-                        # fall back to the "normal" case, but using Class.id as column, not Segment.classes
-                        condition = _any(get_condition(getattr(obj, column), condition_expr))  # @UndefinedVariable
-    
-            conditions.append(condition)
+            if relationship is not None:
+                joins.add(relationship)
+            condition = get_condition(column, expression)
+            parsed_conditions.append(condition)
+
+    directions = {"asc": asc, "desc": desc}
+    orders = []
+    if orderby:
+        for order in orderby:
+            try:
+                column_str, direction = order
+            except ValueError:
+                column_str, direction = order, "asc"
+            directionfunc = directions[direction]
+            relationship, column = get_rel_and_column(model, column_str, relations)
+            if relationship is not None:
+                joins.add(relationship)
+            orders.append(directionfunc(column))
 
     query = session.query(query_arg)
     if joins:
         query = query.join(*joins)
-    if conditions:
-        query = query.filter(and_(*conditions))
-
-    if orderby_list:
-        query = query.order_by(*get_order_by_args(model, orderby_list))
+    if parsed_conditions:
+        query = query.filter(and_(*parsed_conditions))
+    if orders:
+        query = query.order_by(*orders)
     return query
 
 
-def get_order_by_args(model, order_list):
-    """ordeR_list: a list of 2 element lists/tuple, where the first element is a
-    column of `model` in string format (e.g. "id", or "event.id" for relations defined in there)
-    and the second is either "asc" or "desc"""
-    if order_list:
-        assert all(c[1] in ("asc", "desc") for c in order_list)
-        return [asc(get_column(model, c[0])) if c[1] == 'asc' else
-                desc(get_column(model, c[0])) for c in order_list]
-    return None
+def query_args(model, conditions):
+    """Returns the query arguments to be passed to a sqlalchemy query
+       The function checks for relationship established on the `model` and creates a
+       list of conditions (joined by sqlalchemy `and_`) to be passed to the query.
+       Returns None if conditions evaluates to False
+       :param conditions: a dict of string columns mapped to strings expression, e.g.
+        "column2": "[1, 45]".
+        A string column is an expression denoting an attribute of the underlying model (retrieved
+        from `query_arg`) and can include relationships. Example: if query arg is 'mymodel' or
+        'mymodel.id', then a string column 'name' will refer to 'mymodel.name', 'name.id' denotes
+        on the other hand a relationship 'name' on 'mymodel' and will refer to the 'id' attribute
+        of the table mapped by 'mymodel.name'.
+        The values of the dict on the other hand are string expressions in the form recognized
+        by `get_condition`. E.g. '>=5', '["4", "5"]' ...
+        If this argument is None or evaluates to False, no filter is applied
+        :Example:
+       ```
+       query_args = query_args(model, {'att1': "[1,4]", 'att3': 'null'})
+       session.query(model).query(query_args).all()
+       ```
+    """
+    parsed_conditions = []
+    # if its'an InstrumentedAttribute, use the class
+    relations = inspect(model).relationships
+
+    if conditions:
+        for attname, condition_expr in conditions.iteritems():
+            if not condition_expr:
+                continue
+            relationship, column = get_rel_and_column(model, attname, relations)
+            condition = get_condition(column, condition_expr)
+            if relationship is not None:
+                try:
+                    condition = relationship.any(condition)
+                except InvalidRequestError:
+                    condition = relationship.has(condition)
+            parsed_conditions.append(condition)
+
+    if not parsed_conditions:
+        return None
+    return and_(*parsed_conditions)
 
 
-def get_columns(model_or_instance, keys):
+def get_columns(instance, keys):
     ret = {}
     for field in keys:
         try:
-            attval = get_column(model_or_instance, field)
+            attval = get_column(instance, field)
         except AttributeError:
             continue
-            # attval = [getattr(x, attname) for x in obj]
         ret[field] = attval
     return ret
 
@@ -179,8 +250,17 @@ def get_columns(model_or_instance, keys):
 def get_column(instance, colname):
     cols = colname.split(".")
     obj = instance
-    for col in cols:
-        obj = getattr(obj, col)
+    for i, col in enumerate(cols):
+        try:
+            obj = getattr(obj, col)
+        except AttributeError:  # maybe a relationship with uselist=True?
+            # but only if last attribute (otherwise an error is thrown)
+            try:
+                if i == len(cols)-1:
+                    return [getattr(o, col) for o in obj]
+            except:
+                pass
+            raise ValueError("Invalid column '%s' in '%s'" % (col, colname))
     return obj
 
 
@@ -198,66 +278,3 @@ def get_rel_and_column(model, colname, relations=None):
         else:
             obj = tmp
     return rel, obj
-
-#     idx = colname.find(".")
-#     obj = model
-#     attname = colname
-#     rel = None
-#     while True:
-#         idx = attname.find(".")
-#         if idx < 0:
-#             break
-#         obj = getattr(obj, colname[:idx])
-#         attname = colname[idx+1:]
-#         if colname[:idx] in relations:
-#             if rel is not None:
-#                 raise ValueError("Cannot get deeper than one relationship in: %s.%s" %
-#                                  model.__tablename__, colname)
-#             rel = obj
-#             obj = relations[colname[:idx]].mapper.class_
-# 
-#     return rel, getattr(obj, attname)
-
-
-if __name__ == '__main__':
-    # thius should be made available in a test
-    from stream2segment.io.db.models import Segment, Event, Station, Channel
-
-    c = Segment.arrival_time
-    cond = get_condition(c, "=2016-01-01T00:03:04")
-    assert str(cond) == "segments.arrival_time = :arrival_time_1"
-
-    cond = get_condition(c, "!=2016-01-01T00:03:04")
-    assert str(cond) == "segments.arrival_time != :arrival_time_1"
-
-    cond = get_condition(c, ">=2016-01-01T00:03:04")
-    assert str(cond) == "segments.arrival_time >= :arrival_time_1"
-    
-    cond = get_condition(c, "<=2016-01-01T00:03:04")
-    assert str(cond) == "segments.arrival_time <= :arrival_time_1"
-    
-    cond = get_condition(c, ">2016-01-01T00:03:04")
-    assert str(cond) == "segments.arrival_time > :arrival_time_1"
-    
-    cond = get_condition(c, "<2016-01-01T00:03:04")
-    assert str(cond) == "segments.arrival_time < :arrival_time_1"
-    
-    with pytest.raises(ValueError):
-        cond = get_condition(c, "2016-01-01T00:03:04, 2017-01-01")
-    
-    cond = get_condition(c, "2016-01-01T00:03:04 2017-01-01")
-    assert str(cond) == "segments.arrival_time IN (:arrival_time_1, :arrival_time_2)"
-    
-    cond = get_condition(c, "[2016-01-01T00:03:04 2017-01-01]")
-    assert str(cond) == "segments.arrival_time BETWEEN :arrival_time_1 AND :arrival_time_2"
-    
-    cond = get_condition(c, "(2016-01-01T00:03:04 2017-01-01]")
-    assert str(cond) == "segments.arrival_time BETWEEN :arrival_time_1 AND :arrival_time_2 AND segments.arrival_time != :arrival_time_3"
-    
-    cond = get_condition(c, "[2016-01-01T00:03:04 2017-01-01)")
-    assert str(cond) == "segments.arrival_time BETWEEN :arrival_time_1 AND :arrival_time_2 AND segments.arrival_time != :arrival_time_3"
-    
-    cond = get_condition(c, "(2016-01-01T00:03:04 2017-01-01)")
-    assert str(cond) == "segments.arrival_time BETWEEN :arrival_time_1 AND :arrival_time_2 AND segments.arrival_time != :arrival_time_3 AND segments.arrival_time != :arrival_time_4"
-    
-    

@@ -7,6 +7,8 @@ from obspy.core import read, Stream, Trace
 from cStringIO import StringIO
 from stream2segment.io.db import models
 from sqlalchemy.sql.expression import and_
+from sqlalchemy.orm.session import object_session
+
 
 
 # def iterstream(segment, session, include_segment=True):
@@ -51,14 +53,15 @@ def get_stream(segment):
     return read(StringIO(segment.data))
 
 
-def itercomponents(segment, session):
+def itercomponents(segment):
     conditions = [models.Channel.station_id == segment.station.id,
                   models.Channel.location == segment.channel.location,
                   models.Segment.start_time == segment.start_time,
                   models.Segment.end_time == segment.end_time,
                   models.Segment.id != segment.id]
 
-    for seg in session.query(models.Segment).join(models.Channel).filter(and_(*conditions)):
+    sess = object_session(segment)
+    for seg in sess.query(models.Segment).join(models.Channel).filter(and_(*conditions)):
         yield seg
 
 

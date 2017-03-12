@@ -1,4 +1,4 @@
-var myApp = angular.module('myApp',[]);
+var myApp = angular.module('myApp', []);
  
 myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', function($scope, $http, $window, $timeout) {
 	$scope.segIds = [];  // segment indices
@@ -6,7 +6,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	$scope.metadata = []; // array of 2-element arrays [(key, type), ... ] (all elements as string)
 	
 	$scope.segData = {}; // the segment data (classes, plot data, metadata etc...)
-	$scope.plots = new Array(5 + $window._NUM_CUSTOM_PLOTS).fill(undefined); // will be set in configPlots called by init below
+	$scope.plots = $window.plots;
 	$scope.showFiltered = true;
 	$scope.classes = [];
 
@@ -15,54 +15,114 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	
 	$scope.orderBy = [["event.time", "asc"], ["event_distance_deg", "asc"]];
 	
-	$scope.selection = {
-		data: {},
-		empty: function(){ //returns true if the selection criteria accept all segment
-			for (var key in this.data){
-				if (this.data[key]){
-					return false;
-				}
-			}
-			return true;
-		},
-		active: false,  // returns/set if there is a filter on the currently displayed segments
-		showForm: false,
-		errorMsg: ""
+	$scope.bottomPlotId = 3; // 3 components plot, 4: cumulative plot, 5 on: custom one (if any)
+	$scope.bottomPlotChanged = function(){
+		var bpIdx = parseInt($scope.bottomPlotId);
+		$scope.plots.forEach(function(elm, index){
+			//set visible if: is main plot or spectra (index < 2)
+			// visibleIndex is index (normal case)
+			// visibleIndex refers to the components plots (2 and 3)
+			var visible = ((index < 2) || (index == bpIdx) || (bpIdx == 3 && index == 2));
+			elm.visible = visible;
+		});
+		$scope.refreshView(bpIdx == 3 ? [2,3] : [bpIdx]);
 	};
 	
+	//setup listener (we could have done it in the loop above but is more readable like this)
+	// create function for notifying zoom. On all plots except
+	// other components
+	var zoomListenerFunc = function(plotIndex){
+		return function(eventdata){
+			// check that this function is called from zoom
+			// (it is called from any relayout command also)
+			var isZoom = 'xaxis.range[0]' in eventdata && 'xaxis.range[1]' in eventdata;
+			if(!isZoom){
+				return;
+			}
+			var zoom = [eventdata['xaxis.range[0]'], eventdata['xaxis.range[1]']];
+			var plot = $scope.plots[plotIndex];
+			var plotType = plot.type;
+			if ($scope.globalZoom){
+				$scope.plots.forEach(function(plot){
+					if (plot.type === plotType){
+						plot.zoom = [zoom[0], zoom[1]];  // copy (for safety)
+					}
+				});
+			}else{
+				plot.zoom = [zoom[0], zoom[1]];  // copy (for safety)
+			}
+			$scope.refreshView();
+	    }
+	};
+
+	var autoZoomListenerFunc = function(plotIndex){
+		return function(eventdata){
+			$scope.refreshView(); // zooms are reset after use, so this redraw normal bounds
+	    }
+	};
+
+	$scope.plots.forEach(function(element, i){
+		var div = element.div;
+		div.on('plotly_relayout', zoomListenerFunc(i));
+		div.on('plotly_doubleclick', autoZoomListenerFunc(i));
+	});
+	
+	
+	$scope.selection = {
+		withDataOnly: true,
+		data: {},
+		changed: false,
+		showForm: false,
+		errorMsg: "",
+		fireChange: function(newVal, oldVal){
+			function differ(val1, val2){
+				if (typeof val1 !== typeof val2){
+					return true;
+				}
+				var keys1 = Object.keys(val1);
+				var keys2 = Object.keys(val2);
+				if (keys1.length !== keys2.length){
+					return true;
+				}
+				if (!keys1.length){
+					return typeof val1 === 'object' ? false : val1 !== val2;
+				}
+				return keys1.some(function(element, index, array){
+					return differ(element, keys2[index]);
+				});
+			}
+			this.changed = differ(newVal, oldVal);
+		}
+	};
+    // watch for further changes from now on:
+    var watcher = function(newVal, oldVal){
+    	$scope.selection.fireChange.call($scope.selection, newVal, oldVal);
+    };
+    $scope.$watch('selection.data', watcher, true);  // note the true: compares by value, not by ref
+	$scope.$watch('selection.withDataOnly', watcher);
+
 	
 	$scope.selectSegments = function(){
-		var selectionData = $scope.selection.data;
+		var data = {'selection': $scope.selection.data, 'order-by': $scope.orderBy,
+					'with-data': $scope.selection.withDataOnly};
 		$scope.selection.errorMsg = "";
 		$scope.loading = true;
-		$http.post("/select_segments", selectionData, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
-			var selectionEmpty = $scope.selection.empty();
-			var selectionActive = $scope.selection.active;
+		$http.post("/select_segments", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
 			$scope.loading = false;
-			if(selectionEmpty){
-				if (!selectionActive){
-					$scope.selection.errorMsg = "Please provide some criteria";
-					return;
-				}
-			}
 			segIds = response.data;
 	        if (segIds.length < 1){
 	        	$scope.selection.errorMsg = "No segment found with given criteria";
 	        	return;
 	        }
-	        $scope.selection.active = !selectionEmpty;
-	        $scope.segIds = segIds;
-	        // clear zoom (maybe we have one, it doesn't have to apply to new plots)
-	        $scope.getAndClearZooms(); // we simply don't get the zooms, we don't care
-	        $scope.setSegment(0);
+	        $scope.changed = false;
+	        $scope.setSegments(segIds);
 	    });
 	};
 
 	$scope.init = function(){  // update classes and elements
-		var data = {order: $scope.orderBy}; //maybe in the future pass some data
+		var data = {'order-by': $scope.orderBy, 'with-data': $scope.selection.withDataOnly};
 		$http.post("/init", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
 	        $scope.classes = response.data.classes;
-	        $scope.segIds = response.data.segment_ids;
 	        $scope.metadata = response.data.metadata;
 	        //set selection.data according to metadata:
 	        var selectionData = {};
@@ -71,121 +131,22 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	        });
 	        $scope.selection.data = selectionData;
 	        //config plots when dom is rendered (see timeout 0 on google for details):
-	        $timeout(function () { 
-	        	$scope.configPlots(); // this will be called once the dom has rendered
-	          }, 0, false);
+//	        $timeout(function () { 
+//	        	$scope.configPlots(response.data.segment_ids); // this will be called once the dom has rendered
+//	          }, 0, false);
+	        $scope.setSegments(response.data.segment_ids);
 	    });
 	};
-
-	$scope.configPlots = function(){
-		var plotly = $window.Plotly;
-		
-		var tSeriesLayout = { //https://plot.ly/javascript/axes/
-				margin:{'l':50, 't':30, 'b':40, 'r':15},
-				xaxis: {
-					autorange: true,
-					tickangle: 0,
-					type: 'date',
-					titlefont: {
-					      color: '#df2200'
-					}
-				},
-				yaxis: {
-					autorange: true,
-					//fixedrange: true
-				},
-				annotations: [{
-				    xref: 'paper',
-				    yref: 'paper',
-				    x: 0,
-				    xanchor: 'left',
-				    y: 1,
-				    yanchor: 'bottom',
-				    text: '',
-				    showarrow: false,
-				    //bordercolor: '#c7c7c7',
-				    //borderwidth: 2,
-				    borderpad: 5,
-				    bgcolor: 'rgba(31, 119, 180, .1)',  // = '#1f77b4',
-				    // opacity: 0.1,
-				    font: {
-				        // family: 'Courier New, monospace',
-				        // size: 16,
-				        color: '#000000'
-				      },
-				  }]
-			};
-		
-		// create a deep copy (assuming we have simple dict-like objects
- 		// see http://stackoverflow.com/questions/728360/how-do-i-correctly-clone-a-javascript-object
- 		var fftLayout = JSON.parse(JSON.stringify(tSeriesLayout));
-		fftLayout.xaxis.type = 'log';
-		fftLayout.yaxis.type = 'log';
-		
-		var divs = [];
-		$scope.plots = $scope.plots.map(function(element, i){
-			var plotId = 'plot-' + i;
-			var div = $window.document.getElementById(plotId);
-			divs.push(div);
-			var idf = 9;
-			var layout = i == 3 ? fftLayout : tSeriesLayout;
-			//COPY OBJECTS!!!
-			plotly.newPlot(div, [{x0:0, dx:1, y:[0], type:'scatter', 'opacity': 0}], JSON.parse(JSON.stringify(layout)));
-			return {
-				'div': div,
-				'zoom': [null, null],
-				'type': div.getAttribute('plot-type')
-			};
-		});
-
-		//setup listener (we could have done it in the loop above but is more readable like this)
-		// create function for notifying zoom. On all plots except
-		// other components
-		var zoomListenerFunc = function(plotIndex){
-			return function(eventdata){
-				// check that this function is called from zoom
-				// (it is called from any relayout command also)
-				var isZoom = 'xaxis.range[0]' in eventdata && 'xaxis.range[1]' in eventdata;
-				if(!isZoom){
-					return;
-				}
-				var zoom = [eventdata['xaxis.range[0]'], eventdata['xaxis.range[1]']];
-				var plot = $scope.plots[plotIndex];
-				var plotType = plot.type;
-				if ($scope.globalZoom){
-					$scope.plots.forEach(function(plot){
-						if (plot.type === plotType){
-							plot.zoom = [zoom[0], zoom[1]];  // copy (for safety)
-						}
-					});
-				}else{
-					plot.zoom = [zoom[0], zoom[1]];  // copy (for safety)
-				}
-				$scope.refreshView();
-		    }
-		};
-
-		var autoZoomListenerFunc = function(plotIndex){
-			return function(eventdata){
-				$scope.refreshView(); // zooms are reset after use, so this redraw normal bounds
-		    }
-		};
-		
-		divs.forEach(function(div, i){
-			div.on('plotly_relayout', zoomListenerFunc(i));
-			div.on('plotly_doubleclick', autoZoomListenerFunc(i));
-		});
-		
-		
-		// update data (if currentIndex undefined, then set it to zero if we have elements
-		// and refresh plots)
-		if ($scope.segIdx < 0){
-			if ($scope.segIds.length){
-				$scope.segIdx = 0;
-			}
+	
+	$scope.setSegments = function(segmentIds){
+		$scope.segIds = segmentIds;
+		// clear zoom will be handled in setSegments (maybe we have one, it doesn't have to apply to new plots)
+        // $scope.getAndClearZooms(); // we simply don't get the zooms, we don't care
+        if ($scope.segIds.length){
+			$scope.segIdx = 0;
 		}
-		$scope.refreshView();
-	}
+        $scope.setSegment($scope.segIdx);
+	};
 	
 	$scope.setNextSegment = function(){
 		var currentIndex = ($scope.segIdx + 1) % ($scope.segIds.length);
@@ -197,31 +158,25 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
         $scope.setSegment(currentIndex);
 	};
 	
-	$scope.refreshView = function(){
-		$scope.setSegment($scope.segIdx);
-	}
-
 	$scope.setSegment = function(index){
 		$scope.segIdx = index;
 		if (index < 0){
 			return;
 		}
-		$scope.isEditingIndex = false;
-		
-		var zooms = $scope.getAndClearZooms();
-		var param = {segId: $scope.segIds[index], filteredRemResp: $scope.showFiltered, zooms:zooms,
-				metadataKeys: $scope.metadata.map(function(elm){return elm[0];})};
+
+		var param = {segId: $scope.segIds[index], filteredRemResp: $scope.showFiltered, zooms:null,
+				plotIndices: [], metadataKeys: $scope.metadata.map(function(elm){return elm[0];})};
 		$scope.loading = true;
 		$http.post("/get_segment_data", param, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
-			$scope.segData = response.data;
+			var metadata = response.data.metadata;
 			// do not show classes in metadata panel but in a dedicated slot. Thus
 			// remove 'classes' and set it to segData.classIds
-			$scope.segData.classIds = $scope.segData.metadata.classes || [];
-			delete $scope.segData.metadata.classes;  
+			$scope.segData.classIds = metadata['classes.id'] || [];
+			delete metadata['classes.id'];  
 			// also, set metadata to be a dict of dicts instead of an array
 			// (i.e., sorted by 'category': segment, channel etcetera):
 			var segMetadata = {};
-			for (key in $scope.segData.metadata){
+			for (key in metadata){
 				var elms = key.split(".");
 				if (elms.length==1){
 					elms = ["segment", elms[0]];
@@ -229,50 +184,66 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 				if (!(elms[0] in segMetadata)){
 					segMetadata[elms[0]] ={};
 				}
-				segMetadata[elms[0]][elms[1]] = $scope.segData.metadata[key];
+				segMetadata[elms[0]][elms[1]] = metadata[key];
 			}
 			$scope.segData.metadata = segMetadata;
 			// update plots:
-	        $scope.redrawPlots();
+	        $scope.refreshView();
 	    });
 	};
 	
-//	$scope.getSegmentDisplayMetadata = function(segmentMetadata){
-//		var ret = {};
-//		if (segmentMetadata){
-//			$scope.metadata.forEach(function(element){
-//				var key = element[0];
-//				var mainKey = "segment"
-//				var secondaryKey = key;
-//				var idx = key.indexOf(".")
-//				if ( idx > -1){
-//					mainKey = key.substring(0, idx);
-//					secondaryKey = key.substring(idx+1, key.length);
-//				}
-//				var val = segmentMetadata[key] || "";
-//				if (!(mainKey in ret)){
-//					ret[mainKey] = {};
-//				}
-//				ret[mainKey][secondaryKey] = val;
-//			});
-//		}
-//		return ret;
-//	};
-	
-	
+	$scope.refreshView = function(indices){
+		var index = $scope.segIdx;
+		if (index < 0){
+			return;
+		}
+		if (indices === undefined){
+			var indices =[];
+			$scope.plots.forEach(function(elm, index){
+				if (elm.visible){
+					indices.push(index);
+				}
+			});
+		}
+		var zooms = $scope.getAndClearZooms();
+		var param = {segId: $scope.segIds[index], filteredRemResp: $scope.showFiltered, zooms:zooms,
+				plotIndices: indices, metadataKeys: null};
+		$scope.loading = true;
+		// initialize if undefined (as it is the first time we download plots)
+		if (!$scope.segData.plotData){
+			$scope.segData.plotData = new Array($scope.plots.length);
+		}
+		$http.post("/get_segment_data", param, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
+			response.data.plotData.forEach(function(elm, idx){
+				$scope.segData.plotData[indices[idx]] = elm;
+			});
+			// update plots:
+	        $scope.redrawPlots(indices);
+	    });
+	}
+
 	$scope.getAndClearZooms = function(){
 		return $scope.plots.map(function(elm){
 			zoom = elm.zoom; //2 element array
+			// convert to timestamps if the type of plot is timeseries.
+			// the server has already converted times to account for local time,
+			// so we just need to use Date.parse:
+			if (elm.type == 'time-series'){
+				zoom = zoom.map(function(z){
+					return Date.parse(z);
+				});
+			}
 			//set zoom to zero, otherwise these value are persistent and affect further plots:
 			elm.zoom = [null, null];
 			return zoom;
 		});
 	};
 	
-	$scope.redrawPlots = function(){
+	$scope.redrawPlots = function(indices){
 		var plotsData = $scope.segData.plotData;
 		var plotly = $window.Plotly;
-		for (var i=0; i< Math.min($scope.plots.length, plotsData.length); i++){
+		for (var i_=0; i_< indices.length; i_++){
+			var i = indices[i_];
 			var div = $scope.plots[i].div;
 			var plotData = plotsData[i];
 			var title = plotData[0];
@@ -285,7 +256,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			for (var j=0; j<elements.length; j++){
 				var color = colors[j % colors.length];
 				var line = elements[j];
-				data.push({
+				var elmData = {
 					x0: line[0],
 					dx: line[1],
 					y: line[2],
@@ -293,10 +264,20 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 					type: 'scatter',
 		            opacity: 0.95,  // set to zero and uncomment the "use animations" below if you wish,
 		            line: {
-		            	  width: 1,
-		            	  color: (i==1 || i==2) ? '#dddddd' : color
+		            	  width: 1
 		            }
-				})
+				};
+				// customize colors. Maybe in the future moved to some config (but there should be a way to customize single
+				//elemtns of the plot, not difficult but quite long to implement), for the moment hard coded:
+				if (i ==2 || i == 3){ // components in gray
+					elmData.line.color = '#dddddd';
+				}else if (i == 1){
+					// spectra: red the first (noise) green the second
+					// https://github.com/plotly/plotly.js/blob/master/src/components/color/attributes.js
+					elmData.line.color = j == 0 ? '#d62728' : '#2ca02c';
+				}
+				// push data:
+				data.push(elmData);
 			}
 			if (div.layout){
 				// hack for setting the title left (so that the tool-bar does not overlap
@@ -307,11 +288,12 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 					div.layout.annotations[0].text = title;
 				}
 				if (div.layout.xaxis){
-					div.layout.xaxis.autorange = true;
-					if (xrange){
-						div.layout.xaxis.autorange = false;
-						div.layout.xaxis.range = xrange;
-					}
+//					if (i == 0){  //FIXME: remove!!!
+//						console.log(elements[0][0]);
+//						console.log(new Date(elements[0][0]));
+//						console.log(div.layout.xaxis.range)
+//						console.log("");
+//					}
 					div.layout.xaxis.title = warnings;
 					div.layout.margin['b'] = warnings ? 80 : 40;
 				}
@@ -337,6 +319,19 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		}
 		$scope.loading=false;
 	};
+	
+	$scope.extend = function(obj1, obj2){
+		for (var key in obj2){
+			if (!(key in obj1) || (typeof obj1[key] != typeof obj2[key])){
+				obj1[key] = obj2[key];
+			}else if (typeof obj2[key] === 'object'){
+				$scope.extend(obj1[key], obj2[key])
+			}else{
+				obj1[key] = obj2[key];
+			}
+		}
+		return obj1;
+	}
 	
 	$scope.toggleFilter = function(){
 		//$scope.showFiltered = !$scope.showFiltered; THIS IS HANDLED BY ANGULAR!

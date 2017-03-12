@@ -9,22 +9,17 @@
 <link href="static/css/bootstrap.min.css" rel="stylesheet" media="screen">
 <link href="static/css/mystyle.css" rel="stylesheet" media="screen">
 <title>{{ title }}</title>
-<script type="text/javascript">
-// we load this global variable from server. This must tell
-// angular how many divs we have
-// Maybe not the clanest way, but saves us from
-// tons of code implementing angular directives
-var _NUM_CUSTOM_PLOTS = {{ numCustomPlots }};
-</script>
 </head>
 <!--  from here on, start angular so curly braces refer to it and not jinja2. See endraw at the end -->
 {% raw %}
 <body ng-app="myApp" ng-controller="myController">
-	<div ng-show="metadata.showSelectionForm" class="select alert">
+
+	<div ng-show="metadata.showSelectionForm" class="popup popup-center alert">
 		Select segments where:
 		<a href="#" class="close" data-dismiss="alert" aria-label="close" onclick="return false;"
 			ng-click="metadata.showSelectionForm=!metadata.showSelectionForm">&times;</a>
 		<div class="center">
+			<label style='margin-top:1em'><input type=checkbox ng-model="selection.withDataOnly"/>waveform data is available (non-empty)</label>
 			<table style='width:100%'>
 				<tr ng-repeat="(idx, values) in metadata">
 					<td>{{ values[0] }}</td>
@@ -35,51 +30,73 @@ var _NUM_CUSTOM_PLOTS = {{ numCustomPlots }};
 			</table>
 		</div>
 		<div class='bottom'>
-			<button class='btn btn-default' ng-click="selectSegments()">Select</button>
+			<button ng-disabled="!selection.changed" class='btn btn-default' ng-click="selectSegments()">Select</button>
 			<span>{{ selection.errorMsg }}</span>
 		</div>
 		<!-- </form> -->
 	</div>
+
 	<div class="main v-container">
 		<div class=top>
 	
 		</div>
 		<div class="center h-container">
 			<div class="left v-container panel-left">
-				<div class="top panel-heading segment-panel-heading">
-					Segment {{ segIdx + 1 }} of {{ segIds.length }}	
-					<button  ng-show="!isEditingIndex" class='btn btn-default' ng-click="setPreviousSegment()">&larr;</button>
-					<button  ng-show="!isEditingIndex" class='btn btn-default' ng-click="setNextSegment()" >&rarr;</button>
-					<button  ng-show="!isEditingIndex" class='btn btn-default' ng-click="metadata.showSelectionForm=true">Select</button>
-					
-					<div class="checkbox">
-						<label>
-      						<input type="checkbox" ng-model="showFiltered"
-      							ng-change="toggleFilter()"> Rem.resp&filter
-    					</label>
-  					</div>
-				</div>
-				<div class="center metadata">
-					<div ng-repeat="(key, vals) in segData.metadata" class="panel panel-default">
-						<div ng-click="toggleDivVisibility(key)" class="panel-heading">
-							{{ key }} <div ng-class="isDivVisible(key) ? 'arrow-up' : 'arrow-down'"></div>
-						</div>
-						<div ng-show="isDivVisible(key)" class="panel-body">
-							<table>
-								<tr ng-repeat="(subKey, subVal) in vals">
-									<td>{{ subKey }}</td><td>{{ subVal }}</td>
-								</tr>
-							</table>
-						</div>
+				<div class="top">
+					<div class="panel panel-default">
+						<div class="panel-heading">Segments</div>
+						<div class="panel-body">
+							<div class="checkbox">
+								Current: {{ segIdx + 1 }} of {{ segIds.length }}	
+								<button class='btn btn-default' ng-click="setPreviousSegment()">&larr;</button>
+								<button class='btn btn-default' ng-click="setNextSegment()" >&rarr;</button>
+							</div>
+							<button class='btn btn-default btn-block' ng-click="metadata.showSelectionForm=true">Select</button>
+	  					</div>
 					</div>
+					<div class="panel panel-default">
+						<div class="panel-heading">Plots</div>
+						<div class="panel-body">
+{% endraw %}				
+							<div class="checkbox">
+								<label><input type="checkbox" ng-model="showFiltered" ng-change="toggleFilter()"> Filter</label>
+		  					</div>
+		  					
+		  					<div class="divider"></div>
+
+							<div class="radio">Spectra</div>
+
+							<div class="divider"></div>
+
+							<div class="radio">Bottom plot</div>
+
+							<div class="checkbox">	
+								<label><input type="radio" ng-change="bottomPlotChanged()" ng-model="bottomPlotId" value="3">components</label>
+							</div>
+							<div class="checkbox">
+							  	<label><input type="radio" ng-change="bottomPlotChanged()" ng-model="bottomPlotId" value="4">cumulative</label>
+							</div>
+							{% for customPlotIndex in customPlots %}
+							<div class="checkbox">
+								<label><input type="radio" ng-change="bottomPlotChanged()" ng-model="bottomPlotId" value="{{5+ customPlotIndex }}">custom plot[{{ customPlotIndex }}]</label>
+							</div>
+							{% endfor %}
+{% raw %}
+	  					</div>
+	  				</div>
+	  			</div>
+				<div class="center">
+					<div ng-show=loading class="alert alert-info">
+  						<strong>Loading</strong> please wait...
+					</div>				
 				</div>
 				<div class=bottom>
-					<div ng-show="classes" class="annotations panel panel-default">
+					<div ng-show="classes" class="panel panel-default">
 						<div ng-click="toggleDivVisibility('classes')" class="panel-heading">
 							Class Labels: <div ng-class="isDivVisible('classes') ? 'arrow-down' : 'arrow-up'"></div>
 						</div>
 						<div ng-show="isDivVisible('classes')" class="panel-body">
-							<div ng-repeat="class in classes">
+							<div class='checkbox' ng-repeat="class in classes">
 		  						<label>
 									<input
 									    type="checkbox"
@@ -94,34 +111,73 @@ var _NUM_CUSTOM_PLOTS = {{ numCustomPlots }};
 					<!-- <div class="progress-bar blue stripes">
     					<span style="width: 40%"></span>
 					</div> -->
-					<div ng-show=loading class="alert alert-info">
-  						<strong>Loading</strong> please wait...
-					</div>
+
 				</div>
 			</div>
 {% endraw %}
 			<div class="center h-container">
 			<!-- plotly (as of feb 2017) does NOT work with flex layout. TOO BAD.
-				 We set height and width explicitly here below
-				 (not in the css, we need to mark this style important here)
+				Set widths and height in percentage (see mystyle.css)
 				  -->
-				<div class=mseed_plots_wrapper style="width:60%">
-					<div id="plot-0" class='plot' plot-type='time-series' style="height:33%"></div>
-					<div id="plot-1" class='plot' plot-type='time-series' style="height:33%"></div>
-					<div id="plot-2" class='plot' plot-type='time-series' style="height:33%"></div>
+				  <!-- data-plotindex refers to the index of the plot implemented in plots.View on the code -->
+				<div class="plots_left center" style="width:60%">
+					<div id="plot-main" data-plotindex=0 class='plot' data-plot='time-series' style='width:100%; height:50%'></div>
+					<div class="plot-bottom" style="width:100%; height:50%">
+						<div ng-show='plots[2].visible' data-plotindex=2 class='plot plot-component' data-plot='time-series' style="height:50%"></div>
+						<div ng-show='plots[3].visible' data-plotindex=3 class='plot plot-component' data-plot='time-series' style="height:50%"></div>
+						<div ng-show='plots[4].visible' data-plotindex=4 class='plot' data-plot='time-series' style="height:100%"></div>
+						{% for customPlotIndex in customPlots %}
+						<div ng-show='plots[{{5+customPlotIndex}}].visible' data-plotindex={{5+customPlotIndex}} class='plot' style="height:100%" data-plot='time-series'></div>
+						{% endfor %}
+					</div>
+					
+					<!-- <div id="plot-1" class='plot' plot-type='time-series' style="height:25%"></div>
+					<div id="plot-2" class='plot' plot-type='time-series' style="height:25%"></div>
+					<div id="plot-4" style="height:{{ 100.0/(2+customPlots|length) }}%" class='plot' plot-type='time-series'></div> -->
 				</div>
-				<div class=custom_plots_wrapper style="width:40%">
-					<div id="plot-3" style="height:{{ 100.0/(2+customPlots|length) }}%" class='plot' plot-type='freq-series'></div>
-					<div id="plot-4" style="height:{{ 100.0/(2+customPlots|length) }}%" class='plot' plot-type='time-series'></div>
-					{% for customPlotIndex in customPlots %}
-	  				<div id="plot-{{customPlotIndex}}" style="height:{{ 100.0/(2+customPlots|length) }}%" class='plot'></div>
-					{% endfor %}
+{% raw %}
+				<div class="plots_right center" style="width:40%">
+					<div id="plot-fft" data-plotindex=1 class='plot' data-plot='freq-series' style='height:50%'></div>
+					<!-- <div class="metadata">
+						<div ng-repeat="(key, vals) in segData.metadata" class="panel panel-default">
+							<div ng-click="toggleDivVisibility(key)" class="panel-heading">
+								{{ key }} <div ng-class="isDivVisible(key) ? 'arrow-up' : 'arrow-down'"></div>
+							</div>
+							<div ng-show="isDivVisible(key)" class="panel-body">
+								<table>
+									<tr ng-repeat="(subKey, subVal) in vals">
+										<td>{{ subKey }}</td><td>{{ subVal }}</td>
+									</tr>
+								</table>
+							</div>
+						</div>
+					</div> -->
+					<div class="metadata panel panel-default">
+						<div class="panel-heading">Segment Metadata</div>
+						<div class="panel-body">
+							<div ng-repeat="(key, vals) in segData.metadata">
+								<div class="divider"></div>
+								<div ng-click="toggleDivVisibility(key)">
+									{{ key }} <div ng-class="isDivVisible(key) ? 'arrow-up' : 'arrow-down'"></div>
+								</div>
+								<div ng-show="isDivVisible(key)">
+									<table>
+										<tr ng-repeat="(subKey, subVal) in vals">
+											<td>{{ subKey }}</td><td>{{ subVal }}</td>
+										</tr>
+									</table>
+								</div>
+							</div>
+						</div>
+					</div>
 				</div>
-				
+{% endraw %}		
 			</div>
 		</div>
 	
 	</div>
-	<!--  Load our angular app after having loaded Charts (for safety)   -->
+	<!-- load plots config and angular at the end (IN THIS ORDER!) -->
+	<script src="static/js/plotlyconfig.js" defer></script>
 	<script src="static/js/app.js" defer></script>
+</body>
 </html>
