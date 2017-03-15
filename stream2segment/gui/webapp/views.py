@@ -7,7 +7,7 @@ Created on Jun 20, 2016
 # from stream2segment.gui.webapp import app
 from stream2segment.gui.webapp import core
 from flask import render_template, request, jsonify
-from stream2segment.gui.webapp.plots import get_num_custom_plots
+from stream2segment.gui.webapp.plots import user_defined_plots, View
 from flask import Blueprint
 # http://flask.pocoo.org/docs/0.12/patterns/appfactories/#basic-factories:
 from flask import current_app
@@ -16,9 +16,9 @@ main_page = Blueprint('main_page', __name__, template_folder='templates')
 
 @main_page.route("/")
 def main():
-    ncp = get_num_custom_plots()
     return render_template('index.html', title=current_app.config["DATABASE"],
-                           customPlots=range(ncp))  # app.config['DB_URI'])
+                           settings=View.settings,
+                           userDefinedPlots=user_defined_plots())  # app.config['DB_URI'])
 
 
 @main_page.route("/init", methods=['POST'])
@@ -63,3 +63,8 @@ def select_segments():
 def toggle_class_id():
     json_req = request.get_json()
     return jsonify(core.toggle_class_id(json_req['segment_id'], json_req['class_id']))
+
+
+@main_page.route("/config_spectra", methods=['POST'])
+def config_spectra():
+    return jsonify(core.config_spectra(request.get_json()))

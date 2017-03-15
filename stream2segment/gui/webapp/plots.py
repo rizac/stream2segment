@@ -5,7 +5,7 @@ Created on Feb 28, 2017
 '''
 import numpy as np
 from datetime import datetime
-from collections import OrderedDict as odict
+from collections import OrderedDict
 from sqlalchemy.orm.session import object_session
 # from sqlalchemy.orm.session import Session
 from obspy import Stream, Trace, UTCDateTime
@@ -13,10 +13,10 @@ from stream2segment.process.utils import get_stream, itercomponents
 from stream2segment.analysis.mseeds import bandpass, utcdatetime, cumsum, cumtimes, fft, dfreq
 from stream2segment.analysis import amp_spec
 from stream2segment.process.wrapper import get_inventory
-from obspy.core.utcdatetime import UTCDateTime
 
 
 _functions = []
+_ud_plots = OrderedDict()
 
 if not _functions:
     # attach custom function. This might seem clumsy but it's to treat default functions
@@ -28,18 +28,30 @@ if not _functions:
     # If the function returns a trace, is title will be source_trace_title - second_argument
     # Otherwise it will be the title provided in the returned Plot
     _functions.append((lambda view: view._main_plot, "", True, True))
-    _functions.append((lambda view: spectra(view, view._noisy_wdw, view._signal_wdw),
+    _functions.append((lambda view: spectra(view),
                       "Spectra", True, False))
     _functions.append((lambda view: view.get_components()[0][0], "", True, True))
     _functions.append((lambda view: view.get_components()[1][0], "", True, True))
     _functions.append((lambda view: view._cum, "Cumulative", True, True))
+    # set a default length to know if we added user defined plots
+    _def_func_length = len(_functions)
 
 
-def get_num_custom_plots():
-    return len(_functions) - 4
+def user_defined_plots():
+    """
+        Returns a dict with integer keys mapped to the relative user defined function name,
+        if any was registered via `register_function`
+        The keys (integer) of the returned dict are sorted according to the insertion order. The
+        first keys is > 0, as there are surely some custom plots defined before user defined ones
+        (currently, 4, but this might change)
+    """
+    ret = OrderedDict()
+    for i in xrange(_def_func_length, len(_functions)):
+        ret[i] = _functions[i][1]
+    return ret
 
 
-def register_function(func, name=None):
+def register_function(func, name=None, execute_anyway=False):
     """
         Registers a new function for this module. The function will be called on any `Trace`
         which did not issue warnings. Warnings include inventory error (for filtered miniSEED),
@@ -50,19 +62,42 @@ def register_function(func, name=None):
         :param func: a function accepting the currently selected trace and returning another
         trace
         :param name: optional, the name to be shown in the GUI title. Defaults to `func.__name__`
+        :param execute_anyway: boolean optional (default: False). Whether to execute the function
+        if the source trace had warning/errors (e.g., gaps, or errors retrieving the station
+        inventory, if the latter is needed). Note that executing a function on a trace with
+        errors/warnings might lead to unexpected results or cause the code to hang
     """
-    _functions.append((func, name or func.__name__, False, False))
+    funcname = name or func.__name__
+    _functions.append((func, funcname, False, execute_anyway))
+
+
+def plot_title(src, title):
+    """
+    Creates a title for any object (trace, Plot) derived from `src`. Basically returns
+    `"src's title" + "<title>"`
+    :param src: trace or Plot, the source object
+    :param title: the title of the object derived from `src`"""
+    return "%s - %s" % (src.title if hasattr(src, 'title') else src.get_id(), title)
 
 
 def exec_function(index, view):  # args and kwargs not used for custom functions
     func, name, uses_view, execute_anyway = _functions[index]
     arg = view if uses_view else view._trace.copy()
     main_plot = view._main_plot
-    title = "%s - %s" % (main_plot.title, name)
+    title = plot_title(main_plot, name)  # "%s - %s" % (main_plot.title, name)
     try:
         if main_plot.warning and not execute_anyway:
             raise Exception("Not shown: %s" % main_plot.warning)
         plt = func(arg)
+        istrace = isinstance(plt, Trace)
+        isplot = isinstance(plt, Plot)
+        if not istrace and not isplot:
+            trace = view._trace
+            array = np.asarray(plt)
+            if array.size != trace.data.size:
+                raise ValueError("Expected array with %d elements, found %d" %
+                                 (trace.data.size, array.size))
+            plt = Trace(data=array, header=trace.stats.copy())
         if isinstance(plt, Trace):  # fft below does not return trace(s) but plots
             plt = Plot.fromtrace(plt, title)
     except Exception as exc:
@@ -71,12 +106,14 @@ def exec_function(index, view):  # args and kwargs not used for custom functions
     return plt
 
 
-def spectra(view, noisy_wdw, signal_wdw):
+def spectra(view):
     warning = ""
     trace = view._trace
+    noisy_wdw, signal_wdw = view.get_spectra_windows()
+
     try:
-        fft_noise = fft(trace, *view._noisy_wdw)
-        fft_signal = fft(trace, *view._signal_wdw)
+        fft_noise = fft(trace, *noisy_wdw)
+        fft_signal = fft(trace, *signal_wdw)
 
         df = dfreq(trace)
         f0 = 0
@@ -88,7 +125,9 @@ def spectra(view, noisy_wdw, signal_wdw):
         amp_spec_noise = [0, 0]
         amp_spec_signal = [0, 0]
 
-    return Plot(warning=warning).\
+    # _functions[1][1] == 'Spectra'
+
+    return Plot(plot_title(trace, _functions[1][1]), warning=warning).\
         add(f0, df, amp_spec_noise, "Noise").\
         add(f0, df, amp_spec_signal, "Signal")
 
@@ -118,21 +157,35 @@ def spectra(view, noisy_wdw, signal_wdw):
 #             self.pop(key)
 
 
+def set_spectra_config(arrival_time_shift, signal_window):
+    lcl = dict(locals())
+    if 'spectra' not in View.settings:
+        View.settings['spectra'] = {}
+    View.settings['spectra'].update(lcl)
+    for v in View.views.itervalues():
+        # force refresh of Spectra:
+        v[1] = None
+        v._noisy_wdw = None
+
+
+def set_filter_config(remove_response_water_level, remove_response_output,
+                      bandpass_freq_max, bandpass_max_nyquist_ratio, bandpass_corners):
+    lcl = dict(locals())
+    if 'filter' not in View.settings:
+        View.settings['filter'] = {}
+    View.settings['filter'].update(lcl)
+    # force re-updating of filtered views:
+    for key in View.views.keys():
+        if ".filtered" in key:
+            View.views.pop(key)
+
+
 class Filter(object):
     """Class for filtering a trace. In the future, this might be customizable
     to account for different filters"""
 
-    config = dict(remove_response_water_level=60, remove_response_output='ACC',
-                  # the max frequency, in Hz:
-                  bandpass_freq_max=20,
-                  # the amount of freq_max to be taken.
-                  # low-pass corner = max_nyquist_ratio * freq_max (defined above):
-                  bandpass_max_nyquist_ratio=0.9,
-                  bandpass_corners=2)
-
     @classmethod
-    def filter(cls, trace, segment, inventory):
-        config = cls.config
+    def filter(cls, trace, segment, inventory, config):
         evt = segment.event
         trace = bandpass(trace, evt.magnitude, freq_max=config['bandpass_freq_max'],
                          max_nyquist_ratio=config['bandpass_max_nyquist_ratio'],
@@ -149,6 +202,7 @@ class View(list):
     and so on, including user defined functions, if any)"""
     inventories = {}  # CacheDict(50)
     views = {}  # CacheDict(50)
+    settings = {}
 
     def __init__(self, segment, trace, warning=None):
         # append default custom functions. Use self cause they avoid copying the trace,
@@ -157,17 +211,38 @@ class View(list):
         super(View, self).__init__([None] * len(_functions))
         self._trace = trace
         self._segment = segment
-        arrival_time = segment.arrival_time
+        self._atime = UTCDateTime(segment.arrival_time)
         self._other_component_views = None
         # calculate default spectra windows.
         # cumulative needs to be stored as attribute so that we do not calculate it twice
         # when requesting for it
         self._cum = cumsum(trace)
-        t0, t1 = cumtimes(self._cum, 0.05, 0.95)
-        self._noisy_wdw = [arrival_time, t0 - t1]
-        self._signal_wdw = [arrival_time, t1 - t0]
+        self._noisy_wdw = None
+        self._signal_wdw = None
 
         # calculate the default window for the spectra
+        # self.get_spectra_windows()
+
+    @property
+    def warning(self):
+        """Returns if this view's main plot has warnings (e.g. gaps, error in repsonse if if
+        filtered...)"""
+        return self._main_plot.warning
+
+    def get_spectra_windows(self):
+        if self._noisy_wdw is None or self._signal_wdw is None:
+            a_time = self._atime + self.settings['spectra']['arrival_time_shift']
+            try:
+                cum0, cum1 = self.settings['spectra']['signal_window']
+                t0, t1 = cumtimes(self._cum, cum0, cum1)
+                nsy, sig = [a_time, t0 - t1], [t0, t1 - t0]
+            except TypeError:
+                shift = self.settings['spectra']['signal_window']
+                nsy, sig = [a_time, -shift], [a_time, shift]
+            self._noisy_wdw = nsy
+            self._signal_wdw = sig
+
+        return self._noisy_wdw, self._signal_wdw
 
     def link(self, other_component_views):
         self._other_component_views = other_component_views
@@ -200,19 +275,19 @@ class View(list):
         """Returns the trace for a givens segment
         The segment trace and potential errors to be displayed are saved as `View` class `dict`s
         """
-        warning = None
         key = str(segment.id)  # it's integer, so str is safe. We use strings cause we mark
         # as key + ".filtered" the filtered traces (see below)
         view = cls.views.get(key, None)
         if view is None:
+            warning = ""
             try:
                 stream = get_stream(segment)
                 prevlen = len(stream)
                 stream = stream.merge(fill_value='latest')
                 if len(stream) != 1:
-                    raise ValueError("Has gaps/overlaps")
+                    raise ValueError("Unmergeable gaps/overlaps")
                 if len(stream) != prevlen:
-                    warning = "Had gaps/overlaps (merged)"
+                    warning = "Merged gaps/overlaps"
             except Exception as exc:
                 warning = str(exc)
                 stream = Stream(Trace(np.array([0, 0]), {'starttime':
@@ -234,6 +309,7 @@ class View(list):
         if not filtered:
             return view
 
+        warning = view.warning
         key += ".filtered"
         source_view = view
         view = cls.views.get(key, None)
@@ -250,13 +326,13 @@ class View(list):
 
                 if not warning:
                     try:
-                        stream = Stream([Filter.filter(trace.copy(), segment, inv)])
+                        stream = Stream([Filter.filter(trace.copy(), segment, inv,
+                                                       View.settings['filter'])])
                         trace = stream[0]
                     except Exception as exc:
                         warning = str(exc)
-
-            if warning:
-                warning = "%s: showing unfiltered trace" % warning
+            else:
+                warning = "%s (filter - if any - not applied)" % warning
 
             view = View(segment, trace, warning=warning or None)
             # write to cache dict:
@@ -274,13 +350,50 @@ class Plot(object):
     def __init__(self, title=None, warning=None):
         self.title = title or ''
         self.data = []
+        self.shapes = []
         # self.xrange = x_range
         self.warning = warning or ""
 
     def add(self, x0=None, dx=None, y=None, label=None):
-        """Adds a new series to this plot"""
+        """Adds a new series (scatter line) to this plot. This method optimizes
+        the data transfer and the line will be handled by the frontend plot library"""
         self.data.append([x0, dx, np.asarray(y), label])
         return self
+
+#     def addvline(self, x_val):
+#         """Adds an object to the plot. The object format should match the expected
+#         format of the frontend library used. `obj` should not contain a lot of data for
+#         performance reasons"""
+#         self.shapes.append({'type': 'line',
+#                           'xref': 'paper',
+#                           'yref': 'paper',
+#                           'x0': x_val,
+#                           'x1': x_val,
+#                           'y0': 0,
+#                           'y1': 1,
+#                           'line': {
+#                             'color': 'rgb(50, 171, 96)',
+#                             'width': 3
+#                           }
+#                           })
+# 
+#     def addvrect(self, x0, x1):
+#         """Adds an object to the plot. The object format should match the expected
+#         format of the frontend library used. `obj` should not contain a lot of data for
+#         performance reasons"""
+#         self.shapes.append({'type': 'rect',
+#                           'xref': 'paper',
+#                           'yref': 'paper',
+#                           'x0': x0,
+#                           'x1': x1,
+#                           'y0': 0,
+#                           'y1': 1,
+#                           'layer': 'below',
+#                           'line': {
+#                             'color': 'rgb(50, 171, 96)',
+#                             'width': 3
+#                           }
+#                         })
 
     def addtrace(self, trace, label=None):
         return self.add(jsontimestamp(trace.stats.starttime),
@@ -331,12 +444,15 @@ class Plot(object):
         # uncomment to have arough estimation of the file sizes (around 200 kb for 5 plots)
         # print len(json.dumps([self.title or '', data, "".join(self.warnings), self.xrange]))
         # set the title if there is only one item and a single label??
-        return [self.title or '', data, self.warning]
+        return [self.title or '', data, self.warning, self.shapes]
 
 
-def jsontimestamp(utctime):
-    """Converts utctime by returning a shifted timestamp such as
-    browsers which assume times are local, will display the correct utc time
+def jsontimestamp(utctime, adjust_tzone=True):
+    """Converts utctime (which MUST be in UTC!) by returning a timestamp for json transfer.
+    Moreover, if `adjust_tzone=True` (the default), shifts utcdatetime timestamp so that
+    a local browser can correctly display the time. This assumes that:
+     - utctime is in UTC
+     - the browser displays times in current timezone
     :param utctime: a timestamp (numeric) a datetime or an UTCDateTime. If numeric, the timestamp
     is assumed to be in *seconds**
     :return the unic timestamp (milliseconds)
@@ -346,9 +462,8 @@ def jsontimestamp(utctime):
     except TypeError:
         time_in_sec = float(UTCDateTime(utctime))  # maybe a datetime? convert to UTC
         # (this assumes the datetime is in UTC, which is the case)
-
-    tdelta = (datetime.fromtimestamp(time_in_sec) -
-              datetime.utcfromtimestamp(time_in_sec)).total_seconds()
+    tdelta = 0 if not adjust_tzone else (datetime.fromtimestamp(time_in_sec) -
+                                         datetime.utcfromtimestamp(time_in_sec)).total_seconds()
 
     return int(0.5 + 1000 * (time_in_sec - tdelta))
 

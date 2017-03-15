@@ -3,26 +3,13 @@ Created on Jul 31, 2016
 
 @author: riccardo
 '''
-
-from stream2segment.io.db.models import Segment, Class, ClassLabelling
 from stream2segment.io.db.pd_sql_utils import colnames, commit, withdata
-from stream2segment.process.utils import get_stream, itercomponents
-import numpy as np
-from obspy.core.stream import Stream
-from stream2segment.process.wrapper import get_inventory
-from stream2segment.analysis.mseeds import bandpass, remove_response, stream_compliant, utcdatetime,\
-    snr, cumsum, cumtimes, fft, dfreq
-from obspy.core.utcdatetime import UTCDateTime
-from itertools import cycle, chain, izip
-from sqlalchemy.orm.session import Session
-from stream2segment.analysis import amp_spec
-import json
-from stream2segment.gui.webapp import get_session, plots
-from collections import OrderedDict as odict
-from stream2segment.io.db.models import Segment, Class, Station, Channel, DataCenter, Event
+from stream2segment.io.db.models import Segment, Class, Station, Channel, DataCenter, Event,\
+    ClassLabelling
 from stream2segment.utils.sqlevalexpr import query, get_columns
-from sqlalchemy.sql.expression import and_, asc, desc
-from stream2segment.gui.webapp.plots import View
+from stream2segment.gui.webapp import get_session
+from stream2segment.gui.webapp.plots import View, jsontimestamp, set_spectra_config
+from stream2segment.utils import evalexpr
 
 
 NPTS_WIDE = 900
@@ -30,6 +17,11 @@ NPTS_SHORT = 900
 # FIXME: automatic retrieve by means of Segment class relationships?
 METADATA = [("", Segment), ("event", Event), ("channel", Channel),
             ("station", Station), ("datacenter", DataCenter)]
+
+
+SETTINGS = {
+    'spectra': {'arrivalTimeShift': 0, 'signalWindow': [5, 95]}
+    }
 
 
 def get_init_data(orderby, withdataonly):
@@ -71,7 +63,7 @@ def get_segment_ids(filterdata=None, orderby=None, withdataonly=True):
     additional_atts = []
     if filterdata:
         val = filterdata.get('classes.id', None)
-        if val.strip() in ('unset', '"unset"', "'unset'"):
+        if val and val.strip() in ('unset', '"unset"', "'unset'"):
             filterdata.pop('classes.id')
             additional_atts.append(~Segment.classes.any())  # @UndefinedVariable
     if withdataonly:
@@ -123,11 +115,15 @@ def toggle_class_id(segment_id, class_id):
 def get_segment_data(seg_id, filtered, zooms, indices, metadata_keys=None):
     session = get_session()
     segment = session.query(Segment).filter(Segment.id == seg_id).first()
+    plots = []
+    spectra_wdws = []
     if indices:
         view = View.get(segment, filtered)
         plots = [view[i] for i in indices]
-    else:
-        plots = []
+        if set(indices).intersection([0, 1]):
+            spectra_wdws = [sorted([jsontimestamp(x[0]), jsontimestamp(x[0]) + 1000*x[1]])
+                            for x in view.get_spectra_windows()]
+
 #     ret = [Plot.fromsegment(seg, zooms[0], NPTS_WIDE, filtered, copy=True)]
 # 
 #     for i, seg_ in enumerate(itercomponents(seg, session), 1):
@@ -147,4 +143,13 @@ def get_segment_data(seg_id, filtered, zooms, indices, metadata_keys=None):
 #         ret.append(Plot())
 
     return {'plotData': [r.tojson(zooms[i], NPTS_WIDE) for i, r in enumerate(plots)],
+            'spectra_windows': spectra_wdws,
             'metadata': get_columns(segment, metadata_keys) if metadata_keys else {}}
+
+
+def config_spectra(dic):
+    ret = {'arrival_time_shift': evalexpr._eval(dic['arrival_time_shift']),
+           'signal_window': evalexpr._eval(dic['signal_window'])
+           }
+    set_spectra_config(**ret)
+    return True

@@ -83,7 +83,7 @@ def cumsum(signal, normalize=True):
     ret = np.cumsum(np.square(signal), axis=None, dtype=None, out=None)
     if normalize and (ret != 0).any():
         max_ = np.max(ret)
-        if np.isnan(max_) or (max_ == 0):
+        if not np.isnan(max_) and (max_ != 0):
             # normalize between 0 and 1. Note true div cause if signal is made of ints we have a
             # floor division with loss of precision
             ret = np.true_divide(ret, max_)

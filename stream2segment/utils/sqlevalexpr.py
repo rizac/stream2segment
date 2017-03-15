@@ -152,7 +152,7 @@ def query(session, query_arg, conditions, orderby=None, *sqlalchemy_query_expres
     # contrarily to query_args, this function returns the arguments for
     # an sqlalchemy join(...).filter(...).order_by(...).
     # Thus, providing query_arg ans session, it builds:
-    parsed_conditions = sqlalchemy_query_expressions or []
+    parsed_conditions = list(sqlalchemy_query_expressions) or []
     joins = set()  # relationships have an hash, this assures no duplicates
 
     # if its'an InstrumentedAttribute, use the class

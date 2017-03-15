@@ -15,7 +15,7 @@ from sqlalchemy.orm import sessionmaker
 import pandas as pd
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError, InvalidRequestError
 from stream2segment.io.db.pd_sql_utils import _harmonize_columns, harmonize_columns,\
-    get_or_add_iter, harmonize_rows, colnames
+    get_or_add_iter, harmonize_rows, colnames, withdata
 from stream2segment.io.utils import dumps_inv, loads_inv
 from sqlalchemy.orm.exc import FlushError
 from sqlalchemy.orm.attributes import InstrumentedAttribute
@@ -226,6 +226,10 @@ class Test(unittest.TestCase):
         assert sorted([c[0] for c in res1]) == [1,1,2]  # regardless of order, we are interested in segments
         # solution? group_by:
         res1 = query(sess, models.Segment.id, {'classes.id': '[1 2]'}, ['channel.id', 'event_distance_deg']).group_by(models.Segment.id).all()
+        assert sorted([c[0] for c in res1]) == [1, 2]  # regardless of order, we are interested in segments
+        
+        res1 = query(sess, models.Segment.id, {'classes.id': '[1 2]'}, ['channel.id', 'event_distance_deg'],
+                     ~(withdata(models.Segment.data))).group_by(models.Segment.id).all()
         assert sorted([c[0] for c in res1]) == [1, 2]  # regardless of order, we are interested in segments
         
         

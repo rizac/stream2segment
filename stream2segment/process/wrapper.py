@@ -9,7 +9,7 @@ from cStringIO import StringIO
 import os
 import sys
 from obspy.core.stream import read
-from stream2segment.utils import get_session, yaml_load, get_progressbar, msgs
+from stream2segment.utils import get_session, yaml_load, get_progressbar, msgs, load_source
 from stream2segment.io.db import models
 from stream2segment.download.utils import get_inventory_query
 from stream2segment.utils.url import urlread
@@ -105,18 +105,6 @@ def get_inventory(seg_or_sta, session=None, **kwargs):
         elif not data:
             raise ValueError(msgs.query.empty(query_url))
     return loads_inv(data)
-
-
-def load_source(pyfilepath):
-    if sys.version_info[0] == 2:
-        import imp  # @UnresolvedImport
-        return imp.load_source('processing_module_name', pyfilepath)
-    else:
-        import importlib.util  # @UnresolvedImport
-        spec = importlib.util.spec_from_file_location('processing_module_name', pyfilepath)
-        foo = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(foo)
-        return foo
 
 
 def load_proc_cfg(configsourcefile):

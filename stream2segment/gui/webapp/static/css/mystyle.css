@@ -8,64 +8,98 @@ body{
 	font-family: "Lucida Sans Unicode", Arial, Helvetica, "Trebuchet MS", Verdana, sans-serif;
 }
 
-div.container{
-	position:relative;
+/* flex doesn't work with plotly (as of march 2017). So: */
+
+div.main > div.center{
 	height: 100%;
-	box-sizing:border-box;
+}
+
+div.main > div.center > div.left{
+	float: left;
+}
+
+div.main > div.center > div.center{
+	margin-left: 11em;
 	height:100%;
 }
 
-div.h-container, div.v-container{
+/* inputs are too long... */
+div.main > div.center > div.left input{
+	max-width: 8.5em;
+}
+
+
+/* keep flex for metadata panel and in case, in the future ... */
+
+div.flex.h-container, div.flex.v-container{
 	display: flex;
 }
 
-div.h-container{
+div.flex.h-container{
 	flex-direction: row;
 }
 
-div.v-container{
+div.flex.v-container{
 	flex-direction: column;
 }
 
-div.h-container > div.left, div.h-container div.right,
-div.v-container > div.top, div.v-container div.bottom{
+div.flex.h-container > div.left, div.flex.h-container > div.right,
+div.flex.v-container > div.top, div.flex.v-container > div.bottom{
 	flex: 0 1 auto;
 }
 
-div.h-container > div.center, div.v-container div.center{
+div.flex.h-container > div.center, div.flex.v-container div.center{
 	flex: 1 1 auto;
 }
 
-div.plots_left{
-	width:60%;
-}
+/* panels for plots */
 
-div.plots_right{
-	width:40%;
-}
-
-/* div.plots_left > div, div.plots_right > div{
+.tr, .tl, .br, .bl{
+	position:absolute;
+	width:50%;
 	height:50%;
-	width: 100%;
-} */
+}
 
-/* div.plot{
+.tr, .tl{
+	top: 0;
+}
+
+.br, .bl{
+	bottom: 0;
+}
+
+.tl, .bl{
+	left: 0;
+}
+
+.tr, .br{
+	right: 0;
+}
+
+.br{
+	padding-left:12px; /* metadata panel visually better if detached from right plot*/
+}
+
+div.plot{
+	margin:0;
+	padding:0;
+	top:0;
+	bottom:0;
+	right:0;
+	left:0;
 	height: 100%;
 	width: 100%;
+	/* border: 1px solid rgba(0,0,0,.05); */
 }
 
-div#plot_main div.plot-component{
-	height: 50% !important;
-} */
+div.plot-other-component{
+	height: 50%;
+}
 
-/* .panel-left{
-	width: 20vw;
-} */
 
-/* div.metadata table{
-	table-layout: fixed;
-	width:100%;
-} */
+div.metadata{
+	margin: 0px !important;
+}
 
 div.metadata table td{
 	vertical-align: top;
@@ -82,7 +116,6 @@ div.metadata table td:last-child {
 }
 
 div.metadata > div.panel-body{
-	max-height:45%;
 	overflow: auto;
 }
 
@@ -103,17 +136,6 @@ div.metadata > div.panel-body{
 	border-top: 6px solid black;
 }
 
-/* .segment-panel-heading{  copied from bootstrap
-    color: #333;
-    background-color: #f5f5f5;
-    border: 1px solid #ddd;
-    margin-bottom:12px;
-} */
-
-/* adjust margin bottoms */
-.panel, .metadata{
-	margin-bottom:12px;
-}
 
 /* override bootstrap */
 label {
@@ -158,6 +180,61 @@ label {
     box-shadow: 0 6px 12px rgba(0,0,0,.175);
 }
 
+/* help stuff (including tooltips) */
+.tooltip_{
+	position: relative;
+    box-sizing: content-box;
+    vertical-align: baseline;
+    display: inline-block;
+    color: #ddd;
+    font-weight: 900;
+    width: 1.5em;
+    border-radius: 100%;
+    border: 3px solid rgba(0,0,0,0.1);
+    margin: -3px;
+    margin-left: 7px;
+    font-size: smaller;
+    text-align: center;
+    text-decoration: none;
+}
+
+.tooltip_ .tooltiptext {
+    visibility: hidden;
+    
+    background-color: #555;
+    color: #fff;
+    text-align: center;
+    border-radius: 6px;
+    padding: 10px;
+    position: absolute;
+    z-index: 10;
+    /* bottom: 125%;
+    left: 50%;
+    margin-left: -60px; */
+    opacity: 0;
+    transition: opacity 1.5s;
+
+    width: 30em;
+    max-height: 50vh;
+    left: 125%;
+    
+    /* margin-top: -25vh; */
+}
+
+.tooltip_ .tooltiptext .border{
+	display: inline-block;
+	margin-top: 2px;
+	padding: 3px;
+	background-color: #555;
+    color: #fff;
+    border: 1px solid #fff;
+}
+
+.tooltip_:hover .tooltiptext {
+    visibility: visible;
+    opacity: 1;
+}
+
 /*
 .progress-bar {
     background-color: #1a1a1a;
@@ -177,3 +254,41 @@ label {
     transition: width .4s ease-in-out;    
 }
 */
+
+
+/* experimental */
+/*
+div.container{
+	position:relative;
+	height: 100%;
+	box-sizing:border-box;
+	height:100%;
+}
+
+.panel-h {
+    margin-bottom: 0px;
+    border-color: #ddd !important;
+    margin-right: 20px;
+    background-color: #fff;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    -webkit-box-shadow: 0 1px 1px rgba(0,0,0,.05);
+    box-shadow: 0 1px 1px rgba(0,0,0,.05);
+    display: flex;
+    flex-direction: row;
+}
+
+.panel-h .panel-heading{
+	border-bottom: initial;
+	border-right: 1px solid transparent;
+	flex: 0 1 auto;
+	border-top-left-radius: 3px;
+    border-top-right-radius: initial;
+    border-bottom-left-radius: 3px;
+}
+
+.panel-h .panel-body{
+	flex: 1 1 auto;
+}
+*/
+

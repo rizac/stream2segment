@@ -13,6 +13,29 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	$scope.loading=true;
 	$scope.globalZoom = true;
 	
+	$scope.PLOTCONFIGS = {
+			otherComponentsColor: '#dddddd',
+			// spectra: red the first (noise) green the second
+			// https://github.com/plotly/plotly.js/blob/master/src/components/color/attributes.js
+			spectraColors: ['#d62728', '#2ca02c'],
+			arrivalTimeLineColor: '#777777'
+	};
+	
+	// spectra settings:
+	$scope.spectraSettings = {};
+	for (var key in $window.__SETTINGS.spectra){
+		$scope.spectraSettings[key] = JSON.stringify($window.__SETTINGS.spectra[key]);
+	}
+	$scope.spectraSettings._changed = false;
+	
+	// filter settings (not used at the moment):
+	$scope.filterSettings = {};
+	for (var key in $window.__SETTINGS.filter){
+		$scope.filterSettings[key] = JSON.stringify($window.__SETTINGS.filter[key]);
+	}
+	$scope.filterSettings._changed = false;
+	
+	
 	$scope.orderBy = [["event.time", "asc"], ["event_distance_deg", "asc"]];
 	
 	$scope.bottomPlotId = 3; // 3 components plot, 4: cumulative plot, 5 on: custom one (if any)
@@ -28,78 +51,71 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		$scope.refreshView(bpIdx == 3 ? [2,3] : [bpIdx]);
 	};
 	
-	//setup listener (we could have done it in the loop above but is more readable like this)
-	// create function for notifying zoom. On all plots except
-	// other components
-	var zoomListenerFunc = function(plotIndex){
-		return function(eventdata){
-			// check that this function is called from zoom
-			// (it is called from any relayout command also)
-			var isZoom = 'xaxis.range[0]' in eventdata && 'xaxis.range[1]' in eventdata;
-			if(!isZoom){
-				return;
-			}
-			var zoom = [eventdata['xaxis.range[0]'], eventdata['xaxis.range[1]']];
-			var plot = $scope.plots[plotIndex];
-			var plotType = plot.type;
-			if ($scope.globalZoom){
-				$scope.plots.forEach(function(plot){
-					if (plot.type === plotType){
-						plot.zoom = [zoom[0], zoom[1]];  // copy (for safety)
-					}
-				});
-			}else{
-				plot.zoom = [zoom[0], zoom[1]];  // copy (for safety)
-			}
-			$scope.refreshView();
-	    }
-	};
+	// listen for plotly events. The plotly 'on' function is wrapped by our 'on' function
+	// implemented on the plots array (see plotlyconfig.js)
+	// The syntax is the same except that the callback does not take a single eventdata
+	// argument, but has four arguments, the first three being the same as Array.map or Array.forEach
+	// the fourth being the plotly event:
 
-	var autoZoomListenerFunc = function(plotIndex){
-		return function(eventdata){
-			$scope.refreshView(); // zooms are reset after use, so this redraw normal bounds
-	    }
-	};
-
-	$scope.plots.forEach(function(element, i){
-		var div = element.div;
-		div.on('plotly_relayout', zoomListenerFunc(i));
-		div.on('plotly_doubleclick', autoZoomListenerFunc(i));
+	$scope.plots.on('plotly_relayout', function(plot, index, plots, eventdata){
+		// check that this function is called from zoom
+		// (it is called from any relayout command also)
+		var isZoom = 'xaxis.range[0]' in eventdata && 'xaxis.range[1]' in eventdata;
+		if(!isZoom){
+			return;
+		}
+		var zoom = [eventdata['xaxis.range[0]'], eventdata['xaxis.range[1]']];
+		var plotType = plot.type;
+		if ($scope.globalZoom){
+			plots.forEach(function(plot){
+				if (plot.type === plotType){
+					plot.zoom = [zoom[0], zoom[1]];  // copy (for safety)
+				}
+			});
+		}else{
+			plot.zoom = [zoom[0], zoom[1]];  // copy (for safety)
+		}
+		$scope.refreshView();
 	});
 	
+	$scope.plots.on('plotly_doubleclick', function(plot, index, plots, eventdata){
+		$scope.refreshView(); // zooms are reset after use, so this redraw normal bounds
+	});
+	
+	// we would like to have the click event setting the arrival time shift, but it is buggy
+	// and it works only if we click on a data point (not on the plot)
+//	$scope.plots.on('plotly_click', function(plot, index, plots, eventdata){
+//		if (index != 0 || $scope.segData._arrivalTimestamp === undefined){
+//			return;
+//		}
+//		var aTime = $scope.segData._arrivalTimestamp;
+//		var newATime = Date.parse(eventdata.points[0].x);
+//		$scope.spectraSettings.arrivalTimeDelay = parseFloat(newATime - aTime)/1000;
+//		$scope.spectraSettings._changed = true;
+//		//$scope.refreshView(); // zooms are reset after use, so this redraw normal bounds
+//	});
+	
+	$scope.err = function(response){
+		var msg = (response.data || 'Request failed');
+        //$scope.status = response.status;
+		return msg;
+	}
 	
 	$scope.selection = {
 		withDataOnly: true,
 		data: {},
-		changed: false,
 		showForm: false,
-		errorMsg: "",
-		fireChange: function(newVal, oldVal){
-			function differ(val1, val2){
-				if (typeof val1 !== typeof val2){
-					return true;
-				}
-				var keys1 = Object.keys(val1);
-				var keys2 = Object.keys(val2);
-				if (keys1.length !== keys2.length){
-					return true;
-				}
-				if (!keys1.length){
-					return typeof val1 === 'object' ? false : val1 !== val2;
-				}
-				return keys1.some(function(element, index, array){
-					return differ(element, keys2[index]);
-				});
-			}
-			this.changed = differ(newVal, oldVal);
-		}
+		errorMsg: ""
 	};
-    // watch for further changes from now on:
-    var watcher = function(newVal, oldVal){
-    	$scope.selection.fireChange.call($scope.selection, newVal, oldVal);
-    };
-    $scope.$watch('selection.data', watcher, true);  // note the true: compares by value, not by ref
-	$scope.$watch('selection.withDataOnly', watcher);
+    
+	$scope.configSpectra = function(){
+		var param = $scope.spectraSettings;
+		$http.post("/config_spectra", param, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
+			$scope.spectraSettings._changed = false;
+			// update plots:
+	        $scope.refreshView([0, 1]); // refresh current segment and spectra only
+	    });
+	};
 
 	
 	$scope.selectSegments = function(){
@@ -114,8 +130,10 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	        	$scope.selection.errorMsg = "No segment found with given criteria";
 	        	return;
 	        }
-	        $scope.changed = false;
 	        $scope.setSegments(segIds);
+	        $scope.selection.showForm = false;  // close window popup, if any
+	    }, function(response) {  // error function, print message
+	          $scope.selection.errorMsg = $scope.err(response);
 	    });
 	};
 
@@ -130,10 +148,6 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	        	selectionData[elm[0]] = undefined;
 	        });
 	        $scope.selection.data = selectionData;
-	        //config plots when dom is rendered (see timeout 0 on google for details):
-//	        $timeout(function () { 
-//	        	$scope.configPlots(response.data.segment_ids); // this will be called once the dom has rendered
-//	          }, 0, false);
 	        $scope.setSegments(response.data.segment_ids);
 	    });
 	};
@@ -173,16 +187,16 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			// remove 'classes' and set it to segData.classIds
 			$scope.segData.classIds = metadata['classes.id'] || [];
 			delete metadata['classes.id'];  
-			// also, set metadata to be a dict of dicts instead of an array
-			// (i.e., sorted by 'category': segment, channel etcetera):
-			var segMetadata = {};
+			// create our metadata object for dusplaying it.
+			// pre-allocate object. Although not mandatory, chrome respects the insertion order
+			var segMetadata = {'segment': {}, 'event': {}, 'channel': {}, 'station': {}};
 			for (key in metadata){
 				var elms = key.split(".");
-				if (elms.length==1){
+				if (elms.length == 1){
 					elms = ["segment", elms[0]];
 				}
 				if (!(elms[0] in segMetadata)){
-					segMetadata[elms[0]] ={};
+					segMetadata[elms[0]] = {};
 				}
 				segMetadata[elms[0]][elms[1]] = metadata[key];
 			}
@@ -217,6 +231,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			response.data.plotData.forEach(function(elm, idx){
 				$scope.segData.plotData[indices[idx]] = elm;
 			});
+			$scope.segData.spectraWdws = response.data['spectra_windows'] || [];
 			// update plots:
 	        $scope.redrawPlots(indices);
 	    });
@@ -256,6 +271,9 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			for (var j=0; j<elements.length; j++){
 				var color = colors[j % colors.length];
 				var line = elements[j];
+//				if (i == 0){
+//					console.log(line[0]);
+//				}
 				var elmData = {
 					x0: line[0],
 					dx: line[1],
@@ -270,15 +288,14 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 				// customize colors. Maybe in the future moved to some config (but there should be a way to customize single
 				//elemtns of the plot, not difficult but quite long to implement), for the moment hard coded:
 				if (i ==2 || i == 3){ // components in gray
-					elmData.line.color = '#dddddd';
+					elmData.line.color = $scope.PLOTCONFIGS.otherComponentsColor;
 				}else if (i == 1){
-					// spectra: red the first (noise) green the second
-					// https://github.com/plotly/plotly.js/blob/master/src/components/color/attributes.js
-					elmData.line.color = j == 0 ? '#d62728' : '#2ca02c';
+					elmData.line.color = $scope.PLOTCONFIGS.spectraColors[j];
 				}
 				// push data:
 				data.push(elmData);
 			}
+			
 			if (div.layout){
 				// hack for setting the title left (so that the tool-bar does not overlap
 				// so easily). Comment this:
@@ -288,15 +305,61 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 					div.layout.annotations[0].text = title;
 				}
 				if (div.layout.xaxis){
-//					if (i == 0){  //FIXME: remove!!!
-//						console.log(elements[0][0]);
-//						console.log(new Date(elements[0][0]));
-//						console.log(div.layout.xaxis.range)
-//						console.log("");
-//					}
 					div.layout.xaxis.title = warnings;
-					div.layout.margin['b'] = warnings ? 80 : 40;
 				}
+				if (i==0){ // spectra windows
+					// https://plot.ly/javascript/shapes/#vertical-and-horizontal-lines-positioned-relative-to-the-axes
+					div.layout.shapes = $scope.segData.spectraWdws.map(function(elm, idx){
+						return {type: 'rect',
+							    xref: 'x', // x-reference is assigned to the x-values
+							    yref: 'paper', // y-reference is assigned to the plot paper [0,1]
+							    x0: elm[0],
+							    y0: 0,
+							    x1: elm[1],
+							    y1: 1,
+							    fillcolor: $scope.PLOTCONFIGS.spectraColors[idx],
+							    opacity: 0.1,
+							    line: {
+							        width: 0
+							    }
+							};
+					});
+					// append arrival time:
+					if (div.layout.shapes){
+						// store arrival time as timestamp. The relative value in
+						// segData.metadata.segment.arrival_time cannot be used,
+						// see section "Differences in assumed time zone" in
+						// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/parse
+						$scope.segData._arrivalTimestamp = div.layout.shapes[0].x1;
+						div.layout.shapes.push({type: 'line',
+						    xref: 'x', // x-reference is assigned to the x-values
+						    yref: 'paper', // y-reference is assigned to the plot paper [0,1]
+						    x0: div.layout.shapes[0].x1,
+						    x1: div.layout.shapes[0].x1,
+						    y0: 0,
+						    y1: 1,
+						    opacity: 1,
+						    line: {
+						        width: 1,
+						        dash: 'dot',
+						        color: $scope.PLOTCONFIGS.arrivalTimeLineColor
+						    }
+						});
+					}
+					// the noise / signal windows (rectangles in the background) might overflow
+					// this is visually misleading, so in case restore the original bounds.
+					// get the original bounds: 
+					var x00 = data[0].x0;
+					var x01 = data[0].x0 + data[0].dx * (data[0].y.length-1);
+					// set bounds manually in case of overflow:
+					if(div.layout.shapes.some(function (elm) {return elm.x0 < x00 || elm.x1 > x01})){
+						div.layout.xaxis.range= [x00, x01];
+						div.layout.xaxis.autorange = false;
+					}else{
+						div.layout.xaxis.autorange = true;
+					}
+				}
+				
 			}
 			div.data = data;
 			plotly.redraw(div);
@@ -319,19 +382,6 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		}
 		$scope.loading=false;
 	};
-	
-	$scope.extend = function(obj1, obj2){
-		for (var key in obj2){
-			if (!(key in obj1) || (typeof obj1[key] != typeof obj2[key])){
-				obj1[key] = obj2[key];
-			}else if (typeof obj2[key] === 'object'){
-				$scope.extend(obj1[key], obj2[key])
-			}else{
-				obj1[key] = obj2[key];
-			}
-		}
-		return obj1;
-	}
 	
 	$scope.toggleFilter = function(){
 		//$scope.showFiltered = !$scope.showFiltered; THIS IS HANDLED BY ANGULAR!

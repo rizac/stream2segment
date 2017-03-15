@@ -1,7 +1,9 @@
 from flask import Flask, g
-from stream2segment.utils import get_session as s2s_get_session
+from stream2segment.utils import get_session as s2s_get_session, load_source
 from flask.json import JSONEncoder
 from obspy.core.utcdatetime import UTCDateTime
+import os
+from stream2segment.gui.webapp.plots import set_filter_config, set_spectra_config
 # from stream2segment.gui.webapp.core import classannotator
 # from flask import url_for
 # from flask import request
@@ -27,6 +29,11 @@ def get_session():
 
 
 def create_app(dbpath, config_py_file=None, config_object=None):
+    """
+        Creates a new app. Note that config_py_file is the stream2segment gui config, not
+        the config passed to Flask `app.config.from_pyfile`. For Flask config, please provide
+        a valid object in `config_object`
+    """
     global _app
     if _app is not None:
         return _app
@@ -34,8 +41,17 @@ def create_app(dbpath, config_py_file=None, config_object=None):
     # http://flask.pocoo.org/docs/0.12/patterns/appfactories/#basic-factories
     app = Flask(__name__)
     app.config['DATABASE'] = dbpath
-    if config_py_file is not None:
-        app.config.from_pyfile(config_py_file)
+
+    if config_py_file is None:
+        config_py_file = os.path.join(os.path.dirname(__file__), "guiconfig.py")
+    # app.config.from_pyfile(config_py_file)
+    modl = load_source(config_py_file)
+    for k in dir(modl):
+        if k == "filter":
+            set_filter_config(**getattr(modl, k))
+        elif k == "spectra":
+            set_spectra_config(**getattr(modl, k))
+
     if config_object is not None:
         app.config.from_object(config_object)
 

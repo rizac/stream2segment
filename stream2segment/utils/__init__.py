@@ -15,6 +15,7 @@ from click import progressbar as click_progressbar
 from collections import defaultdict
 from stream2segment.io.db.models import Base
 from stream2segment.utils.resources import get_default_cfg_filepath
+import sys
 
 
 # THESE FUNCTIONS WERE IMPLEMENTED TO BE PYTHON2 AND 3 COMPLIANT, BUT WE DO NOT USE THEM ANYWHERE...
@@ -49,6 +50,18 @@ from stream2segment.utils.resources import get_default_cfg_filepath
 #     if isinstance(unicodestr, bytes):  # works for both py2 and py3
 #         return unicodestr
 #     return unicodestr.encode(encoding)
+
+def load_source(pyfilepath):
+    """Loads a source python file and returns it"""
+    if sys.version_info[0] == 2:
+        import imp  # @UnresolvedImport
+        return imp.load_source('processing_module_name', pyfilepath)
+    else:
+        import importlib.util  # @UnresolvedImport
+        spec = importlib.util.spec_from_file_location('processing_module_name', pyfilepath)
+        foo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(foo)
+        return foo
 
 
 def tounicode(bytestr, decoding='utf-8'):
