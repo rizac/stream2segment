@@ -487,7 +487,7 @@ class interval(object):
         return self(value).all()
 
     @classmethod
-    def split(cls, jsonlike_string):
+    def parse(cls, jsonlike_string):
         """Parses the given string to produce an interval.
         :param jsonlike_string: A string denoting an interval
         as a mathematical expression either with open/closed brackets ("['a', 'b'+'c'[")
@@ -682,7 +682,7 @@ def match(condition_expr, values, on_type_mismatch='raise'):
         cmd.fill(match_val)
         return a != cmd
     else:
-        return interval.split(condition_expr)(values)
+        return interval.parse(condition_expr)(values)
 
 
 def where(condition_expr, values, on_type_mismatch='raise'):  # @ReservedAssignment
