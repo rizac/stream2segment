@@ -10,29 +10,6 @@ from sqlalchemy.sql.expression import and_
 from sqlalchemy.orm.session import object_session
 
 
-
-# def iterstream(segment, session, include_segment=True):
-#     """Returns an iterator yielding the tuples (seg_id, stream) over all the `obspy.Stream`
-#     objects of the given segment, including the segments of the different components (channels)
-#     of `segment`, i.e. those
-#     segments with same time range, same station and same location.
-#     The order of the returned stream is unpredictable. To know which stream corresponds
-#     to the given segment, use `stream[0].stats.channel == segment.channel.location + "." +
-#     segment.channel.channel`
-#     """
-#     conditions = [models.Channel.station_id == segment.station.id,
-#                   models.Channel.location == segment.channel.location,
-#                   models.Segment.start_time == segment.start_time,
-#                   models.Segment.end_time == segment.end_time]
-# 
-#     if not include_segment:
-#         conditions.append(models.Segment.id != segment.id)
-# 
-#     for segid, dat in session.query(models.Segment.id, models.Segment.data).\
-#             join(models.Channel).filter(and_(*conditions)):
-#             yield segid, read(StringIO(dat))
-#
-#
 def get_stream(segment):
     """
         Returns a Stream object or a list of streams (if all_channels=True)
@@ -54,6 +31,8 @@ def get_stream(segment):
 
 
 def itercomponents(segment):
+    """Returns all the components of the given segment, i.e., all segments
+    with the same time span, network, station and location"""
     conditions = [models.Channel.station_id == segment.station.id,
                   models.Channel.location == segment.channel.location,
                   models.Segment.start_time == segment.start_time,
@@ -65,9 +44,9 @@ def itercomponents(segment):
         yield seg
 
 
-# FIXME: not implemented! remove?!!
-def has_data(segment, session):
-    pass
+# # FIXME: not implemented! remove?!!
+# def has_data(segment, session):
+#     pass
 
 
 # def linfunc(object):
@@ -101,8 +80,8 @@ def has_data(segment, session):
 #         self.rval = float(chunkstrs[1])
 #         assert self.lval <= self.rval
 
-    def isin(self, value):
-        return (value > self.lval and value < self.rval) or \
-            (self.lval == '[' and value == self.lval) or (self.rval == ']' and value == self.rval)
+#     def isin(self, value):
+#         return (value > self.lval and value < self.rval) or \
+#             (self.lval == '[' and value == self.lval) or (self.rval == ']' and value == self.rval)
 
 

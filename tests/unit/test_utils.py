@@ -12,6 +12,7 @@ import pytest
 from urllib2 import URLError
 import socket
 import mock
+from stream2segment.utils import secure_dburl
 
 class Test(unittest.TestCase):
 
@@ -83,6 +84,19 @@ def test_utils_url_read(mock_urlopen):  # mock_ul_urlopen, mock_ul_request, mock
     with pytest.raises(socket.error):
         urlread(val, urlexc=False)  # note urlexc
     
+
+@pytest.mark.parametrize('input, expected_result, ',
+                          [
+                           ("postgresql://scott:tiger@localhost/mydatabase", "postgresql://scott:***@localhost/mydatabase"),
+                           ('postgresql+psycopg2://scott:tiger@localhost/mydatabase', 'postgresql+psycopg2://scott:***@localhost/mydatabase'),
+                           ('postgresql+pg8000://scott:tiger@localhost/mydatabase', 'postgresql+pg8000://scott:***@localhost/mydatabase'),
+                           ('mysql://scott:tiger@localhost/foo', 'mysql://scott:***@localhost/foo'),
+                           ('mysql+mysqldb://scott:tiger@localhost/foo', 'mysql+mysqldb://scott:***@localhost/foo'),
+                           ('sqlite:////absolute/path/to/foo.db', 'sqlite:////absolute/path/to/foo.db')
+                           ],
+                        )
+def test_secure_dburl(input, expected_result):
+    assert secure_dburl(input) == expected_result
     
 
 # @patch('stream2segment.utils.Request')

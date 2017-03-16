@@ -235,6 +235,14 @@ def timedeltaround(tdelta):
     return dt.timedelta(days=tdelta.days, seconds=tdelta.seconds+add, microseconds=0)
 
 
+def secure_dburl(dburl):
+    """Returns a printable database name by removing passwords, if any
+    :param dbpath: string, in the format:
+    dialect+driver://username:password@host:port/database
+    For infor see:
+    http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls
+    """
+    return re.sub(r"://(.*?):(.*)@", r"://\1:***@", dburl)
 # def timedelta2str(tdelta):
 #     """Returns a formatted timedelta with seconds rounded up or down.
 #     It is basically str(tdelta) but with timedelta rounded up to seconds, and 'h', 'm' 's'

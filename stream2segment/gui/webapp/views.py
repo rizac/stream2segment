@@ -3,20 +3,18 @@ Created on Jun 20, 2016
 
 @author: riccardo
 '''
-
-# from stream2segment.gui.webapp import app
-from stream2segment.gui.webapp import core
-from flask import render_template, request, jsonify
+from flask import render_template, request, jsonify, Blueprint, current_app
 from stream2segment.gui.webapp.plots import user_defined_plots, View
-from flask import Blueprint
+from stream2segment.gui.webapp import core
+from stream2segment.utils import secure_dburl
+
 # http://flask.pocoo.org/docs/0.12/patterns/appfactories/#basic-factories:
-from flask import current_app
 main_page = Blueprint('main_page', __name__, template_folder='templates')
 
 
 @main_page.route("/")
 def main():
-    return render_template('index.html', title=current_app.config["DATABASE"],
+    return render_template('index.html', title=secure_dburl(current_app.config["DATABASE"]),
                            settings=View.settings,
                            userDefinedPlots=user_defined_plots())  # app.config['DB_URI'])
 

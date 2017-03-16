@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+	
+
+	<title>Download stats</title>
+
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<!-- Leaflet -->
+	<link rel="stylesheet" href="https://unpkg.com/leaflet@1.0.2/dist/leaflet.css" />
+	<script src="https://unpkg.com/leaflet@1.0.2/dist/leaflet.js"></script>
+
+	<!-- Load Esri Leaflet from CDN -->
+	<script src="https://unpkg.com/esri-leaflet@2.0.6"></script>
+	
+	<script type="text/javascript">
+	var DATA = [{% for sta in stations -%}
+["{{sta.name}}", {{sta.lat}}, {{sta.lon}}, {{sta.value}}, "{{sta.fill_color}}", "{{sta.warn}}", "{{sta.err}}", {{sta.count}}]
+{%- if not loop.last -%}
+    ,
+{%- endif -%}
+	{%- endfor %}];
+	
+	</script>
+	
+</head>
+<body style="font-family:arial">
+
+<div id=map style="width:79vw; height:98vh; float:left"></div>
+<div id=legend style="overflow:auto; margin-left:80vw; height:98vh">
+	<div style="">
+		<b>Legend</b><p>Circle: station (<i>click on it for infos</i>). 
+		Circle color is the data availability (white: no data, full color: 100% data): 
+		for a station, compute for
+		all received miniSEED the number N:
+		<p>(number of miniSEED points) / (number of miniSEED expected points)</p>
+		and represent as a color the average of all N (where white=0, full color=1).
+		If at least one miniSEED had warnings, the scale color is blue,
+		if at least one miniSEED had errors, the scale color
+		is Red. In any other case (no errors, no warnings), is Green
+		<p>
+		Notes:  
+		"No Data"  (white circle) does <b>not</b> include the case when the request resulted in an
+		HTTP Error: these errors are not shown here
+		<p><b>Existing artifacts (handled, usually blue circles)</b>:
+		<ul>
+			<li>In some cases, missing points is greater than the number of points: this is
+			equivalent to zero points available for that miniSEED
+			<li>Missing points is a negative number
+			(probably meaning overlap, but obspy is not really clear, needs investigation): we take 
+			the absolute value.
+			<li> Inconsistency of miniSEED time span and request time span
+			<li> Inconsistency of channel sample rate and miniSEED real sample rate (we found some)
+		</ul>
+	</div>
+</div>
+ 
+</body>
+
+<script>
+	map = new L.Map('map');
+	L.esri.basemapLayer("Oceans").addTo(map);
+	// start the map in South-East England
+	//map.setView(new L.LatLng(51.3, 0.7),9);
+	
+	map.fitBounds([
+    [{{minlat}}, {{minlon}}],
+    [{{maxlat}}, {{maxlon}}]
+	]);
+	
+	var d = DATA;
+	for( var i =0; i < d.length; i++){
+		var sta = d[i];
+		var lat = sta[1];
+		var lon = sta[2];
+		var name = sta[0];
+		var val = sta[3];
+		var fillColor = sta[4];
+		var warn = sta[5];
+		var err = sta[6];
+		var count = sta[7];
+		weight = 1; // err || warn ? 2 : 1
+		color = 'black'; // err ? 'red' : (warn ? 'blue' : 'green')
+		var circle = L.circleMarker([lat, lon], {
+		    color: color,
+		    opacity: 0.2,
+		    weight: weight,
+		    fillColor: fillColor,
+		    fillOpacity: 1,
+		    radius: 7
+		}).addTo(map);
+		var infostr = "Station: <b>" + name + "</b><p>lat: <b>"+ lat + "</b> <br>lon: <b>"+ lon+ "</b> <p>data aval.in [0, 1]: <b>"+ val + "</b>"
+		infostr += "<br>total number of mseeds: " + count
+		if (warn){
+			infostr += "<p> warnings:<br>" + warn;
+		}
+		if (err){
+			infostr += "<p> errors:<br>" + err;
+		}
+		
+		circle.bindPopup(infostr);
+	}
+	
+	//map.addLayer(osm);
+	/* L.circleMarker([51.508, -0.11], {
+	    color: 'red',
+	    fillColor: '#f03',
+	    fillOpacity: 0.5,
+	    radius: 500
+	}).addTo(map); */
+</script>
+</html>

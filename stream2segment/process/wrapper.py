@@ -9,7 +9,8 @@ from cStringIO import StringIO
 import os
 import sys
 from obspy.core.stream import read
-from stream2segment.utils import get_session, yaml_load, get_progressbar, msgs, load_source
+from stream2segment.utils import get_session, yaml_load, get_progressbar, msgs, load_source,\
+    secure_dburl
 from stream2segment.io.db import models
 from stream2segment.download.utils import get_inventory_query
 from stream2segment.utils.url import urlread
@@ -153,7 +154,7 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
                           models.Segment.start_time, models.Segment.end_time, models.Segment.id)
     seg_len = query.count()
     logger.info("Executing '%s' in '%s'", funcname, pysourcefile)
-    logger.info(" for all segments in '%s", str(session.bind.engine.url))
+    logger.info(" for all segments in '%s", secure_dburl(str(session.bind.engine.url)))
     logger.info("Config. file: %s", str(configsourcefile))
 
     save_station_inventory = config.get('inventory', False)

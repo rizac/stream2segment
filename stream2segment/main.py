@@ -33,7 +33,7 @@ from stream2segment.io.db.pd_sql_utils import commit
 from stream2segment.process.wrapper import run as process_run
 from stream2segment.download.query import main as query_main
 from stream2segment.utils import tounicode, yaml_load, get_session, strptime, yaml_load_doc,\
-    get_default_dbpath, printfunc, indent
+    get_default_dbpath, printfunc, indent, secure_dburl
 
 # set root logger if we are executing this module as script, otherwise as module name following
 # logger conventions. Discussion here:
@@ -100,19 +100,19 @@ def download(dburl, start, end, eventws, eventws_query_args, stimespan,
     # and no local variable (none has been declared yet). Note: dict(locals()) avoids problems with
     # variables created inside loops, when iterating over _args_ (see below)
     yaml_dict.pop('isterminal')  # not a yaml var
+    # remove db url password when printing:
 
     with closing(dburl) as session:
-        # print local vars:
-        yaml_content = StringIO()
-        # use safe_dump to avoid python types. See:
+        # print local vars: use safe_dump to avoid python types. See:
         # http://stackoverflow.com/questions/1950306/pyyaml-dumping-without-tags
-        yaml_content.write(yaml.safe_dump(yaml_dict, default_flow_style=False))
-        config_text = yaml_content.getvalue()
-        run_inst = run_instance(session, config=tounicode(config_text))
+        run_inst = run_instance(session, config=tounicode(yaml.safe_dump(yaml_dict,
+                                                                         default_flow_style=False)))
 
         echo = printfunc(isterminal)  # no-op if argument is False
         echo("Arguments:")
-        echo(indent(config_text, 2))
+        # replace dbrul passowrd for printing to terminal
+        yaml_dict['dburl'] = secure_dburl(yaml_dict['dburl'])
+        echo(indent(yaml.safe_dump(yaml_dict, default_flow_style=False), 2))
 
         configlog4download(logger, session, run_inst, isterminal)
         with elapsedtime2logger_when_finished(logger):
