@@ -568,4 +568,42 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         assert not mock_make_ev2sta.called
         segments = self.session.query(models.Segment).all()
         assert len(segments) == 0
+    
+    @patch('stream2segment.download.query.make_ev2sta')
+    @patch('stream2segment.download.query.get_events')
+    @patch('stream2segment.download.query.get_datacenters')
+    def test_cmdline_events_query_error(self, mock_get_datacenter, mock_get_events,
+                                            mock_make_ev2sta):
+        
+        def getev(*a, **v):
+            # return only one event (assure event does not raise errors, we want to test the datacenters)
+            url_read_side_effect = [URLError('oop')]
+            _ =  self.get_events(url_read_side_effect, *a, **v)
+            return _
+        mock_get_events.side_effect = getev
+        
+        
+        def getdc(*a, **v):
+            return self.get_datacenters([URLError('oops')], *a, **v)
+        mock_get_datacenter.side_effect = getdc
+
+        def ev2sta(*a, **v):
+            # whatever is ok, as we will test to NOT have called this function!
+            return self.make_ev2sta(None, *a, **v)
+        mock_make_ev2sta.side_effect = ev2sta
+        # prevlen = len(self.session.query(models.Segment).all())
+    
+        runner = CliRunner()
+        result = runner.invoke(main , ['d', '--dburl', self.dburi,
+                                       '--start', '2016-05-08T00:00:00',
+                                       '--end', '2016-05-08T9:00:00'])
+        if result.exception:
+            import traceback
+            traceback.print_exception(*result.exc_info)
+            print result.output
+            assert False
+            return
+        
+        
+        # FIXME: write something here, like we warned that we had some problems to the screen or whatever
 
