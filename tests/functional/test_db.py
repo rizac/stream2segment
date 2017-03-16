@@ -82,6 +82,13 @@ class Test(unittest.TestCase):
 #         with pytest.raises(ValueError):
 #             df = e.parse_df(df)
 
+    def test_run(self):
+        r = models.Run()
+        assert r.run_time is None and r.warnings is None and r.errors is None and r.id is None
+        self.session.add(r)
+        self.session.commit()
+        assert r.run_time is not None and r.warnings == 0 and r.errors == 0 and r.id is not None
+
     def test_inventory_io(self):
         from obspy.core.inventory.inventory import Inventory
         e = models.Station(network='abcwerwre', station='gwdgafsf',

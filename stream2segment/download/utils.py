@@ -32,11 +32,9 @@ def run_instance(session=None, **args):
     if 'program_version' not in args:
         args['program_version'] = version()
     run_row = models.Run(**args)
-    print "X:" + str(run_row.id)
     if session is not None:
         session.add(run_row)
         session.commit()
-    print "X:" + str(run_row.id)
     return run_row
 
 

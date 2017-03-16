@@ -21,7 +21,7 @@ from sqlalchemy import (
     # BigInteger,
     UniqueConstraint,
     event)
-from sqlalchemy.sql.expression import func
+from sqlalchemy.sql.expression import func, text
 from sqlalchemy.orm.mapper import validates
 # from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.inspection import inspect
@@ -95,8 +95,8 @@ class Run(Base):
     # 2) or don't make the column unique (what we did)
     run_time = Column(DateTime, server_default=func.now())
     log = deferred(Column(String))
-    warnings = Column(Integer, server_default="0", default=0)
-    errors = Column(Integer, server_default="0", default=0)
+    warnings = Column(Integer, server_default=text('0')) # , default=0)
+    errors = Column(Integer, server_default=text('0')) # , default=0)
     # segments_found = Column(Integer)
     # segments_written = Column(Integer)
     # segments_skipped = Column(Integer)
