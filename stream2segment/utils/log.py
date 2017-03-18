@@ -43,8 +43,6 @@ class DbStreamHandler(logging.StreamHandler):
         # access the stream with self.stream
         self.session = session
         self.run_row = run_instance
-        # for safety:
-        self.run_row.errors = self.run_row.warnings = 0
         self.csoc = close_session_on_close
         # configure level and formatter
         self.setLevel(min_level)

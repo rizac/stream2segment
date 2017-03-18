@@ -160,7 +160,7 @@ def process(dburl, pysourcefile, configsourcefile, outcsvfile, isterminal=False)
 
 
 @contextmanager
-def closing(dburl, scoped=False, close_logger=True):
+def closing(dburl, scoped=False, close_logger=True, close_session=True):
     """Opens a sqlalchemy session and closes it. Also closes and removes all logger handlers if
     close_logger is True (the default)
     :example:
@@ -184,12 +184,13 @@ def closing(dburl, scoped=False, close_logger=True):
                     logger.removeHandler(handler)
                 except (AttributeError, TypeError, IOError, ValueError):
                     pass
-        # close the session at the **real** end! we might need it above when closing loggers!!!!!
-        try:
-            session.close()
-            session.bind.dispose()
-        except NameError:
-            pass
+        if close_session:
+            # close the session at the **real** end! we might need it above when closing loggers!!!
+            try:
+                session.close()
+                session.bind.dispose()
+            except NameError:
+                pass
 
 
 @click.group()

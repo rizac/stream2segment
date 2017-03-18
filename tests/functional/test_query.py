@@ -20,7 +20,7 @@ from sqlalchemy.engine import create_engine
 from stream2segment.io.db.models import Base, Event, Class
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import IntegrityError
-from stream2segment.main import main
+from stream2segment.main import main, closing
 from click.testing import CliRunner
 from stream2segment.io.db import models
 # from stream2segment.s2sio.db.pd_sql_utils import df2dbiter, get_col_names
@@ -39,58 +39,89 @@ from obspy.taup.helper_classes import TauModelError
 import sys
 # from stream2segment.main import logger as main_logger
 from sqlalchemy.sql.expression import func
+from stream2segment.utils import get_session
 
 class Test(unittest.TestCase):
-    
-    dburi = ""
-    file = None
+
+#     def tearDown(self):
+#         Test.cleanup(self.session, *self.patchers)
+        # self.DB.drop_all()
+
+#     dburi = ""
+#     file = None
 
     @staticmethod
-    def cleanup(session, file, *patchers):
+    def cleanup(session, *patchers):
         if session:
+            try:
+                session.flush()
+                session.commit()
+            except SQLAlchemyError as _:
+                pass
+                # self.session.rollback()
             session.close()
-        if file and os.path.isfile(file):
-            os.remove(file)
+            session.bind.dispose()
+        
         for patcher in patchers:
             patcher.stop()
 
-    @classmethod
-    def setUpClass(cls):
-        file = os.path.dirname(__file__)
-        filedata = os.path.join(file,"..","data")
-        url = os.path.join(filedata, "_test.sqlite")
-        cls.dburi = 'sqlite:///' + url
-        cls.file = url
+#     @classmethod
+#     def setUpClass(cls):
+#         file = os.path.dirname(__file__)
+#         filedata = os.path.join(file,"..","data")
+#         url = os.path.join(filedata, "_test.sqlite")
+#         cls.dburi = 'sqlite:///' + url
+#         cls.file = url
+# 
+#     @classmethod
+#     def tearDownClass(cls):
+#         if os.path.isfile(cls.file):
+#             os.remove(cls.file)
 
-    @classmethod
-    def tearDownClass(cls):
-        if os.path.isfile(cls.file):
-            os.remove(cls.file)
-        
+    def _get_sess(self, *a, **v):
+        return self.session
 
     def setUp(self):
-        # remove file if not removed:
-        Test.cleanup(None, self.file)
+
+        from sqlalchemy import create_engine
+        self.dburi = 'sqlite:///:memory:'
+        engine = create_engine('sqlite:///:memory:', echo=False)
+        Base.metadata.create_all(engine)
+        # create a configured "Session" class
+        Session = sessionmaker(bind=engine)
+        # create a Session
+        self.session = Session()
+        
         
         self.patcher = patch('stream2segment.utils.url.urllib2.urlopen')
         self.mock_urlopen = self.patcher.start()
         
-        self.patcher2 = patch('stream2segment.download.query.get_arrival_time')
-        self.mock_arrival_time = self.patcher2.start()
+        # this mocks get_session to return self.session:
+        self.patcher1 = patch('stream2segment.main.get_session')
+        self.mock_get_session = self.patcher1.start()
+        self.mock_get_session.side_effect = self._get_sess
         
+        # this mocks closing to actually NOT close the session (we will do it here):
+        self.patcher2 = patch('stream2segment.main.closing')
+        self.mock_closing = self.patcher2.start()
+        def clsing(*a, **v):
+            if len(a) >= 4:
+                a[3] = False
+            else:
+                v['close_session'] = False
+            return closing(*a, **v)
+        self.mock_closing.side_effect = clsing
+        
+        
+        self.patcher3 = patch('stream2segment.download.query.get_arrival_time')
+        self.mock_arrival_time = self.patcher3.start()
+        
+        self.patchers = [self.patcher, self.patcher1, self.patcher2, self.patcher3]
         #self.patcher3 = patch('stream2segment.main.logger')
         #self.mock_main_logger = self.patcher3.start()
         
-        # an Engine, which the Session will use for connection
-        # resources
-        # some_engine = create_engine('postgresql://scott:tiger@localhost/')
-        self.engine = create_engine(self.dburi)
-        # Base.metadata.drop_all(cls.engine)
-        Base.metadata.create_all(self.engine)  # @UndefinedVariable
-        # create a configured "Session" class
-        Session = sessionmaker(bind=self.engine)
-        # create a Session
-        self.session = Session()
+        
+        
         
         # setup a run_id:
         r = models.Run()
@@ -130,13 +161,9 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         self._seg_urlread_sideeffect = [b'data','', '', URLError('wat'), socket.timeout()]
 
         #add cleanup (in case tearDown is not called due to exceptions):
-        self.addCleanup(Test.cleanup, self.session, self.file, self.patcher, self.patcher2)
+        self.addCleanup(Test.cleanup, self.session, *self.patchers)
                         #self.patcher3)
 
-        
-    def tearDown(self):
-        # see cleanup static method
-        pass
     
     def setup_urlopen(self, urlread_side_effect):
         """setup urlopen return value. 
@@ -378,16 +405,13 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
     @patch('stream2segment.download.query.make_ev2sta')
     @patch('stream2segment.download.query.get_segments_df')
     @patch('stream2segment.download.query.download_segments')
-    @patch('stream2segment.main.get_session')
-    def test_cmdline(self, mock_get_sess, mock_download_segments, mock_get_seg_df, mock_make_ev2sta,
+    def test_cmdline(self, mock_download_segments, mock_get_seg_df, mock_make_ev2sta,
                      mock_get_datacenter, mock_get_events):
         
         ddd = datetime.utcnow()
         # setup arrival time side effect with a constant date (by default is datetime.utcnow)
         # we might pass it as custom argument below actually
         self._atime_sideeffect[0] = ddd
-        
-        mock_get_sess.return_value = self.session
 
         def dsegs(*a, **v):
             return self.download_segments(None, *a, **v)
@@ -475,13 +499,10 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
     @patch('stream2segment.download.query.make_ev2sta')
     @patch('stream2segment.download.query.get_segments_df')
     @patch('stream2segment.download.query.download_segments')
-    @patch('stream2segment.main.get_session')
-    def test_cmdline_singleevent_singledatacenter(self, mock_get_sess, mock_download_segments,
+    def test_cmdline_singleevent_singledatacenter(self, mock_download_segments,
                                                   mock_get_seg_df, mock_make_ev2sta,
                      mock_get_datacenter, mock_get_events):
         
-        mock_get_sess.return_value = self.session
-
         def dsegs(*a, **v):
             return self.download_segments(None, *a, **v)
         mock_download_segments.side_effect = dsegs
@@ -568,4 +589,42 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         assert not mock_make_ev2sta.called
         segments = self.session.query(models.Segment).all()
         assert len(segments) == 0
+    
+    @patch('stream2segment.download.query.make_ev2sta')
+    @patch('stream2segment.download.query.get_events')
+    @patch('stream2segment.download.query.get_datacenters')
+    def test_cmdline_events_query_error(self, mock_get_datacenter, mock_get_events,
+                                            mock_make_ev2sta):
+        
+        def getev(*a, **v):
+            # return only one event (assure event does not raise errors, we want to test the datacenters)
+            url_read_side_effect = [URLError('oop')]
+            _ =  self.get_events(url_read_side_effect, *a, **v)
+            return _
+        mock_get_events.side_effect = getev
+        
+        
+        def getdc(*a, **v):
+            return self.get_datacenters([URLError('oops')], *a, **v)
+        mock_get_datacenter.side_effect = getdc
+
+        def ev2sta(*a, **v):
+            # whatever is ok, as we will test to NOT have called this function!
+            return self.make_ev2sta(None, *a, **v)
+        mock_make_ev2sta.side_effect = ev2sta
+        # prevlen = len(self.session.query(models.Segment).all())
+    
+        runner = CliRunner()
+        result = runner.invoke(main , ['d', '--dburl', self.dburi,
+                                       '--start', '2016-05-08T00:00:00',
+                                       '--end', '2016-05-08T9:00:00'])
+        if result.exception:
+            import traceback
+            traceback.print_exception(*result.exc_info)
+            print result.output
+            assert False
+            return
+        
+        
+        # FIXME: write something here, like we warned that we had some problems to the screen or whatever
 
