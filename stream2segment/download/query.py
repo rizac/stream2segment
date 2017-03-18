@@ -36,102 +36,79 @@ logger = logging.getLogger(__name__)
 
 
 def get_events(session, eventws, **args):
-    evt_query = get_query(eventws, format='text', **args)
+    url = get_query(eventws, format='text', **args)
     try:
-        raw_data = urlread(evt_query, decode='utf8')
-    except URLException as urlexc:
-        logger.error(msgs.format(urlexc.exc, evt_query))
-        raw_data = None
-
-    empty_result = {}  # Create once an empty result consistent with the excpetced return value
-    if raw_data is None:
-        return empty_result
-
-    try:
+        raw_data = urlread(url, decode='utf8')
+        if not raw_data:
+            raise Exception(msgs.query.empty())
+        # parse and normalize query data. If the resulting dataframes are empty, these method raise
         events_df = query2dframe(raw_data)
-    except ValueError as exc:
-        logger.error(msgs.format(exc, evt_query))
-        return empty_result
-
-    # events_df surely not empty
-    try:
         olddf, events_df = events_df, normalize_fdsn_dframe(events_df, "event")
-    except ValueError as exc:
-        logger.error(msgs.format(exc, evt_query))
-        return empty_result
-
-    # events_df surely not empty
-    if len(olddf) > len(events_df):
-        logger.warning(msgs.query.dropped_evt(len(olddf) - len(events_df), evt_query,
-                                              "malformed/invalid data, e.g.: NaN"))
-
-    events = {}  # loop below a bit verbose, but better for debug
-    for inst, _ in get_or_add_iter(session, df2dbiter(events_df, Event),
-                                   on_add='commit'):
-        if inst is not None:
-            events[inst.id] = inst
-
-    if not events:
-        logger.error(msgs.db.dropped_evt(len(events_df), evt_query))
-        return empty_result
-    elif len(events) < len(events_df):
-        logger.warning(msgs.db.dropped_evt(len(events_df) - len(events), evt_query))
-
-    return events
+        if len(olddf) > len(events_df):
+            logger.warning(msgs.query.dropped_evt(len(olddf) - len(events_df), url,
+                                                  "malformed/invalid data, e.g.: NaN"))
+        events = {}  # loop below a bit verbose, but better for debug
+        for inst, _ in get_or_add_iter(session, df2dbiter(events_df, Event), on_add='commit'):
+            if inst is not None:
+                events[inst.id] = inst
+        if not events:
+            raise Exception(msgs.db.dropped_evt(len(events_df)))
+        elif len(events) < len(events_df):
+            logger.warning(msgs.db.dropped_evt(len(events_df) - len(events), url))
+        return events
+    except Exception as exc:
+        if hasattr(exc, 'exc'):  # stream2segment URLException
+            exc = exc.exc
+        msg = msgs.format(exc, url)
+        logger.error(msg)
+        raise ValueError(msg)
 
 
 def get_datacenters(session, **query_args):
     """Queries all datacenters and returns the local db model rows correctly added
     Rows already existing (comparing by datacenter station_query_url) are returned as well,
     but not added again
-    :param query_args: any key value pair for the query. Note that 'service' and 'format' will
+    :param query_args: any key value pair for the url. Note that 'service' and 'format' will
     be overiidden in the code with values of 'station' and 'format', repsecively
     """
-    empty_result = {}  # Create once an empty result consistent with the excpetced return value
+    # do not return only new datacenters, return all of them
+    dcenters = session.query(DataCenter).all()
+
     query_args['service'] = 'station'
     query_args['format'] = 'post'
-    query = get_query('http://geofon.gfz-potsdam.de/eidaws/routing/1/query', **query_args)
-#     query = ('http://geofon.gfz-potsdam.de/eidaws/routing/1/query?service=station&'
-#              'start=%s&end=%s&format=post') % (start_time.isoformat(), end_time.isoformat())
+    url = get_query('http://geofon.gfz-potsdam.de/eidaws/routing/1/url', **query_args)
     try:
-        dc_result = urlread(query, decode='utf8')
+        dc_result = urlread(url, decode='utf8')
         # add to db the datacenters read. Two little hacks:
         # 1) parse dc_result string and assume any new line starting with http:// is a valid station
-        # query url
+        # url url
         # 2) When adding the datacenter, the table column dataselect_query_url (when not provided,
         # as in this case) is assumed to be the same as station_query_url by replacing "/station"
         # with "/dataselect". See https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf
         datacenters = [DataCenter(station_query_url=dcen) for dcen in dc_result.split("\n")
                        if dcen[:7] == "http://"]
+
+        err = 0
+        for dcen, isnew in get_or_add_iter(session, datacenters, [DataCenter.station_query_url],
+                                           on_add='commit'):
+            if isnew:
+                dcenters.append(dcen)
+            elif dcen is None:
+                err += 1
+        if err > 0:
+            logger.warning(msgs.db.dropped_dc(err, url))
+
     except URLException as urlexc:
-        logger.warning(msgs.format(urlexc.exc, query))
-        dc_result = None
-        datacenters = []
+        msg = msgs.format(urlexc.exc, url)
+        if not dcenters:
+            logger.error(msg)
+            raise ValueError(msg)
+        else:
+            logger.warning(msg)
+            logger.info(msgs.format("No datacenter downloaded, working with already "
+                                    "saved datacenters (%d)" % len(dcenters)))
 
-    # if we got some errors, try to get the datacenters already downloaded
-    if not dc_result:
-        logger.info(msgs.format("No datacenter downloaded, trying to work with already "
-                                "saved datacenters"))
-
-    new = 0
-    err = 0
-    for dcen, isnew in get_or_add_iter(session, datacenters, [DataCenter.station_query_url],
-                                       on_add='commit'):
-        if isnew:
-            new += 1
-        elif dcen is None:
-            err += 1
-
-    if err > 0:
-        logger.warning(msgs.db.dropped_dc(err, query))
-
-    dcenters = session.query(DataCenter)
-    # do not return only new datacenters, return all of them
-    ret = {dcen.id: dcen for dcen in dcenters}
-    if not dc_result:
-        logger.error(msgs.format("No datacenters available"))
-
-    return ret
+    return {dcen.id: dcen for dcen in dcenters}
 
 
 def make_ev2sta(session, events, datacenters, sradius_minmag, sradius_maxmag, sradius_minradius,
@@ -617,8 +594,8 @@ def main(session, run_id, start, end, eventws, eventws_query_args, stimespan,
 
     progressbar = get_progressbar(isterminal)
 
-    stepiter = imap(lambda i, m: "%d of %d" % (i+1, m), xrange(5 if download_s_inventory else 4),
-                    repeat(5 if download_s_inventory else 4))
+    stepiter = imap(lambda i, m: "%d of %d" % (i+1, m), xrange(6 if download_s_inventory else 5),
+                    repeat(6 if download_s_inventory else 5))
 
     # write the class labels:
     add_classes(session, class_labels)
@@ -626,17 +603,20 @@ def main(session, run_id, start, end, eventws, eventws_query_args, stimespan,
     startiso = start.isoformat()
     endiso = end.isoformat()
 
-    logger.info("")
-    logger.info("STEP %s: Querying events and datacenters", next(stepiter))
-    # Get events, store them in the db, returns the event instances (db rows) correctly added:
-
-    events = get_events(session, eventws, start=startiso, end=endiso, **eventws_query_args)
-    if not events:
-        return 1
-
-    # Get datacenters, store them in the db, returns the dc instances (db rows) correctly added:
-    datacenters = get_datacenters(session, start=startiso, end=endiso)
-    if not datacenters:
+    # events and datacenters should raise exceptions so that we can print the message in case.
+    # Delegating the log only does not help a user when the program stops so quickly
+    try:
+        # Get events, store them in the db, returns the event instances (db rows) correctly added:
+        logger.info("")
+        logger.info("STEP %s: Querying events", next(stepiter))
+        events = get_events(session, eventws, start=startiso, end=endiso, **eventws_query_args)
+        # Get datacenters, store them in the db, returns the dc instances (db rows) correctly added:
+        logger.info("")
+        logger.info("STEP %s: Querying datacenters", next(stepiter))
+        datacenters = get_datacenters(session, start=startiso, end=endiso)
+    except Exception as exc:
+        if isterminal:
+            print str(exc)
         return 1
 
     logger.info("")
