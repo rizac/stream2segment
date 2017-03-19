@@ -8,21 +8,13 @@ from cStringIO import StringIO
 from stream2segment.io.db import models
 from sqlalchemy.sql.expression import and_
 from sqlalchemy.orm.session import object_session
+from urlparse import urlparse
 
 
 def get_stream(segment):
     """
-        Returns a Stream object or a list of streams (if all_channels=True)
-        relative to the given segment.
+        Returns a Stream object relative to the given segment.
         :param segment: a model ORM instance representing a Segment (waveform data db row)
-        :param session: a SqlAlchemy session
-        :param all_channels: if False, returns the Stream object of segment. If False,
-        sets the Stream object of segment as the first element of the list that will be returned
-        The other elements of the list are the Stream objects relative to the other components
-        (i.e., all segments with same data range, same station and same location, but different
-        channel)
-        :param onerr: if 'raise', the default, then each exception raises. If any other value,
-        then None's are returned for those Stream which resulted in errors
     """
     data = segment.data
     if not data:
@@ -43,6 +35,18 @@ def itercomponents(segment):
     for seg in sess.query(models.Segment).join(models.Channel).filter(and_(*conditions)):
         yield seg
 
+
+def dcname(datacenter):
+    """Returns the datacenter name. Uses urlparse"""
+    return urlparse(datacenter.station_query_url).netloc
+
+
+def strof(segment):
+    return _str(segment.channel.id, segment.start_time, segment.end_time, segment.id)
+
+
+def _str(channel_id, start_time, end_time, seg_id):
+    return "'{}' [{}, {}] (id: {})".format(channel_id, start_time, end_time, seg_id)
 
 # # FIXME: not implemented! remove?!!
 # def has_data(segment, session):

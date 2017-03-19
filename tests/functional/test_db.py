@@ -22,6 +22,7 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.inspection import inspect
 from datetime import datetime, timedelta
 from sqlalchemy.orm.session import object_session
+from stream2segment.process.utils import dcname
 
 class Test(unittest.TestCase):
     
@@ -133,6 +134,21 @@ class Test(unittest.TestCase):
         # SHIT< WE DELETED ALL STATIONS IN THE COMMAND ABOVE, NOT ONLY inventory_xml!!
         # now delete only nonnull, should return zero:
         assert self.session.query(models.Station).count() == 0
+        
+
+    def test_dcanter_name(self):
+        
+        dc = models.DataCenter(station_query_url='abc')
+        assert dcname(dc) == ''
+        
+        dc = models.DataCenter(station_query_url='http://www.orfeus-eu.org/fdsnws/station/1/query')
+        assert dcname(dc) == 'www.orfeus-eu.org'
+        
+        dc = models.DataCenter(station_query_url='http://eida.ethz.ch/fdsnws/station/1/query')
+        assert dcname(dc) == 'eida.ethz.ch'
+        
+        dc = models.DataCenter(station_query_url='http://geofon.gfz-potsdam.de/fdsnws/station/1/query')
+        assert dcname(dc) == 'geofon.gfz-potsdam.de'
         
         
     def testSqlAlchemy(self):

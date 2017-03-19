@@ -25,6 +25,7 @@ from stream2segment.io.db.pd_sql_utils import withdata
 from sqlalchemy.exc import SQLAlchemyError
 from concurrent.futures.process import ProcessPoolExecutor
 from concurrent.futures import as_completed
+from stream2segment.process.utils import _str
 
 logger = logging.getLogger(__name__)
 
@@ -355,4 +356,5 @@ class LightSegment(object):
         return [a[0] for a in self.items()]
 
     def __str__(self):
-        return "segment '{}' [{}, {}] (id: {})".format(*self.values(True))
+        return "segment %s" % _str(*self.values(True))
+#         return "segment '{}' [{}, {}] (id: {})".format(*self.values(True))
