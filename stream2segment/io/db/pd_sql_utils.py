@@ -114,35 +114,6 @@ def _get_dtype(sqltype):
     return object
 
 
-# def nameof(column):
-#     """Given a column returned by `colsiter`, return `column.name`, i.e. 
-#     the name of this column as represented in the database. By default `column.name` is the
-#     attribute name of the model instance (as it is typed in python code). See:
-#     http://docs.sqlalchemy.org/en/latest/core/metadata.html#sqlalchemy.schema.Column.params.name
-#     """
-#     return column.name
-
-
-# def colsiter(table, pkey=None, fkey=None, nullable=None):
-#     """
-#         Returns an iterator over table columns
-#         :param pkey: boolean or None. If None, filter on primary keys is off. If True, only primary
-#         key columns are yielded, if False, only non-primary key columns are yielded
-#         :param fkey: boolean or None. If None, filter on foreign keys is off. If True, only foreign
-#         key columns are yielded, if False, only non-foreign key columns are yielded
-#         :param nullable: boolean or None. If None, filter on nullable columns is off.
-#         If True, only columns where nullable=True are yielded, if False, only columns where
-#         nullable=False are yielded
-#     """
-#     if hasattr(table, "__table__"):  # if instance, use its class
-#         table = table.__table__
-#     fkeys = set((fk.parent for fk in table.foreign_keys)) if fkey in (True, False) else set([])
-#     for c in table.columns:
-#         if (pkey is None or pkey == c.primary_key) and \
-#                 (fkey is None or (c in fkeys) == fkey) and \
-#                 (nullable is None or nullable == c.nullable):
-#             yield c
-
 def colnames(table, pkey=None, fkey=None, nullable=None):
     """
         Returns an iterator returning the attributes names (as string) reflecting database
@@ -190,28 +161,6 @@ def shared_colnames(table, dataframe, pkey=None, fkey=None, nullable=None):
     for colname in colnames(table, pkey=pkey, fkey=fkey, nullable=nullable):
         if colname in dfcols:
             yield colname
-# def get_cols(table, primary_key_only=False):
-#     """table is either the table class or a table instance"""
-#     cols = table.__table__.columns
-#     return [c for c in cols if c.primary_key] if primary_key_only else cols
-#  
-#  
-# def get_col_names(table):
-#     """table is either the table class or a table instance"""
-#     return get_cols(table).keys()
-# 
-# 
-# def get_non_nullable_cols(table, dataframe):
-#     """
-#         Returns the dataframe column names which have a corresponding table attribute
-#         (reflecting the db table column) which has been set to non-nullable
-#     """
-#     non_nullable_cols = []
-#     dframe_cols = dataframe.columns
-#     for col in get_cols(table):
-#         if not col.nullable and col.key in dframe_cols:
-#             non_nullable_cols.append(col.key)
-#     return non_nullable_cols
 
 
 def harmonize_rows(table, dataframe, inplace=True):
@@ -378,8 +327,6 @@ def df2dbiter(dataframe, table_class, harmonize_cols_first=True, harmonize_rows_
         colnames, dataframe = _harmonize_columns(table_class, dataframe, parse_dates)
     else:
         colnames = list(shared_colnames(table_class, dataframe))
-#         table_col_names = get_col_names(table_class)
-#         colnames = [c for c in dataframe.columns if c in table_col_names]  # FIXME: optimize this?
 
     new_df = dataframe[colnames]
 
@@ -393,8 +340,6 @@ def df2dbiter(dataframe, table_class, harmonize_cols_first=True, harmonize_rows_
         non_nullable_cols = list(shared_colnames(table_class, new_df, nullable=False))
         if non_nullable_cols:
             valid_rows = new_df[non_nullable_cols].notnull().all(axis=1).values
-#             df = ~pd_isnull(new_df[non_nullable_cols])
-#             valid_rows = df.apply(lambda row: row.all(), axis=1).values
 
     cols, datalist = _insert_data(new_df)
     # Note below: datalist is an array of N column, each of M rows (it would be nicer to return an
@@ -642,111 +587,3 @@ def _bin_exp_func_from_columns(model, model_cols_or_colnames):
         return and_(*[col == getattr(row, col.key) for col in columns])
 
     return ret_func
-
-
-# def init_db(dbpath):
-#     engine = create_engine(dbpath)
-#     Base.metadata.create_all(engine)
-#     # create a configured "Session" class
-#     Session = sessionmaker(bind=engine)
-#     # create a Session
-#     session = Session()
-
-
-# def get_or_add_iter2(session, model_instances, columns=None, on_add='flush', block=10):
-#     """
-#         Iterates on all model_rows trying to add each
-#         instance to the session if it does not already exist on the database. All instances
-#         in `model_instances` should belong to the same model (python class). For each
-#         instance, its existence is checked based on `columns`: if a database row
-#         is found, whose values are the same as the given instance for **all** the columns defined
-#         in `columns`, then the *first* database row instance is returned.
-# 
-#         Yields tuple: (model_instance, is_new_and_was_added)
-# 
-#         Note that if `on_add`="flush" (the default) or `on_add`="commit", model_instance might be
-#         None (see below)
-# 
-#         :Example:
-#         ```
-#         # assuming the model of each instance is a class named 'MyTable' with a primary key 'id':
-#         instances = [MyTable(...), ..., MyTable(...)]
-#         # add all instances if they are not found on db according to 'id'
-#         # (thus no need to specify the argument `columns`)
-#         for instance, is_new in get_or_add_iter(session, instances, on_add='commit'):
-#             if instance is None:
-#                 # instance was not found on db but adding it raised an exception OR
-#                 # instances was already None
-#             elif is_new:
-#                 # instance was not found on the db and was succesfully added
-#             else:
-#                # instance was found on the db and the first matching instance is returned
-# 
-#         # Note that the calls below produce the same results:
-#         get_or_add_iter(session, instances):
-#         get_or_add_iter(session, instances, 'id'):
-#         get_or_add_iter(session, instances, MyTable.id):
-#         ```
-#         :param model_instances: an iterable (list tuple generator ...) of ORM model instances. None
-#         values are valid and will yield the tuple (None, False)
-#         All instances *MUST* belong to the same class, i.e., represent rows of the same db table.
-#         An ORM model is the python class reflecting a database table. An ORM model instance is
-#         simply a python instance of that class, and thus reflects a rows of the database table
-#         :param columns: iterable of strings or class attributes (objects of type
-#         InstrumentedAttribute), a single Instrumented Attribute, string, or None: the
-#         column(s) to check if a model instance has a corresponding row in the database table
-#         (in that case the instance reflecting that row is returned and nothing is added). A database
-#         column matches the current model instance if **all** values of `columns`
-#         are the same. If not iterable, the argument is converted to `[columns]`.
-#         If None, the model primary keys are taken as columns.
-#         **In most cases, also `Column` objects can be passed, but this method will fail for
-#         Columns which override their `key` attribute, as Column's keys will not reflect
-#         the class attribute names anymore**. For info see:
-#         http://docs.sqlalchemy.org/en/latest/glossary.html#term-descriptor
-#         http://docs.sqlalchemy.org/en/latest/core/metadata.html#sqlalchemy.schema.Column.params.key
-#         :param on_add: 'commit', 'flush' or None. Default: 'flush'. Tells whether a `session.flush`
-#         or a `session commit` has to be issued after each `session.add`. In case of failure, a
-#         `session.rollback` will be issued and the tuple (None, False) is yielded
-#     """
-#     binexpfunc = None  # cache dict for expressions
-#     model_class = None
-#     buf = []
-#     for row in model_instances:
-#         if row is None:
-#             yield None, False
-#         else:
-#             if not binexpfunc:
-#                 binexpfunc = _bin_exp_func_from_columns(row.__class__, columns)
-#                 model_class = row.__class__
-# 
-#             row_ = session.query(model_class).filter(binexpfunc(row)).first()
-#             if row_:
-#                 yield row_, False
-#             else:
-#                 buf.append(row)
-# 
-#             if len(buf) == block:
-#                 isnew = _add_all(session, buf, on_add)
-#                 for inst in buf:
-#                     yield inst if isnew else None, isnew
-#                 buf = []
-# 
-#     if len(buf):
-#         isnew = _add_all(session, buf, on_add)
-#         for inst in buf:
-#             yield inst if isnew else None, isnew
-# 
-# 
-# def _add_all(session, instances, on_add='flush'):
-#     session.add_all(instances)
-#     if (on_add == 'flush' and not flush(session)) or \
-#             (on_add == 'commit' and not commit(session)):
-#         return False
-#     else:
-#         return True
-# 
-# 
-# def get_or_add(session, model_instances, columns=None, on_add='flush', block=10,
-#                ret_func=None):
-#     itr = get_or_add_iter2(session, model_instances, columns, on_add, block)
-#     return [ret_func(inst, isnew) if hasattr(ret_func, "__call__") else inst for inst, isnew in itr]

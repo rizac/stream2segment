@@ -76,7 +76,7 @@ from collections import OrderedDict as odict
 # strem2segment functions for processing mseeds. This is just a list of possible functions
 # to show how to import them:
 from stream2segment.analysis.mseeds import remove_response, get_gaps, amp_ratio, bandpass, cumsum,\
-    cumtimes, fft, maxabs, simulate_wa, get_multievent, snr, dfreq
+    cumtimes, fft, maxabs, simulate_wa, get_multievent, snr
 # when working with times, use obspy UTCDateTime:
 from obspy.core.utcdatetime import UTCDateTime
 # stream2segment function for processing numpy arrays (such as stream.traces[0])
@@ -259,7 +259,7 @@ def main(seg, config):
     fft_rem_resp = fft(trace_rem_resp, a_time, config['snr_window_length'],
                        taper_max_percentage=config['taper_max_percentage'])
     ampspec = amp_spec(fft_rem_resp.data, True)
-    ampspec_freqs = freqs(ampspec, dfreq(fft_rem_resp))
+    ampspec_freqs = freqs(ampspec, fft_rem_resp.stats.df)
     required_freqs = config['freqs_interp']
     required_amplitudes = np.interp(required_freqs, ampspec_freqs, ampspec)
 

@@ -10,9 +10,10 @@ from sqlalchemy.orm.session import object_session
 # from sqlalchemy.orm.session import Session
 from obspy import Stream, Trace, UTCDateTime
 from stream2segment.process.utils import get_stream, itercomponents
-from stream2segment.analysis.mseeds import bandpass, utcdatetime, cumsum, cumtimes, fft, dfreq
+from stream2segment.analysis.mseeds import bandpass, utcdatetime, cumsum, cumtimes, fft
 from stream2segment.analysis import amp_spec
 from stream2segment.process.wrapper import get_inventory
+from math import floor, log10
 
 
 _functions = []
@@ -115,13 +116,13 @@ def spectra(view):
         fft_noise = fft(trace, *noisy_wdw)
         fft_signal = fft(trace, *signal_wdw)
 
-        df = dfreq(trace)
+        df = fft_signal.stats.df
         f0 = 0
         amp_spec_noise, amp_spec_signal = amp_spec(fft_noise, True), amp_spec(fft_signal, True)
     except Exception as exc:
         warning = str(exc)
         f0 = 0
-        df = dfreq(trace)
+        df = 1
         amp_spec_noise = [0, 0]
         amp_spec_signal = [0, 0]
 
@@ -360,41 +361,6 @@ class Plot(object):
         self.data.append([x0, dx, np.asarray(y), label])
         return self
 
-#     def addvline(self, x_val):
-#         """Adds an object to the plot. The object format should match the expected
-#         format of the frontend library used. `obj` should not contain a lot of data for
-#         performance reasons"""
-#         self.shapes.append({'type': 'line',
-#                           'xref': 'paper',
-#                           'yref': 'paper',
-#                           'x0': x_val,
-#                           'x1': x_val,
-#                           'y0': 0,
-#                           'y1': 1,
-#                           'line': {
-#                             'color': 'rgb(50, 171, 96)',
-#                             'width': 3
-#                           }
-#                           })
-# 
-#     def addvrect(self, x0, x1):
-#         """Adds an object to the plot. The object format should match the expected
-#         format of the frontend library used. `obj` should not contain a lot of data for
-#         performance reasons"""
-#         self.shapes.append({'type': 'rect',
-#                           'xref': 'paper',
-#                           'yref': 'paper',
-#                           'x0': x0,
-#                           'x1': x1,
-#                           'y0': 0,
-#                           'y1': 1,
-#                           'layer': 'below',
-#                           'line': {
-#                             'color': 'rgb(50, 171, 96)',
-#                             'width': 3
-#                           }
-#                         })
-
     def addtrace(self, trace, label=None):
         return self.add(jsontimestamp(trace.stats.starttime),
                         1000 * trace.stats.delta, trace.data,
@@ -406,6 +372,14 @@ class Plot(object):
 
     @staticmethod
     def get_slice(x0, dx, y, xbounds, npts):
+#         print "before"
+#         print "x0: %d" % x0
+#         print "dx %f" % dx
+#         print "x1 %f" % (x0 + dx * (len(y)-1))
+#         print "min(y): %f " % np.min(y)
+#         print "max(y): %f" % np.max(y)
+
+
         start, end = Plot.unpack_bounds(xbounds)
         idx0 = None if start is None else max(0,
                                               int(np.ceil(np.true_divide(start-x0, dx))))
@@ -419,8 +393,17 @@ class Plot(object):
 
         size = len(y)
         if size > npts and npts > 0:
-            y = downsample(y, npts)
-            dx = (dx * (size - 1)) / (len(y) - 1)
+            # set dx to be an int, too many
+            y, newdxratio = downsample(y, npts)
+            if newdxratio > 1:
+                dx *= newdxratio  # (dx * (size - 1)) / (len(y) - 1)
+
+#         print "after"
+#         print "x0: %d" % x0
+#         print "dx %f" % dx
+#         print "x1 %f" % (x0 + dx * (len(y)-1))
+#         print "min(y): %f " % np.min(y)
+#         print "max(y): %f" % np.max(y)
 
         return x0, dx, y
 
@@ -469,13 +452,20 @@ def jsontimestamp(utctime, adjust_tzone=True):
 
 
 def downsample(array, npts):
-    if array.size <= npts:
-        return array
-
+    """Downsamples array for visualize it. Returns the tuple new_array, dx_ratio
+    where new_array has at most 2*(npts+1) points and dx_ratio is a number defining the new dx
+    in old dx units. This can be used to multiply the dx of array after calling this method
+    Note that dx_ratio >=1, and if 1, array is returned as it is
+    """
     # get minima and maxima
     # http://numpy-discussion.10968.n7.nabble.com/reduce-array-by-computing-min-max-every-n-samples-td6919.html
     offset = array.size % npts
     chunk_size = array.size / npts
+
+    newdxratio = np.true_divide(chunk_size, 2)
+    if newdxratio <= 1:
+        return array, 1
+
     arr_slice = array[:array.size-offset] if offset > 0 else array
     arr_reshape = arr_slice.reshape((npts, chunk_size))
     array_min = arr_reshape.min(axis=1)
@@ -495,4 +485,4 @@ def downsample(array, npts):
         downsamples[-2] = arr_slice.min()
         downsamples[-1] = arr_slice.max()
 
-    return downsamples
+    return downsamples, newdxratio

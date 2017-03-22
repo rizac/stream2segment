@@ -13,7 +13,7 @@ except ImportError:
 from obspy.core import Stream, Trace, UTCDateTime  # , Stats
 from obspy import read_inventory
 from stream2segment.analysis import fft as _fft, maxabs as _maxabs,\
-    snr as _snr, cumsum as _cumsum, env as _env, dfreq as _dfreq  # , pow_spec, amp_spec
+    snr as _snr, cumsum as _cumsum, env as _env, dfreq
 
 
 def stream_compliant(func):
@@ -244,8 +244,8 @@ def fft(trace, fixed_time=None, window_in_sec=None, taper_max_percentage=0.05, t
     Returns a trace T resulting from applying the fft on `trace`. The resulting trace
     has **complex** values and thus can only be saved with `trace.write(..., format='PICKLE')`
     The `T.stats` attribute is copied from `trace`, thus referencing the source
-    trace. This way, you can call e.g., `D=dfreq(T)` to return the delta frequency of T for building
-    the frequency (x axis) values [0, D, 2*D, ...]
+    trace. It has an aditional attribute 'df' which returns the delta frequency of the
+    computed trace (f0=0 by default)
     :param trace: the input obspy.core.Trace
     :param fixed_time: the fixed time where to set the start (if `window_in_sec` > 0) or end
     (if `window_in_sec` < 0) of the trace slice on which to apply the fft. If None, it defaults
@@ -283,11 +283,16 @@ def fft(trace, fixed_time=None, window_in_sec=None, taper_max_percentage=0.05, t
     # completely delegate obpsy.
     t = Trace(data=dft, header=trim_tra.stats)  # stats are preserved. The only stats changed is
     # when we set the data attribute on a trace (not via the constructor, like we just did)
-    t.stats._format = 'PICKLE'  # pylint:disable=protected-access
+
     # this gives an hint on the format to be saved to
     # note that tt.stats.processing is a list of ALL processing applied on a given Trace,
     # so we have also the history of the stuff done (only for Trace class methods, but should be
     # enough)
+    t.stats._format = 'PICKLE'  # pylint:disable=protected-access
+
+    # compute df NOW. Using dfreq LATER is unfeasible cause we LOST the trim_tra num points
+    # thus df would be messed up
+    t.stats.df = dfreq(trim_tra.data, trim_tra.stats.delta)
 
     # t.stats.mseed.encoding = ?  # FXIME: see obspy encodings (float64? float32?)
     # if given, suppress warnings when saving (raised if data has unsupported
@@ -297,12 +302,6 @@ def fft(trace, fixed_time=None, window_in_sec=None, taper_max_percentage=0.05, t
     # each :class:`~obspy.core.trace.Trace` as well as ``kwargs`` of this
     # function. If both are given the ``kwargs`` will be used.
     return t
-
-
-@stream_compliant
-def dfreq(trace):
-    """Returns the delta frequencies"""
-    return _dfreq(trace.data, trace.stats.delta)
 
 
 @stream_compliant

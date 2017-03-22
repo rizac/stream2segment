@@ -4,7 +4,8 @@ from scipy.signal import hilbert
 
 
 def fft(signal):
-    """Returns the fft of a REAL signal
+    """Returns the fft of a REAL signal. For computing the frequency delta, see `dfreq` (providing
+    the signal delta_t, in seconds)
     :param signal: a signal (numeric array)
     :param dt: the delta t (distance from two points of the equally sampled signal)
     :param return_abs: if true, np.abs is applied to the returned fft, thus converting it to
@@ -14,7 +15,8 @@ def fft(signal):
 
 
 def pow_spec(signal, signal_is_fft=False):
-    """Returns the power spectrum of a REAL signal
+    """Returns the power spectrum of a REAL signal. If `signal_is_fft=False`,
+    for computing the frequency delta, see `dfreq` (providing the signal delta_t, in seconds)
     :param signal: a signal (numeric array)
     :param signal_is_fft: if true, the signal is already an fft of some signal. Otherwise
     (the default), fft(signal) will be applied first
@@ -23,7 +25,8 @@ def pow_spec(signal, signal_is_fft=False):
 
 
 def amp_spec(signal, signal_is_fft=False):
-    """Returns the amplitude spectrum of a REAL signal
+    """Returns the amplitude spectrum of a REAL signal. If `signal_is_fft=False`,
+    for computing the frequency delta, see `dfreq` (providing the signal delta_t, in seconds)
     :param signal: a signal (numeric array)
     :param signal_is_fft: if true, the signal is already an fft of some signal. Otherwise
     (the default), fft(signal) will be applied first

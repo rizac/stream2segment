@@ -8,7 +8,7 @@ import numpy as np
 # strem2segment functions for processing mseeds
 # If you need to use them, import them like this:
 from stream2segment.analysis.mseeds import remove_response, get_gaps, amp_ratio, bandpass, cumsum,\
-    cumtimes, fft, maxabs, simulate_wa, get_multievent, snr, dfreq
+    cumtimes, fft, maxabs, simulate_wa, get_multievent, snr
 # when working with times, use obspy UTCDateTime:
 from obspy.core.utcdatetime import UTCDateTime
 # stream2segment function for processing numpy arrays (such as stream.traces[0])
@@ -63,7 +63,7 @@ def main(seg, config):
                        taper_max_percentage=config['taper_max_percentage'])
     aspec = amp_spec(fft_rem_resp.data, True)
 
-    ret = np.interp(config['freqs_interp'], freqs(aspec, dfreq(fft_rem_resp)), aspec)
+    ret = np.interp(config['freqs_interp'], freqs(aspec, fft_rem_resp.stats.df), aspec)
 
     return {'f%d' % i: r for i, r in enumerate(ret)}
 

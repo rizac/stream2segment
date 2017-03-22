@@ -25,7 +25,7 @@ from contextlib import contextmanager
 import csv
 import shutil
 from stream2segment.utils.log import configlog4download, configlog4processing,\
-    elapsedtime2logger_when_finished
+    elapsedtime2logger_when_finished, configlog4stdout
 from stream2segment.download.utils import run_instance
 from stream2segment.utils.resources import get_proc_template_files, get_default_cfg_filepath
 from stream2segment.io.db import models
@@ -82,6 +82,17 @@ def visualize(dburl):
     from stream2segment.gui import main as main_gui
     main_gui.run_in_browser(dburl)
     return 0
+
+
+def data_aval(dburl, outfile):
+    from stream2segment.gui.da_report.main import create_da_html
+    # errors are printed to terminal:
+    configlog4stdout(logger)
+    with closing(dburl) as session:
+        create_da_html(session, outfile, True)
+    if os.path.isfile(outfile):
+        import webbrowser
+        webbrowser.open_new_tab('file://' + os.path.realpath(outfile))
 
 
 # IMPORTANT !!!
@@ -331,6 +342,16 @@ def v(dburl):
     Options are listed below. When missing, they default to the values provided in the
     config file `config.yaml`"""
     visualize(dburl)
+
+
+@main.command(short_help='Create a data availability html file showing downloaded data '
+                         'quality on a map')
+@click.option('-d', '--dburl', callback=setup_help, is_eager=True, default=get_default_dbpath())
+@click.argument('outfile')
+def a(dburl, outfile):
+    """Creates a data availability html file, where the user can interactively inspect the
+    quality of the waveform data downloaded"""
+    data_aval(dburl, outfile)
 
 
 @main.command(short_help='Creates processing template file(s)')

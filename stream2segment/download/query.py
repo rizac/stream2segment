@@ -76,7 +76,7 @@ def get_datacenters(session, **query_args):
 
     query_args['service'] = 'station'
     query_args['format'] = 'post'
-    url = get_query('http://geofon.gfz-potsdam.de/eidaws/routing/1/url', **query_args)
+    url = get_query('http://geofon.gfz-potsdam.de/eidaws/routing/1/query', **query_args)
     try:
         dc_result = urlread(url, decode='utf8')
         # add to db the datacenters read. Two little hacks:

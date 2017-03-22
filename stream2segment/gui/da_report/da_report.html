@@ -71,14 +71,13 @@
 		<div class="header">Legend</div>
 		<div class="legend_explain">
 		Each circle denotes a station 
-		whose color represents the waveform data availability (white: no data, full color: 100% data)
-		<p>
-		For each station, data availability is computed as the number of well-formed waveform segments divided by the
-		total number of segments downloaded.
-		<p>Well formed segments are those without warnings/ errors defined below: you can
+		whose color represents the data availability (white: no data, full red color: 100% data), 
+		i.e. the number of well-formed waveform segments divided by the
+		total number of segments downloaded from that station.
+		<p>Well formed segments are those without any warning or error defined below (you can
 		check/uncheck them to define which segments should be considered well-formed:
-		the map will update colors and infos dynamically.
-		<p>Each circle is clickable and will display detailed download information.
+		the map will update colors and info's dynamically).
+		<p>On the map, each circle is clickable and will display detailed station information.
 		The control on the top right corner allows the user to visualize datacenter-specific statistics.
 		</div>
 	</div>
@@ -138,16 +137,18 @@
 		var cols = d.columns;
 		var w_ = WARNINGS;
 		var e_ = ERRORS;
+		var dc_ = DATACENTERS;
 		var dcens = {}; //stores layers to checkbox stations of a single datacenter
 		//var we = {}; //stores layers to checkbox stations with given error/warning
 		var _MARKERS = window._MARKERS || [];
 		var isFirstDraw = window._MARKERS ? false : true;
+		var toInt = parseInt;  // allocate once (speeds up?)
 		d.index.forEach(function(station, index){
 			var vals = d.data[index];
 			var lat = vals[0];
 			var lon = vals[1];
 			var total = vals[2];
-			var dcen = vals[3];
+			var dcen = dc_[vals[3]];
 			var malformed = 0;
 			// calculate ok's based on the selected levels:
 			for (var i=4; i < DATA.columns.length; i++){
@@ -163,14 +164,14 @@
 			var dc = dcens[dcen];
 			dc.total += total;
 			dc.ok += ok;
-			var gb = parseInt(0.5 + 255 * (1 - (total == 0 ? 0 : parseFloat(ok)/total)));
+			var gb = toInt(0.5 + 255 * (1 - (total == 0 ? 0 : ok/total)));
 			//console.log(gb);
 			
 			var fillColor = "rgb(255, " + gb + "," + gb +")";
 			var warns = w_[station];
 			var errs = e_[station];
 			// var hasWE = (warns != undefined || errs != undefined) ? true : false;
-			var color = '#adadad';
+			var color = '#999999';
 			var circle = L.circleMarker([lat, lon], {
 			    color: color,
 			    opacity: 1,
@@ -214,7 +215,7 @@
 		for (var dcen in dcens){
 			var val = dcens[dcen];
 			var lg = L.layerGroup(val.markers);
-			var title = dcen + "  - total: " + val.total +", ok: " + val.ok +" (" + Math.round(100*parseFloat(val.ok)/val.total)+ "%)"; 
+			var title = dcen + "  - total: " + val.total +", ok: " + val.ok +" (" + Math.round((100*val.ok)/val.total)+ "%)"; 
 			layerControl.addOverlay(lg, title);
 			lg.addTo(map);
 		}
@@ -224,6 +225,7 @@
 	var DATA = {{stations}};
 	var WARNINGS = {{warnings}};
 	var ERRORS = {{errors}};
+	var DATACENTERS = {{datacenters}};
 
 	drawMap();
 </script>

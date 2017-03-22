@@ -115,6 +115,12 @@ def configlog4download(logger, db_session, run_instance, isterminal):
         logger.addHandler(SysOutStreamHandler(sys.stdout))
 
 
+def configlog4stdout(logger):
+    logger.setLevel(logging.INFO)  # necessary to forward to handlers
+    # configure print to stdout (by default only info and critical messages)
+    logger.addHandler(SysOutStreamHandler(sys.stdout))
+
+
 @contextmanager
 def elapsedtime2logger_when_finished(logger, method='info'):
     """contextmanager to be used in a with statement, will print to the logger how much time it
