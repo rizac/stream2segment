@@ -60,7 +60,7 @@ class Test(unittest.TestCase):
         self.save_inventory=False
 
         # mock get inventory:
-        self.patcher = patch('stream2segment.process.wrapper.urlread')
+        self.patcher = patch('stream2segment.download.utils.urlread')
         self.mock_url_read = self.patcher.start()
 
         self.mock_url_read.side_effect = self.url_read

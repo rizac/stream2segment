@@ -250,7 +250,9 @@ class Test(unittest.TestCase):
         e = models.Event(id='abc', time=datetime.utcnow(),
                          latitude=val, longitude=78, magnitude=56, depth_km=45)
         assert e.latitude != float(val)
+        assert object_session(e) == None
         self.session.add(e)
+        assert object_session(e) is self.session
         self.session.commit()
         assert e.latitude == float(val)
 

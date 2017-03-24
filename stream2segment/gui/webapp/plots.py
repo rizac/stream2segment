@@ -14,6 +14,7 @@ from stream2segment.analysis.mseeds import bandpass, utcdatetime, cumsum, cumtim
 from stream2segment.analysis import amp_spec
 from stream2segment.process.wrapper import get_inventory
 from math import floor, log10
+from itertools import cycle, izip
 
 
 _functions = []
@@ -81,7 +82,7 @@ def plot_title(src, title):
     return "%s - %s" % (src.title if hasattr(src, 'title') else src.get_id(), title)
 
 
-def exec_function(index, view):  # args and kwargs not used for custom functions
+def exec_function(index, view):
     func, name, uses_view, execute_anyway = _functions[index]
     arg = view if uses_view else view._trace.copy()
     main_plot = view._main_plot
@@ -89,18 +90,50 @@ def exec_function(index, view):  # args and kwargs not used for custom functions
     try:
         if main_plot.warning and not execute_anyway:
             raise Exception("Not shown: %s" % main_plot.warning)
-        plt = func(arg)
-        istrace = isinstance(plt, Trace)
-        isplot = isinstance(plt, Plot)
-        if not istrace and not isplot:
-            trace = view._trace
-            array = np.asarray(plt)
-            if array.size != trace.data.size:
-                raise ValueError("Expected array with %d elements, found %d" %
-                                 (trace.data.size, array.size))
-            plt = Trace(data=array, header=trace.stats.copy())
-        if isinstance(plt, Trace):  # fft below does not return trace(s) but plots
-            plt = Plot.fromtrace(plt, title)
+        funcres = func(arg)
+        if isinstance(funcres, Plot):  # this should be called internally
+            plt = funcres
+        else:
+            labels = cycle([None])
+            if isinstance(funcres, Trace):
+                itr = [funcres]
+            elif isinstance(funcres, dict):
+                labels = funcres.iterkeys()
+                itr = funcres.itervalues()
+            else:
+                itr = funcres
+
+            plt = Plot(title)
+            for label, obj in izip(labels, itr):
+                if isinstance(obj, Trace):
+                    plt.addtrace(obj, label)
+                else:
+                    trace = view._trace
+                    array = np.asarray(obj)
+                    if array.size != trace.data.size:
+                        raise ValueError("Expected array with %d elements, found %d" %
+                                         (trace.data.size, array.size))
+                    plt.addtrace(Trace(data=array, header=trace.stats.copy()), label)
+
+#         isstream = isinstance(plt, Stream)
+#         istrace = isinstance(plt, Trace)
+#         isplot = isinstance(plt, Plot)
+#         isdict = isinstance(plt, dict)
+#         if not istrace and not isplot and not isstream and not isdict:
+#             trace = view._trace
+#             array = np.asarray(plt)
+#             if array.size != trace.data.size:
+#                 raise ValueError("Expected array with %d elements, found %d" %
+#                                  (trace.data.size, array.size))
+#             plt = Plot.fromtrace(Trace(data=array, header=trace.stats.copy()), title)
+#         if istrace:  # fft below does not return trace(s) but plots
+#             plt = Plot.fromtrace(plt, title)
+#         elif isstream:
+#             plt_ = Plot(title)
+#             for t in plt:
+#                 plt_.addtrace(t)
+#             plt = plt_
+            
     except Exception as exc:
         plt = Plot(title, warning=str(exc)).add(0, 1, [])
 
@@ -320,7 +353,7 @@ class View(list):
                 inv = cls.inventories.get(segment.station.id, None)
                 if inv is None:
                     try:
-                        inv = get_inventory(segment.station, object_session(segment))
+                        inv = get_inventory(segment.station, True)
                         cls.inventories[segment.station.id] = inv
                     except Exception:
                         warning = ("Error getting inventory")

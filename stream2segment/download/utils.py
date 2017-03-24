@@ -19,6 +19,9 @@ from stream2segment.io.db.pd_sql_utils import harmonize_columns,\
 from obspy.taup.taup_time import TauPTime
 from itertools import izip, count
 from stream2segment.utils.resources import version
+from stream2segment.utils.url import urlread
+from stream2segment.io.utils import dumps_inv, loads_inv
+from sqlalchemy.orm.session import object_session
 # from stream2segment.io.utils import dumps_inv
 
 
@@ -352,9 +355,48 @@ def get_query(*urlpath, **query_args):
                           "&".join("{}={}".format(k, v) for k, v in query_args.iteritems()))
 
 
-def get_inventory_query(station):
-    return get_query(station.datacenter.station_query_url, station=station.station, network=station.network,
+def get_inventory(station, save_if_downloaded=False, **urlread_kwargs):
+    """Gets the inventory object for the given station, downloading it and saving it
+    if not data is empty/None.
+    Raises SqlAlchemyError or TypeError if station's session is None, ValueError if inventory data
+    is empty
+    """
+    data = station.inventory_xml
+    if not data:
+        data = download_inventory(station, **urlread_kwargs)
+        if save_if_downloaded and data:
+            save_inventory(data, station)
+
+    if not data:
+        raise ValueError()
+
+    return loads_inv(data)
+
+
+def download_inventory(station, **urlread_kwargs):
+    query_url = get_inventory_url(station)
+    return urlread(query_url, **urlread_kwargs)
+
+
+def get_inventory_url(station):
+    return get_inventory_url_(station.datacenter.station_query_url, station.network,
+                              station.station)
+
+
+def get_inventory_url_(station_query_url, network, station):
+    return get_query(station_query_url, station=station, network=network,
                      level='response')
+
+
+def save_inventory(downloaded_data, station):
+    """Saves the inventory. Raises SqlAlchemyError or TypeError if station's session is None
+    """
+    session = object_session(station)
+    if session is None:
+        raise TypeError()
+    station.inventory_xml = dumps_inv(downloaded_data)
+    session.commit()
+    return
 
 
 class UrlStats(dict):

@@ -28,7 +28,7 @@ from stream2segment.io.db.models import Class, Event, DataCenter, Segment, Chann
 from stream2segment.io.db.pd_sql_utils import df2dbiter, get_or_add_iter, commit, colnames,\
     get_or_add, withdata
 from stream2segment.download.utils import empty, get_query, query2dframe, normalize_fdsn_dframe,\
-    get_search_radius, get_arrival_time, UrlStats, stats2str, get_inventory_query
+    get_search_radius, get_arrival_time, UrlStats, stats2str, get_inventory_url, save_inventory
 from stream2segment.io.utils import dumps_inv
 
 
@@ -282,13 +282,12 @@ def save_inventories(session, stations, max_thread_workers, timeout,
                 logger.warning(msgs.query.empty(url))
                 return
             try:
-                sta.inventory_xml = dumps_inv(result)
-                session.commit()
-            except SQLAlchemyError as sqlexc:
+                save_inventory(result, sta)
+            except (TypeError, SQLAlchemyError) as sqlexc:
                 session.rollback()
                 logger.warning(msgs.db.dropped_inv(sta.id, url, sqlexc))
 
-    iterable = izip(stations, (get_inventory_query(sta) for sta in stations))
+    iterable = izip(stations, (get_inventory_url(sta) for sta in stations))
     read_async(iterable, ondone, urlkey=lambda obj: obj[1],
                max_workers=max_thread_workers,
                blocksize=download_blocksize, timeout=timeout)

@@ -12,7 +12,7 @@ from obspy.core.stream import read
 from stream2segment.utils import get_session, yaml_load, get_progressbar, msgs, load_source,\
     secure_dburl
 from stream2segment.io.db import models
-from stream2segment.download.utils import get_inventory_query
+from stream2segment.download.utils import get_inventory
 from stream2segment.utils.url import urlread
 from stream2segment.io.utils import loads_inv, dumps_inv
 from contextlib import contextmanager
@@ -83,30 +83,30 @@ def getid(segment):
             str(segment.id)
 
 
-def get_inventory(seg_or_sta, session=None, **kwargs):
-    """raises tons of exceptions (see main). FIXME: write doc
-    :param session: if **not** None but a valid sqlalchemy session object, then
-    the inventory, if downloaded because not present, will be saveed to the db (compressed)
-    """
-    try:
-        data = seg_or_sta.inventory_xml
-        station = seg_or_sta
-    except AttributeError:
-        station = seg_or_sta.station
-        data = station.inventory_xml
-
-    if not data:
-        query_url = get_inventory_query(station)
-        data = urlread(query_url, **kwargs)
-        if session and data:
-            station.inventory_xml = dumps_inv(data)
-            try:
-                session.commit()
-            except SQLAlchemyError as exc:
-                raise ValueError(msgs.db.dropped_inv(station.id, query_url, exc))
-        elif not data:
-            raise ValueError(msgs.query.empty(query_url))
-    return loads_inv(data)
+# def get_inventory(seg_or_sta, session=None, **kwargs):
+#     """raises tons of exceptions (see main). FIXME: write doc
+#     :param session: if **not** None but a valid sqlalchemy session object, then
+#     the inventory, if downloaded because not present, will be saveed to the db (compressed)
+#     """
+#     try:
+#         data = seg_or_sta.inventory_xml
+#         station = seg_or_sta
+#     except AttributeError:
+#         station = seg_or_sta.station
+#         data = station.inventory_xml
+# 
+#     if not data:
+#         query_url = get_inventory_query(station)
+#         data = urlread(query_url, **kwargs)
+#         if session and data:
+#             station.inventory_xml = dumps_inv(data)
+#             try:
+#                 session.commit()
+#             except SQLAlchemyError as exc:
+#                 raise ValueError(msgs.db.dropped_inv(station.id, query_url, exc))
+#         elif not data:
+#             raise ValueError(msgs.query.empty(query_url))
+#     return loads_inv(data)
 
 
 def load_proc_cfg(configsourcefile):
@@ -270,7 +270,7 @@ How this works with ProcessPoolExecutor and not with custom multiprocess.Pool is
 be investigated. However, do not access directly"""
 
 
-def _inventory(seg, lock, session=None):
+def _inventory(seg, lock, save_if_downloaded):
     """return the obsoy inventory object from a given segment. Do not call directly, this
     method is called from within suboprocesses with a manager.lock"""
     sta = seg.channel.station
@@ -278,7 +278,7 @@ def _inventory(seg, lock, session=None):
         inv = _inventories.get(sta.id, None)
         if inv is None:
             try:
-                inv = get_inventory(sta, session)
+                inv = get_inventory(sta, save_if_downloaded)
             except Exception as exc:
                 inv = exc
             # logger.warning("loaded " + str(inv))
@@ -320,9 +320,9 @@ def func_wrapper(light_segment, func, lock, config, dburl, save_inventories_if_n
             raise ValueError("segment (id=%s) not found" % seg_id)
 
         segment.stream = types.MethodType(lambda self: read(StringIO(self.data)), segment)
-        sess_or_none = session if save_inventories_if_needed else None
         segment.inventory = \
-            types.MethodType(lambda self: _inventory(self, lock, session=sess_or_none), segment)
+            types.MethodType(lambda self: _inventory(self, lock, save_inventories_if_needed),
+                             segment)
         segment.has_data = types.MethodType(lambda self: _has_data, segment)
 
         return light_segment, func(segment, config), False
