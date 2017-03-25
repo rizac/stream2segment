@@ -142,7 +142,7 @@ class Test(unittest.TestCase):
         # why? (in any case because we have TWO stations with station column = 's1', and three
         # segments all in all):
         res = sess.query(models.Segment.id).filter(models.Station.station=='s1').all()
-        assert len(res) == 6  # BECAUSE WE HAVE TWO STATIONS with station == 's1'
+        assert len(res) == 6  # BECAUSE WE HAVE TWO STATIONS with station column == 's1'
         
         # this on the other hand works, and recognizes the join for us:
         res1 = sess.query(models.Segment.id).join(models.Segment.station).filter(models.Station.station=='s1').all()

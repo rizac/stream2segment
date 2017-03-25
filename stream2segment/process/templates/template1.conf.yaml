@@ -1,7 +1,14 @@
+# set to True or False if station inventories should be passed in the processing function
+# If you don't need inventories (usually useful for removing the instrumental response from the Stream object)
+# set to False, as this will speed up the processing loop
+# If missing (e.g., by deleting the line below), it defaults to False
+inventory: True
+
 # set to True or False if station inventories should be saved when they need to be downloaded
-# If missing, it defaults to False. This parameter has effect only if station_inventory above is True
-# When True, further processing will be most likely faster as the inventory has not to be downloaded again
-inventory: False
+# If missing (e.g., by deleting the line below), it defaults to False. This parameter has effect only if inventory above is True
+# Saving inventories might speed up further processing but increases db size
+save_downloaded_inventory: False
+
 
 # custom parameters:
 arrival_time_delay: 0

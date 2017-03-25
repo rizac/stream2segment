@@ -114,27 +114,31 @@ def download(dburl, start, end, eventws, eventws_query_args, stimespan,
     # remove db url password when printing:
 
     with closing(dburl) as session:
-        # print local vars: use safe_dump to avoid python types. See:
-        # http://stackoverflow.com/questions/1950306/pyyaml-dumping-without-tags
-        run_inst = run_instance(session, config=tounicode(yaml.safe_dump(yaml_dict,
-                                                                         default_flow_style=False)))
-
-        echo = printfunc(isterminal)  # no-op if argument is False
-        echo("Arguments:")
-        # replace dbrul passowrd for printing to terminal
-        yaml_dict['dburl'] = secure_dburl(yaml_dict['dburl'])
-        echo(indent(yaml.safe_dump(yaml_dict, default_flow_style=False), 2))
-
-        configlog4download(logger, session, run_inst, isterminal)
-        with elapsedtime2logger_when_finished(logger):
-            query_main(session, run_inst.id, start, end, eventws, eventws_query_args,
-                       stimespan, search_radius['minmag'],
-                       search_radius['maxmag'], search_radius['minradius'],
-                       search_radius['maxradius'], channels,
-                       min_sample_rate, inventory, traveltime_phases, wtimespan,
-                       retry, advanced_settings, class_labels, isterminal)
-            logger.info("%d total error(s), %d total warning(s)", run_inst.errors,
-                        run_inst.warnings)
+        try:
+            # print local vars: use safe_dump to avoid python types. See:
+            # http://stackoverflow.com/questions/1950306/pyyaml-dumping-without-tags
+            run_inst = run_instance(session, config=tounicode(yaml.safe_dump(yaml_dict,
+                                                                             default_flow_style=False)))
+    
+            echo = printfunc(isterminal)  # no-op if argument is False
+            echo("Arguments:")
+            # replace dbrul passowrd for printing to terminal
+            yaml_dict['dburl'] = secure_dburl(yaml_dict['dburl'])
+            echo(indent(yaml.safe_dump(yaml_dict, default_flow_style=False), 2))
+    
+            configlog4download(logger, session, run_inst, isterminal)
+            with elapsedtime2logger_when_finished(logger):
+                query_main(session, run_inst.id, start, end, eventws, eventws_query_args,
+                           stimespan, search_radius['minmag'],
+                           search_radius['maxmag'], search_radius['minradius'],
+                           search_radius['maxradius'], channels,
+                           min_sample_rate, inventory, traveltime_phases, wtimespan,
+                           retry, advanced_settings, class_labels, isterminal)
+                logger.info("%d total error(s), %d total warning(s)", run_inst.errors,
+                            run_inst.warnings)
+        except Exception as exc:
+            logger.critical(str(exc))
+            raise exc
 
     return 0
 
@@ -145,28 +149,37 @@ def process(dburl, pysourcefile, configsourcefile, outcsvfile, isterminal=False)
         :param processing: a dict as load from the config
     """
     with closing(dburl) as session:
-        echo = printfunc(isterminal)  # no-op if argument is False
-        echo("Processing, please wait")
-        logger.info('Output file: %s', outcsvfile)
+        try:
+            echo = printfunc(isterminal)  # no-op if argument is False
+            echo("Processing, please wait")
+            logger.info('Output file: %s', outcsvfile)
 
-        configlog4processing(logger, outcsvfile, isterminal)
-        csvwriter = [None]  # bad hack: in python3, we might use 'nonlocal' @UnusedVariable
-        kwargs = dict(delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            configlog4processing(logger, outcsvfile, isterminal)
+            csvwriter = [None]  # bad hack: in python3, we might use 'nonlocal' @UnusedVariable
+            kwargs = dict(delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
 
-        with open(outcsvfile, 'wb') as csvfile:
+            flush_num = [1, 10]  # determines when to flush (see below)
+            with open(outcsvfile, 'wb') as csvfile:
 
-            def ondone(result):
-                if csvwriter[0] is None:
-                    if isinstance(result, dict):
-                        csvwriter[0] = csv.DictWriter(csvfile, fieldnames=result.keys(), **kwargs)
-                        csvwriter[0].writeheader()
-                    else:
-                        csvwriter[0] = csv.writer(csvfile,  **kwargs)
-                csvwriter[0].writerow(result)
+                def ondone(result):
+                    if csvwriter[0] is None:
+                        if isinstance(result, dict):
+                            csvwriter[0] = csv.DictWriter(csvfile, fieldnames=result.keys(),
+                                                          **kwargs)
+                            csvwriter[0].writeheader()
+                        else:
+                            csvwriter[0] = csv.writer(csvfile,  **kwargs)
+                    csvwriter[0].writerow(result)
+                    if flush_num[0] % flush_num[1] == 0:
+                        csvfile.flush()  # this should force writing so if errors we have something
+                        # http://stackoverflow.com/questions/3976711/csvwriter-not-saving-data-to-file-why
+                    flush_num[0] += 1
 
-            with elapsedtime2logger_when_finished(logger):
-                process_run(session, pysourcefile, ondone, configsourcefile, isterminal)
-
+                with elapsedtime2logger_when_finished(logger):
+                    process_run(session, pysourcefile, ondone, configsourcefile, isterminal)
+        except Exception as exc:
+            logger.critical(str(exc))
+            raise exc
     return 0
 
 
@@ -183,9 +196,6 @@ def closing(dburl, scoped=False, close_logger=True, close_session=True):
     try:
         session = get_session(dburl, scoped=scoped)
         yield session
-    except Exception as exc:
-        logger.critical(str(exc))
-        raise
     finally:
         if close_logger:
             handlers = logger.handlers[:]  # make a copy

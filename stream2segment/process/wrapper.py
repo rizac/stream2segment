@@ -4,27 +4,21 @@ Created on Feb 2, 2017
 @author: riccardo
 '''
 from __future__ import print_function
-import logging
-from cStringIO import StringIO
 import os
 import sys
-from obspy.core.stream import read
-from stream2segment.utils import get_session, yaml_load, get_progressbar, msgs, load_source,\
-    secure_dburl
-from stream2segment.io.db import models
-from stream2segment.download.utils import get_inventory
-from stream2segment.utils.url import urlread
-from stream2segment.io.utils import loads_inv, dumps_inv
+import logging
+from cStringIO import StringIO
 from contextlib import contextmanager
 import warnings
 import re
 from collections import OrderedDict as odict
-import multiprocessing
-import types
+import traceback
+from sqlalchemy.orm import load_only
+from obspy.core.stream import read
+from stream2segment.utils import yaml_load, get_progressbar, load_source, secure_dburl
+from stream2segment.io.db import models
+from stream2segment.download.utils import get_inventory
 from stream2segment.io.db.pd_sql_utils import withdata
-from sqlalchemy.exc import SQLAlchemyError
-from concurrent.futures.process import ProcessPoolExecutor
-from concurrent.futures import as_completed
 from stream2segment.process.utils import segstr
 
 logger = logging.getLogger(__name__)
@@ -83,32 +77,6 @@ def getid(segment):
             str(segment.id)
 
 
-# def get_inventory(seg_or_sta, session=None, **kwargs):
-#     """raises tons of exceptions (see main). FIXME: write doc
-#     :param session: if **not** None but a valid sqlalchemy session object, then
-#     the inventory, if downloaded because not present, will be saveed to the db (compressed)
-#     """
-#     try:
-#         data = seg_or_sta.inventory_xml
-#         station = seg_or_sta
-#     except AttributeError:
-#         station = seg_or_sta.station
-#         data = station.inventory_xml
-# 
-#     if not data:
-#         query_url = get_inventory_query(station)
-#         data = urlread(query_url, **kwargs)
-#         if session and data:
-#             station.inventory_xml = dumps_inv(data)
-#             try:
-#                 session.commit()
-#             except SQLAlchemyError as exc:
-#                 raise ValueError(msgs.db.dropped_inv(station.id, query_url, exc))
-#         elif not data:
-#             raise ValueError(msgs.query.empty(query_url))
-#     return loads_inv(data)
-
-
 def load_proc_cfg(configsourcefile):
     """Returns the dict represetning the processing yaml file"""
     # Simply call the default "yaml to dict" function (yaml_load). Originally,
@@ -133,14 +101,16 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
     try:
         func = load_source(pysourcefile).__dict__[funcname]
     except Exception as exc:
-        logger.error("Error while importing '%s' from '%s': %s", funcname, pysourcefile, str(exc))
-        return
+        msg = "Error while importing '%s' from '%s': %s" % (funcname, pysourcefile, str(exc))
+        logger.error(msg)
+        raise Exception(msg)
 
     try:
         config = {} if configsourcefile is None else load_proc_cfg(configsourcefile)
     except Exception as exc:
-        logger.error("Error while reading config file '%s': %s", configsourcefile,  str(exc))
-        return
+        msg = "Error while reading config file '%s': %s" % (configsourcefile,  str(exc))
+        logger.error(msg)
+        raise Exception(msg)
 
     # suppress obspy warnings. Doing process-wise is more feasible FIXME: do it?
     warnings.filterwarnings("default")  # https://docs.python.org/2/library/warnings.html#the-warnings-filter @IgnorePep8
@@ -150,42 +120,25 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
     logging.captureWarnings(True)
     warnings_logger = logging.getLogger("py.warnings")
     warnings_logger.addHandler(logger_handler)
-
-    query = session.query(models.Segment.channel_id,
-                          models.Segment.start_time, models.Segment.end_time, models.Segment.id)
-    seg_len = query.count()
     logger.info("Executing '%s' in '%s'", funcname, pysourcefile)
     logger.info(" for all segments in '%s", secure_dburl(str(session.bind.engine.url)))
     logger.info("Config. file: %s", str(configsourcefile))
 
-    save_station_inventory = config.get('inventory', False)
+    save_station_inventory = config.get('save_downloaded_inventory', False)
+    inventory_required = config.get('inventory', False)
 
+    load_stream = True
+
+    # multiprocess with sessions is a mess. So we have two choices: either we build a dict from
+    # each segment object, or we simply do not use multiprocess. We will opt for the second choice
+    # (maybe implement tests in the future to see which is faster)
+
+    # store how many inventories we have, just to warn later how many we saved (if any):
     inv_ok = session.query(models.Station).filter(withdata(models.Station.inventory_xml)).count()
 
-    # So, now run each processing in a separate system process
-    # We would have liked to implement (along the lines of utils.url.read_async)
-    # a way to cancel some or all of remaining processes, and to give ctrl+c functionality
-    # The former is not possible within an 'concurrent.futures.as_completed' iteration. The latter
-    # is not possible with current status of ProcessPoolExecutor, which does not have all
-    # the features of multiprocess.Pool
-    # I struggled a lot implementing a custom multiprocess.Pool, where at least ctrl+c is
-    # implemented (see here:
-    # http://stackoverflow.com/questions/1408356/keyboard-interrupts-with-pythons-multiprocessing-pool
-    # the idea is to issue:
-    # def init_worker():
-    #     signal.signal(signal.SIGINT, signal.SIG_IGN)
-    # and then:
-    # def main()
-    #    pool = multiprocessing.Pool(size, init_worker)
-    #    async_results = map_async(...)
-    #    # now check when a.ready() for a in async.result()...
-    #
-    #  BUT: that method does not work with sqlalchemy session. ProcessPoolExecutor actually
-    #  uses queues which use Threads in some sort, and that let sqlalchemy work in each thread
-    #  whatever, it's complex. Let's stick to processpoolexecutor knowing that we cannot
-    # cancel processes. Ctrl+c still works but MUST BE HIT several times and prints weird stuff
-    # on the screen. Fine for now
+    seg_filter = withdata(models.Segment.data)
 
+    # LEVE NOTE HERE EVEN IF WE DO NOT USE THREADING NOR MULTIPROCESSING FOR NOW:
     # another thing experienced with ThreadPoolExecutor:
     # we experienced some problems if max_workers is None. The doc states that it is the number
     # of processors on the machine, multiplied by 5, assuming that ThreadPoolExecutor is often
@@ -193,49 +146,76 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
     # number of workers for ProcessPoolExecutor. But the source code seems not to set this value
     # at all!! (at least in python2, probably in pyhton3 is fine). So let's do it manually
     # (remember, for multiprocessing don't multiply to 5):
-    max_workers = multiprocessing.cpu_count()
+    # max_workers = 5 * multiprocessing.cpu_count()
+
+    # attributes to load only for stations and segments (sppeeds up db queries):
+    sta_atts = ['id']
+    seg_atts = ["channel_id", "start_time", "end_time", "id"]
+
+    def _ztr(itm):
+        """function returning the id attrs defined in seg_atts mapped to their str represenation"""
+        try:
+            return itm.isoformat()
+        except AttributeError:
+            return str(itm)
 
     # do an iteration on the main process to check when AsyncResults is ready
-    done = [0]
+    done = 0
     progressbar = get_progressbar(isterminal)
-    with redirect(sys.stderr):
-        mngr = multiprocessing.Manager()
-        lock = mngr.Lock()
-        iterable = (LightSegment(ids_tuple) for ids_tuple in query)
+    sta_query = session.query(models.Station).\
+        options(load_only(*(sta_atts + ['inventory_xml'] if inventory_required else sta_atts))).\
+        filter(models.Station.segments.any(seg_filter))  # @UndefinedVariable
 
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            # use a generator, it might be faster as processpoolexecutor converts it
-            # to set internally, so specify a light object here not to create two array-like objs
-            future_to_obj = (executor.submit(func_wrapper, obj, *[func, lock, config,
-                                                                  str(session.bind.engine.url),
-                                                                  save_station_inventory])
-                             for obj in iterable)
-            with progressbar(length=seg_len) as pbar:
-                for future in as_completed(future_to_obj):
-                    pbar.update(1)
-                    if future.cancelled():  # FIXME: should never happen, however...
-                        continue
-                    light_segment, value, is_exc = future.result()
-                    if is_exc:
-                        exc = value
-                        # print to log:
-                        logger.warning("%s: %s", str(light_segment), str(exc))
-                    else:
-                        array = value
-                        if isinstance(array, dict):
-                            ddd = odict()
-                            for att, val in light_segment.items(to_str=True):
-                                ddd['_segment_' + att] = val
-                            ddd.update(array)
-                            ondone(ddd)
-                        elif hasattr(array, '__iter__') and not isinstance(array, str):
-                            ondone(list(light_segment.values(to_str=True)) + list(array))
-                        elif array is not None:
-                            msg = ("'%s' in '%s' must return None (=skip item), "
-                                   "or an iterable (list, tuple, numpy array, dict...)") \
-                                   % (funcname, pysourcefile)
-                            logger.error(msg)
-                        done[0] += 1
+    seg_len = session.query(models.Segment).filter(seg_filter).count()
+
+    with redirect(sys.stderr):
+        with progressbar(length=seg_len) as pbar:
+            try:
+                for sta in sta_query:
+                    segs = sta.segments.filter(seg_filter)
+                    segs_count = segs.count()
+
+                    inv = None
+                    if inventory_required:
+                        try:
+                            inv = get_inventory(sta, save_station_inventory)
+                        except Exception as exc:
+                            logger.error(exc)
+                            pbar.update(segs_count)
+                            logger.warning("(%d segments discarded)", segs_count)
+                            continue
+
+                    for seg in segs.options(load_only(*(seg_atts + ['data'] if load_stream
+                                                        else seg_atts))):
+                        pbar.update(1)
+                        try:
+                            if load_stream:
+                                try:
+                                    mseed = read(StringIO(seg.data))
+                                except Exception as exc:
+                                    raise ValueError("Error while reading mseed: " + str(exc))
+                            array = func(seg, mseed, inv, config)
+                            if isinstance(array, dict):
+                                ddd = odict([('_segment_' + at, _ztr(getattr(seg, at)))
+                                             for at in seg_atts])
+                                ddd.update(array)
+                                ondone(ddd)
+                            elif hasattr(array, '__iter__') and not isinstance(array, str):
+                                ondone(list(_ztr(getattr(seg, at)) for at in seg_atts) + list(array))
+                            elif array is not None:
+                                msg = ("'%s' in '%s' cannot return '%s' objects") \
+                                       % (funcname, pysourcefile, str(type(array)))
+                                logger.error(msg)
+                                raise SyntaxError(msg)
+                            done += 1
+                        except (ImportError, NameError, SyntaxError, TypeError) as stopexc:
+                            raise stopexc
+                        except Exception as generr:
+                            logger.warning("%s: %s", segstr(seg), str(generr))
+            except Exception as stopexc:
+                err_msg = traceback.format_exc()
+                logger.error(err_msg)
+                raise sys.exc_info()
 
     captured_warnings = s.getvalue()
     if captured_warnings:
@@ -261,100 +241,4 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
     if inv_ok2 > inv_ok:
         logger.info("station inventories saved: %d", inv_ok2 - inv_ok)
 
-    logger.info("%d of %d segments successfully processed\n" % (done[0], seg_len))
-
-
-_inventories = {}
-"""private dict to store inventory objects. It is accessed by subprocesses with a lock.
-How this works with ProcessPoolExecutor and not with custom multiprocess.Pool is still to
-be investigated. However, do not access directly"""
-
-
-def _inventory(seg, lock, save_if_downloaded):
-    """return the obsoy inventory object from a given segment. Do not call directly, this
-    method is called from within suboprocesses with a manager.lock"""
-    sta = seg.channel.station
-    with lock:
-        inv = _inventories.get(sta.id, None)
-        if inv is None:
-            try:
-                inv = get_inventory(sta, save_if_downloaded)
-            except Exception as exc:
-                inv = exc
-            # logger.warning("loaded " + str(inv))
-            _inventories[sta.id] = inv
-    if isinstance(inv, Exception):
-        raise inv
-    else:
-        return inv
-
-
-def func_wrapper(light_segment, func, lock, config, dburl, save_inventories_if_needed):
-    """Function executed in each subprocess. Sets-up the sqlalchemy session, bounds some
-    custom methods to the segment object and calls the user defined processing
-    function
-
-    Notes: sqlalchemy tells to use one engine per subprocess. Here we use a session, which seems
-    to work. Maybe check if the performances might be improved by using an engine (at which cost?)
-    Check also if attaching bound methods to each segment is the way to go
-    """
-    seg_id = light_segment.id
-    try:
-        # http://stackoverflow.com/questions/9619789/sqlalchemy-proper-session-handling-in-multi-thread-applications
-        session = get_session(dburl, True)
-
-        # for efficiency, do two queries: the first getting the segment id with data. If None,
-        # it has no data so re-do the query without the hasdata constraint
-        # Store a flag _has_data which produces a function more efficient than calling
-        # if segment.data
-        # as segment.data is a deferred column and when called will load all bynary data (which
-        # for the purpose of checking if has data is inefficient)
-        _has_data = True
-        segment = session.query(models.Segment).filter((models.Segment.id == seg_id) &
-                                                       withdata(models.Segment.data)).first()
-        if not segment:
-            _has_data = False
-            segment = session.query(models.Segment).filter(models.Segment.id == seg_id).first()
-
-        if not segment:
-            raise ValueError("segment (id=%s) not found" % seg_id)
-
-        segment.stream = types.MethodType(lambda self: read(StringIO(self.data)), segment)
-        segment.inventory = \
-            types.MethodType(lambda self: _inventory(self, lock, save_inventories_if_needed),
-                             segment)
-        segment.has_data = types.MethodType(lambda self: _has_data, segment)
-
-        return light_segment, func(segment, config), False
-    except Exception as exc:
-        return light_segment, exc, True
-    finally:
-        session.close()
-        session.bind.dispose()
-
-
-class LightSegment(object):
-    """a simple light container which wraps a tuple (channel_id, start_time, end_time, dbId)
-    identifying a segment. It is used mainly to print the segment refs in various part of the
-    program (and whose values are returned in the array/dict of each processing function)"""
-    def __init__(self, ids):
-        self.channel_id = ids[0]
-        self.start_time = ids[1]
-        self.end_time = ids[2]
-        self.id = ids[3]
-
-    def items(self, to_str=False):
-        return [('channel_id', str(self.channel_id) if to_str else self.channel_id),
-                ('start_time', self.start_time.isoformat() if to_str else self.start_time),
-                ('end_time', self.end_time.isoformat() if to_str else self.end_time),
-                ('id', str(self.id) if to_str else self.id)]
-
-    def values(self, to_str=False):
-        return [a[1] for a in self.items(to_str)]
-
-    def keys(self):
-        return [a[0] for a in self.items()]
-
-    def __str__(self):
-        return "segment %s" % segstr(*self.values(True))
-#         return "segment '{}' [{}, {}] (id: {})".format(*self.values(True))
+    logger.info("%d of %d segments successfully processed\n" % (done, seg_len))

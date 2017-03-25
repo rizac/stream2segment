@@ -41,9 +41,12 @@ def dcname(datacenter):
     return urlparse(datacenter.station_query_url).netloc
 
 
-def segstr(channel_id, start_time, end_time, seg_id):
+def segstr(segment):
     """Utility to print a segment identifier uniformely across sub-programs"""
-    return "{} [{}, {}] (id: {})".format(channel_id, start_time, end_time, seg_id)
+    return "{} [{}, {}] (id: {})".format(segment.channel_id,
+                                         segment.start_time,
+                                         segment.end_time,
+                                         segment.id)
 
 # # FIXME: not implemented! remove?!!
 # def has_data(segment, session):

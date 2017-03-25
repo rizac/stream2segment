@@ -97,7 +97,6 @@ from obspy.core.utcdatetime import UTCDateTime
 # stream2segment function for processing numpy arrays (such as stream.traces[0])
 # If you need to to use them, import them:
 from stream2segment.analysis import amp_spec, freqs
-from itertools import izip
 
 
 def main(seg, stream, inventory, config):
@@ -261,8 +260,7 @@ def main(seg, stream, inventory, config):
     # calculate cumulative:
     cum_trace = cumsum(trace_rem_resp)
     # and then calculate t005, t010, t025, t050, t075, t90, t95 (UTCDateTime objects):
-    cum_percentages = [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
-    cum_times = cumtimes(cum_trace, *cum_percentages)
+    cum_times = cumtimes(cum_trace, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95)
     # then, for instance:
     # mseed_rem_resp_t05_t95 = trace_rem_resp.slice(t05, t95)
 
@@ -280,13 +278,5 @@ def main(seg, stream, inventory, config):
 
     # convert cum_times to float for saving
     cum_times_float = [float(t) for t in cum_times]
-
     # save as csv row fft amplitudes, times of cumulative, t_PGA and PGA:
-    # return np.hstack((required_amplitudes, cum_times_float, [float(t_PGA), PGA]))
-
-    # Or you can return an ordered dict to save the dict keys as header (1st row) in the csv:
-    ret = OrderedDict([("%.2fHz" % freq, ampl) for freq, ampl in izip(required_freqs, required_amplitudes)] +
-                      [("%.2f%%" % cum_p, cum_t) for cum_p, cum_t in izip(cum_percentages, cum_times_float)] +
-                      [('t_PGA', t_PGA), ('PGA', PGA)]
-                      )
-    return ret
+    return np.hstack((required_amplitudes, cum_times_float, [float(t_PGA), PGA]))

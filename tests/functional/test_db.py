@@ -11,11 +11,11 @@ import os
 from stream2segment.io.db import models
 from stream2segment.io.db.models import Base  # This is your declarative base class
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, load_only
 import pandas as pd
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from stream2segment.io.db.pd_sql_utils import _harmonize_columns, harmonize_columns,\
-    get_or_add_iter, harmonize_rows, colnames
+    get_or_add_iter, harmonize_rows, colnames, withdata
 from stream2segment.io.utils import dumps_inv, loads_inv
 from sqlalchemy.orm.exc import FlushError
 from sqlalchemy.orm.attributes import InstrumentedAttribute
@@ -610,6 +610,35 @@ class Test(unittest.TestCase):
 #         self.session.flush()  # updates id or foreign keys related to the relation above
 #         assert pro.segment_id == seg1.id
 
+        assert len([x for x in seg.station.segments]) == 4
+        assert len([x for x in seg.station.segments.filter(withdata(models.Segment.data))]) == 0
+        assert seg.station.segments.count() == 4
+        
+        flt = withdata(models.Segment.data)
+        qry = self.session.query(models.Station).join(models.Station.segments).\
+            filter(flt)
+        
+        assert len(qry.all()) == 0
+        
+        seg.data=b'asd'
+        self.session.commit()
+        
+        qry = self.session.query(models.Station).options(load_only('id')).join(models.Station.segments).\
+            filter(flt)
+        
+        stationz = qry.all()
+        assert len(stationz) == 1
+        
+        segz = stationz[0].segments.filter(flt).all()
+        assert len(segz) == 1
+        assert segz[0] is seg
+        
+        
+        qry = self.session.query(models.Station).filter(models.Station.segments.any(flt)).all()
+        assert len(qry) == 1
+        
+        
+        
         self.tst_get_cols(seg)
 
 
