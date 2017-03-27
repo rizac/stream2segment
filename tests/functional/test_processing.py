@@ -60,17 +60,18 @@ class DB():
         self.session.commit()
         self.dc = d
 
-        s_ok = models.Station(datacenter_id=d.id, latitude=81, longitude=56, network='ok', station='ok')
+        # s_ok stations have lat and lon > 11, other stations do not
+        s_ok = models.Station(datacenter_id=d.id, latitude=11, longitude=12, network='ok', station='ok')
         self.session.add(s_ok)
         self.session.commit()
         self.sta_ok = s_ok
 
-        s_err = models.Station(datacenter_id=d.id, latitude=81, longitude=56, network='err', station='err')
+        s_err = models.Station(datacenter_id=d.id, latitude=-21, longitude=5, network='err', station='err')
         self.session.add(s_err)
         self.session.commit()
         self.sta_err = s_err
 
-        s_none = models.Station(datacenter_id=d.id, latitude=81, longitude=56, network='none', station='none')
+        s_none = models.Station(datacenter_id=d.id, latitude=-31, longitude=-32, network='none', station='none')
         self.session.add(s_none)
         self.session.commit()
         self.sta_none = s_none
@@ -85,16 +86,17 @@ class DB():
         self.session.commit()
         self.cha_err = c_err
 
-        c_none = models.Channel(station_id=s_err.id, location='none', channel="none", sample_rate=56.7)
+        c_none = models.Channel(station_id=s_none.id, location='none', channel="none", sample_rate=56.7)
         self.session.add(c_none)
         self.session.commit()
         self.cha_none = c_none
 
         data = Test.read_stream_raw('trace_GE.APE.mseed')
-        
+
+        # build three segments with data:
         # "normal" segment
         sg1 = models.Segment(channel_id=c_ok.id, datacenter_id=d.id, event_id=e.id, run_id=r.id,
-                             event_distance_deg=45, **data)
+                             event_distance_deg=35, **data)
 
         # this segment should have inventory returning an exception (see url_read above)
         sg2 = models.Segment(channel_id=c_err.id, datacenter_id=d.id, event_id=e.id, run_id=r.id,
@@ -102,18 +104,19 @@ class DB():
         # segment with gaps
         data = Test.read_stream_raw('IA.BAKI..BHZ.D.2016.004.head')
         sg3 = models.Segment(channel_id=c_ok.id, datacenter_id=d.id, event_id=e.id, run_id=r.id,
-                             event_distance_deg=45, **data)
+                             event_distance_deg=55, **data)
 
+        # build two segments without data:
         # empty segment
         data['data'] = b''
         data['start_time'] += timedelta(seconds=1)  # avoid unique constraint
-        sg4 = models.Segment(channel_id=c_ok.id, datacenter_id=d.id, event_id=e.id, run_id=r.id,
+        sg4 = models.Segment(channel_id=c_none.id, datacenter_id=d.id, event_id=e.id, run_id=r.id,
                              event_distance_deg=45, **data)
 
         # null segment
         data['data'] = None
         data['start_time'] += timedelta(seconds=2)  # avoid unique constraint
-        sg5 = models.Segment(channel_id=c_ok.id, datacenter_id=d.id, event_id=e.id, run_id=r.id,
+        sg5 = models.Segment(channel_id=c_none.id, datacenter_id=d.id, event_id=e.id, run_id=r.id,
                              event_distance_deg=45, **data)
 
 
@@ -157,7 +160,7 @@ class Test(unittest.TestCase):
         # remove file if not removed:
         #Test.cleanup(None, self.file)
 
-        self.save_downloaded_inventory=False
+        self.custom_config= {'save_downloaded_inventory': False, 'inventory': True}
         self.inventory=True
 
         self.db = DB()
@@ -285,49 +288,6 @@ class Test(unittest.TestCase):
 
         return mppe()
 
-    # @mock.patch('stream2segment.process.wrapper.ProcessPoolExecutor')
-    # @mock.patch('stream2segment.process.wrapper.as_completed')
-    def test_simple_run_retDict_nosaveinv(self):  # , mock_as_completed, mock_ppe):
-        # mock_as_completed.side_effect = lambda iterable: self.mocked_ascompleted(iterable)
-        # mock_ppe.return_value = self.mocked_processpoolexecutor()
-        runner = CliRunner()
-        with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = self.get_processing_files()
-            
-            result = runner.invoke(main, ['p', '--dburl', self.dburi,
-                                   pyfile,
-                                   conffile,
-                                   file.name])
-
-            if result.exception:
-                import traceback
-                traceback.print_exception(*result.exc_info)
-                print result.output
-                assert False
-                return
-
-            # check file has been correctly written:
-            with open(file.name, 'rb') as csvfile:
-                spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
-                rowz = 0
-                for row in spamreader:
-                    rowz += 1
-                    if rowz == 2:
-                        assert row[0] == self.db.seg1.channel.id
-                        assert row[1] == self.db.seg1.start_time.isoformat()
-                        assert row[2] == self.db.seg1.end_time.isoformat()
-                assert rowz == 2
-                assert len(self.read_and_remove(file.name+".log")) > 0
-                # ===================================================================
-                # NOW WE CAN CHECK IF THE URLREAD HAS BEEN CALLED TWICE AND NOT MORE:
-                # ===================================================================
-                assert self.mock_url_read.call_count == 2
-
-        # test we did not save any inventory:
-        stas = self.session.query(models.Station).all()
-        assert not any(s.inventory_xml for s in stas)
-
-
     @staticmethod
     def url_read(*a, **v):
         if "=err" in a[0]:
@@ -337,25 +297,36 @@ class Test(unittest.TestCase):
         else:
             return Test.read_data_raw("inventory_GE.APE.xml")
 
-
     def load_proc_cfg(self, *a, **kw):
+        """called by mocked read config: updates the parsed dict with the custom config"""
         cfg = load_proc_cfg(*a, **kw)
-        cfg['save_downloaded_inventory'] = self.save_downloaded_inventory
-        cfg['inventory'] = self.inventory
+        cfg.update(self.custom_config)
         return cfg
 
+### ======== ACTUAL TESTS: ================================
+
+    # Recall: we have 5 segments:
+    # 2 are empty, out of the remaining three:
+    # 1 has errors if its inventory is queried to the db. Out of the other two:
+    # 1 has gaps
+    # 1 has no gaps
+    # Thus we have several levels of selection possible
+    # as by default withdata is True in segment_select, then we process only the last three
+    #
+    # Here a simple test for a processing file returning dict. Save inventory and check it's saved
     @mock.patch('stream2segment.process.wrapper.load_proc_cfg')
     def test_simple_run_retDict_saveinv(self, mock_load_cfg):
+        self.custom_config['inventory']=True
+        self.custom_config['save_downloaded_inventory']=True
         mock_load_cfg.side_effect = self.load_proc_cfg
-        self.save_downloaded_inventory=True
 
+        # need to reset this global variable: FIXME: better handling?
+        process.wrapper._inventories = {}
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             pyfile, conffile = self.get_processing_files()
-            
             result = runner.invoke(main, ['p', '--dburl', self.dburi,
-                                   pyfile, conffile,
-                                   file.name])
+                                   pyfile, conffile, file.name])
 
             if result.exception:
                 import traceback
@@ -382,16 +353,30 @@ class Test(unittest.TestCase):
                 # that's why we tested above by mocking multiprocessing
                 # (there must be some issue with multiprocessing)
 
-        
-        # self.save_downloaded_inventory False by default, test that we did not save any:
+
+        # save_downloaded_inventory True, test that we did save any:
         assert len(self.session.query(Station).filter(withdata(Station.inventory_xml)).all()) > 0
 
+        # Or alternatively:
+        # test we did save any inventory:
+        stas = self.session.query(models.Station).all()
+        assert any(s.inventory_xml for s in stas)
+        assert self.session.query(models.Station).filter(models.Station.id == self.db.sta_ok.id).first().inventory_xml
 
-    # same as test_simple_run_retDict_saveinv above, previously was different cause in the former
-    # we mocked multiprocess. Might be modified in the future
+
+    # Recall: we have 5 segments:
+    # 2 are empty, out of the remaining three:
+    # 1 has errors if its inventory is queried to the db. Out of the other two:
+    # 1 has gaps
+    # 1 has no gaps
+    # Thus we have several levels of selection possible
+    # as by default withdata is True in segment_select, then we process only the last three
+    #
+    # Here a simple test for a processing file returning dict. Don't save inventory and check it's not saved
     @mock.patch('stream2segment.process.wrapper.load_proc_cfg')
-    def test_simple_run_retDict_saveinv2(self, mock_load_cfg):
-        self.save_downloaded_inventory=True
+    def test_simple_run_retDict_dontsaveinv(self, mock_load_cfg):
+        self.custom_config['inventory']=True
+        self.custom_config['save_downloaded_inventory']=False
         mock_load_cfg.side_effect = self.load_proc_cfg
 
         # need to reset this global variable: FIXME: better handling?
@@ -428,15 +413,132 @@ class Test(unittest.TestCase):
                 # (there must be some issue with multiprocessing)
 
 
-        # self.save_downloaded_inventory False by default, test that we did not save any:
-        assert len(self.session.query(Station).filter(withdata(Station.inventory_xml)).all()) > 0
+        # save_downloaded_inventory False, test that we did not save any:
+        assert len(self.session.query(Station).filter(withdata(Station.inventory_xml)).all()) == 0
 
-        # Or alternatively:
-        # test we did not save any inventory:
-        stas = self.session.query(models.Station).all()
-        assert any(s.inventory_xml for s in stas)
-        assert self.session.query(models.Station).filter(models.Station.id == self.db.sta_ok.id).first().inventory_xml
 
+    # Recall: we have 5 segments:
+    # 2 are empty, out of the remaining three:
+    # 1 has errors if its inventory is queried to the db. Out of the other two:
+    # 1 has gaps
+    # 1 has no gaps
+    # Thus we have several levels of selection possible
+    # as by default withdata is True in segment_select, then we process only the last three
+    #
+    # Here a simple test for a processing NO file. We implement a filter that excludes the only processed file
+    # using associated stations lat and lon. 
+    @mock.patch('stream2segment.process.wrapper.load_proc_cfg')
+    def test_simple_run_retDict_seg_select_empty_and_err_segments(self, mock_load_cfg):
+        # s_ok stations have lat and lon > 11, other stations do not
+        # now we want to set a filter which gets us only the segments from stations not ok.
+        # Note: withdata is not specified so we will get 3 segments (2 with data None, 1 with data which raises
+        # errors for station inventory)
+        self.custom_config['segment_select'] = {'station.latitude': '<10', 'station.longitude': '<10'}
+        self.custom_config['inventory'] = True
+        mock_load_cfg.side_effect = self.load_proc_cfg
+        
+        runner = CliRunner()
+        with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
+            pyfile, conffile = self.get_processing_files()
+            
+            result = runner.invoke(main, ['p', '--dburl', self.dburi,
+                                   pyfile,
+                                   conffile,
+                                   file.name])
+
+            if result.exception:
+                import traceback
+                traceback.print_exception(*result.exc_info)
+                print result.output
+                assert False
+                return
+
+            # check file has been correctly written, we should have written two files
+            with open(file.name, 'rb') as csvfile:
+                spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
+                rowz = 0
+                for row in spamreader:
+                    rowz += 1
+                    if rowz == 2:
+                        assert row[0] == self.db.seg1.channel.id
+                        assert row[1] == self.db.seg1.start_time.isoformat()
+                        assert row[2] == self.db.seg1.end_time.isoformat()
+                assert rowz == 0
+                sss = self.read_and_remove(file.name+".log")
+                # as we have joined twice segment with stations (one is done by default, the other
+                # has been set in custom_config['segment_select'] above, we should have this sqlalchemy msg
+                # in the log:
+                assert "SAWarning: Pathed join target" in sss
+                
+                # ===================================================================
+                # NOW WE CAN CHECK IF THE URLREAD HAS BEEN CALLED TWICE AND NOT MORE:
+                # once for the none segments, once for the err segment
+                # ===================================================================
+                assert self.mock_url_read.call_count == 2
+
+# Recall: we have 5 segments:
+    # 2 are empty, out of the remaining three:
+    # 1 has errors if its inventory is queried to the db. Out of the other two:
+    # 1 has gaps
+    # 1 has no gaps
+    # Thus we have several levels of selection possible
+    # as by default withdata is True in segment_select, then we process only the last three
+    #
+    # Here a simple test for a processing NO file. We implement a filter that excludes the only processed file
+    # using associated stations lat and lon. 
+    @mock.patch('stream2segment.process.wrapper.load_proc_cfg')
+    def test_simple_run_retDict_seg_select_only_one_err_segment(self, mock_load_cfg):
+        # s_ok stations have lat and lon > 11, other stations do not
+        # now we want to set a filter which gets us only the segments from stations not ok.
+        # Note: withdata is True so we will get 1 segment (1 with data which raises
+        # errors for station inventory)
+        self.custom_config['segment_select'] = {'withdata': True, 'station.latitude': '<10', 'station.longitude': '<10'}
+        self.custom_config['inventory'] = True
+        mock_load_cfg.side_effect = self.load_proc_cfg
+        
+        runner = CliRunner()
+        with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
+            pyfile, conffile = self.get_processing_files()
+            
+            result = runner.invoke(main, ['p', '--dburl', self.dburi,
+                                   pyfile,
+                                   conffile,
+                                   file.name])
+
+            if result.exception:
+                import traceback
+                traceback.print_exception(*result.exc_info)
+                print result.output
+                assert False
+                return
+
+            # check file has been correctly written, we should have written two files
+            with open(file.name, 'rb') as csvfile:
+                spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
+                rowz = 0
+                for row in spamreader:
+                    rowz += 1
+                    if rowz == 2:
+                        assert row[0] == self.db.seg1.channel.id
+                        assert row[1] == self.db.seg1.start_time.isoformat()
+                        assert row[2] == self.db.seg1.end_time.isoformat()
+                assert rowz == 0
+                assert len(self.read_and_remove(file.name+".log")) > 0
+                # ===================================================================
+                # NOW WE CAN CHECK IF THE URLREAD HAS BEEN CALLED ONCE AND NOT MORE:
+                # out of three segmens, we called urlread
+                # ===================================================================
+                assert self.mock_url_read.call_count == 1
+
+    # Recall: we have 5 segments:
+    # 2 are empty, out of the remaining three:
+    # 1 has errors if its inventory is queried to the db. Out of the other two:
+    # 1 has gaps
+    # 1 has no gaps
+    # Thus we have several levels of selection possible
+    # as by default withdata is True in segment_select, then we process only the last three
+    #
+    # Here a simple test for a processing file returning list. Just check it works
     def test_simple_run_ret_list(self):
         runner = CliRunner()
 
@@ -468,11 +570,10 @@ class Test(unittest.TestCase):
                 assert len(self.read_and_remove(file.name+".log")) > 0
 
 
-#we use capsys fixtures, which returns the captured sys out (pytest)
-# however, it seems not supported the usage with unittest
-# so move this method at "module" level
-# BY THE WAY, we do not use capsys, as processing raises, does not print to stdout/err
-# So keep capsys here in case in the future we want to change that
+# This method wanted to use capsys fixtures, which returns the captured sys out (pytest)
+# As it seems not supported the usage with unittest, this method was written at "module" level
+# After that, I realised we do not actually print to stdout so wtf I could have avoided it, as
+# we do not use capsys, but who knows in the future, let's leave the method as it is (at module level)
 def test_simple_run_codeerror(capsys):
     
     db = DB()
@@ -505,7 +606,9 @@ def test_simple_run_codeerror(capsys):
     
             # the file above are bad implementation (old one)
             # we should not write anything
-            assert type(result.exception) is TypeError
+            sss = Test.read_and_remove(file.name+".log")
+
+            assert "TypeError: main() takes exactly 2 arguments (4 given)" in sss
 
     finally:
         patcher.stop()

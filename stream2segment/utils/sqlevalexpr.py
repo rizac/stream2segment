@@ -12,7 +12,7 @@ from datetime import datetime
 from sqlalchemy import asc, and_, desc, inspect
 from sqlalchemy.exc import InvalidRequestError
 
-_NONES = ("null", "NULL", "None")
+_NONES = ("null", "NULL")
 
 
 def split(expr):
@@ -49,10 +49,16 @@ def split(expr):
         return "=", expr
 
 
-def parsevals(column, expr_value):
+def parsevals_sql(column, expr_value):
     """
         parses `expr_value` according to the model column type. Supports `int`s, `float`s,
-        `datetime`s, `bool`s and `str`s
+        `datetime`s, `bool`s and `str`s.
+        :param expr_value: a value given as command line argument(s). Thus, quoted strings will
+        be recognized removing the quotation symbols.
+        The list of values will then be casted to the python type of the given column.
+        Note that the values are intended to be
+        in SQL syntax, thus NULL or null for python None's. Datetime's must be input in ISO format
+        (with or without spaces)
 
         :Example:
         ```
@@ -60,7 +66,29 @@ def parsevals(column, expr_value):
         parsevals(model.column1, '4 null 5 6') = [4, None, 5, 6]
         ```
     """
-    pythontype = column.type.python_type
+    try:
+        return parsevals(column.type.python_type, expr_value)
+    except ValueError as verr:
+        raise ValueError("column %s: %s" % (str(column), str(verr)))
+
+
+def parsevals(pythontype, expr_value):
+    """
+        parses `expr_value` according to the given python type. Supports `int`s, `float`s,
+        `datetime`s, `bool`s and `str`s.
+        :param expr_value: a value given as command line argument(s). Thus, quoted strings will
+        be recognized removing the quotation symbols.
+        The list of values will then be casted to the python type of the given column.
+        Note that the values are intended to be
+        in SQL syntax, thus NULL or null for python None's. Datetime's must be input in ISO format
+        (with or without spaces)
+
+        :Example:
+        ```
+        # given a model with int column 'column1'
+        parsevals(int, '4 null 5 6') = [4, None, 5, 6]
+        ```
+    """
     vals = shlex.split(expr_value)
     if pythontype == float:
         return [None if x in _NONES else float(x) for x in vals]
@@ -73,7 +101,7 @@ def parsevals(column, expr_value):
     elif pythontype == str:
         return [None if x in _NONES else str(x) for x in vals]
 
-    raise ValueError('%s has unsupported python type %s' % (str(column), pythontype))
+    raise ValueError('Unsupported python type %s' % pythontype)
 
 
 def get_condition(column, expr):
@@ -90,7 +118,7 @@ def get_condition(column, expr):
     ```
     """
     operator, values = split(expr)
-    values = parsevals(column, values)
+    values = parsevals_sql(column, values)
     if operator == '=':
         return column == values[0] if len(values) == 1 else column.in_(values)
     elif operator == "!=":
@@ -117,19 +145,111 @@ def get_condition(column, expr):
     raise ValueError("Invalid expression %s" % expr)
 
 
-def query(session, query_arg, conditions, orderby=None, *sqlalchemy_query_expressions):
+def query(sa_query, model, conditions, orderby=None):
     """
-    Builds a query object as:
-    `session.query(query_arg).join(...).filter(...).order_by(...)`
+    Builds a query o sql-alchemy query object according to
+    `conditions` and `orderby`, which are dicts / lists of string evaluable expressions
 
-    where the last three arguments are calculated in the function according to
-    `conditions` and `orderby`
+    As an example
+    
+    The returned query can be further manipulated **in most cases**, e.g.:
+    ```
+        query(session, mytable.id, ....).all()
+        query(session, mytable.id, ....).distinct()
+    ```
+    However, exceptions might be raised, for instance a
+    "must appear in the GROUP BY clause or be used in an aggregate function" error
+    if using Postgres as underlying db:
+    ```
+        query(session, mytable.id, ....).group_by(someothertable.attr)
+    ```
+    (for info, see http://stackoverflow.com/questions/18061285/postgresql-must-appear-in-the-group-by-clause-or-be-used-in-an-aggregate-functi)
 
-    The returned query can be further manipulated e.g. by applying a group_by if multiple
-    elements are returned, e.g.:
+    When a workaround is not feasible (for instance, replacing `group_by` with `distinct`), this
+    function has limited performances
+
+    :param session: an sql-alchemy session
+    :param query_arg: the argument to the query: can be a model instance ('mymodel')
+    or one of its attribute ('mymodel.id')
+    :param conditions: a dict of string columns mapped to strings expression, e.g.
+    "column2": "[1, 45]".
+    A string column is an expression denoting an attribute of the underlying model (retrieved
+    from `query_arg`) and can include relationships. Example: if query arg is 'mymodel' or
+    'mymodel.id', then a string column 'name' will refer to 'mymodel.name', 'name.id' denotes
+    on the other hand a relationship 'name' on 'mymodel' and will refer to the 'id' attribute of the
+    table mapped by 'mymodel.name'.
+    The values of the dict on the other hand are string expressions in the form recognized
+    by `get_condition`. E.g. '>=5', '["4", "5"]' ...
+    If this argument is None or evaluates to False, no filter is applied
+    :param orderby: a list of string columns (same format
+    as `conditions` keys), or a list of tuples where the first element is
+    a string column, and the second is either "asc" (scending, the default) or "desc" (descending)
+    """
+
+    # contrarily to query_args, this function returns the arguments for
+    # an sqlalchemy join(...).filter(...).order_by(...).
+    # Thus, providing query_arg ans session, it builds:
+    parsed_conditions = []
+    joins = set()  # relationships have an hash, this assures no duplicates
+
+    # if its'an InstrumentedAttribute, use the class
+    relations = inspect(model).relationships
+
+    if conditions:
+        for attname, expression in conditions.iteritems():
+            if not expression:
+                continue
+            relationship, column = get_rel_and_column(model, attname, relations)
+            if relationship is not None:
+                joins.add(relationship)
+            condition = get_condition(column, expression)
+            parsed_conditions.append(condition)
+
+    directions = {"asc": asc, "desc": desc}
+    orders = []
+    if orderby:
+        for order in orderby:
+            try:
+                column_str, direction = order
+            except ValueError:
+                column_str, direction = order, "asc"
+            directionfunc = directions[direction]
+            relationship, column = get_rel_and_column(model, column_str, relations)
+            if relationship is not None:
+                joins.add(relationship)
+            orders.append(directionfunc(column))
+
+    if joins:
+        sa_query = sa_query.join(*joins)
+    if parsed_conditions:
+        sa_query = sa_query.filter(and_(*parsed_conditions))
+    if orders:
+        sa_query = sa_query.order_by(*orders)
+    return sa_query
+
+
+def queryold(session, query_arg, conditions, orderby=None, *sqlalchemy_query_expressions):
+    """
+    Builds a query o sql-alchemy query object according to
+    `conditions` and `orderby`, which are dicts / lists of string evaluable expressions
+
+    As an example
+    
+    The returned query can be further manipulated **in most cases**, e.g.:
     ```
-        query(session, mytable.id, ....).group_by(mytable.id).all()
+        query(session, mytable.id, ....).all()
+        query(session, mytable.id, ....).distinct()
     ```
+    However, exceptions might be raised, for instance a
+    "must appear in the GROUP BY clause or be used in an aggregate function" error
+    if using Postgres as underlying db:
+    ```
+        query(session, mytable.id, ....).group_by(someothertable.attr)
+    ```
+    (for info, see http://stackoverflow.com/questions/18061285/postgresql-must-appear-in-the-group-by-clause-or-be-used-in-an-aggregate-functi)
+
+    When a workaround is not feasible (for instance, replacing `group_by` with `distinct`), this
+    function has limited performances
 
     :param session: an sql-alchemy session
     :param query_arg: the argument to the query: can be a model instance ('mymodel')
@@ -196,8 +316,14 @@ def query(session, query_arg, conditions, orderby=None, *sqlalchemy_query_expres
 def query_args(model, conditions):
     """Returns the query arguments to be passed to a sqlalchemy query
        The function checks for relationship established on the `model` and creates a
-       list of conditions (joined by sqlalchemy `and_`) to be passed to the query.
-       Returns None if conditions evaluates to False
+       list of conditions (concatenated with sqlalchemy `and_`) to be passed to the query.
+       Returns None if conditions is None (or it evaluates to False)
+       **IMPORTANT**
+       This method can avoid joins on the query by means of relationships passed in
+       `conditions` key (by using 'has' or 'any'). However, this means that exist clause will
+       be issued (sometimes decreasing performances - ref needed) but more importantly the query
+       built with the returned arguments cannot exploit its full potentiality (todo: example needed)
+
        :param conditions: a dict of string columns mapped to strings expression, e.g.
         "column2": "[1, 45]".
         A string column is an expression denoting an attribute of the underlying model (retrieved

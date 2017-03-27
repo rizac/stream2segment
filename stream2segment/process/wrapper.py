@@ -13,13 +13,16 @@ import warnings
 import re
 from collections import OrderedDict as odict
 import traceback
+from sqlalchemy import func, distinct
 from sqlalchemy.orm import load_only
 from obspy.core.stream import read
 from stream2segment.utils import yaml_load, get_progressbar, load_source, secure_dburl
-from stream2segment.io.db import models
+from stream2segment.io.db.models import Segment, Station
 from stream2segment.download.utils import get_inventory
 from stream2segment.io.db.pd_sql_utils import withdata
 from stream2segment.process.utils import segstr
+from stream2segment.utils.sqlevalexpr_s2s import segment_query
+from stream2segment.utils.sqlevalexpr import parsevals
 
 logger = logging.getLogger(__name__)
 
@@ -99,18 +102,18 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
     # pysourcefilename = os.path.basename(pysourcefile)
 
     try:
-        func = load_source(pysourcefile).__dict__[funcname]
+        pyfunc = load_source(pysourcefile).__dict__[funcname]
     except Exception as exc:
         msg = "Error while importing '%s' from '%s': %s" % (funcname, pysourcefile, str(exc))
-        logger.error(msg)
-        raise Exception(msg)
+        logger.critical(msg)
+        return 0
 
     try:
         config = {} if configsourcefile is None else load_proc_cfg(configsourcefile)
     except Exception as exc:
         msg = "Error while reading config file '%s': %s" % (configsourcefile,  str(exc))
-        logger.error(msg)
-        raise Exception(msg)
+        logger.critical(msg)
+        return 0
 
     # suppress obspy warnings. Doing process-wise is more feasible FIXME: do it?
     warnings.filterwarnings("default")  # https://docs.python.org/2/library/warnings.html#the-warnings-filter @IgnorePep8
@@ -133,10 +136,10 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
     # each segment object, or we simply do not use multiprocess. We will opt for the second choice
     # (maybe implement tests in the future to see which is faster)
 
-    # store how many inventories we have, just to warn later how many we saved (if any):
-    inv_ok = session.query(models.Station).filter(withdata(models.Station.inventory_xml)).count()
 
-    seg_filter = withdata(models.Segment.data)
+    
+    
+    seg_filter = withdata(Segment.data)
 
     # LEVE NOTE HERE EVEN IF WE DO NOT USE THREADING NOR MULTIPROCESSING FOR NOW:
     # another thing experienced with ThreadPoolExecutor:
@@ -149,7 +152,6 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
     # max_workers = 5 * multiprocessing.cpu_count()
 
     # attributes to load only for stations and segments (sppeeds up db queries):
-    sta_atts = ['id']
     seg_atts = ["channel_id", "start_time", "end_time", "id"]
 
     def _ztr(itm):
@@ -162,60 +164,93 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
     # do an iteration on the main process to check when AsyncResults is ready
     done = 0
     progressbar = get_progressbar(isterminal)
-    sta_query = session.query(models.Station).\
-        options(load_only(*(sta_atts + ['inventory_xml'] if inventory_required else sta_atts))).\
-        filter(models.Station.segments.any(seg_filter))  # @UndefinedVariable
+#     sta_query = session.query(Station).\
+#         options(load_only(*(sta_atts + ['inventory_xml'] if inventory_required else sta_atts))).\
+#         filter(Station.segments.any(seg_filter))  # @UndefinedVariable
 
-    seg_len = session.query(models.Segment).filter(seg_filter).count()
+    # segement selection, build query:
+    # Base query: query segments and station id Note: without the join below, rows would be
+    # duplicated
+    segs_staids = session.query(Segment, Station.id).join(Segment.station).\
+        options(load_only(*seg_atts)).\
+        order_by(Station.id)  # @UndefinedVariable
+    # Now parse selection:
+    seg_select = config.get('segment_select', {})
+    if seg_select:
+        # parse withdata
+        withdataonly = seg_select.pop('withdata', None)
+        if withdataonly is not None:
+            assert withdataonly in (True, False), "withdata must be a boolean in config"
+        segs_staids = segment_query(segs_staids, conditions=seg_select,
+                                    withdataonly=withdataonly, distinct=True, orderby=None)
+
+    # Note: without the join below, rows would be duplicated
+#     segs_staids = session.query(Segment, Station.id).join(Segment.station).\
+#         filter(seg_filter).distinct().\
+#         options(load_only(*(seg_atts + ['data'] if load_stream else seg_atts))).\
+#         order_by(Station.id)  # @UndefinedVariable
+
+
+    # get total segment length:
+    seg_len = segs_staids.count()
+    # actually, this is better as it should be optimized, but how to translate for the query we
+    # have? comment for the moment:
+    # seg_len = session.query(func.count(Segment.id)).filter(seg_filter).scalar()
+    logger.info("%d segments found to process", seg_len)
+
+    current_inv = None
+    current_sta_id = None
+
+    stations_discarded = 0
+    segments_discarded = 0
+    stations_saved = 0
 
     with redirect(sys.stderr):
         with progressbar(length=seg_len) as pbar:
             try:
-                for sta in sta_query:
-                    segs = sta.segments.filter(seg_filter)
-                    segs_count = segs.count()
-
-                    inv = None
+                for seg, sta_id in segs_staids:
+                    pbar.update(1)
                     if inventory_required:
-                        try:
-                            inv = get_inventory(sta, save_station_inventory)
-                        except Exception as exc:
-                            logger.error(exc)
-                            pbar.update(segs_count)
-                            logger.warning("(%d segments discarded)", segs_count)
+                        if sta_id != current_sta_id:
+                            current_sta_id = sta_id
+                            # try loading inventory
+                            try:
+                                current_inv = get_inventory(seg.station, save_station_inventory)
+                            except Exception as exc:
+                                stations_discarded += 1
+                                current_inv = None
+                                logger.error(exc)
+                        if current_inv is None:
+                            segments_discarded += 1
                             continue
-
-                    for seg in segs.options(load_only(*(seg_atts + ['data'] if load_stream
-                                                        else seg_atts))):
-                        pbar.update(1)
-                        try:
-                            if load_stream:
-                                try:
-                                    mseed = read(StringIO(seg.data))
-                                except Exception as exc:
-                                    raise ValueError("Error while reading mseed: " + str(exc))
-                            array = func(seg, mseed, inv, config)
-                            if isinstance(array, dict):
-                                ddd = odict([('_segment_' + at, _ztr(getattr(seg, at)))
-                                             for at in seg_atts])
-                                ddd.update(array)
-                                ondone(ddd)
-                            elif hasattr(array, '__iter__') and not isinstance(array, str):
-                                ondone(list(_ztr(getattr(seg, at)) for at in seg_atts) + list(array))
-                            elif array is not None:
-                                msg = ("'%s' in '%s' cannot return '%s' objects") \
-                                       % (funcname, pysourcefile, str(type(array)))
-                                logger.error(msg)
-                                raise SyntaxError(msg)
-                            done += 1
-                        except (ImportError, NameError, SyntaxError, TypeError) as stopexc:
-                            raise stopexc
-                        except Exception as generr:
-                            logger.warning("%s: %s", segstr(seg), str(generr))
+                    try:
+                        if load_stream:
+                            try:
+                                mseed = read(StringIO(seg.data))
+                            except Exception as exc:
+                                raise ValueError("Error while reading mseed: " + str(exc))
+                        array = pyfunc(seg, mseed, current_inv, config)
+                        if isinstance(array, dict):
+                            ddd = odict([('_segment_' + at, _ztr(getattr(seg, at)))
+                                         for at in seg_atts])
+                            ddd.update(array)
+                            ondone(ddd)
+                        elif hasattr(array, '__iter__') and not isinstance(array, str):
+                            ondone(list(_ztr(getattr(seg, at)) for at in seg_atts) + list(array))
+                        elif array is not None:
+                            msg = ("'%s' in '%s' cannot return '%s' objects") \
+                                   % (funcname, pysourcefile, str(type(array)))
+                            logger.error(msg)
+                            raise SyntaxError(msg)
+                        done += 1
+                    except (ImportError, NameError, SyntaxError, TypeError) as stopexc:
+                        raise  # sys.exc_info()
+                    except Exception as generr:
+                        logger.warning("%s: %s", segstr(seg), str(generr))
             except Exception as stopexc:
                 err_msg = traceback.format_exc()
-                logger.error(err_msg)
-                raise sys.exc_info()
+                logger.critical(err_msg)
+                return 0
 
     captured_warnings = s.getvalue()
     if captured_warnings:
@@ -236,9 +271,10 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
 
     s.close()  # maybe not really necessary
 
-    inv_ok2 = session.query(models.Station).filter(withdata(models.Station.inventory_xml)).count()
-
-    if inv_ok2 > inv_ok:
-        logger.info("station inventories saved: %d", inv_ok2 - inv_ok)
+    if stations_discarded:
+        logger.info("%d stations (and %d relative segments) unprocessed: "
+                    "error in reading inventory)", stations_discarded, segments_discarded)
+    if stations_saved:
+        logger.info("station inventories saved: %d", stations_saved)
 
     logger.info("%d of %d segments successfully processed\n" % (done, seg_len))

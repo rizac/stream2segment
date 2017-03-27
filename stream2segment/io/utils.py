@@ -1,9 +1,9 @@
 #!/usr/local/bin/python2.7
 # encoding: utf-8
 '''
-stream2segment.io.dataseries -- sdfsdf
+stream2segment.io.utils -- utilities
 
-stream2segment.io.dataseries is a description
+stream2segment.io.utils tmp module
 
 It defines classes_and_methods
 

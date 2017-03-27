@@ -307,7 +307,7 @@ def empty(*obj):
 #         return df1.append(df2, ignore_index=True)
 
 
-def get_query(*urlpath, **query_args):
+def urljoin(*urlpath, **query_args):
     """Joins urls and appends to it the query string obtained by kwargs
     Note that this function is intended to be simple and fast: No check is made about white-spaces
     in strings, no encoding is done, and if some value of `query_args` needs special formatting
@@ -322,31 +322,31 @@ def get_query(*urlpath, **query_args):
 
     :Example:
     ```
-    >>> get_query("http://www.domain", start='2015-01-01T00:05:00', mag=5.455559, arg=True)
+    >>> urljoin("http://www.domain", start='2015-01-01T00:05:00', mag=5.455559, arg=True)
     'http://www.domain?start=2015-01-01T00:05:00&mag=5.455559&arg=True'
 
-    >>> get_query("http://www.domain", "data", start='2015-01-01T00:05:00', mag=5.455559, arg=True)
+    >>> urljoin("http://www.domain", "data", start='2015-01-01T00:05:00', mag=5.455559, arg=True)
     'http://www.domain/data?start=2015-01-01T00:05:00&mag=5.455559&arg=True'
 
     # Note how slashes are handled in urlpath. These two examples give the same url path:
 
-    >>> get_query("http://www.domain", "data")
+    >>> urljoin("http://www.domain", "data")
     'http://www.domain/data?'
 
-    >>> get_query("http://www.domain/", "/data")
+    >>> urljoin("http://www.domain/", "/data")
     'http://www.domain/data?'
 
     # leading and trailing slashes on each element of urlpath are removed:
 
-    >>> get_query("/www.domain/", "/data")
+    >>> urljoin("/www.domain/", "/data")
     'www.domain/data?'
 
     # so if you want to preserve them, provide an empty argument or a slash:
 
-    >>> get_query("", "/www.domain/", "/data")
+    >>> urljoin("", "/www.domain/", "/data")
     '/www.domain/data?'
 
-    >>> get_query("/", "/www.domain/", "/data")
+    >>> urljoin("/", "/www.domain/", "/data")
     '/www.domain/data?'
     ```
     """
@@ -384,7 +384,7 @@ def get_inventory_url(station):
 
 
 def get_inventory_url_(station_query_url, network, station):
-    return get_query(station_query_url, station=station, network=network,
+    return urljoin(station_query_url, station=station, network=network,
                      level='response')
 
 

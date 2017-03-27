@@ -10,6 +10,8 @@ from stream2segment.utils.sqlevalexpr import query, get_columns
 from stream2segment.gui.webapp import get_session
 from stream2segment.gui.webapp.plots import View, jsontimestamp, set_spectra_config
 from stream2segment.utils import evalexpr
+from sqlalchemy.sql.expression import and_
+from stream2segment.utils.sqlevalexpr_s2s import segment_query
 
 
 NPTS_WIDE = 900
@@ -49,7 +51,8 @@ def create_metadata_list(has_classes):
 
     if has_classes:
         ret.insert(0, ['classes.id', type2str(Class.id.type.python_type) +  # @UndefinedVariable
-                       ". Type 'unset' to match unlabeled segments only"])
+                       ". To match labeled/unlabeled segments only, "
+                       "type 'any' or 'none', respectively"])
 
     return ret
 
@@ -59,20 +62,8 @@ def type2str(python_type):
 
 
 def get_segment_ids(filterdata=None, orderby=None, withdataonly=True):
-    # first parse separately the classes.id 'unset'
-    additional_atts = []
-    if filterdata:
-        val = filterdata.get('classes.id', None)
-        if val and val.strip() in ('unset', '"unset"', "'unset'"):
-            filterdata.pop('classes.id')
-            additional_atts.append(~Segment.classes.any())  # @UndefinedVariable
-    if withdataonly:
-        additional_atts.append(withdata(Segment.data))
-    # use group by to remove possibly duplicates, especially if we query classes if which is
-    # a many to many relationship. For info see:
-    # http://stackoverflow.com/questions/23786401/why-do-multiple-table-joins-produce-duplicate-rows
-    qry = query(get_session(), Segment.id, filterdata, orderby,
-                *additional_atts).group_by(Segment.id)
+    qry = segment_query(get_session().query(Segment.id), conditions=filterdata,
+                        withdataonly=withdataonly, distinct=True, orderby=orderby)
     return [seg[0] for seg in qry]
 
 

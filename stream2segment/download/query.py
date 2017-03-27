@@ -27,7 +27,7 @@ from stream2segment.utils.url import urlread, read_async, URLException
 from stream2segment.io.db.models import Class, Event, DataCenter, Segment, Channel, Station
 from stream2segment.io.db.pd_sql_utils import df2dbiter, get_or_add_iter, commit, colnames,\
     get_or_add, withdata
-from stream2segment.download.utils import empty, get_query, query2dframe, normalize_fdsn_dframe,\
+from stream2segment.download.utils import empty, urljoin, query2dframe, normalize_fdsn_dframe,\
     get_search_radius, get_arrival_time, UrlStats, stats2str, get_inventory_url, save_inventory
 from stream2segment.io.utils import dumps_inv
 
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_events(session, eventws, **args):
-    url = get_query(eventws, format='text', **args)
+    url = urljoin(eventws, format='text', **args)
     try:
         raw_data = urlread(url, decode='utf8')
         if not raw_data:
@@ -76,7 +76,7 @@ def get_datacenters(session, **query_args):
 
     query_args['service'] = 'station'
     query_args['format'] = 'post'
-    url = get_query('http://geofon.gfz-potsdam.de/eidaws/routing/1/query', **query_args)
+    url = urljoin('http://geofon.gfz-potsdam.de/eidaws/routing/1/query', **query_args)
     try:
         dc_result = urlread(url, decode='utf8')
         # add to db the datacenters read. Two little hacks:
@@ -176,7 +176,7 @@ def evdcurl_iter(events, datacenters, sradius_minmag, sradius_maxmag, sradius_mi
         for max_radius, evt in izip(max_radia, events.itervalues()):
             start = evt.time - timedelta(hours=station_timespan[0])
             end = evt.time + timedelta(hours=station_timespan[1])
-            url = get_query(dcen.station_query_url,
+            url = urljoin(dcen.station_query_url,
                             latitude="%3.3f" % evt.latitude,
                             longitude="%3.3f" % evt.longitude,
                             maxradius=max_radius,
@@ -446,7 +446,7 @@ def prepare_for_wdownload(session, datacenters, segments_df, stations_df, retry_
             wqueries.append(None)
             alreadydownloadeddict[dc_id] += 1
             continue
-        wqueries.append(get_query(datacenters[dc_id].dataselect_query_url,
+        wqueries.append(urljoin(datacenters[dc_id].dataselect_query_url,
                                   network=net,
                                   station=sta,
                                   location=loc,

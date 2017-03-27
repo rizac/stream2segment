@@ -158,8 +158,10 @@ def process(dburl, pysourcefile, configsourcefile, outcsvfile, isterminal=False)
             csvwriter = [None]  # bad hack: in python3, we might use 'nonlocal' @UnusedVariable
             kwargs = dict(delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
 
-            flush_num = [1, 10]  # determines when to flush (see below)
-            with open(outcsvfile, 'wb') as csvfile:
+            flush_num = [1, 10]  # determines when to flush (not used. We use the
+            # last arg to open tells to flush line-wise. To add custom flush, see commented
+            # lines at the end of the with statement and uncomment them
+            with open(outcsvfile, 'wb', 1) as csvfile:
 
                 def ondone(result):
                     if csvwriter[0] is None:
@@ -170,10 +172,10 @@ def process(dburl, pysourcefile, configsourcefile, outcsvfile, isterminal=False)
                         else:
                             csvwriter[0] = csv.writer(csvfile,  **kwargs)
                     csvwriter[0].writerow(result)
-                    if flush_num[0] % flush_num[1] == 0:
-                        csvfile.flush()  # this should force writing so if errors we have something
-                        # http://stackoverflow.com/questions/3976711/csvwriter-not-saving-data-to-file-why
-                    flush_num[0] += 1
+                    # if flush_num[0] % flush_num[1] == 0:
+                    #    csvfile.flush()  # this should force writing so if errors we have something
+                    #    # http://stackoverflow.com/questions/3976711/csvwriter-not-saving-data-to-file-why
+                    # flush_num[0] += 1
 
                 with elapsedtime2logger_when_finished(logger):
                     process_run(session, pysourcefile, ondone, configsourcefile, isterminal)

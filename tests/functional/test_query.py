@@ -184,7 +184,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         return get_events( *a, **kw)
 
 
-    @patch('stream2segment.download.query.get_query', return_value='a')
+    @patch('stream2segment.download.query.urljoin', return_value='a')
     def test_get_events(self, mock_query):
         data = self.get_events(None, self.session,
                                "eventws")  # , "minmag", "minlat", "maxlat", "minlon", "maxlon", "startiso", "endiso")
@@ -208,7 +208,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         assert len(self.session.query(Class).all()) == 2
         
 
-    @patch('stream2segment.download.query.get_query', return_value='a')
+    @patch('stream2segment.download.query.urljoin', return_value='a')
     def test_get_dcs(self, mock_query):
         data = self.get_datacenters(session=self.session)
         assert len(self.session.query(DataCenter).all()) == len(data) == 2

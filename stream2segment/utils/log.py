@@ -96,11 +96,11 @@ def configlog4processing(logger, outcsvfile, isterminal):
     # config logger (FIXME: merge with download logger?):
     logger.setLevel(logging.INFO)  # this is necessary to configure logger HERE, otherwise the
     # handler below does not work. FIXME: better implementation!!
-    logger_handler = logging.FileHandler(outcsvfile + ".log")
+    logger_handler = logging.FileHandler(outcsvfile + ".log", mode='w')
     logger_handler.setLevel(logging.DEBUG)
     logger.addHandler(logger_handler)
     if isterminal:
-        # configure print to stdout (by default only info and critical messages)
+        # configure print to stdout (by default only info warning errors and critical messages)
         logger.addHandler(SysOutStreamHandler(sys.stdout))
 
 
