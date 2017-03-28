@@ -105,16 +105,29 @@
     [59.42283, 20.267]
 	]);
 	
-	function unpack(element){
+	function unpack(station, errors){
+		// errors is eiother ERRORS or WARNINGS, both dicts keyed with station names
+		var element = errors[station];
+		// element is a dict (object) with numeric keys mapped to arrays denoting the mseeds
+		// concerned. The keys are numeric for performance reasons (loading and creating smaller htmls)
+		// the error/warning name is columns[key], the mseed concerned are element[key]
+		
+		var columns = DATA.columns;
 		//unpacks warnings / errors returning [num_errors_warnings, div_content]
 		var ret = "<table>";
 		var count = 0;
 		for (var key in element){
 			var mseeds = element[key];
 			count += mseeds.length;
-			ret += "<tr><td>" + key + "</td><td>(" + mseeds.length +" mseeds)</td></tr>";
+			ret += "<tr><td colspan=2>" + columns[key] + "(" + mseeds.length +" mseeds)</td></tr>";
 			mseeds.forEach(function(elm, index){
-				ret += "<tr><td style='text-align:right'>"+index+"</td><td>" + elm + "</td></tr>";
+				// each element is an array of:
+				// [location, channel, start date, start time, end date, end time, db id]
+			    // this is optimized in that end date might be empty (same as start date)
+			  	var ch_id = station + "." + elm[0] + "." + elm[1];
+			  	var timerange = elm[4] ? elm[2] + " " + elm[3] + " to " + elm[4] + " " + elm[5] : elm[2] + ", " + elm[3] + " to " + elm[5];
+			  	var dbId = elm[6];
+				ret += "<tr><td style='text-align:right'>"+ (index+1) +"</td><td>" + ch_id + " [" + timerange + "] (db id=" + dbId + ")</td></tr>";
 			});
 			ret += "";
 		}
@@ -124,6 +137,37 @@
 			ret +="</table>";
 		}
 		return [count, ret];
+	};
+	
+	function getPopupContent(stationIndex){
+		var d = DATA;
+		var station = d.index[stationIndex];
+		var vals = d.data[stationIndex];
+		var lat = vals[0];
+		var lon = vals[1];
+		var total = vals[2];
+		var dc_ = DATACENTERS;
+		var dcen = dc_[vals[3]];
+
+		var w_ = WARNINGS;
+		var e_ = ERRORS;
+		var warnings_ = unpack(station, w_);
+		var errors_ = unpack(station, e_);
+		
+		var infostr = "<table class='info'>"+
+			"<tr><td>Station:</td><td>" + station + "</td></tr>" +
+			"<tr class='border-top'><td>lat</td><td>"+ lat + "</td></tr>"+
+			"<tr><td>lon</td><td>"+ lon + "</td></tr>" +
+			"<tr><td>d.c.</td><td>"+ dcen + "</td></tr>" +
+			"<tr class='border-top'><td>miniSeeds</td><td>" + total + "</td></tr>" +
+			//"<tr><td>ok</td><td>" + ok + "</td></tr>" +
+			"<tr><td>errors</td><td>" + errors_[0] + "</td></tr>" +
+			"<tr><td>warnings</td><td>" + warnings_[0] + "</td></tr>" +
+			"</table>";
+		
+		infostr += "<div class='info'><div style='color:#e40000'>errors:</div>" + errors_[1] + "</div>";
+		infostr += "<div class='info'><div style='color:#0000e4'>warnings:</div>" + warnings_[1] + "</div>";
+		return infostr;
 	};
 
 	function drawMap(){
@@ -135,8 +179,7 @@
 		
 		var d = DATA;
 		var cols = d.columns;
-		var w_ = WARNINGS;
-		var e_ = ERRORS;
+		
 		var dc_ = DATACENTERS;
 		var dcens = {}; //stores layers to checkbox stations of a single datacenter
 		//var we = {}; //stores layers to checkbox stations with given error/warning
@@ -168,8 +211,6 @@
 			//console.log(gb);
 			
 			var fillColor = "rgb(255, " + gb + "," + gb +")";
-			var warns = w_[station];
-			var errs = e_[station];
 			// var hasWE = (warns != undefined || errs != undefined) ? true : false;
 			var color = '#999999';
 			var circle = L.circleMarker([lat, lon], {
@@ -181,24 +222,13 @@
 			    radius: 6
 			});
 
-			var warnings_ = unpack(warns || {});
-			var errors_ = unpack(errs || {});
+			circle.bindPopup("");
 			
-			var infostr = "<table class='info'>"+
-				"<tr><td>Station:</td><td>" + station + "</td></tr>" +
-				"<tr class='border-top'><td>lat</td><td>"+ lat + "</td></tr>"+
-				"<tr><td>lon</td><td>"+ lon + "</td></tr>" +
-				"<tr><td>d.c.</td><td>"+ dcen + "</td></tr>" +
-				"<tr class='border-top'><td>miniSeeds</td><td>" + total + "</td></tr>" +
-				"<tr><td>ok</td><td>" + ok + "</td></tr>" +
-				"<tr><td>errors</td><td>" + errors_[0] + "</td></tr>" +
-				"<tr><td>warnings</td><td>" + warnings_[0] + "</td></tr>" +
-				"</table>";
-			
-			//infostr += "<div class='info'><div style='color:#e40000'>errors:</div>" + errors_[1] + "</div>";
-			//infostr += "<div class='info'><div style='color:#0000e4'>warnings:</div>" + warnings_[1] + "</div>";
-			
-			circle.bindPopup(infostr);
+			// we bind popup content on mouse click (defer for speed):
+			circle.on('click', function(){
+				circle.setPopupContent(getPopupContent(index));
+				//circle.openPopup();
+			});
 			
 			dc.markers.push(circle);
 		});

@@ -9,7 +9,7 @@ import pandas as pd
 import jinja2
 from cStringIO import StringIO
 from stream2segment.utils import get_session, get_progressbar
-from stream2segment.io.db.models import Channel, Segment, Station, DataCenter
+from stream2segment.io.db.models import Channel, Segment, Station, DataCenter, Event
 from stream2segment.io.utils import loads
 from click import progressbar
 from obspy.io.mseed.core import InternalMSEEDReadingError
@@ -21,20 +21,38 @@ from stream2segment.process.utils import dcname, segstr
 import json
 import concurrent.futures
 from urlparse import urlparse
+from sqlalchemy.orm import load_only
+from datetime import datetime
+from stream2segment.io.db.pd_sql_utils import withdata
+from itertools import chain
 
 warnings.filterwarnings("ignore")
 
 
 def segquery(session):
-    return session.query(Segment.channel_id, Segment.start_time, Segment.end_time, Segment.id,
-                         Segment.data, Channel.sample_rate,
-                         DataCenter.station_query_url).join(Segment.datacenter, Segment.channel)
+    qry = session.query(Segment.channel_id, Segment.start_time,
+                        Segment.end_time, Segment.id, Segment.data, Channel.sample_rate,
+                        DataCenter.station_query_url).join(Segment.datacenter, Segment.channel)
+
+    qry = session.query(Segment).options(load_only(Segment.id))
+    # FIXME: remove!!
+#     'event.latitude': "[47, 56]"
+#   'event.longitude': "[5, 16]"
+#   'event.time': "(1998-01-01T00:00:00, 2017-04-10T00:00:00)"
+    qry = qry.join(Segment.event).filter((Event.latitude >=47) & (Event.latitude <=56) &
+                                   (Event.longitude >=5) & (Event.longitude <=16) &
+                                   (Event.time > datetime(1998,1,1)) &
+                                   (Event.time < datetime(2017,4,1)))
+
+    return qry
 
 
-def process_segment(segqueryargs):
+def process_segment(segment):
     """Returns stats for the given segment"""
-    data = segqueryargs[4]
-    channel_sample_rate = segqueryargs[5]
+#     seg_ch_id, seg_stime, seg_etime, seg_id, data, channel_sample_rate, datacenter_station_url =\
+#         segqueryargs
+    
+    data = segment.data
     warn, err = None, None
     if data is None:
         warn = 'HTTP client/server error'
@@ -65,6 +83,7 @@ def process_segment(segqueryargs):
                 if trace.stats.endtime <= trace.stats.starttime:
                     warn = 'endtime <= starttime'
                 else:
+                    channel_sample_rate = segment.channel.sample_rate
                     srate_real = trace.stats.sampling_rate
                     srate_nominal = channel_sample_rate
                     if srate_real != srate_nominal:
@@ -75,8 +94,23 @@ def process_segment(segqueryargs):
             # however, catch a broad exception cause we will anyway print it and handle it
             warn = None
             err = exc.__class__.__name__ + ": " + str(exc)
-    return warn, err, segstr(*segqueryargs[:4]), ".".join(segqueryargs[0].split(".")[:2]),\
-        urlparse(segqueryargs[6]).netloc
+
+    net, sta, loc, cha = segment.channel_id.split(".")
+    seg_info_list = []
+    if warn or err:
+        # optimize data, as we might write a lot to the html. Do not repeat network and station
+        # the rest of the optimization is done afterwards
+        seg_info_list = [loc, cha, '', '', '', '', segment.id]
+        sdate, stime = segment.start_time.isoformat().split('T')
+        edate, etime = segment.end_time.isoformat().split('T')
+        seg_info_list[2] = sdate
+        seg_info_list[3] = stime
+        seg_info_list[5] = etime
+        if sdate != edate:
+            seg_info_list[4] = edate
+
+    return warn, err, net + "." + sta, urlparse(segment.datacenter.station_query_url).netloc,\
+        seg_info_list
 
 
 def create_da_html(sess, outfile, isterminal=False):
@@ -101,33 +135,35 @@ def create_da_html(sess, outfile, isterminal=False):
     err2colidx = {}  # warnings names to indices, same reason as above
 
     seg_query = segquery(sess)
+
     pbar = get_progressbar(isterminal)
     unexpected_errs = 0
-    with concurrent.futures.ProcessPoolExecutor() as executor:
-        futures = (executor.submit(process_segment, segdata) for segdata in seg_query)
-        with pbar(length=seg_query.count()) as pb:
-            for future in concurrent.futures.as_completed(futures):
-                pb.update(1)
-                try:
-                    warn, err, segid_str, sta_id, dc_name = future.result()
-                    stats_df.loc[sta_id, 'total'] += 1
-                    if dc_name not in dc2idx:
-                        dc2idx[dc_name] = len(dc2idx)
-                    stats_df.loc[sta_id, 'dcen'] = dc2idx[dc_name]
-                    if warn:
-                        if warn not in warn2colidx:
-                            stats_df[warn] = 0
-                            warn2colidx[warn] = stats_df.columns.get_loc(warn)
-                        stats_df.loc[sta_id, warn] += 1
-                        warnings[sta_id][warn2colidx[warn]].append(segid_str)
-                    elif err:
-                        if err not in err2colidx:
-                            stats_df[err] = 0
-                            err2colidx[err] = stats_df.columns.get_loc(err)
-                        stats_df.loc[sta_id, err] += 1
-                        errors[sta_id][err2colidx[err]].append(segid_str)
-                except:
-                    unexpected_errs += 1
+
+    with pbar(length=seg_query.count()) as pb:
+        for seg in seg_query:
+            pb.update(1)
+            try:
+                warn, err, sta_id, dc_name, seg_info_list = process_segment(seg)
+                stats_df.loc[sta_id, 'total'] += 1
+                if dc_name not in dc2idx:
+                    dc2idx[dc_name] = len(dc2idx)
+                stats_df.loc[sta_id, 'dcen'] = dc2idx[dc_name]
+                if warn:
+                    if warn not in warn2colidx:
+                        stats_df[warn] = 0
+                        warn2colidx[warn] = stats_df.columns.get_loc(warn)
+                    stats_df.loc[sta_id, warn] += 1
+                    warnings[sta_id][warn2colidx[warn]].append(seg_info_list)
+                elif err:
+                    if err not in err2colidx:
+                        stats_df[err] = 0
+                        err2colidx[err] = stats_df.columns.get_loc(err)
+                    stats_df.loc[sta_id, err] += 1
+                    errors[sta_id][err2colidx[err]].append(seg_info_list)
+            except Exception as exc:
+                unexpected_errs += 1
+
+    sess.close()  # for safety
 
     # drop stations which did not have segments (note that we write when segments
     # are null or empty, so stations without segments should in principle be there for
