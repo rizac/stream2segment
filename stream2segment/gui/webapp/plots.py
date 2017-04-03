@@ -100,6 +100,8 @@ def exec_function(index, view):
             elif isinstance(funcres, dict):
                 labels = funcres.iterkeys()
                 itr = funcres.itervalues()
+            elif type(funcres) == np.ndarray:
+                itr = [funcres]
             else:
                 itr = funcres
 
