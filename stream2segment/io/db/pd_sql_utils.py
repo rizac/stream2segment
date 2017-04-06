@@ -77,7 +77,7 @@ from pandas.compat import (lzip, map, zip, raise_with_traceback,
 from pandas.core.common import isnull
 # but we need also pd.isnull so we import it like this for safety:
 from pandas import isnull as pd_isnull
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from sqlalchemy.sql.elements import BinaryExpression
 from sqlalchemy.sql.expression import and_
 from pandas import to_numeric
@@ -644,48 +644,82 @@ class Adder(object):
     def __init__(self, session, pkey_col, add_buf_size=10):
         self.existing_keys = None
         self.pkey_col = pkey_col
-        self.res = []
         self.shared_colnames = None
         self.session = session
         self.add_buf_size = add_buf_size
-        self._oks = [2] * add_buf_size
-        self._err = [0] * add_buf_size
+        self._conn = None
+        self._discarded = 0
+        self._new = 0
+
+    @property
+    def discarded(self):
+        return self._discarded
+
+    @property
+    def new(self):
+        return self._new
+
+#     def __enter__(self):
+#         return self
+# 
+#     def __exit__(self):
+#         if self._conn is not None:
+#             self._conn.close()
 
     def add(self, dataframe):
-        ret = self.res
-        buf_size = self.add_buf_size
+        """
+            Adds the dataframe to the database using sqlalchemy core method (faster) and a buf_size
+            set in the constructor (even faster). Dupes in the dataframe are not checked for!!!
+        """
+        buf_size = max(self.add_buf_size, 1)
         buf = []
-        oks = self._oks
-        err = self._err
+        new = 0
         pkeyname = self.pkey_col.key
+        table_model = self.pkey_col.class_
         # allocate all primary keys for the given model
-        if self.existing_keys is None:
-            self.existing_keys = set(x[0] for x in self.session.query(self.pkey_col))
-        existing_keys = self.existing_keys
+        existing_keys = self.existing_keys if self.existing_keys is not None else \
+            set(x[0] for x in self.session.query(self.pkey_col))
 
         if self.shared_colnames is None:
-            self.shared_colnames = list(shared_colnames(self.table_model, dataframe))
+            self.shared_colnames = list(shared_colnames(table_model, dataframe))
 
-        table_model = self.pkey_col.class_
-        engine = self.session.bind
+        if self._conn is None:
+            self._conn = self.session.connection()
+        conn = self._conn
 
-        for rowdict in dfrowiter(dataframe, self.shared_colnames):
-            if rowdict[pkeyname] in existing_keys:
-                ret.append(1)
-            else:
+        # Note: we might remove dupes on the dataframe, but then we would return a different
+        # dataframe
+        # as we want to use this method for stations and channels, and we need to add stations first
+        # this might remove some channels.
+
+        last = len(dataframe) - 1
+        for i, rowdict in enumerate(dfrowiter(dataframe, self.shared_colnames)):
+            if rowdict[pkeyname] not in existing_keys:
                 buf.append(rowdict)
-                if len(buf) == buf_size:
-                    try:
-                        engine.execute(table_model.__table__.insert(), buf)
-                        ret.extend(oks)
-                    except SQLAlchemyError:
-                        ret.extend(err)
-                    buf = []
-        if buf:
-            try:
-                engine.execute(table_model.__table__.insert(), buf)
-                ret.extend(oks[:len(buf)])
-            except SQLAlchemyError:
-                ret.extend(err[:len(buf)])
+            if len(buf) == buf_size or (i == last and buf):
+                try:
+                    conn.execute(table_model.__table__.insert(), buf)
+                    existing_keys |= set(bufdict[pkeyname] for bufdict in buf)
+                    new += len(buf)
+                except IntegrityError as _:
+                    # if we had an integrityerror, it might be that buf had dupes
+                    # in this case, some rows might be added! So to be sure we issue a
+                    # query to know the actual count of the elements:
+                    newset = set(x[0] for x in self.session.query(self.pkey_col).
+                                 filter(self.pkey_col.in_(x[pkeyname] for x in buf)))
+                    new += len(newset)
+                    if newset:
+                        # update existing keys
+                        existing_keys |= newset
+                except SQLAlchemyError as _:
+                    pass
+                buf = []
 
-        return dataframe[self.shared_colnames][np.asarray(ret) > 0]
+        # update existing keys:
+        self.existing_keys = existing_keys
+        oldlen = len(dataframe)
+        df = dataframe[dataframe[pkeyname].isin(self.existing_keys)]
+        df.is_copy = False  # avoid settings with copy warning
+        self._discarded += oldlen - len(df)
+        self._new += new
+        return df

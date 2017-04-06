@@ -138,7 +138,7 @@ def download(dburl, start, end, eventws, eventws_query_args, stimespan,
                             run_inst.warnings)
         except Exception as exc:
             logger.critical(str(exc))
-            raise exc
+            raise
 
     return 0
 

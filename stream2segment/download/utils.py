@@ -17,6 +17,7 @@ from stream2segment.io.db import models
 from stream2segment.io.db.pd_sql_utils import harmonize_columns,\
     harmonize_rows, colnames
 from obspy.taup.taup_time import TauPTime
+from obspy.geodetics.base import locations2degrees
 from itertools import izip, count
 from stream2segment.utils.resources import version
 from stream2segment.utils.url import urlread
@@ -138,7 +139,7 @@ def get_search_radius(mag, minmag, maxmag, minradius, maxradius):
 # ==========================================
 def query2dframe(query_result_str, strip_cells=True):
     """
-        Returns a pandas dataframne from the given query_result_str
+        Returns a pandas dataframe from the given query_result_str
         :param: query_result_str
         :raise: ValueError in case of errors (mismatching row lengths), including the case
         where the resulting dataframe is empty. Note that query_result_str evaluates to False, then
@@ -399,6 +400,28 @@ def save_inventory(downloaded_data, station):
     return
 
 
+def calculate_times(sta_lat, sta_lon, evt_lat, evt_lon, evt_depth_km, evt_time,
+                    traveltime_phases, taup_model='ak135'):
+    taupmodel_obj = TauPyModel(taup_model)  # create the taupmodel once
+    # old comment (REMOVE not used here anymore):
+    # iteration over dframe columns is faster than DataFrame.itertuples
+    # and is more readable as we only need a bunch of columns.
+    # Note: we zip using dataframe[columname] iterables. Using
+    # dataframe[columname].values (underlying pandas numpy array) is even faster,
+    # BUT IT DOES NOT RETURN pd.TimeStamp objects for date-time-like columns but np.datetim64
+    # instead. As the former subclasses python datetime (so it's sqlalchemy compatible) and the
+    # latter does not, we go for the latter ONLY BECAUSE WE DO NOT HAVE DATETIME LIKE OBJECTS:
+#     for sta_id, stalat, stalon in izip(stations_df[Channel.station_id.key].values,
+#                                        stations_df[Station.latitude.key].values,
+#                                        stations_df[Station.longitude.key].values):
+
+    # stalat, stalon = getattr(sta, latstr), getattr(sta, lonstr)
+    degrees = locations2degrees(evt_lat, evt_lon, sta_lat, sta_lon)
+    arr_time = get_arrival_time(degrees, evt_depth_km, evt_time, traveltime_phases,
+                                taupmodel_obj)
+    return degrees, arr_time
+
+
 class UrlStats(dict):
     """A subclass of dict to store keys (usually messages, i.e. strings) mapped to their occurrence
     (integers).
@@ -584,3 +607,49 @@ def stats2str(data, fillna=None, transpose=False,
 #                            'display.max_columns', len(dframe.columns),
 #                            'max_colwidth', 50, 'expand_frame_repr', False):
 #         return str(dframe)
+
+
+def dfupdate(df_old, df_new, matching_columns, set_columns, ondupes=None):
+    """
+        Kind-of pandas.DataFrame update: sets
+        `df_old[set_columns]` = `df_new[set_columns]`
+        for those row where `df_old[matching_columns]` = `df_new[matching_columns]` only.
+        `df_new` **should** have unique rows under `matching columns` (see argument `ondupes`)
+        :param df_old: the pandas DataFrame whose values should be replaced
+        :param df_new: the pandas DataFrame which should set the new values to `df_old`
+        :param matching_columns: list of strings: the columns to be checked for matches. They must
+        be shared between both data frames
+        :param set_columns: list of strings denoting the column to be set from `df_new` to
+        `df_old` for those rows matching under `matching_cols`
+        :param ondupes: as `df_new` should not have duplicated rows for any `matching_columns`, this
+        argument tells what to do: None (the default) does not do any check, it might be faster but
+        you should issue a ```df_new.drop_duplicates(subset=matching_columns, ...)``` if
+        any duplicate is present in `df_new`. 'raise' and `ignore` do a check inside the function:
+        the former raises `ValueError` (with a memaingful message) on duplicates, the latter simply
+        ignores duplicates returning `df_old` unmodified if any duplicate is present
+    """
+    if df_new.empty or df_old.empty:  # for safety (avoid useless calculations)
+        return df_old
+
+    if ondupes == 'ignore' or ondupes == 'raise':
+        if df_new[matching_columns].duplicated().any():
+            if ondupes == 'raise':
+                raise ValueError("dataframe has duplicated values under %s" %
+                                 str(matching_columns))
+            else:
+                return df_old
+    # use df_new[matching_columns + set_columns] only for relevant columns
+    # (should speed up merging?):
+    mergedf = df_old.merge(df_new[matching_columns + set_columns], how='left',
+                           on=list(matching_columns), indicator=True)
+
+    # set values of new_df by means of the _merge column created via the arg indicator=True above:
+    # _merge is in ('both', 'right_only', 'left_only'). We should never have 'right_only because of
+    # the how='left' above. Skip checking for the moment
+    for col in set_columns:
+        ser = np.where(mergedf['_merge'] == 'both', mergedf[col+"_y"], mergedf[col+"_x"])
+        # ser = mergedf[col+"_y"].where(mergedf['_merge'] == 'both', mergedf[col+"_x"])
+        df_old[col] = ser
+
+    return df_old
+
