@@ -99,11 +99,13 @@ min_sample_rate: 60
 
 # Set here the phases to be calculated to asses the travel times of a wave from
 # the event location to each station location. The minimum of all travel times will be set as the
-# arrival time of a specific event at a specific station, and data will be queried to the datacenter
-# of that station in a window relative to its arrival time (see data_timespan below). The more items
+# arrival time AT of a specific event at a specific station, and waveform data will be queried to
+# the station's datacenter in time a window around AT (see parameter wtimespan below). The more items
 # you set here below, the more likely a minimum is found, but the more time is needed to calculate
 # all of them.
-# **be aware that the calculation of the travel times is quite time consuming!**
+# NOTE: This parameter is ignored for already downloaded segments, so if you try to adjust the
+# arrival time for all downloaded segments you must run a new download from scratch (e.g., specifying a new
+# databse output with dburl)
 # For info see: https://docs.obspy.org/packages/obspy.taup.html#phase-naming-in-obspy-taup
 traveltime_phases: 
  - 'P'

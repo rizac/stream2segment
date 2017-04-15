@@ -79,14 +79,16 @@ from pandas.core.common import isnull
 from pandas import isnull as pd_isnull
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from sqlalchemy.sql.elements import BinaryExpression
-from sqlalchemy.sql.expression import and_
+from sqlalchemy.sql.expression import and_, or_
+from sqlalchemy.orm.attributes import InstrumentedAttribute
 from pandas import to_numeric
 import pandas as pd
 from sqlalchemy.engine import create_engine
-from itertools import cycle
+from itertools import cycle, izip
 from sqlalchemy.inspection import inspect
 from pandas.types.dtypes import DatetimeTZDtype
 from sqlalchemy.sql.expression import func
+from collections import OrderedDict
 
 
 def _get_dtype(sqltype):
@@ -639,87 +641,399 @@ def dfrowiter(dataframe, columns=None):
 #     return ret
 
 
-class Adder(object):
+def _get_max(session, numeric_column):
+    """Returns the maximum value from a given numeric column, usually a primary key with
+    auto-increment=True. If it's the case, from `_get_max() + 1` we assure unique identifier for
+    adding new objects to the table of `numeric_column`. SqlAlchemy has the ability to set
+    autoincrement for us but telling explicitly the id value for an autoiincrement primary key
+    speeds up *a lot* the insertion (especially if used in conjunction with slqlachemy core methods
+    :param session: an sqlalchemy session
+    :param numeric_column: a column of an ORM model (mapping a db table column)
+    """
+    return session.query(func.max(numeric_column)).scalar() or 0
 
-    def __init__(self, session, pkey_col, add_buf_size=10):
-        self.existing_keys = None
-        self.pkey_col = pkey_col
-        self.shared_colnames = None
-        self.session = session
-        self.add_buf_size = add_buf_size
-        self._conn = None
-        self._discarded = 0
-        self._new = 0
 
-    @property
-    def discarded(self):
-        return self._discarded
+def add2db_autoincpkey(dataframe, session, matching_columns, autoincrement_int_pkey_col,
+                       add_buf_size=10, drop_newinst_duplicates=True):
+    """Efficiently adds to db the given dataframe by skipping already saved instances, appending
+    to the returned dataframe the column 'autoincrement_int_pkey_col.key' where nan's values
+    will imply the row(s) has not been added to the db
+    :param drop_newinst_duplicates: True by default, drops duplicates under `matching_columns`
+    for those dataframe rows which are "new", i.e. will be added to the database, to avoid
+    db errors (as usually `matching_columns` is a unique constraint)
+    :return: the tuple (df, discarded, new), where df is a new dataframe with only rows
+        succesfully added to the db or already present (if `query_first`=True). The index of the
+        dataframe is not reset, so that a track to the original dataframe is always possible.
+        The user must issue a `df.reset_index` to reset the index. `discarded` is the number of
+        rows discarded, so basically `len(dataframe) - len(df)`, and `new<=len(df)` is the number
+        of new rows successfully added to the db
+    """
+    pkeycol = autoincrement_int_pkey_col
+    dframe_with_pkeys = setpkeys(dataframe, session, matching_columns, pkeycol)
+    mask = pd.isnull(dframe_with_pkeys[pkeycol.key])
+    dtmp = dframe_with_pkeys[mask]
+    numnans = len(dtmp)
+    discarded = new = 0
+    if numnans:
+        dtmp.is_copy = False  # avoid pandas SettingWithCopyWarning, we are trying to modify dtmp
+        # modifications will not affect dframe_with_pkeys but we are aware of it
+        max_pkey = _get_max(session, pkeycol) + 1
+        new_pkeys = np.arange(max_pkey, max_pkey+numnans, dtype=int)
+        dtmp[pkeycol.key] = new_pkeys
+        new_df, discarded, new = add2db(dtmp, session, matching_columns, add_buf_size=add_buf_size,
+                                        query_first=False, drop_duplicates=drop_newinst_duplicates)
+        dframe_with_pkeys.loc[new_df.index, pkeycol.key] = new_df[pkeycol.key]
+    return dframe_with_pkeys, discarded, new
 
-    @property
-    def new(self):
-        return self._new
 
-#     def __enter__(self):
-#         return self
-# 
-#     def __exit__(self):
-#         if self._conn is not None:
-#             self._conn.close()
+def dbquery2set(session, columns, query_filter=None):
+    """Returns a query result as a set of tuples where each tuple value is the db row values
+    according to columns
+    :param session: sqlalchemy session
+    :param columns: a list of ORM instance columns
+    :param query_filter: optional filter to be apoplied to the query, defaults to None (no filter)
+    """
+    qry = session.query(*columns) if query_filter is None else \
+        session.query(*columns).filter(query_filter)
+    return set(tuple(x) for x in qry)
 
-    def add(self, dataframe):
-        """
-            Adds the dataframe to the database using sqlalchemy core method (faster) and a buf_size
-            set in the constructor (even faster). Dupes in the dataframe are not checked for!!!
-        """
-        buf_size = max(self.add_buf_size, 1)
-        buf = []
-        new = 0
-        pkeyname = self.pkey_col.key
-        table_model = self.pkey_col.class_
-        # allocate all primary keys for the given model
-        existing_keys = self.existing_keys if self.existing_keys is not None else \
-            set(x[0] for x in self.session.query(self.pkey_col))
 
-        if self.shared_colnames is None:
-            self.shared_colnames = list(shared_colnames(table_model, dataframe))
+def dbquery2df(query):
+    """Returns a query result as a set of tuples where each tuple value is the db row values
+    according to columns
+    :param session: sqlalchemy session
+    :param columns: a list of ORM instance columns
+    :param query_filter: optional filter to be apoplied to the query, defaults to None (no filter)
+    """
+    colnames = []
+    for c in query.column_descriptions:
+        ctype = type(c['expr'])
+        if ctype != InstrumentedAttribute:
+            raise ValueError("the query needs to be built with columns only, %s found" %
+                             str(ctype))
+        colnames.append(c['name'])
+    return pd.DataFrame(columns=colnames, data=query.all())
 
-        if self._conn is None:
-            self._conn = self.session.connection()
-        conn = self._conn
 
-        # Note: we might remove dupes on the dataframe, but then we would return a different
-        # dataframe
-        # as we want to use this method for stations and channels, and we need to add stations first
-        # this might remove some channels.
-
-        last = len(dataframe) - 1
-        for i, rowdict in enumerate(dfrowiter(dataframe, self.shared_colnames)):
-            if rowdict[pkeyname] not in existing_keys:
-                buf.append(rowdict)
-            if len(buf) == buf_size or (i == last and buf):
-                try:
-                    conn.execute(table_model.__table__.insert(), buf)
-                    existing_keys |= set(bufdict[pkeyname] for bufdict in buf)
-                    new += len(buf)
-                except IntegrityError as _:
-                    # if we had an integrityerror, it might be that buf had dupes
-                    # in this case, some rows might be added! So to be sure we issue a
-                    # query to know the actual count of the elements:
-                    newset = set(x[0] for x in self.session.query(self.pkey_col).
-                                 filter(self.pkey_col.in_(x[pkeyname] for x in buf)))
-                    new += len(newset)
-                    if newset:
-                        # update existing keys
-                        existing_keys |= newset
-                except SQLAlchemyError as _:
-                    pass
-                buf = []
-
-        # update existing keys:
-        self.existing_keys = existing_keys
+def add2db(dataframe, session, matching_columns, add_buf_size=10, query_first=True,
+           drop_duplicates=True):
+    """
+        Efficiently adds the given dataframe to the db. Returns a new dataframe with only rows
+        successfully
+        added. If `query_first=True`, the db table is queried so that already existing rows
+        are not added again. If you are sure that each dataframe row is not on the db, this flag
+        can be set to False to speed up the procedure
+        :param dataframe: the dataframe whose rows needs to be added to the db.
+        **THE DATAFRAME MUST HAVE AT LEAST `matching_columns` as columns (identified by their key:
+        (`k.key for k in matching_columns`)**
+        **THE DATAFRAME MUST NOT HAVE DUPLICATES UNDER `matching_columns`** (see argument
+        `drop_duplicates`)
+        :param session: the sqlalchemy session
+        :param matching_columns: the list of sqlalchemy ORM columns whereby two instances are
+        considered equal if all values of those columns are equal.
+        This is used if `query_first=True` (to check if an instance is already saved and avoid
+        adding it again) or, if some commit error occurs, to know what has been saved
+        (see `add_buf_size`)
+        :param add_buf_size: integer, defaults to 10. The buffer size that, when full, will issue an
+        insert (+ commit). Setting this value to a high value speeds up the process but might
+        discard 'good' instances which are simply after an erroneous one. Setting this argument to 1
+        is safer but slower.
+        :param query_first: if True (the default), the database is queried for `matching_columns`
+        values so that already saved dataframe rows are not saved again. Note that in this case
+        'existing rows' are those equal under `matching_columns`, no guarantee is made that
+        the `dataframe` instance has the same values of the relative table row under all other
+        columns.
+        Set to False to speed up the process but as above, then errors (e.g., unique constraints)
+        should be checked for before calling this method, or otherwise some instances might be
+        discarded
+        :param drop_duplicates: boolean (True by default) telling if duplicates under
+        `matching_columns` should be removed (keeeping the first value) from `dataframe` before
+        proceeding. If True, this has the advantage also to add duplicates to the number of
+        discarded instances, which might be informative for the user. If False, **the data frame
+        MUST NOT HAVE duplicates under `matching_columns`**
+        :return: the tuple (df, discarded, new), where df is a new dataframe with only rows
+        succesfully added to the db or already present (if `query_first`=True). The index of the
+        dataframe is not reset, so that a track to the original dataframe is always possible.
+        The user must issue a `df.reset_index` to reset the index. `discarded` is the number of
+        rows discarded, so basically `len(dataframe) - len(df)`, and `new<=len(df)` is the number
+        of new rows successfully added to the db
+    """
+    buf_size = max(add_buf_size, 1)
+    buf_inst = OrderedDict()  # preserve insertion order
+    buf_indices = OrderedDict()  # see above
+    new = 0
+    discarded = 0
+    matching_colnames = [c.key for c in matching_columns]
+    if drop_duplicates:
         oldlen = len(dataframe)
-        df = dataframe[dataframe[pkeyname].isin(self.existing_keys)]
-        df.is_copy = False  # avoid settings with copy warning
-        self._discarded += oldlen - len(df)
-        self._new += new
-        return df
+        dataframe.drop_duplicates(subset=matching_colnames, inplace=True)
+        discarded = oldlen - len(dataframe)
+    table_model = matching_columns[0].class_
+    # allocate all primary keys for the given model
+    existing_keys = set() if not query_first else dbquery2set(session, matching_columns)
+
+    shared_cnames = list(shared_colnames(table_model, dataframe))
+
+    conn = session.connection()
+
+    # Note: we might remove dupes on the dataframe, but then we would return a different
+    # dataframe
+    # as we want to use this method for stations and channels, and we need to add stations first
+    # this might remove some channels.
+
+    last = len(dataframe) - 1
+    indices = []  # indices to keep (already existing or successfully written)
+    for i, rowdict in enumerate(dfrowiter(dataframe, shared_cnames)):
+        rowtup = tuple(rowdict[k] for k in matching_colnames)
+        if rowtup not in existing_keys:
+            buf_inst[rowtup] = rowdict
+            buf_indices[rowtup] = i
+        else:
+            indices.append(i)
+        if len(buf_inst) == buf_size or (i == last and buf_inst):
+            update = False
+            try:
+                conn.execute(table_model.__table__.insert(), buf_inst.values())
+                update = True
+            except IntegrityError as _:
+                # if we had an integrity error, it might be that buf had dupes
+                # in this case, some rows might be added! So to be sure we issue a
+                # query to know which elements have been added
+                # 1. Create a query specific to the buf elements using pkey_cols:
+                exprs = []
+                for key in buf_inst.keys():
+                    exprs.append(and_(*[pkeycol == v
+                                        for pkeycol, v in izip(matching_columns, key)]))
+                # 2. Get those elements and add them, if saved to the db
+                if exprs:
+                    added_set = dbquery2set(session, matching_columns, or_(*exprs))
+                    if added_set:
+                        update = True
+                        buf_indices = {k: buf_indices[k] for k in added_set if k in buf_indices}
+                        buf_inst = {k: buf_inst[k] for k in added_set if k in buf_inst}
+            except SQLAlchemyError as _:
+                pass
+
+            if update:
+                new += len(buf_inst)
+                indices.extend(buf_indices.values())
+
+            buf_inst.clear()
+            buf_indices.clear()
+
+    oldlen = len(dataframe)
+    indices.sort()  # indices might not be sorted, we want to return the same orders
+    # (for matching rows)
+    df = dataframe.iloc[indices]
+    df.is_copy = False  # avoid settings with copy warning
+    discarded += oldlen - len(df)
+    return df, discarded, new
+
+
+def setpkeys(dataframe, session, matching_columns, pkey_col):
+    """Efficiently sets the column pkey_col.key on `dataframe` fetching ids from the relative db
+    table, using the values of `matching_columns` to determine if a `dataframe` row is
+    mapped to a db table row.
+    :param dataframe: the dataframe to be updated. It MUST have matching columns as columns, it
+    MAY or MAY NOT have pkey_col as column.
+    :return: a new DataFrame with all `dataframe` columns and a new column `pkey_col.key` updated
+    with the database ids (if `dataframe` did not have that column, the new column is appended to
+    the returned dataframe and will have nan's for dataframe rows not found on the db)
+    """
+    cols = matching_columns + [pkey_col]
+    df_new = dbquery2df(session.query(*cols).distinct())
+    # colnames = [c.key for c in cols]
+    # objs = [x for x in session.query(*cols)]
+    # d = pd.DataFrame(columns=colnames, data=objs)
+    return dfupdate(dataframe, df_new,
+                    [c.key for c in matching_columns], [pkey_col.key], False)
+
+
+def dfupdate(df_old, df_new, matching_columns, set_columns, drop_df_new_duplicates=True):
+    """
+        Kind-of pandas.DataFrame update: sets
+        `df_old[set_columns]` = `df_new[set_columns]`
+        for those row where `df_old[matching_columns]` = `df_new[matching_columns]` only.
+        `df_new` **should** have unique rows under `matching columns` (see argument
+        `drop_df_new_duplicates`)
+        :param df_old: the pandas DataFrame whose values should be replaced
+        :param df_new: the pandas DataFrame which should set the new values to `df_old`
+        :param matching_columns: list of strings: the columns to be checked for matches. They must
+        be shared between both data frames
+        :param set_columns: list of strings denoting the column to be set from `df_new` to
+        `df_old` for those rows matching under `matching_cols`
+        :param drop_df_new_duplicates: If True (the default) drops duplicates under
+        `matching_columns` before updating `df_old`
+    """
+    if df_new.empty or df_old.empty:  # for safety (avoid useless calculations)
+        return df_old
+
+    if drop_df_new_duplicates:
+        df_new = df_new.drop_duplicates(subset=matching_columns)
+
+    # use df_new[matching_columns + set_columns] only for relevant columns
+    # (should speed up merging?):
+    mergedf = df_old.merge(df_new[matching_columns + set_columns], how='left',
+                           on=list(matching_columns), indicator=True)
+
+    # set values of new_df by means of the _merge column created via the arg indicator=True above:
+    # _merge is in ('both', 'right_only', 'left_only'). We should never have 'right_only because of
+    # the how='left' above. Skip checking for the moment
+    for col in set_columns:
+        if col not in df_old:
+            ser = mergedf[col].values
+        else:
+            ser = np.where(mergedf['_merge'] == 'both', mergedf[col+"_y"], mergedf[col+"_x"])
+        # ser = mergedf[col+"_y"].where(mergedf['_merge'] == 'both', mergedf[col+"_x"])
+        df_old[col] = ser
+
+    return df_old
+
+
+def fdsn2sql(fdsn_param):
+    """returns a sql "like" expression from a given fdsn channel constraint parameters
+    (network,    station,    location    and channel) converting wildcards, if any"""
+    return fdsn_param.replace('*', "%").replace("?", "_")
+
+# class Adder(object):
+# 
+#     def __init__(self, session, pkey_cols, add_buf_size=10):
+#         """
+#             Creates a new Adder, which will add new dataframes to the db table identified by
+#             `pkey_cols`, skipping already saved (according to `pkey_cols`). See class-method `add`
+#             :param session: the sql alchemy session
+#             :param pkey_cols: sql alchemy instrumented attributes (As list). They *must* belong to
+#             the same table ORM. Usually, it's a single primary key, but any set of keys is
+#             possible. In principle, the keys should have a unique constraint set.
+#             If not, the check for existing db entries might be inconsistent
+#             :param add_buf_size: integer, defaults to 10. The buffer size which, when full (or the
+#             iteration is ended) will issue a commit for those instances to be added. Setting lower
+#             numbers assures all "well formed" instances are added, but is slower, setting to a
+#             higher number speeds up a lot the db insertion but if the N-th instance violates some
+#             db constraint, then buffer instances from N+1-th on will not be added
+#         """
+#         self.existing_keys = None
+#         self.pkey_cols = pkey_cols
+#         self.shared_colnames = None
+#         self.session = session
+#         self.add_buf_size = add_buf_size
+#         self._conn = None
+#         self._discarded = 0
+#         self._new = 0
+# 
+#     @property
+#     def discarded(self):
+#         return self._discarded
+# 
+#     @property
+#     def new(self):
+#         return self._new
+# 
+#     def add(self, dataframe, drop_duplicates='inplace'):
+#         """
+#             Adds each row of `dataframe` to the db. Rows already present will not be added again
+#             Rows are compared using `pkey_cols` (specified in the constructor), thus rows are equal
+#             if they equal in values for those columns.
+#             Note that This method uses
+#             sqlalchemy-core methods speed up the insertion into the db. Thus,
+#             the session will *not* be updated with the new inserted instances, but the returned
+#             dataframe will
+#             :param dataframe: the dataframe to add. Obviously, it must hold *at least* the column
+#             names matching `self.pkey_cols` names. The data frame can hold columns
+#             not present on the db table. They will not added to the db nor they will be removed
+#             from the returned data frame
+#             :param drop_duplicates: string or boolan: (True, False, 'inplace'). Default: 'inplace'
+#             The dataframe *MUST NOT HAVE DUPLICATES* (equal rows under `pkey_cols` names). If the
+#             user is *sure* it hasn't, or it called explicitly:
+#             ```
+#             dataframe.drop_duplicates(subset=pkeynames, ...)
+#             ```
+#             specify False to skip the check and speed up the procedure.
+#             Otherwise, specify True to drop duplicates on the dataframe
+#             preserving the original dataframe, or 'inplace' to modify inplace the given dataframe
+#             The duplicates drop happens before the db insertion
+#             :return: a new dataframe with only rows added or already present in the db. Check
+#             `self.new` and `self.discarded` to know how many new items where added to the db and
+#             how many `dataframe` rows were discarded
+#         """
+#         buf_size = max(self.add_buf_size, 1)
+#         buf_inst = OrderedDict()
+#         buf_indices = OrderedDict()
+#         new = 0
+#         pkeynames = [c.key for c in self.pkey_cols]
+#         if drop_duplicates is not False:
+#             oldlen = len(dataframe)
+#             if drop_duplicates == 'inplace':
+#                 dataframe.drop_duplicates(subset=pkeynames, inplace=True)
+#             else:
+#                 dataframe = dataframe.drop_duplicates(subset=pkeynames)
+#             self._discarded += oldlen - len(dataframe)
+#         table_model = self.pkey_cols[0].class_
+#         # allocate all primary keys for the given model
+#         existing_keys = self.existing_keys if self.existing_keys is not None else \
+#             set(tuple(x) for x in self.session.query(*self.pkey_cols))
+# 
+#         if self.shared_colnames is None:
+#             self.shared_colnames = list(shared_colnames(table_model, dataframe))
+# 
+#         if self._conn is None:
+#             self._conn = self.session.connection()
+#         conn = self._conn
+# 
+#         # Note: we might remove dupes on the dataframe, but then we would return a different
+#         # dataframe
+#         # as we want to use this method for stations and channels, and we need to add stations first
+#         # this might remove some channels.
+# 
+#         last = len(dataframe) - 1
+#         indices = []  # indices to keep (already existing or successfully written)
+#         for i, rowdict in enumerate(dfrowiter(dataframe, self.shared_colnames)):
+#             rowtup = tuple(rowdict[k] for k in pkeynames)
+#             if rowtup not in existing_keys:
+#                 buf_inst[rowtup] = rowdict
+#                 buf_indices[rowtup] = i
+#             else:
+#                 indices.append(i)
+#             if len(buf_inst) == buf_size or (i == last and buf_inst):
+#                 update = False
+#                 try:
+#                     conn.execute(table_model.__table__.insert(), buf_inst.values())
+#                     update = True
+#                 except IntegrityError as _:
+#                     # if we had an integrity error, it might be that buf had dupes
+#                     # in this case, some rows might be added! So to be sure we issue a
+#                     # query to know which elements have been added
+#                     # 1. Create a query specific to the buf elements using pkey_cols:
+#                     exprs = []
+#                     for key in buf_inst.keys():
+#                         exprs.append(and_(*[pkeycol == v
+#                                             for pkeycol, v in izip(self.pkey_cols, key)]))
+#                     # 2. Get those elements and add them, if saved to the db
+#                     if exprs:
+#                         added_set = set(tuple(x) for x in self.session.query(*self.pkey_cols).
+#                                         filter(or_(*exprs)))
+#                         if added_set:
+#                             update = True
+#                             buf_indices = {k: buf_indices[k] for k in added_set if k in buf_indices}
+#                             buf_inst = {k: buf_inst[k] for k in added_set if k in buf_inst}
+#                 except SQLAlchemyError as _:
+#                     pass
+# 
+#                 if update:
+#                     existing_keys |= set(buf_inst.keys())
+#                     new += len(buf_inst)
+#                     indices.extend(buf_indices.values())
+# 
+#                 buf_inst.clear()
+#                 buf_indices.clear()
+# 
+#         # update existing keys:
+#         self.existing_keys = existing_keys
+#         oldlen = len(dataframe)
+#         indices.sort()  # indices might not be sorted, we want to return the same orders
+#         # (for matching rows)
+#         df = dataframe.iloc[indices]
+#         df.is_copy = False  # avoid settings with copy warning
+#         self._discarded += oldlen - len(df)
+#         self._new += new
+#         return df

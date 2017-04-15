@@ -134,12 +134,21 @@ def receive_before_update(mapper, connection, target):
     """listen for the 'before_update' event. For info on validation see:
      https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf
     """
-    if target.station_query_url is not None and \
-            '/station/' in target.station_query_url and target.dataselect_query_url is None:
-        target.dataselect_query_url = target.station_query_url.replace("/station/", "/dataselect/")
-    elif target.dataselect_query_url is not None and \
-            '/dataselect/' in target.dataselect_query_url and target.station_query_url is None:
-        target.station_query_url = target.dataselect_query_url.replace("/dataselect/", "/station/")
+    if target.station_query_url is not None and target.dataselect_query_url is None:
+        target.dataselect_query_url = dc_get_other_service_url(target.station_query_url)
+    elif target.dataselect_query_url is not None and target.station_query_url is None:
+        target.station_query_url = dc_get_other_service_url(target.dataselect_query_url)
+
+
+def dc_get_other_service_url(url):
+    """Returns the dataselect service if url denotes a datacenter station service url,
+    otherwise the station service. If dc_url has nor "/station/" neither "/dataselect/" in its
+    string, a ValueError is raised"""
+    if '/station/' in url:
+        return url.replace("/station/", "/dataselect/")
+    elif '/dataselect/' in url:
+        return url.replace("/dataselect/", "/station/")
+    raise ValueError("url does not contain neither '/dataselect/' nor '/station/'")
 
 
 class Event(Base):
@@ -174,33 +183,44 @@ class Station(Base):
 
     __tablename__ = "stations"
 
-    id = Column(String, primary_key=True)  # , default=sta_pkey_default, onupdate=sta_pkey_default)
+    id = Column(Integer, primary_key=True, autoincrement=True) # , default=sta_pkey_default, onupdate=sta_pkey_default)
     datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
     network = Column(String, nullable=False)
     station = Column(String, nullable=False)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
-    elevation = Column(Float)
-    site_name = Column(String)
-    start_time = Column(DateTime)
-    end_time = Column(DateTime)
+    elevation = deferred(Column(Float))
+    site_name = deferred(Column(String))
+    start_time = Column(DateTime, nullable=False)
+    end_time = deferred(Column(DateTime))
     inventory_xml = deferred(Column(Binary))  # lazy load: only upon direct access
 
     __table_args__ = (
-                      UniqueConstraint('network', 'station', name='net_sta_uc'),
+                      UniqueConstraint('network', 'station', 'start_time', name='net_sta_stime_uc'),
                      )
 
     # http://stackoverflow.com/questions/33708219/how-to-handle-sqlalchemy-onupdate-when-current-context-is-empty
     # we prefer over event.listen_for cause the function is inside the class (clearer)
-    @validates('network', 'station')
-    def update_id(self, key, value):
-        vals = (value, self.station) if key == 'network' else (self.network, value)
-        if all(i is not None for i in vals):
-            self.id = "%s.%s" % vals
-        return value
+#     @validates('network', 'station', 'start_time')
+#     def update_id(self, key, value):
+#         vals = (value, self.station, self.start_time) if key == 'network' else \
+#             (self.network, value, self.start_time) if key == 'station' else \
+#             (self.network, self.station, value)
+#         id_ = get_station_id(*vals)
+#         if id_ is not None:
+#             self.id = id_
+#         return value
 
     datacenter = relationship("DataCenter", backref=backref("stations", lazy="dynamic"))
 
+
+# def get_station_id(network, station, starttime):
+#     pack = [network, station, starttime]
+#     if any(i is not None for i in pack):
+#         return None
+#     stime = starttime.isoformat() if hasattr(starttime, 'isoformat') else starttime
+#     pack[-1] = stime[:-9] if stime.endswith("T00:00:00") else stime
+#     return ".".join(pack)
 
 # @event.listens_for(Station.network, 'set')
 # def update_id_from_network(target, value, oldvalue, initiator):
@@ -223,7 +243,7 @@ class Channel(Base):
 
     __tablename__ = "channels"
 
-    id = Column(String, primary_key=True)  # , default=cha_pkey_default, onupdate=cha_pkey_default)
+    id = Column(Integer, primary_key=True, autoincrement=True)  # , default=cha_pkey_default, onupdate=cha_pkey_default)
     station_id = Column(String, ForeignKey("stations.id"), nullable=False)
     location = Column(String, nullable=False)
     channel = Column(String, nullable=False)
@@ -243,15 +263,15 @@ class Channel(Base):
 
     # http://stackoverflow.com/questions/33708219/how-to-handle-sqlalchemy-onupdate-when-current-context-is-empty
     # we prefer over event.listen_for cause the function is inside the class (clearer)
-    @validates('station_id', 'location', 'channel')
-    def update_id(self, key, value):
-        vals = (value, self.location, self.channel) if key == 'station_id' else \
-                (self.station_id, value, self.channel) if key == 'location' else \
-                (self.station_id, self.location, value)
-        if all(i is not None for i in vals):
-            self.id = "%s.%s.%s" % vals
-        return value
-
+#     @validates('station_id', 'location', 'channel')
+#     def update_id(self, key, value):
+#         vals = (value, self.location, self.channel) if key == 'station_id' else \
+#                 (self.station_id, value, self.channel) if key == 'location' else \
+#                 (self.station_id, self.location, value)
+#         if all(i is not None for i in vals):
+#             self.id = "%s.%s.%s" % vals
+#         return value
+#
     station = relationship("Station", backref=backref("channels", lazy="dynamic"))
 
 
@@ -264,17 +284,21 @@ class Segment(Base):
     event_id = Column(String, ForeignKey("events.id"), nullable=False)
     channel_id = Column(String, ForeignKey("channels.id"), nullable=False)
     datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
+    seed_identifier = Column(String, nullable=False)
     event_distance_deg = Column(Float, nullable=False)
     data = deferred(Column(Binary))  # lazy load only upon access
+    http_status_code = Column(Integer, nullable=True)
     start_time = Column(DateTime, nullable=False)
     arrival_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
+    sample_rate = Column(Float, nullable=False)
     run_id = Column(Integer, ForeignKey("runs.id"), nullable=False)
 
     event = relationship("Event", backref=backref("segments", lazy="dynamic"))
     channel = relationship("Channel", backref=backref("segments", lazy="dynamic"))
     datacenter = relationship("DataCenter", backref=backref("segments", lazy="dynamic"))
     run = relationship("Run", backref=backref("segments", lazy="dynamic"))
+
     # http://stackoverflow.com/questions/17580649/sqlalchemy-relationships-across-multiple-tables
     # this method will work better, as the ORM can also handle
     # eager loading with this one.
@@ -289,7 +313,7 @@ class Segment(Base):
 
     __table_args__ = (
                       UniqueConstraint('channel_id', 'start_time', 'end_time',
-                                       name='net_sta_loc_cha_stime_etime_uc'),
+                                       name='chaid_stime_etime_uc'),
                      )
 
 

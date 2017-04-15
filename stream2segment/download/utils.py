@@ -13,7 +13,7 @@ from obspy.taup import TauPyModel
 # from obspy.geodetics import locations2degrees
 # from obspy.taup.helper_classes import TauModelError, SlownessModelError
 # from stream2segment.utils.url import url_read
-from stream2segment.io.db import models
+from stream2segment.io.db.models import Event, Station, Run, Channel
 from stream2segment.io.db.pd_sql_utils import harmonize_columns,\
     harmonize_rows, colnames
 from obspy.taup.taup_time import TauPTime
@@ -35,7 +35,7 @@ def run_instance(session=None, **args):
     """
     if 'program_version' not in args:
         args['program_version'] = version()
-    run_row = models.Run(**args)
+    run_row = Run(**args)
     if session is not None:
         session.add(run_row)
         session.commit()
@@ -192,7 +192,6 @@ def rename_columns(query_df, query_type):
     if empty(query_df):
         return query_df
 
-    Event, Station, Channel = models.Event, models.Station, models.Channel
     if query_type.lower() == "event" or query_type.lower() == "events":
         columns = list(colnames(Event))
     elif query_type.lower() == "station" or query_type.lower() == "stations":
@@ -236,11 +235,11 @@ def harmonize_fdsn_dframe(query_df, query_type):
         return empty()
 
     if query_type.lower() in ("event", "events"):
-        fdsn_model_classes = [models.Event]
+        fdsn_model_classes = [Event]
     elif query_type.lower() in ("station", "stations"):
-        fdsn_model_classes = [models.Station]
+        fdsn_model_classes = [Station]
     elif query_type.lower() in ("channel", "channels"):
-        fdsn_model_classes = [models.Station, models.Channel]
+        fdsn_model_classes = [Station, Channel]
 
     # convert columns to correct dtypes (datetime, numeric etcetera). Values not conforming
     # will be set to NaN or NaT or None, thus detectable via pandas.dropna or pandas.isnull
@@ -607,49 +606,4 @@ def stats2str(data, fillna=None, transpose=False,
 #                            'display.max_columns', len(dframe.columns),
 #                            'max_colwidth', 50, 'expand_frame_repr', False):
 #         return str(dframe)
-
-
-def dfupdate(df_old, df_new, matching_columns, set_columns, ondupes=None):
-    """
-        Kind-of pandas.DataFrame update: sets
-        `df_old[set_columns]` = `df_new[set_columns]`
-        for those row where `df_old[matching_columns]` = `df_new[matching_columns]` only.
-        `df_new` **should** have unique rows under `matching columns` (see argument `ondupes`)
-        :param df_old: the pandas DataFrame whose values should be replaced
-        :param df_new: the pandas DataFrame which should set the new values to `df_old`
-        :param matching_columns: list of strings: the columns to be checked for matches. They must
-        be shared between both data frames
-        :param set_columns: list of strings denoting the column to be set from `df_new` to
-        `df_old` for those rows matching under `matching_cols`
-        :param ondupes: as `df_new` should not have duplicated rows for any `matching_columns`, this
-        argument tells what to do: None (the default) does not do any check, it might be faster but
-        you should issue a ```df_new.drop_duplicates(subset=matching_columns, ...)``` if
-        any duplicate is present in `df_new`. 'raise' and `ignore` do a check inside the function:
-        the former raises `ValueError` (with a memaingful message) on duplicates, the latter simply
-        ignores duplicates returning `df_old` unmodified if any duplicate is present
-    """
-    if df_new.empty or df_old.empty:  # for safety (avoid useless calculations)
-        return df_old
-
-    if ondupes == 'ignore' or ondupes == 'raise':
-        if df_new[matching_columns].duplicated().any():
-            if ondupes == 'raise':
-                raise ValueError("dataframe has duplicated values under %s" %
-                                 str(matching_columns))
-            else:
-                return df_old
-    # use df_new[matching_columns + set_columns] only for relevant columns
-    # (should speed up merging?):
-    mergedf = df_old.merge(df_new[matching_columns + set_columns], how='left',
-                           on=list(matching_columns), indicator=True)
-
-    # set values of new_df by means of the _merge column created via the arg indicator=True above:
-    # _merge is in ('both', 'right_only', 'left_only'). We should never have 'right_only because of
-    # the how='left' above. Skip checking for the moment
-    for col in set_columns:
-        ser = np.where(mergedf['_merge'] == 'both', mergedf[col+"_y"], mergedf[col+"_x"])
-        # ser = mergedf[col+"_y"].where(mergedf['_merge'] == 'both', mergedf[col+"_x"])
-        df_old[col] = ser
-
-    return df_old
 

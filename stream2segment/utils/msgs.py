@@ -79,7 +79,7 @@ def DB_NEWITEM_SAVED_(num):
 
 
 def DB_ITEM_DISCARDED_(num):
-    return '{:d} {} discarded (db error while saving)'.format(num, 'item' if num == 1 else 'items')
+    return '{:d} {} discarded (not saved to db)'.format(num, 'item' if num == 1 else 'items')
 
 
 def format(exc_or_msg, url=None):  # @ReservedAssignment # pylint:disable=redefined-builtin
