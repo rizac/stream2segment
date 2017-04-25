@@ -294,12 +294,17 @@ def config_defaults_when_missing():
 @click.option('-e', '--end', type=valid_date)
 @click.option('-E', '--eventws')
 @click.option('--wtimespan', nargs=2, type=int)
-@click.option('--stimespan', nargs=2, type=int)
 @click.option('--min_sample_rate')
-@click.option('-r', '--retry', is_flag=True)
+@click.option('-r1', '--retry_no_code', is_flag=True)
+@click.option('-r2', '--retry_url_errors', is_flag=True)
+@click.option('-r3', '--retry_mseed_errors', is_flag=True)
+@click.option('-r4', '--retry_4xx', is_flag=True)
+@click.option('-r5', '--retry_5xx', is_flag=True)
 @click.option('-i', '--inventory', is_flag=True)
 @click.argument('eventws_query_args', nargs=-1, type=click.UNPROCESSED, callback=proc_e)
-def d(configfile, dburl, start, end, eventws, wtimespan, stimespan, min_sample_rate, retry,
+def d(configfile, dburl, start, end, eventws, wtimespan, min_sample_rate, retry_no_code, retry_url_errors,
+                            retry_mseed_errors,
+                            retry_4xx, retry_5xx,
       inventory, eventws_query_args):
     """Efficiently download waveform data segments and relative events, stations and channels
     metadata (plus additional class labels, if needed)

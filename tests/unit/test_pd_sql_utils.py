@@ -9,7 +9,7 @@ from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.orm.scoping import scoped_session
 import pandas as pd
 from sqlalchemy import Column, Integer, String,  create_engine, Binary, DateTime
-from stream2segment.io.db.pd_sql_utils import setpkeys, add2db, _get_max, add2db_autoincpkey,\
+from stream2segment.io.db.pd_sql_utils import fetchsetpkeys, add2db, _get_max, sync,\
     dfupdate
 from datetime import datetime
 import numpy as np
@@ -183,29 +183,29 @@ class Test(unittest.TestCase):
         assert new == 0  # nothing is added (as new)
         assert len(newd) == dlen -1
 
-    def test_setpkeys_(self):
+    def test_fetchsetpkeys_(self):
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
         d2009 = datetime(2009, 9, 25)
         self.init_db([{'id':1, 'name':'a'}, {'id':2, 'name':'b'}, {'id':3, 'name': "c"}])
         d = pd.DataFrame([{'name': 'a'}, {'name': 'b'}, {'name': 'd'}])
-        d2 = setpkeys(d, self.session, [Customer.name], Customer.id)
+        d2 = fetchsetpkeys(d, self.session, [Customer.name], Customer.id)
         expected_ids = [1, 1, np.nan]
         assert array_equal(d2['id'], expected_ids)
         
-    def test_setpkeys_2(self):
+    def test_fetchsetpkeys_2(self):
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
         d2009 = datetime(2009, 9, 25)
         self.init_db([{'id':1, 'name':'a'}, {'id':2, 'name':'b'}])
         d = pd.DataFrame([{'name': 'a'}, {'name': 'b'}, {'name': 'd'}])
-        d2 = setpkeys(d, self.session, [Customer.name], Customer.id)
+        d2 = fetchsetpkeys(d, self.session, [Customer.name], Customer.id)
         expected_ids = [1,2,np.nan]
         assert array_equal(d2['id'], expected_ids)
         
-    def test_setpkeys_3(self):
+    def test_fetchsetpkeys_3(self):
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
@@ -215,12 +215,12 @@ class Test(unittest.TestCase):
         d = pd.DataFrame([{'name': 'a', 'time': None}, {'name': 'b', 'time': d2006},
                           {'name': 'c', 'time': d2009}, {'name': 'a', 'time': None},
                           {'name': 'a', 'time': d2006}])
-        d2 = setpkeys(d, self.session, [Customer.name, Customer.time], Customer.id)
+        d2 = fetchsetpkeys(d, self.session, [Customer.name, Customer.time], Customer.id)
         expected_ids = [3,np.nan,np.nan,3,1]
         assert array_equal(d2['id'], expected_ids)
         # assert pd.isnull(d2.loc[d2['name'] == 'd']['id']).all()
         
-    def test_setpkeys_4(self):
+    def test_fetchsetpkeys_4(self):
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
@@ -230,12 +230,12 @@ class Test(unittest.TestCase):
         d = pd.DataFrame([{'id':45, 'name': 'a', 'time': None}, {'id':45, 'name': 'b', 'time': d2006},
                           {'id':45, 'name': 'c', 'time': d2009}, {'id':45, 'name': 'a', 'time': None},
                           {'id':45, 'name': 'a', 'time': d2006}])
-        d2 = setpkeys(d, self.session, [Customer.name, Customer.time], Customer.id)
+        d2 = fetchsetpkeys(d, self.session, [Customer.name, Customer.time], Customer.id)
         expected_ids = [3,45, 45, 3, 1]
         assert array_equal(d2['id'], expected_ids)
         
     
-    def test_add2db_autoincpkey(self):
+    def test_sync(self):
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
@@ -243,15 +243,17 @@ class Test(unittest.TestCase):
         self.init_db([{'id':1, 'name':'a', 'time': d2006}, {'id':2, 'name':'a', 'time': d2008},
                       {'id':3, 'name':'a', 'time': None}])
         mxx = _get_max(self.session, Customer.id)
-        expected_ids = [3, mxx+1, mxx+2, 3, 1]
+        # expected_ids should be [3, mxx+1, mxx+2, 3, 1]
+        # but dataframe 1st item and 4th item are the same, the second will be dropped, thus:
+        expected_ids = [3, mxx+1, mxx+2, 1]
         d = pd.DataFrame([{'name': 'a', 'time': None}, {'name': 'b', 'time': d2006},
                           {'name': 'c', 'time': d2009}, { 'name': 'a', 'time': None},
                           {'name': 'a', 'time': d2006}])
-        d2, discarded, new = add2db_autoincpkey(d, self.session, [Customer.name, Customer.time], Customer.id)
+        d2, discarded, new = sync(d, self.session, [Customer.name, Customer.time], Customer.id)
         
         assert array_equal(d2['id'], expected_ids)
     
-    def test_add2db_autoincpkey_2(self):
+    def test_sync_2(self):
         """Same as above but the second non-existing item is conflicting with the first added"""
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
@@ -261,18 +263,25 @@ class Test(unittest.TestCase):
         self.init_db([{'id':1, 'name':'a', 'time': d2006}, {'id':2, 'name':'a', 'time': d2008},
                       {'id':3, 'name':'a', 'time': None}])
         mxx = _get_max(self.session, Customer.id)
-        # As we have duplicates, it's the second instance that will be added, not the third
-        # Check test below
-        expected_ids = [3, mxx+1, np.nan, 3, 1]
         d = pd.DataFrame([{'name': 'a', 'time': None}, {'name': 'b', 'time': d2006},
                           {'name': 'b', 'time': d2006}, { 'name': 'a', 'time': None},
                           {'name': 'a', 'time': d2006}])
-        d2, discarded, new = add2db_autoincpkey(d, self.session, [Customer.name, Customer.time], Customer.id)
-        
-        assert array_equal(d2['id'], expected_ids)
+# d is:
+#           name       time   id
+#         0    a        NaT  3.0
+#         1    b 2006-01-01  NaN
+#         2    b 2006-01-01  NaN
+#         3    a        NaT  3.0
+#         4    a 2006-01-01  1.0
+        d2, discarded, new = sync(d, self.session, [Customer.name, Customer.time], Customer.id)
+# d2 should be:
+#           name       time   id
+#         0    a        NaT  3.0
+#         1    b 2006-01-01  4.0
+#         4    a 2006-01-01  1.0
+        assert array_equal(d2['id'], [3, mxx+1, 1])
 
-    def test_add2db_autoincpkey_2_no_remove_dupes(self):
-        """Same as above but the second non-existing item is conflicting with the first added"""
+    def test_sync_2_no_drop_dupes(self):
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
@@ -281,18 +290,28 @@ class Test(unittest.TestCase):
         self.init_db([{'id':1, 'name':'a', 'time': d2006}, {'id':2, 'name':'a', 'time': d2008},
                       {'id':3, 'name':'a', 'time': None}])
         mxx = _get_max(self.session, Customer.id)
-        # As we have duplicates, it's actually the third instance to be added, not the second!!!
-        # this is a behaviour we do not want to correct for, as we should remove dupes first
-        expected_ids = [3, np.nan, mxx+1, 3, 1]
         d = pd.DataFrame([{'name': 'a', 'time': None}, {'name': 'b', 'time': d2006},
                           {'name': 'b', 'time': d2006}, { 'name': 'a', 'time': None},
                           {'name': 'a', 'time': d2006}])
-        d2, discarded, new = add2db_autoincpkey(d, self.session, [Customer.name, Customer.time],
-                                                Customer.id, drop_newinst_duplicates=False)
+# d is:
+#           name       time  (id)
+#         0    a        NaT  3.0
+#         1    b 2006-01-01  NaN
+#         2    b 2006-01-01  NaN
+#         3    a        NaT  3.0
+#         4    a 2006-01-01  1.0
+        d2, discarded, new = sync(d, self.session, [Customer.name, Customer.time], Customer.id,
+                                  drop_newinst_duplicates=False)
+# d2 should be:
+#           name       time   id
+#         0    a        NaT  3.0
+#         1    b 2006-01-01  4.0
+#         2    b 2006-01-01  5.0
+#         3    a        NaT  3.0
+#         4    a 2006-01-01  1.0
+        assert array_equal(d2['id'], [3, mxx+1, mxx+2, 3, 1])
         
-        assert array_equal(d2['id'], expected_ids)
-        
-    def test_add2db_autoincpkey_3(self):
+    def test_sync_3(self):
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
@@ -302,8 +321,12 @@ class Test(unittest.TestCase):
         d = pd.DataFrame([{'id':45, 'name': 'a', 'time': None}, {'id':45, 'name': 'b', 'time': d2006},
                           {'id':45, 'name': 'c', 'time': d2009}, {'id':45, 'name': 'a', 'time': None},
                           {'id':45, 'name': 'a', 'time': d2006}])
-        d2, discarded, new = add2db_autoincpkey(d, self.session, [Customer.name, Customer.time], Customer.id)
-        expected_ids = [3,45, 45, 3, 1]
+        d2, discarded, new = sync(d, self.session, [Customer.name, Customer.time], Customer.id)
+        # Note that in this case {'id':45, 'name': 'b', 'time': d2006}, and
+        # {'id':45, 'name': 'c', 'time': d2009} are still valid and in d2 cause they don't have
+        # matching on the table => their id is not updated and they don't have null id =>
+        # they id is not set
+        expected_ids = [3, 45, 45, 1]
         assert array_equal(d2['id'], expected_ids)
     
 
@@ -413,7 +436,7 @@ class Test(unittest.TestCase):
 
 def array_equal(a1, a2):
     """test array equality by assuming nan == nan. Probably already implemented somewhere in numpy, no time for browsing now"""
-    return all([c ==d or (np.isnan(c) == np.isnan(d)) for c, d in izip(a1, a2)])
+    return len(a1) == len(a2) and all([c ==d or (np.isnan(c) == np.isnan(d)) for c, d in izip(a1, a2)])
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']

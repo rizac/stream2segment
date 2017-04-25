@@ -17,10 +17,24 @@
 # (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)
 dburl: 'sqlite:////path/to/my/db.sqlite'
 
-# Set what to do with already saved segments which are empty
-# (the datacenter query returned zero bytes) or null (the datacenter query resulted in a connection error).
-# Optional: defaults to false if missing
-retry: false
+# Try to dowonload again already saved segments whose response do not have a status code. This might happen
+# when queries for several channels are made (e.g. HH?) and not all expected channels are returned:
+# as we cannot be sure that segments related to missing channels have a 204 code (No Content) they
+# will be saved with NULL data and NULL status code
+retry_no_code: true
+# Try to dowonload again already saved segments whose response could not be retrieved because of a
+# general url error (e.g., no internet connection. Responses returning error codes in the
+# 400–599 range are not included here)
+retry_url_errors: true
+# Try to dowonload again already saved segments whose response was successful but whose bytes data is
+# corrupted or malformed when trying to read it
+retry_mseed_errors: false
+# Try to dowonload again already saved segments whose response returned a status code in the
+# 400-499 range (Client errors)
+retry_4xx: false
+# Try to dowonload again already saved segments whose response returned a status code in the
+# 500-599 range (Server errors)
+retry_5xx: true
 
 # set if station inventories should be downloaded (already downloaded inventories are always skipped)
 # inventories are saved for each station and can be used for removing the intrumental response
@@ -64,11 +78,6 @@ channels:
  - 'HL?'
  # - 'SL?'
 
-# Stations time window: specify two positive integers denoting the hours before and after
-# each event time, to set the start and end time of the stations search
-stimespan:
- - 0 # for each event, limit the search to stations installed at the event time minus this value (in hours)
- - 24 # for each event, limit the search to stations installed at the event time plus this value (in hours)
 
 # search radius: for each event, stations will be searched within a circular area whose radius is a linear function
 # of the event magnitude:
@@ -156,6 +165,7 @@ class_labels:
   Unknown: "Segment which is either: unlabeled (not annotated) or unclassified"
   Ok: "Segment with no artifact"
   LowS2N: "Segment has a low signal-to-noise ratio"
-  MultiEvent: "Segment with overlapping multi-events recorded"
+  Aftershock: "Segment with non overlapping multi-events recorded (aftershock)"
+  MultiEvent: "Segment with overlapping multi-events recorded (no aftershock)"
   BadCoda: "Segment with a bad coda (bad decay)"
 

@@ -287,7 +287,7 @@ class Segment(Base):
     seed_identifier = Column(String, nullable=False)
     event_distance_deg = Column(Float, nullable=False)
     data = deferred(Column(Binary))  # lazy load only upon access
-    http_status_code = Column(Integer, nullable=True)
+    download_status_code = Column(Integer, nullable=True)
     start_time = Column(DateTime, nullable=False)
     arrival_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)

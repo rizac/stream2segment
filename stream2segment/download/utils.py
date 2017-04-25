@@ -4,7 +4,7 @@ Created on Nov 25, 2016
 @author: riccardo
 '''
 import re
-from datetime import timedelta
+from datetime import timedelta, datetime
 # from collections import defaultdict
 import numpy as np
 import pandas as pd
@@ -20,10 +20,40 @@ from obspy.taup.taup_time import TauPTime
 from obspy.geodetics.base import locations2degrees
 from itertools import izip, count
 from stream2segment.utils.resources import version
-from stream2segment.utils.url import urlread
+from stream2segment.utils.url import urlread, URLException
 from stream2segment.io.utils import dumps_inv, loads_inv
 from sqlalchemy.orm.session import object_session
+import dateutil
 # from stream2segment.io.utils import dumps_inv
+
+
+def get_events_list(eventws, **args):
+    """Returns a list of tuples (raw_data, status, url_string) elements from an eventws query
+    The list is due to the fact that entities too large are split into subqueries
+    rasw_data's can be None in case of URLExceptions (the message tells what happened in case)
+    """
+    url = urljoin(eventws, format='text', **args)
+    arr = []
+    try:
+        raw_data, code, msg = urlread(url, decode='utf8', raise_http_err=False)
+        if code == 413:  # payload too large (formerly: request entity too large)
+            start = dateutil.parser.parse(args.get('start', datetime(1970, 1, 1).isoformat()))
+            end = dateutil.parser.parse(args.get('end', datetime.utcnow().isoformat()))
+            total_seconds_diff = ((end-start)/2).total_seconds()
+            if total_seconds_diff < 1:
+                arr.append((None, "Cannot futher split start and end time", url))
+            else:
+                dtime = timedelta(seconds=int(total_seconds_diff))
+                bounds = [start.isoformat(), (start+dtime).isoformat(), end.isoformat()]
+                arr.extend(get_events_list(eventws, **dict(args, start=bounds[0], end=bounds[1])))
+                arr.extend(get_events_list(eventws, **dict(args, start=bounds[1], end=bounds[2])))
+        else:
+            arr = [(raw_data, msg, url)]
+    except URLException as exc:
+        arr = [(None, str(exc.exc), url)]
+    except:
+        raise
+    return arr
 
 
 def run_instance(session=None, **args):
@@ -137,17 +167,17 @@ def get_search_radius(mag, minmag, maxmag, minradius, maxradius):
 
 
 # ==========================================
-def query2dframe(query_result_str, strip_cells=True):
+def response2df(response_data, strip_cells=True):
     """
-        Returns a pandas dataframe from the given query_result_str
-        :param: query_result_str
+        Returns a pandas dataframe from the given response_data
+        :param: response_data the string sequence of data
         :raise: ValueError in case of errors (mismatching row lengths), including the case
-        where the resulting dataframe is empty. Note that query_result_str evaluates to False, then
+        where the resulting dataframe is empty. Note that response_data evaluates to False, then
         `empty()` is returned without raising
     """
-    if not query_result_str:
-        return empty()
-    events = query_result_str.splitlines()
+    if not response_data:
+        raise ValueError("empty response data")
+    events = response_data.splitlines()
     data = []
     columns = None
     colnum = 0
@@ -165,12 +195,12 @@ def query2dframe(query_result_str, strip_cells=True):
             columns = evt_list
             colnum = len(columns)
         elif len(evt_list) != colnum:
-            raise ValueError("Column length mismatch while parsing query result")
+            raise ValueError("Column length mismatch while parsing response data")
         else:
             data.append(evt_list)
 
     if not data or not columns:
-        raise ValueError("Data empty after parsing query result (malformed data)")
+        raise ValueError("Data empty after parsing response data (malformed data)")
     return pd.DataFrame(data=data, columns=columns)
 
 

@@ -16,6 +16,7 @@ from collections import defaultdict
 from stream2segment.io.db.models import Base
 from stream2segment.utils.resources import get_default_cfg_filepath
 import sys
+from itertools import izip
 
 
 # THESE FUNCTIONS WERE IMPLEMENTED TO BE PYTHON2 AND 3 COMPLIANT, BUT WE DO NOT USE THEM ANYWHERE...
@@ -50,6 +51,69 @@ import sys
 #     if isinstance(unicodestr, bytes):  # works for both py2 and py3
 #         return unicodestr
 #     return unicodestr.encode(encoding)
+
+class strconvert(object):
+
+    @staticmethod
+    def sql2wild(text):
+        """
+        :return: a string by replacing in `text` all sql 'like' wildcards ('%', '_') with text
+        search equivalent ('*', '?')
+        """
+        return text.replace("%", "*").replace("_", "?")
+
+    @staticmethod
+    def wild2sql(text):
+        """
+        :return: a string by replacing in `text` all text search wildcards ('*', '?') with
+        sql 'like' equivalent ('%', '_')
+        """
+        return text.replace("*", "%").replace("?", "_")
+
+    @staticmethod
+    def wild2re(text):
+        """
+        :return: a string by replacing in `text` all text search wildcards ('*', '?') with
+        regular expression equivalent ('.*', '.')
+        """
+        return re.escape(text).replace(r"\*", ".*").replace(r"\?", ".")
+
+    @staticmethod
+    def sqld2re(text):
+        """
+        :return: a string by replacing in `text` all sql 'like' wildcards ('%', '_') with
+        regular expression equivalent ('.*', '.')
+        """
+        return re.escape(text).replace(r"\%", ".*").replace(r"\_", ".")
+
+
+# def strconvert(string, src='text', dest='regex'):
+#     """
+#     Converts text to regular expression (regex) or sql like constructs. Does not escape `string`,
+#     so string should not have wildcards (special characters) in the `dest` language:
+# 
+#     :param string: the string to convert
+#     :param src: the string identifying the source "language": 'text' (using normal
+#     wildcards '*' and '?'), 'regexp ('.*', '*') or 'sql' ('%', '_')
+# 
+#     Summary table
+#     =============
+# 
+#     wildcard character meaning                         regexp equivalent sql 'like' equivalent
+#     ================== =============================== ================= =====================
+#     *                  matches zero or more characters .*                %
+#     ?                  matches exactly one character   .                 _
+# 
+#     returns a sql "like" expression from a given fdsn channel constraint parameters
+#     (network,    station,    location    and channel) converting wildcards, if any"""
+# 
+#     assert src in ('text', 'regex', 'sql')
+#     assert dest in ('text', 'regex', 'sql')
+#     wildcs = {'text': ['*', '?'], 'regex': ['.*', '.'], 'sql': ['%', '_']}
+#     for char_src, char_dest in izip(wildcs[src], wildcs['dest']):
+#         string = string.replace(char_src, char_dest)
+#     return string
+
 
 def load_source(pyfilepath):
     """Loads a source python file and returns it"""
