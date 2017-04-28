@@ -91,9 +91,9 @@ channels:
 #                   |
 #                   ---------+-------+------------
 #                         minmag   maxmag
-# NOTE, IMPORTANT:
+# NOTE:
 # if maxradius == minradius=R, this is equivalent to a constant function returning always R regardless of the magnitude
-# if minmag == maxmag = M (and maxradius not equal to minradius), this function returns minradius for all magnitudes < M,
+# otherwise (maxradius != minradius), if minmag == maxmag = M, this function returns minradius for all magnitudes < M,
 #     maxradius for all magnitudes > M, and (minradius+maxradius)/2 for all magnitudes == M
 search_radius:
  minmag: 6 # min magnitude
@@ -101,8 +101,8 @@ search_radius:
  minradius: 3 # min radius (deg)
  maxradius: 3 # max radius (deg)
  
-# Limit the search to stations with at least min_sample_rate (in Hz).
-# The relative segments are *mot likely* (not always) matching the station sample rate.
+# Limit the search to station channels with at least min_sample_rate (in Hz).
+# The relative segments are *mot likely* (not always) matching the channel sample rate.
 # Set to 0 or negative number to ignore the sampling rate
 min_sample_rate: 60
 
@@ -112,7 +112,8 @@ min_sample_rate: 60
 # the station's datacenter in time a window around AT (see parameter wtimespan below). The more items
 # you set here below, the more likely a minimum is found, but the more time is needed to calculate
 # all of them.
-# NOTE: This parameter is ignored for already downloaded segments, so if you try to adjust the
+# NOTE:
+# This parameter is ignored for already downloaded segments, so if you try to adjust the
 # arrival time for all downloaded segments you must run a new download from scratch (e.g., specifying a new
 # databse output with dburl)
 # For info see: https://docs.obspy.org/packages/obspy.taup.html#phase-naming-in-obspy-taup

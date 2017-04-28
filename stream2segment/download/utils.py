@@ -5,32 +5,28 @@ Created on Nov 25, 2016
 '''
 import re
 from datetime import timedelta, datetime
-# from collections import defaultdict
+import dateutil
+from itertools import izip, count
 import numpy as np
 import pandas as pd
-# from sqlalchemy import and_
+from sqlalchemy.orm.session import object_session
 from obspy.taup import TauPyModel
-# from obspy.geodetics import locations2degrees
-# from obspy.taup.helper_classes import TauModelError, SlownessModelError
-# from stream2segment.utils.url import url_read
+from obspy.taup.taup_time import TauPTime
+from obspy.geodetics.base import locations2degrees
 from stream2segment.io.db.models import Event, Station, Run, Channel
 from stream2segment.io.db.pd_sql_utils import harmonize_columns,\
     harmonize_rows, colnames
-from obspy.taup.taup_time import TauPTime
-from obspy.geodetics.base import locations2degrees
-from itertools import izip, count
 from stream2segment.utils.resources import version
 from stream2segment.utils.url import urlread, URLException
 from stream2segment.io.utils import dumps_inv, loads_inv
-from sqlalchemy.orm.session import object_session
-import dateutil
-# from stream2segment.io.utils import dumps_inv
 
 
 def get_events_list(eventws, **args):
     """Returns a list of tuples (raw_data, status, url_string) elements from an eventws query
     The list is due to the fact that entities too large are split into subqueries
     rasw_data's can be None in case of URLExceptions (the message tells what happened in case)
+    :raise: ValueError if the query cannot be firhter splitted (max difference between start and
+    end time : 1 second)
     """
     url = urljoin(eventws, format='text', **args)
     arr = []
@@ -41,7 +37,8 @@ def get_events_list(eventws, **args):
             end = dateutil.parser.parse(args.get('end', datetime.utcnow().isoformat()))
             total_seconds_diff = ((end-start)/2).total_seconds()
             if total_seconds_diff < 1:
-                arr.append((None, "Cannot futher split start and end time", url))
+                raise ValueError("Cannot futher split start and end time")
+                # arr.append((None, "Cannot futher split start and end time", url))
             else:
                 dtime = timedelta(seconds=int(total_seconds_diff))
                 bounds = [start.isoformat(), (start+dtime).isoformat(), end.isoformat()]
@@ -176,8 +173,7 @@ def response2df(response_data, strip_cells=True):
         `empty()` is returned without raising
     """
     if not response_data:
-        raise ValueError("empty response data")
-    events = response_data.splitlines()
+        raise ValueError("Empty input data")
     data = []
     columns = None
     colnum = 0
@@ -189,18 +185,19 @@ def response2df(response_data, strip_cells=True):
     # 1  3  4  5.0
     # We use simple list append and not np.append cause np string arrays having fixed lengths
     # sometimes cut strings. np.append(arr1, arr2) seems to handle this, but let's be safe
-    for i, evt in enumerate(events):
-        evt_list = evt.split('|') if not strip_cells else [e.strip() for e in evt.split("|")]
+    textlines = response_data.splitlines()
+    for i, line in enumerate(textlines):
+        items = line.split('|') if not strip_cells else [_.strip() for _ in line.split("|")]
         if i == 0:
-            columns = evt_list
+            columns = items
             colnum = len(columns)
-        elif len(evt_list) != colnum:
-            raise ValueError("Column length mismatch while parsing response data")
+        elif len(items) != colnum:
+            raise ValueError("Column length mismatch")
         else:
-            data.append(evt_list)
+            data.append(items)
 
     if not data or not columns:
-        raise ValueError("Data empty after parsing response data (malformed data)")
+        raise ValueError("Data empty after parsing")
     return pd.DataFrame(data=data, columns=columns)
 
 
@@ -414,8 +411,7 @@ def get_inventory_url(station):
 
 
 def get_inventory_url_(station_query_url, network, station):
-    return urljoin(station_query_url, station=station, network=network,
-                     level='response')
+    return urljoin(station_query_url, station=station, network=network, level='response')
 
 
 def save_inventory(downloaded_data, station):
@@ -426,29 +422,28 @@ def save_inventory(downloaded_data, station):
         raise TypeError()
     station.inventory_xml = dumps_inv(downloaded_data)
     session.commit()
-    return
 
 
-def calculate_times(sta_lat, sta_lon, evt_lat, evt_lon, evt_depth_km, evt_time,
-                    traveltime_phases, taup_model='ak135'):
-    taupmodel_obj = TauPyModel(taup_model)  # create the taupmodel once
-    # old comment (REMOVE not used here anymore):
-    # iteration over dframe columns is faster than DataFrame.itertuples
-    # and is more readable as we only need a bunch of columns.
-    # Note: we zip using dataframe[columname] iterables. Using
-    # dataframe[columname].values (underlying pandas numpy array) is even faster,
-    # BUT IT DOES NOT RETURN pd.TimeStamp objects for date-time-like columns but np.datetim64
-    # instead. As the former subclasses python datetime (so it's sqlalchemy compatible) and the
-    # latter does not, we go for the latter ONLY BECAUSE WE DO NOT HAVE DATETIME LIKE OBJECTS:
-#     for sta_id, stalat, stalon in izip(stations_df[Channel.station_id.key].values,
-#                                        stations_df[Station.latitude.key].values,
-#                                        stations_df[Station.longitude.key].values):
-
-    # stalat, stalon = getattr(sta, latstr), getattr(sta, lonstr)
-    degrees = locations2degrees(evt_lat, evt_lon, sta_lat, sta_lon)
-    arr_time = get_arrival_time(degrees, evt_depth_km, evt_time, traveltime_phases,
-                                taupmodel_obj)
-    return degrees, arr_time
+# def calculate_times(sta_lat, sta_lon, evt_lat, evt_lon, evt_depth_km, evt_time,
+#                     traveltime_phases, taup_model='ak135'):
+#     taupmodel_obj = TauPyModel(taup_model)  # create the taupmodel once
+#     # old comment (REMOVE not used here anymore):
+#     # iteration over dframe columns is faster than DataFrame.itertuples
+#     # and is more readable as we only need a bunch of columns.
+#     # Note: we zip using dataframe[columname] iterables. Using
+#     # dataframe[columname].values (underlying pandas numpy array) is even faster,
+#     # BUT IT DOES NOT RETURN pd.TimeStamp objects for date-time-like columns but np.datetim64
+#     # instead. As the former subclasses python datetime (so it's sqlalchemy compatible) and the
+#     # latter does not, we go for the latter ONLY BECAUSE WE DO NOT HAVE DATETIME LIKE OBJECTS:
+# #     for sta_id, stalat, stalon in izip(stations_df[Channel.station_id.key].values,
+# #                                        stations_df[Station.latitude.key].values,
+# #                                        stations_df[Station.longitude.key].values):
+# 
+#     # stalat, stalon = getattr(sta, latstr), getattr(sta, lonstr)
+#     degrees = locations2degrees(evt_lat, evt_lon, sta_lat, sta_lon)
+#     arr_time = get_arrival_time(degrees, evt_depth_km, evt_time, traveltime_phases,
+#                                 taupmodel_obj)
+#     return degrees, arr_time
 
 
 class UrlStats(dict):
@@ -631,6 +626,48 @@ def stats2str(data, fillna=None, transpose=False,
         ret = "%s\n%s\n%s\n%s" % (ret, "-"*len(legendtitle), legendtitle, "\n".join(columndetails))
 
     return ret
+
+
+def locations2degrees(lat1, lon1, lat2, lon2):
+    """
+    Same as obspy `locations2degree` but works with numpy arrays
+
+    From the doc:
+    Convenience function to calculate the great circle distance between two
+    points on a spherical Earth.
+
+    This method uses the Vincenty formula in the special case of a spherical
+    Earth. For more accurate values use the geodesic distance calculations of
+    geopy (https://github.com/geopy/geopy).
+
+    :type lat1: numpy numeric array
+    :param lat1: Latitude(s) of point 1 in degrees
+    :type lon1: numpy numeric array
+    :param lon1: Longitude(s) of point 1 in degrees
+    :type lat2: numpy numeric array
+    :param lat2: Latitude(s) of point 2 in degrees
+    :type lon2: numpy numeric array
+    :param lon2: Longitude(s) of point 2 in degrees
+    :rtype: numpy numeric array
+    :return: Distance in degrees as a floating point number.
+
+    """
+    # Convert to radians.
+    lat1 = np.radians(np.asarray(lat1))
+    lat2 = np.radians(np.asarray(lat2))
+    lon1 = np.radians(np.asarray(lon1))
+    lon2 = np.radians(np.asarray(lon2))
+    long_diff = lon2 - lon1
+    gd = np.degrees(
+        np.arctan2(
+            np.sqrt((
+                np.cos(lat2) * np.sin(long_diff)) ** 2 +
+                (np.cos(lat1) * np.sin(lat2) - np.sin(lat1) *
+                    np.cos(lat2) * np.cos(long_diff)) ** 2),
+            np.sin(lat1) * np.sin(lat2) + np.cos(lat1) * np.cos(lat2) *
+            np.cos(long_diff)))
+    return gd
+
 
 #     with pd.option_context('display.max_rows', len(dframe),
 #                            'display.max_columns', len(dframe.columns),

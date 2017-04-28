@@ -14,11 +14,45 @@ from datetime import datetime, timedelta
 from StringIO import StringIO
 import stream2segment
 from stream2segment.download.utils import get_min_travel_time, get_search_radius, UrlStats,\
-    stats2str
+    stats2str, locations2degrees as s2sloc2deg
+from obspy.geodetics.base import locations2degrees  as obspyloc2deg
+
 import numpy as np
 import code
-from itertools import count
+from itertools import count, izip
+import time
 
+@pytest.mark.parametrize('lat1, lon1, lat2, lon2',
+                         [
+                            (5, 3, 5, 7),
+                            ([11, 1.4, 3, -17.11], [-1, -.4, 33, -17.11], [0, 0, 0, 0], [1,2,3,4])
+                          ]
+                         )
+def test_loc2deg(lat1, lon1, lat2, lon2):
+    if hasattr(lat1, "__iter__"):
+        assert np.array_equal(s2sloc2deg(lat1, lon1, lat2, lon2), np.asarray(list(obspyloc2deg(l1, l2, l3, l4) for l1,l2,l3,l4 in zip(lat1,lon1,lat2,lon2))))
+    else:   
+        assert np.array_equal(s2sloc2deg(lat1, lon1, lat2, lon2), np.asarray(obspyloc2deg(lat1, lon1, lat2, lon2)))
+
+# rename as test_perf if you want to see perf differences between onspy loc2deg and s2s loc2deg
+# (use -s with pytest in case)
+def tst_perf():
+    N = 1000
+    lat1 = np.random.randint(0, 90, N).astype(float)
+    lon1 = np.random.randint(0, 90, N).astype(float)
+    lat2 = np.random.randint(0, 90, N).astype(float)
+    lon2 = np.random.randint(0, 90, N).astype(float)
+    
+    s = time.time()
+    s2sloc2deg(lat1, lon1, lat2, lon2)
+    end = time.time() - s
+    
+    s2 = time.time()
+    for l1, l2, l3, l4 in izip(lat1, lon1, lat2, lon2):
+        s2sloc2deg(l1, l2, l3, l4)
+    end2 = time.time() - s2
+    
+    print "%d loops. Numpy loc2deg: %f, obspy loc2deg: %f" % (N, end, end2)
 
 @patch('stream2segment.download.utils.TauPyModel')
 @patch('stream2segment.download.utils.TauPTime')

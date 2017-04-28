@@ -16,31 +16,32 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
             raise_http_err=True, **kwargs):
     """
         Reads and return data from the given url. Wrapper around urllib2.open with some
-        features added.
+        features added. Returns the tuple (content_read, status, message)
 
         :param url: (string or urllib2.Request) a valid url or an `urllib2.Request` object
         :param blockSize: int, default: -1. The block size while reading, -1 means:
-            read entire content at once
+        read entire content at once
         :param: decode: string or None, default: None. The string used for decoding to string
-        (e.g., 'utf8'). If None, the result is returned as it is (byte string, note that in
-        Python2 this is equivalent to string), otherwise as unicode string
+        (e.g., 'utf8'). If None, the result is returned as it is (type `bytes`, note that in
+        Python2 this is equivalent to `str`), otherwise as unicode string (`str` in python3+)
         :param wrap_exceptions: if True (the default), all url-related exceptions
         ```urllib2.HTTPError, urllib2.URLError, httplib.HTTPException, socket.error```
-        will be caught and wrapped into an `URLException` that will be raised
-        (the original exception can always be retrieved via 'URLException.exc')
+        will be caught and wrapped into an `URLException` object E that will be raised
+        (the original exception can always be retrieved via `E.exc`)
         :param raise_http_err: If True (the default) `urllib2.HTTPError`s will be treated as
-        normal exceptions. Otherwise, they will treated as response object and the tuple
+        normal exceptions. Otherwise, they will treated as response object and the
         tuple (None, status, message) will be returned, where
-        status (int) and message (string) are the http status code (from the doc, most likely
-        in the range 4xx-5xx) and message is the string denoting the status message,
+        `status` (int) is the http status code (from the doc, most likely
+        in the range 4xx-5xx) and `message` (string) is the string denoting the status message,
         respectively
         :param kwargs: optional arguments for `urllib2.urlopen` function (e.g., timeout=60)
-        :return: the tuple (bytes read, status code, status message), where the first item is
-        the bytes sequence read (can be None if `raise_http_err=False`),
+        :return: the tuple (content_read, status code, status message), where the first item is
+        the bytes sequence read (can be None if `raise_http_err=False`, is string - unicode in
+        python2 - if `decode` is given, i.e. not None),
         the second item is the int denoting the http status code (int), and the third the http
         status message (string)
-        :raise: `URLException` if `wrap_exceptions` is True. Otherwise
-        `urllib2.HTTPError`, `urllib2.URLError`, `httplib.HTTPException`, `socket.error``
+        :raise: `URLException` if `wrap_exceptions` is True. Otherwise any of the following:
+        `urllib2.HTTPError`, `urllib2.URLError`, `httplib.HTTPException`, `socket.error`
         (the latter is the superclass of all `socket` exceptions such as `socket.timeout`)
     """
     try:
@@ -74,10 +75,15 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
 
 
 class URLException(Exception):
+    """Custom exceptions which wraps any url/http related exception:
+    `urllib2.HTTPError`, `urllib2.URLError`, `httplib.HTTPException`, `socket.error`
+    The original exception is retrievable via the `exc` attribute
+    """
     def __init__(self, original_exception):
         self.exc = original_exception
 
     def __str__(self):
+        """Represent this object as the original exception"""
         return str(self.exc)
 
 
@@ -191,7 +197,7 @@ def read_async(iterable, ondone, urlkey=None, max_workers=None, blocksize=1024*1
                 # this is executed in the main thread (thus is thread safe):
                 if kill:  # pylint:disable=protected-access
                     continue
-                elif ondone(*future_to_obj[future].result()) is True:
+                elif ondone(*future.result()) is True:
                     kill = True
         except:
             # According to this post:

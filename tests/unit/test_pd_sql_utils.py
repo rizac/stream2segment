@@ -301,7 +301,7 @@ class Test(unittest.TestCase):
 #         3    a        NaT  3.0
 #         4    a 2006-01-01  1.0
         d2, discarded, new = sync(d, self.session, [Customer.name, Customer.time], Customer.id,
-                                  drop_newinst_duplicates=False)
+                                  drop_duplicates=False)
 # d2 should be:
 #           name       time   id
 #         0    a        NaT  3.0

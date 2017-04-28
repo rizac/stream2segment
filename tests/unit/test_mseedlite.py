@@ -83,7 +83,7 @@ def test_standard():
     # get our dicts of trace_id: trace_bytes
     bytes_dic, gaps, errs = unpack(bytez)
     assert not errs
-    assert not gaps
+    assert all(g < 0.0001 for g in gaps.itervalues())
     # get the same dict by calling obspy.read:
     obspy_stream = get_stream(bytez)
     s2s_stream = get_s2s_stream(bytes_dic)
@@ -100,7 +100,7 @@ def test_with_gaps():
     # get our dicts of trace_id: trace_bytes
     bytes_dic, gaps, errs = unpack(bytez)
     assert not errs
-    assert gaps
+    assert any(g > 1 for g in gaps.itervalues())
     # get the same dict by calling obspy.read:
     obspy_stream = get_stream(bytez)
     s2s_stream = get_s2s_stream(bytes_dic)
@@ -125,7 +125,7 @@ def test_change_last_byte():
     # get our dicts of trace_id: trace_bytes
     bytes_dic, gaps, errs = unpack( bytez[:-1] + 'a')
     assert not errs
-    assert not gaps
+    assert all(g < 0.0001 for g in gaps.itervalues())
 
     obspy_stream = get_stream(bytez)
     s2s_stream = get_s2s_stream(bytes_dic)
@@ -143,7 +143,7 @@ def test_change_header_change_id():
     # erros is not empty but has the trace id 'aa.aaaaa.aa.aaa'. What is that?
     # is the id we created by modyfing the bytes above
     assert errs
-    assert not gaps
+    assert all(g < 0.0001 for g in gaps.itervalues())
 
     obspy_stream = get_stream(bytez)
     s2s_stream = get_s2s_stream(bytes_dic)
@@ -159,7 +159,7 @@ def test_change_header_keep_id():
     # erros is not empty but has the trace id 'aa.aaaaa.aa.aaa'. What is that?
     # is the id we created by modyfing the bytes above
     assert errs
-    assert not gaps
+    assert all(g < 0.0001 for g in gaps.itervalues())
 
     obspy_stream = get_stream(bytez)
     s2s_stream = get_s2s_stream(bytes_dic)

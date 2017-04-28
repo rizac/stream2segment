@@ -671,7 +671,7 @@ def dbquery2df(query):
 
 
 def sync(dataframe, session, matching_columns, autoincrement_pkey_col, add_buf_size=10,
-         drop_newinst_duplicates=True):
+         drop_duplicates=True):
     """
     Efficiently synchronizes the values of `autoincrement_pkey_col` on `dataframe` with the
     corresponding database table T, either by fetching the primary key, or by autoincrementing it
@@ -703,8 +703,9 @@ def sync(dataframe, session, matching_columns, autoincrement_pkey_col, add_buf_s
     single item in a buffer raises, all subsequent items are discarded, regardless if they
     would have raised or not), decrease it if speeds does not matter: in the lowest case (1)
     you will be sure to write all good instances without false negative
-    :param drop_newinst_duplicates: boolean, True. Before adding new items, drop duplicates under
-    `matching_columns`. You should always set this argument to True unless you are really sure
+    :param drop_duplicates: boolean, True. After having fetched the primary keys and set it to
+    the dataframe corresponding column, drop duplicates
+    under `matching_columns`. You should always set this argument to True unless you are really sure
     `dataframe` is with no duplicates under `matching_columns`, and you really want to save
     the extra time of dropping again (but is that saved time actually remarkable?)
 
@@ -745,11 +746,12 @@ def sync(dataframe, session, matching_columns, autoincrement_pkey_col, add_buf_s
 #     return new_df, discarded, new
     discarded = 0
     dframe_with_pkeys = fetchsetpkeys(dataframe, session, matching_columns, autoincrement_pkey_col)
-    if drop_newinst_duplicates:
+    if drop_duplicates:
         oldlen = len(dframe_with_pkeys)
-        dframe_with_pkeys = dframe_with_pkeys.drop_duplicates(subset=[k.key for k in matching_columns])
-        dframe_with_pkeys.is_copy = False
+        subset_cols = [k.key for k in matching_columns]
+        dframe_with_pkeys = dframe_with_pkeys.drop_duplicates(subset=subset_cols)
         discarded += oldlen - len(dframe_with_pkeys)
+        dframe_with_pkeys.is_copy = False
     new_df, _, new = syncnullpkeys(dframe_with_pkeys, session, autoincrement_pkey_col, add_buf_size)
     discarded += _
     return new_df, discarded, new
@@ -1031,7 +1033,7 @@ def dfupdate(df_old, df_new, matching_columns, set_columns, drop_df_new_duplicat
         be shared between both data frames
         :param set_columns: list of strings denoting the column to be set from `df_new` to
         `df_old` for those rows matching under `matching_cols`
-        :param drop_df_new_duplicates: If True (the default) drops duplicates under
+        :param drop_df_new_duplicates: If True (the default) drops duplicates of `df_new` under
         `matching_columns` before updating `df_old`
     """
     if df_new.empty or df_old.empty:  # for safety (avoid useless calculations)

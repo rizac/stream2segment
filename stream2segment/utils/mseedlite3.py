@@ -505,7 +505,7 @@ def _get_id(n, s, l, c):
     return "%s.%s.%s.%s" % (n.strip(), s.strip(), l.strip(), c.strip())
 
 
-def unpack(data):
+def unpack(data, gap_threshold=1):
     """
     Unpacks data into its "traces" (time series). Returns a tuples of two dicts:
     - a dict of keys  "network.station.location.channel" mapped to the bytes data representing
@@ -533,9 +533,9 @@ def unpack(data):
     # don't bother initializing keys if do not exist: use defaultdict:
     bytesio_dic = defaultdict(lambda: BytesIO())
     # store times (end_time) to check if next record begin_time matches
-    times = defaultdict(list)
+    last_endtimes = {}
     # store keys of miniseeds with gaps:
-    gaps = set()
+    max_gaps = defaultdict(float)
     # store keys of miniseeds with errors (mapped to their error):
     errors = {}
     input_ = Input2(data)
@@ -555,12 +555,11 @@ def unpack(data):
 #         print key + " " + str(s[0].stats.starttime)[str(s[0].stats.starttime).find('T'):] + " " + str(s[0].stats.endtime)[str(s[0].stats.endtime).find('T'):]
 
         # set gaps:
-        if key not in gaps:
-            timelist = times[key]
-            # FIXME: ask andres what the micro does!!
-            if timelist and abs(timelist[-1] - rec.begin_time).total_seconds() > (1.0/rec.fsamp):
-                gaps.add(key)
-            timelist.append(rec.end_time)
+        last_endtime = last_endtimes.get(key, None)
+        if last_endtime is not None:
+            gap_ratio = abs(last_endtime - rec.begin_time).total_seconds() * float(rec.fsamp)
+            max_gaps[key] = max(max_gaps[key], gap_ratio)
+        last_endtimes[key] = rec.end_time
 
         # tuple is hashable, as well as its args in this case:
         rec.write(bytesio_dic[key], int(log(rec.size)/log(2)))
@@ -571,4 +570,4 @@ def unpack(data):
         byteio.close()
         unpacked_data[key] = bytez
 
-    return unpacked_data, gaps, errors
+    return unpacked_data, max_gaps, errors

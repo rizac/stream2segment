@@ -14,7 +14,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Float,
-    Binary,
+    LargeBinary,
     # Numeric,
     # event,
     # CheckConstraint,
@@ -54,7 +54,7 @@ class Base(_Base):
             typ = col.type
             typ_str = str(typ)
             try:
-                val = "(not shown)" if type(typ) == Binary else str(getattr(self, colname))
+                val = "(not shown)" if type(typ) == LargeBinary else str(getattr(self, colname))
             except Exception as exc:
                 val = "(not shown: %s)" % str(exc)
             ret.append("%s %s: %s" % (colname, typ_str, val))
@@ -193,7 +193,7 @@ class Station(Base):
     site_name = deferred(Column(String))
     start_time = Column(DateTime, nullable=False)
     end_time = deferred(Column(DateTime))
-    inventory_xml = deferred(Column(Binary))  # lazy load: only upon direct access
+    inventory_xml = deferred(Column(LargeBinary))  # lazy load: only upon direct access
 
     __table_args__ = (
                       UniqueConstraint('network', 'station', 'start_time', name='net_sta_stime_uc'),
@@ -244,7 +244,7 @@ class Channel(Base):
     __tablename__ = "channels"
 
     id = Column(Integer, primary_key=True, autoincrement=True)  # , default=cha_pkey_default, onupdate=cha_pkey_default)
-    station_id = Column(String, ForeignKey("stations.id"), nullable=False)
+    station_id = Column(Integer, ForeignKey("stations.id"), nullable=False)
     location = Column(String, nullable=False)
     channel = Column(String, nullable=False)
     depth = Column(Float)
@@ -282,11 +282,11 @@ class Segment(Base):
 
     id = Column(Integer, primary_key=True)  # , default=seg_pkey_default, onupdate=seg_pkey_default)
     event_id = Column(String, ForeignKey("events.id"), nullable=False)
-    channel_id = Column(String, ForeignKey("channels.id"), nullable=False)
+    channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
     datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
     seed_identifier = Column(String, nullable=False)
     event_distance_deg = Column(Float, nullable=False)
-    data = deferred(Column(Binary))  # lazy load only upon access
+    data = deferred(Column(LargeBinary))  # lazy load only upon access
     download_status_code = Column(Integer, nullable=True)
     start_time = Column(DateTime, nullable=False)
     arrival_time = Column(DateTime, nullable=False)
