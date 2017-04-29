@@ -788,14 +788,14 @@ def add2db(dataframe, session, matching_columns, add_buf_size=10, query_first=Tr
     :param add_buf_size: integer, defaults to 10. When adding new items to T, another factor that
     speeds up a lot insertion is to reduce the commits by committing
     buffers if items (basically, lists) instead of committing each time. Increase this argument to
-    speed up insertion, at the cost of loosing more good instances in case of errors (when a
+    speed up insertion, at the cost of not saving "good" instances in case of errors (when a
     single item in a buffer raises, all subsequent items are discarded, regardless if they
     would have raised or not), decrease it if speeds does not matter: in the lowest case (1)
-    you will be sure to write all good instances without false negative
+    you will be sure to write all good instances without "false negatives"
     :param query_first: boolean (defaults to True): queries T for rows already present. If this
     argument is False no skip is done, i.e. for all rows of `dataframe` the function will
-    attempt to add them to T. **Set to False to speed up the function but only if you are
-    sure no row of `dataframe` violates any T constraint**
+    attempt to add them to T. **Set to False to speed up the function but in principle
+    only if you are sure no row of `dataframe` violates any T constraint**
     :param drop_duplicates: boolean, True. Before adding new items, drop duplicates under
     `matching_columns`. You should always set this argument to True unless you are really sure
     `dataframe` is with no duplicates under `matching_columns`, and you really want to save
@@ -899,9 +899,10 @@ def add2db(dataframe, session, matching_columns, add_buf_size=10, query_first=Tr
 def syncnullpkeys(dataframe, session, autoincrement_pkey_col, add_buf_size=10):
     """
     Efficiently adds the rows of `dataframe` to the corresponding database table T, skipping
-    db insertion for those `dataframe` rows where the values of `autoincrement_pkey_col` are not
-    n/a, (e.g., Null or NaN's,...) and inserting only n/a rows, after setting the primary
-    key according to the T maximum (mimicking db autoincrementing feature).
+    db insertion for those `dataframe` rows where the values of `autoincrement_pkey_col` are set
+    (i.e., not n/a, e.g., Null or NaN's,...) and inserting only n/a rows.
+    N/A rows primary keys will be set before insertion to T according to the T maximum
+    (mimicking db autoincrementing feature).
     `autoincrement_int_pkey_col.key` needs not to be a column of `dataframe`.
 
     Returns the tuple (d, discarded, new) where `d` is `dataframe`
