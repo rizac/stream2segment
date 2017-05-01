@@ -284,14 +284,14 @@ class Segment(Base):
     event_id = Column(String, ForeignKey("events.id"), nullable=False)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
     datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
-    seed_identifier = Column(String, nullable=False)
+    seed_identifier = Column(String)
     event_distance_deg = Column(Float, nullable=False)
     data = deferred(Column(LargeBinary))  # lazy load only upon access
     download_status_code = Column(Integer, nullable=True)
     start_time = Column(DateTime, nullable=False)
     arrival_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
-    sample_rate = Column(Float, nullable=False)
+    sample_rate = Column(Float)
     run_id = Column(Integer, ForeignKey("runs.id"), nullable=False)
 
     event = relationship("Event", backref=backref("segments", lazy="dynamic"))

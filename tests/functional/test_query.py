@@ -779,7 +779,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         return get_arrivaltimes(*a, **kw)
  
 
-    def tst_getset_arrivaltimes(self):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
+    def test_getset_arrivaltimes(self):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
         # prepare:
         urlread_sideeffect = None  # use defaults from class
         events_df = self.get_events_df(urlread_sideeffect, "http://eventws")
@@ -870,7 +870,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # make a copy of evts_stations_df cause we will modify in place the data frame
         segments_df =  self.get_arrivaltimes(deterministic_mintraveltime_sideeffect, evts_stations_df.copy(),
                                                    [1,2], ['P', 'Q'],
-                                                        'ak135')
+                                                        'ak135', mp_max_workers=1)
         
         # all failed, except the one we just set by mocking the db:
         assert len(segments_df) == expected_length  # cause 1 was just added to the db and it's not recalculated
@@ -900,7 +900,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # make a copy of evts_stations_df cause we will modify in place the data frame
         segments_df =  self.get_arrivaltimes(deterministic_mintraveltime_sideeffect, evts_stations_df.copy(),
                                                    [1,2], ['P', 'Q'],
-                                                        'ak135')
+                                                        'ak135', mp_max_workers=1)
         
         # all failed, except the one we just set by mocking the db:
         assert len(segments_df) == expected_length
@@ -956,18 +956,12 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                 # make a copy of evts_stations_df cause we will modify in place the data frame
         segments_df =  self.get_arrivaltimes(urlread_sideeffect, evts_stations_df.copy(),
                                                    [1,2], ['P', 'Q'],
-                                                        'ak135')
+                                                        'ak135', mp_max_workers=1)
         
         expected = len(segments_df)  # no segment on db, we should have all segments to download
-        segments_df = prepare_for_download(self.session, segments_df,
-                                           retry_no_code=True,
-                                           retry_url_errors=True,
-                                           retry_mseed_errors=True,
-                                           retry_4xx=True,
-                                           retry_5xx=True)
         
-        assert len(segments_df) == expected
-        assert len(session.query(Segment.id).all()) == len(segments_df)
+        assert not Segment.id.key in segments_df.columns
+        assert not Segment.run_id.key in segments_df.columns
         
         # segments_df:
 # channel_id  station_id  datacenter_id event_id         event_distance_deg arrival_time            start_time          end_time
@@ -978,6 +972,24 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 # 2           2           2             20160508_0000004 1.413532           2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31
 # 3           3           2             20160508_0000004 7.059033           2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31
 
+        segments_df = prepare_for_download(self.session, segments_df,
+                                           self.run.id,
+                                           retry_no_code=True,
+                                           retry_url_errors=True,
+                                           retry_mseed_errors=True,
+                                           retry_4xx=True,
+                                           retry_5xx=True)
+        
+        assert Segment.id.key in segments_df.columns
+        assert Segment.run_id.key in segments_df.columns
+        assert len(segments_df) == expected
+        assert len(self.session.query(Segment.id).all()) == len(segments_df)
+        
+        assert all(x[0] is None for x in self.session.query(Segment.download_status_code).all())
+        assert all(x[0] is None for x in self.session.query(Segment.data).all())
+
+        
+        
 
 
 

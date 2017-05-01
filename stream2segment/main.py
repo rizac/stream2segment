@@ -114,31 +114,27 @@ def download(dburl, start, end, eventws, eventws_query_args, stimespan,
     # remove db url password when printing:
 
     with closing(dburl) as session:
-        try:
-            # print local vars: use safe_dump to avoid python types. See:
-            # http://stackoverflow.com/questions/1950306/pyyaml-dumping-without-tags
-            run_inst = run_instance(session, config=tounicode(yaml.safe_dump(yaml_dict,
-                                                                             default_flow_style=False)))
-    
-            echo = printfunc(isterminal)  # no-op if argument is False
-            echo("Arguments:")
-            # replace dbrul passowrd for printing to terminal
-            yaml_dict['dburl'] = secure_dburl(yaml_dict['dburl'])
-            echo(indent(yaml.safe_dump(yaml_dict, default_flow_style=False), 2))
-    
-            configlog4download(logger, session, run_inst, isterminal)
-            with elapsedtime2logger_when_finished(logger):
-                query_main(session, run_inst.id, start, end, eventws, eventws_query_args,
-                           stimespan, search_radius['minmag'],
-                           search_radius['maxmag'], search_radius['minradius'],
-                           search_radius['maxradius'], channels,
-                           min_sample_rate, inventory, traveltime_phases, wtimespan,
-                           retry, advanced_settings, class_labels, isterminal)
-                logger.info("%d total error(s), %d total warning(s)", run_inst.errors,
-                            run_inst.warnings)
-        except Exception as exc:
-            logger.critical(str(exc))
-            raise
+        # print local vars: use safe_dump to avoid python types. See:
+        # http://stackoverflow.com/questions/1950306/pyyaml-dumping-without-tags
+        run_inst = run_instance(session, config=tounicode(yaml.safe_dump(yaml_dict,
+                                                                         default_flow_style=False)))
+
+        echo = printfunc(isterminal)  # no-op if argument is False
+        echo("Arguments:")
+        # replace dbrul passowrd for printing to terminal
+        yaml_dict['dburl'] = secure_dburl(yaml_dict['dburl'])
+        echo(indent(yaml.safe_dump(yaml_dict, default_flow_style=False), 2))
+
+        configlog4download(logger, session, run_inst, isterminal)
+        with elapsedtime2logger_when_finished(logger):
+            query_main(session, run_inst.id, start, end, eventws, eventws_query_args,
+                       stimespan, search_radius['minmag'],
+                       search_radius['maxmag'], search_radius['minradius'],
+                       search_radius['maxradius'], channels,
+                       min_sample_rate, inventory, traveltime_phases, wtimespan,
+                       retry, advanced_settings, class_labels, isterminal)
+            logger.info("%d total error(s), %d total warning(s)", run_inst.errors,
+                        run_inst.warnings)
 
     return 0
 
@@ -149,39 +145,36 @@ def process(dburl, pysourcefile, configsourcefile, outcsvfile, isterminal=False)
         :param processing: a dict as load from the config
     """
     with closing(dburl) as session:
-        try:
-            echo = printfunc(isterminal)  # no-op if argument is False
-            echo("Processing, please wait")
-            logger.info('Output file: %s', outcsvfile)
+        echo = printfunc(isterminal)  # no-op if argument is False
+        echo("Processing, please wait")
+        logger.info('Output file: %s', outcsvfile)
 
-            configlog4processing(logger, outcsvfile, isterminal)
-            csvwriter = [None]  # bad hack: in python3, we might use 'nonlocal' @UnusedVariable
-            kwargs = dict(delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        configlog4processing(logger, outcsvfile, isterminal)
+        csvwriter = [None]  # bad hack: in python3, we might use 'nonlocal' @UnusedVariable
+        kwargs = dict(delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
 
-            flush_num = [1, 10]  # determines when to flush (not used. We use the
-            # last arg to open tells to flush line-wise. To add custom flush, see commented
-            # lines at the end of the with statement and uncomment them
-            with open(outcsvfile, 'wb', 1) as csvfile:
+        flush_num = [1, 10]  # determines when to flush (not used. We use the
+        # last arg to open tells to flush line-wise. To add custom flush, see commented
+        # lines at the end of the with statement and uncomment them
+        with open(outcsvfile, 'wb', 1) as csvfile:
 
-                def ondone(result):
-                    if csvwriter[0] is None:
-                        if isinstance(result, dict):
-                            csvwriter[0] = csv.DictWriter(csvfile, fieldnames=result.keys(),
-                                                          **kwargs)
-                            csvwriter[0].writeheader()
-                        else:
-                            csvwriter[0] = csv.writer(csvfile,  **kwargs)
-                    csvwriter[0].writerow(result)
-                    # if flush_num[0] % flush_num[1] == 0:
-                    #    csvfile.flush()  # this should force writing so if errors we have something
-                    #    # http://stackoverflow.com/questions/3976711/csvwriter-not-saving-data-to-file-why
-                    # flush_num[0] += 1
+            def ondone(result):
+                if csvwriter[0] is None:
+                    if isinstance(result, dict):
+                        csvwriter[0] = csv.DictWriter(csvfile, fieldnames=result.keys(),
+                                                      **kwargs)
+                        csvwriter[0].writeheader()
+                    else:
+                        csvwriter[0] = csv.writer(csvfile,  **kwargs)
+                csvwriter[0].writerow(result)
+                # if flush_num[0] % flush_num[1] == 0:
+                #    csvfile.flush()  # this should force writing so if errors we have something
+                #    # http://stackoverflow.com/questions/3976711/csvwriter-not-saving-data-to-file-why
+                # flush_num[0] += 1
 
-                with elapsedtime2logger_when_finished(logger):
-                    process_run(session, pysourcefile, ondone, configsourcefile, isterminal)
-        except Exception as exc:
-            logger.critical(str(exc))
-            raise exc
+            with elapsedtime2logger_when_finished(logger):
+                process_run(session, pysourcefile, ondone, configsourcefile, isterminal)
+
     return 0
 
 
@@ -198,6 +191,9 @@ def closing(dburl, scoped=False, close_logger=True, close_session=True):
     try:
         session = get_session(dburl, scoped=scoped)
         yield session
+    except Exception as exc:
+        logger.critical(str(exc))
+        raise
     finally:
         if close_logger:
             handlers = logger.handlers[:]  # make a copy

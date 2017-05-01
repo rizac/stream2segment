@@ -33,6 +33,7 @@ from stream2segment.download.utils import empty, urljoin, response2df, normalize
     get_events_list, locations2degrees, get_arrival_time
 from stream2segment.utils import mseedlite3, strconvert, get_progressbar
 from stream2segment.utils.msgs import MSG
+from multiprocessing import cpu_count
 
 logger = logging.getLogger(__name__)
 
@@ -342,9 +343,13 @@ def save_stations_and_channels(channels_df, session):
     stas_df = dbsync("sync", "stations", channels_df, session, STA_COLS_DB, STA_ID_DB,
                      add_buf_size=ADDBUFSIZE, drop_duplicates=True)
     if empty(stas_df):
-        return empty(), empty()
+        return empty()
     channels_df = dfupdate(channels_df, stas_df, STA_COLS_DF, [STA_ID_DF])
-    channels_df.rename(columns={STA_ID_DF: CHA_STAID_DF}, inplace=True)
+    oldlen, channels_df = len(channels_df),\
+        channels_df.dropna(subset=[STA_ID_DF]).rename(columns={STA_ID_DF: CHA_STAID_DF})
+    if oldlen > len(channels_df):
+        logger.warning(MSG("channels", "discarding %d channels", "station id n/a"),
+                       oldlen - len(channels_df))
     # add to db:
     channels_df = dbsync("sync", "channels", channels_df, session, CHA_COLS_DB, CHA_ID_DB,
                          add_buf_size=ADDBUFSIZE, drop_duplicates=True)
@@ -475,6 +480,7 @@ def set_saved_arrivaltimes(session, segments_df):
 
 
 def get_arrivaltimes(segments_df, wtimespan, traveltime_phases, taup_model,
+                     mp_max_workers=None,
                      notify_progress_func=lambda *a, **v: None):
     """
         Calculates the arrival times for those rows of `segments_df` wich are NaT
@@ -494,8 +500,8 @@ def get_arrivaltimes(segments_df, wtimespan, traveltime_phases, taup_model,
     ptimes2calculate_df = segments_df[pd.isnull(segments_df[SEG_ATIME])]
     patime_data = {SEG_ATIME: [], CHA_STAID: [], SEG_EVID: []}
     # We can use a with statement to ensure threads are cleaned up promptly
-    with concurrent.futures.ProcessPoolExecutor(max_workers=None) as executor:
-
+    with concurrent.futures.ProcessPoolExecutor(max_workers=cpu_count() if not mp_max_workers
+                                                else mp_max_workers) as executor:
         future_to_evtid = {}
         for stadict in dfrowiter(ptimes2calculate_df, [SEG_EVDIST, EVT_DEPTH, EVT_TIME, SEG_EVID,
                                                        CHA_STAID]):
@@ -546,7 +552,7 @@ def get_arrivaltimes(segments_df, wtimespan, traveltime_phases, taup_model,
 #     return seg_df
 
 
-def prepare_for_download(session, segments_df, retry_no_code, retry_url_errors,
+def prepare_for_download(session, segments_df, run_id, retry_no_code, retry_url_errors,
                          retry_mseed_errors, retry_4xx, retry_5xx):
     """
         Drops the segments which are already present on the database and updates the primary
@@ -570,6 +576,7 @@ def prepare_for_download(session, segments_df, retry_no_code, retry_url_errors,
     SEG_ETIME_DBCOL = Segment.end_time
     SEG_CHID_DBCOL = Segment.channel_id
     SEG_DSC_DBCOL = Segment.download_status_code
+    SEG_RUNID = Segment.run_id.key
 
     # we might use dbsync('sync', ...) which sets pkeys and updates non-existing, but then we
     # would issue a second db query to check which segments should be re-downloaded (retry).
@@ -621,6 +628,7 @@ def prepare_for_download(session, segments_df, retry_no_code, retry_url_errors,
     # segments_df.is_copy = False
     # drop unnecessary columns:
     segments_df.drop([SEG_RETRY], axis=1, inplace=True)
+    segments_df[SEG_RUNID] = run_id
 
     # for safety, remove dupes (we should not have them, however...). FIXME: # add msg???
     segments_df = segments_df.drop_duplicates(subset=[SEG_CHID, SEG_STIME, SEG_ETIME])
@@ -933,7 +941,7 @@ def main(session, run_id, start, end, eventws, eventws_query_args,
 
     logger.info("")
     logger.info(("STEP %s: Checking already downloaded segments"), next(stepiter))
-    segments_df = prepare_for_download(session, segments_df, retry_no_code, retry_url_errors,
+    segments_df = prepare_for_download(session, segments_df, run_id, retry_no_code, retry_url_errors,
                                        retry_mseed_errors, retry_4xx, retry_5xx)
 
     seg_groups = get_download_dicts(segments_df, datacenters_df)

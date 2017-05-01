@@ -757,6 +757,93 @@ def sync(dataframe, session, matching_columns, autoincrement_pkey_col, add_buf_s
     return new_df, discarded, new
 
 
+def syncnullpkeys(dataframe, session, autoincrement_pkey_col, add_buf_size=10):
+    """
+    Efficiently adds the rows of `dataframe` to the corresponding database table T, skipping
+    db insertion for those `dataframe` rows where the values of `autoincrement_pkey_col` are set
+    (i.e., not n/a, e.g., Null or NaN's,...) and inserting only n/a rows.
+    N/A rows primary keys will be set before insertion to T according to the T maximum
+    (mimicking db autoincrementing feature).
+    `autoincrement_int_pkey_col.key` needs not to be a column of `dataframe`.
+
+    Returns the tuple (d, discarded, new) where `d` is `dataframe`
+    with successfully added rows only, `discarded` is the number of rows discarded from
+    `dataframe` (not in `d`) and `new` is the number of rows of `d` which where newly added and
+    not present on T before this function call.
+
+    :param dataframe: a pandas dataframe
+    :param session: an sql-alchemy session
+    :param matching_columns: a list of ORM columns for comparing `dataframe` rows and T rows:
+    when two rows are found that are equal (according to all `matching_columns` values), then
+    the data frame row is not added to T and will be simply returned as a row of `d`
+    :param autoincrement_pkey_col: the ORM column denoting an auto-increment primary key of T.
+    Unexpected results if the column does not match tose criteria. The column
+    needs not to be a column of `dataframe`. The returned `dataframe` will have in any case this
+    column set
+    :param add_buf_size: integer, defaults to 10. When adding new items to T, another factor that
+    speeds up a lot insertion is to reduce the commits by committing
+    buffers if items (basically, lists) instead of committing each time. Increase this argument to
+    speed up insertion, at the cost of loosing more good instances in case of errors (when a
+    single item in a buffer raises, all subsequent items are discarded, regardless if they
+    would have raised or not), decrease it if speeds does not matter: in the lowest case (1)
+    you will be sure to write all good instances without false negative
+    :param drop_duplicates: boolean, True. Before adding new items, drop duplicates under
+    `matching_columns`. You should always set this argument to True unless you are really sure
+    `dataframe` is with no duplicates under `matching_columns`, and you really want to save
+    the extra time of dropping again (but is that saved time actually remarkable?)
+
+    :return: the tuple (d, discarded, new) where `d` is `dataframe`
+    with successfully added rows only, `discarded` is the number of rows discarded from
+    `dataframe` (i.e., not in `d`. It *should* hold `discarded = len(dataframe) - len(d)`)
+    and `new` is the number of rows of `d` which where newly added and
+    not present on T before this function call (`new <= len(d)`).
+    The index of `d` is **not** reset, so that a track
+    to the original dataframe is always possible (the user must issue a `d.reset_index` to reset
+    the index).
+
+    Technical notes:
+    1. T is retrieved by means of the passed
+    `Columns <http://docs.sqlalchemy.org/en/latest/core/metadata.html#sqlalchemy.schema.Column>`_,
+    therefore `autoincrement_pkey_col` and each element of `matching_columns` must refer to the
+    same db table T.
+    2. The mapping between an sql-alchemy Column C and a pandas dataframe *string*
+    column K is based on the sql-alchemy `key` attribute: `C.key == K`
+    3. On the db session side, we do not use ORM functionalities but lower
+    level sql-alchemy core methods, which are faster (FIXME: ref needed). This, together with
+    the "buffer size" argument, speeds up a lot items insertion on the database.
+    The drawback of the former is that we need to create by ourself the primary keys, the drawback
+    of the latter is that if a single item of a buffer raises an SqlAlchemtError, all following
+    items are not added to the db, even if they where well formed
+    """
+    discarded = new = 0
+    dtmp = None
+    df_pkey_col = autoincrement_pkey_col.key
+    dframe_with_pkeys = dataframe
+    df_has_pkey = df_pkey_col in dataframe.columns
+    if df_has_pkey:
+        mask = pd.isnull(dframe_with_pkeys[df_pkey_col])
+        dtmp = dframe_with_pkeys[mask]
+        dtmp.is_copy = False  # avoid pandas SettingWithCopyWarning, we are trying to modify dtmp
+        # modifications will not affect dframe_with_pkeys but we are aware of it
+    else:
+        dtmp = dframe_with_pkeys
+
+    numnans = len(dtmp)
+    if numnans:
+        max_pkey = _get_max(session, autoincrement_pkey_col) + 1
+        new_pkeys = np.arange(max_pkey, max_pkey+numnans, dtype=int)
+        dtmp[df_pkey_col] = new_pkeys
+        new_df, discarded, new = add2db(dtmp, session, [autoincrement_pkey_col], add_buf_size,
+                                        query_first=False, drop_duplicates=False)
+        if df_has_pkey:
+            dframe_with_pkeys.loc[new_df.index, df_pkey_col] = new_df[df_pkey_col]
+            dframe_with_pkeys = dframe_with_pkeys.dropna(subset=[df_pkey_col])  # for safety
+        else:
+            dframe_with_pkeys = new_df
+
+    return dframe_with_pkeys, discarded, new
+
+
 def _dbquery2set(session, columns, query_filter=None):
     """Returns a query result as a set of tuples where each tuple value is the db row values
     according to columns
@@ -894,88 +981,6 @@ def add2db(dataframe, session, matching_columns, add_buf_size=10, query_first=Tr
     df.is_copy = False  # avoid settings with copy warning
     discarded += oldlen - len(df)
     return df, discarded, new
-
-
-def syncnullpkeys(dataframe, session, autoincrement_pkey_col, add_buf_size=10):
-    """
-    Efficiently adds the rows of `dataframe` to the corresponding database table T, skipping
-    db insertion for those `dataframe` rows where the values of `autoincrement_pkey_col` are set
-    (i.e., not n/a, e.g., Null or NaN's,...) and inserting only n/a rows.
-    N/A rows primary keys will be set before insertion to T according to the T maximum
-    (mimicking db autoincrementing feature).
-    `autoincrement_int_pkey_col.key` needs not to be a column of `dataframe`.
-
-    Returns the tuple (d, discarded, new) where `d` is `dataframe`
-    with successfully added rows only, `discarded` is the number of rows discarded from
-    `dataframe` (not in `d`) and `new` is the number of rows of `d` which where newly added and
-    not present on T before this function call.
-
-    :param dataframe: a pandas dataframe
-    :param session: an sql-alchemy session
-    :param matching_columns: a list of ORM columns for comparing `dataframe` rows and T rows:
-    when two rows are found that are equal (according to all `matching_columns` values), then
-    the data frame row is not added to T and will be simply returned as a row of `d`
-    :param autoincrement_pkey_col: the ORM column denoting an auto-increment primary key of T.
-    Unexpected results if the column does not match tose criteria. The column
-    needs not to be a column of `dataframe`. The returned `dataframe` will have in any case this
-    column set
-    :param add_buf_size: integer, defaults to 10. When adding new items to T, another factor that
-    speeds up a lot insertion is to reduce the commits by committing
-    buffers if items (basically, lists) instead of committing each time. Increase this argument to
-    speed up insertion, at the cost of loosing more good instances in case of errors (when a
-    single item in a buffer raises, all subsequent items are discarded, regardless if they
-    would have raised or not), decrease it if speeds does not matter: in the lowest case (1)
-    you will be sure to write all good instances without false negative
-    :param drop_duplicates: boolean, True. Before adding new items, drop duplicates under
-    `matching_columns`. You should always set this argument to True unless you are really sure
-    `dataframe` is with no duplicates under `matching_columns`, and you really want to save
-    the extra time of dropping again (but is that saved time actually remarkable?)
-
-    :return: the tuple (d, discarded, new) where `d` is `dataframe`
-    with successfully added rows only, `discarded` is the number of rows discarded from
-    `dataframe` (i.e., not in `d`. It *should* hold `discarded = len(dataframe) - len(d)`)
-    and `new` is the number of rows of `d` which where newly added and
-    not present on T before this function call (`new <= len(d)`).
-    The index of `d` is **not** reset, so that a track
-    to the original dataframe is always possible (the user must issue a `d.reset_index` to reset
-    the index).
-
-    Technical notes:
-    1. T is retrieved by means of the passed
-    `Columns <http://docs.sqlalchemy.org/en/latest/core/metadata.html#sqlalchemy.schema.Column>`_,
-    therefore `autoincrement_pkey_col` and each element of `matching_columns` must refer to the
-    same db table T.
-    2. The mapping between an sql-alchemy Column C and a pandas dataframe *string*
-    column K is based on the sql-alchemy `key` attribute: `C.key == K`
-    3. On the db session side, we do not use ORM functionalities but lower
-    level sql-alchemy core methods, which are faster (FIXME: ref needed). This, together with
-    the "buffer size" argument, speeds up a lot items insertion on the database.
-    The drawback of the former is that we need to create by ourself the primary keys, the drawback
-    of the latter is that if a single item of a buffer raises an SqlAlchemtError, all following
-    items are not added to the db, even if they where well formed
-    """
-    discarded = new = 0
-    dtmp = None
-    df_pkey_col = autoincrement_pkey_col.key
-    dframe_with_pkeys = dataframe
-    if df_pkey_col not in dataframe.columns:
-        dframe_with_pkeys[df_pkey_col] = None
-        dtmp = pd.DataFrame(dframe_with_pkeys, copy=False)
-    else:
-        mask = pd.isnull(dframe_with_pkeys[df_pkey_col])
-        dtmp = dframe_with_pkeys[mask]
-
-    numnans = len(dtmp)
-    if numnans:
-        dtmp.is_copy = False  # avoid pandas SettingWithCopyWarning, we are trying to modify dtmp
-        # modifications will not affect dframe_with_pkeys but we are aware of it
-        max_pkey = _get_max(session, autoincrement_pkey_col) + 1
-        new_pkeys = np.arange(max_pkey, max_pkey+numnans, dtype=int)
-        dtmp[df_pkey_col] = new_pkeys
-        new_df, discarded, new = add2db(dtmp, session, [autoincrement_pkey_col], add_buf_size,
-                                        query_first=False, drop_duplicates=False)
-        dframe_with_pkeys.loc[new_df.index, df_pkey_col] = new_df[df_pkey_col]
-    return dframe_with_pkeys.dropna(subset=[df_pkey_col]), discarded, new
 
 
 def fetchsetpkeys(dataframe, session, matching_columns, pkey_col):
