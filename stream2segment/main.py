@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 #!/usr/bin/python
 # event2wav: First draft to download waveforms related to events
 #
@@ -98,21 +100,53 @@ def data_aval(dburl, outfile):
 # IMPORTANT !!!
 # IMPORTANT: THE ARGUMENT NAMES HERE MUST BE THE SAME AS THE CONFIG FILE!!! SEE FUNCTION DOC BELOW
 # IMPORTANT !!!
-def download(dburl, start, end, eventws, eventws_query_args, stimespan,
-             search_radius,
-             channels, min_sample_rate, inventory, traveltime_phases, wtimespan,
-             retry, advanced_settings, class_labels=None, isterminal=False):
-    """
-        Main run method. KEEP the ARGUMENT THE SAME AS THE config.yaml OTHERWISE YOU'LL GET
-        A DIFFERENT CONFIG SAVED IN THE DB
-        :param processing: a dict as load from the config
-    """
-    yaml_dict = dict(locals())  # this must be the first statement, so that we catch all arguments
-    # and no local variable (none has been declared yet). Note: dict(locals()) avoids problems with
-    # variables created inside loops, when iterating over _args_ (see below)
-    yaml_dict.pop('isterminal')  # not a yaml var
-    # remove db url password when printing:
+# def download(dburl, start, end, eventws, eventws_query_args, stimespan,
+#              search_radius,
+#              channels, min_sample_rate, inventory, traveltime_phases, wtimespan,
+#              retry, advanced_settings, class_labels=None, isterminal=False):
+#     """
+#         Main run method. KEEP the ARGUMENT THE SAME AS THE config.yaml OTHERWISE YOU'LL GET
+#         A DIFFERENT CONFIG SAVED IN THE DB
+#         :param processing: a dict as load from the config
+#     """
+#     yaml_dict = dict(locals())  # this must be the first statement, so that we catch all arguments
+#     # and no local variable (none has been declared yet). Note: dict(locals()) avoids problems with
+#     # variables created inside loops, when iterating over _args_ (see below)
+#     yaml_dict.pop('isterminal')  # not a yaml var
+#     # remove db url password when printing:
+# 
+#     with closing(dburl) as session:
+#         # print local vars: use safe_dump to avoid python types. See:
+#         # http://stackoverflow.com/questions/1950306/pyyaml-dumping-without-tags
+#         run_inst = run_instance(session, config=tounicode(yaml.safe_dump(yaml_dict,
+#                                                                          default_flow_style=False)))
+# 
+#         echo = printfunc(isterminal)  # no-op if argument is False
+#         echo("Arguments:")
+#         # replace dbrul passowrd for printing to terminal
+#         yaml_dict['dburl'] = secure_dburl(yaml_dict['dburl'])
+#         echo(indent(yaml.safe_dump(yaml_dict, default_flow_style=False), 2))
+# 
+#         configlog4download(logger, session, run_inst, isterminal)
+#         with elapsedtime2logger_when_finished(logger):
+#             query_main(session, run_inst.id, start, end, eventws, eventws_query_args,
+#                        stimespan, search_radius['minmag'],
+#                        search_radius['maxmag'], search_radius['minradius'],
+#                        search_radius['maxradius'], channels,
+#                        min_sample_rate, inventory, traveltime_phases, wtimespan,
+#                        retry, advanced_settings, class_labels, isterminal)
+#             logger.info("%d total error(s), %d total warning(s)", run_inst.errors,
+#                         run_inst.warnings)
+# 
+#     return 0
 
+
+def download(isterminal=False, **yaml_dict):
+    """
+        Downloads the given segment providing a set of keyword arguments to match those of the
+        config file (see confi.example.yaml for details)
+    """
+    dburl = yaml_dict['dburl']
     with closing(dburl) as session:
         # print local vars: use safe_dump to avoid python types. See:
         # http://stackoverflow.com/questions/1950306/pyyaml-dumping-without-tags
@@ -122,17 +156,14 @@ def download(dburl, start, end, eventws, eventws_query_args, stimespan,
         echo = printfunc(isterminal)  # no-op if argument is False
         echo("Arguments:")
         # replace dbrul passowrd for printing to terminal
-        yaml_dict['dburl'] = secure_dburl(yaml_dict['dburl'])
-        echo(indent(yaml.safe_dump(yaml_dict, default_flow_style=False), 2))
+        # Note that we remove dburl from yaml_dict cause query_main gets its session object
+        # (which we just built)
+        yaml_safe = dict(yaml_dict, dburl=secure_dburl(yaml_dict.pop('dburl')))
+        echo(indent(yaml.safe_dump(yaml_safe, default_flow_style=False), 2))
 
         configlog4download(logger, session, run_inst, isterminal)
         with elapsedtime2logger_when_finished(logger):
-            query_main(session, run_inst.id, start, end, eventws, eventws_query_args,
-                       stimespan, search_radius['minmag'],
-                       search_radius['maxmag'], search_radius['minradius'],
-                       search_radius['maxradius'], channels,
-                       min_sample_rate, inventory, traveltime_phases, wtimespan,
-                       retry, advanced_settings, class_labels, isterminal)
+            query_main(session=session, run_id=run_inst.id, isterminal=isterminal, **yaml_dict)
             logger.info("%d total error(s), %d total warning(s)", run_inst.errors,
                         run_inst.warnings)
 
@@ -273,7 +304,7 @@ def config_defaults_when_missing():
     """defaults for download cannot be set via click cause they need to be set only if
     missing in the config file"""
     start_def, end_def = get_def_timerange()
-    return dict(start=start_def, end=end_def, retry=False, inventory=False)
+    return dict(start=start_def, end=end_def, inventory=False)
 
 
 @main.command(short_help='Efficiently download waveform data segments')
@@ -291,24 +322,23 @@ def config_defaults_when_missing():
 @click.option('-E', '--eventws')
 @click.option('--wtimespan', nargs=2, type=int)
 @click.option('--min_sample_rate')
-@click.option('-r1', '--retry_no_code', is_flag=True)
-@click.option('-r2', '--retry_url_errors', is_flag=True)
-@click.option('-r3', '--retry_mseed_errors', is_flag=True)
-@click.option('-r4', '--retry_4xx', is_flag=True)
-@click.option('-r5', '--retry_5xx', is_flag=True)
-@click.option('-i', '--inventory', is_flag=True)
+@click.option('-r1', '--retry_url_errors', is_flag=True, default=None)
+@click.option('-r2', '--retry_mseed_errors', is_flag=True, default=None)
+@click.option('-r3', '--retry_no_code', is_flag=True, default=None)
+@click.option('-r4', '--retry_4xx', is_flag=True, default=None)
+@click.option('-r5', '--retry_5xx', is_flag=True, default=None)
+@click.option('-i', '--inventory', is_flag=True, default=None)
 @click.argument('eventws_query_args', nargs=-1, type=click.UNPROCESSED, callback=proc_e)
-def d(configfile, dburl, start, end, eventws, wtimespan, min_sample_rate, retry_no_code, retry_url_errors,
-                            retry_mseed_errors,
-                            retry_4xx, retry_5xx,
-      inventory, eventws_query_args):
+def d(configfile, dburl, start, end, eventws, wtimespan, min_sample_rate, retry_no_code,
+      retry_url_errors, retry_mseed_errors, retry_4xx, retry_5xx, inventory,
+      eventws_query_args):
     """Efficiently download waveform data segments and relative events, stations and channels
     metadata (plus additional class labels, if needed)
     into a specified database for further processing or visual inspection in a
     browser. Options are listed below: when not specified, their default
     values are those set in the value of the configfile option.
     [EVENTWS_QUERY_ARGS] is an optional list of space separated arguments to be passed
-    to the event web service query (exmple: minmag 5.5 minlon 34.5) and will be added to
+    to the event web service query (example: minmag 5.5 minlon 34.5) and will be added to
     (or override) the arguments of `eventws_query_args` specified in in the config file,
     if any.
     All FDSN query arguments are valid

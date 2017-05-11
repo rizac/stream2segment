@@ -16,6 +16,7 @@ from datetime import timedelta  #, datetime
 from urlparse import urlparse
 from itertools import izip, imap  #, cycle
 from urllib2 import Request
+from multiprocessing import cpu_count
 import concurrent.futures
 import numpy as np
 import pandas as pd
@@ -25,41 +26,108 @@ from sqlalchemy.exc import SQLAlchemyError
 # from obspy.taup.helper_classes import TauModelError, SlownessModelError
 from stream2segment.utils.url import urlread, read_async, URLException
 from stream2segment.io.db.models import Class, Event, DataCenter, Segment, Station,\
-    dc_get_other_service_url, Channel
-from stream2segment.io.db.pd_sql_utils import commit, withdata, dfrowiter, dfupdate, add2db,\
-    dbquery2df, syncnullpkeys, sync
+    dc_get_other_service_url, Channel, WebService
+from stream2segment.io.db.pd_sql_utils import withdata, dfrowiter, mergeupdate,\
+    dbquery2df, insertdf, syncdf, insertdf_napkeys, updatedf
 from stream2segment.download.utils import empty, urljoin, response2df, normalize_fdsn_dframe,\
     get_search_radius, UrlStats, stats2str, get_inventory_url, save_inventory,\
-    get_events_list, locations2degrees, get_arrival_time
-from stream2segment.utils import mseedlite3, strconvert, get_progressbar
+    get_events_list, locations2degrees, get_arrival_time, get_url_mseed_errorcodes
+from stream2segment.utils import strconvert, get_progressbar, yaml_load
+from stream2segment.utils.mseedlite3 import MSeedError, unpack as mseedunpack
 from stream2segment.utils.msgs import MSG
-from multiprocessing import cpu_count
+from stream2segment.utils.resources import get_ws_fpath
 
 logger = logging.getLogger(__name__)
 
 ADDBUFSIZE = 10  # FIXME: add this as parameter!!!
 
 
-def dbsync(method, items_name, *a, **kw):
-    if method == 'add2db':
-        df, discarded, new = add2db(*a, **kw)
-    elif method == 'syncnullpkeys':
-        df, discarded, new = syncnullpkeys(*a, **kw)
-    elif method == 'sync':
-        df, discarded, new = sync(*a, **kw)
+def get_eventws_url(session, service):
+#     EWS_NAME_COL = WebService.name
+#     EWS_URL_COL = WebService.url
+#     EWS_NAME_NAME = EWS_NAME_COL.key
+#     EWS_URL_NAME = EWS_URL_COL.key
+#     EWS_TYPE_COL = WebService.type
+#     EWS_TYPE_NAME = EWS_TYPE_COL.key
+#     EWS_ID_COL = WebService.id
+
+    dic = yaml_load(get_ws_fpath())
+    try:
+        return dic['seismicportal' if service == 'eida' else service]['event']
+    except (IndexError, KeyError):
+        raise ValueError("Service '%s'\\'s web service not found" % service)
+#     return df
+# 
+#     data = [(name, type_, url) for name, type2url in dic.iteritems()
+#             for type_, url in type2url.iteritems()]
+#     df = pd.DataFrame(data, columns=[EWS_NAME_NAME, EWS_TYPE_NAME, EWS_URL_NAME])
+#     df = dbsync("syncdf", "web services", df, session, [EWS_URL_COL], EWS_ID_COL)
+#     try:
+#         return df[(df[EWS_NAME_NAME] == 'seismicportal' if service == 'eida' else service) &
+#                   (df[EWS_TYPE_NAME] == "event")][EWS_URL_NAME].iloc[0]
+#     except (IndexError, KeyError):
+#         raise ValueError("Service '%s'\\'s web service not found" % service)
+#     return df
+
+
+def add_classes(session, class_labels):
+    """Inserts the given classes to the relative table
+    :param class_labels: a dict of class_label mapped to the class description
+    (e.g. "low_snr": "segment with low signal-to-noise ratio")
+    """
+    if class_labels:
+        cdf = pd.DataFrame(data=[{Class.label.key: k, Class.description.key: v}
+                           for k, v in class_labels.iteritems()])
+        dbsync("insertdf", Class, cdf, session, [Class.label])
+
+
+def dbsync(method, table, dataframe, session, matching_columns,
+           autoincrement_pkey_col=None, buf_size=ADDBUFSIZE, **kw):
+    """Calls either `insertdf` or syncdf` and writes to the logger before returning the
+    new dataframe. autoincrement_pkey_col is used only if method ='syncdf'"""
+    oldlen = len(dataframe)
+    if method == 'insertdf':
+            df, new = insertdf(dataframe, session, matching_columns, buf_size, **kw)
+    elif method == 'syncdf':
+        assert autoincrement_pkey_col is not None
+        df, new = syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_size,
+                         **kw)
     else:
-        raise ValueError('%s invalid method. Use "add2db", "syncnullpkeys" or "sync"', method)
+        raise ValueError('%s invalid method. Use "insertdf" or "syncdf"' % method)
 
-    if discarded:
-        logger.warning(MSG("syncing database (%s)" % items_name, "%d item(s) not saved",
-                           "duplicates or violating SQL constraints"), discarded)
-    if new:
-        logger.info(MSG("syncing database (%s)" % items_name, "%d new item(s) saved"), new)
-
+    discarded = oldlen - len(df)
+    dblog(table, new, discarded)
     return df
 
 
-def get_events_df(session, eventws, **args):
+def dblog(table, new, new_discarded, updated=0, updated_discarded=0):
+    """Function that harmonizes the way db IO operations are written to log"""
+    if new or new_discarded:
+        total = new + new_discarded
+        item = "items" if total != 1 else "item"
+        logger.info(MSG("Writing to database table '%s'", "%d of %d new %s saved"),
+                    table.__tablename__, new, total, item)
+
+    if new_discarded:
+        item = "items" if new_discarded != 1 else "item"
+        logger.warning(MSG("Writing to database table '%s'", "%d %s not saved",
+                           "duplicates or violating SQL constraints"),
+                       table.__tablename__, new_discarded, item)
+
+    if updated or updated_discarded:
+        total = updated + updated_discarded
+        item = "items" if total != 1 else "item"
+        logger.info(MSG("Writing to database table '%s'", "%d of %d %s updated"),
+                    table.__tablename__, updated, total, item)
+
+    if updated_discarded:
+        item = "items" if updated_discarded != 1 else "item"
+        logger.warning(MSG("Writing to database table '%s'", "%d %s not updated",
+                           "duplicates or violating SQL constraints"),
+                       table.__tablename__, updated_discarded, item)
+
+
+def get_events_df(session, eventws_url, **args):
     """
         Returns the events from an event ws query. Splits the results into smaller chunks
         (according to 'start' and 'end' parameters, if they are not supplied in **args they will
@@ -68,10 +136,20 @@ def get_events_df(session, eventws, **args):
         logger, which is used in this function only for all those messages which should not stop
         the program
     """
-    url = urljoin(eventws, format='text', **args)
+    eventws_id = session.query(WebService.id).filter(WebService.url == eventws_url).scalar()
+    if eventws_id is None:  # write url to table
+        data = [("event", eventws_url)]
+        df = pd.DataFrame(data, columns=[WebService.type.key, WebService.url.key])
+        df = dbsync("syncdf", WebService, df, session, [WebService.url], WebService.id)
+        if empty(df):
+            raise ValueError(MSG("event web service", "Unable to save '%s', please check "
+                                 "database connection and try again" % eventws_url, "db error"))
+        eventws_id = df.iloc[0][WebService.id.key]
+
+    url = urljoin(eventws_url, format='text', **args)
     ret = []
     try:
-        datalist = get_events_list(eventws, **args)
+        datalist = get_events_list(eventws_url, **args)
         if len(datalist) > 1:
             logger.info(MSG("events query",
                             "Request was splitted into sub-queries, aggregating the results",
@@ -86,11 +164,13 @@ def get_events_df(session, eventws, **args):
                 except ValueError as exc:
                     logger.warning(MSG("events query", "discarding query result", exc, url))
         events_df = pd.concat(ret, axis=0, ignore_index=True, copy=False)
+        events_df[Event.webservice_id.key] = eventws_id
+
         if empty(events_df):
             raise Exception("No events fetched")
 
-        events_df = dbsync("add2db", "events", events_df, session, [Event.id],
-                           add_buf_size=ADDBUFSIZE, query_first=True, drop_duplicates=True)
+        events_df = dbsync("syncdf", Event, events_df, session,
+                           [Event.eventid, Event.webservice_id], Event.id)
 
         # try to release memory for unused columns (FIXME: NEEDS TO BE TESTED)
         ret = events_df[[Event.id.key, Event.magnitude.key, Event.latitude.key, Event.longitude.key,
@@ -98,11 +178,11 @@ def get_events_df(session, eventws, **args):
         del events_df
         return ret
     except Exception as exc:
-        if hasattr(exc, 'exc'):  # stream2segment URLException
-            exc = exc.exc
-        msg = MSG("events query", "Quitting", exc, url)
+#         if hasattr(exc, 'exc'):  # stream2segment URLException
+#             exc = exc.exc
+        # msg = MSG("events query", "Quitting", exc, url)
         # logger.error(msg)
-        raise ValueError(msg)
+        raise ValueError(str(exc))
 
 
 def response2normalizeddf(url, raw_data, dbmodel_key):
@@ -120,7 +200,23 @@ def response2normalizeddf(url, raw_data, dbmodel_key):
     return dframe
 
 
-def get_datacenters_df(session, channels, **query_args):
+def get_dc_filterfunc(service):
+    """returns a function for filtering datacenters based on service.
+    Returns a function that accepts an url (datacenter or station url) and returns a boolean
+    indicating whether or not that url matches the given service.
+    :param service: string (case insensitive) denoting the service: "iris" returns True for
+    iris nodes, any other string returns True for EIDA nodes"""
+    if service:
+        service = service.lower()
+        if service == 'iris':
+            return lambda x: "service.iris.edu" in x
+        elif service in ('eida', 'seismicportal'):
+            return lambda x: "service.iris.edu" not in x
+
+    return lambda x: True
+
+
+def get_datacenters_df(session, service=None, channels=None, **query_args):
     """Queries 'http://geofon.gfz-potsdam.de/eidaws/routing/1/query' for all datacenters
     available
     :param query_args: any key value pair for the url. Note that 'service' and 'format' will
@@ -138,16 +234,22 @@ def get_datacenters_df(session, channels, **query_args):
     """
     channels_re = None if not channels else \
         re.compile("|".join("^%s$" % strconvert.wild2re(c) for c in channels))  # re.macth must be exact match
-    DC_SQU = DataCenter.station_query_url.key
-    DC_DQU = DataCenter.dataselect_query_url.key
+
+    DC_SURL_COL = DataCenter.station_url
+    DC_DURL_COL = DataCenter.dataselect_url
+    DC_SURL_NAME = DC_SURL_COL.key
+    DC_DURL_NAME = DC_DURL_COL.key
 
     # do not return only new datacenters, return all of them
     query_args['service'] = 'dataselect'
     query_args['format'] = 'post'
     url = urljoin('http://geofon.gfz-potsdam.de/eidaws/routing/1/query', **query_args)
 
-    dc_df = dbquery2df(session.query(DataCenter.id, DataCenter.station_query_url,
-                                     DataCenter.dataselect_query_url)).reset_index(drop=True)
+    accept_dc = get_dc_filterfunc(service)
+    dc_df = dbquery2df(session.query(DataCenter.id, DC_SURL_COL,
+                                     DC_DURL_COL)).reset_index(drop=True)
+    # filter by service:
+    dc_df = dc_df[dc_df.apply(lambda x: accept_dc(x[DC_DURL_NAME]), axis=1)]
 
     # add list for post data, to be populated in the loop below
     dc_postdata = [None] * len(dc_df)
@@ -180,38 +282,40 @@ def get_datacenters_df(session, channels, **query_args):
 
             if (i == lastline or is_dc_line) and current_dc_url is not None:
                 # get index of given dataselect url:
-                _ = dc_df.index[(dc_df[DC_DQU] == current_dc_url)].values
-                idx = _[0] if len(_) else None
-                # index not found? add the item:
-                if idx is None:
-                    idx = len(dc_df)
-                    dc_df = dc_df.append([{DC_DQU: current_dc_url,
-                                           DC_SQU: dc_get_other_service_url(current_dc_url)}],
-                                         ignore_index=True)  # this re-index the dataframe
-                    dc_postdata.append(None)
+                if accept_dc(current_dc_url):
+                    _ = dc_df.index[(dc_df[DC_DURL_NAME] == current_dc_url)].values
+                    idx = _[0] if len(_) else None
+                    # index not found? add the item:
+                    if idx is None:
+                        idx = len(dc_df)
+                        current_dc_station_url = dc_get_other_service_url(current_dc_url)
+                        dc_df = dc_df.append([{DC_DURL_NAME: current_dc_url,
+                                               DC_SURL_NAME: current_dc_station_url}],
+                                             ignore_index=True)  # this re-index the dataframe
+                        dc_postdata.append(None)
 
-                if dc_data_buf:
-                    dc_postdata[idx] = "\n".join(dc_data_buf)
+                    if dc_data_buf:
+                        dc_postdata[idx] = "\n".join(dc_data_buf)
 
                 dc_data_buf = []
 
             if is_dc_line:
                 current_dc_url = line
 
-        dc_df = dbsync("sync", "data-centers", dc_df, session, [DataCenter.station_query_url],
-                       DataCenter.id, add_buf_size=ADDBUFSIZE)
+        dc_df = dbsync("syncdf", DataCenter, dc_df, session, [DC_SURL_COL],
+                       DataCenter.id)
 
         # dc_postdata, dc_df = dc_df[DC_POSTDATA], dc_df.drop(DC_POSTDATA, axis=1)
         return dc_df, dc_postdata
 
     except URLException as urlexc:
         if empty(dc_df):
-            msg = MSG("data-centers", "EIDA routing service error and no data-center in cache",
+            msg = MSG("", "routing service error, no data-center saved in database",
                       urlexc.exc, url)
             # logger.error(msg)
             raise ValueError(msg)
         else:
-            msg = MSG("data-centers", "EIDA routing service error, working with already saved (%d)",
+            msg = MSG("", "routing service error, working with already saved data-centers (%d)",
                       urlexc.exc, url)
             logger.warning(msg, len(dc_df))
             logger.info(msg, len(dc_df))
@@ -243,8 +347,13 @@ def get_channels_df(session, datacenters_df, post_data, channels, min_sample_rat
     STA_STIME = Station.start_time
     STA_ETIME = Station.end_time
     STA_DCID = Station.datacenter_id
+    STA_NET = Station.network
+    STA_STA = Station.station
+    CHA_LOC = Channel.location
+    CHA_CHA = Channel.channel
 
-    COLS_DB = [CHA_ID, CHA_STAID, STA_LAT, STA_LON, STA_DCID, STA_STIME, STA_ETIME]
+    COLS_DB = [CHA_ID, CHA_STAID, STA_LAT, STA_LON, STA_DCID, STA_STIME, STA_ETIME,
+               STA_NET, STA_STA, CHA_LOC, CHA_CHA]
     COLS_DF = [c.key for c in COLS_DB]
 
     ret_df = empty()
@@ -258,6 +367,7 @@ def get_channels_df(session, datacenters_df, post_data, channels, min_sample_rat
         if expr is not None:
             qry = qry.filter(expr)
         ret_df = dbquery2df(qry)
+        logger.info("No channel found in database according to given parameters")
     else:
         ret = []
 
@@ -266,12 +376,12 @@ def get_channels_df(session, datacenters_df, post_data, channels, min_sample_rat
             notify_progress_func(1)
             dcen_id, fullurl = obj[0], url.get_full_url()
             if exc:
-                logger.warning(MSG("channels", "unable to perform request", exc, fullurl))
+                logger.warning(MSG("", "unable to perform request", exc, fullurl))
             else:
                 try:
                     df = response2normalizeddf(fullurl, result[0], "channel")
                 except ValueError as exc:
-                    logger.warning(MSG("channels", "discarding response data", exc, fullurl))
+                    logger.warning(MSG("", "discarding response data", exc, fullurl))
                     df = empty()
                 if not empty(df):
                     df[Station.datacenter_id.key] = dcen_id
@@ -279,7 +389,7 @@ def get_channels_df(session, datacenters_df, post_data, channels, min_sample_rat
 
         iterable = ((id_, Request(url, data='format=text\nlevel=channel\n'+post_data_str))
                     for url, id_, post_data_str in
-                    izip(datacenters_df[DataCenter.station_query_url.key],
+                    izip(datacenters_df[DataCenter.station_url.key],
                          datacenters_df[DataCenter.id.key], post_data) if post_data_str)
 
         read_async(iterable, ondone, urlkey=lambda obj: obj[-1], blocksize=blocksize,
@@ -293,31 +403,31 @@ def get_channels_df(session, datacenters_df, post_data, channels, min_sample_rat
                 srate_col = Channel.sample_rate.key
                 oldlen, channels_df = len(channels_df), \
                     channels_df[channels_df[srate_col] >= min_sample_rate]
-                reason = "sample rate < %s Hz" % str(min_sample_rate)
-                if oldlen > len(channels_df):
-                    logger.warning(MSG("channels", "discarding %d channels", reason))
+                discarded_sr = oldlen - len(channels_df)
+                if discarded_sr:
+                    logger.warning(MSG("", "discarding %d channels",
+                                       "sample rate < %s Hz" % str(min_sample_rate)),
+                                   discarded_sr)
 
             if not empty(channels_df):
                 # logger.info("Saving channels (%d) and relative stations", len(channels_df))
-                channels_df = save_stations_and_channels(channels_df, session)
+                channels_df = save_stations_and_channels(session, channels_df)
 
                 if not empty(channels_df):
                     ret_df = channels_df[COLS_DF].copy()
                     # does this free up memory? FIXME: check
                     del channels_df
+            else:
+                logger.info("No channel found with sample rate >= %f", min_sample_rate)
+        else:
+            raise ValueError("No channel found. "
+                             "Possible causes: server / client errors in server responses "
+                             "(check log for details)")
 
-    if empty(ret_df):
-        msg = MSG("channels", 'No channel found, unable to continue',
-                  'possible causes: eida routing service down and no channels in cache (db), '
-                  'eida routing service not providing post data, '
-                  'client/server errors in all data-center queries, ',
-                  'no channel with matching sample rate')
-        # logger.error(msg)
-        raise ValueError(msg)
     return ret_df
 
 
-def save_stations_and_channels(channels_df, session):
+def save_stations_and_channels(session, channels_df):
     """
         Saves to db channels (and their stations) and returns a dataframe with only channels saved
         The returned data frame will have the column 'id' (`Station.id`) renamed to
@@ -336,23 +446,21 @@ def save_stations_and_channels(channels_df, session):
     # Important: we do not need to allocate the pkey columns like:
     # channels_df[STA_ID_DF] = None
     # Because dbsync('sync'...) and
-    # dfupdate do that for us, also with the correct dtype (the line above allocates a dtype=object
+    # mergeupdate do that for us, also with the correct dtype (the line above allocates a dtype=object
     # by default)
 
     # attempt to write only unique stations
-    stas_df = dbsync("sync", "stations", channels_df, session, STA_COLS_DB, STA_ID_DB,
-                     add_buf_size=ADDBUFSIZE, drop_duplicates=True)
+    stas_df = dbsync("syncdf", Station, channels_df, session, STA_COLS_DB, STA_ID_DB)
     if empty(stas_df):
         return empty()
-    channels_df = dfupdate(channels_df, stas_df, STA_COLS_DF, [STA_ID_DF])
+    channels_df = mergeupdate(channels_df, stas_df, STA_COLS_DF, [STA_ID_DF])
     oldlen, channels_df = len(channels_df),\
         channels_df.dropna(subset=[STA_ID_DF]).rename(columns={STA_ID_DF: CHA_STAID_DF})
     if oldlen > len(channels_df):
-        logger.warning(MSG("channels", "discarding %d channels", "station id n/a"),
+        logger.warning(MSG("", "discarding %d channels", "station id n/a"),
                        oldlen - len(channels_df))
     # add to db:
-    channels_df = dbsync("sync", "channels", channels_df, session, CHA_COLS_DB, CHA_ID_DB,
-                         add_buf_size=ADDBUFSIZE, drop_duplicates=True)
+    channels_df = dbsync("syncdf", Channel, channels_df, session, CHA_COLS_DB, CHA_ID_DB)
     return channels_df
 
 
@@ -362,17 +470,17 @@ def save_inventories(session, stations, max_thread_workers, timeout,
         notify_progress_func(1)
         sta, url = obj
         if exc:
-            logger.warning(MSG("station inventories", "discarding query result", exc, url))
+            logger.warning(MSG("", "discarding query result", exc, url))
         else:
             if not result:
-                logger.warning(MSG("station inventories", "discarding query result",
+                logger.warning(MSG("", "discarding query result",
                                    "empty response", url))
                 return
             try:
                 save_inventory(result, sta)
             except (TypeError, SQLAlchemyError) as _:
                 session.rollback()
-                logger.warning(MSG("station inventories", "item (station id=%s) not saved", _, url),
+                logger.warning(MSG("", "item (station id=%s) not saved", _, url),
                                str(sta.id))
 
     iterable = izip(stations, (get_inventory_url(sta) for sta in stations))
@@ -381,8 +489,7 @@ def save_inventories(session, stations, max_thread_workers, timeout,
                blocksize=download_blocksize, timeout=timeout)
 
 
-def merge_events_stations(events_df, channels_df, sradius_minmag,
-                          sradius_maxmag, sradius_minradius, sradius_maxradius):
+def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius, maxmag_radius):
     """
         Merges `events_df` and `channels_df` by returning a new dataframe representing all
         channels within a specific search radius. *Each row of the resturned data frame is
@@ -418,8 +525,8 @@ def merge_events_stations(events_df, channels_df, sradius_minmag,
     SEG_EVDIST = Segment.event_distance_deg.key
 
     ret = []
-    max_radia = get_search_radius(events_df[EVT_MAG].values, sradius_minmag, sradius_maxmag,
-                                  sradius_minradius, sradius_maxradius)
+    max_radia = get_search_radius(events_df[EVT_MAG].values, minmag, maxmag,
+                                  minmag_radius, maxmag_radius)
 
     for max_radius, evt_dic in izip(max_radia, dfrowiter(events_df, [EVT_ID, EVT_LAT, EVT_LON,
                                                                      EVT_TIME, EVT_DEPTH])):
@@ -435,14 +542,15 @@ def merge_events_stations(events_df, channels_df, sradius_minmag,
         stations_df[OK_TMP_COL] = condition
         stations_df[SEG_EVDIST] = l2d
 
-        cha_df = dfupdate(channels_df, stations_df, [CHA_STAID], [OK_TMP_COL, SEG_EVDIST],
-                          drop_df_new_duplicates=False)  # dupes already dropped
+        cha_df = mergeupdate(channels_df, stations_df, [CHA_STAID], [OK_TMP_COL, SEG_EVDIST],
+                             drop_df_new_duplicates=False)  # dupes already dropped
         cha_df = cha_df[cha_df[OK_TMP_COL]]
         cha_df.is_copy = False
         cha_df[SEG_EVID] = evt_dic[EVT_ID]
         cha_df[EVT_DEPTH] = evt_dic[EVT_DEPTH]
         cha_df[EVT_TIME] = evt_dic[EVT_TIME]
-        ret.append(cha_df.drop([STA_STIME, STA_ETIME, STA_LAT, STA_LON, OK_TMP_COL], axis=1))
+        ret.append(cha_df.drop([STA_STIME, STA_ETIME, STA_LAT, STA_LON, OK_TMP_COL],
+                               axis=1))
 
     return pd.concat(ret, axis=0, ignore_index=True, copy=True)
 
@@ -474,9 +582,9 @@ def set_saved_arrivaltimes(session, segments_df):
     query = session.query(*cols).join(Segment.channel).distinct()
     df_repl = dbquery2df(query)
     segments_df[SEG_ATIME.key] = pd.NaT  # necessary to coerce values to date later
-    return segments_df if empty(df_repl) else dfupdate(segments_df, df_repl,
-                                                       [CHA_STAID.key, SEG_EVID.key],
-                                                       [SEG_EVDIST.key, SEG_ATIME.key])
+    return segments_df if empty(df_repl) else mergeupdate(segments_df, df_repl,
+                                                          [CHA_STAID.key, SEG_EVID.key],
+                                                          [SEG_EVDIST.key, SEG_ATIME.key])
 
 
 def get_arrivaltimes(segments_df, wtimespan, traveltime_phases, taup_model,
@@ -524,25 +632,25 @@ def get_arrivaltimes(segments_df, wtimespan, traveltime_phases, taup_model,
                 patime_data[SEG_EVID].append(evt_id)
             except Exception as exc:
                 # evt_id = atime = None
-                logger.warning(MSG("segments (P-) arrival time calculation", "discarding segment",
+                logger.warning(MSG("", "discarding segment",
                                    exc))
 
     # assign data to segments:
     df_repl = pd.DataFrame(data=patime_data)
-    segments_df = dfupdate(segments_df, df_repl, [SEG_EVID, CHA_STAID], [SEG_ATIME])
+    segments_df = mergeupdate(segments_df, df_repl, [SEG_EVID, CHA_STAID], [SEG_ATIME])
 
     # drop errors in arrival time:
     oldlen = len(segments_df)
     segments_df.dropna(subset=[SEG_ATIME, SEG_EVDIST], inplace=True)
     if oldlen > len(segments_df):
-        logger.info(MSG("segments (P-) arrival time calculation", "%d of %d segments discarded"),
+        logger.info(MSG("", "%d of %d segments discarded"),
                     oldlen-len(segments_df), len(segments_df))
     # set start time and end time:
     td0, td1 = timedelta(minutes=wtimespan[0]), timedelta(minutes=wtimespan[1])
     segments_df[SEG_STIME] = (segments_df[SEG_ATIME] - td0).dt.round('s')
     segments_df[SEG_ETIME] = (segments_df[SEG_ATIME] + td1).dt.round('s')
     # drop unnecessary columns and return:
-    return segments_df.drop([EVT_DEPTH, EVT_TIME], axis=1)
+    return segments_df.drop([EVT_DEPTH, EVT_TIME, CHA_STAID], axis=1)
 
 
 # def create_segments_df(channels_df, evts_stations_df):
@@ -578,6 +686,7 @@ def prepare_for_download(session, segments_df, run_id, retry_no_code, retry_url_
     SEG_DSC_DBCOL = Segment.download_status_code
     SEG_RUNID = Segment.run_id.key
 
+    URLERR_CODE, MSEEDERR_CODE = get_url_mseed_errorcodes()
     # we might use dbsync('sync', ...) which sets pkeys and updates non-existing, but then we
     # would issue a second db query to check which segments should be re-downloaded (retry).
     # As the segments table might be big (hundred of thousands of records) we want to optimize
@@ -597,10 +706,10 @@ def prepare_for_download(session, segments_df, run_id, retry_no_code, retry_url_
         _mask = pd.isnull(db_seg_df[SEG_DSC])
         mask = _mask if mask is None else mask | _mask
     if retry_url_errors:
-        _mask = db_seg_df[SEG_DSC] == -1
+        _mask = db_seg_df[SEG_DSC] == URLERR_CODE
         mask = _mask if mask is None else mask | _mask
     if retry_mseed_errors:
-        _mask = db_seg_df[SEG_DSC] == -2
+        _mask = db_seg_df[SEG_DSC] == MSEEDERR_CODE
         mask = _mask if mask is None else mask | _mask
     if retry_4xx:
         _mask = db_seg_df[SEG_DSC].between(400, 499.9999, inclusive=True)
@@ -617,223 +726,300 @@ def prepare_for_download(session, segments_df, run_id, retry_no_code, retry_url_
     segments_df[SEG_ID] = None
     segments_df[SEG_RETRY] = True
     segments_df[SEG_DSC] = None
-    segments_df = dfupdate(segments_df, db_seg_df, [SEG_CHID, SEG_STIME, SEG_ETIME],
-                           [SEG_ID, SEG_RETRY])
+    segments_df[SEG_RUNID] = run_id
+    segments_df = mergeupdate(segments_df, db_seg_df, [SEG_CHID, SEG_STIME, SEG_ETIME],
+                              [SEG_ID, SEG_RETRY])
 
-    oldlen, segments_df = len(segments_df), segments_df[segments_df[SEG_RETRY]]
+    oldlen, segments_df = len(segments_df), segments_df[segments_df[SEG_RETRY]]  # FIXME: copy???
     if oldlen != len(segments_df):
         reason = ", ".join("%s=%s" % (k, str(v)) for k, v in locals().iteritems()
                            if k.startswith("retry_"))
-        logger.info(MSG("segments", "%d segments discarded", reason), oldlen-len(segments_df))
+        logger.info(MSG("", "%d segments discarded", reason), oldlen-len(segments_df))
     # segments_df.is_copy = False
     # drop unnecessary columns:
-    segments_df.drop([SEG_RETRY], axis=1, inplace=True)
-    segments_df[SEG_RUNID] = run_id
-
+    segments_df = segments_df.drop([SEG_RETRY], axis=1)
     # for safety, remove dupes (we should not have them, however...). FIXME: # add msg???
     segments_df = segments_df.drop_duplicates(subset=[SEG_CHID, SEG_STIME, SEG_ETIME])
-    segments_df = dbsync("syncnullpkeys", "waveform segments", segments_df, session,
-                         SEG_ID_DBCOL, add_buf_size=ADDBUFSIZE)
+    segments_df = segments_df.set_index(_strcat(segments_df))
+    segments_df.index.name = None  # just for better str display...
+
+    if empty(segments_df):
+        logger.info("Nothing to download: all segments already downloaded according to "
+                    "the current configuration")
 
     return segments_df
 
 
-def _get_download_dict(grouped_df, dc_key, seedid_key, stime_key, etime_key,
-                       id_key):
-    stime = grouped_df[stime_key].iloc[0].isoformat()
-    etime = grouped_df[etime_key].iloc[0].isoformat()
-    dcen = grouped_df[dc_key].iloc[0]
-    ret = {'url': dcen}
-    ret['mseedid2id'] = {}
-    ret['post_lines'] = []
-    for seedid, id_ in izip(grouped_df[seedid_key], grouped_df[id_key]):
-        post_str = "%s %s %s" % (" ".join("--" if not _ else _ for _ in seedid.split(".")), stime,
-                                 etime)
-        ret['post_lines'].append(post_str)
-        ret['mseedid2id'][seedid] = id_
-    return ret
-
-
-def get_download_dicts(segments_df, datacenters_df):
-    SEG_STIME = Segment.start_time.key
-    SEG_ETIME = Segment.end_time.key
-    SEG_DCID = Segment.datacenter_id.key
-    DC_ID = DataCenter.id.key
-    DC_DSURL = DataCenter.dataselect_query_url.key
+def _strcat(segments_df):
     STA_NET = Station.network.key
     STA_STA = Station.station.key
     CHA_LOC = Channel.location.key
     CHA_CHA = Channel.channel.key
-    SEG_SEEDID = "__" + Segment.seed_identifier.key
-    # POST_REQ_KEY = "__post_request__" + SEG_SEEDID
-
-    # make a seedid key by concatenating n, s, l, c:
-    segments_df[SEG_SEEDID] = \
-        segments_df[STA_NET].str.cat(segments_df[STA_STA], sep='.', na_rep='').\
-        str.cat(segments_df[CHA_LOC], sep='.', na_rep='').\
-        str.cat(segments_df[CHA_CHA], sep='.', na_rep='')
-
-    datacenters_df[SEG_DCID] = datacenters_df[DC_ID]
-    segments_df = dfupdate(segments_df, datacenters_df, [SEG_DCID], [DC_DSURL],
-                           drop_df_new_duplicates=True)
-    keys = [SEG_DCID, SEG_STIME, SEG_ETIME]
-    # group dataframe by?? channel? location? station?
-    seg_groups = segments_df.groupby(keys).apply(_get_download_dict, DC_DSURL, SEG_SEEDID,
-                                                 SEG_STIME, SEG_ETIME)
-
-    return seg_groups
+    n = segments_df[STA_NET].str.cat
+    s = segments_df[STA_STA].str.cat
+    l = segments_df[CHA_LOC].str.cat
+    c = segments_df[CHA_CHA]
+    return n(s(l(c, sep='.', na_rep=''), sep='.', na_rep=''), sep='.', na_rep='')
 
 
-def download_segments(seg_dicts, max_error_count, max_thread_workers,
-                      timeout, download_blocksize,
-                      notify_progress_func=lambda *a, **v: None):
-    # define column(s) string labels:
-    SEG_DATA = Segment.data.key
-    SEG_DCID = Segment.datacenter_id.key
+def _get_request(segments_df, datacenter_query_url):
+    """
+    returns a Request object from the given segments_df"""
+    SEG_STIME = Segment.start_time.key
+    SEG_ETIME = Segment.end_time.key
+    stime = segments_df[SEG_STIME].iloc[0].isoformat()
+    etime = segments_df[SEG_ETIME].iloc[0].isoformat()
+    frmt_str = "{} {} {} {} %s %s" % (stime, etime)
+    post_data = "\n".join(frmt_str.format(*("--" if not _ else _ for _ in k.split(".")))
+                          for k in segments_df.index)
+    return Request(url=datacenter_query_url, data=post_data)
+
+
+def download_save_segments(session, segments_df, datacenters_df,
+                           max_thread_workers, timeout, download_blocksize,
+                           notify_progress_func=lambda *a, **v: None):
+
+    """Downloads and saves the segments.
+        :param segments_df: the dataframe resulting from `prepare_for_download`
+    """
+    URLERR_CODE, MSEEDERR_CODE = get_url_mseed_errorcodes()
+
+    SEG_DCID_COL = Segment.datacenter_id
+    SEG_DCID_NAME = SEG_DCID_COL.key
+    DC_ID_COL = DataCenter.id
+    DC_ID_NAME = DC_ID_COL.key
+    DC_DSQU_COL = DataCenter.dataselect_url
+    DC_DSQU_NAME = DC_DSQU_COL.key
+    SEG_ID_COL = Segment.id
+    SEG_ID_NAME = SEG_ID_COL.key
+    SEG_STIME_COL = Segment.start_time
+    SEG_ETIME_COL = Segment.end_time
+    SEG_STIME_NAME = SEG_STIME_COL.key
+    SEG_ETIME_NAME = SEG_ETIME_COL.key
+    CHA_CHA_COL = Channel.channel
+    CHA_CHA_NAME = CHA_CHA_COL.key
+
+    SEG_DATA_COL = Segment.data
+    SEG_DSC_COL = Segment.download_status_code
+    SEG_SEEDID_COL = Segment.seed_identifier
+    SEG_MGR_COL = Segment.max_gap_ratio
+    SEG_SRATE_COL = Segment.sample_rate
+    SEG_RUNID_COL = Segment.run_id
+
+    SEG_DATA_NAME = SEG_DATA_COL.key
+    SEG_DSC_NAME = SEG_DSC_COL.key
+    SEG_SEEDID_NAME = SEG_SEEDID_COL.key
+    SEG_MGR_NAME = SEG_MGR_COL.key
+    SEG_SRATE_NAME = SEG_SRATE_COL.key
+    SEG_RUNID_NAME = SEG_RUNID_COL.key
 
     stats = defaultdict(lambda: UrlStats())
-    if empty(seg_dicts):
+    if empty(segments_df):
         return stats
-    errors = defaultdict(int)
-    results = {}
-    count = [0, len(seg_dicts)]
-    total_saved = 0
 
-    def ondone(obj, result, exc, url):
-        """function executed when a given url has succesfully downloaded `data`"""
-        notify_progress_func(1)
-        count[0] += 1
-        seedid2dbid = obj['mseedid2id']
-        code = None
-        if not exc:
-            code, bytes_data = result[1], result[0]
-            try:
-                result.extend((seedid2dbid[seedid], seedid, data, code) for seedid, data in
-                              mseedlite3.unpack(bytes_data).iteritems() if seedid in seedid2dbid)
-            except mseedlite3.MSeedError as _:
-                code = -2  # MSEED ERROR
-                exc = _
+    datcen_id2url = datacenters_df.set_index([DC_ID_NAME])[DC_DSQU_NAME].to_dict()
+    # requests entity too large: list of tuples: request_string, single_elm_dataframe
+    retries = []
+    info = defaultdict(int)
+    # strings for infos (to avoid typos): inserted new inserted total, updated new updated total
+    I_NEW, I_TOT, U_NEW, U_TOT = "a", 'b', 'c', 'd'  # just provide short random strings, who cares
+
+    # for numpy types, see
+    # https://docs.scipy.org/doc/numpy/reference/arrays.dtypes.html#specifying-and-constructing-data-types
+    segments_df[SEG_DATA_NAME] = None
+    segments_df[SEG_MGR_NAME] = float('nan')
+    segments_df[SEG_SRATE_NAME] = float('nan')
+    segments_df[SEG_SEEDID_NAME] = None
+    segments_df[SEG_DSC_NAME] = float('nan')
+
+    def ondone(df, result, exc, request):
+        """function executed when a given url has successfully downloaded `data`"""
+        _ = df[0]  # not used. NOTE that the type of this var changes according to whether we are
+        # retriying froma  previous 413 http code or not
+        df = df[1]
+        url = request.get_host()
+        # init all fields as none (SEG_DSC_NAME, the download status code, will be set later)
         if exc:
-            if code is None:
-                code = -1
-            logger.warning(MSG("segments", "discarding query result", exc, url))
-            stats[url.get_host()][exc] += len(seedid2dbid)
+            code = URLERR_CODE
         else:
-            if len(results) >= ADDBUFSIZE or count[0] == count[1]:
-                saved, discarded = save_wdata(results)
-                if discarded:
-                    logger.warning("%d segments not updated (db error)", discarded)
-                total_saved += saved
+            data, code, msg = result
+            if code == 413 and len(df) > 1:
+                for i, postdatarow in enumerate(request.data.split("\n")):
+                    retries.append((Request(url=request.get_full_url(), data=postdatarow),
+                                    pd.DataFrame(df.iloc[i]).T))
+                return
+            elif code >= 400:
+                exc = "%d: %s" % (code, msg)
+            else:
+                # init with empty data. We got no errors so
+                # if we have empty data skip below, and we already have all values set
+                if not data:
+                    df.loc[:, SEG_DATA_NAME] = b''
+                    df.loc[:, SEG_DSC_NAME] = code
+                else:
+                    try:
+                        resdict = mseedunpack(data)
+                        oks = 0
+                        values = []
+                        for key, (data, samplerate, max_gap_ratio, err) in resdict.iteritems():
+                            if err is not None:
+                                values.append((None, None, None, None, MSEEDERR_CODE))
+                                stats[url][err] += 1
+                            else:
+                                values.append((data, samplerate, max_gap_ratio, key, code))
+                                oks += 1
+                        df.loc[resdict.keys(), [SEG_DATA_NAME, SEG_SRATE_NAME, SEG_MGR_NAME,
+                                                SEG_SEEDID_NAME, SEG_DSC_NAME]] = values
+                        stats[url]["%d: %s" % (code, msg)] += oks
+                    except MSeedError as mseedexc:
+                        code = MSEEDERR_CODE
+                        exc = mseedexc
+                    except Exception as unknown_exc:
+                        code = None
+                        exc = unknown_exc
 
-    # now download Data:
-    # we use the index as urls cause it's much faster when locating a dframe row compared to
-    # df[df[df_urls_colname] == some_url]). We zip it with the datacenters for faster search
-    # REMEMBER: iterating over series values is FASTER BUT USES underlying numpy types, and for
-    # datetime's is a problem cause pandas sublasses datetime, numpy not
-    read_async(seg_dicts,
-               urlkey=lambda obj: Request(url=obj['url'], data='\n'.join(obj['post_lines'])),
-               ondone=ondone, max_workers=max_thread_workers,
+        if exc is not None:  # set fields to None to save memory
+            df.loc[:, SEG_DSC_NAME] = code
+            stats[url][exc] += len(df)
+            logger.warning(MSG("", "Unable to get waveform data", exc, request))
+
+        mask = pd.isnull(df[SEG_ID_NAME])
+        if mask.any():
+            total, new = insertdf_napkeys(df[mask], session, SEG_ID_COL, ADDBUFSIZE,
+                                          return_df=False)
+            info[I_TOT] += total
+            info[I_NEW] += new
+
+        mask = ~mask
+        if mask.any():
+            upd_df = df[mask]
+            total = len(upd_df)
+            updated = updatedf(upd_df, session, SEG_ID_COL,
+                               [SEG_RUNID_COL, SEG_DATA_COL, SEG_MGR_COL, SEG_SRATE_COL,
+                                SEG_DSC_COL], ADDBUFSIZE, return_df=False)
+            info[U_TOT] += total
+            info[U_NEW] += updated
+
+        notify_progress_func(len(df))
+
+    seg_groups = segments_df.groupby([SEG_DCID_NAME, SEG_STIME_NAME, SEG_ETIME_NAME], sort=False)
+
+    # seg group is an iterable of 2 element tuples. The first element is the tuple of keys[:idx]
+    # values, and the second element is the dataframe
+    retries = []
+    read_async(seg_groups,
+               urlkey=lambda obj: _get_request(obj[1], datcen_id2url[obj[0][0]]),
+               ondone=ondone, raise_http_err=False,
+               max_workers=max_thread_workers,
                timeout=timeout, blocksize=download_blocksize)
+    if retries:
+        read_async(retries,
+                   urlkey=lambda obj: obj[0],
+                   ondone=ondone, raise_http_err=False,
+                   max_workers=max_thread_workers,
+                   timeout=timeout, blocksize=download_blocksize)
 
-    if total_saved:
-        logger.info("%d segments updated", total_saved)
+    dblog(Segment, info[I_NEW], info[I_TOT] - info[I_NEW], info[U_NEW], info[U_TOT] - info[U_NEW])
 
     # reset index (we do not need urls anymore):
     return stats
 
 
-def save_wdata(session, seg_list, run_id, sync_session_on_update='evaluate'):
-    SEG_ID = Segment.id.key
-    SEG_RUNID = Segment.run_id.key
-    SEG_DATA = Segment.data.key
-    # SEG_DCID = Segment.datacenter_id.key
-    SEG_SEEDID = Segment.seed_identifier
-    SEG_DSC = Segment.download_status_code
+class SegmentsDbManager(object):
+    # URLERR_CODE, MSEEDERR_CODE = get_url_mseed_errorcodes()
 
-    for id_, seed_id, data, code in seg_list:
-        session.query(Segment).filter(Segment.id == id_).\
-            update({SEG_DATA: data, SEG_RUNID: run_id, SEG_DSC: code, SEG_SEEDID: seed_id},
-                   synchronize_session=sync_session_on_update)
-
-    if commit(session):
-        return len(seg_list), 0
-    else:
-        return 0, len(seg_list)
-
-# def save_segments(session, segments_df, run_id, sync_session_on_update='evaluate'):
-#     SEG_ID = Segment.id.key
-#     SEG_RUNID = Segment.run_id.key
-#     SEG_DATA = Segment.data.key
-#     SEG_DCID = Segment.datacenter_id.key
+    SEG_DCID_COL = Segment.datacenter_id
+    SEG_DCID_NAME = SEG_DCID_COL.key
+    UPD_COLS = [Segment.run_id, Segment.data, Segment.max_gap_ratio, Segment.sample_rate,
+                Segment.download_status_code]
+#     DC_ID_COL = DataCenter.id
+#     DC_ID_NAME = DC_ID_COL.key
+#     DC_DSQU_COL = DataCenter.dataselect_url
+#     DC_DSQU_NAME = DC_DSQU_COL.key
+#     SEG_ID_COL = Segment.id
+#     SEG_ID_NAME = SEG_ID_COL.key
+#     SEG_STIME_COL = Segment.start_time
+#     SEG_ETIME_COL = Segment.end_time
+#     SEG_STIME_NAME = SEG_STIME_COL.key
+#     SEG_ETIME_NAME = SEG_ETIME_COL.key
+#     CHA_CHA_COL = Channel.channel
+#     CHA_CHA_NAME = CHA_CHA_COL.key
 # 
-#     if empty(segments_df):
-#         logger.info("No segment to save")
+#     SEG_DATA_COL = Segment.data
+#     SEG_DSC_COL = Segment.download_status_code
+#     SEG_SEEDID_COL = Segment.seed_identifier
+#     SEG_MGR_COL = Segment.max_gap_ratio
+#     SEG_SRATE_COL = Segment.sample_rate
+#     SEG_RUNID_COL = Segment.run_id
 # 
-#     ids_set = segments_df[SEG_ID].notnull()  # or pd.isnull(segments_df)
-#     # add new segments
-#     segments_to_add_df = segments_df[~ids_set]
-#     segments_to_add_df.is_copy = False
-#     segments_to_add_df[SEG_RUNID] = run_id
-#     tot = len(segments_to_add_df)
-#     adder = Adder(session, Segment.id, ADDBUFSIZE)
-#     # hack to avoid checking if exists:
-#     adder.existing_keys = set()
-#     adder.add(segments_to_add_df)
-#     if adder.discarded:
-#         logger.warning("%d of %d new segments not saved (db error)", adder.discarded, tot)
-#     # update new segments:
-#     segments_to_update_df = segments_df[ids_set]
-#     tot = len(segments_to_update_df)  # get now the num of segment sot update, and filter again:
-#     # count where data is none, and # update stats
-#     segments_to_update_df = segments_to_update_df[segments_df[SEG_DATA].notnull()]
-#     if tot - len(segments_to_update_df):
-#         logger.warning("%d segments discarded (retried, but still zero bytes "
-#                        "received or client/server error)", tot - len(segments_to_update_df))
-#     # write to db:
-#     last = len(segments_to_update_df) - 1
-#     buf = []
-#     updated = 0
-#     errors = 0
-#     for i, rowdict in enumerate(dfrowiter(segments_to_update_df)):
-#         # now we will either update or add the new segment. Set the run_id first:
-#         # already downloaded, but this time data was found
-#         # (if we attempted an already downloaded, it means segment.data was empty or None):
-#         # note that we do not update run_id
-#         session.query(Segment).filter(Segment.id == rowdict[SEG_ID]).\
-#             update({SEG_DATA: rowdict[SEG_DATA], SEG_RUNID: run_id},
-#                    synchronize_session=sync_session_on_update)
-#         buf.append([rowdict[SEG_DCID], True if rowdict[SEG_DATA] else False])
-#         if (i == last and buf) or len(buf) == ADDBUFSIZE:
-#             if commit(session):
-#                 updated += len(buf)
-#             else:
-#                 # we rolled back. We should actually count which has been really written!
-#                 errors += len(buf)
-#             buf = []
-#     if errors:
-#         logger.warning("%d segments not updated (db error)", errors)
-#     if updated:
-#         # also add as info (which by default prints to screen, if run from terminal):
-#         logger.info("%d segments updated", updated)
-#     if adder.new:
-#         logger.info("%d new segments saved", adder.new)
+#     SEG_DATA_NAME = SEG_DATA_COL.key
+#     SEG_DSC_NAME = SEG_DSC_COL.key
+#     SEG_SEEDID_NAME = SEG_SEEDID_COL.key
+#     SEG_MGR_NAME = SEG_MGR_COL.key
+#     SEG_SRATE_NAME = SEG_SRATE_COL.key
+#     SEG_RUNID_NAME = SEG_RUNID_COL.key
+
+    def __init__(self, session, bufsize):
+        self.info = [0, 0, 0, 0]  # new, total_new, updated, updated_new
+        self.inserts = []
+        self.updates = []
+        self.bufsize = bufsize
+        self._num2insert = 0
+        self._num2update = 0
+        self.session = session
+
+    def add(self, df):
+        bufsize = self.bufsize
+        mask = pd.isnull(df[self.SEG_ID_NAME])
+        if mask.any():
+            dfinsert = df[mask]
+            self.inserts.append(dfinsert)
+            self._num2insert += len(dfinsert)
+            if self._num2insert > bufsize:
+                self.insert()
+                self._num2insert = 0
+                self.inserts = []
+
+        mask = ~mask
+        if mask.any():
+            upd_df = df[mask]
+            self.updates.append(upd_df)
+            self._num2update += len(upd_df)
+            if self._num2update > bufsize:
+                self.update()
+                self._num2update = 0
+                self.updates = []
+
+    def insert(self):
+        df = pd.concat(self.inserts, axis=0, ignore_index=True, copy=False, verify_integrity=False)
+        total, new = insertdf_napkeys(df, self.session, self.SEG_ID_COL, len(df), return_df=False)
+        info = self.info
+        info[0] += new
+        info[1] += total
+
+    def update(self):
+        df = pd.concat(self.updates, axis=0, ignore_index=True, copy=False, verify_integrity=False)
+        total = len(df)
+        updated = updatedf(df, self.session, self.SEG_ID_COL, self.UPD_COLS, total, return_df=False)
+        info = self.info
+        info[2] += updated
+        info[3] += total
+
+    def close(self):
+        if self.inserts:
+            self.insert()
+        if self.updates:
+            self.update()
 
 
-def add_classes(session, class_labels):
-    if class_labels:
-        cdf = pd.DataFrame(data=[{Class.label.key: k, Class.description.key: v}
-                           for k, v in class_labels.iteritems()])
-        dbsync("add2db", "classes", cdf, session, [Class.label], ADDBUFSIZE, True)
-
-
-def main(session, run_id, start, end, eventws, eventws_query_args,
-         sradius_minmag, sradius_maxmag, sradius_minradius, sradius_maxradius,
-         channels, min_sample_rate, download_s_inventory, traveltime_phases,
+def main(session, run_id, start, end, service, eventws_query_args,
+         search_radius,
+         channels, min_sample_rate, inventory, traveltime_phases,
          wtimespan, retry_no_code, retry_url_errors, retry_mseed_errors, retry_4xx, retry_5xx,
          advanced_settings, class_labels=None, isterminal=False):
     """
         Downloads waveforms related to events to a specific path
-        :param eventws: Event WS to use in queries. E.g. 'http://seismicportal.eu/fdsnws/event/1/'
+        :param eventws: Event WS to use in queries. E.g. 'eida', 'iris'
         :type eventws: string
         :param eventws_query_args: a dict of fdsn arguments to be passed to the eventws query. E.g.
         {'minmag' : 3.0}
@@ -871,7 +1057,7 @@ def main(session, run_id, start, end, eventws, eventws_query_args,
 
     progressbar = get_progressbar(isterminal)
 
-    __steps = 9 if download_s_inventory else 8
+    __steps = 9 if inventory else 8
     stepiter = imap(lambda i: "%d of %d" % (i+1, __steps), xrange(__steps))
 
     # write the class labels:
@@ -885,13 +1071,15 @@ def main(session, run_id, start, end, eventws, eventws_query_args,
     try:
         # Get events, store them in the db, returns the event instances (db rows) correctly added:
         logger.info("")
-        logger.info("STEP %s: Querying events", next(stepiter))
-        events_df = get_events_df(session, eventws, start=startiso, end=endiso,
+        logger.info("STEP %s: Requesting events", next(stepiter))
+        eventws_url = get_eventws_url(session, service)
+        events_df = get_events_df(session, eventws_url, start=startiso, end=endiso,
                                   **eventws_query_args)
         # Get datacenters, store them in the db, returns the dc instances (db rows) correctly added:
         logger.info("")
-        logger.info("STEP %s: Querying datacenters", next(stepiter))
-        datacenters_df, postdata = get_datacenters_df(session, start=startiso, end=endiso)
+        logger.info("STEP %s: Requesting data-centers", next(stepiter))
+        datacenters_df, postdata = get_datacenters_df(session, service, channels, start=startiso,
+                                                      end=endiso)
     except Exception as exc:
         if isterminal:
             print str(exc)
@@ -903,16 +1091,21 @@ def main(session, run_id, start, end, eventws, eventws_query_args,
                     len(datacenters_df))
         _pbar = get_progressbar(False)
     else:
-        logger.info(("STEP %s: Querying stations from %d datacenter(s)"), next(stepiter),
-                    len(datacenters_df))
+        logger.info(("STEP %s: Requesting stations and channels from %d %s"), next(stepiter),
+                    len(datacenters_df),
+                    'data-center' if len(datacenters_df) == 1 else 'data-centers')
         _pbar = progressbar
+
     with _pbar(length=len(datacenters_df)) as bar:
         channels_df = get_channels_df(session, datacenters_df, postdata, channels, min_sample_rate,
                                       advanced_settings['max_thread_workers'],
                                       advanced_settings['s_timeout'],
                                       advanced_settings['download_blocksize'], bar.update)
 
-    if download_s_inventory:
+    if empty(channels_df):  # info already written to log inside the function, just quit
+        return 0
+
+    if inventory:
         stations = session.query(Station).filter(~withdata(Station.inventory_xml)).all()
         logger.info("")
         logger.info(("STEP %s: Downloading %d stations inventories"), next(stepiter), len(stations))
@@ -924,40 +1117,40 @@ def main(session, run_id, start, end, eventws, eventws_query_args,
 
     logger.info(("STEP %s: Selecting stations within search radius from %d events"), next(stepiter),
                 len(events_df))
-    segments_df = merge_events_stations(channels_df, events_df, sradius_minmag,
-                                        sradius_maxmag, sradius_minradius, sradius_maxradius)
+    segments_df = merge_events_stations(events_df, channels_df, search_radius['minmag'],
+                                        search_radius['maxmag'], search_radius['minmag_radius'],
+                                        search_radius['maxmag_radius'])
 
     logger.info("")
-    logger.info(("STEP %s: Calculating P-arrival times "
-                 "and time ranges"), next(stepiter))
+    logger.info(("STEP %s: Calculating P-arrival times and time ranges"), next(stepiter))
     segments_df = set_saved_arrivaltimes(session, segments_df)
     with progressbar(length=segments_df[Segment.arrival_time.key].isnull().sum()) as bar:
         # rename dataframe to make clear that now we have segments:
         segments_df = get_arrivaltimes(segments_df, wtimespan, traveltime_phases, 'ak135',
-                                       bar.update)
+                                       mp_max_workers=None, notify_progress_func=bar.update)
 
     # merging into channels_df:
     # segments_df = create_segments_df(channels_df, segments_df)
 
     logger.info("")
     logger.info(("STEP %s: Checking already downloaded segments"), next(stepiter))
-    segments_df = prepare_for_download(session, segments_df, run_id, retry_no_code, retry_url_errors,
-                                       retry_mseed_errors, retry_4xx, retry_5xx)
+    segments_df = prepare_for_download(session, segments_df, run_id, retry_no_code,
+                                       retry_url_errors, retry_mseed_errors, retry_4xx, retry_5xx)
 
-    seg_groups = get_download_dicts(segments_df, datacenters_df)
+    if empty(segments_df):  # info already written to log inside the function, just quit
+        return 0
 
     segments_count = len(segments_df)
     logger.info("")
-    logger.info("STEP %s: Querying Datacenter WS for %d segments and saving to db",
+    logger.info("STEP %s: Downloading %d segments and saving to database",
                 next(stepiter), segments_count)
 
-    with progressbar(length=seg_groups) as bar:
-        d_stats = download_segments(seg_groups,
-                                    advanced_settings['w_maxerr_per_dc'],
-                                    advanced_settings['max_thread_workers'],
-                                    advanced_settings['w_timeout'],
-                                    advanced_settings['download_blocksize'],
-                                    bar.update)
+    with progressbar(length=segments_count) as bar:
+        d_stats = download_save_segments(session, segments_df, datacenters_df,
+                                         advanced_settings['max_thread_workers'],
+                                         advanced_settings['w_timeout'],
+                                         advanced_settings['download_blocksize'],
+                                         bar.update)
 
 #     logger.info("")
 #     logger.info("STEP %s: Saving waveform segments to db", next(stepiter))
@@ -968,7 +1161,7 @@ def main(session, run_id, start, end, eventws, eventws_query_args,
     def rfunc(row):
         """function for modifying each row display"""
         url_ = datacenters_df[datacenters_df[DataCenter.id.key] ==
-                              row][DataCenter.station_query_url.key].iloc[0]
+                              row][DataCenter.station_url.key].iloc[0]
         return urlparse(url_).netloc
 
     def cfunc(col):
@@ -979,172 +1172,9 @@ def main(session, run_id, start, end, eventws, eventws_query_args,
 #     logger.info(stats2str(s_stats, fillna=0, transpose=True, lambdarow=rfunc, lambdacol=cfunc,
 #                           sort='col'))
 #     logger.info("")
-    logger.info("Summary of Data-center 'dataselect' requests:")
-    logger.info(stats2str(d_stats, fillna=0, transpose=True, lambdarow=rfunc, lambdacol=cfunc,
+    logger.info("Summary of web service requests for waveform segments:")
+    logger.info(stats2str(d_stats, fillna=0, transpose=True, lambdacol=cfunc,
                           sort='col'))
     logger.info("")
 
     return 0
-
-
-
-# def get_datacenters_df(session, **query_args):
-#     """Queries 'http://geofon.gfz-potsdam.de/eidaws/routing/1/query' for all datacenters
-#     available
-#     Rows already existing (comparing by datacenter station_query_url) are returned as well,
-#     but not added again
-#     :param query_args: any key value pair for the url. Note that 'service' and 'format' will
-#     be overiidden in the code with values of 'station' and 'format', repsecively
-#     """
-#     # do not return only new datacenters, return all of them
-#     query_args['service'] = 'station'
-#     query_args['format'] = 'post'
-#     url = urljoin('http://geofon.gfz-potsdam.de/eidaws/routing/1/query', **query_args)
-#     # add datacenters. Sql-alchemy way, cause we want the ids be autogenerated by the db
-#     sta2ids = {k.station_query_url: k for k in session.query(DataCenter)}
-#     try:
-#         dc_result = urlread(url, decode='utf8')
-#         # add to db the datacenters read. Two little hacks:
-#         # 1) parse dc_result string and assume any new line starting with http:// is a valid station
-#         # url url
-#         # 2) When adding the datacenter, the table column dataselect_query_url (when not provided,
-#         # as in this case) is assumed to be the same as station_query_url by replacing "/station"
-#         # with "/dataselect". See https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf
-#         datacenters = [DataCenter(station_query_url=dcen) for dcen in dc_result.split("\n")
-#                        if dcen[:7] == "http://"]
-#         dropped = 0
-#         new = 0
-#         for d in datacenters:
-#             if d.station_query_url not in sta2ids:
-#                 try:
-#                     session.add(d)
-#                     session.commit()
-#                     new += 1
-#                     sta2ids[d.station_query_url] = d
-#                 except SQLAlchemyError as _:
-#                     session.rollback()
-#                     dropped += 1
-# 
-#         if dropped:
-#             logger.warning(msgs.format(msgs.DB_ITEM_DISCARDED_(dropped), url))
-#         if new:
-#             logger.info(msgs.DB_ITEM_DISCARDED_(new))
-# 
-#     except URLException as urlexc:
-#         msg = msgs.format(urlexc.exc, url)
-#         if not sta2ids:
-#             logger.error(msg)
-#             raise ValueError(msg)
-#         else:
-#             logger.warning(msg)
-#             logger.info(msgs.format("No datacenter downloaded, working with already "
-#                                     "saved datacenters (%d)" % len(datacenters)))
-#     dc_df = pd.DataFrame(data=[{DataCenter.id.key: x.id,
-#                                 DataCenter.station_query_url.key: x.station_query_url,
-#                                 DataCenter.dataselect_query_url.key: x.dataselect_query_url}
-#                                for x in sta2ids.values()])
-# 
-#     return dc_df
-
-
-
-
-# def get_fdsn_channels_df(session, events_df, datacenters_df, sradius_minmag, sradius_maxmag,
-#                          sradius_minradius, sradius_maxradius, station_timespan, channels,
-#                          min_sample_rate, max_thread_workers, timeout, blocksize,
-#                          notify_progress_func=lambda *a, **v: None):
-#     """Returns dict {event_id: stations_df} where stations_df is an already normalized and
-#     harmonized dataframe with the stations saved or already present, and the JOINT fields
-#     of Station and Channel. The id column values refers to Channel id's
-#     though"""
-#     stats = defaultdict(lambda: UrlStats())
-#     ret = []
-# 
-#     def ondone(obj, result, exc, cancelled):  # pylint:disable=unused-argument
-#         """function executed when a given url has successfully downloaded data"""
-#         notify_progress_func(1)
-#         evt_id, dcen_id, url = obj[0], obj[1], obj[2]
-#         if cancelled:  # should never happen, however...
-#             msg = "Download cancelled"
-#             logger.warning(msgs.format(msg, url))
-#             stats[dcen_id][msg] += 1
-#         elif exc:
-#             logger.warning(msgs.format(exc, url))
-#             stats[dcen_id][exc] += 1
-#         else:
-#             df = get_stations_df(url, result, min_sample_rate)
-#             if empty(df):
-#                 if result:
-#                     stats[dcen_id]['Malformed'] += 1
-#                 else:
-#                     stats[dcen_id]['Empty'] += 1
-#             else:
-#                 stats[dcen_id]['OK'] += 1
-#                 df[Station.datacenter_id.key] = dcen_id
-#                 df[Segment.event_id.key] = evt_id
-#                 ret.append(df)
-# 
-#     iterable = evdcurl_iter(events_df, datacenters_df, sradius_minmag, sradius_maxmag,
-#                             sradius_minradius, sradius_maxradius, station_timespan, channels)
-# 
-#     read_async(iterable, ondone, urlkey=lambda obj: obj[-1], blocksize=blocksize,
-#                max_workers=max_thread_workers, decode='utf8', timeout=timeout)
-# 
-#     return pd.concat(ret, axis=0, ignore_index=True, copy=False), stats
-# 
-# 
-# def evdcurl_iter(events_df, datacenters_df, sradius_minmag, sradius_maxmag, sradius_minradius,
-#                  sradius_maxradius, station_timespan, channels):
-#     """returns an iterable of tuple (event, datacenter, station_query_url) where the last element
-#     is build with sradius_* arguments and station_timespan and channels"""
-#     # calculate search radia:
-#     max_radia = get_search_radius(events_df[Event.magnitude.key].values, sradius_minmag,
-#                                   sradius_maxmag, sradius_minradius, sradius_maxradius)
-# 
-#     # dfrowiter yields dicts with pythojn objects
-#     python_dcs = list(dfrowiter(datacenters_df, [DataCenter.id.key,
-#                                                  DataCenter.station_query_url.key]))
-# 
-#     for max_radius, evt_dict in izip(max_radia, dfrowiter(events_df)):
-#         evt_time = evt_dict[Event.time.key]
-#         evt_lat = evt_dict[Event.latitude.key]
-#         evt_lon = evt_dict[Event.longitude.key]
-#         start = evt_time - timedelta(hours=station_timespan[0])
-#         end = evt_time + timedelta(hours=station_timespan[1])
-#         evt_id = evt_dict[Event.id.key]
-#         for dc_dict in python_dcs:
-#             dcen_station_query_url = dc_dict[DataCenter.station_query_url.key]
-#             url = urljoin(dcen_station_query_url,
-#                           latitude="%3.3f" % evt_lat,
-#                           longitude="%3.3f" % evt_lon,
-#                           maxradius=max_radius,
-#                           start=start.isoformat(), end=end.isoformat(),
-#                           channel=','.join(channels), format='text', level='channel')
-#             yield (evt_id, dc_dict[DataCenter.id.key], url)
-# 
-# 
-# def get_stations_df(url, raw_data, min_sample_rate):
-#     """FIXME: write doc! """
-#     try:
-#         stations_df = query2df(url, raw_data, "channel")
-#     except ValueError as exc:
-#         logger.warning(msgs.format(exc, url))
-#         return empty()
-# 
-#     if min_sample_rate > 0:
-#         srate_col = Channel.sample_rate.key
-#         oldlen, stations_df = len(stations_df), \
-#             stations_df[stations_df[srate_col] >= min_sample_rate]
-#         reason = "sample rate < %s Hz" % str(min_sample_rate)
-#         if oldlen > len(stations_df):
-#             logger.warning("%s: %s", reason,
-#                            msgs.format(msgs.DB_ITEM_DISCARDED_(oldlen-len(stations_df)), url))
-# 
-#         if empty(stations_df):
-#             return stations_df
-#         # http://stackoverflow.com/questions/20625582/how-to-deal-with-settingwithcopywarning-in-pandas
-#         stations_df.is_copy = False
-# 
-#     return stations_df  # might be empty
-# 
-# 

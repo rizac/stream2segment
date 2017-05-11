@@ -38,10 +38,11 @@ def get_stream(bytez):
 #     return _sd
 
 
-def get_s2s_stream(bytes_dic):
+def get_s2s_stream(dicread):
     traces = []
-    for v in bytes_dic.itervalues():
-        traces.extend(get_stream(v).traces)
+    for v in dicread.itervalues():
+        if v[-1] is None:
+            traces.extend(get_stream(v[0]).traces)
     return Stream(traces)
     # return {id: read(StringIO(x))[0] for id, x in bytes_dic.iteritems()}
 
@@ -77,16 +78,24 @@ def streamequal(stream1, stream2, deep=True):
     return True
 
 
+def haserr(dataread):
+    for v in dataread.itervalues():
+        if v[-1] is not None:
+            return True
+    return False
+
+
 def test_standard():
     bytez = mock_response_inbytes()
     g= _read_mseed(BytesIO(bytez))
     # get our dicts of trace_id: trace_bytes
-    bytes_dic, gaps, errs = unpack(bytez)
-    assert not errs
-    assert all(g < 0.0001 for g in gaps.itervalues())
+    dic = unpack(bytez)
+    assert not haserr(dic)
+    # assert all max gap ratios are below a certain threshold:
+    assert all(v[-2] < 0.0001 for v in dic.itervalues())
     # get the same dict by calling obspy.read:
     obspy_stream = get_stream(bytez)
-    s2s_stream = get_s2s_stream(bytes_dic)
+    s2s_stream = get_s2s_stream(dic)
     
     assert streamequal(obspy_stream, s2s_stream, deep=True)
 #     assert all(np.array_equal(x.data, obspy_dic[id_].data) for id_, x in mseed_dic.iteritems())
@@ -98,12 +107,12 @@ def test_with_gaps():
     bytez = mock_response_inbytes(True)
 
     # get our dicts of trace_id: trace_bytes
-    bytes_dic, gaps, errs = unpack(bytez)
-    assert not errs
-    assert any(g > 1 for g in gaps.itervalues())
+    dic = unpack(bytez)
+    assert not haserr(dic)
+    assert any(g[-2] > 1 for g in dic.itervalues())
     # get the same dict by calling obspy.read:
     obspy_stream = get_stream(bytez)
-    s2s_stream = get_s2s_stream(bytes_dic)
+    s2s_stream = get_s2s_stream(dic)
     assert streamequal(obspy_stream, s2s_stream, deep=True)
 #     assert not all(np.array_equal(x.data, obspy_dic[id_].data) for id_, x in mseed_dic.iteritems())
 #     assert sorted(mseed_dic.keys()) == sorted(obspy_dic.keys())
@@ -123,12 +132,12 @@ def test_change_last_byte():
     # Let's change one byte at the end (a byte of the data part)
     bytez = mock_response_inbytes()
     # get our dicts of trace_id: trace_bytes
-    bytes_dic, gaps, errs = unpack( bytez[:-1] + 'a')
-    assert not errs
-    assert all(g < 0.0001 for g in gaps.itervalues())
+    dic = unpack( bytez[:-1] + 'a')
+    assert not haserr(dic)
+    assert all(g[-2] < 0.0001 for g in dic.itervalues())
 
     obspy_stream = get_stream(bytez)
-    s2s_stream = get_s2s_stream(bytes_dic)
+    s2s_stream = get_s2s_stream(dic)
     # assert same num of channels and traces and time ranges:
     assert streamequal(obspy_stream, s2s_stream, deep=False)
     # BUT NOT same data:
@@ -139,14 +148,14 @@ def test_change_header_change_id():
     # Let's change one byte at the end (a byte of the data part), this will
     bytez = mock_response_inbytes()
     # get our dicts of trace_id: trace_bytes
-    bytes_dic, gaps, errs = unpack('a' * _FIXHEAD_LEN + bytez[_FIXHEAD_LEN:])
+    dic = unpack('a' * _FIXHEAD_LEN + bytez[_FIXHEAD_LEN:])
     # erros is not empty but has the trace id 'aa.aaaaa.aa.aaa'. What is that?
     # is the id we created by modyfing the bytes above
-    assert errs
-    assert all(g < 0.0001 for g in gaps.itervalues())
+    assert haserr(dic)
+    assert all(g[-2] < 0.0001 for g in dic.itervalues())
 
     obspy_stream = get_stream(bytez)
-    s2s_stream = get_s2s_stream(bytes_dic)
+    s2s_stream = get_s2s_stream(dic)
     # assert not same num of channels and traces and time ranges:
     assert streamequal(obspy_stream, s2s_stream, deep=False)
 
@@ -155,14 +164,14 @@ def test_change_header_keep_id():
         # Let's change one byte at the end (a byte of the data part), this will
     bytez = mock_response_inbytes()
     # get our dicts of trace_id: trace_bytes
-    bytes_dic, gaps, errs = unpack(bytez[:_FIXHEAD_LEN-8] + (b'a' * 8) + bytez[_FIXHEAD_LEN:])
+    dic = unpack(bytez[:_FIXHEAD_LEN-8] + (b'a' * 8) + bytez[_FIXHEAD_LEN:])
     # erros is not empty but has the trace id 'aa.aaaaa.aa.aaa'. What is that?
     # is the id we created by modyfing the bytes above
-    assert errs
-    assert all(g < 0.0001 for g in gaps.itervalues())
+    assert haserr(dic)
+    assert all(g[-2] < 0.0001 for g in dic.itervalues())
 
     obspy_stream = get_stream(bytez)
-    s2s_stream = get_s2s_stream(bytes_dic)
+    s2s_stream = get_s2s_stream(dic)
     # assert not same num of channels and traces and time ranges:
     assert not streamequal(obspy_stream, s2s_stream, deep=False)
 

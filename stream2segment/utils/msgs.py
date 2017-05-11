@@ -54,15 +54,12 @@ def url2str(obj):
     "{obj.get_full_url()}, data: '{obj.get_data()}'" if `obj.data` has no newlines, or
     "{obj.get_full_url()}, data: '{obj.get_data()[:I]}'" otherwise (I=obj.get_data().find('\n')`)
     """
-    full_url = getattr(obj, 'get_full_url', None)
-    if full_url is not None:
-        data = getattr(obj, 'get_data', None)
-        if data is not None:
-            idx = data.find("\n")
-            url = "%s, data%s: '%s'" % (full_url, " (showing first line only)" if idx > -1 else '',
-                                        data)
-        else:
-            url = full_url
-    else:
+    try:
+        url = obj.get_full_url()
+        data = obj.data
+        idx = data.find("\n")
+        url = "%s, data%s: '%s'" % (url, " (showing first line only)" if idx > -1 else '',
+                                    data[:idx])
+    except AttributeError:
         url = obj
     return url

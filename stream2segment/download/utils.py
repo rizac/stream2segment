@@ -122,27 +122,27 @@ def get_arrival_time(distance_in_degrees, ev_depth_km, ev_time, traveltime_phase
     return arrival_time
 
 
-def get_search_radius(mag, minmag, maxmag, minradius, maxradius):
+def get_search_radius(mag, minmag, maxmag, minmag_radius, maxmag_radius):
     """From a given magnitude, determines and returns the max radius (in degrees).
-        Given minradius and maxradius and minmag and maxmag (FIXME: TO BE CALIBRATED!),
+        Given minmag_radius and maxmag_radius and minmag and maxmag (FIXME: TO BE CALIBRATED!),
         this function returns D from the f below:
 
-                  |
-        maxradius +                oooooooooooo
-                  |              o
-                  |            o
-                  |          o
-        minradius + oooooooo
-                  |
-                  ---------+-------+------------
-                        minmag     maxmag
+                      |
+        maxmag_radius +                oooooooooooo
+                      |              o
+                      |            o
+                      |          o
+        minmag_radius + oooooooo
+                      |
+                      ---------+-------+------------
+                            minmag     maxmag
 
     :return: the max radius (in degrees)
     :param mag: (numeric or list or numbers/numpy.array) the magnitude
     :param minmag: (int, float) the minimum magnitude
     :param maxmag: (int, float) the maximum magnitude
-    :param minradius: (int, float) the minimum distance (in degrees)
-    :param maxradius: (int, float) the maximum distance (in degrees)
+    :param minmag_radius: (int, float) the radius for `min_mag` (in degrees)
+    :param maxmag_radius: (int, float) the radius for `max_mag` (in degrees)
     :return: a scalar if mag is scalar, or an numpy.array
     """
     mag = np.asarray(mag)  # do NOT copies data for existing arrays
@@ -152,13 +152,13 @@ def get_search_radius(mag, minmag, maxmag, minradius, maxradius):
 
     if minmag == maxmag:
         dist = np.array(mag)
-        dist[mag < minmag] = minradius
-        dist[mag > minmag] = maxradius
-        dist[mag == minmag] = np.true_divide(minradius+maxradius, 2)
+        dist[mag < minmag] = minmag_radius
+        dist[mag > minmag] = maxmag_radius
+        dist[mag == minmag] = np.true_divide(minmag_radius+maxmag_radius, 2)
     else:
-        dist = minradius + np.true_divide(maxradius - minradius, maxmag - minmag) * (mag - minmag)
-        dist[dist < minradius] = minradius
-        dist[dist > maxradius] = maxradius
+        dist = minmag_radius + np.true_divide(maxmag_radius - minmag_radius, maxmag - minmag) * (mag - minmag)
+        dist[dist < minmag_radius] = minmag_radius
+        dist[dist > maxmag_radius] = maxmag_radius
 
     return dist[0] if isscalar else dist
 
@@ -220,7 +220,7 @@ def rename_columns(query_df, query_type):
         return query_df
 
     if query_type.lower() == "event" or query_type.lower() == "events":
-        columns = list(colnames(Event))
+        columns = list(colnames(Event, pkey=False, fkey=False))
     elif query_type.lower() == "station" or query_type.lower() == "stations":
         # these are the query_df columns for a station (level=station) query:
         #  #Network|Station|Latitude|Longitude|Elevation|SiteName|StartTime|EndTime
@@ -669,6 +669,9 @@ def locations2degrees(lat1, lon1, lat2, lon2):
     return gd
 
 
+def get_url_mseed_errorcodes():
+    """returns the error codes for general url exceptions and mseed errors, respectively"""
+    return (-1, -2)
 #     with pd.option_context('display.max_rows', len(dframe),
 #                            'display.max_columns', len(dframe.columns),
 #                            'max_colwidth', 50, 'expand_frame_repr', False):

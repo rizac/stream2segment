@@ -95,8 +95,8 @@ class Run(Base):
     # 2) or don't make the column unique (what we did)
     run_time = Column(DateTime, server_default=func.now())
     log = deferred(Column(String))
-    warnings = Column(Integer, server_default=text('0')) # , default=0)
-    errors = Column(Integer, server_default=text('0')) # , default=0)
+    warnings = Column(Integer, server_default=text('0'))  # , default=0)
+    errors = Column(Integer, server_default=text('0'))  # , default=0)
     # segments_found = Column(Integer)
     # segments_written = Column(Integer)
     # segments_skipped = Column(Integer)
@@ -108,20 +108,70 @@ class Run(Base):
 #     return context.current_parameters['station_query_url'].replace("/station", "/dataselect")
 
 
+class Event(Base):
+    """Events"""
+
+    __tablename__ = "events"
+
+    id = Column(Integer, primary_key=True)  # pylint:disable=invalid-name
+    webservice_id = Column(Integer, ForeignKey("web_services.id"), nullable=False)
+    eventid = Column(String, nullable=False)
+    time = Column(DateTime, nullable=False)
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+    depth_km = Column(Float, nullable=False)
+    author = Column(String)
+    catalog = Column(String)
+    contributor = Column(String)
+    contributor_id = Column(String)
+    mag_type = Column(String)
+    magnitude = Column(Float, nullable=False)
+    mag_author = Column(String)
+    event_location_name = Column(String)
+
+    __table_args__ = (
+                      UniqueConstraint('webservice_id', 'eventid', name='ws_eventid_uc'),
+                     )
+    # segments = relationship("Segment", back_populates="event")
+
+
+# the class below might be linked to a station_url and dataselect_url, and be a FDSNWSService
+# table to whom events, stations and dataselect are all linked. However,
+# Whereas IRIS provides a single service for the three of them, EIDA provides only station and
+# dataselect. Moreover, EIDA has several datacenters (federated) whereas IRIS has just one (centralized)
+# The program will have thus a "service" parameter which can be set to "eida" or "iris" and 
+# by means of the routing service we then do our filtering of networks and stations accordingly
+class WebService(Base):
+    """event fdsn service"""
+    __tablename__ = "web_services"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)  # pylint:disable=invalid-name
+    name = Column(String)
+    type = Column(String)
+    url = Column(String, nullable=False)  # if you change attr, see BELOW!
+
+    # segments = relationship("Segment", backref="data_centers")
+    # stations = relationship("Station", backref="data_centers")
+
+    __table_args__ = (
+                      UniqueConstraint('url', name='url_uc'),
+                     )
+
+
 class DataCenter(Base):
     """DataCenters"""
 
     __tablename__ = "data_centers"
 
     id = Column(Integer, primary_key=True, autoincrement=True)  # pylint:disable=invalid-name
-    station_query_url = Column(String, nullable=False)  # if you change attr, see BELOW!
-    dataselect_query_url = Column(String, nullable=False)  # , default=dc_datasel_default, onupdate=dc_datasel_default)
+    station_url = Column(String, nullable=False)  # if you change attr, see BELOW!
+    dataselect_url = Column(String, nullable=False)  # , default=dc_datasel_default, onupdate=dc_datasel_default)
 
     # segments = relationship("Segment", backref="data_centers")
     # stations = relationship("Station", backref="data_centers")
 
     __table_args__ = (
-                      UniqueConstraint('station_query_url', 'dataselect_query_url',
+                      UniqueConstraint('station_url', 'dataselect_url',
                                        name='sta_data_uc'),
                      )
 
@@ -151,39 +201,12 @@ def dc_get_other_service_url(url):
     raise ValueError("url does not contain neither '/dataselect/' nor '/station/'")
 
 
-class Event(Base):
-    """Events"""
-
-    __tablename__ = "events"
-
-    id = Column(String, primary_key=True, autoincrement=False,
-                nullable=False)  # pylint:disable=invalid-name
-    time = Column(DateTime, nullable=False)
-    latitude = Column(Float, nullable=False)
-    longitude = Column(Float, nullable=False)
-    depth_km = Column(Float, nullable=False)
-    author = Column(String)
-    catalog = Column(String)
-    contributor = Column(String)
-    contributor_id = Column(String)
-    mag_type = Column(String)
-    magnitude = Column(Float, nullable=False)
-    mag_author = Column(String)
-    event_location_name = Column(String)
-
-    # segments = relationship("Segment", back_populates="event")
-
-
-# def sta_pkey_default(context):
-#     return context.current_parameters['network'] + "." + context.current_parameters['station']
-
-
 class Station(Base):
     """Stations"""
 
     __tablename__ = "stations"
 
-    id = Column(Integer, primary_key=True, autoincrement=True) # , default=sta_pkey_default, onupdate=sta_pkey_default)
+    id = Column(Integer, primary_key=True, autoincrement=True)  # , default=sta_pkey_default, onupdate=sta_pkey_default)
     datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
     network = Column(String, nullable=False)
     station = Column(String, nullable=False)
@@ -281,7 +304,7 @@ class Segment(Base):
     __tablename__ = "segments"
 
     id = Column(Integer, primary_key=True)  # , default=seg_pkey_default, onupdate=seg_pkey_default)
-    event_id = Column(String, ForeignKey("events.id"), nullable=False)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
     datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
     seed_identifier = Column(String)
@@ -292,6 +315,7 @@ class Segment(Base):
     arrival_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
     sample_rate = Column(Float)
+    max_gap_ratio = Column(Float)
     run_id = Column(Integer, ForeignKey("runs.id"), nullable=False)
 
     event = relationship("Event", backref=backref("segments", lazy="dynamic"))

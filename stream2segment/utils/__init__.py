@@ -195,37 +195,45 @@ def strptime(string, formats=None):
     raise ValueError("%s: invalid date time" % string)
 
 
-def yaml_load(filepath=None, raw=False):
-    """Loads default config from yaml file, normalizing relative sqlite file paths if any"""
+def yaml_load(filepath=None, raw=False, **defaults):
+    """Loads default config from yaml file, normalizing relative sqlite file paths if any
+    assuming they are relative to `filepath`, and setting the given defaults (if any)
+    for arguments missing in the config
+    (if raw is True)"""
     if filepath is None:
         filepath = get_default_cfg_filepath()
     with open(filepath, 'r') as stream:
         ret = yaml.safe_load(stream) if not raw else stream.read()
-    # load config file. This might be better implemented in the near future
     if not raw:
         configfilepath = os.path.abspath(os.path.dirname(filepath))
-        # convert sqlite path to relative to the config
+        # convert relative sqlite path to absolute, assuming they are relative to the config:
         sqlite_prefix = 'sqlite:///'
+        # we cannot modify a dict while in iteration, thus create a new dict of possibly
+        # modified sqlite paths and use later dict.update
         newdict = {}
         for k, v in ret.iteritems():
             try:
-                if v.startswith(sqlite_prefix):
+                if v.startswith(sqlite_prefix) and ":memory:" not in v:
                     dbpath = v[len(sqlite_prefix):]
-                    if os.path.isabs(filepath):
+                    if not os.path.isabs(dbpath):
                         newdict[k] = sqlite_prefix + \
                             os.path.normpath(os.path.join(configfilepath, dbpath))
             except AttributeError:
                 pass
         if newdict:
             ret.update(newdict)
+
+        for key, val in defaults.iteritems():
+            if key not in ret:
+                ret[key] = val
     return ret
 
 
 def yaml_load_doc(filepath=None):
     """Loads the doc from a yaml. The doc is intended to be all consecutive commented lines (i.e.,
     without blank lines) before each top-level variable (nested variables are not considered).
-    The returned dict is a defaultdict which returns an empty string for non-found documented
-    variables
+    The returned dict is a defaultdict which returns as string values (**unicode** strings in
+    python 2) or an empty string for non-found documented variables.
     :param filepath: if None, it defaults to `config.example.yaml`. Otherwise, the yaml file to
     read the doc from
     """
@@ -236,9 +244,12 @@ def yaml_load_doc(filepath=None):
     reg = re.compile("([^:]+):.*")
     reg_comment = re.compile("\\s*#+(.*)")
     ret = defaultdict(str)
+    isbytes = None
     with open(filepath, 'r') as stream:
         while True:
             line = stream.readline()
+            if isbytes is None:
+                isbytes = isinstance(line, bytes)
             if not line:
                 break
             m = reg_comment.match(line)
@@ -253,7 +264,7 @@ def yaml_load_doc(filepath=None):
             else:  # try to see if it's a variable, and in case set the doc (if any)
                 m = reg.match(line)
                 if m and m.groups():
-                    ret[m.groups()[0]] = last_comment
+                    ret[m.groups()[0]] = last_comment.decode('utf8') if isbytes else last_comment
                 last_comment = ''
             prev_line = line
     return ret

@@ -10,24 +10,22 @@
 # Database url (where data is saved or retrieved, depending on the command issued from the
 # terminal).
 # If sqlite database, just write the path to your local file
-# prefixed with 'sqlite:///' (e.g., 'sqlite:////home/my_folder/db.sqlite'. Non-absolute
-# paths will be considered relative to the config file `config.yaml`).
-# Otherwise, the syntax is:
+# prefixed with 'sqlite:///' (e.g., 'sqlite:////home/my_folder/db.sqlite'): non-absolute
+# paths will be considered relative to the config file they are written in.
+# If not sqlite, the syntax is:
 # dialect+driver://username:password@host:port/database
+# (e.g.: 'postgresql://smith:Hw_6,9@hh21.uni-northpole.org/stream2segment_db')
 # (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)
 dburl: 'sqlite:////path/to/my/db.sqlite'
 
-# Try to dowonload again already saved segments whose response do not have a status code. This might happen
-# when queries for several channels are made (e.g. HH?) and not all expected channels are returned:
-# as we cannot be sure that segments related to missing channels have a 204 code (No Content) they
-# will be saved with NULL data and NULL status code
+# Try to dowonload again already saved segments whose response does not have a status code.
+# This indicates a failed download for any reason not included in the others listed here (e.g.,
+# when queries for several channels like 'HH?' are made and not all expected channels are returned)
 retry_no_code: true
 # Try to dowonload again already saved segments whose response could not be retrieved because of a
-# general url error (e.g., no internet connection. Responses returning error codes in the
-# 400–599 range are not included here)
+# general url error (e.g., no internet connection)
 retry_url_errors: true
-# Try to dowonload again already saved segments whose response was successful but whose bytes data is
-# corrupted or malformed when trying to read it
+# Try to dowonload again already saved segments whose response was successful but with corrupted / malformed data
 retry_mseed_errors: false
 # Try to dowonload again already saved segments whose response returned a status code in the
 # 400-499 range (Client errors)
@@ -53,8 +51,10 @@ start: 2006-01-01T00:00:00
 # Optional: missing value defaults to today at midnight
 end: 2016-12-25T00:00:00
 
-# the event web service
-eventws: 'http://seismicportal.eu/fdsnws/event/1/query'
+# the service to use. Currently implemented are "eida" and "iris". Missing values default to
+# 'eida'. This argument will automatically set internally event, station and dataselect web
+# service urls to use for downloading data
+service: 'eida'
 
 # a dict of fdns ws arguments for the eventws query. All values are permitted except 'format', 'start' 
 # and 'end' (the latter are taken from the values of the relative config parameters specified above)
@@ -66,7 +66,6 @@ eventws_query_args:
   maxlon: 17.0
   mindepth: 1
   maxdepth: 50
-
 
 # stations will be downloaded with level='channel'. Set here which channels to download. For info see e.g.:
 # https://ds.iris.edu/ds/nodes/dmc/tools/data_channels/#???
@@ -83,11 +82,11 @@ channels:
 # of the event magnitude:
 #
 #                   |
-#         maxradius +                oooooooooooo
+#     maxmag_radius +                oooooooooooo
 #                   |              o
 #                   |            o
 #                   |          o
-#         minradius + oooooooo
+#     minmag_radius + oooooooo
 #                   |
 #                   ---------+-------+------------
 #                         minmag   maxmag
@@ -98,8 +97,8 @@ channels:
 search_radius:
  minmag: 6 # min magnitude
  maxmag: 7 # max magnitude
- minradius: 3 # min radius (deg)
- maxradius: 3 # max radius (deg)
+ minmag_radius: 3 # search radius for min mag (deg)
+ maxmag_radius: 3 # search radius for max mag (deg)
  
 # Limit the search to station channels with at least min_sample_rate (in Hz).
 # The relative segments are *mot likely* (not always) matching the channel sample rate.
@@ -143,17 +142,11 @@ advanced_settings:
  max_thread_workers: 0
  # max time to wait (in seconds) while downloading stations (`urllib2.urlopen` timeout argument)
  s_timeout: 5
- # If the flag to download station inventories is on, max time to wait (in seconds) while downloading
+ # If the flag to download station inventories is on (true), max time to wait (in seconds) while downloading
  #station inventories (`urllib2.urlopen` timeout argument)
  i_timeout: 15
  # max time to wait (in seconds) while downloading waveform data (`urllib2.urlopen` timeout argument)
  w_timeout: 10
- # max number of (url, http...) errors per datacenter, while downloading data only (stations download requires less data and is not affected):
- # after that, all remaining data queries will be discarded (for that datacenter only)
- # Lower values might speed up consistently the download time, at the risk of discarding potentially good data
- # Higher values might slower down consistently the download, reducing the risk of discarding potentually good data
- # Set to zero or negative value to ignore this argument (try to download everything, wait until necessary) 
- w_maxerr_per_dc: -1
 
 
 ###############################################################################

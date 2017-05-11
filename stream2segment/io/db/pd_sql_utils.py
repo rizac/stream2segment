@@ -66,9 +66,12 @@ Created on Jul 17, 2016
 '''
 from __future__ import division
 from datetime import datetime, date
+from collections import OrderedDict
+import numpy as np
+import pandas as pd
+
 from pandas.io.sql import _handle_date_column
 # from pandas.types.api import DatetimeTZDtype
-import numpy as np
 # pandas zip seems a wrapper around itertools.izip (generator instead than list):
 from pandas.compat import (lzip, map, zip, raise_with_traceback,
                            string_types, text_type)
@@ -76,19 +79,17 @@ from pandas.compat import (lzip, map, zip, raise_with_traceback,
 # from pandas.io.sql and used in one of the copied methods below)
 from pandas.core.common import isnull
 # but we need also pd.isnull so we import it like this for safety:
-from pandas import isnull as pd_isnull
+# from pandas import isnull as pd_isnull
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
-from sqlalchemy.sql.elements import BinaryExpression
+# from sqlalchemy.sql.elements import BinaryExpression
 from sqlalchemy.sql.expression import and_, or_
 from sqlalchemy.orm.attributes import InstrumentedAttribute
-from pandas import to_numeric
-import pandas as pd
-from sqlalchemy.engine import create_engine
+# from pandas import to_numeric
+# from sqlalchemy.engine import create_engine
 from itertools import cycle, izip
 from sqlalchemy.inspection import inspect
 from pandas.types.dtypes import DatetimeTZDtype
-from sqlalchemy.sql.expression import func
-from collections import OrderedDict
+from sqlalchemy.sql.expression import func, bindparam
 
 
 def _get_dtype(sqltype):
@@ -300,6 +301,21 @@ def _harmonize_columns(table, dataframe, parse_dates=None):
     return column_names, dataframe
 
 
+# def addcols(dataframe, **names_and_types):
+#     """Adds the given columns to dataframe, with the arguments specifying the column name
+#     and its dtype, which can be a python type (int, datetime.datetime, float...) or a valid
+#     numpy dtype (string). The columns are initialized with pandas NA (for which pd.isnull return
+#     True)"""
+#     return pd.concat([dataframe,
+#                       pd.DataFrame({n: pd.Series(dtype='M8[ns]' if d is datetime else d)
+#                                     for n, d in names_and_types.iteritems()},
+#                                    columns=names_and_types.keys(), index=dataframe.index)
+#                       ], axis=1)
+    
+    
+#     return dataframe.join([pd.Series(name=n, dtype='M8[us]' if d is datetime else d) for n, d in
+#                            names_and_types.iteritems()])
+    
 # def df2dbiter(dataframe, table_class, harmonize_cols_first=True, harmonize_rows_first=True,
 #               parse_dates=None):
 #     """
@@ -456,141 +472,6 @@ def commit(session, on_exc=None):
         return False
 
 
-# def get_or_add(session, model_instances, columns=None, on_add='flush'):
-#     return [x for x in get_or_add_iter(session, model_instances, columns, on_add)]
-# 
-# 
-# def get_or_add_iter(session, model_instances, columns=None, on_add='flush'):
-#     """
-#         Iterates on all model_rows trying to add each
-#         instance to the session if it does not already exist on the database. All instances
-#         in `model_instances` should belong to the same model (python class). For each
-#         instance, its existence is checked based on `columns`: if a database row
-#         is found, whose values are the same as the given instance for **all** the columns defined
-#         in `columns`, then the *first* database row instance is returned.
-# 
-#         Yields tuple: (model_instance, is_new_and_was_added)
-# 
-#         Note that if `on_add`="flush" (the default) or `on_add`="commit", model_instance might be
-#         None (see below)
-# 
-#         :Example:
-#         ```
-#         # assuming the model of each instance is a class named 'MyTable' with a primary key 'id':
-#         instances = [MyTable(...), ..., MyTable(...)]
-#         # add all instances if they are not found on db according to 'id'
-#         # (thus no need to specify the argument `columns`)
-#         for instance, is_new in get_or_add_iter(session, instances, on_add='commit'):
-#             if instance is None:
-#                 # instance was not found on db but adding it raised an exception
-#                 # (including the case where instances was already None)
-#             elif is_new:
-#                 # instance was not found on the db and was succesfully added
-#             else:
-#                # instance was found on the db and the first matching instance is returned
-# 
-#         # Note that the calls below produce the same results:
-#         get_or_add_iter(session, instances):
-#         get_or_add_iter(session, instances, 'id'):
-#         get_or_add_iter(session, instances, MyTable.id):
-#         ```
-#         :param model_instances: an iterable (list tuple generator ...) of ORM model instances. None
-#         values are valid and will yield the tuple (None, False)
-#         All instances *MUST* belong to the same class, i.e., represent rows of the same db table.
-#         An ORM model is the python class reflecting a database table. An ORM model instance is
-#         simply a python instance of that class, and thus reflects a rows of the database table
-#         :param columns: iterable of strings or class attributes (objects of type
-#         InstrumentedAttribute), a single Instrumented Attribute, string, or None: the
-#         column(s) to check if a model instance has a corresponding row in the database table
-#         (in that case the instance reflecting that row is returned and nothing is added). A database
-#         column matches the current model instance if **all** values of `columns`
-#         are the same. If not iterable, the argument is converted to `[columns]`.
-#         If None, the model primary keys are taken as columns.
-#         **In most cases, also `Column` objects can be passed, but this method will fail for
-#         Columns which override their `key` attribute, as Column's keys will not reflect
-#         the class attribute names anymore**. For info see:
-#         http://docs.sqlalchemy.org/en/latest/glossary.html#term-descriptor
-#         http://docs.sqlalchemy.org/en/latest/core/metadata.html#sqlalchemy.schema.Column.params.key
-#         :param on_add: 'commit', 'flush' or None. Default: 'flush'. Tells whether a `session.flush`
-#         or a `session commit` has to be issued after each `session.add`. In case of failure, a
-#         `session.rollback` will be issued and the tuple (None, False) is yielded
-#     """
-#     binexpfunc = None  # cache dict for expressions
-#     for row in model_instances:
-#         if row is None:
-#             yield None, False
-#         else:
-#             if not binexpfunc:
-#                 binexpfunc = _bin_exp_func_from_columns(row.__class__, columns)
-# 
-#             yield _get_or_add(session, row, binexpfunc, on_add)
-# 
-# 
-# def _get_or_add(session, row, binexpr_for_get, on_add='flush'):
-#     """
-#     Returns row, is_new, where row is the pased row as argument (added if not existing) or the
-#     one on the db matching binexpr_for_get. is_new is a boolean indicating whether row was newly
-#     added or found on the db (according to binexpr_for_get)
-#     If flush_on_add is True (flush_on_add=False must be carefully used, epsecially for handling
-#     rollbacks), then row might be None if session.sluch failed
-#     :param row: the model instance represetning a table row. Cannot be None
-#     :param on_add: 'flush', 'commit' or everything else (do nothing)
-#     """
-#     model = row.__class__
-#     row_ = session.query(model).filter(binexpr_for_get(row)).first()
-#     if row_:
-#         return row_, False
-#     else:
-#         session.add(row)
-#         if (on_add == 'flush' and not flush(session)) or \
-#                 (on_add == 'commit' and not commit(session)):
-#             return None, False
-#         return row, True
-# 
-# 
-# def _bin_exp_func_from_columns(model, model_cols_or_colnames):
-#     """
-#         Returns an slalchemy binary expression *function* for the given model and the given columns
-#         the function can be passed in a query object for a given model instance.
-#         :Example:
-#         # assuming a MyTable model defined somewhere, with columns "col_name_1", "col_name2":
-#         func = _bin_exp_func_from_columns(MyTable, ["col_name_1", "col_name2"]):
-#         # Now assume we have a model instance
-#         row = MyTable(col_name_1='a', col_name_2=5.5)
-#         # We can use func in a query (assuming we have a session object):
-#         session.query(model).filter(func(row)).all()
-#         # which will query the db table mapped by MyTable for all the rows whose col_name_1 value
-#         is 'a' **and** whose 'col_name_2' value is 5.5
-#     """
-#     if not model_cols_or_colnames:
-#         # Note: the value of colitems are Column object. For those objects, SQL expressions
-#         # such as column=5 are valid. But A Column key might differ from
-#         # the attribute names, so use the keys of colitems, which are the attribute names.
-#         # This does not prevent us from failing
-#         # if model_cols_or_colnames is not empty and contains Column objects which have a
-#         # particular key set and different from the attribute name.
-#         # But we will raise an error in case
-#         model_cols_or_colnames = colnames(model, pkey=True)
-# 
-#     # is string? In py2, check attr "__iter__". In py3, as it has the attr, go for isinstance:
-#     if not hasattr(model_cols_or_colnames, "__iter__") or isinstance(model_cols_or_colnames, str):
-#         model_cols_or_colnames = [model_cols_or_colnames]
-# 
-#     columns = []
-#     for col in model_cols_or_colnames:
-#         if not hasattr(col, "key"):  # is NOT a Column object, nor an Instrumented attribute
-#             # (http://docs.sqlalchemy.org/en/latest/glossary.html#term-descriptor)
-#             col = getattr(model, col)  # return the attribute object
-#         columns.append(col)
-# 
-#     def ret_func(row):
-#         """ Returns the binary expression function according toe the model_cols_or_colnames for
-#         a given model instance `row`"""
-#         return and_(*[col == getattr(row, col.key) for col in columns])
-# 
-#     return ret_func
-
-
 def dfrowiter(dataframe, columns=None):
     """
         Returns an efficient iterator over `dataframe` rows. The i-th returned values is
@@ -609,36 +490,6 @@ def dfrowiter(dataframe, columns=None):
         # we could make a single line statement, but two lines are more readable:
         row_args_dict = dict(zip(cols, row_values))
         yield row_args_dict
-
-
-# def add(dataframe, session, table_model, pkey_col, buf_size=10):
-#     ret = []
-#     buf = []
-#     oks = [2] * buf_size
-#     err = [0] * buf_size
-#     pkeyname = pkey_col.key
-#     # allocate all primary keys for the given model
-#     existing_pkeys = set(x[0] for x in session.query(pkey_col))
-#     for rowdict in dfrowiter(dataframe):
-#         if rowdict[pkeyname] in existing_pkeys:
-#             ret.append(1)
-#         else:
-#             buf.append(rowdict)
-#             if len(buf) == buf_size:
-#                 try:
-#                     session.bind.execute(table_model.__table__.insert(), buf)
-#                     ret.extend(oks)
-#                 except SQLAlchemyError:
-#                     ret.extend(err)
-#                 buf = []
-#     if buf:
-#         try:
-#             session.bind.execute(table_model.__table__.insert(), buf)
-#             ret.extend(oks[:len(buf)])
-#         except SQLAlchemyError:
-#             ret.extend(err[:len(buf)])
-# 
-#     return ret
 
 
 def _get_max(session, numeric_column):
@@ -670,152 +521,109 @@ def dbquery2df(query):
     return pd.DataFrame(columns=colnames, data=query.all())
 
 
-def sync(dataframe, session, matching_columns, autoincrement_pkey_col, add_buf_size=10,
-         drop_duplicates=True):
+def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_size=10,
+           drop_duplicates=True, return_df=True):
     """
-    Efficiently synchronizes the values of `autoincrement_pkey_col` on `dataframe` with the
-    corresponding database table T, either by fetching the primary key, or by autoincrementing it
-    (after adding the row to T).
-    Returns the tuple (d, discarded, new) where `d` is `dataframe`
-    with successfully retrieved/added rows only, `discarded` is the number of rows discarded from
-    `dataframe` (not in `d`) and `new` is the number of rows of `d` which where newly added and
-    not present on T before this function call.
+    Efficiently synchronizes `dataframe` with the corresponding database table T.
+    Returns the tuple `(d, new)` where:
 
-    This function works:
-    1. First, by setting the value of `autoincrement_pkey_col` for those rows found on T
+    `return_df`  `d`:                                        `new`:
+    ===========  =========================================== ===================================
+    `True`       `dataframe` with only rows with a           the number of rows of which
+                 corresponding row in T (according to        where inserted on T (`new<=len(d)`)
+                 `matching_columns`) and the column
+                 `autoincrement_pkey_col` set (the column
+                 needs not to be in `dataframe.columns`)
+    -----------  ------------------------------------------- ------------------------------------
+    `False`      the total number of rows `<=len(dataframe)` the number of rows of which
+                 (depending on `drop_duplicates`)            where inserted on T (`new<=d`)
+    ===========  =========================================== ====================================
+
+    `return_df=False` is in principle faster as less operations are involved.
+
+    This function works by:
+    1. Setting first the value of `autoincrement_pkey_col` for those rows found on T
        (according to `matching_columns`)
-    2. Second, by auto-incrementing `autoincrement_pkey_col` values for the remaining rows
+    2. Auto-incrementing `autoincrement_pkey_col` values for the remaining rows
        (not found on the db), and finally writing those rows to T
 
     :param dataframe: a pandas dataframe
     :param session: an sql-alchemy session
     :param matching_columns: a list of ORM columns for comparing `dataframe` rows and T rows:
     when two rows are found that are equal (according to all `matching_columns` values), then
-    the data frame row `autoincrement_pkey_col` value is set as the corresponding T row value
+    the data frame row `autoincrement_pkey_col` value is set = T row value
     :param autoincrement_pkey_col: the ORM column denoting an auto-increment primary key of T.
-    Unexpected results if the column does not match tose criteria. The column
+    Unexpected results if the column does not match those criteria. The column
     needs not to be a column of `dataframe`. The returned `dataframe` will have in any case this
     column set
-    :param add_buf_size: integer, defaults to 10. When adding new items to T, another factor that
-    speeds up a lot insertion is to reduce the commits by committing
-    buffers if items (basically, lists) instead of committing each time. Increase this argument to
-    speed up insertion, at the cost of loosing more good instances in case of errors (when a
-    single item in a buffer raises, all subsequent items are discarded, regardless if they
-    would have raised or not), decrease it if speeds does not matter: in the lowest case (1)
-    you will be sure to write all good instances without false negative
+    :param buf_size: integer, defaults to 10. The buffer size before committing. Increase this
+    number for better performances (speed) at the cost of some "false negative" (committing a
+    series of operations where one raise an integrity error discards all subsequent operations
+    regardless if they would raise as well or not)
     :param drop_duplicates: boolean, True. After having fetched the primary keys and set it to
-    the dataframe corresponding column, drop duplicates
-    under `matching_columns`. You should always set this argument to True unless you are really sure
-    `dataframe` is with no duplicates under `matching_columns`, and you really want to save
-    the extra time of dropping again (but is that saved time actually remarkable?)
+    the dataframe corresponding column, drop duplicates under `matching_columns`. You should
+    always set this argument to True unless you are really sure `dataframe` has no duplicates
+    under `matching_columns`, and you really want to save the extra time of dropping again
+    (but is that saved time actually remarkable?)
 
-    :return: the tuple (d, discarded, new) where `d` is `dataframe`
-    with successfully retrieved/added rows only, `discarded` is the number of rows discarded from
-    `dataframe` (i.e., not in `d`. It *should* hold `discarded = len(dataframe) - len(d)`)
-    and `new` is the number of rows of `d` which where newly added and
-    not present on T before this function call (`new <= len(d)`).
-    The index of `d` is **not** reset, so that a track
-    to the original dataframe is always possible (the user must issue a `d.reset_index` to reset
-    the index).
+    :return: the tuple `(d, new)` where
+    1. `d` is `dataframe` where rows without a corresponding row on T have been filtered out.
+    `d` has surely the column `autoincrement_pkey_col` (see Technical notes below for details),
+    which on the other hand needs not to to be a column of `dataframe`, and
+    2. `new` (`<= len(d)`) is the number of rows of `d` which are "new" (i.e., whose corresponding
+    row was not present on T before this function call). `d` index is not reset, so a ref.
+    to `dataframe` is always possible
 
-    Technical notes:
-    1. T is retrieved by means of the passed
-    `Columns <http://docs.sqlalchemy.org/en/latest/core/metadata.html#sqlalchemy.schema.Column>`_,
+    Technical notes
+    ================================================================================================
+
+    1. T is obtained as the `class_` attribute of the first passed
+    `Column <http://docs.sqlalchemy.org/en/latest/core/metadata.html#sqlalchemy.schema.Column>`_,
     therefore `autoincrement_pkey_col` and each element of `matching_columns` must refer to the
     same db table T.
     2. The mapping between an sql-alchemy Column C and a pandas dataframe *string*
     column K is based on the sql-alchemy `key` attribute: `C.key == K`
     3. On the db session side, we do not use ORM functionalities but lower
     level sql-alchemy core methods, which are faster (FIXME: ref needed). This, together with
-    the "buffer size" argument, speeds up a lot items insertion on the database.
-    The drawback of the former is that we need to create by ourself the primary keys, the drawback
-    of the latter is that if a single item of a buffer raises an SqlAlchemtError, all following
-    items are not added to the db, even if they where well formed
+    the "buffer size" argument, speeds up a lot items insertion on the database (for update
+    operations this needs tests).
+    The drawbacks of these approaches is that we need to create by ourself the primary keys before
+    inserting a row to T, and that if a single item of a buffer raises an SqlAlchemtError, all
+    following items are not added to the db, even if they where well formed
     """
-#     discarded = 0
-#     dframe_with_pkeys = fetchsetpkeys(dataframe, session, matching_columns, autoincrement_pkey_col)
-#     mask = pd.isnull(dframe_with_pkeys[autoincrement_pkey_col.key])
-#     dtmp = dframe_with_pkeys[mask]
-#     dtmp.is_copy = False  # avoid next lines issuing a CopyWarning
-#     if drop_newinst_duplicates:
-#         oldlen = len(dtmp)
-#         dtmp = dtmp.drop_duplicates(subset=[k.key for k in matching_columns])
-#         discarded += oldlen - len(dtmp)
-#     new_df, _, new = add2db_onpkey(dtmp, session, autoincrement_pkey_col, add_buf_size)
-#     discarded += _
-#     return new_df, discarded, new
-    discarded = 0
     dframe_with_pkeys = fetchsetpkeys(dataframe, session, matching_columns, autoincrement_pkey_col)
     if drop_duplicates:
-        oldlen = len(dframe_with_pkeys)
         subset_cols = [k.key for k in matching_columns]
         dframe_with_pkeys = dframe_with_pkeys.drop_duplicates(subset=subset_cols)
-        discarded += oldlen - len(dframe_with_pkeys)
         dframe_with_pkeys.is_copy = False
-    new_df, _, new = syncnullpkeys(dframe_with_pkeys, session, autoincrement_pkey_col, add_buf_size)
-    discarded += _
-    return new_df, discarded, new
+    return insertdf_napkeys(dframe_with_pkeys, session, autoincrement_pkey_col, buf_size,
+                            return_df)
 
 
-def syncnullpkeys(dataframe, session, autoincrement_pkey_col, add_buf_size=10):
+def insertdf_napkeys(dataframe, session, autoincrement_pkey_col, buf_size=10, return_df=True):
     """
-    Efficiently adds the rows of `dataframe` to the corresponding database table T, skipping
-    db insertion for those `dataframe` rows where the values of `autoincrement_pkey_col` are set
-    (i.e., not n/a, e.g., Null or NaN's,...) and inserting only n/a rows.
-    N/A rows primary keys will be set before insertion to T according to the T maximum
-    (mimicking db autoincrementing feature).
-    `autoincrement_int_pkey_col.key` needs not to be a column of `dataframe`.
+    Efficiently inserts rows of `dataframe` in the corresponding database table T, but only
+    where `autoincrement_pkey_col` is N/A (handling auto-incrementing of `autoincrement_pkey_col`
+    internally for good performances). `autoincrement_pkey_col` needs not to be in
+    `dataframe.columns` (the case is treated as if all `autoincrement_pkey_col` values were N/A).
+    Returns the tuple `(d, new)` where
 
-    Returns the tuple (d, discarded, new) where `d` is `dataframe`
-    with successfully added rows only, `discarded` is the number of rows discarded from
-    `dataframe` (not in `d`) and `new` is the number of rows of `d` which where newly added and
-    not present on T before this function call.
+    `return_df`  `d`:                                     `new`:
+    ===========  ======================================== ===================================
+    `True`       `dataframe` with only rows with a        the number of rows of which
+                 corresponding row in T (either because   where inserted on T (`new<=len(d)`)
+                 `autoincrement_pkey_col` is not NA or
+                 because the row has been successfully
+                 inserted on T)
+    -----------  ---------------------------------------- ------------------------------------
+    `False`      the total number of rows:                the number of rows of which
+                 `d==len(dataframe)`                      where inserted on T (`new<=d`)
+    ===========  ======================================== ====================================
 
-    :param dataframe: a pandas dataframe
-    :param session: an sql-alchemy session
-    :param matching_columns: a list of ORM columns for comparing `dataframe` rows and T rows:
-    when two rows are found that are equal (according to all `matching_columns` values), then
-    the data frame row is not added to T and will be simply returned as a row of `d`
-    :param autoincrement_pkey_col: the ORM column denoting an auto-increment primary key of T.
-    Unexpected results if the column does not match tose criteria. The column
-    needs not to be a column of `dataframe`. The returned `dataframe` will have in any case this
-    column set
-    :param add_buf_size: integer, defaults to 10. When adding new items to T, another factor that
-    speeds up a lot insertion is to reduce the commits by committing
-    buffers if items (basically, lists) instead of committing each time. Increase this argument to
-    speed up insertion, at the cost of loosing more good instances in case of errors (when a
-    single item in a buffer raises, all subsequent items are discarded, regardless if they
-    would have raised or not), decrease it if speeds does not matter: in the lowest case (1)
-    you will be sure to write all good instances without false negative
-    :param drop_duplicates: boolean, True. Before adding new items, drop duplicates under
-    `matching_columns`. You should always set this argument to True unless you are really sure
-    `dataframe` is with no duplicates under `matching_columns`, and you really want to save
-    the extra time of dropping again (but is that saved time actually remarkable?)
+    `return_df=False` is in principle faster as less operations are involved.
 
-    :return: the tuple (d, discarded, new) where `d` is `dataframe`
-    with successfully added rows only, `discarded` is the number of rows discarded from
-    `dataframe` (i.e., not in `d`. It *should* hold `discarded = len(dataframe) - len(d)`)
-    and `new` is the number of rows of `d` which where newly added and
-    not present on T before this function call (`new <= len(d)`).
-    The index of `d` is **not** reset, so that a track
-    to the original dataframe is always possible (the user must issue a `d.reset_index` to reset
-    the index).
-
-    Technical notes:
-    1. T is retrieved by means of the passed
-    `Columns <http://docs.sqlalchemy.org/en/latest/core/metadata.html#sqlalchemy.schema.Column>`_,
-    therefore `autoincrement_pkey_col` and each element of `matching_columns` must refer to the
-    same db table T.
-    2. The mapping between an sql-alchemy Column C and a pandas dataframe *string*
-    column K is based on the sql-alchemy `key` attribute: `C.key == K`
-    3. On the db session side, we do not use ORM functionalities but lower
-    level sql-alchemy core methods, which are faster (FIXME: ref needed). This, together with
-    the "buffer size" argument, speeds up a lot items insertion on the database.
-    The drawback of the former is that we need to create by ourself the primary keys, the drawback
-    of the latter is that if a single item of a buffer raises an SqlAlchemtError, all following
-    items are not added to the db, even if they where well formed
+    The remainder of the documentation is the same as `syncdf`, so please see there for details
     """
-    discarded = new = 0
     dtmp = None
     df_pkey_col = autoincrement_pkey_col.key
     dframe_with_pkeys = dataframe
@@ -828,20 +636,214 @@ def syncnullpkeys(dataframe, session, autoincrement_pkey_col, add_buf_size=10):
     else:
         dtmp = dframe_with_pkeys
 
+    ret_first_arg, new = (len(dframe_with_pkeys), 0) if not return_df else (dframe_with_pkeys, 0)
     numnans = len(dtmp)
     if numnans:
         max_pkey = _get_max(session, autoincrement_pkey_col) + 1
         new_pkeys = np.arange(max_pkey, max_pkey+numnans, dtype=int)
         dtmp[df_pkey_col] = new_pkeys
-        new_df, discarded, new = add2db(dtmp, session, [autoincrement_pkey_col], add_buf_size,
-                                        query_first=False, drop_duplicates=False)
-        if df_has_pkey:
-            dframe_with_pkeys.loc[new_df.index, df_pkey_col] = new_df[df_pkey_col]
-            dframe_with_pkeys = dframe_with_pkeys.dropna(subset=[df_pkey_col])  # for safety
-        else:
-            dframe_with_pkeys = new_df
+        new_df, new = insertdf(dtmp, session, [autoincrement_pkey_col], buf_size,
+                               query_first=False, drop_duplicates=False, return_df=return_df)
+        if return_df:
+            if df_has_pkey:
+                dframe_with_pkeys.loc[new_df.index, df_pkey_col] = new_df[df_pkey_col]
+                dframe_with_pkeys = dframe_with_pkeys.dropna(subset=[df_pkey_col])  # for safety
+            else:
+                dframe_with_pkeys = new_df
+            ret_first_arg = dframe_with_pkeys
 
-    return dframe_with_pkeys, discarded, new
+    return ret_first_arg, new
+
+
+def insertdf(dataframe, session, matching_columns, buf_size=10, query_first=True,
+             drop_duplicates=True, return_df=True):
+    """
+    Efficiently inserts row of `dataframe` to the corresponding database table T. Rows found on
+    T (according to `matching_columns`) are not inserted again. Returns the tuple `(d, new)` where:
+
+    `return_df`  `d`:                                        `new`:
+    ===========  =========================================== ===================================
+    `True`       `dataframe` with only rows with a           the number of rows of which
+                 corresponding row in T (according to        where inserted on T (`new<=len(d)`)
+                 `matching_columns`) either because already
+                 existing or newly inserted
+    -----------  ------------------------------------------- ------------------------------------
+    `False`      the total number of rows `<=len(dataframe)` the number of rows of which
+                 (depending on `drop_duplicates`)            where inserted on T (`new<=d`)
+    ===========  =========================================== ====================================
+
+    `return_df=False` is in principle faster as less operations are involved.
+
+    :param query_first: boolean (defaults to True): queries T for rows already present. If this
+    argument is False no skip is done, i.e. for all rows of `dataframe` the function will
+    attempt to add them to T. **Set to False to speed up the function as long as you are sure no
+    row of `dataframe` violates any T constraint**
+
+    The remainder of the documentation is the same as `syncdf`, so please see there for details
+    """
+    if dataframe.empty:
+        return (0, 0) if not return_df else (dataframe, 0)
+
+    buf_size = max(buf_size, 1)
+    buf = {}
+    new = 0
+    matching_colnames = [c.key for c in matching_columns]
+    if drop_duplicates:
+        dataframe.drop_duplicates(subset=matching_colnames, inplace=True)
+    table_model = matching_columns[0].class_
+    # allocate all primary keys for the given model
+    existing_keys = set() if not query_first else _dbquery2set(session, matching_columns)
+    shared_cnames = list(shared_colnames(table_model, dataframe))
+    conn = session.connection()
+    last = len(dataframe) - 1
+    existing = 0
+    indices = []  # indices to keep (already existing or successfully written)
+    _tup2idx = {}  # dict to be allocated only if existing_keys is set
+
+    for i, rowdict in enumerate(dfrowiter(dataframe, shared_cnames)):
+        if existing_keys:
+            rowtup = tuple(rowdict[col] for col in matching_colnames)
+            if rowtup not in existing_keys:
+                _tup2idx[rowtup] = i
+                buf[i] = rowdict
+            else:
+                if return_df:
+                    indices.append(i)
+                else:
+                    existing += 1
+        else:
+            buf[i] = rowdict
+
+        if len(buf) == buf_size or (i == last and buf):
+            try:
+                conn.execute(table_model.__table__.insert(), buf.values())
+            except IntegrityError as _:
+                # if we had an integrity error, it might be that buf had dupes
+                # in this case, some rows might be added! So to be sure we issue a
+                # query to know which elements have been added
+                if not existing_keys:  # we don't have the set of existing keys, calculate now
+                    # the tuples of inserted elements
+                    _tup2idx = {tuple(dic[col] for col in matching_colnames): index
+                                for index, dic in buf.iteritems()}
+                exist_tups = _existing_insts(_tup2idx.keys(), session, matching_columns)
+                buf = {_tup2idx[k]: buf[_tup2idx[k]] for k in exist_tups}
+                _tup2idx = {}
+
+            except SQLAlchemyError as _:
+                buf.clear()
+
+            if buf:
+                new += len(buf)
+                if return_df:
+                    indices.extend(buf.iterkeys())
+                buf.clear()
+
+    if not return_df:
+        first_ret_arg = existing + new
+    else:
+        indices = np.array(indices, dtype=int)  # use np.arrays as they are slightly faster
+        # in pandas indexing below
+        indices.sort()
+        df = dataframe.iloc[indices]
+        df.is_copy = False  # avoid settings with copy warning
+        first_ret_arg = df
+
+    return first_ret_arg, new
+
+
+def updatedf(dataframe, session, where_col, update_columns, buf_size=10, return_df=True):
+    """
+    Efficiently updates row of `dataframe` to the corresponding database table T.
+    Returns `d`, where:
+
+    `return_df`  `d`:
+    ===========  ========================================
+    `True`       `dataframe` with only rows
+                 successfully updated
+    -----------  ----------------------------------------
+    `False`      the total number of rows successfully
+                 updated
+    ===========  ========================================
+
+    `return_df=False` is in principle faster as less operations are involved.
+
+    The remainder of the documentation is the same as `syncdf`, so please see there for details
+    """
+    if dataframe.empty:
+        return 0 if not return_df else dataframe
+
+    table_model = where_col.class_
+    shared_columns = update_columns + [where_col]
+    shared_cnames = [c.key for c in shared_columns]
+    # find a col not present for where_col. Otherwise error is raised:
+    # bindparam() name where_col.key is reserved for automatic usage in the VALUES or SET clause
+    # of this  insert/update statement.   Please use a name other than column name when using
+    # bindparam() with insert() or update() (for example, 'b_id').
+    where_col_bindname = where_col.key + "_"
+    while where_col_bindname in shared_cnames:
+        where_col_bindname += "_"
+    stmt = table_model.__table__.update().\
+        where(where_col == bindparam(where_col_bindname)).\
+        values({c.key: bindparam(c.key) for c in update_columns})
+    conn = session.connection()
+    buf = {}
+    last = len(dataframe) - 1
+    indices = []
+    updated = 0
+
+    for i, rowdict in enumerate(dfrowiter(dataframe, shared_cnames)):
+        # replace the where column:
+        rowdict[where_col_bindname] = rowdict.pop(where_col.key)
+        buf[i] = rowdict
+        if len(buf) == buf_size or (i == last and buf):
+            try:
+                conn.execute(stmt, buf.values())
+            except IntegrityError as _:
+                # if we had an integrity error, it might be that buf had dupes
+                # in this case, some rows might be added! So to be sure we issue a
+                # query to know which elements have been added
+                _tup2idx = {}
+                for i, dic in buf.iteritems():
+                    dic[where_col.key] = dic.pop(where_col_bindname)  # replace back bindname
+                    _tup2idx[tuple(dic[k] for k in shared_cnames)] = i
+                exist_tups = _existing_insts(_tup2idx.keys(), session, shared_columns)
+                buf = {_tup2idx[k]: buf[_tup2idx[k]] for k in exist_tups}
+
+            except SQLAlchemyError as _:
+                buf.clear()
+
+            if buf:
+                updated += len(buf)
+                if return_df:
+                    indices.extend(buf.iterkeys())
+                buf.clear()
+
+    if not return_df:
+        first_ret_arg = updated
+    else:
+        indices = np.array(indices, dtype=int)  # use np.arrays as they are slightly faster
+        # in pandas indexing below
+        indices.sort()
+        df = dataframe.iloc[indices]
+        df.is_copy = False  # avoid settings with copy warning
+        first_ret_arg = df
+
+    return first_ret_arg
+
+
+def _existing_insts(tuple_instances, session, columns):
+    """returns a sub-set (python `set`) of only `tuple_instances` existing on the db
+    :param tuple_instances: a list of instances, each represented by a tuple of values. For each
+    tuple, the ith element is the value of the i-th column in `columns`
+    :param session: sql-alchemy session
+    :param columns: ORM columns. The i-th value in each tuple of `tuple_instances` must be the
+    value of the i-th column of `columns`
+    :return: a python set of tuples, sub-set of `set(tuple_instances)`
+    """
+    exprs = [and_(*[col == v for col, v in izip(columns, tup)]) for tup in tuple_instances]
+    # 2. Get those elements and add them, if saved to the db
+    existing_inst = _dbquery2set(session, columns, or_(*exprs)) if exprs else set()
+    return existing_inst & set(tuple_instances)
 
 
 def _dbquery2set(session, columns, query_filter=None):
@@ -854,133 +856,6 @@ def _dbquery2set(session, columns, query_filter=None):
     qry = session.query(*columns) if query_filter is None else \
         session.query(*columns).filter(query_filter)
     return set(tuple(x) for x in qry)
-
-
-def add2db(dataframe, session, matching_columns, add_buf_size=10, query_first=True,
-           drop_duplicates=True):
-    """
-    Efficiently adds the rows of `dataframe` to the corresponding database table T, skipping
-    db insertion for those `dataframe` rows found on T (according to `matching_columns`).
-    Returns the tuple (d, discarded, new) where `d` is `dataframe`
-    with successfully added rows only, `discarded` is the number of rows discarded from
-    `dataframe` (not in `d`) and `new` is the number of rows of `d` which where newly added and
-    not present on T before this function call. Discarded is basically the number of rows which
-    violate some constraint (e.g., missing primary key, unique constraint etcetera)
-
-    :param dataframe: a pandas dataframe
-    :param session: an sql-alchemy session
-    :param matching_columns: a list of ORM columns for comparing `dataframe` rows and T rows:
-    when two rows are found that are equal (according to all `matching_columns` values), then
-    the data frame row is not added to T and will be simply returned as a row of `d`
-    :param add_buf_size: integer, defaults to 10. When adding new items to T, another factor that
-    speeds up a lot insertion is to reduce the commits by committing
-    buffers if items (basically, lists) instead of committing each time. Increase this argument to
-    speed up insertion, at the cost of not saving "good" instances in case of errors (when a
-    single item in a buffer raises, all subsequent items are discarded, regardless if they
-    would have raised or not), decrease it if speeds does not matter: in the lowest case (1)
-    you will be sure to write all good instances without "false negatives"
-    :param query_first: boolean (defaults to True): queries T for rows already present. If this
-    argument is False no skip is done, i.e. for all rows of `dataframe` the function will
-    attempt to add them to T. **Set to False to speed up the function but in principle
-    only if you are sure no row of `dataframe` violates any T constraint**
-    :param drop_duplicates: boolean, True. Before adding new items, drop duplicates under
-    `matching_columns`. You should always set this argument to True unless you are really sure
-    `dataframe` is with no duplicates under `matching_columns`, and you really want to save
-    the extra time of dropping again (but is that saved time actually remarkable?)
-
-    :return: the tuple (d, discarded, new) where `d` is `dataframe`
-    with successfully added rows only, `discarded` is the number of rows discarded from
-    `dataframe` (i.e., not in `d`. It *should* hold `discarded = len(dataframe) - len(d)`)
-    and `new` is the number of rows of `d` which where newly added and
-    not present on T before this function call (`new <= len(d)`).
-    The index of `d` is **not** reset, so that a track
-    to the original dataframe is always possible (the user must issue a `d.reset_index` to reset
-    the index).
-
-    Technical notes:
-    1. T is retrieved by means of the passed
-    `Columns <http://docs.sqlalchemy.org/en/latest/core/metadata.html#sqlalchemy.schema.Column>`_,
-    therefore `autoincrement_pkey_col` and each element of `matching_columns` must refer to the
-    same db table T.
-    2. The mapping between an sql-alchemy Column C and a pandas dataframe *string*
-    column K is based on the sql-alchemy `key` attribute: `C.key == K`
-    3. On the db session side, we do not use ORM functionalities but lower
-    level sql-alchemy core methods, which are faster (FIXME: ref needed). This, together with
-    the "buffer size" argument, speeds up a lot items insertion on the database.
-    The drawback of the former is that we need to create by ourself the primary keys, the drawback
-    of the latter is that if a single item of a buffer raises an SqlAlchemtError, all following
-    items are not added to the db, even if they where well formed
-    """
-    buf_size = max(add_buf_size, 1)
-    buf_inst = OrderedDict()  # preserve insertion order
-    buf_indices = OrderedDict()  # see above
-    new = 0
-    discarded = 0
-    matching_colnames = [c.key for c in matching_columns]
-    if drop_duplicates:
-        oldlen = len(dataframe)
-        dataframe.drop_duplicates(subset=matching_colnames, inplace=True)
-        discarded = oldlen - len(dataframe)
-    table_model = matching_columns[0].class_
-    # allocate all primary keys for the given model
-    existing_keys = set() if not query_first else _dbquery2set(session, matching_columns)
-
-    shared_cnames = list(shared_colnames(table_model, dataframe))
-
-    conn = session.connection()
-
-    # Note: we might remove dupes on the dataframe, but then we would return a different
-    # dataframe
-    # as we want to use this method for stations and channels, and we need to add stations first
-    # this might remove some channels.
-
-    last = len(dataframe) - 1
-    indices = []  # indices to keep (already existing or successfully written)
-    for i, rowdict in enumerate(dfrowiter(dataframe, shared_cnames)):
-        rowtup = tuple(rowdict[k] for k in matching_colnames)
-        if rowtup not in existing_keys:
-            buf_inst[rowtup] = rowdict
-            buf_indices[rowtup] = i
-        else:
-            indices.append(i)
-        if len(buf_inst) == buf_size or (i == last and buf_inst):
-            update = False
-            try:
-                conn.execute(table_model.__table__.insert(), buf_inst.values())
-                update = True
-            except IntegrityError as _:
-                # if we had an integrity error, it might be that buf had dupes
-                # in this case, some rows might be added! So to be sure we issue a
-                # query to know which elements have been added
-                # 1. Create a query specific to the buf elements using pkey_cols:
-                exprs = []
-                for key in buf_inst.keys():
-                    exprs.append(and_(*[pkeycol == v
-                                        for pkeycol, v in izip(matching_columns, key)]))
-                # 2. Get those elements and add them, if saved to the db
-                if exprs:
-                    added_set = _dbquery2set(session, matching_columns, or_(*exprs))
-                    if added_set:
-                        update = True
-                        buf_indices = {k: buf_indices[k] for k in added_set if k in buf_indices}
-                        buf_inst = {k: buf_inst[k] for k in added_set if k in buf_inst}
-            except SQLAlchemyError as _:
-                pass
-
-            if update:
-                new += len(buf_inst)
-                indices.extend(buf_indices.values())
-
-            buf_inst.clear()
-            buf_indices.clear()
-
-    oldlen = len(dataframe)
-    indices.sort()  # indices might not be sorted, we want to return the same orders
-    # (for matching rows)
-    df = dataframe.iloc[indices]
-    df.is_copy = False  # avoid settings with copy warning
-    discarded += oldlen - len(df)
-    return df, discarded, new
 
 
 def fetchsetpkeys(dataframe, session, matching_columns, pkey_col):
@@ -1022,11 +897,10 @@ def fetchsetpkeys(dataframe, session, matching_columns, pkey_col):
     # colnames = [c.key for c in cols]
     # objs = [x for x in session.query(*cols)]
     # d = pd.DataFrame(columns=colnames, data=objs)
-    return dfupdate(dataframe, df_new,
-                    [c.key for c in matching_columns], [pkey_col.key], False)
+    return mergeupdate(dataframe, df_new, [c.key for c in matching_columns], [pkey_col.key], False)
 
 
-def dfupdate(df_old, df_new, matching_columns, set_columns, drop_df_new_duplicates=True):
+def mergeupdate(df_old, df_new, matching_columns, set_columns, drop_df_new_duplicates=True):
     """
         Kind-of pandas.DataFrame update: sets
         `df_old[set_columns]` = `df_new[set_columns]`
@@ -1065,152 +939,3 @@ def dfupdate(df_old, df_new, matching_columns, set_columns, drop_df_new_duplicat
         df_old[col] = ser
 
     return df_old
-
-
-# def fdsn2sql(fdsn_param):
-#     """returns a sql "like" expression from a given fdsn channel constraint parameters
-#     (network,    station,    location    and channel) converting wildcards, if any"""
-#     return fdsn_param.replace('*', "%").replace("?", "_")
-
-# class Adder(object):
-# 
-#     def __init__(self, session, pkey_cols, add_buf_size=10):
-#         """
-#             Creates a new Adder, which will add new dataframes to the db table identified by
-#             `pkey_cols`, skipping already saved (according to `pkey_cols`). See class-method `add`
-#             :param session: the sql alchemy session
-#             :param pkey_cols: sql alchemy instrumented attributes (As list). They *must* belong to
-#             the same table ORM. Usually, it's a single primary key, but any set of keys is
-#             possible. In principle, the keys should have a unique constraint set.
-#             If not, the check for existing db entries might be inconsistent
-#             :param add_buf_size: integer, defaults to 10. The buffer size which, when full (or the
-#             iteration is ended) will issue a commit for those instances to be added. Setting lower
-#             numbers assures all "well formed" instances are added, but is slower, setting to a
-#             higher number speeds up a lot the db insertion but if the N-th instance violates some
-#             db constraint, then buffer instances from N+1-th on will not be added
-#         """
-#         self.existing_keys = None
-#         self.pkey_cols = pkey_cols
-#         self.shared_colnames = None
-#         self.session = session
-#         self.add_buf_size = add_buf_size
-#         self._conn = None
-#         self._discarded = 0
-#         self._new = 0
-# 
-#     @property
-#     def discarded(self):
-#         return self._discarded
-# 
-#     @property
-#     def new(self):
-#         return self._new
-# 
-#     def add(self, dataframe, drop_duplicates='inplace'):
-#         """
-#             Adds each row of `dataframe` to the db. Rows already present will not be added again
-#             Rows are compared using `pkey_cols` (specified in the constructor), thus rows are equal
-#             if they equal in values for those columns.
-#             Note that This method uses
-#             sqlalchemy-core methods speed up the insertion into the db. Thus,
-#             the session will *not* be updated with the new inserted instances, but the returned
-#             dataframe will
-#             :param dataframe: the dataframe to add. Obviously, it must hold *at least* the column
-#             names matching `self.pkey_cols` names. The data frame can hold columns
-#             not present on the db table. They will not added to the db nor they will be removed
-#             from the returned data frame
-#             :param drop_duplicates: string or boolan: (True, False, 'inplace'). Default: 'inplace'
-#             The dataframe *MUST NOT HAVE DUPLICATES* (equal rows under `pkey_cols` names). If the
-#             user is *sure* it hasn't, or it called explicitly:
-#             ```
-#             dataframe.drop_duplicates(subset=pkeynames, ...)
-#             ```
-#             specify False to skip the check and speed up the procedure.
-#             Otherwise, specify True to drop duplicates on the dataframe
-#             preserving the original dataframe, or 'inplace' to modify inplace the given dataframe
-#             The duplicates drop happens before the db insertion
-#             :return: a new dataframe with only rows added or already present in the db. Check
-#             `self.new` and `self.discarded` to know how many new items where added to the db and
-#             how many `dataframe` rows were discarded
-#         """
-#         buf_size = max(self.add_buf_size, 1)
-#         buf_inst = OrderedDict()
-#         buf_indices = OrderedDict()
-#         new = 0
-#         pkeynames = [c.key for c in self.pkey_cols]
-#         if drop_duplicates is not False:
-#             oldlen = len(dataframe)
-#             if drop_duplicates == 'inplace':
-#                 dataframe.drop_duplicates(subset=pkeynames, inplace=True)
-#             else:
-#                 dataframe = dataframe.drop_duplicates(subset=pkeynames)
-#             self._discarded += oldlen - len(dataframe)
-#         table_model = self.pkey_cols[0].class_
-#         # allocate all primary keys for the given model
-#         existing_keys = self.existing_keys if self.existing_keys is not None else \
-#             set(tuple(x) for x in self.session.query(*self.pkey_cols))
-# 
-#         if self.shared_colnames is None:
-#             self.shared_colnames = list(shared_colnames(table_model, dataframe))
-# 
-#         if self._conn is None:
-#             self._conn = self.session.connection()
-#         conn = self._conn
-# 
-#         # Note: we might remove dupes on the dataframe, but then we would return a different
-#         # dataframe
-#         # as we want to use this method for stations and channels, and we need to add stations first
-#         # this might remove some channels.
-# 
-#         last = len(dataframe) - 1
-#         indices = []  # indices to keep (already existing or successfully written)
-#         for i, rowdict in enumerate(dfrowiter(dataframe, self.shared_colnames)):
-#             rowtup = tuple(rowdict[k] for k in pkeynames)
-#             if rowtup not in existing_keys:
-#                 buf_inst[rowtup] = rowdict
-#                 buf_indices[rowtup] = i
-#             else:
-#                 indices.append(i)
-#             if len(buf_inst) == buf_size or (i == last and buf_inst):
-#                 update = False
-#                 try:
-#                     conn.execute(table_model.__table__.insert(), buf_inst.values())
-#                     update = True
-#                 except IntegrityError as _:
-#                     # if we had an integrity error, it might be that buf had dupes
-#                     # in this case, some rows might be added! So to be sure we issue a
-#                     # query to know which elements have been added
-#                     # 1. Create a query specific to the buf elements using pkey_cols:
-#                     exprs = []
-#                     for key in buf_inst.keys():
-#                         exprs.append(and_(*[pkeycol == v
-#                                             for pkeycol, v in izip(self.pkey_cols, key)]))
-#                     # 2. Get those elements and add them, if saved to the db
-#                     if exprs:
-#                         added_set = set(tuple(x) for x in self.session.query(*self.pkey_cols).
-#                                         filter(or_(*exprs)))
-#                         if added_set:
-#                             update = True
-#                             buf_indices = {k: buf_indices[k] for k in added_set if k in buf_indices}
-#                             buf_inst = {k: buf_inst[k] for k in added_set if k in buf_inst}
-#                 except SQLAlchemyError as _:
-#                     pass
-# 
-#                 if update:
-#                     existing_keys |= set(buf_inst.keys())
-#                     new += len(buf_inst)
-#                     indices.extend(buf_indices.values())
-# 
-#                 buf_inst.clear()
-#                 buf_indices.clear()
-# 
-#         # update existing keys:
-#         self.existing_keys = existing_keys
-#         oldlen = len(dataframe)
-#         indices.sort()  # indices might not be sorted, we want to return the same orders
-#         # (for matching rows)
-#         df = dataframe.iloc[indices]
-#         df.is_copy = False  # avoid settings with copy warning
-#         self._discarded += oldlen - len(df)
-#         self._new += new
-#         return df

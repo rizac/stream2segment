@@ -20,7 +20,7 @@ def get_proc_template_files():
     return join(_dir, "template1.py"), join(_dir, "template1.conf.yaml")
 
 
-def get_default_cfg_filepath(filename='config.yaml'):
+def get_default_cfg_filepath(filename='config.example.yaml'):
     """Returns the configuration file path named `filename` in the main project dir
     (the root project hosting the stream2segment package)
     :param filename: The file name (no path). if missing, defaults to 'config.yaml'
@@ -40,3 +40,7 @@ def version(onerr=""):
         if onerr == 'raise':
             raise exc
         return onerr
+
+
+def get_ws_fpath():
+    return get_default_cfg_filepath(filename='ws.yaml')

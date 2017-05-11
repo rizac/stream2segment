@@ -8,7 +8,6 @@ import sys
 import random
 import threading
 import webbrowser
-from stream2segment.utils.resources import get_default_cfg_filepath
 from stream2segment.utils import get_default_dbpath
 
 

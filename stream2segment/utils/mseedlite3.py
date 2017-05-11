@@ -463,14 +463,15 @@ class Input2(object):
         self.__fd = fd
 
     def __iter__(self):
-        """Define the iterator. Yields the tuple (Record, error), one of which is None
+        """Define the iterator. Yields the tuple (id, Record, error), one of which is None
         (but not both). In case error!=None, record is a string identifying the
         trace "network.station.location.channel"
         """
         pos = self.__fd.tell()  # store the starting position
         while True:
             try:
-                yield (Record(self.__fd), None)
+                rec = Record(self.__fd)
+                yield (_get_id(rec.net, rec.sta, rec.loc, rec.cha), rec, None)
 
             except EndOfData:
                 raise StopIteration
@@ -496,7 +497,7 @@ class Input2(object):
                                              self.__fd.read(_FIXHEAD_LEN))
                     # restore back the position we are:
                     self.__fd.seek(mypos)
-                    yield (_get_id(net, sta, loc, cha), e)
+                    yield (_get_id(net, sta, loc, cha), None, e)
                 else:
                     raise
 
@@ -505,69 +506,66 @@ def _get_id(n, s, l, c):
     return "%s.%s.%s.%s" % (n.strip(), s.strip(), l.strip(), c.strip())
 
 
-def unpack(data, gap_threshold=1):
+def unpack(data):
     """
-    Unpacks data into its "traces" (time series). Returns a tuples of two dicts:
-    - a dict of keys  "network.station.location.channel" mapped to the bytes data representing
-    a single trace.
-    - a dict of keys "network.station.location.channel" mapped to the MiniseedException raised,
-    if any. If a Record is raising, all records of with same trace id will be skipped
-    For those MiniseedError's which are not 'recoverable' (see below) this method will raise
-    the relative MiniSeedError.
+    Unpacks data into its "traces" (time series). Returns a dict where keys are the seed id as
+    strings ("network.station.location.channel") mapped to a tuple
+    (data, sample_rate, max_gap_ratio, error)
+    which are:
+    - the data in bytes read (can be None)
+    - the sample rate (float)
+    - the max gap ratio as a ratio of max_gap / delta_time (delta_time = 1/sample_rate)
+    - the error (MiniSeedError)
+    If the error is None, the first three fields are non-None, and vice-versa
     This method assures that:
     ```
     Stream(obspy.read(data))
     ```
     and
     ```
-    Stream([obspy.read(d)[0] for d in unpack(data)])
+    Stream([obspy.read(d[0])[0] for d in unpack(data).itervalues()])
     ```
-    returns the same object
+    return the same object
     :param data: the bytes (or str in python2) representing waveform data as, e.g., returned from
     a query response
     :return: a dictionarry of keys (tuples `(network, station location, channel)`) mapped to the
-    byte data representing the given time series
+    tuple representing the record read: (data, sample_rate, max_gap_ratio, error)
     :raise MiniseedError if some error is raised, that is 'not' recoverable (e.g., bad file length
     for some record causing all subsequent records to be mis-aligned)
     """
     # don't bother initializing keys if do not exist: use defaultdict:
-    bytesio_dic = defaultdict(lambda: BytesIO())
-    # store times (end_time) to check if next record begin_time matches
-    last_endtimes = {}
-    # store keys of miniseeds with gaps:
-    max_gaps = defaultdict(float)
-    # store keys of miniseeds with errors (mapped to their error):
-    errors = {}
+    # remember, the fields are: bytesio, sample_rate, max_gap_ratio, last_endtime, error
+    ret_dic = defaultdict(lambda: [BytesIO(), None, 0, None, None])
     input_ = Input2(data)
-    for rec, exc in input_:
+    for id_, rec, exc in input_:
+        value = ret_dic[id_]
+        if value[-1] is not None:
+            continue
         if exc is not None:
-            errors[rec] = exc
+            value[-1] = exc
+            value[0].close()
+            value[0] = None  # help gc??
             continue
-        key = _get_id(rec.net, rec.sta, rec.loc, rec.cha)
-        if key in errors:
-            continue
-
-        # To-delete:
-#         print key + " " + rec.begin_time.isoformat()[rec.begin_time.isoformat().find('T'):] + " " + rec.end_time.isoformat()[rec.end_time.isoformat().find('T'):]
-#         b_ = BytesIO()
-#         rec.write(b_, int(log(rec.size)/log(2)))
-#         s = obspy.read(b_)
-#         print key + " " + str(s[0].stats.starttime)[str(s[0].stats.starttime).find('T'):] + " " + str(s[0].stats.endtime)[str(s[0].stats.endtime).find('T'):]
-
         # set gaps:
-        last_endtime = last_endtimes.get(key, None)
+        last_endtime = value[-2]
         if last_endtime is not None:
-            gap_ratio = abs(last_endtime - rec.begin_time).total_seconds() * float(rec.fsamp)
-            max_gaps[key] = max(max_gaps[key], gap_ratio)
-        last_endtimes[key] = rec.end_time
+            fsamp = value[1]
+            gap_ratio = abs(last_endtime - rec.begin_time).total_seconds() * fsamp
+            value[-3] = max(value[-3], gap_ratio)
+        else:
+            value[1] = float(rec.fsamp)
+        value[-2] = rec.end_time
 
         # tuple is hashable, as well as its args in this case:
-        rec.write(bytesio_dic[key], int(log(rec.size)/log(2)))
+        rec.write(value[0], int(log(rec.size)/log(2)))
 
     unpacked_data = {}
-    for key, byteio in bytesio_dic.iteritems():
-        bytez = byteio.getvalue()
-        byteio.close()
-        unpacked_data[key] = bytez
+    for id_, value in ret_dic.iteritems():
+        if value[-1] is not None:
+            unpacked_data[id_] = (None, None, None, value[-1])
+        else:
+            bytez = value[0].getvalue()
+            value[0].close()
+            unpacked_data[id_] = (bytez, value[1], value[2], None)
 
-    return unpacked_data, max_gaps, errors
+    return unpacked_data
