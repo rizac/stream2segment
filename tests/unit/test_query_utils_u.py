@@ -171,10 +171,39 @@ MyExc: e(500)                 0      0
 MyExc: e(5000) [code=500]     0      0
 error 1                       5      5
 total                         9      9"""
-    assert ret == expected
+    assert eq(ret, expected)
 
 
     # append new data, with new rows and a new column
+    dic = {'a': 6, 'b': 15}
+    ret = stats2str(data={'col1': s, 'col2': dic}, totals_caption='total')  # by def is TOTAL
+    expected = u"""                               col1  col2  total
+MyExc: e                      4     0      4
+MyExc: e [code=500]           0     0      0
+MyExc: e(500)                 0     0      0
+MyExc: e(5000) [code=500]     0     0      0
+a                             0     6      6
+b                             0    15     15
+error 1                       5     0      5
+total                         9    21     30"""
+
+# no fillna, thus:
+    assert not eq(ret, expected)
+
+# this is what to expect:
+    expected = u"""                            col1  col2  total
+MyExc: e                    4.0   NaN    4.0
+MyExc: e [code=500]         0.0   NaN    0.0
+MyExc: e(500)               0.0   NaN    0.0
+MyExc: e(5000) [code=500]   0.0   NaN    0.0
+a                           NaN   6.0    6.0
+b                           NaN  15.0   15.0
+error 1                     5.0   NaN    5.0
+total                       9.0  21.0   30.0"""
+    assert eq(ret, expected)
+    
+
+    # append new data, with new rows and a new column, filling na with zeros
     dic = {'a': 6, 'b': 15}
     ret = stats2str(data={'col1': s, 'col2': dic}, totals_caption='total')  # by def is TOTAL
     expected = u"""                           col1  col2  total
@@ -186,10 +215,12 @@ a                             0     6      6
 b                             0    15     15
 error 1                       5     0      5
 total                         9    21     30"""
-    assert ret != expected
-    # we should provide fillna=0
+    assert not eq(ret, expected)
+    
+
+    # again: we should provide fillna=0
     ret = stats2str(fillna=0, data={'col1': s, 'col2': dic}, totals_caption='total')  # by def is TOTAL
-    assert ret == expected
+    assert eq(ret, expected)
 
     # set on data, with some rows and some new column
     dic = {'x': 56, 'MyExc: e(500)': -34}
@@ -202,7 +233,7 @@ MyExc: e(5000) [code=500]     0     0      0
 error 1                       5     0      5
 x                             0    56     56
 total                         9    22     31"""
-    assert ret == expected
+    assert eq(ret, expected)
 
     # same as above, but set transpose = True
     dic = {'x': 56, 'MyExc: e(500)': -34}
@@ -211,7 +242,7 @@ total                         9    22     31"""
 col1          4                    0              0                          0        5   0      9
 col2          0                    0            -34                          0        0  56     22
 total         4                    0            -34                          0        5  56     31"""
-    assert ret == expected
+    assert eq(ret, expected)
 
     import pandas as pd
     ret = stats2str(data={
@@ -219,6 +250,44 @@ total         4                    0            -34                          0  
                           'col2': pd.Series({'a': -1, 'c': 0})
                           })
     h = 9
+    
+
+
+def eq(str1, str2):
+    """too much pain to compare if two dataframes string representations are equal: sometimes
+    alignment are different (the number of spaces) and the result is ok BUT == returns False.
+    let's implement a custom method which tests what we cares"""
+    
+    ll1 = str1.split("\n")
+    ll2 = str2.split("\n")
+    
+    if len(ll1) != len(ll2):
+        return False
+    
+    # assert splits on each line returns the same lists and if there is an offset
+    # (different num spaces) this offset is maintained
+    offset = None
+    for i, l1, l2 in izip(count(), ll1, ll2):
+        # do NOT check for this:
+#         if len(l1) != len(l2):
+#             return False
+
+        c1 = l1.split()
+        c2 = l2.split()
+        
+        if c1 != c2:
+            return False
+        
+        if i == 1: # skip header (i==0, lengths might not match)
+            offset = len(l1) - len(l2)
+        elif i > 1 and offset != len(l1) - len(l2):
+            return False
+
+    return True
+    
+    
+# PIECES OF MUSEUMS BELOW!!! OLD TESTS!! leaving as i would do with ancient ruins ;)    
+    
 # @pytest.mark.parametrize('inargs, expected_dt',
 #                          [
 #                            ((56,True,True), 56),

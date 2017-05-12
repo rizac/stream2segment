@@ -184,10 +184,10 @@ def receive_before_update(mapper, connection, target):
     """listen for the 'before_update' event. For info on validation see:
      https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf
     """
-    if target.station_query_url is not None and target.dataselect_query_url is None:
-        target.dataselect_query_url = dc_get_other_service_url(target.station_query_url)
-    elif target.dataselect_query_url is not None and target.station_query_url is None:
-        target.station_query_url = dc_get_other_service_url(target.dataselect_query_url)
+    if target.station_url is not None and target.dataselect_url is None:
+        target.dataselect_url = dc_get_other_service_url(target.station_url)
+    elif target.dataselect_url is not None and target.station_url is None:
+        target.station_url = dc_get_other_service_url(target.dataselect_url)
 
 
 def dc_get_other_service_url(url):

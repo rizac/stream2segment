@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 import pandas as pd
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError, InvalidRequestError
 from stream2segment.io.db.pd_sql_utils import _harmonize_columns, harmonize_columns,\
-    get_or_add_iter, harmonize_rows, colnames, withdata
+    harmonize_rows, colnames, withdata
 from stream2segment.io.utils import dumps_inv, loads_inv
 from sqlalchemy.orm.exc import FlushError
 from sqlalchemy.orm.attributes import InstrumentedAttribute
@@ -23,7 +23,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm.session import object_session
 from stream2segment.utils.sqlevalexpr import  get_column, query, query_args, get_condition
 from stream2segment.io.db.models import ClassLabelling, Class, Segment, Station, Channel,\
-    Event, DataCenter, Run
+    Event, DataCenter, Run, WebService
 from sqlalchemy.sql.expression import desc
 
 class Test(unittest.TestCase):
@@ -59,31 +59,35 @@ class Test(unittest.TestCase):
         sess.add(run)
         sess.commit()
         
-        dcen = DataCenter(station_query_url="x/station/abc")
+        dcen = DataCenter(station_url="x/station/abc")
         sess.add(dcen)
         sess.commit()
         
-        event1 = Event(id='a', time=datetime.utcnow(), magnitude=5,
+        ws = WebService(url='abc')
+        sess.add(ws)
+        sess.commit()
+        
+        event1 = Event(id=1, eventid='a', webservice_id=ws.id, time=datetime.utcnow(), magnitude=5,
                               latitude=66, longitude=67, depth_km=6)
-        event2 = Event(id='b', time=datetime.utcnow(), magnitude=5,
+        event2 = Event(id=2, eventid='b', webservice_id=ws.id, time=datetime.utcnow(), magnitude=5,
                               latitude=66, longitude=67, depth_km=6)
         
         sess.add_all([event1, event2])
         sess.commit()
 
         
-        sta1 = Station(network='n1', station='s1', datacenter_id = dcen.id,
-                              latitude=66, longitude=67, )
-        sta2 = Station(network='n2', station='s1', datacenter_id = dcen.id,
-                              latitude=66, longitude=67, )
+        sta1 = Station(id=1, network='n1', station='s1', datacenter_id = dcen.id,
+                              latitude=66, longitude=67, start_time= datetime.utcnow())
+        sta2 = Station(id=2, network='n2', station='s1', datacenter_id = dcen.id,
+                              latitude=66, longitude=67, start_time= datetime.utcnow())
         
         sess.add_all([sta1, sta2])
         sess.commit()
         
-        cha1 = Channel(location='l1', channel='c1', station_id=sta1.id, sample_rate=6)
-        cha2 = Channel(location='l2', channel='c2', station_id=sta1.id, sample_rate=6)
-        cha3 = Channel(location='l3', channel='c3', station_id=sta1.id, sample_rate=6)
-        cha4 = Channel(location='l4', channel='c4', station_id=sta2.id, sample_rate=6)
+        cha1 = Channel(id=1, location='l1', channel='c1', station_id=sta1.id, sample_rate=6)
+        cha2 = Channel(id=2, location='l2', channel='c2', station_id=sta1.id, sample_rate=6)
+        cha3 = Channel(id=3, location='l3', channel='c3', station_id=sta1.id, sample_rate=6)
+        cha4 = Channel(id=4, location='l4', channel='c4', station_id=sta2.id, sample_rate=6)
         
         sess.add_all([cha1, cha2, cha3, cha4])
         sess.commit()

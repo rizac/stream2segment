@@ -1421,7 +1421,10 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert len(ztatz) == len(datacenters_df)
         assert len(db_segments_df) == len(segments_df)
         assert update_segments.call_count == 0
-        assert insert_segments.call_count == 8
+        # as we have 12 segments and a buf size of 10, this below is two
+        # it might change if we changed the buf size in the future
+        ADD_BUF_SIZE = 10
+        assert insert_segments.call_count == len(db_segments_df) // ADD_BUF_SIZE + np.sign(len(db_segments_df) % ADD_BUF_SIZE)
         
         # assert data is consistent
         COL = Segment.data.key
@@ -1487,5 +1490,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert (db_segments_df[COL] == 413).all()
         assert len(ztatz) == len(datacenters_df)
         assert len(db_segments_df) == len(segments_df)
-        assert update_segments.call_count == len(db_segments_df)
+        # as we have 12 segments and a buf size of 10, this below is two
+        # it might change if we changed the buf size in the future
+        assert update_segments.call_count == len(db_segments_df) // ADD_BUF_SIZE + np.sign(len(db_segments_df) % ADD_BUF_SIZE)
         assert insert_segments.call_count == 0

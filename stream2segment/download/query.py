@@ -798,14 +798,14 @@ def download_save_segments(session, segments_df, datacenters_df,
     SEG_ETIME_NAME = SEG_ETIME_COL.key
     CHA_CHA_COL = Channel.channel
     CHA_CHA_NAME = CHA_CHA_COL.key
-
+ 
     SEG_DATA_COL = Segment.data
     SEG_DSC_COL = Segment.download_status_code
     SEG_SEEDID_COL = Segment.seed_identifier
     SEG_MGR_COL = Segment.max_gap_ratio
     SEG_SRATE_COL = Segment.sample_rate
     SEG_RUNID_COL = Segment.run_id
-
+ 
     SEG_DATA_NAME = SEG_DATA_COL.key
     SEG_DSC_NAME = SEG_DSC_COL.key
     SEG_SEEDID_NAME = SEG_SEEDID_COL.key
@@ -820,9 +820,9 @@ def download_save_segments(session, segments_df, datacenters_df,
     datcen_id2url = datacenters_df.set_index([DC_ID_NAME])[DC_DSQU_NAME].to_dict()
     # requests entity too large: list of tuples: request_string, single_elm_dataframe
     retries = []
-    info = defaultdict(int)
-    # strings for infos (to avoid typos): inserted new inserted total, updated new updated total
-    I_NEW, I_TOT, U_NEW, U_TOT = "a", 'b', 'c', 'd'  # just provide short random strings, who cares
+#     info = defaultdict(int)
+#     # strings for infos (to avoid typos): inserted new inserted total, updated new updated total
+#     I_NEW, I_TOT, U_NEW, U_TOT = "a", 'b', 'c', 'd'  # just provide short random strings, who cares
 
     # for numpy types, see
     # https://docs.scipy.org/doc/numpy/reference/arrays.dtypes.html#specifying-and-constructing-data-types
@@ -831,6 +831,8 @@ def download_save_segments(session, segments_df, datacenters_df,
     segments_df[SEG_SRATE_NAME] = float('nan')
     segments_df[SEG_SEEDID_NAME] = None
     segments_df[SEG_DSC_NAME] = float('nan')
+
+    segmanager = SegmentsDbManager(session, ADDBUFSIZE)
 
     def ondone(df, result, exc, request):
         """function executed when a given url has successfully downloaded `data`"""
@@ -883,22 +885,23 @@ def download_save_segments(session, segments_df, datacenters_df,
             stats[url][exc] += len(df)
             logger.warning(MSG("", "Unable to get waveform data", exc, request))
 
-        mask = pd.isnull(df[SEG_ID_NAME])
-        if mask.any():
-            total, new = insertdf_napkeys(df[mask], session, SEG_ID_COL, ADDBUFSIZE,
-                                          return_df=False)
-            info[I_TOT] += total
-            info[I_NEW] += new
-
-        mask = ~mask
-        if mask.any():
-            upd_df = df[mask]
-            total = len(upd_df)
-            updated = updatedf(upd_df, session, SEG_ID_COL,
-                               [SEG_RUNID_COL, SEG_DATA_COL, SEG_MGR_COL, SEG_SRATE_COL,
-                                SEG_DSC_COL], ADDBUFSIZE, return_df=False)
-            info[U_TOT] += total
-            info[U_NEW] += updated
+        segmanager.add(df)
+#         mask = pd.isnull(df[SEG_ID_NAME])
+#         if mask.any():
+#             total, new = insertdf_napkeys(df[mask], session, SEG_ID_COL, ADDBUFSIZE,
+#                                           return_df=False)
+#             info[I_TOT] += total
+#             info[I_NEW] += new
+# 
+#         mask = ~mask
+#         if mask.any():
+#             upd_df = df[mask]
+#             total = len(upd_df)
+#             updated = updatedf(upd_df, session, SEG_ID_COL,
+#                                [SEG_RUNID_COL, SEG_DATA_COL, SEG_MGR_COL, SEG_SRATE_COL,
+#                                 SEG_DSC_COL], ADDBUFSIZE, return_df=False)
+#             info[U_TOT] += total
+#             info[U_NEW] += updated
 
         notify_progress_func(len(df))
 
@@ -906,7 +909,6 @@ def download_save_segments(session, segments_df, datacenters_df,
 
     # seg group is an iterable of 2 element tuples. The first element is the tuple of keys[:idx]
     # values, and the second element is the dataframe
-    retries = []
     read_async(seg_groups,
                urlkey=lambda obj: _get_request(obj[1], datcen_id2url[obj[0][0]]),
                ondone=ondone, raise_http_err=False,
@@ -919,45 +921,17 @@ def download_save_segments(session, segments_df, datacenters_df,
                    max_workers=max_thread_workers,
                    timeout=timeout, blocksize=download_blocksize)
 
-    dblog(Segment, info[I_NEW], info[I_TOT] - info[I_NEW], info[U_NEW], info[U_TOT] - info[U_NEW])
+    segmanager.close()  # flush remaining stuff to insert / update, if any
+    new, ntot, upd, utot = segmanager.info
+    dblog(Segment, new, ntot - new, upd, utot - upd)
 
-    # reset index (we do not need urls anymore):
     return stats
 
 
 class SegmentsDbManager(object):
-    # URLERR_CODE, MSEEDERR_CODE = get_url_mseed_errorcodes()
-
-    SEG_DCID_COL = Segment.datacenter_id
-    SEG_DCID_NAME = SEG_DCID_COL.key
-    UPD_COLS = [Segment.run_id, Segment.data, Segment.max_gap_ratio, Segment.sample_rate,
-                Segment.download_status_code]
-#     DC_ID_COL = DataCenter.id
-#     DC_ID_NAME = DC_ID_COL.key
-#     DC_DSQU_COL = DataCenter.dataselect_url
-#     DC_DSQU_NAME = DC_DSQU_COL.key
-#     SEG_ID_COL = Segment.id
-#     SEG_ID_NAME = SEG_ID_COL.key
-#     SEG_STIME_COL = Segment.start_time
-#     SEG_ETIME_COL = Segment.end_time
-#     SEG_STIME_NAME = SEG_STIME_COL.key
-#     SEG_ETIME_NAME = SEG_ETIME_COL.key
-#     CHA_CHA_COL = Channel.channel
-#     CHA_CHA_NAME = CHA_CHA_COL.key
-# 
-#     SEG_DATA_COL = Segment.data
-#     SEG_DSC_COL = Segment.download_status_code
-#     SEG_SEEDID_COL = Segment.seed_identifier
-#     SEG_MGR_COL = Segment.max_gap_ratio
-#     SEG_SRATE_COL = Segment.sample_rate
-#     SEG_RUNID_COL = Segment.run_id
-# 
-#     SEG_DATA_NAME = SEG_DATA_COL.key
-#     SEG_DSC_NAME = SEG_DSC_COL.key
-#     SEG_SEEDID_NAME = SEG_SEEDID_COL.key
-#     SEG_MGR_NAME = SEG_MGR_COL.key
-#     SEG_SRATE_NAME = SEG_SRATE_COL.key
-#     SEG_RUNID_NAME = SEG_RUNID_COL.key
+    """Class managing the insertion of segments into db. As insertion/updates should
+    be happening during download for not losing data in case of unexpected error, this class
+    manages the buffer size for the insertion/ updates on the db"""
 
     def __init__(self, session, bufsize):
         self.info = [0, 0, 0, 0]  # new, total_new, updated, updated_new
@@ -967,6 +941,10 @@ class SegmentsDbManager(object):
         self._num2insert = 0
         self._num2update = 0
         self.session = session
+        self.SEG_ID_COL = Segment.id
+        self.SEG_ID_NAME = self.SEG_ID_COL.key
+        self.UPD_COLS = [Segment.run_id, Segment.data, Segment.max_gap_ratio, Segment.sample_rate,
+                         Segment.download_status_code]
 
     def add(self, df):
         bufsize = self.bufsize
@@ -1006,6 +984,7 @@ class SegmentsDbManager(object):
         info[3] += total
 
     def close(self):
+        """flushes remaining stuff to insert/ update, if any"""
         if self.inserts:
             self.insert()
         if self.updates:

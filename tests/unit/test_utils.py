@@ -9,10 +9,11 @@ from mock import patch
 from StringIO import StringIO
 from stream2segment.utils.url import urlread, URLException
 import pytest
-from urllib2 import URLError
+from urllib2 import URLError, HTTPError
 import socket
 import mock
 from stream2segment.utils import secure_dburl
+from io import BytesIO
 
 class Test(unittest.TestCase):
 
@@ -36,14 +37,16 @@ def test_utils_url_read(mock_urlopen):  # mock_ul_urlopen, mock_ul_request, mock
         return StringIO(argss)
     
     mockread = mock.Mock()
-    class mystringio(object):
+    class mybytesio(object):
 
         def __init__(self, url, **kwargs):
             mockread.reset_mock()
             if isinstance(url, Exception):
                 self.a = url
             else:
-                self.a = StringIO(url)
+                self.code = 200
+                self.msg = 'Ok'
+                self.a = BytesIO(url)
 
         def read(self, *a, **kw):
             if isinstance(self.a, Exception):
@@ -55,34 +58,43 @@ def test_utils_url_read(mock_urlopen):  # mock_ul_urlopen, mock_ul_request, mock
             if not isinstance(self.a, Exception):
                 self.a.close(*a, **kw)
 
-    mock_urlopen.side_effect = lambda url, **kw: mystringio(url, **kw)
+    mock_urlopen.side_effect = lambda url, **kw: mybytesio(url, **kw)
     with pytest.raises(TypeError):
         urlread('', "name")
 
     val = 'url'
     blockSize = 1024*1024
-    assert urlread(val, blockSize) == val
+    assert urlread(val, blockSize)[0] == val
     mock_urlopen.assert_called_with(val)
     assert mockread.call_count == 2
     mockread.assert_called_with(blockSize)
 
-    mock_urlopen.side_effect = lambda url, **kw: mystringio(url, **kw)
+    mock_urlopen.side_effect = lambda url, **kw: mybytesio(url, **kw)
     defBlockSize = -1
-    assert urlread(val, arg_to_read=56) == val
+    assert urlread(val, arg_to_read=56)[0] == val
     mock_urlopen.assert_called_with(val, arg_to_read=56)
     assert mockread.call_count == 1  # because blocksize is -1
 
-    mock_urlopen.side_effect = lambda url, **kw: mystringio(URLError('wat?'))
+    mock_urlopen.side_effect = lambda url, **kw: mybytesio(URLError('wat?'))
     with pytest.raises(URLError):
-        urlread(val, urlexc=False)  # note urlexc
-
-    mock_urlopen.side_effect = lambda url, **kw: mystringio(URLError('wat?'))
+        urlread(val, wrap_exceptions=False)  # note urlexc
     with pytest.raises(URLException):
-        urlread(val, urlexc=True)  # note urlexc
+        urlread(val, wrap_exceptions=True)  # note urlexc
 
-    mock_urlopen.side_effect = lambda url, **kw: mystringio(socket.timeout())
-    with pytest.raises(socket.error):
-        urlread(val, urlexc=False)  # note urlexc
+    mock_urlopen.side_effect = lambda url, **kw: mybytesio(URLError('wat?'))
+    with pytest.raises(URLException):
+        urlread(val)  # note urlexc
+
+    mock_urlopen.side_effect = lambda url, **kw: mybytesio(socket.timeout())
+    with pytest.raises(URLException):
+        urlread(val)  # note urlexc
+    
+    mock_urlopen.side_effect = lambda url, **kw: mybytesio(HTTPError('url', 500, '?', None, None))
+    with pytest.raises(URLException):
+        urlread(val)  # note urlexc
+        
+    mock_urlopen.side_effect = lambda url, **kw: mybytesio(HTTPError('url', 500, '?', None, None))
+    assert urlread(val, raise_http_err=False) == (None, 500, '?')  # note urlexc
     
 
 @pytest.mark.parametrize('input, expected_result, ',

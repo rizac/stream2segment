@@ -402,11 +402,11 @@ def get_inventory(station, save_if_downloaded=False, **urlread_kwargs):
 
 def download_inventory(station, **urlread_kwargs):
     query_url = get_inventory_url(station)
-    return urlread(query_url, **urlread_kwargs)
+    return urlread(query_url, **urlread_kwargs)[0]
 
 
 def get_inventory_url(station):
-    return get_inventory_url_(station.datacenter.station_query_url, station.network,
+    return get_inventory_url_(station.datacenter.station_url, station.network,
                               station.station)
 
 
@@ -509,10 +509,9 @@ def stats2str(data, fillna=None, transpose=False,
     """
         Returns a string representation of `data` nicely formatted in a table. The argument `data`
         is any valid object which can be passed to a pandas.DataFrame as 'data' argument. In the
-        most simple and typical case, it is a dict of string keys K mapped to dicts (or pandas
-        Series) D: {..., K: D, ....}.
-        **Each D will be represented in a column with its key k as column header** (unless transpose
-        is True, see below)
+        most simple and typical case, it is a dict of string keys K representing the table columns
+        headers** mapped to dicts (or pandas Series) D: {..., K: D, ....}.
+        **(if transpose is True then each dictionary key is the row header, see below)
         :Example:
         ```
         stats2str(data={

@@ -15,7 +15,7 @@ from urllib2 import URLError
 from click.testing import CliRunner
 from stream2segment.main import main, closing
 import tempfile
-from stream2segment.io.db.models import Base, Event, Class, Station
+from stream2segment.io.db.models import Base, Event, Class, Station, WebService
 import csv
 from itertools import cycle
 from future.backports.urllib.error import URLError
@@ -48,30 +48,37 @@ class DB():
         self.session.commit()
         self.run = r
 
+        ws = WebService(id=1, url='eventws')
+        self.session.add(ws)
+        self.session.commit()
+        self.ws = ws
         # setup an event:
-        e = models.Event(id='abc', latitude=8, longitude=9, magnitude=5, depth_km=4,
+        e = models.Event(id=1, webservice_id=ws.id, eventid='abc', latitude=8, longitude=9, magnitude=5, depth_km=4,
                          time=datetime.utcnow())
         self.session.add(e)
         self.session.commit()
         self.evt = e
 
-        d = models.DataCenter(station_query_url='asd', dataselect_query_url='sdft')
+        d = models.DataCenter(station_url='asd', dataselect_url='sdft')
         self.session.add(d)
         self.session.commit()
         self.dc = d
 
         # s_ok stations have lat and lon > 11, other stations do not
-        s_ok = models.Station(datacenter_id=d.id, latitude=11, longitude=12, network='ok', station='ok')
+        s_ok = models.Station(datacenter_id=d.id, latitude=11, longitude=12, network='ok', station='ok',
+                              start_time=datetime.utcnow())
         self.session.add(s_ok)
         self.session.commit()
         self.sta_ok = s_ok
 
-        s_err = models.Station(datacenter_id=d.id, latitude=-21, longitude=5, network='err', station='err')
+        s_err = models.Station(datacenter_id=d.id, latitude=-21, longitude=5, network='err', station='err',
+                              start_time=datetime.utcnow())
         self.session.add(s_err)
         self.session.commit()
         self.sta_err = s_err
 
-        s_none = models.Station(datacenter_id=d.id, latitude=-31, longitude=-32, network='none', station='none')
+        s_none = models.Station(datacenter_id=d.id, latitude=-31, longitude=-32, network='none', station='none',
+                              start_time=datetime.utcnow())
         self.session.add(s_none)
         self.session.commit()
         self.sta_none = s_none
@@ -293,9 +300,9 @@ class Test(unittest.TestCase):
         if "=err" in a[0]:
             raise URLError('error')
         elif "=none" in a[0]:
-            return None
+            return None, 500, 'Server error'
         else:
-            return Test.read_data_raw("inventory_GE.APE.xml")
+            return Test.read_data_raw("inventory_GE.APE.xml"), 200, 'Ok'
 
     def load_proc_cfg(self, *a, **kw):
         """called by mocked read config: updates the parsed dict with the custom config"""
@@ -342,7 +349,7 @@ class Test(unittest.TestCase):
                 for row in spamreader:
                     rowz += 1
                     if rowz == 2:
-                        assert row[0] == self.db.seg1.channel.id
+                        assert row[0] == str(self.db.seg1.channel.id)
                         assert row[1] == self.db.seg1.start_time.isoformat()
                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 2
@@ -401,7 +408,7 @@ class Test(unittest.TestCase):
                 for row in spamreader:
                     rowz += 1
                     if rowz == 2:
-                        assert row[0] == self.db.seg1.channel.id
+                        assert row[0] == str(self.db.seg1.channel.id)
                         assert row[1] == self.db.seg1.start_time.isoformat()
                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 2
@@ -460,7 +467,7 @@ class Test(unittest.TestCase):
                 for row in spamreader:
                     rowz += 1
                     if rowz == 2:
-                        assert row[0] == self.db.seg1.channel.id
+                        assert row[0] == str(self.db.seg1.channel.id)
                         assert row[1] == self.db.seg1.start_time.isoformat()
                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 0
@@ -519,7 +526,7 @@ class Test(unittest.TestCase):
                 for row in spamreader:
                     rowz += 1
                     if rowz == 2:
-                        assert row[0] == self.db.seg1.channel.id
+                        assert row[0] == str(self.db.seg1.channel.id)
                         assert row[1] == self.db.seg1.start_time.isoformat()
                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 0
@@ -563,43 +570,20 @@ class Test(unittest.TestCase):
                 for row in spamreader:
                     rowz += 1
                     if rowz == 1:
-                        assert row[0] == self.db.seg1.channel.id
+                        assert row[0] == str(self.db.seg1.channel.id)
                         assert row[1] == self.db.seg1.start_time.isoformat()
                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 1
                 assert len(self.read_and_remove(file.name+".log")) > 0
 
 
-# This method wanted to use capsys fixtures, which returns the captured sys out (pytest)
-# As it seems not supported the usage with unittest, this method was written at "module" level
-# After that, I realised we do not actually print to stdout so wtf I could have avoided it, as
-# we do not use capsys, but who knows in the future, let's leave the method as it is (at module level)
-def test_simple_run_codeerror(capsys):
+    def test_simple_run_codeerror(self):
     
-    db = DB()
-    
-            # mock get inventory:
-    patcher = patch('stream2segment.download.utils.urlread')
-    mock_url_read = patcher.start()
-    mock_url_read.side_effect = Test.url_read
-
-    patcher1 = patch('stream2segment.main.get_session')
-    mock_session = patcher1.start()
-    mock_session.return_value = db.session
-
-    patcher2 = patch('stream2segment.main.closing')
-    mock_closing = patcher2.start()
-    mock_closing.side_effect = lambda dburl: closing(dburl, close_session=False)
-
-    try:
-        mock_url_read = patcher.start()
-        mock_url_read.side_effect = Test.url_read
-        
         runner = CliRunner()
-    
+        
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             # pyfile, conffile = Test.get_processing_files()
-            result = runner.invoke(main, ['p', '--dburl', db.dburi,
+            result = runner.invoke(main, ['p', '--dburl', self.dburi,
                                    Test.get_file("processing_test_freqs2csv_dict.py"),
                                    Test.get_file('processing.config.yaml'),
                                    file.name])
@@ -610,17 +594,7 @@ def test_simple_run_codeerror(capsys):
 
             assert "TypeError: main() takes exactly 2 arguments (4 given)" in sss
 
-    finally:
-        patcher.stop()
-        patcher1.stop()
-        patcher2.stop()
-        db.close()
 
-                
-            
-            
-            
-    
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']
     unittest.main()

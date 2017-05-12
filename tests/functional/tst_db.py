@@ -14,8 +14,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, load_only
 import pandas as pd
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from stream2segment.io.db.pd_sql_utils import _harmonize_columns, harmonize_columns,\
-    get_or_add_iter, harmonize_rows, colnames, withdata
+from stream2segment.io.db.pd_sql_utils import _harmonize_columns, harmonize_columns, \
+    harmonize_rows, colnames, withdata
 from stream2segment.io.utils import dumps_inv, loads_inv
 from sqlalchemy.orm.exc import FlushError
 from sqlalchemy.orm.attributes import InstrumentedAttribute
@@ -399,40 +399,40 @@ class Test(unittest.TestCase):
         with pytest.raises(IntegrityError):
             df.to_sql(e.__table__.name, self.engine, if_exists='append', index=False)
 
-    def get_or_add(self, session, model_instance, model_cols_or_colnames=None, on_add='flush'):
-        for inst, isnew in get_or_add_iter(session, [model_instance], model_cols_or_colnames,
-                                           on_add):
-            return inst, isnew
+#     def get_or_add(self, session, model_instance, model_cols_or_colnames=None, on_add='flush'):
+#         for inst, isnew in get_or_add_iter(session, [model_instance], model_cols_or_colnames,
+#                                            on_add):
+#             return inst, isnew
 
-    def test_add_or_get(self):
-        id = 'some_id_not_used_elsewhere'
-        utcnow = datetime.utcnow()
-        e = models.Event(id=id, time=utcnow, latitude=89.5, longitude=6,
-                         depth_km=7, magnitude=56)
-        e_, new_added = self.get_or_add(self.session, e)
-        # we should have flushed, as it is the default argument
-        # of the function above. Without flush get_or_add below doesn't work
-        assert new_added is True and e_ is not None
-
-        e_, new_added = self.get_or_add(self.session, e)
-        assert new_added is False and e_ is not None
-
-        e.latitude = 67.0546  # auto updated, in fact if we do:
-        e_, new_added = self.get_or_add(self.session, e, 'latitude')
-        # we didn't add any new object
-        assert new_added is False and e_ is not None and e_.latitude == e.latitude
-
-        # now re-initialize e WITH THE SAME ARGUMENT AS ABOVE AT THE BEGINNING:
-        e = models.Event(id=id, time=utcnow, latitude=89.5, longitude=6,
-                         depth_km=7, magnitude=56)
-        # and do NOT flush by default
-        e_, new_added = self.get_or_add(self.session, e, 'latitude', on_add=None)
-        assert new_added is True and e_ is not None
-        # However, now we should get an error cause we added two elements with same id:
-        with pytest.raises(IntegrityError):
-            self.session.flush()
-            self.session.commit()
-        self.session.rollback()
+#     def test_add_or_get(self):
+#         id = 'some_id_not_used_elsewhere'
+#         utcnow = datetime.utcnow()
+#         e = models.Event(id=id, time=utcnow, latitude=89.5, longitude=6,
+#                          depth_km=7, magnitude=56)
+#         e_, new_added = self.get_or_add(self.session, e)
+#         # we should have flushed, as it is the default argument
+#         # of the function above. Without flush get_or_add below doesn't work
+#         assert new_added is True and e_ is not None
+# 
+#         e_, new_added = self.get_or_add(self.session, e)
+#         assert new_added is False and e_ is not None
+# 
+#         e.latitude = 67.0546  # auto updated, in fact if we do:
+#         e_, new_added = self.get_or_add(self.session, e, 'latitude')
+#         # we didn't add any new object
+#         assert new_added is False and e_ is not None and e_.latitude == e.latitude
+# 
+#         # now re-initialize e WITH THE SAME ARGUMENT AS ABOVE AT THE BEGINNING:
+#         e = models.Event(id=id, time=utcnow, latitude=89.5, longitude=6,
+#                          depth_km=7, magnitude=56)
+#         # and do NOT flush by default
+#         e_, new_added = self.get_or_add(self.session, e, 'latitude', on_add=None)
+#         assert new_added is True and e_ is not None
+#         # However, now we should get an error cause we added two elements with same id:
+#         with pytest.raises(IntegrityError):
+#             self.session.flush()
+#             self.session.commit()
+#         self.session.rollback()
 
 
     def test_event_sta_channel_seg(self):
@@ -461,12 +461,21 @@ class Test(unittest.TestCase):
         id = '__abcdefghilmnopq'
         utcnow = datetime.utcnow()
         e = models.Event(id=id, time=utcnow)
-        e, added = self.get_or_add(self.session, e)
-        assert added == False
+#         e, added = self.get_or_add(self.session, e)
+#         assert added == False
 
+        with pytest.raises(IntegrityError):
+            self.session.add(e)
+            self.session.commit()
+        self.session.rollback()
+        
         s = models.Station(network='sdf', datacenter_id=dc.id, station='_', latitude=90, longitude=-45)
-        s, added = self.get_or_add(self.session, s, 'network', 'station')
-        assert added == False
+#         s, added = self.get_or_add(self.session, s, 'network', 'station')
+#         assert added == False
+        with pytest.raises(IntegrityError):
+            self.session.add(s)
+            self.session.commit()
+        self.session.rollback()
         
         self.session.commit()  # harmless
         
@@ -833,24 +842,25 @@ class Test(unittest.TestCase):
         # in order to locate the object.
         n = 'tyyugibib'
         s = 'lbibjfd'
-        dc= models.DataCenter(station_query_url="345fbg666tgrefs", dataselect_query_url='edfawrptojfh')
+        dc= models.DataCenter(station_url="345fbg666tgrefs", dataselect_url='edfawrptojfh')
         self.session.add(dc)
         assert dc.id == None
         self.session.flush()  # or commit()
         assert dc.id != None
         
-        sta = models.Station(station=s, network=n, datacenter_id=dc.id,
+        id = 1000000
+        sta = models.Station(id=id, station=s, network=n, datacenter_id=dc.id,
                              latitude=5, longitude=9)
         q = self.session.query(models.Station)
         
-        staq = q.get(n+"."+s)
+        staq = q.get(id)
         assert staq is None
         self.session.add(sta)
-        staq = q.get(n+"."+s)
+        staq = q.get(id)
         assert staq is not None
         
-        # works also with tuples, in case of primary key(s)
-        staq = q.get((n+"."+s,))
+        # works also with tuples, in case of multiple primary key(s)
+        staq = q.get((id))
         assert staq is not None
         
         # what if id is None? what does it return? well it should be None right?
