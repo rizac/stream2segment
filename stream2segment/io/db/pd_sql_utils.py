@@ -268,7 +268,7 @@ def _harmonize_columns(table, dataframe, parse_dates=None):
                 # convert to NaN. So, try the "normal way":
                 try:
                     dataframe[col_name] = df_col.astype(col_type, copy=False)
-                except ValueError:
+                except (TypeError, ValueError):
                     # failed, use to_numeric coercing to None on errors
                     # this also sets the column dtype to float64
                     dataframe[col_name] = pd.to_numeric(df_col, errors='coerce')

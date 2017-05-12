@@ -17,21 +17,21 @@ from StringIO import StringIO
 
 import unittest, os
 from sqlalchemy.engine import create_engine
-from stream2segment.io.db.models import Base, Event, Class
+from stream2segment.io.db.models import Base, Event, Class, WebService
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from stream2segment.main import main, closing
 from click.testing import CliRunner
 # from stream2segment.s2sio.db.pd_sql_utils import df2dbiter, get_col_names
 import pandas as pd
-from stream2segment.download.query import add_classes, get_events_df, get_datacenters_df, logger as query_logger, \
+from stream2segment.download.main import add_classes, get_events_df, get_datacenters_df, logger as query_logger, \
 get_channels_df, merge_events_stations, set_saved_arrivaltimes, get_arrivaltimes,\
-    prepare_for_download, download_save_segments, _strcat
+    prepare_for_download, download_save_segments, _strcat, get_eventws_url, dbsync
 # ,\
 #     get_fdsn_channels_df, save_stations_and_channels, get_dists_and_times, set_saved_dist_and_times,\
 #     download_segments, drop_already_downloaded, set_download_urls, save_segments
 from obspy.core.stream import Stream, read
-from stream2segment.io.db.models import DataCenter, Segment, Run, Station, Channel
+from stream2segment.io.db.models import DataCenter, Segment, Run, Station, Channel, WebService
 from itertools import cycle, repeat, count, product, izip
 from urllib2 import URLError
 import socket
@@ -49,7 +49,10 @@ from _io import BytesIO
 import urllib2
 from stream2segment.download.utils import get_url_mseed_errorcodes
 from test.test_userdict import d1
-from stream2segment.utils.mseedlite3 import MSeedError
+from stream2segment.utils.mseedlite3 import MSeedError, unpack
+import threading
+from stream2segment.utils.url import read_async
+from stream2segment.utils.resources import get_default_cfg_filepath
 
 
 # when debugging, I want the full dataframe with to_string(), not truncated
@@ -179,6 +182,23 @@ class Test(unittest.TestCase):
             return closing(*a, **v)
         self.mock_closing.side_effect = clsing
         
+        
+        # mock threadpoolexecutor to run one instance at a time, so we get deterministic results:
+        self.patcher23 = patch('stream2segment.download.main.read_async')
+        self.mock_read_async = self.patcher23.start()
+        def readasync(iterable, ondone, *a, **v):
+            ret = list(iterable)
+            ondones = [None] * len(ret)
+            def _ondone(*a_):
+                ondones[ret.index(a_[0])] = a_
+            
+            read_async(ret, _ondone, *a, **v)
+            
+            for k in ondones:
+                ondone(*k)
+        self.mock_read_async.side_effect = readasync
+        
+        
         self.logout = StringIO()
         self.handler = StreamHandler(stream=self.logout)
         # THIS IS A HACK:
@@ -196,7 +216,7 @@ class Test(unittest.TestCase):
         self.patcher3 = patch('stream2segment.download.utils.get_min_travel_time')
         self.mock_min_travel_time = self.patcher3.start()
         
-        self.patchers = [self.patcher, self.patcher1, self.patcher2, self.patcher3]
+        self.patchers = [self.patcher, self.patcher1, self.patcher2, self.patcher3, self.patcher23]
         #self.patcher3 = patch('stream2segment.main.logger')
         #self.mock_main_logger = self.patcher3.start()
         
@@ -210,7 +230,7 @@ class Test(unittest.TestCase):
         
         self._evt_urlread_sideeffect =  """#EventID | Time | Latitude | Longitude | Depth/km | Author | Catalog | Contributor | ContributorID | MagType | Magnitude | MagAuthor | EventLocationName
 20160508_0000129|2016-05-08 05:17:11.500000|1|1|60.0|AZER|EMSC-RTS|AZER|505483|ml|3|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
-20160508_0000004|2016-05-08 01:45:30.300000|2|2|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|4|EMSC|CROATIA
+20160508_0000004|2016-05-08 01:45:30.300000|90|90|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|4|EMSC|CROATIA
 """
         self._dc_urlread_sideeffect = """http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query
 ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
@@ -220,14 +240,23 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
 
 """
 
+# Note: by default we set sta_urlsideeffect to return such a channels which result in 12
+# segments (see lat and lon of channels vs lat and lon of events above)
         self._sta_urlread_sideeffect  = ["""#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
-A|a||HHZ|1|1|622.0|0.0|0.0|-90.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|50.0|2008-02-12T00:00:00|
-A|b||HHE|2|2|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
+GE|FLT1||HHE|1|1|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2003-01-01T00:00:00|
+GE|FLT1||HHN|1|1|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2003-01-01T00:00:00|
+GE|FLT1||HHZ|1|1|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2003-01-01T00:00:00|
+n1|s||c1|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
+n1|s||c2|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
+n1|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
 """, 
 """#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
-A|c||HHZ|3|3|622.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2008-02-12T00:00:00|
-BLA|e||HHZ|7|7|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|2019-01-01T00:00:00
-BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2019-01-01T00:00:00|
+IA|BAKI||BHE|1|1|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2003-01-01T00:00:00|
+IA|BAKI||BHN|1|1|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2003-01-01T00:00:00|
+IA|BAKI||BHZ|1|1|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2003-01-01T00:00:00|
+n2|s||c1|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
+n2|s||c2|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
+n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
 """]
         # self._sta_urlread_sideeffect = cycle([partial_valid, '', invalid, '', '', URLError('wat'), socket.timeout()])
 
@@ -243,8 +272,11 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             
         self._seg_data_empty = b''
             
-        self._seg_urlread_sideeffect = [self._seg_data, self._seg_data_empty, self._seg_data_gaps,
-                                        URLError('url_error_segment'), 500]
+        self._seg_urlread_sideeffect = [self._seg_data, self._seg_data_gaps, 413, 500, self._seg_data[:2],
+                                        self._seg_data_empty,  413, URLError("++urlerror++"),
+                                        socket.timeout()]
+
+        self.service = ''  # so get_datacenters_df accepts any row by default
 
         #add cleanup (in case tearDown is not called due to exceptions):
         self.addCleanup(Test.cleanup, self.session, self.handler, *self.patchers)
@@ -316,12 +348,12 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 #        self.mock_urlopen.side_effect = Cycler(urlread_side_effect)
         
 
-    def tst_add_classes(self):
+    def test_add_classes(self):
         cls = {'a' : 'bla', 'b' :'c'}
         add_classes(self.session, cls)
         assert len(self.session.query(Class).all()) == 2
         logmsg = self.log_msg()
-        assert "2 new item(s) saved" in logmsg
+        assert "Writing to database table 'classes': 2 of 2 new items saved" in logmsg
         add_classes(self.session, cls)
         # assert we did not write any new class
         assert len(self.session.query(Class).all()) == 2
@@ -330,13 +362,28 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         
 # ===========================
 
+    
+    @patch('stream2segment.download.main.yaml_load', return_value={'service1': {'event': 'http:event1'}, 'service2': {'event': 'http:event2', 'station': 'http:station2'}})
+    def test_get_eventws_url(self, mock_yaml_load):
+        with pytest.raises(ValueError):
+            url = get_eventws_url(self.session, "eida")
+        
+        url = get_eventws_url(self.session, "service1")
+        assert url == 'http:event1'
+        url = get_eventws_url(self.session, "service2")
+        assert url == 'http:event2'
+
     def get_events_df(self, url_read_side_effect, *a, **v):
         self.setup_urlopen(self._evt_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
-        return get_events_df(self.session, *a, **v)
+#         if not eventws_url:
+#             ptch = patch('stream2segment.download.main.yaml_load', return_value={'': {'event': 'http:event1'}})
+#             eventws_url = get_eventws_url(self.session, "")
+#             ptch.stop()
+        return get_events_df(*a, **v)
+        
 
-
-    @patch('stream2segment.download.query.urljoin', return_value='a')
-    def tst_get_events(self, mock_query):
+    @patch('stream2segment.download.main.urljoin', return_value='a')
+    def test_get_events(self, mock_query):
         urlread_sideeffect = ["""1|2|3|4|5|6|7|8|9|10|11|12|13
 20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 01:45:30.300000|44.96|15.35|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|3.6|EMSC|CROATIA
@@ -345,7 +392,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 --- ERRROR --- THIS IS MALFORMED 20160508_abc0113|2016-05-08 22:37:20.100000| --- ERROR --- |26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
 """]
         
-        data = self.get_events_df(urlread_sideeffect, "http://eventws")
+        
+        data = self.get_events_df(urlread_sideeffect, self.session, "http://eventws")
         # assert only three events were successfully saved to db (two have same id) 
         assert len(self.session.query(Event).all()) == len(pd.unique(data['id'])) == 3
         # AND data to save has length 3: (we skipped last or next-to-last cause they are dupes)
@@ -362,7 +410,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 --- ERRROR --- THIS IS MALFORMED 20160508_abc0113|2016-05-08 22:37:20.100000| --- ERROR --- |26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
 """, URLError('blabla23___')]
         
-        data = self.get_events_df(urlread_sideeffect, "http://eventws")
+        data = self.get_events_df(urlread_sideeffect, self.session, "http://eventws")
         # assert nothing new has added:
         assert len(self.session.query(Event).all()) == len(pd.unique(data['id'])) == 3
         # AND data to save has length 3: (we skipped last or next-to-last cause they are dupes)
@@ -372,9 +420,9 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert "blabla23___" in self.log_msg()
         
 
-    @patch('stream2segment.download.query.urljoin', return_value='a')
-    def tst_get_events_toomany_requests_raises(self, mock_query): # FIXME: implement it!
-        ## FIXMEEEEE TO BE IMPLEMENTED!!!!
+    @patch('stream2segment.download.main.urljoin', return_value='a')
+    def test_get_events_toomany_requests_raises(self, mock_query): # FIXME: implement it!
+        
         urlread_sideeffect = [413, """1|2|3|4|5|6|7|8|9|10|11|12|13
 20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 01:45:30.300000|44.96|15.35|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|3.6|EMSC|CROATIA
@@ -386,47 +434,50 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # will return that, so that we will end up having a 413 when the string is not
         # further splittable:
         with pytest.raises(ValueError):
-            data = self.get_events_df(urlread_sideeffect, "http://eventws", start=datetime(2010,1,1).isoformat(),
+            data = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", start=datetime(2010,1,1).isoformat(),
                                       end=datetime(2011,1,1).isoformat())
         # assert only three events were successfully saved to db (two have same id) 
         assert len(self.session.query(Event).all()) == 0
         # AND data to save has length 3: (we skipped last or next-to-last cause they are dupes)
         with pytest.raises(NameError):
             assert len(data) == 3
+
+        # assert only three events were successfully saved to db (two have same id) 
+        assert len(self.session.query(Event).all()) == 0
         
 
-    @patch('stream2segment.download.query.urljoin', return_value='a')
-    def tst_get_events_toomany_requests_doesntraise(self, mock_query): # FIXME: implement it!
-        ## FIXMEEEEE TO BE IMPLEMENTED!!!!
-        urlread_sideeffect = [413, """1|2|3|4|5|6|7|8|9|10|11|12|13
-20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
-20160508_0000004|2016-05-08 01:45:30.300000|44.96|15.35|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|3.6|EMSC|CROATIA
-20160508_0000113|2016-05-08 22:37:20.100000|45.68|26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
-20160508_0000113|2016-05-08 22:37:20.100000|45.68|26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
---- ERRROR --- THIS IS MALFORMED 20160508_abc0113|2016-05-08 22:37:20.100000| --- ERROR --- |26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
-""", ""]
-        # as urlread returns alternatively a 413 and a good string, also sub-queries
-        # will return that, so that we will end up having a 413 when the string is not
-        # further splittable:
-        data = self.get_events_df(urlread_sideeffect, "http://eventws", start=datetime(2010,1,1).isoformat(),
-                                      end=datetime(2011,1,1).isoformat())
+    @patch('stream2segment.download.main.urljoin', return_value='a')
+    @patch('stream2segment.download.main.dbsync')
+    def test_get_events_eventws_not_saved(self, mock_dbsync, mock_query): # FIXME: implement it!
+        urlread_sideeffect = [413]  # this is useless, we test stuff which raises before it
+        
+        # now we want to return all times 413, and see that we raise a ValueError:
+        
+        mock_dbsync.reset_mock()
+        mock_dbsync.side_effect = lambda *a, **v: dbsync(*a, **v)
+        with pytest.raises(ValueError):
+            # now it should raise because of a 413:
+            data = self.get_events_df(urlread_sideeffect, self.session, "abcd", start=datetime(2010,1,1).isoformat(),
+                                         end=datetime(2011,1,1).isoformat())
+            
+        # assert we wrote the url
+        assert len(self.session.query(WebService.url).filter(WebService.url=='abcd').all()) == 1
         # assert only three events were successfully saved to db (two have same id) 
-        assert len(self.session.query(Event).all()) == 3
-        # AND data to save has length 3: (we skipped last or next-to-last cause they are dupes)
-        assert len(data) == 3
-
-        # assert logger has been written with the first 413 error:
-        assert "request entity too large" in self.log_msg()
+        assert len(self.session.query(Event).all()) == 0
+        # we cannot assert anything has been written to logger cause the exception are caucht
+        # if we raun from main. This should be checked in functional tests where we test the whole
+        # chain
+        # assert "request entity too large" in self.log_msg()
 
 # =================================================================================================
 
     def get_datacenters_df(self, url_read_side_effect, *a, **v):
         self.setup_urlopen(self._dc_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
-        return get_datacenters_df(self.session, *a, **v)
+        return get_datacenters_df(*a, **v)
     
 
-    @patch('stream2segment.download.query.urljoin', return_value='a')
-    def tst_get_dcs_malformed(self, mock_query):
+    @patch('stream2segment.download.main.urljoin', return_value='a')
+    def test_get_dcs_malformed(self, mock_query):
         urlread_sideeffect = ["""http://ws.resif.fr/fdsnws/station/1/query
 http://geofon.gfz-potsdam.de/fdsnws/station/1/query
 
@@ -434,15 +485,15 @@ http://geofon.gfz-potsdam.de/fdsnws/station/1/query
 
 ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
 UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, None)
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session)
         assert len(self.session.query(DataCenter).all()) == len(data) == 2
         mock_query.assert_called_once()  # we might be more fine grained, see code
         # geofon has actually a post line since 'indentation is bad..' is splittable)
         assert post_data_list[0] is None and post_data_list[1] is not None and \
             '\n' in post_data_list[1]
         
-    @patch('stream2segment.download.query.urljoin', return_value='a')
-    def tst_get_dcs2(self, mock_query):
+    @patch('stream2segment.download.main.urljoin', return_value='a')
+    def test_get_dcs2(self, mock_query):
         urlread_sideeffect = ["""http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query
 ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
 UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25
@@ -450,21 +501,84 @@ http://ws.resif.fr/fdsnws/dataselect/1/query
 
 ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
 """]
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, ['BH?'])
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, channels=['BH?'])
         assert len(self.session.query(DataCenter).all()) == len(data) == 2
         mock_query.assert_called_once()  # we might be more fine grained, see code
         assert post_data_list[0] is not None and post_data_list[1] is None
         
         # now download with a channel matching:
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, ['H??'])
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, channels=['H??'])
         assert len(self.session.query(DataCenter).all()) == len(data) == 2
         assert mock_query.call_count == 2  # we might be more fine grained, see code
         assert post_data_list[0] is not None and post_data_list[1] is not None
         # assert we have only one line for each post request:
         assert all('\n' not in r for r in post_data_list)
+
+
+    @patch('stream2segment.download.main.get_dc_filterfunc')
+    def test_get_dcs_service(self, mock_dc_filter):
         
-    @patch('stream2segment.download.query.urljoin', return_value='a')
-    def tst_get_dcs3(self, mock_query):
+        def func(service):
+            if service == 'geofon':
+                return lambda x: "geofon" in x
+            elif service == 'resif':
+                return lambda x: "resif" in x
+            elif service == 'iris':
+                return lambda x: "iris.edu" in x
+            elif service == 'eida':
+                return lambda x: "iris.edu" not in x
+            return lambda x: True
+        
+        urlread_sideeffect = ["""http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query
+ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
+UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25
+
+http://ws.resif.fr/fdsnws/dataselect/1/query
+
+ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
+
+http://ws.iris.edu.org/fdsnws/dataselect/1/query
+
+A * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
+B * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
+C * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
+"""]
+        mock_dc_filter.side_effect = func
+
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service='', channels=['BH?'])
+        assert len(self.session.query(DataCenter).all()) == len(data) == 3
+        assert post_data_list[0] is not None and all(post_data_list[i] is None for i in [1,2])
+        
+        self.session.query(DataCenter).delete()
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service="geofon")
+        assert len(self.session.query(DataCenter).all()) == len(data) == 1
+        assert post_data_list[0] is not None
+        
+        self.session.query(DataCenter).delete()
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service="resif")
+        assert len(self.session.query(DataCenter).all()) == len(data) == 1
+        assert post_data_list[0] is not None
+        
+        self.session.query(DataCenter).delete()
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service="iris")
+        assert len(self.session.query(DataCenter).all()) == len(data) == 1
+        assert post_data_list[0] is not None
+        
+        self.session.query(DataCenter).delete()
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service="eida")
+        assert len(self.session.query(DataCenter).all()) == len(data) == 2
+        assert len(post_data_list) == 2 and all(p is not None for p in post_data_list) and len(post_data_list[0].split("\n")) ==2
+        
+        self.session.query(DataCenter).delete()
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service="eida", channels=['BH?'])
+        assert len(self.session.query(DataCenter).all()) == len(data) == 2
+        assert len(post_data_list) == 2
+        assert len(post_data_list[0].split("\n")) == 2
+        assert post_data_list[1] is None
+        
+        
+    @patch('stream2segment.download.main.urljoin', return_value='a')
+    def test_get_dcs3(self, mock_query):
         urlread_sideeffect = [500, """http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query
 ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
 UP ARJ * * 2013-08-01T00:00:00 2017-04-25
@@ -474,29 +588,32 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
 """, 501]
         
         with pytest.raises(ValueError):
-            data, post_data_list = self.get_datacenters_df(urlread_sideeffect[0], ['BH?'])
+            data, post_data_list = self.get_datacenters_df(urlread_sideeffect[0], self.session, channels=['BH?'])
         assert len(self.session.query(DataCenter).all()) == 0
         mock_query.assert_called_once()  # we might be more fine grained, see code
         
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[1], ['BH?'])
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[1], self.session, channels=['BH?'])
         assert len(self.session.query(DataCenter).all()) == len(data) == 2
         mock_query.call_count == 2  # we might be more fine grained, see code
         assert post_data_list[0] is not None and post_data_list[1] is None
         
         # this raises again a server error, but we have datacenters in cahce:
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[2], ['BH?'])
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[2], self.session, channels=['BH?'])
         assert len(self.session.query(DataCenter).all()) == len(data) == 2
         mock_query.call_count == 3  # we might be more fine grained, see code
         assert post_data_list is None
         
     
-    @patch('stream2segment.download.query.urljoin', return_value='a')
-    def tst_get_dcs_postdata_all_nones(self, mock_query):
+    @patch('stream2segment.download.main.urljoin', return_value='a')
+    def test_get_dcs_postdata_all_nones(self, mock_query):
         urlread_sideeffect = ["""http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query
 http://ws.resif.fr/fdsnws/dataselect/1/query
 """]
         
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[0], ['BH?'])
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[0], self.session, channels=['BH?'])
+        assert all(x is None for x in post_data_list)
+        
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[0], self.session)
         assert all(x is None for x in post_data_list)
 
 # =================================================================================================
@@ -505,9 +622,9 @@ http://ws.resif.fr/fdsnws/dataselect/1/query
 
     def get_channels_df(self, url_read_side_effect, *a, **kw):
         self.setup_urlopen(self._sta_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
-        return get_channels_df(self.session, *a, **kw)
+        return get_channels_df(*a, **kw)
      
-    def tst_get_channels_df(self):
+    def test_get_channels_df(self):
         urlread_sideeffect = """1|2|3|4|5|6|7|8|9|10|11|12|13
 20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 01:45:30.300000|44.96|15.35|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|3.6|EMSC|CROATIA
@@ -515,7 +632,7 @@ http://ws.resif.fr/fdsnws/dataselect/1/query
 20160508_0000113|2016-05-08 22:37:20.100000|45.68|26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
 --- ERRROR --- THIS IS MALFORMED 20160508_abc0113|2016-05-08 22:37:20.100000| --- ERROR --- |26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
 """
-        events_df = self.get_events_df(urlread_sideeffect, "http://eventws")
+        events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws")
 
         urlread_sideeffect = """http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query
 ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
@@ -525,7 +642,7 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
 
 """
         channels = None
-        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, channels)
+        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, channels=channels)
         
         # url read for channels: Note: first response data raises, second has an error and
         #that error is skipped (other channels are added), and last two channels are from two
@@ -547,7 +664,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
 BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2019-01-01T00:00:00|
 """]
                                       
-        cha_df = self.get_channels_df(urlread_sideeffect,
+        cha_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
@@ -569,7 +686,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         
         # now mock a datacenter null postdata (error in eida routing service)
         # and test that by querying the database we get the same data (the one we just saved)
-        cha_df2 = self.get_channels_df(urlread_sideeffect,
+        cha_df2 = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        None,
                                                        channels,
@@ -583,17 +700,17 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         # and test that by querying the database we get the same data (the one we just saved)
         # this raises cause the first datacenter has no channels (malformed)
         with pytest.raises(ValueError):
-            cha_df2 = self.get_channels_df(urlread_sideeffect,
+            cha_df2 = self.get_channels_df(urlread_sideeffect, self.session,
                                                            datacenters_df,
                                                            ['x', None],
                                                            channels,
                                                            100, 'a', 'b', -1
                                                    )
-        assert 'channels: discarding response data' in self.log_msg()
+        assert 'discarding response data' in self.log_msg()
 
         # now test the opposite, but note that urlreadside effect should return now an urlerror and a socket error:
         with pytest.raises(ValueError):
-            cha_df2 = self.get_channels_df(URLError('urlerror_wat'),
+            cha_df2 = self.get_channels_df(URLError('urlerror_wat'), self.session,
                                                            datacenters_df,
                                                            [None, 'x'],
                                                            channels,
@@ -603,7 +720,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
 
         # now test again, we should ahve a socket timeout
         with pytest.raises(ValueError):
-            cha_df2 = self.get_channels_df(socket.timeout(),
+            cha_df2 = self.get_channels_df(socket.timeout(), self.session,
                                                            datacenters_df,
                                                            [None, 'x'],
                                                            channels,
@@ -614,6 +731,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         # now the case where the none post request is for the "good" repsonse data:
         # Basically, replace ['x', None] with [None, 'x'] and swap urlread side effects
         cha_df2 = self.get_channels_df([urlread_sideeffect[1], urlread_sideeffect[0]],
+                                       self.session,
                                                            datacenters_df,
                                                            [None, 'x'],
                                                            channels,
@@ -624,7 +742,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         # now change min sampling rate and see what happens (we do not have one channel more
         # cause we have overlapping names, and the 50 Hz channel is overridden by the second
         # query) 
-        cha_df3 = self.get_channels_df(urlread_sideeffect,
+        cha_df3 = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
@@ -641,7 +759,7 @@ A|B||HHZ|39.0211|22.336|622.0|0.0|0.0|-90.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
 E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2019-01-01T00:00:00|
 """,  URLError('wat'), socket.timeout()]
                                       
-        cha_df = self.get_channels_df(urlread_sideeffect,
+        cha_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
@@ -652,7 +770,7 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
         assert "sample rate <" in self.log_msg()
         
         # now decrease the sampling rate, we should have two channels (all):
-        cha_df = self.get_channels_df(urlread_sideeffect,
+        cha_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
@@ -663,7 +781,7 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
         
         # now change channels=['B??'], we should have no effect as the channels takes effect
         # when postdata is None (=query to the db)
-        cha_df = self.get_channels_df(urlread_sideeffect,
+        cha_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        postdata,
                                                        ['B??'],
@@ -675,26 +793,49 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
         # let's see if now channels=['BH?'] has effect:
         # now change channels=['B??'], we should have no effect as the channels takes effect
         # when postdata is None (=query to the db)
-        # remember that empty data raises ValueError
-        with pytest.raises(ValueError):
-            cha_df = self.get_channels_df(urlread_sideeffect,
+        # Note that we query the db cause postdata is None
+        cha_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                            datacenters_df,
                                                            None,
                                                            ['B??'],
                                                            10, 'a', 'b', -1
                                                    )
 
+        assert cha_df.empty
+        assert "No channel found in database according to given parameters" in self.log_msg()
+        
+        # same as above but we do not query the internal db: use postdata and high sample rate
+        cha_df = self.get_channels_df(urlread_sideeffect, self.session,
+                                                           datacenters_df,
+                                                           postdata,
+                                                           ['B??'],
+                                                           1000000000, 'a', 'b', -1
+                                                   )
+
+        assert cha_df.empty
+        assert "No channel found with sample rate" in self.log_msg()
+        
+        # this on the other hand must raise cause we get no data from the server
+        with pytest.raises(ValueError):
+            cha_df = self.get_channels_df("", self.session,
+                                                               datacenters_df,
+                                                               postdata,
+                                                               ['B??'],
+                                                               10, 'a', 'b', -1
+                                                       )
+
+        
         
 
 # FIXME: text save inventories!!!!
 
-    def tst_merge_event_stations(self):
+    def test_merge_event_stations(self):
         # get events with lat lon (1,1), (2,2,) ... (n, n)
         urlread_sideeffect = """#EventID | Time | Latitude | Longitude | Depth/km | Author | Catalog | Contributor | ContributorID | MagType | Magnitude | MagAuthor | EventLocationName
 20160508_0000129|2016-05-08 05:17:11.500000|1|1|60.0|AZER|EMSC-RTS|AZER|505483|ml|3|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 01:45:30.300000|2|2|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|4|EMSC|CROATIA
 """
-        events_df = self.get_events_df(urlread_sideeffect, "http://eventws")
+        events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws")
 
         # this urlread_sideeffect is actually to be considered for deciding which datacenters to store,
         # their post data is not specified as it
@@ -704,7 +845,7 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
 http://ws.resif.fr/fdsnws/dataselect/1/query
 """
         channels = None
-        datacenters_df, postdata = self.get_datacenters_df(None, channels)
+        datacenters_df, postdata = self.get_datacenters_df(None, self.session, channels=channels)
 
         # url read for channels: Note: first response data raises, second has an error and
         #that error is skipped (other channels are added), and last two channels are from two
@@ -719,7 +860,7 @@ BLA|e||HHZ|7|7|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2019-01-01T00:00:00|
 """,  URLError('wat'), socket.timeout()]
                                       
-        channels_df = self.get_channels_df(urlread_sideeffect,
+        channels_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
@@ -729,9 +870,9 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert len(channels_df) == 5
 
     # events_df
-#                  id  magnitude  latitude  longitude  depth_km  time  
-# 0  20160508_0000129        3.0       1.0        1.0      60.0  2016-05-08 05:17:11.500
-# 1  20160508_0000004        4.0       2.0        2.0       2.0  2016-05-08 01:45:30.300 
+#    id  magnitude  latitude  longitude  depth_km                    time
+# 0  1   3.0        1.0       1.0        60.0     2016-05-08 05:17:11.500
+# 1  2   4.0        90.0      90.0       2.0      2016-05-08 01:45:30.300
 
     # channels_df:
 #     id station_id  latitude  longitude  datacenter_id start_time   end_time
@@ -744,8 +885,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # for magnitude <10, max_radius is 0. For magnitude >10, max_radius is 200
         # we have only magnitudes <10, we have two events exactly on a station (=> dist=0)
         # which will be taken (the others dropped out)
-        df = merge_events_stations(events_df, channels_df, sradius_minmag=10, sradius_maxmag=10,
-                                   sradius_minradius=0, sradius_maxradius=200)
+        df = merge_events_stations(events_df, channels_df, minmag=10, maxmag=10,
+                                   minmag_radius=0, maxmag_radius=200)
         
         assert len(df) == 2
         
@@ -753,8 +894,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # we have only magnitudes <10, we have all event-stations closer than 100 deg
         # So we might have ALL channels taken BUT: one station start time is in 2019, thus
         # it will not fall into the case above!
-        df = merge_events_stations(events_df, channels_df, sradius_minmag=1, sradius_maxmag=1,
-                                   sradius_minradius=100, sradius_maxradius=2000)
+        df = merge_events_stations(events_df, channels_df, minmag=1, maxmag=1,
+                                   minmag_radius=100, maxmag_radius=2000)
         
         assert len(df) == (len(channels_df)-1) *len(events_df)
         # assert channel outside time bounds was in:
@@ -766,13 +907,15 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         
         # this is a more complex case, we want to drop the first event by setting a very low
         # threshold (sraidus_minradius=1) for magnitudes <=3 (the first event magnitude)
-        # and sradius_maxradius very high for the other event (magnitude=4)
-        df = merge_events_stations(events_df, channels_df, sradius_minmag=3, sradius_maxmag=4,
-                                   sradius_minradius=1, sradius_maxradius=40)
+        # and maxradius very high for the other event (magnitude=4)
+        df = merge_events_stations(events_df, channels_df, minmag=3, maxmag=4,
+                                   minmag_radius=1, maxmag_radius=40)
         
         # assert we have only the second event except the first channel which is from the 1st event.
+        # The first event is retrievable by its latitude (2)
         # FIXME: more fine grained tests based on distance?
-        assert np.array_equal((df[Segment.event_id.key] == '20160508_0000004'),
+        evid = events_df[events_df[Event.latitude.key]==2][Event.id.key].iloc[0]
+        assert np.array_equal((df[Segment.event_id.key] == evid),
                               [False, True, True, True, True])
         
 
@@ -794,51 +937,79 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         return get_arrivaltimes(*a, **kw)
  
 
-    def tst_getset_arrivaltimes(self):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
+    def test_getset_arrivaltimes(self):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
         # prepare:
         urlread_sideeffect = None  # use defaults from class
-        events_df = self.get_events_df(urlread_sideeffect, "http://eventws")
+        events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws")
         channels = None
-        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, channels)                                      
-        channels_df = self.get_channels_df(urlread_sideeffect,
+        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, channels=channels)                                      
+        channels_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
                                                        100, 'a', 'b', -1
                                                )
-        assert len(channels_df) == 4  # just to be sure. If failing, we might have changed the class default
+        assert len(channels_df) == 12  # just to be sure. If failing, we might have changed the class default
     # events_df
-#                  id  magnitude  latitude  longitude  depth_km  time  
-# 0  20160508_0000129        3.0       1.0        1.0      60.0  2016-05-08 05:17:11.500
-# 1  20160508_0000004        4.0       2.0        2.0       2.0  2016-05-08 01:45:30.300 
+#    id  magnitude  latitude  longitude  depth_km                    time
+# 0  1   3.0        1.0       1.0        60.0     2016-05-08 05:17:11.500
+# 1  2   4.0        90.0      90.0       2.0      2016-05-08 01:45:30.300
 
     # channels_df:
-#     id  station_id  latitude  longitude  datacenter_id start_time   end_time
-#  0   1           1       3.0        3.0              2 2008-02-12        NaT
-#  1   2           2       7.0        7.0              2 2009-01-01 2019-01-01
-#  2   3           3       8.0        8.0              2 2019-01-01        NaT
-#  4   4           4       2.0        2.0              1 2009-01-01        NaT
+#    id  station_id  latitude  longitude  datacenter_id start_time end_time network station location channel
+# 0  1   1           1.0       1.0        1             2003-01-01 NaT       GE      FLT1             HHE   
+# 1  2   1           1.0       1.0        1             2003-01-01 NaT       GE      FLT1             HHN   
+# 2  3   1           1.0       1.0        1             2003-01-01 NaT       GE      FLT1             HHZ   
+# 3  4   2           90.0      90.0       1             2009-01-01 NaT       n1      s                c1    
+# 4  5   2           90.0      90.0       1             2009-01-01 NaT       n1      s                c2    
+# 5  6   2           90.0      90.0       1             2009-01-01 NaT       n1      s                c3    
+# 6   7   3           1.0       1.0        2             2003-01-01 NaT       IA      BAKI             BHE   
+# 7   8   3           1.0       1.0        2             2003-01-01 NaT       IA      BAKI             BHN   
+# 8   9   3           1.0       1.0        2             2003-01-01 NaT       IA      BAKI             BHZ   
+# 9   10  4           90.0      90.0       2             2009-01-01 NaT       n2      s                c1    
+# 10  11  4           90.0      90.0       2             2009-01-01 NaT       n2      s                c2    
+# 11  12  4           90.0      90.0       2             2009-01-01 NaT       n2      s                c3    
 
         # take all segments:
-        df = merge_events_stations(events_df, channels_df, sradius_minmag=10, sradius_maxmag=10,
-                                   sradius_minradius=100, sradius_maxradius=200)
+        df = merge_events_stations(events_df, channels_df, minmag=10, maxmag=10,
+                                   minmag_radius=100, maxmag_radius=200)
         
         h = 9
-        
-# df:
-#    channel_id  station_id  latitude  longitude  datacenter_id event_id         event_distance_deg depth_km time  
-# 0  1           1           2.0       2.0        1             20160508_0000129 1.413962           60.0     2016-05-08 05:17:11.500  
-# 1  2           2           3.0       3.0        2             20160508_0000129 2.827494           60.0     2016-05-08 05:17:11.500  
-# 2  3           3           7.0       7.0        2             20160508_0000129 8.472983           60.0     2016-05-08 05:17:11.500  
-# 3  1           1           2.0       2.0        1             20160508_0000004 0.000000            2.0     2016-05-08 01:45:30.300  
-# 4  2           2           3.0       3.0        2             20160508_0000004 1.413532            2.0     2016-05-08 01:45:30.300  
-# 5  3           3           7.0       7.0        2             20160508_0000004 7.059033            2.0     2016-05-08 01:45:30.300
-
 
         # NOW TEST GET ARRIVAL TIMES
         # FIRST WE HAVE DB EMPTY THUS NO UPADTE SHOULD BE MADE
         assert Segment.arrival_time.key not in df.columns
         evts_stations_df = set_saved_arrivaltimes(self.session, df)
+        
+# evts_stations_df:
+#    channel_id  station_id  datacenter_id network station location channel  event_distance_deg  event_id  depth_km                    time               arrival_time
+# 0  1           1           1              GE      FLT1             HHE     500.555             1         60.0     2016-05-08 05:17:11.500 2017-05-10 12:39:13.463745
+# 1  2           1           1              GE      FLT1             HHN     500.555             1         60.0     2016-05-08 05:17:11.500 2017-05-10 12:39:13.463745
+# 2  3           1           1              GE      FLT1             HHZ     500.555             1         60.0     2016-05-08 05:17:11.500 2017-05-10 12:39:13.463745
+# 3  4           2           1              n1      s                c1      89.000              1         60.0     2016-05-08 05:17:11.500 NaT                       
+# 4  5           2           1              n1      s                c2      89.000              1         60.0     2016-05-08 05:17:11.500 NaT                       
+# 5  6           2           1              n1      s                c3      89.0                1         60.0     2016-05-08 05:17:11.500 NaT         
+# 6  7           3           2              IA      BAKI             BHE     0.0                 1         60.0     2016-05-08 05:17:11.500 NaT         
+# 7  8           3           2              IA      BAKI             BHN     0.0                 1         60.0     2016-05-08 05:17:11.500 NaT         
+# 8  9           3           2              IA      BAKI             BHZ     0.0                 1         60.0     2016-05-08 05:17:11.500 NaT         
+# 9  10          4           2              n2      s                c1      89.0                1         60.0     2016-05-08 05:17:11.500 NaT         
+# 10  11          4           2              n2      s                c2      89.0                1         60.0     2016-05-08 05:17:11.500 NaT         
+# 11  12          4           2              n2      s                c3      89.0                1         60.0     2016-05-08 05:17:11.500 NaT         
+# 12  1           1           1              GE      FLT1             HHE     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
+# 13  2           1           1              GE      FLT1             HHN     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
+# 14  3           1           1              GE      FLT1             HHZ     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
+# 15  4           2           1              n1      s                c1      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
+# 16  5           2           1              n1      s                c2      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
+# 17  6           2           1              n1      s                c3      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
+# 18  7           3           2              IA      BAKI             BHE     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
+# 19  8           3           2              IA      BAKI             BHN     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
+# 20  9           3           2              IA      BAKI             BHZ     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
+# 21  10          4           2              n2      s                c1      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
+# 22  11          4           2              n2      s                c2      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
+# 23  12          4           2              n2      s                c3      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
+
+
+
         assert Segment.arrival_time.key in evts_stations_df.columns and \
             all(pd.isnull(evts_stations_df[Segment.arrival_time.key]))
         
@@ -851,7 +1022,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # Channel.station-id.key ('station_id')
         # Segment.event_id.key ('event_id')
         SID = 1
-        EVID = '20160508_0000129'
+        EVID = 1
         self.session.add(Segment(id = 1, # , default=seg_pkey_default, 
                          event_id = EVID,
                          channel_id = 1,  # the channel here must have station id = SID (see above)
@@ -871,7 +1042,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         filter = (evts_stations_df[Channel.station_id.key] == SID) & \
             (evts_stations_df[Segment.event_id.key] == EVID)
         # we changed only ONE item in df:
-        assert len(evts_stations_df[filter]) == 1
+        existing_items = 3
+        assert len(evts_stations_df[filter]) == existing_items
         assert all(evts_stations_df[filter][Segment.arrival_time.key] == atime)
         assert all(evts_stations_df[filter][Segment.event_distance_deg.key] == evdist)
         
@@ -881,14 +1053,13 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         def deterministic_mintraveltime_sideeffect(*a, **kw):
             return datetime.utcnow()  # we should return the TOTAL seconds, NOT a datetime. Thus we should have all errors
 
-        expected_length = 1
         # make a copy of evts_stations_df cause we will modify in place the data frame
         segments_df =  self.get_arrivaltimes(deterministic_mintraveltime_sideeffect, evts_stations_df.copy(),
                                                    [1,2], ['P', 'Q'],
                                                         'ak135', mp_max_workers=1)
         
         # all failed, except the one we just set by mocking the db:
-        assert len(segments_df) == expected_length  # cause 1 was just added to the db and it's not recalculated
+        assert len(segments_df) == existing_items  # these were not recalculated
         
         # Test now with a function which raises in some cases
         # IMPORTANT: WE NEED A DETERMINISTIC WAY TO HANDLE ARRIVAL TIME CALCULATION, 
@@ -925,49 +1096,75 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # FIXME: we should assert times are correctly calculated with respect to event time
 
 
-    def tst_prepare_for_download(self):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
+    def test_prepare_for_download(self):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
         # prepare:
         urlread_sideeffect = None  # use defaults from class
-        events_df = self.get_events_df(urlread_sideeffect, "http://eventws")
+        events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws")
         channels = None
-        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, channels)                                      
-        channels_df = self.get_channels_df(urlread_sideeffect,
+        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, channels=channels)                                      
+        channels_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
                                                        100, 'a', 'b', -1
                                                )
-        assert len(channels_df) == 4  # just to be sure. If failing, we might have changed the class default
+        assert len(channels_df) == 12  # just to be sure. If failing, we might have changed the class default
     # events_df
-#                  id  magnitude  latitude  longitude  depth_km  time  
-# 0  20160508_0000129        3.0       1.0        1.0      60.0  2016-05-08 05:17:11.500
-# 1  20160508_0000004        4.0       2.0        2.0       2.0  2016-05-08 01:45:30.300 
+#    id  magnitude  latitude  longitude  depth_km                    time
+# 0  1   3.0        1.0       1.0        60.0     2016-05-08 05:17:11.500
+# 1  2   4.0        90.0      90.0       2.0      2016-05-08 01:45:30.300
 
     # channels_df:
-#     id  station_id  latitude  longitude  datacenter_id start_time   end_time
-#  0   1           1       3.0        3.0              2 2008-02-12        NaT
-#  1   2           2       7.0        7.0              2 2009-01-01 2019-01-01
-#  2   3           3       8.0        8.0              2 2019-01-01        NaT
-#  4   4           4       2.0        2.0              1 2009-01-01        NaT
+#    id  station_id  latitude  longitude  datacenter_id start_time end_time network station location channel
+# 0  1   1           1.0       1.0        1             2003-01-01 NaT       GE      FLT1             HHE   
+# 1  2   1           1.0       1.0        1             2003-01-01 NaT       GE      FLT1             HHN   
+# 2  3   1           1.0       1.0        1             2003-01-01 NaT       GE      FLT1             HHZ   
+# 3  4   2           90.0      90.0       1             2009-01-01 NaT       n1      s                c1    
+# 4  5   2           90.0      90.0       1             2009-01-01 NaT       n1      s                c2    
+# 5  6   2           90.0      90.0       1             2009-01-01 NaT       n1      s                c3    
+# 6   7   3           1.0       1.0        2             2003-01-01 NaT       IA      BAKI             BHE   
+# 7   8   3           1.0       1.0        2             2003-01-01 NaT       IA      BAKI             BHN   
+# 8   9   3           1.0       1.0        2             2003-01-01 NaT       IA      BAKI             BHZ   
+# 9   10  4           90.0      90.0       2             2009-01-01 NaT       n2      s                c1    
+# 10  11  4           90.0      90.0       2             2009-01-01 NaT       n2      s                c2    
+# 11  12  4           90.0      90.0       2             2009-01-01 NaT       n2      s                c3    
 
         # take all segments:
-        df = merge_events_stations(events_df, channels_df, sradius_minmag=10, sradius_maxmag=10,
-                                   sradius_minradius=100, sradius_maxradius=200)
-        
-        h = 9
-        
-# df:
-#    channel_id  station_id  latitude  longitude  datacenter_id event_id         event_distance_deg depth_km time  
-# 0  1           1           2.0       2.0        1             20160508_0000129 1.413962           60.0     2016-05-08 05:17:11.500  
-# 1  2           2           3.0       3.0        2             20160508_0000129 2.827494           60.0     2016-05-08 05:17:11.500  
-# 2  3           3           7.0       7.0        2             20160508_0000129 8.472983           60.0     2016-05-08 05:17:11.500  
-# 3  1           1           2.0       2.0        1             20160508_0000004 0.000000            2.0     2016-05-08 01:45:30.300  
-# 4  2           2           3.0       3.0        2             20160508_0000004 1.413532            2.0     2016-05-08 01:45:30.300  
-# 5  3           3           7.0       7.0        2             20160508_0000004 7.059033            2.0     2016-05-08 01:45:30.300
-
-
+        df = merge_events_stations(events_df, channels_df, minmag=10, maxmag=10,
+                                   minmag_radius=100, maxmag_radius=200)
         evts_stations_df = set_saved_arrivaltimes(self.session, df)
-                # make a copy of evts_stations_df cause we will modify in place the data frame
+        
+# evts_stations_df:
+#    channel_id  station_id  datacenter_id network station location channel  event_distance_deg  event_id  depth_km                    time               arrival_time
+# 0  1           1           1              GE      FLT1             HHE     500.555             1         60.0     2016-05-08 05:17:11.500 2017-05-10 12:39:13.463745
+# 1  2           1           1              GE      FLT1             HHN     500.555             1         60.0     2016-05-08 05:17:11.500 2017-05-10 12:39:13.463745
+# 2  3           1           1              GE      FLT1             HHZ     500.555             1         60.0     2016-05-08 05:17:11.500 2017-05-10 12:39:13.463745
+# 3  4           2           1              n1      s                c1      89.000              1         60.0     2016-05-08 05:17:11.500 NaT                       
+# 4  5           2           1              n1      s                c2      89.000              1         60.0     2016-05-08 05:17:11.500 NaT                       
+# 5  6           2           1              n1      s                c3      89.0                1         60.0     2016-05-08 05:17:11.500 NaT         
+# 6  7           3           2              IA      BAKI             BHE     0.0                 1         60.0     2016-05-08 05:17:11.500 NaT         
+# 7  8           3           2              IA      BAKI             BHN     0.0                 1         60.0     2016-05-08 05:17:11.500 NaT         
+# 8  9           3           2              IA      BAKI             BHZ     0.0                 1         60.0     2016-05-08 05:17:11.500 NaT         
+# 9  10          4           2              n2      s                c1      89.0                1         60.0     2016-05-08 05:17:11.500 NaT         
+# 10  11          4           2              n2      s                c2      89.0                1         60.0     2016-05-08 05:17:11.500 NaT         
+# 11  12          4           2              n2      s                c3      89.0                1         60.0     2016-05-08 05:17:11.500 NaT         
+# 12  1           1           1              GE      FLT1             HHE     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
+# 13  2           1           1              GE      FLT1             HHN     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
+# 14  3           1           1              GE      FLT1             HHZ     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
+# 15  4           2           1              n1      s                c1      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
+# 16  5           2           1              n1      s                c2      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
+# 17  6           2           1              n1      s                c3      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
+# 18  7           3           2              IA      BAKI             BHE     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
+# 19  8           3           2              IA      BAKI             BHN     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
+# 20  9           3           2              IA      BAKI             BHZ     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
+# 21  10          4           2              n2      s                c1      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
+# 22  11          4           2              n2      s                c2      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
+# 23  12          4           2              n2      s                c3      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
+
+        
+        
+        
+        # make a copy of evts_stations_df cause we will modify in place the data frame
         segments_df =  self.get_arrivaltimes(urlread_sideeffect, evts_stations_df.copy(),
                                                    [1,2], ['P', 'Q'],
                                                         'ak135', mp_max_workers=1)
@@ -977,15 +1174,6 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert not Segment.id.key in segments_df.columns
         assert not Segment.run_id.key in segments_df.columns
         
-        # segments_df:
-# channel_id  station_id  datacenter_id event_id         event_distance_deg arrival_time            start_time          end_time
-# 1           1           1             20160508_0000129 1.413962           2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12
-# 2           2           2             20160508_0000129 2.827494           2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12
-# 3           3           2             20160508_0000129 8.472983           2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12
-# 1           1           1             20160508_0000004 0.000000           2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31
-# 2           2           2             20160508_0000004 1.413532           2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31
-# 3           3           2             20160508_0000004 7.059033           2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31
-
         segments_df = prepare_for_download(self.session, segments_df,
                                            self.run.id,
                                            retry_no_code=True,
@@ -993,7 +1181,34 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                            retry_mseed_errors=True,
                                            retry_4xx=True,
                                            retry_5xx=True)
-        
+# segments_df:
+#    channel_id  datacenter_id network station location channel  event_distance_deg  event_id            arrival_time          start_time            end_time
+# 0  1           1              GE      FLT1             HHE     0.0                 1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12
+# 1  2           1              GE      FLT1             HHN     0.0                 1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12
+# 2  3           1              GE      FLT1             HHZ     0.0                 1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12
+# 3  4           1              n1      s                c1      89.0                1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12
+# 4  5           1              n1      s                c2      89.0                1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12
+# 5  6           1              n1      s                c3      89.0                1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12
+# 6  7           2              IA      BAKI             BHE     0.0                 1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12
+# 7  8           2              IA      BAKI             BHN     0.0                 1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12
+# 8  9           2              IA      BAKI             BHZ     0.0                 1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12
+# 9  10          2              n2      s                c1      89.0                1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12
+# 10  11          2              n2      s                c2      89.0                1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12
+# 11  12          2              n2      s                c3      89.0                1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12
+# 12  1           1              GE      FLT1             HHE     89.0                2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31
+# 13  2           1              GE      FLT1             HHN     89.0                2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31
+# 14  3           1              GE      FLT1             HHZ     89.0                2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31
+# 15  4           1              n1      s                c1      0.0                 2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31
+# 16  5           1              n1      s                c2      0.0                 2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31
+# 17  6           1              n1      s                c3      0.0                 2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31
+# 18  7           2              IA      BAKI             BHE     89.0                2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31
+# 19  8           2              IA      BAKI             BHN     89.0                2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31
+# 20  9           2              IA      BAKI             BHZ     89.0                2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31
+# 21  10          2              n2      s                c1      0.0                 2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31
+# 22  11          2              n2      s                c2      0.0                 2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31
+# 23  12          2              n2      s                c3      0.0                 2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31
+
+
         assert Segment.id.key in segments_df.columns
         assert Segment.run_id.key in segments_df.columns
         assert len(segments_df) == expected
@@ -1002,11 +1217,13 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert all(x[0] is None for x in self.session.query(Segment.download_status_code).all())
         assert all(x[0] is None for x in self.session.query(Segment.data).all())
 
-        # mock an already downloaded segment
+        # mock an already downloaded segment.
+        # Set the first five to have a particular download status code
         urlerr, mseederr = get_url_mseed_errorcodes()
-        for n, i in enumerate([None, urlerr, mseederr, 413, 505]):
-            dic = segments_df.iloc[n].to_dict()
-            dic['download_status_code'] = i
+        downloadstatuscodes = [None, urlerr, mseederr, 413, 505]
+        for i, download_status_code in enumerate(downloadstatuscodes):
+            dic = segments_df.iloc[i].to_dict()
+            dic['download_status_code'] = download_status_code
             dic['run_id'] = self.run.id
             # hack for deleting unused columns:
             for col in [Station.network.key, Station.station.key,
@@ -1015,11 +1232,12 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             self.session.add(Segment(**dic))
         self.session.commit()
         
-        assert len(self.session.query(Segment.id).all()) == 5
+        assert len(self.session.query(Segment.id).all()) == len(downloadstatuscodes)
         
         # Now we have an instance of all possible errors on the db (5 in total) and a new
         # instance (not on the db). Assure all work:
-        
+        # set the num of instances to download anyway. Their number is the not saved ones, i.e.:
+        to_download_anyway = len(segments_df) - len(downloadstatuscodes)
         for c in product([True, False], [True, False], [True, False], [True, False], [True, False]):
             s_df = prepare_for_download(self.session, segments_df,
                                         self.run.id,
@@ -1028,16 +1246,17 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                            retry_mseed_errors=c[2],
                                            retry_4xx=c[3],
                                            retry_5xx=c[4])
-            assert len(s_df) == sum(c)+1
+            to_download_in_this_case = sum(c)  # count the True's (bool sum works in python) 
+            assert len(s_df) == to_download_anyway +  to_download_in_this_case
 
 
     def download_save_segments(self, url_read_side_effect, *a, **kw):
         self.setup_urlopen(self._seg_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
-        return download_save_segments(self.session, *a, **kw)
+        return download_save_segments(*a, **kw)
     
-    @patch("stream2segment.download.query.mseedunpack")
-    @patch("stream2segment.download.query.insertdf_napkeys")
-    @patch("stream2segment.download.query.updatedf")
+    @patch("stream2segment.download.main.mseedunpack")
+    @patch("stream2segment.download.main.insertdf_napkeys")
+    @patch("stream2segment.download.main.updatedf")
     def test_download_save_segments(self, update_segments, insert_segments, mseed_unpack):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
         # prepare:
         mseed_unpack.side_effect = lambda *a, **v: mseedlite3.unpack(*a, **v)
@@ -1045,43 +1264,67 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         update_segments.side_effect = lambda *a, **v: updatedf(*a, **v)
         
         urlread_sideeffect = None  # use defaults from class
-        events_df = self.get_events_df(urlread_sideeffect, "http://eventws")
+        events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws")
         channels = None
-        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, channels)                                      
-        channels_df = self.get_channels_df(urlread_sideeffect,
+        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, self.service,
+                                                           channels)                                      
+        channels_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
-                                                       100, 'a', 'b', -1
+                                                       10, 'a', 'b', -1
                                                )
-        assert len(channels_df) == 4  # just to be sure. If failing, we might have changed the class default
+        assert len(channels_df) == 12  # just to be sure. If failing, we might have changed the class default
     # events_df
 #                  id  magnitude  latitude  longitude  depth_km  time  
 # 0  20160508_0000129        3.0       1.0        1.0      60.0  2016-05-08 05:17:11.500
 # 1  20160508_0000004        4.0       2.0        2.0       2.0  2016-05-08 01:45:30.300 
 
-    # channels_df:
-#     id  station_id  latitude  longitude  datacenter_id start_time   end_time
-#  0   1           1       3.0        3.0              2 2008-02-12        NaT
-#  1   2           2       7.0        7.0              2 2009-01-01 2019-01-01
-#  2   3           3       8.0        8.0              2 2019-01-01        NaT
-#  4   4           4       2.0        2.0              1 2009-01-01        NaT
+# channels_df (index not shown):
+# columns:
+# id  station_id  latitude  longitude  datacenter_id start_time end_time network station location channel
+# data (not aligned with columns):
+# 1   1  1.0   1.0   1 2003-01-01 NaT  GE  FLT1    HHE
+# 2   1  1.0   1.0   1 2003-01-01 NaT  GE  FLT1    HHN
+# 3   1  1.0   1.0   1 2003-01-01 NaT  GE  FLT1    HHZ
+# 4   2  90.0  90.0  1 2009-01-01 NaT  n1  s       c1 
+# 5   2  90.0  90.0  1 2009-01-01 NaT  n1  s       c2 
+# 6   2  90.0  90.0  1 2009-01-01 NaT  n1  s       c3 
+# 7   3  1.0   1.0   2 2003-01-01 NaT  IA  BAKI    BHE
+# 8   3  1.0   1.0   2 2003-01-01 NaT  IA  BAKI    BHN
+# 9   3  1.0   1.0   2 2003-01-01 NaT  IA  BAKI    BHZ
+# 10  4  90.0  90.0  2 2009-01-01 NaT  n2  s       c1 
+# 11  4  90.0  90.0  2 2009-01-01 NaT  n2  s       c2 
+# 12  4  90.0  90.0  2 2009-01-01 NaT  n2  s       c3
 
         # take all segments:
-        df = merge_events_stations(events_df, channels_df, sradius_minmag=10, sradius_maxmag=10,
-                                   sradius_minradius=100, sradius_maxradius=200)
+        # use minmag and maxmag
+        df = merge_events_stations(events_df, channels_df, minmag=10, maxmag=10,
+                                   minmag_radius=10, maxmag_radius=10)
         
         h = 9
         
-# df:
-#    channel_id  station_id  latitude  longitude  datacenter_id event_id         event_distance_deg depth_km time  
-# 0  1           1           2.0       2.0        1             20160508_0000129 1.413962           60.0     2016-05-08 05:17:11.500  
-# 1  2           2           3.0       3.0        2             20160508_0000129 2.827494           60.0     2016-05-08 05:17:11.500  
-# 2  3           3           7.0       7.0        2             20160508_0000129 8.472983           60.0     2016-05-08 05:17:11.500  
-# 3  1           1           2.0       2.0        1             20160508_0000004 0.000000            2.0     2016-05-08 01:45:30.300  
-# 4  2           2           3.0       3.0        2             20160508_0000004 1.413532            2.0     2016-05-08 01:45:30.300  
-# 5  3           3           7.0       7.0        2             20160508_0000004 7.059033            2.0     2016-05-08 01:45:30.300
+# df (index not shown):
+# cid sid did n   s    l  c    ed   event_id          depth_km                time  <- LAST TWO ARE Event related columns that will be removed after arrival_time calculations
+# 1   1   1   GE  FLT1    HHE  0.0  20160508_0000129  60.0 2016-05-08 05:17:11.500
+# 2   1   1   GE  FLT1    HHN  0.0  20160508_0000129  60.0 2016-05-08 05:17:11.500
+# 3   1   1   GE  FLT1    HHZ  0.0  20160508_0000129  60.0 2016-05-08 05:17:11.500
+# 7   3   2   IA  BAKI    BHE  0.0  20160508_0000129  60.0 2016-05-08 05:17:11.500
+# 8   3   2   IA  BAKI    BHN  0.0  20160508_0000129  60.0 2016-05-08 05:17:11.500
+# 9   3   2   IA  BAKI    BHZ  0.0  20160508_0000129  60.0 2016-05-08 05:17:11.500
+# 4   2   1   n1  s       c1   0.0  20160508_0000004  2.0  2016-05-08 01:45:30.300
+# 5   2   1   n1  s       c2   0.0  20160508_0000004  2.0  2016-05-08 01:45:30.300
+# 6   2   1   n1  s       c3   0.0  20160508_0000004  2.0  2016-05-08 01:45:30.300
+# 10  4   2   n2  s       c1   0.0  20160508_0000004  2.0  2016-05-08 01:45:30.300
+# 11  4   2   n2  s       c2   0.0  20160508_0000004  2.0  2016-05-08 01:45:30.300
+# 12  4   2   n2  s       c3   0.0  20160508_0000004  2.0  2016-05-08 01:45:30.300
 
+# LEGEND:
+# cid = channel_id
+# sid = station_id
+# scid = datacenter_id
+# n, s, l, c = network, station, location, channel
+# ed = event_distance_deg
 
         evts_stations_df = set_saved_arrivaltimes(self.session, df)
                 # make a copy of evts_stations_df cause we will modify in place the data frame
@@ -1099,398 +1342,155 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                            retry_4xx=True,
                                            retry_5xx=True)
         
-        # segments_df (only relevant columns: removed net sta loc cha cause already in the index)
-
-#             channel_id  datacenter_id event_distance_deg          event_id            arrival_time          start_time            end_time    id  download_status_code run_id
-# A.b..HHE    1           1             1.413962            20160508_0000129 2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12  None  None                 1     
-# A.c..HHZ    2           2             2.827494            20160508_0000129 2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12  None  None                 1     
-# BLA.e..HHZ  3           2             8.472983            20160508_0000129 2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12  None  None                 1     
-# A.b..HHE    1           1             0.000000            20160508_0000004 2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31  None  None                 1     
-# A.c..HHZ    2           2             1.413532            20160508_0000004 2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31  None  None                 1     
-# BLA.e..HHZ  3           2             7.059033            20160508_0000004 2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31  None  None                 1     
-#   
-
-        urlread_sideeffect = self._seg_data
+# segments_df
+# COLUMNS:
+# channel_id  datacenter_id network station location channel event_distance_deg event_id arrival_time start_time end_time id download_status_code run_id
+# DATA (not aligned with columns):
+#               channel_id  datacenter_id network station location channel  event_distance_deg  event_id            arrival_time          start_time            end_time    id download_status_code  run_id
+# GE.FLT1..HHE  1           1              GE      FLT1             HHE     0.0                 1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12  None  None                 1     
+# GE.FLT1..HHN  2           1              GE      FLT1             HHN     0.0                 1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12  None  None                 1     
+# GE.FLT1..HHZ  3           1              GE      FLT1             HHZ     0.0                 1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12  None  None                 1     
+# IA.BAKI..BHE  7           2              IA      BAKI             BHE     0.0                 1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12  None  None                 1     
+# IA.BAKI..BHN  8           2              IA      BAKI             BHN     0.0                 1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12  None  None                 1     
+# IA.BAKI..BHZ  9           2              IA      BAKI             BHZ     0.0                 1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12  None  None                 1     
+# n1.s..c1      4           1              n1      s                c1      0.0                 2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31  None  None                 1     
+# n1.s..c2      5           1              n1      s                c2      0.0                 2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31  None  None                 1     
+# n1.s..c3      6           1              n1      s                c3      0.0                 2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31  None  None                 1     
+# n2.s..c1      10          2              n2      s                c1      0.0                 2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31  None  None                 1     
+# n2.s..c2      11          2              n2      s                c2      0.0                 2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31  None  None                 1     
+# n2.s..c3      12          2              n2      s                c3      0.0                 2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31  None  None                 1     
+        
         # self._segdata is the folder file of a "valid" 3-channel miniseed
         # The channels are: 
         # Thus, no match will be found and all segments will be written with a None
         # download status code
 
+        
+        # setup urlread: first three rows: ok
+        # rows[3:6]: 413, retry them
+        # rows[6:9]: malformed_data
+        # rows[9:12] 413, retry them
+        # then retry:
+        # rows[3]: empty_data
+        # rows[4]: data_with_gaps (but seed_id should notmatch)
+        # rows[5]: data_with_gaps (seed_id should notmatch)
+        # rows[9]: URLError
+        # rows[10]: Http 500 error
+        # rows[11]: 413
+        
+        # NOTE THAT THIS RELIES ON THE FACT THAT THREADS ARE EXECUTED IN THE ORDER OF THE DATAFRAME
+        # WHICH SEEMS TO BE THE CASE AS THERE IS ONE SINGLE PROCESS
+        # self._seg_data[:2] is a way to mock data corrupted
+        urlread_sideeffect = [self._seg_data, 413, self._seg_data[:2], 413,
+                              '', self._seg_data_gaps, self._seg_data_gaps, URLError("++urlerror++"), 500, 413]
         # Let's go:
-        ztatz = self.download_save_segments(urlread_sideeffect, segments_df, datacenters_df, 1,2,3)
+        ztatz = self.download_save_segments(urlread_sideeffect, self.session, segments_df, datacenters_df, 1,2,3)
         # get columns from db which we are interested on to check
         cols = [Segment.id, Segment.channel_id, Segment.datacenter_id,
-                Segment.download_status_code, Segment.max_gap_ratio, Segment.run_id,\
-                Segment.sample_rate, Segment.seed_identifier, Segment.start_time, Segment.end_time,
-                Segment.data]
+                Segment.download_status_code, Segment.max_gap_ratio, \
+                Segment.sample_rate, Segment.seed_identifier, Segment.data, Segment.run_id, Segment.start_time, Segment.end_time,
+                ]
         db_segments_df = dbquery2df(self.session.query(*cols))
         
+        # change data column otherwise we cannot display db_segments_df. When there is data just print "data"
+        db_segments_df.loc[(~pd.isnull(db_segments_df[Segment.data.key])) & (db_segments_df[Segment.data.key].str.len() > 0), Segment.data.key] = 'data' 
+
+        # re-sort db_segments_df to match the segments_df:
+        ret = []
+        for cha in segments_df[Segment.channel_id.key]:
+            ret.append(db_segments_df[db_segments_df[Segment.channel_id.key] == cha])
+        db_segments_df = pd.concat(ret, axis=0)
+
+# db_segments_df:
+#    id  channel_id  datacenter_id  download_status_code  max_gap_ratio  sample_rate seed_identifier  data  run_id          start_time            end_time
+# 0  1   1           1              200.0                 0.0001         100.0        GE.FLT1..HHE    data  1      2016-05-08 05:16:12 2016-05-08 05:19:12
+# 1  2   2           1              200.0                 0.0001         100.0        GE.FLT1..HHN    data  1      2016-05-08 05:16:12 2016-05-08 05:19:12
+# 2  3   3           1              200.0                 0.0001         100.0        GE.FLT1..HHZ    data  1      2016-05-08 05:16:12 2016-05-08 05:19:12
+# 6  7   7           2              200.0                 NaN            NaN          None                  1      2016-05-08 05:16:12 2016-05-08 05:19:12
+# 7  8   8           2              NaN                   NaN            NaN          None            None  1      2016-05-08 05:16:12 2016-05-08 05:19:12
+# 8  9   9           2              200.0                 20.0           20.0         IA.BAKI..BHZ    data  1      2016-05-08 05:16:12 2016-05-08 05:19:12
+# 3  4   4           1             -2.0                   NaN            NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
+# 4  5   5           1             -2.0                   NaN            NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
+# 5  6   6           1             -2.0                   NaN            NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
+# 9  10  10          2              -1.0                  NaN            NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
+# 10 11  11          2              500.0                 NaN            NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
+# 11 12  12          2              413.0                 NaN            NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
+
+
+ 
         assert len(ztatz) == len(datacenters_df)
         assert len(db_segments_df) == len(segments_df)
-        assert all(pd.isnull(db_segments_df[Segment.download_status_code.key]))
-        assert all(pd.isnull(db_segments_df[Segment.max_gap_ratio.key]))
-        assert all(pd.isnull(db_segments_df[Segment.seed_identifier.key]))
-        assert all(pd.isnull(db_segments_df[Segment.sample_rate.key]))
-        assert all(pd.isnull(db_segments_df[Segment.data.key]))
-        assert sorted(db_segments_df[Segment.channel_id.key].values) == sorted(segments_df[Segment.channel_id.key].values)
-        assert sorted(db_segments_df[Segment.datacenter_id.key].values) == sorted(segments_df[Segment.datacenter_id.key].values)
-        assert sorted(db_segments_df[Segment.start_time.key].values) == sorted(segments_df[Segment.start_time.key].values)
-        assert sorted(db_segments_df[Segment.end_time.key].values) == sorted(segments_df[Segment.end_time.key].values)
+        assert update_segments.call_count == 0
+        # as we have 12 segments and a buf size of 10, this below is two
+        # it might change if we changed the buf size in the future
+        ADD_BUF_SIZE = 10
+        assert insert_segments.call_count == len(db_segments_df) // ADD_BUF_SIZE + np.sign(len(db_segments_df) % ADD_BUF_SIZE)
         
-        # Change the df start end time to group them by datacenters:
-        d1 = datetime.utcnow()
-        d2 = d1 + timedelta(seconds=5)
-        segments_df.loc[:, Segment.start_time.key] = d1
-        segments_df.loc[:, Segment.end_time.key] = d2
-        # set the first three as datacenter 1, the second three as datacenter2:
-        segments_df[Segment.datacenter_id.key] = [1]*3 + [2]*3
-        segments_df.loc[:, [Station.network.key, Station.station.key, Channel.location.key,
-                            Channel.channel.key]] = [['n', 's', 'l', 'c1'],
-                                                     ['n', 's', 'l', 'c2'],
-                                                     ['n', 's', 'l', 'c3'],
-                                                     ['n', 's', 'l', 'c1'],
-                                                     ['n', 's', 'l', 'c2'],
-                                                     ['n', 's', 'l', 'c3']]
-        segments_df = segments_df.set_index(_strcat(segments_df))
-
-
-        # and Mock mseed unpack to change the keys (net sta loc cha) matching with our keys:
-        mseed_unpack.reset_mock()
-        insert_segments.reset_mock()
+        # assert data is consistent
+        COL = Segment.data.key
+        assert (db_segments_df.iloc[:3][COL] == 'data').all()
+        assert (db_segments_df.iloc[3:4][COL] == '').all()
+        assert pd.isnull(db_segments_df.iloc[4:5][COL]).all()
+        assert (db_segments_df.iloc[5:6][COL] == 'data').all()
+        assert pd.isnull(db_segments_df.iloc[6:][COL]).all()
+        
+        # assert downdload status code is consistent
+        URLERR_CODE, MSEEDERR_CODE = get_url_mseed_errorcodes()
+        # also this asserts that we grouped for dc starttime endtime
+        COL = Segment.download_status_code.key
+        assert (db_segments_df.iloc[:4][COL] == 200).all()
+        assert pd.isnull(db_segments_df.iloc[4:5][COL]).all()
+        assert (db_segments_df.iloc[5:6][COL] == 200).all()
+        assert (db_segments_df.iloc[6:9][COL] == MSEEDERR_CODE).all()
+        assert (db_segments_df.iloc[9][COL] == URLERR_CODE).all()
+        assert (db_segments_df.iloc[10][COL] == 500).all()
+        assert (db_segments_df.iloc[11][COL] == 413).all()
+        
+        # assert gaps are only in the given position
+        URLERR_CODE, MSEEDERR_CODE = get_url_mseed_errorcodes()
+        COL = Segment.max_gap_ratio.key
+        assert (db_segments_df.iloc[:3][COL] < 0.01).all()
+        assert pd.isnull(db_segments_df.iloc[3:5][COL]).all()
+        assert (db_segments_df.iloc[5][COL] > 1).all()
+        assert pd.isnull(db_segments_df.iloc[6:][COL]).all()
+        
+        
+        # now mock retry:
+        segments_df = prepare_for_download(self.session, segments_df,
+                                           self.run.id,
+                                           retry_no_code=True,
+                                           retry_url_errors=True,
+                                           retry_mseed_errors=True,
+                                           retry_4xx=True,
+                                           retry_5xx=True)
+        
+        COL = Segment.download_status_code.key
+        mask = (db_segments_df[COL] >= 400) | pd.isnull(db_segments_df[COL]) \
+            | (db_segments_df[COL].isin([URLERR_CODE, MSEEDERR_CODE]))
+        assert len(segments_df) == len(db_segments_df[mask])
+        
+        urlread_sideeffect = [413]
         update_segments.reset_mock()
-        def mseed_seff(data):
-            dic = mseedlite3.unpack(data)
-            dic2 = {}
-            for k, v in izip([['n', 's', 'l', 'c1'],
-                              ['n', 's', 'l', 'c2'],
-                              ['n', 's', 'l', 'c3']], dic.itervalues()):
-                dic2[".".join(k)] = v
-            return dic2
-        mseed_unpack.side_effect = mseed_seff
-        
-        #clear table
-        self.session.query(Segment).delete()
-        assert self.session.query(Segment).all() == []
-        # And Let's go:
-        ztatz = self.download_save_segments(urlread_sideeffect, segments_df, datacenters_df, 1,2,3)
-        
+        insert_segments.reset_mock()
+        # Let's go:
+        ztatz = self.download_save_segments(urlread_sideeffect, self.session, segments_df, datacenters_df, 1,2,3)
+        # get columns from db which we are interested on to check
+        cols = [Segment.download_status_code, Segment.channel_id]
         db_segments_df = dbquery2df(self.session.query(*cols))
         
+        # change data column otherwise we cannot display db_segments_df. When there is data just print "data"
+        # db_segments_df.loc[(~pd.isnull(db_segments_df[Segment.data.key])) & (db_segments_df[Segment.data.key].str.len() > 0), Segment.data.key] = 'data' 
+
+        # re-sort db_segments_df to match the segments_df:
+        ret = []
+        for cha in segments_df[Segment.channel_id.key]:
+            ret.append(db_segments_df[db_segments_df[Segment.channel_id.key] == cha])
+        db_segments_df = pd.concat(ret, axis=0)
+
+        assert (db_segments_df[COL] == 413).all()
         assert len(ztatz) == len(datacenters_df)
-        # second datacenter segments not written cause they violate unique constraints?
-        assert len(db_segments_df) == len(segments_df.drop_duplicates(subset=[Segment.channel_id.key, Segment.start_time.key, Segment.end_time.key]))
-        assert all(db_segments_df[Segment.download_status_code.key] == 200)
-        seed_ids = [".".join(['n', 's', 'l', 'c1']), ".".join(['n', 's', 'l', 'c2']), ".".join(['n', 's', 'l', 'c3'])]
-        assert all(db_segments_df[Segment.seed_identifier.key] == seed_ids)
-        assert all(db_segments_df[Segment.data.key].str.len() > 0)
-        
-        orig_stream = read(BytesIO(self._seg_data))
-        for i, d in enumerate(db_segments_df[Segment.data.key]):
-            ztream = read(BytesIO(d))
-            # clumsy, but we do not know if the order of the data on the db is the same as the
-            # original stream. Just check that one is equal:
-            assert any(np.array_equal(ztream[0].data, trac.data) for trac in orig_stream)
-        
-        assert insert_segments.call_count == 2
-        assert update_segments.call_count == 0
-        
-        # now test 413 (request entity too large)
-        # then request should be splitted into lines (3) and we return 
-        # '', 500, 413 for the first datacenter and
-        # MSeedError, URLError, and a valid segment data (bytes) taken from the already saved
-        urlread_sideeffect = [413, 413, '', 500, 413, socket.timeout(), URLError('urlerror__'),
-                              db_segments_df.iloc[2][Segment.data.key]]
-        mseed_unpack.reset_mock()
-        insert_segments.reset_mock()
-        update_segments.reset_mock()
-        def mseed_seff(data):
-            dic = mseedlite3.unpack(data)
-            dic2 = {}
-            for k, v in izip([['n', 's', 'l', 'c1'],
-                              ['n', 's', 'l', 'c2'],
-                              ['n', 's', 'l', 'c3']], dic.itervalues()):
-                dic2[".".join(k)] = v
-            return dic2
-        mseed_unpack.side_effect = mseed_seff
-        
-        #clear table
-        self.session.query(Segment).delete()
-        assert self.session.query(Segment).all() == []
-        # And Let's go:
-        ztatz = self.download_save_segments(urlread_sideeffect, segments_df, datacenters_df, 1,2,3)
-        
-        db_segments_df = dbquery2df(self.session.query(*cols))
-        
-        assert len(ztatz) == len(datacenters_df)
-        # second datacenter segments not written cause they violate unique constraints?
-        assert len(db_segments_df) == len(segments_df.drop_duplicates(subset=[Segment.channel_id.key, Segment.start_time.key, Segment.end_time.key]))
-        assert all(db_segments_df[Segment.download_status_code.key] == 200)
-        seed_ids = [".".join(['n', 's', 'l', 'c1']), ".".join(['n', 's', 'l', 'c2']), ".".join(['n', 's', 'l', 'c3'])]
-        assert all(db_segments_df[Segment.seed_identifier.key] == seed_ids)
-        assert all(db_segments_df[Segment.data.key].str.len() > 0)
-        
-        orig_stream = read(BytesIO(self._seg_data))
-        for i, d in enumerate(db_segments_df[Segment.data.key]):
-            ztream = read(BytesIO(d))
-            # clumsy, but we do not know if the order of the data on the db is the same as the
-            # original stream. Just check that one is equal:
-            assert any(np.array_equal(ztream[0].data, trac.data) for trac in orig_stream)
-        
-        assert insert_segments.call_count == 2
-        assert update_segments.call_count == 0
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#     @patch('stream2segment.download.query.get_events')
-#     @patch('stream2segment.download.query.get_datacenters')
-#     @patch('stream2segment.download.query.make_ev2sta')
-#     @patch('stream2segment.download.query.get_segments_df')
-#     @patch('stream2segment.download.query.download_segments')
-#     def tst_cmdline(self, mock_download_segments, mock_get_seg_df, mock_make_ev2sta,
-#                      mock_get_datacenter, mock_get_events):
-#         
-#         ddd = datetime.utcnow()
-#         # setup arrival time side effect with a constant date (by default is datetime.utcnow)
-#         # we might pass it as custom argument below actually
-#         self._atime_sideeffect[0] = ddd
-# 
-#         def dsegs(*a, **v):
-#             return self.download_segments(None, *a, **v)
-#         mock_download_segments.side_effect = dsegs
-#         
-#         def segdf(*a, **v):
-#             return self.get_segments_df(None, *a, **v)
-#         mock_get_seg_df.side_effect = segdf
-# 
-#         def ev2sta(*a, **v):
-#             return self.make_ev2sta(None, *a, **v)
-#         mock_make_ev2sta.side_effect = ev2sta
-# 
-#         def getdc(*a, **v):
-#             return self.get_datacenters(None, *a, **v)
-#         mock_get_datacenter.side_effect = getdc
-# 
-#         def getev(*a, **v):
-#             return self.get_events(None, *a, **v)
-#         mock_get_events.side_effect = getev
-#         
-#         
-#         
-#         # prevlen = len(self.session.query(Segment).all())
-#     
-#         runner = CliRunner()
-#         result = runner.invoke(main , ['d', '--dburl', self.dburi,
-#                                        '--start', '2016-05-08T00:00:00',
-#                                        '--end', '2016-05-08T9:00:00'])
-#         if result.exception:
-#             import traceback
-#             traceback.print_exception(*result.exc_info)
-#             print result.output
-#             assert False
-#             return
-#             
-#         segments = self.session.query(Segment).all()
-#         assert len(segments) == 2
-#         assert segments[0].data == b'data'
-#         assert not segments[1].data
-#         emptySegId = segments[1].id
-#         
-#         # re-launch with the same setups.
-#         # what we want to test is the addition of an already downloaded segment which was empty
-#         # before and now is not. So:
-#         newdata = b'dataABC'
-#         self._seg_urlread_sideeffect = [newdata, '']  # empty STRING at end otherwise urlread has infinite loop!
-#         
-#         # relaunch with 'd' (empty segments no retry):
-#         runner = CliRunner()
-#         result = runner.invoke(main , ['d', '--dburl', self.dburi,
-#                                        '--start', '2016-05-08T00:00:00',
-#                                        '--end', '2016-05-08T9:00:00'])
-#         if result.exception:
-#             import traceback
-#             traceback.print_exception(*result.exc_info)
-#             print result.output
-#             assert False
-#             return
-#         # test that nothing happened:
-#         segments = self.session.query(Segment).all()
-#         assert segments[1].id == emptySegId and not segments[1].data
-#         run_id = segments[1].run_id
-#         
-#         # relaunch (retry empty or Null segments data)
-#         runner = CliRunner()
-#         result = runner.invoke(main , ['d', '--dburl', self.dburi, '--retry',
-#                                        '--start', '2016-05-08T00:00:00',
-#                                        '--end', '2016-05-08T9:00:00'])
-#         if result.exception:
-#             import traceback
-#             traceback.print_exception(*result.exc_info)
-#             print result.output
-#             assert False
-#             return
-#         # test that now empty segment has new data:
-#         segments = self.session.query(Segment).all()
-#         assert segments[1].id == emptySegId and segments[1].data == newdata
-#         # assert run_id changed:
-#         assert segments[1].run_id != run_id
-# 
-# 
-#     @patch('stream2segment.download.query.get_events')
-#     @patch('stream2segment.download.query.get_datacenters')
-#     @patch('stream2segment.download.query.make_ev2sta')
-#     @patch('stream2segment.download.query.get_segments_df')
-#     @patch('stream2segment.download.query.download_segments')
-#     def tst_cmdline_singleevent_singledatacenter(self, mock_download_segments,
-#                                                   mock_get_seg_df, mock_make_ev2sta,
-#                      mock_get_datacenter, mock_get_events):
-#         
-#         def dsegs(*a, **v):
-#             return self.download_segments(None, *a, **v)
-#         mock_download_segments.side_effect = dsegs
-#         
-#         def segdf(*a, **v):
-#             return self.get_segments_df(None, *a, **v)
-#         mock_get_seg_df.side_effect = segdf
-# 
-#         def ev2sta(*a, **v):
-#             return self.make_ev2sta(None, *a, **v)
-#         mock_make_ev2sta.side_effect = ev2sta
-# 
-#         def getdc(*a, **v):
-#             # return only one datacenter
-#             return self.get_datacenters(["""http://ws.resif.fr/fdsnws/station/1/query""", ""], *a, **v)
-#         mock_get_datacenter.side_effect = getdc
-# 
-#         def getev(*a, **v):
-#             # return only one event
-#             url_read_side_effect = ["""1|2|3|4|5|6|7|8|9|10|11|12|13
-# 20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN)""", ""]
-#             _ =  self.get_events(url_read_side_effect, *a, **v)
-#             return _
-#         mock_get_events.side_effect = getev
-# 
-#         ddd = datetime.utcnow()
-#         # setup arrival time side effect
-#         self._atime_sideeffect = cycle([ddd, TauModelError('wat?'), ValueError('wat?')])
-#         
-#         # prevlen = len(self.session.query(Segment).all())
-#     
-#         runner = CliRunner()
-#         result = runner.invoke(main , ['d', '--dburl', self.dburi,
-#                                        '--start', '2016-05-08T00:00:00',
-#                                        '--end', '2016-05-08T9:00:00'])
-#         if result.exception:
-#             import traceback
-#             traceback.print_exception(*result.exc_info)
-#             print result.output
-#             assert False
-#             return
-#             
-#         segments = self.session.query(Segment).all()
-#         assert len(segments) == 0
-# 
-# 
-# 
-#     @patch('stream2segment.download.query.make_ev2sta')
-#     @patch('stream2segment.download.query.get_events')
-#     @patch('stream2segment.download.query.get_datacenters')
-#     def tst_cmdline_datacenter_query_error(self, mock_get_datacenter, mock_get_events,
-#                                             mock_make_ev2sta):
-#         
-#         def getev(*a, **v):
-#             # return only one event (assure event does not raise errors, we want to test the datacenters)
-#             url_read_side_effect = ["""1|2|3|4|5|6|7|8|9|10|11|12|13
-# 20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN)""", ""]
-#             _ =  self.get_events(url_read_side_effect, *a, **v)
-#             return _
-#         mock_get_events.side_effect = getev
-#         
-#         
-#         def getdc(*a, **v):
-#             return self.get_datacenters([URLError('oops')], *a, **v)
-#         mock_get_datacenter.side_effect = getdc
-# 
-#         def ev2sta(*a, **v):
-#             # whatever is ok, as we will test to NOT have called this function!
-#             return self.make_ev2sta(None, *a, **v)
-#         mock_make_ev2sta.side_effect = ev2sta
-#         # prevlen = len(self.session.query(Segment).all())
-#     
-#         runner = CliRunner()
-#         result = runner.invoke(main , ['d', '--dburl', self.dburi,
-#                                        '--start', '2016-05-08T00:00:00',
-#                                        '--end', '2016-05-08T9:00:00'])
-#         if result.exception:
-#             import traceback
-#             traceback.print_exception(*result.exc_info)
-#             print result.output
-#             assert False
-#             return
-#         
-#         assert not mock_make_ev2sta.called
-#         segments = self.session.query(Segment).all()
-#         assert len(segments) == 0
-#     
-#     @patch('stream2segment.download.query.make_ev2sta')
-#     @patch('stream2segment.download.query.get_events')
-#     @patch('stream2segment.download.query.get_datacenters')
-#     def tst_cmdline_events_query_error(self, mock_get_datacenter, mock_get_events,
-#                                             mock_make_ev2sta):
-#         
-#         def getev(*a, **v):
-#             # return only one event (assure event does not raise errors, we want to test the datacenters)
-#             url_read_side_effect = [URLError('oop')]
-#             _ =  self.get_events(url_read_side_effect, *a, **v)
-#             return _
-#         mock_get_events.side_effect = getev
-#         
-#         
-#         def getdc(*a, **v):
-#             return self.get_datacenters([URLError('oops')], *a, **v)
-#         mock_get_datacenter.side_effect = getdc
-# 
-#         def ev2sta(*a, **v):
-#             # whatever is ok, as we will test to NOT have called this function!
-#             return self.make_ev2sta(None, *a, **v)
-#         mock_make_ev2sta.side_effect = ev2sta
-#         # prevlen = len(self.session.query(Segment).all())
-#     
-#         runner = CliRunner()
-#         result = runner.invoke(main , ['d', '--dburl', self.dburi,
-#                                        '--start', '2016-05-08T00:00:00',
-#                                        '--end', '2016-05-08T9:00:00'])
-#         if result.exception:
-#             import traceback
-#             traceback.print_exception(*result.exc_info)
-#             print result.output
-#             assert False
-#             return
-#         
-#         
-#         # FIXME: write something here, like we warned that we had some problems to the screen or whatever
-
+        assert len(db_segments_df) == len(segments_df)
+        # as we have 12 segments and a buf size of 10, this below is two
+        # it might change if we changed the buf size in the future
+        assert update_segments.call_count == len(db_segments_df) // ADD_BUF_SIZE + np.sign(len(db_segments_df) % ADD_BUF_SIZE)
+        assert insert_segments.call_count == 0

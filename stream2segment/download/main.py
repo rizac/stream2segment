@@ -762,7 +762,7 @@ def _strcat(segments_df):
     return n(s(l(c, sep='.', na_rep=''), sep='.', na_rep=''), sep='.', na_rep='')
 
 
-def _get_request(segments_df, datacenter_query_url):
+def _get_request(segments_df, datacenter_url):
     """
     returns a Request object from the given segments_df"""
     SEG_STIME = Segment.start_time.key
@@ -772,7 +772,7 @@ def _get_request(segments_df, datacenter_query_url):
     frmt_str = "{} {} {} {} %s %s" % (stime, etime)
     post_data = "\n".join(frmt_str.format(*("--" if not _ else _ for _ in k.split(".")))
                           for k in segments_df.index)
-    return Request(url=datacenter_query_url, data=post_data)
+    return Request(url=datacenter_url, data=post_data)
 
 
 def download_save_segments(session, segments_df, datacenters_df,
@@ -991,11 +991,11 @@ class SegmentsDbManager(object):
             self.update()
 
 
-def main(session, run_id, start, end, service, eventws_query_args,
-         search_radius,
-         channels, min_sample_rate, inventory, traveltime_phases,
-         wtimespan, retry_no_code, retry_url_errors, retry_mseed_errors, retry_4xx, retry_5xx,
-         advanced_settings, class_labels=None, isterminal=False):
+def run(session, run_id, start, end, service, eventws_query_args,
+        search_radius,
+        channels, min_sample_rate, inventory, traveltime_phases,
+        wtimespan, retry_no_code, retry_url_errors, retry_mseed_errors, retry_4xx, retry_5xx,
+        advanced_settings, class_labels=None, isterminal=False):
     """
         Downloads waveforms related to events to a specific path
         :param eventws: Event WS to use in queries. E.g. 'eida', 'iris'

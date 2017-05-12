@@ -410,8 +410,8 @@ def get_inventory_url(station):
                               station.station)
 
 
-def get_inventory_url_(station_query_url, network, station):
-    return urljoin(station_query_url, station=station, network=network, level='response')
+def get_inventory_url_(station_url, network, station):
+    return urljoin(station_url, station=station, network=network, level='response')
 
 
 def save_inventory(downloaded_data, station):

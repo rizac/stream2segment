@@ -179,8 +179,8 @@ def main(seg, stream, inventory, config):
 
     segment.datacenter                      object (attributes below)
     segment.datacenter.id                   int
-    segment.datacenter.station_query_url    str
-    segment.datacenter.dataselect_query_url str
+    segment.datacenter.station_url          str
+    segment.datacenter.dataselect_url       str
 
     segment.run                             object (attributes below)
     segment.run.id                          int

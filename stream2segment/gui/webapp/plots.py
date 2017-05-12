@@ -12,7 +12,7 @@ from obspy import Stream, Trace, UTCDateTime
 from stream2segment.process.utils import get_stream, itercomponents
 from stream2segment.analysis.mseeds import bandpass, utcdatetime, cumsum, cumtimes, fft
 from stream2segment.analysis import amp_spec
-from stream2segment.process.wrapper import get_inventory
+from stream2segment.process.main import get_inventory
 from math import floor, log10
 from itertools import cycle, izip
 

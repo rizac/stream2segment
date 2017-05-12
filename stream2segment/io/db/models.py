@@ -105,7 +105,7 @@ class Run(Base):
 
 
 # def dc_datasel_default(context):
-#     return context.current_parameters['station_query_url'].replace("/station", "/dataselect")
+#     return context.current_parameters['station_url'].replace("/station", "/dataselect")
 
 
 class Event(Base):

@@ -32,7 +32,7 @@ warnings.filterwarnings("ignore")
 def segquery(session):
     qry = session.query(Segment.channel_id, Segment.start_time,
                         Segment.end_time, Segment.id, Segment.data, Channel.sample_rate,
-                        DataCenter.station_query_url).join(Segment.datacenter, Segment.channel)
+                        DataCenter.station_url).join(Segment.datacenter, Segment.channel)
 
     qry = session.query(Segment).options(load_only(Segment.id))
     # FIXME: remove!!
@@ -109,7 +109,7 @@ def process_segment(segment):
         if sdate != edate:
             seg_info_list[4] = edate
 
-    return warn, err, net + "." + sta, urlparse(segment.datacenter.station_query_url).netloc,\
+    return warn, err, net + "." + sta, urlparse(segment.datacenter.station_url).netloc,\
         seg_info_list
 
 

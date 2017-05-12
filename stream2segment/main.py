@@ -32,8 +32,8 @@ from stream2segment.download.utils import run_instance
 from stream2segment.utils.resources import get_proc_template_files, get_default_cfg_filepath
 from stream2segment.io.db import models
 from stream2segment.io.db.pd_sql_utils import commit
-from stream2segment.process.wrapper import run as process_run
-from stream2segment.download.query import main as query_main
+from stream2segment.process.main import run as run_process
+from stream2segment.download.main import run as run_download
 from stream2segment.utils import tounicode, yaml_load, get_session, strptime, yaml_load_doc,\
     get_default_dbpath, printfunc, indent, secure_dburl
 
@@ -163,7 +163,7 @@ def download(isterminal=False, **yaml_dict):
 
         configlog4download(logger, session, run_inst, isterminal)
         with elapsedtime2logger_when_finished(logger):
-            query_main(session=session, run_id=run_inst.id, isterminal=isterminal, **yaml_dict)
+            run_download(session=session, run_id=run_inst.id, isterminal=isterminal, **yaml_dict)
             logger.info("%d total error(s), %d total warning(s)", run_inst.errors,
                         run_inst.warnings)
 
@@ -204,7 +204,7 @@ def process(dburl, pysourcefile, configsourcefile, outcsvfile, isterminal=False)
                 # flush_num[0] += 1
 
             with elapsedtime2logger_when_finished(logger):
-                process_run(session, pysourcefile, ondone, configsourcefile, isterminal)
+                run_process(session, pysourcefile, ondone, configsourcefile, isterminal)
 
     return 0
 

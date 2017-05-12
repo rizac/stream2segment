@@ -24,7 +24,7 @@ from stream2segment.main import main, closing
 from click.testing import CliRunner
 # from stream2segment.s2sio.db.pd_sql_utils import df2dbiter, get_col_names
 import pandas as pd
-from stream2segment.download.query import add_classes, get_events_df, get_datacenters_df, logger as query_logger, \
+from stream2segment.download.main import add_classes, get_events_df, get_datacenters_df, logger as query_logger, \
 get_channels_df, merge_events_stations, set_saved_arrivaltimes, get_arrivaltimes,\
     prepare_for_download, download_save_segments, _strcat, get_eventws_url, dbsync
 # ,\
@@ -184,7 +184,7 @@ class Test(unittest.TestCase):
         
         
         # mock threadpoolexecutor to run one instance at a time, so we get deterministic results:
-        self.patcher23 = patch('stream2segment.download.query.read_async')
+        self.patcher23 = patch('stream2segment.download.main.read_async')
         self.mock_read_async = self.patcher23.start()
         def readasync(iterable, ondone, *a, **v):
             ret = list(iterable)
@@ -352,7 +352,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     def get_events_df(self, url_read_side_effect, *a, **v):
         self.setup_urlopen(self._evt_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
 #         if not eventws_url:
-#             ptch = patch('stream2segment.download.query.yaml_load', return_value={'': {'event': 'http:event1'}})
+#             ptch = patch('stream2segment.download.main.yaml_load', return_value={'': {'event': 'http:event1'}})
 #             eventws_url = get_eventws_url(self.session, "")
 #             ptch.stop()
         return get_events_df(*a, **v)
@@ -386,14 +386,14 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         self.setup_urlopen(self._seg_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
         return download_save_segments(*a, **kw)
 
-    @patch('stream2segment.download.query.get_events_df')
-    @patch('stream2segment.download.query.get_datacenters_df')
-    @patch('stream2segment.download.query.get_channels_df')
-    @patch('stream2segment.download.query.get_arrivaltimes')
-    @patch('stream2segment.download.query.download_save_segments')
-    @patch('stream2segment.download.query.mseedunpack')
-    @patch('stream2segment.download.query.insertdf_napkeys')
-    @patch('stream2segment.download.query.updatedf')
+    @patch('stream2segment.download.main.get_events_df')
+    @patch('stream2segment.download.main.get_datacenters_df')
+    @patch('stream2segment.download.main.get_channels_df')
+    @patch('stream2segment.download.main.get_arrivaltimes')
+    @patch('stream2segment.download.main.download_save_segments')
+    @patch('stream2segment.download.main.mseedunpack')
+    @patch('stream2segment.download.main.insertdf_napkeys')
+    @patch('stream2segment.download.main.updatedf')
     def test_cmdline(self, mock_updatedf, mock_insertdf_napkeys, mock_mseed_unpack, mock_download_save_segments, mock_get_arrivaltimes, mock_get_channels_df,
                     mock_get_datacenters_df, mock_get_events_df):
         

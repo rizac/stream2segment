@@ -21,7 +21,7 @@ from itertools import cycle
 from future.backports.urllib.error import URLError
 import pytest
 import multiprocessing
-from stream2segment.process.wrapper import load_proc_cfg
+from stream2segment.process.main import load_proc_cfg
 from stream2segment import process
 from stream2segment.utils import resources
 from obspy.core.stream import read
@@ -321,14 +321,14 @@ class Test(unittest.TestCase):
     # as by default withdata is True in segment_select, then we process only the last three
     #
     # Here a simple test for a processing file returning dict. Save inventory and check it's saved
-    @mock.patch('stream2segment.process.wrapper.load_proc_cfg')
+    @mock.patch('stream2segment.process.main.load_proc_cfg')
     def test_simple_run_retDict_saveinv(self, mock_load_cfg):
         self.custom_config['inventory']=True
         self.custom_config['save_downloaded_inventory']=True
         mock_load_cfg.side_effect = self.load_proc_cfg
 
         # need to reset this global variable: FIXME: better handling?
-        process.wrapper._inventories = {}
+        process.main._inventories = {}
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             pyfile, conffile = self.get_processing_files()
@@ -380,14 +380,14 @@ class Test(unittest.TestCase):
     # as by default withdata is True in segment_select, then we process only the last three
     #
     # Here a simple test for a processing file returning dict. Don't save inventory and check it's not saved
-    @mock.patch('stream2segment.process.wrapper.load_proc_cfg')
+    @mock.patch('stream2segment.process.main.load_proc_cfg')
     def test_simple_run_retDict_dontsaveinv(self, mock_load_cfg):
         self.custom_config['inventory']=True
         self.custom_config['save_downloaded_inventory']=False
         mock_load_cfg.side_effect = self.load_proc_cfg
 
         # need to reset this global variable: FIXME: better handling?
-        process.wrapper._inventories={}
+        process.main._inventories={}
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             pyfile, conffile = self.get_processing_files()
@@ -434,7 +434,7 @@ class Test(unittest.TestCase):
     #
     # Here a simple test for a processing NO file. We implement a filter that excludes the only processed file
     # using associated stations lat and lon. 
-    @mock.patch('stream2segment.process.wrapper.load_proc_cfg')
+    @mock.patch('stream2segment.process.main.load_proc_cfg')
     def test_simple_run_retDict_seg_select_empty_and_err_segments(self, mock_load_cfg):
         # s_ok stations have lat and lon > 11, other stations do not
         # now we want to set a filter which gets us only the segments from stations not ok.
@@ -493,7 +493,7 @@ class Test(unittest.TestCase):
     #
     # Here a simple test for a processing NO file. We implement a filter that excludes the only processed file
     # using associated stations lat and lon. 
-    @mock.patch('stream2segment.process.wrapper.load_proc_cfg')
+    @mock.patch('stream2segment.process.main.load_proc_cfg')
     def test_simple_run_retDict_seg_select_only_one_err_segment(self, mock_load_cfg):
         # s_ok stations have lat and lon > 11, other stations do not
         # now we want to set a filter which gets us only the segments from stations not ok.
@@ -578,16 +578,16 @@ class Test(unittest.TestCase):
 
 
     def test_simple_run_codeerror(self):
-    
+
         runner = CliRunner()
-        
+
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             # pyfile, conffile = Test.get_processing_files()
             result = runner.invoke(main, ['p', '--dburl', self.dburi,
                                    Test.get_file("processing_test_freqs2csv_dict.py"),
                                    Test.get_file('processing.config.yaml'),
                                    file.name])
-    
+
             # the file above are bad implementation (old one)
             # we should not write anything
             sss = Test.read_and_remove(file.name+".log")

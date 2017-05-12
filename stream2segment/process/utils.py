@@ -38,7 +38,7 @@ def itercomponents(segment):
 
 def dcname(datacenter):
     """Returns the datacenter name. Uses urlparse"""
-    return urlparse(datacenter.station_query_url).netloc
+    return urlparse(datacenter.station_url).netloc
 
 
 def segstr(segment):
