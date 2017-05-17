@@ -17,46 +17,31 @@ where:
   - $OUTPUT is the csv file where data (one row per segment) will to be saved
 
 This module must implement a `main` function (processing function) that will be called by the
-program for each segment in the database. The processing function:
+program for each database segment. The processing function:
 
-  - Must take four arguments: a segment, representing the underlying database row,
-    the `obspy.Stream` object representing the waveform data,
-    an `obspy.core.inventory.inventory.Inventory` representing the station inventory
-    and a configuration dict (resulting from the $CONFIG file):
+  - Takes as argument a single segment and a configuration dict (resulting from the $CONFIG file):
     ```
-    def main(segment, stream, inventory, config):
+    def main(segment, config):
         ... code here ...
     ```
-    (`inventory` might be None if "inventory" is missing or False in the config file)
-
   - Must implement the actual processing for the segment and must return an
     iterable (list, tuple, numpy array, dict...) of values. The returned iterable
     will be written as a row of the resulting csv file $OUTPUT. If dict, the keys of the dict
-    will populate the first row header of the resulting csv file, otherwise the csv file will
-    have no header. Please be consistent: always return the same type of iterable for all
-    segments, if dict, always return the same keys for all dicts, if list, always return the
-    same length, etcetera
-
+    will populate the first row header of the resulting csv file, otherwise the csv file will have
+    no header. Please be consistent: always return the same type of iterable for all segments,
+    if dict, always return the same keys for all dicts, if list, always return the same length,
+    etcetera
   - Should return numeric or string data only. For instance, in case of obspy `UTCDateTime`s you
     should return either `float(utcdatetime)` (numeric) or `utcdatetime.isoformat()` (string).
     Returning other types of object *should* be safe (not tested) but will most likely convert
     the values to string according to python `__str__` function and might be out of control for
     the user
-
-  - Should NOT raise any of the following exceptions:
-    `TypeError`, `SyntaxError`, `NameError`, `ImportError`
-    as those exceptions will **stop** the iteration process, because they are most likely caused
-    by code errors which the user should fix without waiting the all process
-
-  - Can **raise** any other Exception, or **return** None. In both cases, the iteration will
-    go on processing the following segment, but the current segment will not be written to the
-    csv file. In the former case, the exception message (with a segment description, including
-    its database id) will be written to a log file `$OUTPUT.log`. Otherwise, return None to
-    silently skip the segment (with no messages)
-
-  - Does not actually need to be called `main`: if you wish to implement more than one function,
-    say `main1` and `main2`, you can call them via the command line by specifying it in $FILE
-    with a semicolon:
+  - Can raise any Exception, or return None. In both cases, the segment will not be written to the
+    csv file. In the former case, the exception message (with the segment id) will be written to a
+    log file `$OUTPUT.log`. Otherwise, return None to silently skip the segment (with no messages)
+  - Does not actually need to be called `main`: if you wish to implement more than one function, say
+    `main1` and `main2`, you can call them via the command line by specifying it in $FILE with a
+    semicolon:
     ```
     >>> stream2segment p $FILE:main1 $CONFIG $OUTPUT
     ```
@@ -90,14 +75,21 @@ from collections import OrderedDict
 
 # strem2segment functions for processing mseeds. This is just a list of possible functions
 # to show how to import them:
-from stream2segment.analysis.mseeds import remove_response, amp_ratio, bandpass, cumsum,\
-    cumtimes, fft, maxabs, simulate_wa, get_multievent, snr, utcdatetime
+from stream2segment.analysis.mseeds import remove_response, amp_ratio, cumsum,\
+    cumtimes, maxabs, simulate_wa, utcdatetime, _maxabs, timeof, stream_compliant, snr, bandpass
+
+# # not used anymore (mainly implemented here)
+# from stream2segment.analysis.mseeds import get_gaps, bandpass,  fft, get_multievent, \
+#    stream_compliant
+
 # when working with times, use obspy UTCDateTime:
 from obspy.core.utcdatetime import UTCDateTime
 # stream2segment function for processing numpy arrays (such as stream.traces[0])
 # If you need to to use them, import them:
-from stream2segment.analysis import amp_spec, freqs
-from itertools import izip
+from stream2segment.analysis import freqs, pow_spec, triangsmooth
+
+# not used anymore:
+# from stream2segment.analysis import amp_spec
 
 
 def main(seg, stream, inventory, config):
@@ -179,8 +171,8 @@ def main(seg, stream, inventory, config):
 
     segment.datacenter                      object (attributes below)
     segment.datacenter.id                   int
-    segment.datacenter.station_url          str
-    segment.datacenter.dataselect_url       str
+    segment.datacenter.station_query_url    str
+    segment.datacenter.dataselect_query_url str
 
     segment.run                             object (attributes below)
     segment.run.id                          int
@@ -228,8 +220,13 @@ def main(seg, stream, inventory, config):
     you could return either `float(utcdatetime)` (numeric) or `utcdatetime.isoformat()` (string)
     """
 
-    # discard streams with more than one trace. This let us avoid to calculate gaps
-    # which might be time consuming (the user can inspect later the miniseed in case)
+    cum_labels = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]
+
+    # discard streams with gaps
+#     if get_gaps(stream):
+#         raise ValueError('has gaps')
+
+    # discard streams with more than one trace:
     if len(stream) != 1:
         raise ValueError('more than one obspy.Trace. Possible cause: gaps')
 
@@ -247,43 +244,155 @@ def main(seg, stream, inventory, config):
 
     # bandpass the trace, according to the event magnitude
     evt = seg.event
-    trace, fmin = bandpass(trace, evt.magnitude, freq_max=config['bandpass_freq_max'],
-                           max_nyquist_ratio=config['bandpass_max_nyquist_ratio'],
-                           corners=config['bandpass_corners'])
+    fcmax = config['bandpass_freq_max']
+    trace, fcmin = bandpass(trace, evt.magnitude, freq_max=fcmax,
+                            max_nyquist_ratio=config['bandpass_max_nyquist_ratio'],
+                            corners=config['bandpass_corners'])
+
+    # signal to noise ratio: select a 5-95% window
+    cum_trace = cumsum(trace)
+    ct = cumtimes(cum_trace, *cum_labels)
+    normal_trace = trace.slice(ct[2], ct[-2])
+    dura = ct[-2] - ct[2]
+    start_t = a_time - dura
+    noise_trace = trace.trim(starttime=start_t, endtime=a_time, pad=True, fill_value=0)
+    vlisc = config['percentage_smoothing']
+    n1 = len(normal_trace)
+    n1 = 2 * n1
+#    dt = seg.channel.sample_rate
+#    freq1 = np.fft.rfftfreq(n1, d=dt)
+#     normal_trace=smooth_M2(freq1,normal_trace,n1,freq1[1],vlisc)
+#     noise_trace=smooth_M2(freq1,noise_trace,n1,freq1[1],vlisc)
+
+    normal_trace = triangsmooth(normal_trace, vlisc)
+    noise_trace = triangsmooth(noise_trace, vlisc)
+
+    snr_ = snr(normal_trace, noise_trace, fmin=fcmin, fmax=fcmax)
+
+    if snr_ < config['snr_threshold']:
+        raise ValueError('low snr %f' % snr_)
+
+    # # double event
+    # cum_times = cumtimes(cum_trace, *cum_labels)
+    # (score,t_double)=get_multievent_trial(cum_trace, cum_times[3], cum_times[-2],
+    #                                       config['threshold_inside_tmin_tmax_percent'],
+    #                                       config['threshold_inside_tmin_tmax_sec'],
+    #                                       config['threshold_after_tmax_percent'])
+    # if score == 2:
+    #    raise ValueError('Double event detected')
 
     # remove response
     trace_rem_resp = remove_response(trace, inventory, output=config['remove_response_output'],
                                      water_level=config['remove_response_water_level'])
+    # compute synthetic WA
+    trace_wa = simulate_wa(trace, inventory, config['remove_response_water_level'])
+    t_WA, maxWA = maxabs(trace_wa)
 
     # calculate cumulative:
     cum_trace = cumsum(trace_rem_resp)
     # and then calculate t005, t010, t025, t050, t075, t90, t95 (UTCDateTime objects):
-    cum_percentages = [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
-    cum_times = cumtimes(cum_trace, *cum_percentages)
+    cum_times = cumtimes(cum_trace, *cum_labels)
     # then, for instance:
     # mseed_rem_resp_t05_t95 = trace_rem_resp.slice(t05, t95)
 
     # calculate PGA and times of occurrence (t_PGA):
-    t95 = cum_times[-1]
-    t_PGA, PGA = maxabs(trace_rem_resp, a_time, t95)
+    t95 = cum_times[-2]
+    t_PGA, PGA = maxabs(trace_rem_resp)
+    # t_PGA, PGA = maxabs(trace_rem_resp, a_time, t95)
 
-    # calculates amplitudes at the frequency bins given in the config file:
-    fft_rem_resp = fft(trace_rem_resp, a_time, config['snr_window_length'],
-                       taper_max_percentage=config['taper_max_percentage'])
-    ampspec = amp_spec(fft_rem_resp.data, True)
-    ampspec_freqs = freqs(ampspec, fft_rem_resp.stats.df)
-    required_freqs = config['freqs_interp']
-    required_amplitudes = np.interp(required_freqs, ampspec_freqs, ampspec)
+    # # calculates amplitudes at the frequency bins given in the config file:
+    # fft_rem_resp = fft(trace_rem_resp, a_time, config['snr_window_length'],
+    #                   taper_max_percentage=config['taper_max_percentage'])
+    # ampspec = amp_spec(fft_rem_resp.data, True)
+    # ampspec_freqs = freqs(ampspec, fft_rem_resp.stats.df)
+    # required_freqs = config['freqs_interp']
+    # required_amplitudes = np.interp(required_freqs, ampspec_freqs, ampspec)
 
-    # convert cum_times to float for saving
-    cum_times_float = [float(t) for t in cum_times]
+    # # convert cum_times to float for saving
+    # cum_times_float = [float(t) for t in cum_times]
 
-    # save as csv row fft amplitudes, times of cumulative, t_PGA and PGA:
-    # return np.hstack((required_amplitudes, cum_times_float, [float(t_PGA), PGA]))
+    ret = OrderedDict()
 
-    # Or you can return an ordered dict to save the dict keys as header (1st row) in the csv:
-    ret = OrderedDict([("%.2fHz" % freq, ampl) for freq, ampl in izip(required_freqs, required_amplitudes)] +
-                      [("%.2f%%" % cum_p, cum_t) for cum_p, cum_t in izip(cum_percentages, cum_times_float)] +
-                      [('t_PGA', t_PGA), ('PGA', PGA)]
-                      )
+    for cum_lbl, cum_t in zip(cum_labels, cum_times):
+        ret['cum_t%d' % cum_lbl] = float(cum_t)  # convert cum_times to float for saving
+
+    ret['dist'] = seg.event_distance_deg  # dist
+    ret['t_PGA'] = t_PGA                  # peak info
+    ret['PGA'] = PGA
+    ret['t_WA'] = t_WA
+    ret['maxWA'] = maxWA
+    ret['ev_id'] = seg.event.id           # event metadata
+    ret['ev_lat'] = seg.event.latitude
+    ret['ev_lon'] = seg.event.longitude
+    ret['ev_dep'] = seg.event.depth_km
+    ret['ev_mag'] = seg.event.magnitude
+    ret['ev_mty'] = seg.event.mag_type
+    ret['st_id'] = seg.station.id         # station metadata
+    ret['st_name'] = seg.station.station
+    ret['st_net'] = seg.station.network
+    ret['st_lat'] = seg.station.latitude
+    ret['st_lon'] = seg.station.longitude
+    ret['st_ele'] = seg.station.elevation
     return ret
+
+
+def get_multievent(cum_trace, tmin, tmax,
+                   threshold_inside_tmin_tmax_percent,
+                   threshold_inside_tmin_tmax_sec, threshold_after_tmax_percent):
+    """
+        Returns the tuple (or a list of tuples, if the first argument is a stream) of the
+        values (score, UTCDateTime of arrival)
+        where scores is: 0: no double event, 1: double event inside tmin_tmax,
+            2: double event after tmax, 3: both double event previously defined are detected
+        If score is 2 or 3, the second argument is the UTCDateTime denoting the occurrence of the
+        first sample triggering the double event after tmax
+        :param trace: the input obspy.core.Trace
+    """
+    tmin = utcdatetime(tmin)
+    tmax = utcdatetime(tmax)
+
+    # what's happen if threshold_inside_tmin_tmax_percent > tmax-tmin?
+    #twin = tmax-tmin
+    #if (threshold_inside_tmin_tmax_sec > twin):
+    #   threshold_inside_tmin_tmax_sec = 0.8*twin
+    ##
+
+    double_event_after_tmax_time = None
+    d_order = 2
+
+    # split traces between tmin and tmax and after tmax
+    traces = [cum_trace.slice(tmin, tmax), cum_trace.slice(tmax, None)]
+
+    # calculate second derivative and normalize:
+    derivs = []
+    max_ = None
+    for ttt in traces:
+        sec_der = np.diff(ttt.data, n=d_order)
+        _, mmm = _maxabs(sec_der)
+        max_ = np.nanmax([max_, mmm])  # get max (global) for normalization (see below):
+        derivs.append(sec_der)
+
+    # normalize second derivatives:
+    for der in derivs:
+        der /= max_
+
+    result = 0
+
+    # case A: see if after tmax we exceed a threshold
+    indices = np.where(np.abs(derivs[1]) >= threshold_after_tmax_percent)[0]
+
+    if len(indices):
+        result = 2
+        double_event_after_tmax_time = timeof(traces[1], indices[0])
+    # case B: see if inside tmin tmax we exceed a threshold, and in case check the duration
+    indices = np.where(np.abs(derivs[0]) >= threshold_inside_tmin_tmax_percent)[0]
+    if len(indices) >= 2:
+        idx0 = indices[0]
+        idx1 = indices[-1]
+
+        deltatime = (idx1 - idx0) * cum_trace.stats.delta
+
+        if deltatime >= threshold_inside_tmin_tmax_sec:
+            result += 1
+
+    return (result, double_event_after_tmax_time)

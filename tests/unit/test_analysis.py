@@ -11,7 +11,7 @@ import re
 import argparse
 import numpy as np
 import pandas as pd
-from stream2segment.analysis import env, cumsum, fft
+from stream2segment.analysis import cumsum
 from scipy.signal import hilbert
 from stream2segment.analysis.mseeds import remove_response #, loads as s2s_loads, dumps
 from stream2segment.io.utils import loads, dumps
@@ -24,28 +24,28 @@ from StringIO import StringIO
 from obspy.io.stationxml.core import _read_stationxml
 from obspy.core.trace import Trace
 from itertools import count
-from stream2segment.analysis import fft as orig_fft, env
+# from stream2segment.analysis import fft as orig_fft
 
 
 
     
-from scipy.signal import hilbert
-@pytest.mark.parametrize('arr, expected_result, ',
-                          [
-                           ([-1, 1], [1, 1]),
-                           ([-2, 3], [2, 3]),
-                           ([-1, 10, -12, 3], [3.64005494, 11.41271221, 12.5, 6.26498204])
-                           ],
-                        )
-@mock.patch('stream2segment.analysis.hilbert', side_effect=lambda *a,**k: hilbert(*a, **k))
-@mock.patch('stream2segment.analysis.np')
-def test_env(mock_np, mock_hilbert, arr, expected_result):
-    mock_np.abs = mock.Mock(side_effect = lambda *a, **k: np.abs(*a, **k))
-    r = env(arr)
-    assert len(r) == len(arr)
-    mock_hilbert.assert_called_once_with(arr)
-    assert mock_np.abs.called
-    g = 9    
+# from scipy.signal import hilbert
+# @pytest.mark.parametrize('arr, expected_result, ',
+#                           [
+#                            ([-1, 1], [1, 1]),
+#                            ([-2, 3], [2, 3]),
+#                            ([-1, 10, -12, 3], [3.64005494, 11.41271221, 12.5, 6.26498204])
+#                            ],
+#                         )
+# @mock.patch('stream2segment.analysis.hilbert', side_effect=lambda *a,**k: hilbert(*a, **k))
+# @mock.patch('stream2segment.analysis.np')
+# def test_env(mock_np, mock_hilbert, arr, expected_result):
+#     mock_np.abs = mock.Mock(side_effect = lambda *a, **k: np.abs(*a, **k))
+#     r = env(arr)
+#     assert len(r) == len(arr)
+#     mock_hilbert.assert_called_once_with(arr)
+#     assert mock_np.abs.called
+#     g = 9    
 
 @pytest.mark.parametrize('arr, normalize, expected_result, ',
                           [([-1, 1], True, [0.5, 1]),
