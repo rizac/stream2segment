@@ -84,13 +84,13 @@ from collections import OrderedDict
 # Example from above: python dicts do not preserve the keys order (as they where inserted), so
 # returning {'a':7, 'b':56} might write 'b' as first column and 'a' as second in the csv.
 # To set the order you want:
-# dic = odict()
+# dic = OrderedDict()
 # dic['a'] = 7
 # dic['b'] = 56
 
 # strem2segment functions for processing mseeds. This is just a list of possible functions
 # to show how to import them:
-from stream2segment.analysis.mseeds import remove_response, get_gaps, amp_ratio, bandpass, cumsum,\
+from stream2segment.analysis.mseeds import remove_response, amp_ratio, bandpass, cumsum,\
     cumtimes, fft, maxabs, simulate_wa, get_multievent, snr, utcdatetime
 # when working with times, use obspy UTCDateTime:
 from obspy.core.utcdatetime import UTCDateTime
@@ -228,13 +228,10 @@ def main(seg, stream, inventory, config):
     you could return either `float(utcdatetime)` (numeric) or `utcdatetime.isoformat()` (string)
     """
 
-    # discard streams with gaps
-    if get_gaps(stream):
-        raise ValueError('has gaps')
-
-    # discard streams with more than one trace:
+    # discard streams with more than one trace. This let us avoid to calculate gaps
+    # which might be time consuming (the user can inspect later the miniseed in case)
     if len(stream) != 1:
-        raise ValueError('more than one obspy.Trace')
+        raise ValueError('more than one obspy.Trace. Possible cause: gaps')
 
     # work on the trace now. All functions will return Traces or scalars, which is better
     # so we can write them to database more easily
@@ -250,9 +247,9 @@ def main(seg, stream, inventory, config):
 
     # bandpass the trace, according to the event magnitude
     evt = seg.event
-    trace = bandpass(trace, evt.magnitude, freq_max=config['bandpass_freq_max'],
-                     max_nyquist_ratio=config['bandpass_max_nyquist_ratio'],
-                     corners=config['bandpass_corners'])
+    trace, fmin = bandpass(trace, evt.magnitude, freq_max=config['bandpass_freq_max'],
+                           max_nyquist_ratio=config['bandpass_max_nyquist_ratio'],
+                           corners=config['bandpass_corners'])
 
     # remove response
     trace_rem_resp = remove_response(trace, inventory, output=config['remove_response_output'],

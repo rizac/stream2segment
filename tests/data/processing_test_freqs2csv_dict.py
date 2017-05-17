@@ -7,7 +7,7 @@ Created on Feb 2, 2017
 import numpy as np
 # strem2segment functions for processing mseeds
 # If you need to use them, import them like this:
-from stream2segment.analysis.mseeds import remove_response, get_gaps, amp_ratio, bandpass, cumsum,\
+from stream2segment.analysis.mseeds import remove_response, amp_ratio, bandpass, cumsum,\
     cumtimes, fft, maxabs, simulate_wa, get_multievent, snr
 # when working with times, use obspy UTCDateTime:
 from obspy.core.utcdatetime import UTCDateTime
@@ -23,11 +23,8 @@ def main(seg, config):
 
     stream = seg.stream()
 
-    if get_gaps(stream):
-        raise ValueError('has gaps')
-
     if len(stream) != 1:
-        raise ValueError('more than one obspy.Trace')
+        raise ValueError('more than one obspy.Trace. Possible cause: gaps')
 
     # work on the trace now. All functions will return Traces or scalars, which is better
     # so we can write them to database more easily
@@ -41,9 +38,9 @@ def main(seg, config):
     a_time = UTCDateTime(seg.arrival_time) + config['arrival_time_delay']
 
     evt = seg.event
-    trace = bandpass(trace, evt.magnitude, freq_max=config['bandpass_freq_max'],
-                     max_nyquist_ratio=config['bandpass_max_nyquist_ratio'],
-                     corners=config['bandpass_corners'])
+    trace, fmin = bandpass(trace, evt.magnitude, freq_max=config['bandpass_freq_max'],
+                           max_nyquist_ratio=config['bandpass_max_nyquist_ratio'],
+                           corners=config['bandpass_corners'])
 
     inventory = seg.inventory()
     trace_rem_resp = remove_response(trace, inventory, output=config['remove_response_output'],

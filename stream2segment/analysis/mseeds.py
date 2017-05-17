@@ -9,33 +9,33 @@ import numpy as np
 try:
     import cPickle as pickle
 except ImportError:
-    import pickle
+    import pickle  # @UnusedImport
 from obspy.core import Stream, Trace, UTCDateTime  # , Stats
 from obspy import read_inventory
 from stream2segment.analysis import fft as _fft, maxabs as _maxabs,\
-    snr as _snr, cumsum as _cumsum, env as _env, dfreq
+    snr as _snr, cumsum as _cumsum, dfreq
 
 
 def stream_compliant(func):
     """
         Function decorator which allows the function decorated to accept either
-        obspy.Trace or an obspy.Stream objects, and handling the returned output consistently.
-        Rationale: A Trace is the obspy core object representing a timeseries. Therefore, in
+        `obspy.Trace` or an `obspy.Stream` objects, handling the returned output consistently.
+        Rationale: A Trace is the obspy core object representing a time-series. Therefore, in
         principle all processing functions, like those defined here, should work on traces.
         However, obspy provides also Stream objects (basically, collections of Traces)
         *which represent the miniSEED file stored on disk* (writing e.g. a Trace T
         to disk and reading it back returns a Stream object with a single Trace: T).
-        Therefore if would be nice to implement here all functions to accept Traces or Streams,
+        Therefore it would be nice to implement here all functions to accept Traces or Streams,
         implementing only the Trace processing because the Stream one is just a loop over its
         Traces.
         After implementing a function func processing a trace, and decorating it like this:
             \@stream_compliant
             def func(trace,...)
         then this decoraor takes care of the rest: it takes the `func` and wraps it creating a
-        wrapper function W: if W argument is a Trace, then W calls and returns `func` with the
-        trace as argument. On the other hand, if W argument is a Stream, iterates over its traces
-        and calls `func` on all of them. Then, if all the objects returned by `func` are again
-        Traces, **returns a Stream wrapping the returned traces**, otherwise **returns a list
+        wrapper function W: if `func` first argument is a Trace, then W calls and returns `func`
+        with the trace as argument. On the other hand, if W argument is a Stream, iterates over its
+        traces and calls `func` on all of them. Then, if all the objects returned by `func` are
+        again Traces, **returns a Stream wrapping the returned traces**, otherwise **returns a list
         of the returned objects**.
     """
     def func_wrapper(obj, *args, **kwargs):
@@ -59,10 +59,9 @@ def itertrace(trace_or_stream):
     return trace_or_stream if isinstance(trace_or_stream, Stream) else [trace_or_stream]
 
 
-@stream_compliant
 def bandpass(trace, magnitude, freq_max=20, max_nyquist_ratio=0.9,
              corners=2, copy=True):
-    """filters a signal trace.
+    """filters a signal trace, where the minimum frequency is magnitude dependent
     :param trace: the input obspy.core.Trace
     :param magnitude: the magnitude which originated the trace (or stream). It dictates the value
     of the high-pass corner (the minimum frequency, freq_min, in Hz)
@@ -70,16 +69,18 @@ def bandpass(trace, magnitude, freq_max=20, max_nyquist_ratio=0.9,
     :param max_nyquist_ratio: the ratio of freq_max to be computed. The real low-pass corner will
     be set as max_nyquist_ratio * freq_max (default: 0.9, i.e. 90%)
     :param corners: the corners (i.e., the order of the filter)
+    :return: the tuple (new_trace, fmin), where fmin is the minimum frequency set according to
+    the given magnitude
     """
     tra = trace.copy() if copy is True else trace
 
     # get freq_min according to magnitude (see e.g. RRSM or ISM)
     # (this might change in the future)
     if magnitude <= 4:
-        freq_min = 0.3
+        freq_min = 0.5
     elif magnitude <= 5:
-        freq_min = 0.2
-    elif magnitude <= 6.5:
+        freq_min = 0.3
+    elif magnitude <= 6.0:
         freq_min = 0.1
     else:
         freq_min = 0.05
@@ -99,16 +100,17 @@ def bandpass(trace, magnitude, freq_max=20, max_nyquist_ratio=0.9,
     tra.taper(type='cosine', max_percentage=0.05)
 
     # 3) pad data with zeros at the END in order to filter transient
-    lgt = len(tra.data)
-    tra.data = np.append(tra.data, np.zeros(lgt))
+    endtime_remainder = tra.stats.endtime
+    endtime = endtime_remainder + (endtime_remainder - tra.stats.starttime)
+    tra.trim(starttime=None, endtime=endtime, pad=True, fill_value=0)
 
     # 4) apply bandpass filter:
     tra.filter('bandpass', freqmin=freq_min, freqmax=freq_max, corners=corners, zerophase=True)
 
     # 5) remove padded elements:
-    tra.data = tra.data[:lgt]
+    tra.trim(starttime=None, endtime=endtime_remainder)
 
-    return tra
+    return (tra, freq_min)
 
 
 @stream_compliant
@@ -180,20 +182,20 @@ def simulate_wa(trace, inventory_or_inventory_path=None, water_level=60):
     return trace
 
 
-def get_gaps(trace_or_stream):
-    """
-        Returns a list of gaps for the current argument. The list elements have the form:
-            [network, station, location, channel, starttime of the gap, end time of the gap,
-             duration of the gap, number of missing samples]
-        :param trace_or_stream: a Trace, or a Stream (note: due to the fact that obspy get_gaps is
-        Stream only, if this argument is a trace this function returns an empty list)
-        :return: a list of gaps
-        :rtype: list of lists
-    """
-    try:
-        return trace_or_stream.get_gaps()
-    except AttributeError:  # is a Trace
-        return []
+# def get_gaps(trace_or_stream):
+#     """
+#         Returns a list of gaps for the current argument. The list elements have the form:
+#             [network, station, location, channel, starttime of the gap, end time of the gap,
+#              duration of the gap, number of missing samples]
+#         :param trace_or_stream: a Trace, or a Stream (note: due to the fact that obspy get_gaps is
+#         Stream only, if this argument is a trace this function returns an empty list)
+#         :return: a list of gaps
+#         :rtype: list of lists
+#     """
+#     try:
+#         return trace_or_stream.get_gaps()
+#     except AttributeError:  # is a Trace
+#         return []
 
 
 @stream_compliant
@@ -228,14 +230,14 @@ def cumtimes(cum_trace, *percentages):
     return val
 
 
-@stream_compliant
-def env(trace):
-    """
-    Returns the envelope (using scipy hilbert transform) of the argument
-    :param trace: the input obspy.core.Trace
-    :return: an obspy trace or stream (depending on the argument)
-    """
-    return Trace(_env(trace.data), header=trace.stats.copy())
+# @stream_compliant
+# def env(trace):
+#     """
+#     Returns the envelope (using scipy hilbert transform) of the argument
+#     :param trace: the input obspy.core.Trace
+#     :return: an obspy trace or stream (depending on the argument)
+#     """
+#     return Trace(_env(trace.data), header=trace.stats.copy())
 
 
 @stream_compliant
@@ -304,10 +306,10 @@ def fft(trace, fixed_time=None, window_in_sec=None, taper_max_percentage=0.05, t
     return t
 
 
-@stream_compliant
-def snr(trace, noisy_trace, signals_form='normal', in_db=False):
+def snr(trace, noisy_trace, fmin=None, fmax=None, nearest_sample=False,
+        in_db=False):
     """
-    Returns the signal to noise ratio of trace over noisy_trace.
+    Wrapper arounf analysis.snr for trace or streams
     :param trace: a given `obspy` Trace denoting the divisor of the snr
     :param noisy_trace: a given `obspy` Trace denoting the dividend of the snr
     :param signals_form: tells this function what the given traces are. If:
@@ -316,83 +318,86 @@ def snr(trace, noisy_trace, signals_form='normal', in_db=False):
         - any other value: then the traces are time series, their amplitude spectra will be
             computed before returning the snr.
     """
-    return _snr(trace.data, noisy_trace.data, signals_form, in_db)
+    return _snr(trace.data, noisy_trace.data, signals_form='', fmin=fmin, fmax=fmax,
+                delta_s=trace.stats.delta, delta_n=noisy_trace.stats.delta,
+                nearest_sample=nearest_sample, in_db=in_db)
 
 
 @stream_compliant
-def amp_ratio(trace):
+def amp_ratio(trace, threshold=2**23):
     """Returns a list of numeric values (if the argument is a stream) or a single
     numeric value (if the argument is a single trace) representing the amplitude ratio given by:
-        np.nanmax(np.abs(trace.data)) / 2 ** 23
-    Obviously, the trace has not be in physical units but in counts
+        np.nanmax(np.abs(trace.data)) / threshold
+    The trace has not be in physical units but in counts
+    :param trace: a given obspy Trace
+    :param threshold: float, defaults to `2 ** 23`: the denominator of the returned ratio
     """
-    threshold = 2 ** 23
     return np.true_divide(np.nanmax(np.abs(trace.data)), threshold)
 
 
-@stream_compliant
-def timearray(trace, npts=None):
-    """
-        Returns the x values of the given trace according to each trace stats
-        if npts is not None, returns a linear space of equally sampled x from
-        tra.starttime and tra.endtime. Otherwise, npts equals the trace number of points
-    """
-    num = len(trace.data) if npts is None else npts  # we don't trust tra.stats.npts
-    return np.linspace(trace.stats.starttime.timestamp, trace.stats.endtime.timestamp, num=num,
-                       endpoint=True)
+# @stream_compliant
+# def timearray(trace, npts=None):
+#     """
+#         Returns the x values of the given trace according to each trace stats
+#         if npts is not None, returns a linear space of equally sampled x from
+#         tra.starttime and tra.endtime. Otherwise, npts equals the trace number of points
+#     """
+#     num = len(trace.data) if npts is None else npts  # we don't trust tra.stats.npts
+#     return np.linspace(trace.stats.starttime.timestamp, trace.stats.endtime.timestamp, num=num,
+#                        endpoint=True)
 
 
-def interpolate(trace_or_stream, npts_or_new_x_array, align_if_stream=True,
-                return_x_array=False):
-    """Returns a trace or stream interpolated with the given number of points. This method
-    differs from obspy.Trace.interpolate in that it offers a probably faster but less fine-tuned
-    way to (linearly) interpolate a Trace or a Stream (and in this case optionally align its Traces
-    on the same time range, if needed). This method is intended to optimize visualizations
-    of the data, rather than performing calculation on it
-    :param trace: the input obspy.core.Trace
-    :param npts_or_new_x_array: the new number of points (if python integer) or the new x array
-        where to interpolate the trace(s) (as UTCDateTime.timestamp's)
-    :param align_if_stream: Ignored if the first argument is a Trace object. Otherwise, if True,
-    data will be "aligned" with the timestamp of the first trace:
-    all the traces (if more than one) will have the same start and end time, and the same number
-    of points. This argument is always True if npts_or_new_x_array is an array of timestamps
-    :param return_new_x_array: if True (false by default) a tuple (newtimes, new_trace_or_stream) is
-    returned. Otherwise, only new_trace_or_stream is returned. The name return_new_x_array is more
-    general as, if FTraces are passed, then the units of the array are frequencies (in Hz)
-    """
-    newxarray = None
-    try:
-        len(npts_or_new_x_array)  # is npts_or_new_x_array an array?
-        newxarray = npts_or_new_x_array
-        align_if_stream = True
-    except TypeError:  # npts_or_new_x_array is scalar (not array)
-        npts = npts_or_new_x_array
-
-    ret = []
-    oldxarrays = {}
-    itr = itertrace(trace_or_stream)
-    for tra in itr:
-        if newxarray is None or not align_if_stream:
-            newxarray = timearray(tra, npts)
-
-        # get old x array. If we have an x array of times already calculated for a previous
-        # trace with same start, delta and number of points, use that (improving performances):
-        key = (tra.stats.starttime.timestamp, tra.stats.delta, len(tra.data))
-        oldxarray = oldxarrays.get(key, None)
-        if oldxarray is None:
-            oldxarray = timearray(tra)
-            oldxarrays[key] = oldxarray
-
-        data = np.interp(newxarray, oldxarray, tra.data)
-        header = tra.stats.copy()
-        header.npts = len(data)
-        header.delta = newxarray[1] - newxarray[0]
-        header.starttime = UTCDateTime(newxarray[0])
-
-        ret.append(Trace(data=data, header=header))
-
-    ret = Stream(ret) if isinstance(itr, Stream) else ret[0]
-    return (newxarray, ret) if return_x_array else ret
+# def interpolate(trace_or_stream, npts_or_new_x_array, align_if_stream=True,
+#                 return_x_array=False):
+#     """Returns a trace or stream interpolated with the given number of points. This method
+#     differs from obspy.Trace.interpolate in that it offers a probably faster but less fine-tuned
+#     way to (linearly) interpolate a Trace or a Stream (and in this case optionally align its Traces
+#     on the same time range, if needed). This method is intended to optimize visualizations
+#     of the data, rather than performing calculation on it
+#     :param trace: the input obspy.core.Trace
+#     :param npts_or_new_x_array: the new number of points (if python integer) or the new x array
+#         where to interpolate the trace(s) (as UTCDateTime.timestamp's)
+#     :param align_if_stream: Ignored if the first argument is a Trace object. Otherwise, if True,
+#     data will be "aligned" with the timestamp of the first trace:
+#     all the traces (if more than one) will have the same start and end time, and the same number
+#     of points. This argument is always True if npts_or_new_x_array is an array of timestamps
+#     :param return_new_x_array: if True (false by default) a tuple (newtimes, new_trace_or_stream) is
+#     returned. Otherwise, only new_trace_or_stream is returned. The name return_new_x_array is more
+#     general as, if FTraces are passed, then the units of the array are frequencies (in Hz)
+#     """
+#     newxarray = None
+#     try:
+#         len(npts_or_new_x_array)  # is npts_or_new_x_array an array?
+#         newxarray = npts_or_new_x_array
+#         align_if_stream = True
+#     except TypeError:  # npts_or_new_x_array is scalar (not array)
+#         npts = npts_or_new_x_array
+# 
+#     ret = []
+#     oldxarrays = {}
+#     itr = itertrace(trace_or_stream)
+#     for tra in itr:
+#         if newxarray is None or not align_if_stream:
+#             newxarray = timearray(tra, npts)
+# 
+#         # get old x array. If we have an x array of times already calculated for a previous
+#         # trace with same start, delta and number of points, use that (improving performances):
+#         key = (tra.stats.starttime.timestamp, tra.stats.delta, len(tra.data))
+#         oldxarray = oldxarrays.get(key, None)
+#         if oldxarray is None:
+#             oldxarray = timearray(tra)
+#             oldxarrays[key] = oldxarray
+# 
+#         data = np.interp(newxarray, oldxarray, tra.data)
+#         header = tra.stats.copy()
+#         header.npts = len(data)
+#         header.delta = newxarray[1] - newxarray[0]
+#         header.starttime = UTCDateTime(newxarray[0])
+# 
+#         ret.append(Trace(data=data, header=header))
+# 
+#     ret = Stream(ret) if isinstance(itr, Stream) else ret[0]
+#     return (newxarray, ret) if return_x_array else ret
 
 
 @stream_compliant
