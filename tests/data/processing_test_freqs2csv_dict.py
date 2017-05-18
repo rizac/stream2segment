@@ -8,7 +8,7 @@ import numpy as np
 # strem2segment functions for processing mseeds
 # If you need to use them, import them like this:
 from stream2segment.analysis.mseeds import remove_response, amp_ratio, bandpass, cumsum,\
-    cumtimes, fft, maxabs, simulate_wa, get_multievent, snr
+    cumtimes, fft, maxabs, simulate_wa, snr
 # when working with times, use obspy UTCDateTime:
 from obspy.core.utcdatetime import UTCDateTime
 # stream2segment function for processing numpy arrays (such as stream.traces[0])
@@ -38,9 +38,10 @@ def main(seg, config):
     a_time = UTCDateTime(seg.arrival_time) + config['arrival_time_delay']
 
     evt = seg.event
-    trace, fmin = bandpass(trace, evt.magnitude, freq_max=config['bandpass_freq_max'],
-                           max_nyquist_ratio=config['bandpass_max_nyquist_ratio'],
-                           corners=config['bandpass_corners'])
+    fmin = mag2freq(evt.magnitude)
+    trace = bandpass(trace, fmin, freq_max=config['bandpass_freq_max'],
+                     max_nyquist_ratio=config['bandpass_max_nyquist_ratio'],
+                     corners=config['bandpass_corners'])
 
     inventory = seg.inventory()
     trace_rem_resp = remove_response(trace, inventory, output=config['remove_response_output'],
@@ -64,3 +65,17 @@ def main(seg, config):
 
     return {'f%d' % i: r for i, r in enumerate(ret)}
 
+
+
+def mag2freq(magnitude):
+    """converts magnitude to frequency. Used in our bandpass function to get the min freq.
+    parameter"""
+    if magnitude <= 4:
+        freq_min = 0.5
+    elif magnitude <= 5:
+        freq_min = 0.3
+    elif magnitude <= 6.0:
+        freq_min = 0.1
+    else:
+        freq_min = 0.05
+    return freq_min

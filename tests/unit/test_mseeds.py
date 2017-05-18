@@ -11,11 +11,14 @@ import re
 import argparse
 import numpy as np
 from stream2segment.analysis import fft as orig_fft
-from stream2segment.analysis.mseeds import remove_response, fft #, loads as s2s_loads, dumps
-from stream2segment.io.utils import loads, dumps
+from stream2segment.analysis import snr as orig_snr
+from stream2segment.analysis import pow_spec as orig_powspec
+
+
+from stream2segment.analysis.mseeds import remove_response, fft, snr , bandpass
+# from stream2segment.io.utils import loads, dumps
 # from stream2segment.analysis.mseeds import _IO_FORMAT_FFT, _IO_FORMAT_STREAM, _IO_FORMAT_TIME,\
 #     _IO_FORMAT_TRACE
-
 from obspy.core.inventory import read_inventory
 from obspy.core import read as obspy_read
 from obspy.core import Trace, Stream
@@ -23,7 +26,6 @@ from StringIO import StringIO
 from obspy.io.stationxml.core import _read_stationxml
 from obspy.core.trace import Trace
 from itertools import count
-
 
 @pytest.mark.parametrize('arr, arr_len_after_trim, fft_npts',
                         [([1, 2, 3, 4, 5, 6], 6, 4),
@@ -44,6 +46,36 @@ def test_fft(mock_mseed_fft, arr, arr_len_after_trim, fft_npts):
     assert f.stats.defaults == t.stats.defaults
     g = 9
 
+
+@mock.patch('stream2segment.analysis.mseeds._snr', side_effect=lambda *a, **k: orig_snr(*a, **k))
+@mock.patch('stream2segment.analysis.pow_spec', side_effect=lambda *a, **k: orig_powspec(*a, **k))
+def test_snr(mock_powspec, mock_analysis_snr):
+    trace = get_data()['mseed'][0]
+    res = snr(trace, trace, fmin=10, fmax=100.34)
+    assert res == 1
+    assert mock_powspec.call_count == 2  # one for each trace
+    assert len(mock_analysis_snr.call_args_list) ==1
+    assert mock_analysis_snr.call_args_list[0][1]['fmin'] == 10
+    assert mock_analysis_snr.call_args_list[0][1]['fmax'] == 100.34
+    assert mock_analysis_snr.call_args_list[0][1]['delta_signal'] == trace.stats.delta
+    assert mock_analysis_snr.call_args_list[0][1]['delta_noise'] == trace.stats.delta
+    
+    
+    h = 9
+    
+    
+def test_bandpass():
+    trace = get_data()['mseed'][0]
+    res = bandpass(trace, 2, 3)
+    assert not np.array_equal(trace.data, res.data)
+    assert trace.stats.starttime == res.stats.starttime
+    assert trace.stats.endtime == res.stats.endtime
+    assert trace.stats.npts == res.stats.npts
+    assert len(trace.data) == len(res.data)
+    
+    
+    h = 9
+
 # @pytest.mark.parametrize('inv_output',
 #                           ['ACC', 'VEL', 'DISP'])
 # def test_read_dumps(_data, inv_output):
@@ -60,6 +92,14 @@ def test_fft(mock_mseed_fft, arr, arr_len_after_trim, fft_npts):
 #         _data = ret_obj.data if hasattr(ret_obj, "data") else ret_obj.traces[0].data
 #         assert all(_data == data)
 #         h = 9
+
+__dd = None
+
+def get_data():
+    global __dd
+    if __dd is None:
+        __dd = _data()
+    return __dd
 
 
 @pytest.fixture(scope="session")
@@ -88,8 +128,8 @@ def _data():
 @pytest.mark.parametrize('inv_output',
                           ['ACC', 'VEL', 'DISP'])
 def test_remove_response_with_inv_path(_data, inv_output):
-    mseed = _data['mseed']
-    mseed2 = _data['mseed_'+inv_output]
+    mseed = get_data()['mseed']
+    mseed2 = get_data()['mseed_'+inv_output]
     assert isinstance(mseed, Stream) == isinstance(mseed2, Stream)
     assert len(mseed.traces) == len(mseed2.traces)
     assert (mseed[0].data != mseed2[0].data).any()
@@ -97,10 +137,10 @@ def test_remove_response_with_inv_path(_data, inv_output):
 
 
 def test_remove_response_with_inv_object(_data):
-    mseed = _data['mseed']
+    mseed = get_data()['mseed']
 #     inv_obj = _data['inventory']
     for inv_output in ['ACC', 'VEL', 'DISP']:
-        mseed2 = _data['mseed_' + inv_output]
+        mseed2 = get_data()['mseed_' + inv_output]
         assert isinstance(mseed, Stream) == isinstance(mseed2, Stream)
         assert len(mseed.traces) == len(mseed2.traces)
         assert (mseed[0].data != mseed2[0].data).any()
@@ -108,11 +148,11 @@ def test_remove_response_with_inv_object(_data):
 
 
 def get_stream_with_gaps(_data):
-    mseed_dir = _data['data_path']
+    mseed_dir = get_data()['data_path']
     return obspy_read(os.path.join(mseed_dir, "IA.BAKI..BHZ.D.2016.004.head"))
 
 
-def test_get_trace_with_gaps(_data):
+def test_get_trace_with_gaps(_data):  # WTF am I testing here? obspy?? FIXME: remove
     stream = get_stream_with_gaps(_data)
     arr = stream.get_gaps()
     assert len(arr) > 0

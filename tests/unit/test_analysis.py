@@ -11,10 +11,10 @@ import re
 import argparse
 import numpy as np
 import pandas as pd
-from stream2segment.analysis import cumsum
+from stream2segment.analysis import cumsum, argtrim
 from scipy.signal import hilbert
 from stream2segment.analysis.mseeds import remove_response #, loads as s2s_loads, dumps
-from stream2segment.io.utils import loads, dumps
+# from stream2segment.io.utils import loads, dumps
 
 
 from obspy.core.inventory import read_inventory
@@ -27,9 +27,31 @@ from itertools import count
 # from stream2segment.analysis import fft as orig_fft
 
 
+def test_argtrim():
+    y = [1,2,3,4]
+    delta = 0.01
+    # signal_x is just used for checking:
+    signal_x = np.linspace(0, delta*len(y), num=len(y), endpoint=False)
 
+    # assert boundary conditions are satisfied:
+    assert np.array_equal(y[slice(*argtrim(y, delta, None, None, nearest_sample=False))], y)
+    assert np.array_equal(y[slice(*argtrim(y, delta, None, None, nearest_sample=True))], y)
+    assert np.array_equal(y[slice(*argtrim(y, delta, 0, None, nearest_sample=False))], y)
+    assert np.array_equal(y[slice(*argtrim(y, delta, 0, None, nearest_sample=True))], y)
+    assert np.array_equal(y[slice(*argtrim(y, delta, None, 5, nearest_sample=False))], y)
+    assert np.array_equal(y[slice(*argtrim(y, delta, None, 5, nearest_sample=True))], y)
     
-# from scipy.signal import hilbert
+    # test nearest sample. xmin is in between x[0 and x[1], but closer to x[0]
+    xmin = signal_x[0] + (signal_x[0]+signal_x[1]) / 3.0
+    assert np.array_equal(y[slice(*argtrim(y, delta, xmin, None, nearest_sample=False))], y[1:])
+    assert np.array_equal(y[slice(*argtrim(y, delta, xmin, None, nearest_sample=True))], y)
+    
+    # test nearest sample. xmax is in between x[0 and x[1], but closer to x[1]
+    xmax = signal_x[0] + (signal_x[0]+signal_x[1]) / 1.5
+    assert np.array_equal(y[slice(*argtrim(y, delta, None, xmax, nearest_sample=False))], y[:1])
+    assert np.array_equal(y[slice(*argtrim(y, delta, None, xmax, nearest_sample=True))], y[:2])
+    
+# from scipy.y import hilbert
 # @pytest.mark.parametrize('arr, expected_result, ',
 #                           [
 #                            ([-1, 1], [1, 1]),
@@ -88,8 +110,8 @@ def test_cumsum_errs(mock_np):
     assert (r == np.array(arr)).all()
     assert mock_np.cumsum.called
     assert mock_np.square.called
-    assert not mock_np.isnan.called
-    assert not mock_np.max.called
+    assert mock_np.isnan.called
+    assert mock_np.max.called
     assert not mock_np.true_divide.called
     
     arr = [1, float('nan')]

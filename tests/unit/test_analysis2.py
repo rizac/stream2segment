@@ -45,20 +45,20 @@ def test_snr(mock_np_true_divide):
     noise = np.array([0,1,2,3,4,5,6])
 
     for sf in ('fft', 'dft', 'amp', 'pow', ''):
-        assert snr(signal, noise, signals_form=sf, fmin=None, fmax=None, delta_s=1, delta_n=1, in_db=False) == 1
+        assert snr(signal, noise, signals_form=sf, fmin=None, fmax=None, delta_signal=1, delta_noise=1, in_db=False) == 1
 
     noise[0]+=1
     for sf in ('fft', 'dft', 'amp', 'pow', ''):
-        assert snr(signal, noise, signals_form=sf, fmin=None, fmax=None, delta_s=1, delta_n=1, in_db=False) < 1
+        assert snr(signal, noise, signals_form=sf, fmin=None, fmax=None, delta_signal=1, delta_noise=1, in_db=False) < 1
 
     # assert the snr is one if we take particular frequencies:
     delta_t = 0.01
     delta_f = dfreq(signal, delta_t)
     fmin = delta_f+delta_f/100.0  # just enough to remove first sample
     for sf in ('fft', 'dft', 'amp', 'pow'):
-        assert snr(signal, noise, signals_form=sf, fmin=fmin, fmax=None, delta_s=delta_f, delta_n=delta_f, in_db=False) == 1
+        assert snr(signal, noise, signals_form=sf, fmin=fmin, fmax=None, delta_signal=delta_f, delta_noise=delta_f, in_db=False) == 1
     # now same case as above, but with signals given as time series:
-    res = snr(signal, noise, signals_form='', fmin=fmin, fmax=None, delta_s=delta_t, delta_n=delta_t, in_db=False)
+    res = snr(signal, noise, signals_form='', fmin=fmin, fmax=None, delta_signal=delta_t, delta_noise=delta_t, in_db=False)
     sspec = pow_spec(signal,False)[1:]
     nspec = pow_spec(noise,False)[1:]
     assert (np.sum(sspec) > np.sum(nspec) and res > 1) or (np.sum(sspec) < np.sum(nspec) and res < 1) or \
@@ -67,7 +67,7 @@ def test_snr(mock_np_true_divide):
     
     signal[0] += 5
     for sf in ('fft', 'dft', 'amp', 'pow', ''):
-        assert snr(signal, noise, signals_form=sf, fmin=None, fmax=None, delta_s=1, delta_n=1, in_db=False) > 1
+        assert snr(signal, noise, signals_form=sf, fmin=None, fmax=None, delta_signal=1, delta_noise=1, in_db=False) > 1
     
     # test fmin set:
     signal = np.array([0,1,2,3,4,5,6])
@@ -79,7 +79,7 @@ def test_snr(mock_np_true_divide):
         expected_leng_s = len(freqs(signal, delta_t, signal_is_timeseries=not sf))
         expected_leng_n = len(freqs(noise, delta_t, signal_is_timeseries=not sf))
         mock_np_true_divide.reset_mock()
-        assert snr(signal, noise, signals_form=sf, fmin=delta_f, fmax=None, delta_s=delta, delta_n=delta, in_db=False) == 1
+        assert snr(signal, noise, signals_form=sf, fmin=delta_f, fmax=None, delta_signal=delta, delta_noise=delta, in_db=False) == 1
         # assert when normalizing we called a slice of signal and noise with the first element removed due
         # to the choice of delta_f and delta
         signal_call = mock_np_true_divide.call_args_list[0][0]
@@ -95,7 +95,7 @@ def test_snr(mock_np_true_divide):
         expected_leng_s = len(freqs(signal, delta_t, signal_is_timeseries=not sf))
         expected_leng_n = len(freqs(noise, delta_t, signal_is_timeseries=not sf))
         mock_np_true_divide.reset_mock()
-        assert snr(signal, noise, signals_form=sf, fmin=-delta_f, fmax=None, delta_s=delta, delta_n=delta, in_db=False) == 1
+        assert snr(signal, noise, signals_form=sf, fmin=-delta_f, fmax=None, delta_signal=delta, delta_noise=delta, in_db=False) == 1
         # assert when normalizing we called a slice of signal and noise with the first element removed due
         # to the choice of delta_f and delta
         signal_call = mock_np_true_divide.call_args_list[0][0]
@@ -117,15 +117,15 @@ def test_snr(mock_np_true_divide):
         # first non-zero point. Otherwise the first point (the only one we take according to fmax)
         # is zero thus we should have nan
         if not sf:
-            assert snr(signal, noise, signals_form=sf, fmin=None, fmax=delta_f, delta_s=delta, delta_n=delta, in_db=False) == 1
+            assert snr(signal, noise, signals_form=sf, fmin=None, fmax=delta_f, delta_signal=delta, delta_noise=delta, in_db=False) == 1
         else:
-            np.isnan(snr(signal, noise, signals_form=sf, fmin=None, fmax=delta_f, delta_s=delta, delta_n=delta, in_db=False)).all()
+            np.isnan(snr(signal, noise, signals_form=sf, fmin=None, fmax=delta_f, delta_signal=delta, delta_noise=delta, in_db=False)).all()
         # assert when normalizing we called a slice of signal and noise with the first element removed due
         # to the choice of delta_f and delta
         signal_call = mock_np_true_divide.call_args_list[0][0]
         noise_call = mock_np_true_divide.call_args_list[1][0]
-        assert signal_call[1] == 1  # fmax removes all BUT first frequency
-        assert noise_call[1] == 1  # fmax removes all BUT first frequency
+        assert signal_call[1] == 2  # fmax removes all BUT first 2 frequencies
+        assert noise_call[1] == 2  # fmax removes all BUT first 2 frequencies
 
     # test fmax set but negative (same as missing)
     delta_t = 0.01
@@ -135,7 +135,7 @@ def test_snr(mock_np_true_divide):
         expected_leng_s = len(freqs(signal, delta_t, signal_is_timeseries=not sf))
         expected_leng_n = len(freqs(noise, delta_t, signal_is_timeseries=not sf))
         mock_np_true_divide.reset_mock()
-        assert np.isnan(snr(signal, noise, signals_form=sf, fmin=None, fmax=-delta_f, delta_s=delta, delta_n=delta, in_db=False)).all()
+        assert np.isnan(snr(signal, noise, signals_form=sf, fmin=None, fmax=-delta_f, delta_signal=delta, delta_noise=delta, in_db=False)).all()
         # assert we did not call true_divide as empty arrays are skipped:
         # (and we have empty arrays due to the choice of fmax<0)
         signal_call = mock_np_true_divide.call_args_list
@@ -169,7 +169,7 @@ def test_snr(mock_np_true_divide):
                     )
 def tst_triangsmooth(matlab_data):
     # data columns are: input_data,smooth0.01,smooth0.99,smooth0.50
-    data = []
+    data = [0]
     win_ratios = [0.01, 0.99, 0.5]
     dict = {wr:[] for wr in win_ratios}
     for d in matlab_data:
@@ -188,65 +188,79 @@ def tst_triangsmooth(matlab_data):
         s2 = dict[alpha]
         s3 = _
         h = 9
-        assert np.allclose(smooth, dict[alpha], rtol=1e-05, atol=1e-08, equal_nan=True)
-        
+        assert np.allclose(smooth[1:], dict[alpha], rtol=1e-05, atol=1e-08, equal_nan=True)
 
-def smooth_M2_old(frq,acps,N,fnimin,vlisc):
-#vlisc controlla la larghezza della finestra, per esempio 0.1
-#occhio a N, deve essere il doppio della lunghezza della finestra
-#frq sono le frequenze e acps lo spettro
-#fmin e' delta_f
-# io generalmente non ho la frequenza 0 nel vettore delle freq e nello spettro
-# quindi delta_f=freq(1)
-#EG:
-#[spesmT] = smooth_M2(freq,spesel,2*length(spesel),freq(1),0.1);
-#
-# smoothing of the Spectra with triangular window
-    NN=int(N/2)
-    fh=np.zeros(NN)
-    vxxe=np.zeros(NN)
-    
-    for io2 in range(0,int(NN)):
-        io2=int(io2)
-        fr=frq[io2]
-        ifr25=int(round((fr*vlisc)/fnimin))
-        ifp = io2+ifr25
-        ifm = io2-ifr25
-        if ifm != ifp: 
-            if  ifp > N/2:  
-                ifp = NN
-               
-            if  ifm < 0: 
-                ifm = 0
-             
-            vnk = ifp-ifm+1
-            ivnk = int(round(vnk/2.))
-            il=0
-            for ij in range(-ivnk,ivnk+1):
-                ij=int(ij)
-                fh[il]=(1.-(np.abs(ij)/vnk))
-                il=il+1
-           
-            # nfh=il-1
-            if ifm == ifp:
-                fh[0]=1.
-              
-            l=0
-            uvxx=0.
-            nor=0
-            ij=0
-            for ii in range(ifm,ifp+1):
-                ii=int(ii)
-                uvxx=uvxx+acps[ii]*fh[ij]
-                nor=nor+fh[ij]
-                ij=ij+1
-                l=l+1
-           
-            vxxe[io2]=uvxx/nor
-        
-        else: 
-            vxxe[io2]=acps[io2]
-    return vxxe
+
+def test_triangsmooth():
+    data = [3.7352e+06,
+            1.104e+06,
+            1.088e+06,
+            1.0695e+06,
+            7.1923e+05,
+            1.2757e+06,
+            1.2596e+05,
+            9.4364e+05,
+            5.8868e+05,
+            4.4942e+05,
+            6.768e+05,
+            4.0295e+05,
+            5.1843e+05,
+            6.2502e+05,
+            4.6077e+05,
+            1.4937e+05,
+            5.366e+05,
+            1.4942e+05,
+            2.4361e+05,
+            3.5926e+05]
+    # test a smooth function. take a parabola
+    win_ratio = 0.04
+    smooth = triangsmooth(np.array(data), winlen_ratio=win_ratio)
+    assert all([smooth[i]<=max(data[i-1:i+2]) and smooth[i]>=min(data[i-1:i+2]) for i in xrange(1, len(data)-1)])
+    assert np.allclose(smooth, triangsmooth0(np.array(data), win_ratio), rtol=1e-05, atol=1e-08, equal_nan=True)
+
+
+    data = [x**2 for x in xrange(115)]
+    smooth = triangsmooth(np.array(data), winlen_ratio=win_ratio)
+    assert np.allclose(smooth, data, rtol=1e-03, atol=1e-08, equal_nan=True)
+    assert np.allclose(smooth, triangsmooth0(np.array(data), win_ratio), rtol=1e-05, atol=1e-08, equal_nan=True)
+
+
+def triangsmooth0(spectrum, alpha):
+    """First implementation of triangsmooth (or bartlettsmooth). Used to check that current
+    version is equal to the first implemented"""
+    spectrum_ = np.array(spectrum, dtype=float)
+#     if copy:
+#         spectrum = spectrum.copy()
+
+    leng = len(spectrum)
+    # get the number of points (left branch, center if leng odd, right branch = left reversed)
+    nptsl = np.arange(leng // 2)
+    nptsr = nptsl[::-1]
+    nptsc = np.array([]) if leng % 2 == 0 else np.array([1 + leng // 2])
+    # get the array with the interval number of points for each i
+    # use np.concatenate((nptsl, nptsc, nptsr)) as array of maxima (to avoid overflow at boundary)
+    npts = np.around(np.minimum(np.concatenate((nptsl, nptsc, nptsr)),
+                                np.arange(leng, dtype=float) * alpha)).astype(int)
+    del nptsl, nptsc, nptsr  # frees up memory?
+    npts_u = np.unique(npts)
+
+    startindex = 0
+    try:
+        startindex = np.argwhere(npts_u <= 1)[-1][0] + 1
+    except IndexError:
+        pass
+
+    for n in npts_u[startindex:]:
+        # n_2 = np.true_divide(2*n-1, 2)
+        tri = (1 - np.abs(np.true_divide(np.arange(2*n + 1) - n, n)))
+        idxs = np.argwhere(npts == n)
+        spec_slices = spectrum[idxs-n + np.arange(2*n+1)]
+        spectrum_[idxs] = np.sum(tri * spec_slices, axis=1)/np.sum(tri)
+
+    return spectrum_
+
+
+
 
 
 

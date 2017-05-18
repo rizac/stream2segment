@@ -245,9 +245,10 @@ def main(seg, stream, inventory, config):
     # bandpass the trace, according to the event magnitude
     evt = seg.event
     fcmax = config['bandpass_freq_max']
-    trace, fcmin = bandpass(trace, evt.magnitude, freq_max=fcmax,
-                            max_nyquist_ratio=config['bandpass_max_nyquist_ratio'],
-                            corners=config['bandpass_corners'])
+    fcmin = mag2freq(evt.magnitude)
+    trace = bandpass(trace, fcmin, freq_max=fcmax,
+                     max_nyquist_ratio=config['bandpass_max_nyquist_ratio'],
+                     corners=config['bandpass_corners'])
 
     # signal to noise ratio: select a 5-95% window
     cum_trace = cumsum(trace)
@@ -334,6 +335,18 @@ def main(seg, stream, inventory, config):
     ret['st_lon'] = seg.station.longitude
     ret['st_ele'] = seg.station.elevation
     return ret
+
+
+def mag2freq(magnitude):
+    if magnitude <= 4:
+        freq_min = 0.5
+    elif magnitude <= 5:
+        freq_min = 0.3
+    elif magnitude <= 6.0:
+        freq_min = 0.1
+    else:
+        freq_min = 0.05
+    return freq_min
 
 
 def get_multievent(cum_trace, tmin, tmax,
