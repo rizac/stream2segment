@@ -246,9 +246,10 @@ def main(seg, stream, inventory, config):
 
     # bandpass the trace, according to the event magnitude
     evt = seg.event
-    trace, fmin = bandpass(trace, evt.magnitude, freq_max=config['bandpass_freq_max'],
-                           max_nyquist_ratio=config['bandpass_max_nyquist_ratio'],
-                           corners=config['bandpass_corners'])
+    fmin = mag2freq(evt.magnitude)
+    trace = bandpass(trace, fmin, freq_max=config['bandpass_freq_max'],
+                     max_nyquist_ratio=config['bandpass_max_nyquist_ratio'],
+                     corners=config['bandpass_corners'])
 
     # remove response
     trace_rem_resp = remove_response(trace, inventory, output=config['remove_response_output'],
@@ -277,3 +278,20 @@ def main(seg, stream, inventory, config):
     cum_times_float = [float(t) for t in cum_times]
     # save as csv row fft amplitudes, times of cumulative, t_PGA and PGA:
     return np.hstack((required_amplitudes, cum_times_float, [float(t_PGA), PGA]))
+
+
+def mag2freq(magnitude):
+    """converts magnitude to frequency. Used in our bandpass function to get the min freq.
+    parameter"""
+    if magnitude <= 4:
+        freq_min = 0.5
+    elif magnitude <= 5:
+        freq_min = 0.3
+    elif magnitude <= 6.0:
+        freq_min = 0.1
+    else:
+        freq_min = 0.05
+    return freq_min
+
+
+

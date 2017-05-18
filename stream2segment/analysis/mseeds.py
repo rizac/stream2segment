@@ -18,8 +18,22 @@ from stream2segment.analysis import fft as _fft, maxabs as _maxabs,\
 
 def stream_compliant(func):
     """
-        Function decorator which allows the function decorated to accept either
-        `obspy.Trace` or an `obspy.Stream` objects, handling the returned output consistently.
+        Returns a function wrapping (and calling internally) `func` which makes the latter
+        stream/trace-compliant: in other words, allows `func` to accept either an
+        `obspy.Trace` or an `obspy.Stream` objects.
+        As a function decorator:
+        ```
+            \@stream_compliant
+            def func(trace,...)
+        ```
+        Then `func` can be called with either a Trace or a Stream as first argument.
+        If Trace, then func behaves as implemented; If Stream, then func is applied to any of its
+        Traces, and a Stream wrapping each result is returned (*if any result is not a Trace,
+        a list is returned instead of a Stream*).
+
+        :param func: any function with the only constraint of having an `obspy.Trace` as first
+        argument. The function can then be called with a Stream instead of that trace
+
         Rationale: A Trace is the obspy core object representing a time-series. Therefore, in
         principle all processing functions, like those defined here, should work on traces.
         However, obspy provides also Stream objects (basically, collections of Traces)
@@ -28,15 +42,6 @@ def stream_compliant(func):
         Therefore it would be nice to implement here all functions to accept Traces or Streams,
         implementing only the Trace processing because the Stream one is just a loop over its
         Traces.
-        After implementing a function func processing a trace, and decorating it like this:
-            \@stream_compliant
-            def func(trace,...)
-        then this decoraor takes care of the rest: it takes the `func` and wraps it creating a
-        wrapper function W: if `func` first argument is a Trace, then W calls and returns `func`
-        with the trace as argument. On the other hand, if W argument is a Stream, iterates over its
-        traces and calls `func` on all of them. Then, if all the objects returned by `func` are
-        again Traces, **returns a Stream wrapping the returned traces**, otherwise **returns a list
-        of the returned objects**.
     """
     def func_wrapper(obj, *args, **kwargs):
         if isinstance(obj, Stream):
@@ -59,9 +64,10 @@ def itertrace(trace_or_stream):
     return trace_or_stream if isinstance(trace_or_stream, Stream) else [trace_or_stream]
 
 
-def bandpass(trace, magnitude, freq_max=20, max_nyquist_ratio=0.9,
+def bandpass(trace, freq_min, freq_max, max_nyquist_ratio=0.9,
              corners=2, copy=True):
-    """filters a signal trace, where the minimum frequency is magnitude dependent
+    """filters a signal trace. Wrapper around trace.filter in that it does some pre-processing
+    before filtering
     :param trace: the input obspy.core.Trace
     :param magnitude: the magnitude which originated the trace (or stream). It dictates the value
     of the high-pass corner (the minimum frequency, freq_min, in Hz)
@@ -73,17 +79,6 @@ def bandpass(trace, magnitude, freq_max=20, max_nyquist_ratio=0.9,
     the given magnitude
     """
     tra = trace.copy() if copy is True else trace
-
-    # get freq_min according to magnitude (see e.g. RRSM or ISM)
-    # (this might change in the future)
-    if magnitude <= 4:
-        freq_min = 0.5
-    elif magnitude <= 5:
-        freq_min = 0.3
-    elif magnitude <= 6.0:
-        freq_min = 0.1
-    else:
-        freq_min = 0.05
 
     # define sampling freq
     sampling_rate = tra.stats.sampling_rate
@@ -110,7 +105,7 @@ def bandpass(trace, magnitude, freq_max=20, max_nyquist_ratio=0.9,
     # 5) remove padded elements:
     tra.trim(starttime=None, endtime=endtime_remainder)
 
-    return (tra, freq_min)
+    return tra
 
 
 @stream_compliant
@@ -306,20 +301,13 @@ def fft(trace, fixed_time=None, window_in_sec=None, taper_max_percentage=0.05, t
     return t
 
 
-def snr(trace, noisy_trace, fmin=None, fmax=None, nearest_sample=False,
-        in_db=False):
-    """
-    Wrapper arounf analysis.snr for trace or streams
-    :param trace: a given `obspy` Trace denoting the divisor of the snr
-    :param noisy_trace: a given `obspy` Trace denoting the dividend of the snr
-    :param signals_form: tells this function what the given traces are. If:
-        - 'fft' or 'dft': then the traces where obtained from the `fft` function of this module,
-            and their data are actually discrete Fourier transforms
-        - any other value: then the traces are time series, their amplitude spectra will be
-            computed before returning the snr.
-    """
+def snr(trace, noisy_trace, fmin=None, fmax=None, nearest_sample=False, in_db=False):
+    """Wrapper around `analysis.snr` for trace or streams
+    :param trace: a given `obspy` Trace denoting the trace of the signal
+    :param noisy_trace: a given `obspy` Trace denoting the trace of noise
+    s"""
     return _snr(trace.data, noisy_trace.data, signals_form='', fmin=fmin, fmax=fmax,
-                delta_s=trace.stats.delta, delta_n=noisy_trace.stats.delta,
+                delta_signal=trace.stats.delta, delta_noise=noisy_trace.stats.delta,
                 nearest_sample=nearest_sample, in_db=in_db)
 
 

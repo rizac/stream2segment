@@ -79,14 +79,13 @@ def freqs(signal, delta, signal_is_timeseries=False, f0=0):
     return np.linspace(f0, f0 + (delta_f * leng), leng, endpoint=False)
 
 
-def snr(signal, noise, signals_form='', fmin=None, fmax=None, delta_s=1.,
-        delta_n=1., nearest_sample=False, in_db=False):
-    """
-    Returns the signal to noise ratio (SNR) of `signal` over `noise`. If required, runs `fft`
-    before computing the SNR, and optionally computer the SNR in a special
-    frequency band only
-    :param signal: a numeric array denoting the divisor of the snr
-    :param noise: a numeric array denoting the dividend of the snr
+def snr(signal, noise, signals_form='', fmin=None, fmax=None, delta_signal=1.,
+        delta_noise=1., nearest_sample=False, in_db=False):
+    """Returns the signal to noise ratio (SNR) of `signal` over `noise`. If required, runs `fft`
+    before computing the SNR, and/or computes the SNR in a special
+    frequency band [`fmin`, `fmax`] only
+    :param signal: a numpy array denoting the divisor of the snr
+    :param noise: a numpy array denoting the dividend of the snr
     :param signals_form: tells this function what the given signals are. If:
         - 'fft' or 'dft': then the signals are discrete Fourier transforms, and they will be
             converted to amplitude spectra before computing the snr (modulus of each fft component)
@@ -96,19 +95,19 @@ def snr(signal, noise, signals_form='', fmin=None, fmax=None, delta_s=1.,
             computed before returning the snr
     :param fmin: None or float: the minimum frequency to account for when computing the SNR.
     None (the default) will consider all frequencies
-    :param fmax: None or float: the minimum frequency to account for when computing the SNR.
+    :param fmax: None or float: the maximum frequency to account for when computing the SNR.
     None (the default) will consider all frequencies
-    :param delta_s: float (ignored if both `fmin` and `fmax` are None):
+    :param delta_signal: float (ignored if both `fmin` and `fmax` are None):
     the delta frequency of `signal` (in Herz), if `signal` is a frequency domain array
-    (`signals_form` argument in `('pow', 'dft', 'fft', 'amp')`), or the sample rate (in seconds)
+    (`signals_form` in `['pow', 'dft', 'fft', 'amp']`), or the sample rate (in seconds)
     otherwise
-    :param delta_n: float (ignored if both `fmin` and `fmax` are None):
+    :param delta_noise: float (ignored if both `fmin` and `fmax` are None):
     the delta frequency of `noise` (in Herz), if `noise` is a frequency domain array
-    (`signals_form` argument in `('pow', 'dft', 'fft', 'amp')`), or the sample rate (in seconds)
+    (`signals_form` in `['pow', 'dft', 'fft', 'amp']`), or the sample rate (in seconds)
     otherwise
     :param nearest_sample: boolean, default False  (ignored if both `fmin` and `fmax` are None):
     whether or not to take the nearest sample when trimming according to `fmin` and `fmax`, or to
-    take only the samples included in the interval (the default)
+    take only the samples strictly included in the interval (the default)
     :param in_db: boolean (False by default): whether to return the SNR in db's or not
     """
     if signals_form.lower() == 'amp':
@@ -119,15 +118,15 @@ def snr(signal, noise, signals_form='', fmin=None, fmax=None, delta_s=1.,
         noise = pow_spec(noise, signal_is_fft=True)
     elif signals_form.lower() != 'pow':
         # convert also deltas to frequencies
-        delta_s = dfreq(signal, delta_s)
-        delta_n = dfreq(noise, delta_n)
+        delta_signal = dfreq(signal, delta_signal)
+        delta_noise = dfreq(noise, delta_noise)
         # compute power spectra:
         signal = pow_spec(signal, signal_is_fft=False)
         noise = pow_spec(noise, signal_is_fft=False)
 
     # take slices if required:
-    signal = trim(signal, delta_s, fmin, fmax, nearest_sample)
-    noise = trim(noise, delta_n, fmin, fmax, nearest_sample)
+    signal = trim(signal, delta_signal, fmin, fmax, nearest_sample)
+    noise = trim(noise, delta_noise, fmin, fmax, nearest_sample)
 
     if not len(signal) or not len(noise):  # avoid warning from np.true_divide
         # Return numpy number for consistency
@@ -159,32 +158,31 @@ def trim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
 
 
 def argtrim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
+    """returns the indices of signal such as `signal[i0:i1]` is the slice of signal
+    between (nd including) minx and maxx
     """
-    returns the indices of signal such as `signal[i0:i1]` is the slice of signal
-    between minx and maxx"""
     if minx is None and maxx is None:
-        return signal
+        return (None, None)
 
     idxmin, idxmax = minx, maxx
     deltax = float(deltax)
 
     if minx is not None:
-        idx = int(round(minx/deltax) if nearest_sample else floor(minx/deltax))
+        idx = int(round(minx/deltax) if nearest_sample else ceil(minx/deltax))
         idxmin = min(max(0, idx), len(signal))
 
     if maxx is not None:
-        idx = int(round(maxx/deltax) if nearest_sample else floor(maxx/deltax))
+        idx = int(round(maxx/deltax) if nearest_sample else floor(maxx/deltax)) + 1
         idxmax = min(max(0, idx), len(signal))
 
     return idxmin, idxmax
 
 
 def cumsum(signal, normalize=True):
-    """
-        Returns the cumulative resulting from the cumulative on the given signal
+    """Returns the cumulative resulting from the cumulative on the given signal
     """
     ret = np.cumsum(np.square(signal), axis=None, dtype=None, out=None)
-    if normalize and (ret != 0).any():
+    if normalize:  # and (ret != 0).any():
         max_ = np.max(ret)
         if not np.isnan(max_) and (max_ != 0):
             # normalize between 0 and 1. Note true div cause if signal is made of ints we have a
@@ -215,7 +213,7 @@ def triangsmooth(array, winlen_ratio):
     # possible, and several redundant math expression related to normalizations (e.g., divide and
     # later re-multiply) have been optimized (especially in the while loop below), for performance
     # reasons
-    smoothed_array = array.copy()
+    smoothed_array = np.array(array, copy=True, dtype=float)
     spec_len = len(array)
     # calculate npts, the array of points where npts[i] = length of the window at index i
     npts = np.zeros(spec_len, dtype=int)  # alloc once
@@ -248,7 +246,7 @@ def triangsmooth(array, winlen_ratio):
     while len(wdw) > 1:  # len(wdw)=1: wdw = [0] => np.sum below is no-op => skip it
         n = wdw[-1] + 1
         idxs = np.argwhere(npts == n)
-        smoothed_array[idxs] = np.sum(tri_wdw * array[idxs + wdw], axis=1) / n ** 2
+        smoothed_array[idxs] = np.sum(tri_wdw * array[idxs + wdw], axis=1) / float(n ** 2)
         wdw = wdw[1:-1]
         tri_wdw[n-2:-2] = tri_wdw[n:]  # shift tri_wdw (this seems to be faster than other methods)
         tri_wdw = tri_wdw[:-2]
