@@ -91,7 +91,7 @@ from collections import OrderedDict
 # strem2segment functions for processing mseeds. This is just a list of possible functions
 # to show how to import them:
 from stream2segment.analysis.mseeds import remove_response, amp_ratio, bandpass, cumsum,\
-    cumtimes, fft, maxabs, simulate_wa, get_multievent, snr, utcdatetime
+    cumtimes, fft, maxabs, simulate_wa, snr, utcdatetime
 # when working with times, use obspy UTCDateTime:
 from obspy.core.utcdatetime import UTCDateTime
 # stream2segment function for processing numpy arrays (such as stream.traces[0])

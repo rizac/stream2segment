@@ -6,10 +6,10 @@ Created on Jun 20, 2016
 import numpy as np
 
 # from scipy.signal import savgol_filter
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle  # @UnusedImport
+# try:
+#     import cPickle as pickle
+# except ImportError:
+#     import pickle  # @UnusedImport
 from obspy.core import Stream, Trace, UTCDateTime  # , Stats
 from obspy import read_inventory
 from stream2segment.analysis import fft as _fft, maxabs as _maxabs,\
@@ -58,10 +58,10 @@ def stream_compliant(func):
     return func_wrapper
 
 
-def itertrace(trace_or_stream):
-    """Iterator over the argument. If the latter is a Stream, returns it. If it is a trace
-    returns the argument wrapped into a list"""
-    return trace_or_stream if isinstance(trace_or_stream, Stream) else [trace_or_stream]
+# def itertrace(trace_or_stream):
+#     """Iterator over the argument. If the latter is a Stream, returns it. If it is a trace
+#     returns the argument wrapped into a list"""
+#     return trace_or_stream if isinstance(trace_or_stream, Stream) else [trace_or_stream]
 
 
 def bandpass(trace, freq_min, freq_max, max_nyquist_ratio=0.9,
@@ -388,62 +388,62 @@ def amp_ratio(trace, threshold=2**23):
 #     return (newxarray, ret) if return_x_array else ret
 
 
-@stream_compliant
-def get_multievent(cum_trace, tmin, tmax,
-                   threshold_inside_tmin_tmax_percent,
-                   threshold_inside_tmin_tmax_sec, threshold_after_tmax_percent):
-    """
-        Returns the tuple (or a list of tuples, if the first argument is a stream) of the
-        values (score, UTCDateTime of arrival)
-        where scores is: 0: no double event, 1: double event inside tmin_tmax,
-            2: double event after tmax, 3: both double event previously defined are detected
-        If score is 2 or 3, the second argument is the UTCDateTime denoting the occurrence of the
-        first sample triggering the double event after tmax
-        :param trace: the input obspy.core.Trace
-    """
-    tmin = utcdatetime(tmin)
-    tmax = utcdatetime(tmax)
-
-    double_event_after_tmax_time = None
-    d_order = 2
-
-    # split traces between tmin and tmax and after tmax
-    traces = [cum_trace.slice(tmin, tmax), cum_trace.slice(tmax, None)]
-
-    # calculate second derivative and normalize:
-    derivs = []
-    max_ = None
-    for ttt in traces:
-        sec_der = np.diff(ttt.data, n=d_order)
-        _, mmm = _maxabs(sec_der)
-        max_ = np.nanmax([max_, mmm])  # get max (global) for normalization (see below):
-        derivs.append(sec_der)
-
-    # normalize second derivatives:
-    for der in derivs:
-        der /= max_
-
-    result = 0
-
-    # case A: see if after tmax we exceed a threshold
-    indices = np.where(derivs[1] >= threshold_after_tmax_percent)[0]
-
-    if len(indices):
-        result = 2
-        double_event_after_tmax_time = timeof(traces[1], indices[0])
-
-    # case B: see if inside tmin tmax we exceed a threshold, and in case check the duration
-    indices = np.where(derivs[0] >= threshold_inside_tmin_tmax_percent)[0]
-    if len(indices) >= 2:
-        idx0 = indices[0]
-        idx1 = indices[-1]
-
-        deltatime = (idx1 - idx0) * cum_trace.stats.delta
-
-        if deltatime >= threshold_inside_tmin_tmax_sec:
-            result += 1
-
-    return (result, double_event_after_tmax_time)
+# @stream_compliant
+# def get_multievent(cum_trace, tmin, tmax,
+#                    threshold_inside_tmin_tmax_percent,
+#                    threshold_inside_tmin_tmax_sec, threshold_after_tmax_percent):
+#     """
+#         Returns the tuple (or a list of tuples, if the first argument is a stream) of the
+#         values (score, UTCDateTime of arrival)
+#         where scores is: 0: no double event, 1: double event inside tmin_tmax,
+#             2: double event after tmax, 3: both double event previously defined are detected
+#         If score is 2 or 3, the second argument is the UTCDateTime denoting the occurrence of the
+#         first sample triggering the double event after tmax
+#         :param trace: the input obspy.core.Trace
+#     """
+#     tmin = utcdatetime(tmin)
+#     tmax = utcdatetime(tmax)
+# 
+#     double_event_after_tmax_time = None
+#     d_order = 2
+# 
+#     # split traces between tmin and tmax and after tmax
+#     traces = [cum_trace.slice(tmin, tmax), cum_trace.slice(tmax, None)]
+# 
+#     # calculate second derivative and normalize:
+#     derivs = []
+#     max_ = None
+#     for ttt in traces:
+#         sec_der = np.diff(ttt.data, n=d_order)
+#         _, mmm = _maxabs(sec_der)
+#         max_ = np.nanmax([max_, mmm])  # get max (global) for normalization (see below):
+#         derivs.append(sec_der)
+# 
+#     # normalize second derivatives:
+#     for der in derivs:
+#         der /= max_
+# 
+#     result = 0
+# 
+#     # case A: see if after tmax we exceed a threshold
+#     indices = np.where(derivs[1] >= threshold_after_tmax_percent)[0]
+# 
+#     if len(indices):
+#         result = 2
+#         double_event_after_tmax_time = timeof(traces[1], indices[0])
+# 
+#     # case B: see if inside tmin tmax we exceed a threshold, and in case check the duration
+#     indices = np.where(derivs[0] >= threshold_inside_tmin_tmax_percent)[0]
+#     if len(indices) >= 2:
+#         idx0 = indices[0]
+#         idx1 = indices[-1]
+# 
+#         deltatime = (idx1 - idx0) * cum_trace.stats.delta
+# 
+#         if deltatime >= threshold_inside_tmin_tmax_sec:
+#             result += 1
+# 
+#     return (result, double_event_after_tmax_time)
 
 
 def timeof(trace, index):

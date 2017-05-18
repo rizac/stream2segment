@@ -64,9 +64,16 @@ def test_snr(mock_powspec, mock_analysis_snr):
     h = 9
     
     
-def test_bp():
+def test_bandpass():
     trace = get_data()['mseed'][0]
     res = bandpass(trace, 2, 3)
+    assert not np.array_equal(trace.data, res.data)
+    assert trace.stats.starttime == res.stats.starttime
+    assert trace.stats.endtime == res.stats.endtime
+    assert trace.stats.npts == res.stats.npts
+    assert len(trace.data) == len(res.data)
+    
+    
     h = 9
 
 # @pytest.mark.parametrize('inv_output',

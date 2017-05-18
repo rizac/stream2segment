@@ -8,7 +8,7 @@ import numpy as np
 # strem2segment functions for processing mseeds
 # If you need to use them, import them like this:
 from stream2segment.analysis.mseeds import remove_response, amp_ratio, bandpass, cumsum,\
-    cumtimes, fft, maxabs, simulate_wa, get_multievent, snr
+    cumtimes, fft, maxabs, simulate_wa, snr
 # when working with times, use obspy UTCDateTime:
 from obspy.core.utcdatetime import UTCDateTime
 # stream2segment function for processing numpy arrays (such as stream.traces[0])
