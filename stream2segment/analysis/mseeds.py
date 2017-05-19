@@ -95,9 +95,10 @@ def bandpass(trace, freq_min, freq_max, max_nyquist_ratio=0.9,
     tra.taper(type='cosine', max_percentage=0.05)
 
     # 3) pad data with zeros at the END in order to filter transient
+    # according to Convers and Brady (1992)
+    t_zpad = (1.5*corners)/freq_min
     endtime_remainder = tra.stats.endtime
-    endtime = endtime_remainder + (endtime_remainder - tra.stats.starttime)
-    tra.trim(starttime=None, endtime=endtime, pad=True, fill_value=0)
+    tra.trim(starttime=None, endtime=endtime_remainder+t_zpad, pad=True, fill_value=0)
 
     # 4) apply bandpass filter:
     tra.filter('bandpass', freqmin=freq_min, freqmax=freq_max, corners=corners, zerophase=True)
