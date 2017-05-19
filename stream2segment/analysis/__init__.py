@@ -151,6 +151,17 @@ def snr(signal, noise, signals_form='', fmin=None, fmax=None, delta_signal=1.,
 
 
 def trim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
+    """Trims the equally-spaced signal, padding with zeros if necessary. General function that works
+    like obspy.Trace.trim for any kind of array
+    :param signal: numpy numeric array denoting the values to trim
+    :param deltax: the delta between two points of signal on the x axis. The unit must be
+    the same as `minx` and `maxx` (e.g., Herz, seconds, etcetera)
+    :param minx: float, the minimum x, in `signal`'s unit (the same as `deltax`)
+    :param maxx: float, the maximum x, in `signal`s unit (the same as `deltax`)
+    :param nearest_sample: boolean, default false.  whether or not to take the nearest sample
+    when trimming according to `minx` and `maxx`, or to
+    take only the samples strictly included in the interval (the default)
+    """
     if minx is None and maxx is None:
         return signal
     idxmin, idxmax = argtrim(signal, deltax, minx, maxx, nearest_sample)
