@@ -26,7 +26,7 @@ from click.testing import CliRunner
 import pandas as pd
 from stream2segment.download.main import add_classes, get_events_df, get_datacenters_df, logger as query_logger, \
 get_channels_df, merge_events_stations, set_saved_arrivaltimes, get_arrivaltimes,\
-    prepare_for_download, download_save_segments, _strcat, get_eventws_url, dbsync
+    prepare_for_download, download_save_segments, _strcat, get_eventws_url, dbsync, save_inventories
 # ,\
 #     get_fdsn_channels_df, save_stations_and_channels, get_dists_and_times, set_saved_dist_and_times,\
 #     download_segments, drop_already_downloaded, set_download_urls, save_segments
@@ -385,21 +385,35 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     def download_save_segments(self, url_read_side_effect, *a, **kw):
         self.setup_urlopen(self._seg_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
         return download_save_segments(*a, **kw)
+    
+    def save_inventories(self, url_read_side_effect, *a, **v):
+        self.setup_urlopen(self._get_inv() if url_read_side_effect is None else url_read_side_effect)
+        save_inventories(*a, **v)
+
+    
+    def _get_inv(self):
+        path = os.join(os.dirname(os.dirname(os.path.abspath(__file__))), "data", "inventory_GE.APE.xml")
+        with open(path, 'rb') as opn_:
+            return opn_.read()
+
 
     @patch('stream2segment.download.main.get_events_df')
     @patch('stream2segment.download.main.get_datacenters_df')
     @patch('stream2segment.download.main.get_channels_df')
+    @patch('stream2segment.download.main.save_inventories')
     @patch('stream2segment.download.main.get_arrivaltimes')
     @patch('stream2segment.download.main.download_save_segments')
     @patch('stream2segment.download.main.mseedunpack')
     @patch('stream2segment.download.main.insertdf_napkeys')
     @patch('stream2segment.download.main.updatedf')
-    def test_cmdline(self, mock_updatedf, mock_insertdf_napkeys, mock_mseed_unpack, mock_download_save_segments, mock_get_arrivaltimes, mock_get_channels_df,
+    def test_cmdline(self, mock_updatedf, mock_insertdf_napkeys, mock_mseed_unpack,
+                     mock_download_save_segments, mock_get_arrivaltimes, mock_save_inventories, mock_get_channels_df,
                     mock_get_datacenters_df, mock_get_events_df):
         
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
+        mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
         mock_get_arrivaltimes.side_effect = lambda *a, **v: self.get_arrivaltimes(None, *a, **v)
         mock_download_save_segments.side_effect = lambda *a, **v: self.download_save_segments(None, *a, **v)
         mock_mseed_unpack.side_effect = lambda *a, **v: unpack(*a, **v)
@@ -585,6 +599,42 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             assert False
             return
        
+        
+        # test with loading station inventories:
+        # we should not ahve inventories saved:
+        stainvs = self.session.query(withdata(Station.inventory_xml)).all()
+        assert len(stainvs) == 0
+        
+        runner = CliRunner()
+        result = runner.invoke(main , ['d', '--dburl', self.dburi,
+                                       '--start', '2016-05-08T00:00:00',
+                                       '--end', '2016-05-08T9:00:00', '--inventory'])
+        if result.exception:
+            import traceback
+            traceback.print_exception(*result.exc_info)
+            print result.output
+            assert False
+            return
+        
+        stainvs = self.session.query(withdata(Station.inventory_xml)).all()
+        assert len(stainvs) == len(self.session.query(Station).all())
+        
+        # check now that none is downloaded
+        runner = CliRunner()
+        result = runner.invoke(main , ['d', '--dburl', self.dburi,
+                                       '--start', '2016-05-08T00:00:00',
+                                       '--end', '2016-05-08T9:00:00', '--inventory'])
+        if result.exception:
+            import traceback
+            traceback.print_exception(*result.exc_info)
+            print result.output
+            assert False
+            return
+        
+        stainvs = self.session.query(withdata(Station.inventory_xml)).all()
+        assert len(stainvs) == stainvs2
+                                                                                    
+        
         
 #         mock_get_events_df.reset_mock()
 #         # check that now we should skip all cause dates are bad
