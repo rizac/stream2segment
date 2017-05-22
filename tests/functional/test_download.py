@@ -711,7 +711,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         self._sta_urlread_sideeffect =  oldst_se
 
 
-        
+
+
         
         # test a type error in the url_segment_side effect
         self.session.query(Segment).delete()

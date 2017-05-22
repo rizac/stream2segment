@@ -24,7 +24,7 @@ from sqlalchemy import or_, and_
 from sqlalchemy.exc import SQLAlchemyError
 # from obspy.taup.tau import TauPyModel
 # from obspy.taup.helper_classes import TauModelError, SlownessModelError
-from stream2segment.utils.url import urlread, read_async, URLException
+from stream2segment.utils.url import urlread, read_async, URLException, read_async2
 from stream2segment.io.db.models import Class, Event, DataCenter, Segment, Station,\
     dc_get_other_service_url, Channel, WebService
 from stream2segment.io.db.pd_sql_utils import withdata, dfrowiter, mergeupdate,\
@@ -847,7 +847,7 @@ def download_save_segments(session, segments_df, datacenters_df,
 
     datcen_id2url = datacenters_df.set_index([DC_ID_NAME])[DC_DSQU_NAME].to_dict()
     # requests entity too large: list of tuples: request_string, single_elm_dataframe
-    retries = []
+    
 #     info = defaultdict(int)
 #     # strings for infos (to avoid typos): inserted new inserted total, updated new updated total
 #     I_NEW, I_TOT, U_NEW, U_TOT = "a", 'b', 'c', 'd'  # just provide short random strings, who cares
@@ -863,75 +863,79 @@ def download_save_segments(session, segments_df, datacenters_df,
     segmanager = DbManager(session, SEG_ID_COL, [SEG_RUNID_COL, SEG_DATA_COL, SEG_MGR_COL,
                                                  SEG_SRATE_COL, SEG_DSC_COL], ADDBUFSIZE)
 
-    def ondone(df, result, exc, request):
-        """function executed when a given url has successfully downloaded `data`"""
-        _ = df[0]  # not used. NOTE that the type of this var changes according to whether we are
-        # retriying froma  previous 413 http code or not
-        df = df[1]
-        url = request.get_host()
-        # init all fields as none (SEG_DSC_NAME, the download status code, will be set later)
-        if exc:
-            code = URLERR_CODE
-        else:
-            data, code, msg = result
-            if code == 413 and len(df) > 1:
-                for i, postdatarow in enumerate(request.data.split("\n")):
-                    retries.append((Request(url=request.get_full_url(), data=postdatarow),
-                                    pd.DataFrame(df.iloc[i]).T))
-                return
-            elif code >= 400:
-                exc = "%d: %s" % (code, msg)
-            else:
-                # init with empty data. We got no errors so
-                # if we have empty data skip below, and we already have all values set
-                if not data:
-                    df.loc[:, SEG_DATA_NAME] = b''
-                    df.loc[:, SEG_DSC_NAME] = code
-                else:
-                    try:
-                        resdict = mseedunpack(data)
-                        oks = 0
-                        values = []
-                        for key, (data, samplerate, max_gap_ratio, err) in resdict.iteritems():
-                            if err is not None:
-                                values.append((None, None, None, None, MSEEDERR_CODE))
-                                stats[url][err] += 1
-                            else:
-                                values.append((data, samplerate, max_gap_ratio, key, code))
-                                oks += 1
-                        df.loc[resdict.keys(), [SEG_DATA_NAME, SEG_SRATE_NAME, SEG_MGR_NAME,
-                                                SEG_SEEDID_NAME, SEG_DSC_NAME]] = values
-                        stats[url]["%d: %s" % (code, msg)] += oks
-                    except MSeedError as mseedexc:
-                        code = MSEEDERR_CODE
-                        exc = mseedexc
-                    except Exception as unknown_exc:
-                        code = None
-                        exc = unknown_exc
-
-        if exc is not None:  # set fields to None to save memory
-            df.loc[:, SEG_DSC_NAME] = code
-            stats[url][exc] += len(df)
-            logger.warning(MSG("", "Unable to get waveform data", exc, request))
-
-        segmanager.add(df)
-        notify_progress_func(len(df))
-
     seg_groups = segments_df.groupby([SEG_DCID_NAME, SEG_STIME_NAME, SEG_ETIME_NAME], sort=False)
 
     # seg group is an iterable of 2 element tuples. The first element is the tuple of keys[:idx]
     # values, and the second element is the dataframe
-    read_async(seg_groups,
-               urlkey=lambda obj: _get_seg_request(obj[1], datcen_id2url[obj[0][0]]),
-               ondone=ondone, raise_http_err=False,
-               max_workers=max_thread_workers,
-               timeout=timeout, blocksize=download_blocksize)
-    if retries:
-        read_async(retries,
-                   urlkey=lambda obj: obj[0],
-                   ondone=ondone, raise_http_err=False,
-                   max_workers=max_thread_workers,
-                   timeout=timeout, blocksize=download_blocksize)
+    itr = read_async2(seg_groups,
+                      urlkey=lambda obj: _get_seg_request(obj[1], datcen_id2url[obj[0][0]]),
+                      raise_http_err=False,
+                      max_workers=max_thread_workers,
+                      timeout=timeout, blocksize=download_blocksize)
+
+    while itr is not None:
+        retries = []
+        for df, result, exc, request in itr:
+            _ = df[0]  # not used. NOTE that the type of this var changes according to whether we are
+            # retriying froma  previous 413 http code or not
+            df = df[1]
+            url = request.get_host()
+            # init all fields as none (SEG_DSC_NAME, the download status code, will be set later)
+            if exc:
+                code = URLERR_CODE
+            else:
+                data, code, msg = result
+                if code == 413 and len(df) > 1:
+                    for i, postdatarow in enumerate(request.data.split("\n")):
+                        retries.append((Request(url=request.get_full_url(), data=postdatarow),
+                                        pd.DataFrame(df.iloc[i]).T))
+                    continue
+                elif code >= 400:
+                    exc = "%d: %s" % (code, msg)
+                else:
+                    # init with empty data. We got no errors so
+                    # if we have empty data skip below, and we already have all values set
+                    if not data:
+                        df.loc[:, SEG_DATA_NAME] = b''
+                        df.loc[:, SEG_DSC_NAME] = code
+                    else:
+                        try:
+                            resdict = mseedunpack(data)
+                            oks = 0
+                            values = []
+                            for key, (data, samplerate, max_gap_ratio, err) in resdict.iteritems():
+                                if err is not None:
+                                    values.append((None, None, None, None, MSEEDERR_CODE))
+                                    stats[url][err] += 1
+                                else:
+                                    values.append((data, samplerate, max_gap_ratio, key, code))
+                                    oks += 1
+                            df.loc[resdict.keys(), [SEG_DATA_NAME, SEG_SRATE_NAME, SEG_MGR_NAME,
+                                                    SEG_SEEDID_NAME, SEG_DSC_NAME]] = values
+                            stats[url]["%d: %s" % (code, msg)] += oks
+                        except MSeedError as mseedexc:
+                            code = MSEEDERR_CODE
+                            exc = mseedexc
+                        except Exception as unknown_exc:
+                            code = None
+                            exc = unknown_exc
+
+            if exc is not None:  # set fields to None to save memory
+                df.loc[:, SEG_DSC_NAME] = code
+                stats[url][exc] += len(df)
+                logger.warning(MSG("", "Unable to get waveform data", exc, request))
+
+            segmanager.add(df)
+            notify_progress_func(len(df))
+
+        if retries:
+            itr = read_async2(retries,
+                              urlkey=lambda obj: obj[0],
+                              raise_http_err=False,
+                              max_workers=max_thread_workers,
+                              timeout=timeout, blocksize=download_blocksize)
+        else:
+            break
 
     segmanager.close()  # flush remaining stuff to insert / update, if any
     return stats
