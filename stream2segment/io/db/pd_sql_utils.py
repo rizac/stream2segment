@@ -1,64 +1,23 @@
 '''
+Efficient utilities for converting from pandas DataFrames to sqlalchemy tables objects
+(according to `models.py`)
+Some of these functions are copied and pasted from `pandas.io.sql.SqlTable`, some other account for
+performance improvements in SqlAlchemy (http://docs.sqlalchemy.org/en/latest/faq/performance.html).
+This module is a bridge between these libraries. It might be that in future pandas releases
+most of these functionalities will be standard in the library
 
-Utilities for converting from pandas DataFrames to sqlalchemy tables objects
-(according to models.py)
-Some of these functions are copied and pasted from pandas.io.sql.SqlTable
-A particular function, `colitems`, deals with SqlAlchemy mapping, returning the columns defined in
-a model class.
-This deserves a little description of the underlying mechanism of SqlAlchemy (skip
-this if you are not a developer).
+Refs
+----
 
-In SQLAlchemy, descriptors are used heavily in order to provide attribute behavior on mapped
-classes. When a class is mapped as such:
-```
-class MyClass(Base):
-    __tablename__ = 'foo'
-
-    id = Column(Integer, primary_key=True)
-    data = Column(String)
-```
-The `MyClass` class will be mapped when its definition is complete, at which point the id and
-data attributes, starting out as **Column** objects, will be replaced by the instrumentation
-system with instances of **InstrumentedAttribute**, which are descriptors that provide the
-`__get__()`, `__set__()` and `__delete__()` methods. The InstrumentedAttribute will generate a
-SQL expression when used at the class level:
-```
->>> print(MyClass.data == 5)
-data = :data_1
-```
-(http://docs.sqlalchemy.org/en/latest/glossary.html#term-descriptor)
-Each InstrumentedAttribute has a **key** attribute which is the attribute name (as
-typed in python code), and can be used dynamically via python `setattr` and `getattr` function.
-This has **not to be confused** with the `key` attribute of the relative Column, which
-is "an optional string identifier which will identify this Column object on the Table."
-(http://docs.sqlalchemy.org/en/latest/core/metadata.html#sqlalchemy.schema.Column.params.key).
-
-Note that the Column has also a name attribute which is the name of this column as represented in
-the database. This argument may be the first positional argument, or specified via keyword ('name').
-See http://docs.sqlalchemy.org/en/latest/core/metadata.html#sqlalchemy.schema.Column.params.name
-
-Typically, one wants to work with **InstrumentedAttribute**s and their key (attribute names), not
-with **Column**s names and keys. But it is important the distinction.
-In a previous version of `colitems`, we used the `__table__.columns` dict-like object, but it is
-keyed according to the keys of the Column, which is by default the class attribute name, which means
-that the attribute names are lost if one provides custom keys for the Column objects.
-The `inspect` function called with a class or an instance produces a `Mapper` object
-(http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper)
-which apparently has also a `columns` dict like object of Column's object
-**keyed based on the attribute name defined in the mapping, not necessarily the key attribute of
-the Column itself**
-(http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper.columns),
-This is used in the method `colitems` which returns the **attribute names** mapped to the
-relative **Column**. All in all:
-```
-for att_name, column_obj in colitems(MyClass):
-    instrumented_attribute_obj = MyClass.getattr(att_name)
-    # create a SQL expression:
-    instrumented_attribute_obj == 5
-    # this actually also works and produces the same SQL expression,
-    # but I didn't found references about:
-    column_obj == 5
-```
+- Underlying mechanism of SqlAlchemy:
+  http://docs.sqlalchemy.org/en/latest/glossary.html#term-descriptor
+- Key attribute in SqlAlchemy columns:
+  http://docs.sqlalchemy.org/en/latest/core/metadata.html#sqlalchemy.schema.Column.params.key
+- Name attribute in SqlAlchemy columns:
+  http://docs.sqlalchemy.org/en/latest/core/metadata.html#sqlalchemy.schema.Column.params.name
+- Mapper SqlAlchemy object (for inspecting a table):
+  http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper
+  http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper.columns
 
 Created on Jul 17, 2016
 
@@ -66,7 +25,8 @@ Created on Jul 17, 2016
 '''
 from __future__ import division
 from datetime import datetime, date
-from collections import OrderedDict
+# from collections import OrderedDict
+from itertools import cycle, izip
 import numpy as np
 import pandas as pd
 
@@ -80,15 +40,15 @@ from pandas.compat import (lzip, map, zip, raise_with_traceback,
 from pandas.core.common import isnull
 # but we need also pd.isnull so we import it like this for safety:
 # from pandas import isnull as pd_isnull
+from pandas.types.dtypes import DatetimeTZDtype
+# sql-alchemy:
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 # from sqlalchemy.sql.elements import BinaryExpression
 from sqlalchemy.sql.expression import and_, or_
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 # from pandas import to_numeric
 # from sqlalchemy.engine import create_engine
-from itertools import cycle, izip
 from sqlalchemy.inspection import inspect
-from pandas.types.dtypes import DatetimeTZDtype
 from sqlalchemy.sql.expression import func, bindparam
 
 
@@ -301,78 +261,6 @@ def _harmonize_columns(table, dataframe, parse_dates=None):
     return column_names, dataframe
 
 
-# def addcols(dataframe, **names_and_types):
-#     """Adds the given columns to dataframe, with the arguments specifying the column name
-#     and its dtype, which can be a python type (int, datetime.datetime, float...) or a valid
-#     numpy dtype (string). The columns are initialized with pandas NA (for which pd.isnull return
-#     True)"""
-#     return pd.concat([dataframe,
-#                       pd.DataFrame({n: pd.Series(dtype='M8[ns]' if d is datetime else d)
-#                                     for n, d in names_and_types.iteritems()},
-#                                    columns=names_and_types.keys(), index=dataframe.index)
-#                       ], axis=1)
-    
-    
-#     return dataframe.join([pd.Series(name=n, dtype='M8[us]' if d is datetime else d) for n, d in
-#                            names_and_types.iteritems()])
-    
-# def df2dbiter(dataframe, table_class, harmonize_cols_first=True, harmonize_rows_first=True,
-#               parse_dates=None):
-#     """
-#         Returns a generator of of ORM model instances (reflecting the rows database table mapped by
-#         table_class) from the given dataframe. The returned generator can be used in loops and each
-#         element can be e.g. added to the database by means of sqlAlchemy `session.add` method.
-#         NOTE: Only the dataframe columns whose name match the table_class columns will be used.
-#         Therefore, it is safe to append to dataframe any column whose name is not in table_class
-#         columns. Some iterations might return None according to the parameters (see below)
-#         :param table_class: the CLASS of the table whose rows are instantiated and returned
-#         :param dataframe: the input dataframe
-#         :param harmonize_cols_first: if True (default when missing), the dataframe column types
-#         are harmonized to reflect the table_class column types, and columns without a match
-#         in table_class are filtered out. See `harmonize_columns(dataframe)`. If
-#         `harmonize_cols_first` and `harmonize_rows_first` are both True, the harmonization is
-#         executed in that order (first columns, then rows).
-#         :param harmonize_rows_first: if True (default when missing), NA values are checked for
-#         those table columns which have the property nullable set to False. In this case, the
-#         generator **might return None** (the user should in case handle it, e.g. skipping
-#         these model instances which are not writable to the db). If
-#         `harmonize_cols_first` and `harmonize_rows_first` are both True, the harmonization is
-#         executed in that order (first columns, then rows).
-#         :param parse_dates: a list of strings denoting additional column names whose values should
-#         be parsed as dates. Ignored if harmonize_cols_first is False
-#     """
-#     if harmonize_cols_first:
-#         colnames, dataframe = _harmonize_columns(table_class, dataframe, parse_dates)
-#     else:
-#         colnames = list(shared_colnames(table_class, dataframe))
-# 
-#     new_df = dataframe[colnames]
-# 
-#     if dataframe.empty:
-#         for _ in len(dataframe):
-#             yield None
-#         return
-# 
-#     valid_rows = cycle([True])
-#     if harmonize_rows_first:
-#         non_nullable_cols = list(shared_colnames(table_class, new_df, nullable=False))
-#         if non_nullable_cols:
-#             valid_rows = new_df[non_nullable_cols].notnull().all(axis=1).values
-# 
-#     cols, datalist = _insert_data(new_df)
-#     # Note below: datalist is an array of N column, each of M rows (it would be nicer to return an
-#     # array of N rows, each of them representing a table row. But we do not want to touch pandas
-#     # code.
-#     # See _insert_table below). Thus we zip it:
-#     for is_ok, row_values in zip(valid_rows, zip(*datalist)):
-#         if is_ok:
-#             # we could make a single line statement, but two lines are more readable:
-#             row_args_dict = dict(zip(cols, row_values))
-#             yield table_class(**row_args_dict)
-#         else:
-#             yield None
-
-
 def _insert_data(dataframe):
     """Copied to pandas.io.sql.SqlTable: basically converts dataframe to a numpy array of arrays
     for insertion inside a db table.
@@ -416,12 +304,11 @@ def _insert_data(dataframe):
 
 
 def withdata(model_column):
-    """
-    Returns a filter argument for returning instances with values of
+    """Returns a filter argument for returning instances with values of
     `model_column` NOT *empty* nor *null*. `model_column` type must be STRING or BLOB
     :param model_column: A valid column name, e.g. an attribute Column defined in some
-    sqlalchemy orm model class (e.g., 'User.data'). **The type of the column must be STRING or BLOB**,
-    otherwise result is undefined. For instance, numeric column with zero as value
+    sqlalchemy orm model class (e.g., 'User.data'). **The type of the column must be STRING or
+    BLOB**, otherwise result is undefined. For instance, numeric column with zero as value
     are *not* empty (as the sql length function applied to numeric returns the number of
     bytes)
     :example:
@@ -437,12 +324,11 @@ def withdata(model_column):
 
 
 def flush(session, on_exc=None):
-    """
-        Flushes the given section. In case of Exception (IntegrityError), rolls back the session
-        and returns False. Otherwise True is returned
-        :param on_exc: a callable (function) which will be called with the given exception as first
-        argument
-        :return: True on success, False otherwise
+    """Flushes the given section. In case of Exception (IntegrityError), rolls back the session
+    and returns False. Otherwise True is returned
+    :param on_exc: a callable (function) which will be called with the given exception as first
+    argument
+    :return: True on success, False otherwise
     """
     try:
         session.flush()
@@ -455,12 +341,11 @@ def flush(session, on_exc=None):
 
 
 def commit(session, on_exc=None):
-    """
-        Commits the given section. In case of Exception (IntegrityError), rolls back the session
-        and returns False. Otherwise True is returned
-        :param on_exc: a callable (function) which will be called with the given exception as first
-        argument.
-        :return: True on success, False otherwise
+    """Commits the given section. In case of Exception (IntegrityError), rolls back the session
+    and returns False. Otherwise True is returned
+    :param on_exc: a callable (function) which will be called with the given exception as first
+    argument.
+    :return: True on success, False otherwise
     """
     try:
         session.commit()
@@ -473,13 +358,12 @@ def commit(session, on_exc=None):
 
 
 def dfrowiter(dataframe, columns=None):
-    """
-        Returns an efficient iterator over `dataframe` rows. The i-th returned values is
-        a `dict`s of `dataframe` columns (strings) keyed to the i-th row values. Each value is
-        assured to be
-        a python type (str, bool, datetime, int and float are currently supported) with pandas
-        null values (NaT, NaN) converted to None, if any.
-        :param dataframe: the input dataframe
+    """Returns an efficient iterator over `dataframe` rows. The i-th returned values is
+    a `dict`s of `dataframe` columns (strings) keyed to the i-th row values. Each value is
+    assured to be
+    a python type (str, bool, datetime, int and float are currently supported) with pandas
+    null values (NaT, NaN) converted to None, if any.
+    :param dataframe: the input dataframe
     """
     cols, datalist = _insert_data(dataframe[columns] if columns is not None else dataframe)
     # Note below: datalist is an array of N column, each of M rows (it would be nicer to return an

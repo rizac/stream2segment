@@ -4,6 +4,7 @@ Created on Feb 2, 2017
 @author: riccardo
 '''
 from __future__ import print_function
+from io import BytesIO
 import os
 import sys
 import logging
@@ -136,9 +137,6 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
     # each segment object, or we simply do not use multiprocess. We will opt for the second choice
     # (maybe implement tests in the future to see which is faster)
 
-
-    
-    
     seg_filter = withdata(Segment.data)
 
     # LEVE NOTE HERE EVEN IF WE DO NOT USE THREADING NOR MULTIPROCESSING FOR NOW:
@@ -226,7 +224,7 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
                     try:
                         if load_stream:
                             try:
-                                mseed = read(StringIO(seg.data))
+                                mseed = read(BytesIO(seg.data))
                             except Exception as exc:
                                 raise ValueError("Error while reading mseed: " + str(exc))
                         array = pyfunc(seg, mseed, current_inv, config)
@@ -243,7 +241,7 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
                             logger.error(msg)
                             raise SyntaxError(msg)
                         done += 1
-                    except (ImportError, NameError, SyntaxError, TypeError) as stopexc:
+                    except (ImportError, NameError, SyntaxError, TypeError) as _:
                         raise  # sys.exc_info()
                     except Exception as generr:
                         logger.warning("%s: %s", segstr(seg), str(generr))

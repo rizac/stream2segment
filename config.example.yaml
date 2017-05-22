@@ -34,8 +34,14 @@ retry_4xx: false
 # 500-599 range (Server errors)
 retry_5xx: true
 
-# set if station inventories should be downloaded (already downloaded inventories are always skipped)
-# inventories are saved for each station and can be used for removing the intrumental response
+# Set if station inventories should be downloaded. 
+# If true, the inventory .xml file will be saved for each station which has not its inventory
+# already saved and has at least one downloaded segment with non-empty data.
+# In case of download errors, nothing is saved.
+# Inventories  can be used for removing the intrumental response of the segments, set to True if
+# you later need this feature for processing. Inventories are saved compressed because
+# they are relatively "big" in size. Moreover, their download slows down the segments
+# download, and you can always fetch and save it to the processing
 # Optional: defaults to false if missing
 inventory: false
 

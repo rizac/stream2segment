@@ -37,7 +37,8 @@ def get_events_list(eventws, **args):
             end = dateutil.parser.parse(args.get('end', datetime.utcnow().isoformat()))
             total_seconds_diff = ((end-start)/2).total_seconds()
             if total_seconds_diff < 1:
-                raise ValueError("Cannot futher split start and end time")
+                raise ValueError("%d: %s (maximum recursion reached: time window < 1 sec)" %
+                                 (code, msg))
                 # arr.append((None, "Cannot futher split start and end time", url))
             else:
                 dtime = timedelta(seconds=int(total_seconds_diff))
@@ -419,7 +420,7 @@ def save_inventory(downloaded_data, station):
     """
     session = object_session(station)
     if session is None:
-        raise TypeError()
+        raise TypeError("None session on station object")
     station.inventory_xml = dumps_inv(downloaded_data)
     session.commit()
 

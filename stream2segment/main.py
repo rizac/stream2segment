@@ -185,7 +185,7 @@ def process(dburl, pysourcefile, configsourcefile, outcsvfile, isterminal=False)
         kwargs = dict(delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
 
         flush_num = [1, 10]  # determines when to flush (not used. We use the
-        # last arg to open tells to flush line-wise. To add custom flush, see commented
+        # last arg to open whihc tells to flush line-wise. To add custom flush, see commented
         # lines at the end of the with statement and uncomment them
         with open(outcsvfile, 'wb', 1) as csvfile:
 
@@ -362,8 +362,8 @@ def d(configfile, dburl, start, end, eventws, wtimespan, min_sample_rate, retry_
     try:
         ret = download(isterminal=True, **cfg_dict)
         sys.exit(ret)
-    except KeyboardInterrupt:
-        sys.exit(1)
+    except KeyboardInterrupt:  # this except avoids printing traceback
+        sys.exit(1)  # exit with 1 as normal python exceptions
 
 
 @main.command(short_help='Process downloaded waveform data segments')
@@ -375,7 +375,10 @@ def p(pyfile, configfile, outfile, dburl):
     """Process downloaded waveform data segments via a custom python file and a configuration
     file. Options are listed below. When missing, they default to the values provided in the
     config file `config.yaml`"""
-    process(dburl, pyfile, configfile, outfile, isterminal=True)
+    try:
+        process(dburl, pyfile, configfile, outfile, isterminal=True)
+    except KeyboardInterrupt:  # this except avoids printing traceback
+        sys.exit(1)  # exit with 1 as normal python exceptions
 
 
 @main.command(short_help='Visualize downloaded waveform data segments in a browser')

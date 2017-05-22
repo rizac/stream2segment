@@ -26,7 +26,8 @@ from click.testing import CliRunner
 import pandas as pd
 from stream2segment.download.main import add_classes, get_events_df, get_datacenters_df, logger as query_logger, \
 get_channels_df, merge_events_stations, set_saved_arrivaltimes, get_arrivaltimes,\
-    prepare_for_download, download_save_segments, _strcat, get_eventws_url, dbsync
+    prepare_for_download, download_save_segments, _strcat, get_eventws_url, dbsync,\
+    DownloadError
 # ,\
 #     get_fdsn_channels_df, save_stations_and_channels, get_dists_and_times, set_saved_dist_and_times,\
 #     download_segments, drop_already_downloaded, set_download_urls, save_segments
@@ -433,7 +434,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # as urlread returns alternatively a 413 and a good string, also sub-queries
         # will return that, so that we will end up having a 413 when the string is not
         # further splittable:
-        with pytest.raises(ValueError):
+        with pytest.raises(DownloadError):
             data = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", start=datetime(2010,1,1).isoformat(),
                                       end=datetime(2011,1,1).isoformat())
         # assert only three events were successfully saved to db (two have same id) 
@@ -455,7 +456,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         
         mock_dbsync.reset_mock()
         mock_dbsync.side_effect = lambda *a, **v: dbsync(*a, **v)
-        with pytest.raises(ValueError):
+        with pytest.raises(DownloadError):
             # now it should raise because of a 413:
             data = self.get_events_df(urlread_sideeffect, self.session, "abcd", start=datetime(2010,1,1).isoformat(),
                                          end=datetime(2011,1,1).isoformat())
@@ -576,6 +577,8 @@ C * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
         assert len(post_data_list[0].split("\n")) == 2
         assert post_data_list[1] is None
         
+        # test that if the routing service changes the station
+        
         
     @patch('stream2segment.download.main.urljoin', return_value='a')
     def test_get_dcs3(self, mock_query):
@@ -587,7 +590,7 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
 
 """, 501]
         
-        with pytest.raises(ValueError):
+        with pytest.raises(DownloadError):
             data, post_data_list = self.get_datacenters_df(urlread_sideeffect[0], self.session, channels=['BH?'])
         assert len(self.session.query(DataCenter).all()) == 0
         mock_query.assert_called_once()  # we might be more fine grained, see code
@@ -696,10 +699,15 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         assert len(cha_df2) == len(cha_df)
         assert sorted(list(cha_df.columns)) == sorted(list(cha_df2.columns))
         
-        # now mock a datacenter null postdata in the second item (no data in eida routing service under a specific datacenter)
-        # and test that by querying the database we get the same data (the one we just saved)
-        # this raises cause the first datacenter has no channels (malformed)
-        with pytest.raises(ValueError):
+        # now mock a datacenter null postdata in the second item
+        # (<==> no data in eida routing service under a specific datacenter)
+        # and test that by querying the database we get the data we just saved.
+        # NB: the line below raises cause the first datacenter has no channels to use
+        # (response data malformed), therefore,
+        # since the second datacenter is discarded, we won't have any data due to 
+        # client server error. This is a download error that must raise
+        # (in the main download program flow, it will be caught inside download.main.run.py)
+        with pytest.raises(DownloadError):
             cha_df2 = self.get_channels_df(urlread_sideeffect, self.session,
                                                            datacenters_df,
                                                            ['x', None],
@@ -709,7 +717,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         assert 'discarding response data' in self.log_msg()
 
         # now test the opposite, but note that urlreadside effect should return now an urlerror and a socket error:
-        with pytest.raises(ValueError):
+        with pytest.raises(DownloadError):
             cha_df2 = self.get_channels_df(URLError('urlerror_wat'), self.session,
                                                            datacenters_df,
                                                            [None, 'x'],
@@ -719,7 +727,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         assert 'urlerror_wat' in self.log_msg()
 
         # now test again, we should ahve a socket timeout
-        with pytest.raises(ValueError):
+        with pytest.raises(DownloadError):
             cha_df2 = self.get_channels_df(socket.timeout(), self.session,
                                                            datacenters_df,
                                                            [None, 'x'],
@@ -816,7 +824,7 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
         assert "No channel found with sample rate" in self.log_msg()
         
         # this on the other hand must raise cause we get no data from the server
-        with pytest.raises(ValueError):
+        with pytest.raises(DownloadError):
             cha_df = self.get_channels_df("", self.session,
                                                                datacenters_df,
                                                                postdata,

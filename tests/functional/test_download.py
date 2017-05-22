@@ -8,6 +8,7 @@ Created on Feb 4, 2016
 # from utils import date
 # assert sys.path[0] == os.path.realpath(myPath + '/../../')
 
+import re
 import numpy as np
 from mock import patch
 import pytest
@@ -24,7 +25,7 @@ from stream2segment.main import main, closing
 from click.testing import CliRunner
 # from stream2segment.s2sio.db.pd_sql_utils import df2dbiter, get_col_names
 import pandas as pd
-from stream2segment.download.main import add_classes, get_events_df, get_datacenters_df, logger as query_logger, \
+from stream2segment.download.main import add_classes, get_events_df, get_datacenters_df, \
 get_channels_df, merge_events_stations, set_saved_arrivaltimes, get_arrivaltimes,\
     prepare_for_download, download_save_segments, _strcat, get_eventws_url, dbsync, save_inventories
 # ,\
@@ -53,6 +54,7 @@ from stream2segment.utils.mseedlite3 import MSeedError, unpack
 import threading
 from stream2segment.utils.url import read_async
 from stream2segment.utils.resources import get_default_cfg_filepath
+from stream2segment.utils.log import configlog4download
 
 
 # when debugging, I want the full dataframe with to_string(), not truncated
@@ -142,11 +144,11 @@ class Test(unittest.TestCase):
         for patcher in patchers:
             patcher.stop()
         
-        hndls = query_logger.handlers[:]
-        handler.close()
-        for h in hndls:
-            if h is handler:
-                query_logger.removeHandler(h)
+#         hndls = s2s_download_logger.handlers[:]
+#         handler.close()
+#         for h in hndls:
+#             if h is handler:
+#                 s2s_download_logger.removeHandler(h)
 
     def _get_sess(self, *a, **v):
         return self.session
@@ -202,13 +204,19 @@ class Test(unittest.TestCase):
         self.logout = StringIO()
         self.handler = StreamHandler(stream=self.logout)
         # THIS IS A HACK:
-        query_logger.setLevel(logging.INFO)  # necessary to forward to handlers
+        # s2s_download_logger.setLevel(logging.INFO)  # necessary to forward to handlers
         # if we called closing (we are testing the whole chain) the level will be reset (to level.INFO)
         # otherwise it stays what we set two lines above. Problems might arise if closing
         # sets a different level, but for the moment who cares
+        # s2s_download_logger.addHandler(self.handler)
         
-        query_logger.addHandler(self.handler)
-        
+        self.patcher29 = patch('stream2segment.main.configlog4download')
+        self.mock_config4download = self.patcher29.start()
+        def c4d(logger, *a, **v):
+            configlog4download(logger, *a, **v)
+            logger.addHandler(self.handler)
+        self.mock_config4download.side_effect = c4d
+             
         # MOCK ARRIVAL_TIME. REMEMBER: WITH PROCESSPOOLEXECUTOR DO NOT MOCK DIRECTLY THE FUNCTION PASSED
         # AS AS_COMPLETED, BUT A SUB FUNCTION. THIS IS PROBABLY DUE TO THE FACT THAT MOCKS ARE
         # NOT PICKABLE (SUB FUNCTIONS APPARENTLY DO NOT SUFFER NON PICKABILITY)
@@ -216,7 +224,8 @@ class Test(unittest.TestCase):
         self.patcher3 = patch('stream2segment.download.utils.get_min_travel_time')
         self.mock_min_travel_time = self.patcher3.start()
         
-        self.patchers = [self.patcher, self.patcher1, self.patcher2, self.patcher3, self.patcher23]
+        self.patchers = [self.patcher, self.patcher1, self.patcher2, self.patcher3, self.patcher23,
+                         self.patcher29]
         #self.patcher3 = patch('stream2segment.main.logger')
         #self.mock_main_logger = self.patcher3.start()
         
@@ -275,6 +284,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         self._seg_urlread_sideeffect = [self._seg_data, self._seg_data_gaps, 413, 500, self._seg_data[:2],
                                         self._seg_data_empty,  413, URLError("++urlerror++"),
                                         socket.timeout()]
+
 
         self.service = ''  # so get_datacenters_df accepts any row by default
 
@@ -392,7 +402,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
     
     def _get_inv(self):
-        path = os.join(os.dirname(os.dirname(os.path.abspath(__file__))), "data", "inventory_GE.APE.xml")
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "inventory_GE.APE.xml")
         with open(path, 'rb') as opn_:
             return opn_.read()
 
@@ -579,8 +589,12 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v) 
         
         
-        # now we should raise cause this case of "no channels" differs from the above in that
-        # it is an error and should be marked on the db as error
+        # now we should raise cause this case of "no channels" differs from the above
+        # check log message for that
+        str_err = "No channel found. Possible causes:"
+        assert str_err not in self.log_msg()
+
+        rem = self._sta_urlread_sideeffect
         self._sta_urlread_sideeffect = 500
         
         mock_get_arrivaltimes.reset_mock()
@@ -589,20 +603,17 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         result = runner.invoke(main , ['d', '--dburl', self.dburi,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
-        if result.exception:
-            import traceback
-            traceback.print_exception(*result.exc_info)
-            print result.output
-            assert True
-        else:
-            print "DID NOT RAISE!!"
-            assert False
-            return
-       
+        
+        assert not mock_get_arrivaltimes.called
+        assert str_err in self.log_msg()
+        # reset to default:
+        self._sta_urlread_sideeffect = rem
+        
         
         # test with loading station inventories:
-        # we should not ahve inventories saved:
-        stainvs = self.session.query(withdata(Station.inventory_xml)).all()
+        
+        # we should not have inventories saved:
+        stainvs = self.session.query(Station).filter(withdata(Station.inventory_xml)).all()
         assert len(stainvs) == 0
         
         runner = CliRunner()
@@ -616,10 +627,15 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             assert False
             return
         
-        stainvs = self.session.query(withdata(Station.inventory_xml)).all()
-        assert len(stainvs) == len(self.session.query(Station).all())
+        stainvs = self.session.query(Station).filter(withdata(Station.inventory_xml)).all()
+        assert len(stainvs) == len(self.session.query(Station).filter(Station.segments.any(withdata(Segment.data))).all())
+        ix = self.session.query(Station.inventory_xml).filter(Station.segments.any(withdata(Segment.data))).first()
+        assert not ix[0].startswith('<?xml ') # assert we compressed data  
+        assert mock_save_inventories.called                                                    
+        
         
         # check now that none is downloaded
+        mock_save_inventories.reset_mock()
         runner = CliRunner()
         result = runner.invoke(main , ['d', '--dburl', self.dburi,
                                        '--start', '2016-05-08T00:00:00',
@@ -631,23 +647,88 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             assert False
             return
         
-        stainvs = self.session.query(withdata(Station.inventory_xml)).all()
-        assert len(stainvs) == stainvs2
+        stainvs2 = self.session.query(Station).filter(withdata(Station.inventory_xml)).all()
+        assert len(stainvs) == len(stainvs2)
+        assert not mock_save_inventories.called  
                                                                                     
         
+        # now test that if a station chanbges datacenter "owner", then the new datacenter
+        # is used. Test also that if we remove a single miniseed component of a download that
+        # miniseed only is downloaded again
+        dfz = dbquery2df(self.session.query(Segment.id, Segment.seed_identifier,
+                                            Segment.datacenter_id, Channel.station_id).
+                         join(Segment.station, Segment.channel).filter(withdata(Segment.data)))
         
-#         mock_get_events_df.reset_mock()
-#         # check that now we should skip all cause dates are bad
-#         runner = CliRunner()
-#         result = runner.invoke(main , ['d', '--dburl', self.dburi,
-#                                        '--start', '1997-05-08T00:00:00',
-#                                        '--end', '1997-05-08T9:00:00'])
-#         if result.exception:
-#             import traceback
-#             traceback.print_exception(*result.exc_info)
-#             print result.output
-#             assert False
-#             return
-#         
-#         assert not mock_get_events_df.called
+        # dfz:
+    #     id  seed_identifier datacenter_id  Station.datacenter_id
+    #  0  1   GE.FLT1..HHE    1              1            
+    #  1  2   GE.FLT1..HHN    1              1            
+    #  2  3   GE.FLT1..HHZ    1              1            
+    #  3  6   IA.BAKI..BHZ    2              2 
+        
+        # remove the first one:
+        deleted_seg_id = 1
+        seed_to_redownload = dfz[dfz[Segment.id.key] == deleted_seg_id].iloc[0]
+        # deleted_seed_id = dfz[dfz[Segment.id.key] == deleted_seg_id].iloc[0][Segment.seed_identifier.key]
+        self.session.query(Segment).filter(Segment.id == deleted_seg_id).delete()
+        # be sure we deleted it:
+        assert len(self.session.query(Segment.id).filter(withdata(Segment.data)).all()) == len(dfz) - 1
+        
+        oldst_se = self._sta_urlread_sideeffect  # keep last side effect to restore it later
+        self._sta_urlread_sideeffect = oldst_se[::-1]  # swap station return values from urlread
+    
+        runner = CliRunner()
+        result = runner.invoke(main , ['d', '--dburl', self.dburi,
+                                       '--start', '2016-05-08T00:00:00',
+                                       '--end', '2016-05-08T9:00:00', '--inventory'])
+        if result.exception:
+            import traceback
+            traceback.print_exception(*result.exc_info)
+            print result.output
+            assert False
+            return
  
+        # try to get
+        dfz2 = dbquery2df(self.session.query(Segment.id, Segment.seed_identifier,
+                                             Segment.datacenter_id, Channel.station_id,
+                                             Station.network, Station.station, Channel.location, Channel.channel).
+                         join(Segment.station, Segment.channel))
+        
+        # build manually the seed identifier id:
+        
+        
+        dfz2[Segment.seed_identifier.key] = dfz2[Station.network.key].str.cat(dfz2[Station.station.key].str.cat(dfz2[Channel.location.key].str.cat(dfz2[Channel.channel.key], "."),"."), ".")
+        seed_redownloaded = dfz2[dfz2[Segment.seed_identifier.key] == seed_to_redownload[Segment.seed_identifier.key]]
+        assert len(seed_redownloaded) == 1
+        seed_redownloaded = seed_redownloaded.iloc[0]
+        
+        # assert the seed_to_redownload and seed_redownloaded have still the same station_id:
+        assert seed_redownloaded[Channel.station_id.key] == seed_to_redownload[Channel.station_id.key]
+        # but different datacenters:
+        assert seed_redownloaded[Segment.datacenter_id.key] != seed_to_redownload[Segment.datacenter_id.key]
+
+        # restore default:
+        self._sta_urlread_sideeffect =  oldst_se
+
+
+        
+        
+        # test a type error in the url_segment_side effect
+        self.session.query(Segment).delete()
+        assert len(self.session.query(Segment).all()) == 0
+        errmsg = '_sre.SRE_Pattern object is not an iterator'
+        assert errmsg not in self.log_msg()
+        suse = self._seg_urlread_sideeffect  # remainder (reset later)
+        self._seg_urlread_sideeffect = re.compile(".*")  # just return something not number nor string
+        runner = CliRunner()
+        result = runner.invoke(main , ['d', '--dburl', self.dburi,
+                                       '--start', '2016-05-08T00:00:00',
+                                       '--end', '2016-05-08T9:00:00', '--inventory'])
+        if result.exception:
+            assert result.exc_info[0] == TypeError
+            assert errmsg in self.log_msg()
+        else:
+            print "DID NOT RAISE!!"
+            assert False
+        self._seg_urlread_sideeffect = suse  # restore default
+        

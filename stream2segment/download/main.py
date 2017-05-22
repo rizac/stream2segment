@@ -36,38 +36,44 @@ from stream2segment.utils import strconvert, get_progressbar, yaml_load
 from stream2segment.utils.mseedlite3 import MSeedError, unpack as mseedunpack
 from stream2segment.utils.msgs import MSG
 from stream2segment.utils.resources import get_ws_fpath
+from stream2segment.io.utils import dumps_inv
 
 logger = logging.getLogger(__name__)
 
 ADDBUFSIZE = 10  # FIXME: add this as parameter!!!
 
 
-def get_eventws_url(session, service):
-#     EWS_NAME_COL = WebService.name
-#     EWS_URL_COL = WebService.url
-#     EWS_NAME_NAME = EWS_NAME_COL.key
-#     EWS_URL_NAME = EWS_URL_COL.key
-#     EWS_TYPE_COL = WebService.type
-#     EWS_TYPE_NAME = EWS_TYPE_COL.key
-#     EWS_ID_COL = WebService.id
+class DownloadError(Exception):
+    """Custom exception denoting a download error (client / server error) **that prevents the
+    continuation of the download process**
 
+    IMPORTANT:
+    ==========
+
+     - A download error that does not prevent the continuation of the program should NOT RAISE
+       such an exception, BUT rather print to `log.warning`. THIS IS HANDLED BY THE run METHOD
+       which uses try catch clauses when needed
+       Example: one of three station downloads failed, but we still have stations from other
+       two downloads
+    -  Any CONDITION (not download error) that prevents the continuation of the program
+       should NOT RAISE such an exception BUT rather print to `log info`.
+       Example: No channel found because of a too high channel sample rate. this has to be
+       implemented manually (see `get_channels_df` for an example)
+    """
+    def __init__(self, exc_or_msg):
+        """handles the case where the first arg is an exception"""
+        super(DownloadError, self).__init__(str(exc_or_msg))
+
+
+def get_eventws_url(session, service):
+    """Returns the event web service url from a given service name (string),
+    currently either "eida" or "iris"
+    """
     dic = yaml_load(get_ws_fpath())
     try:
         return dic['seismicportal' if service == 'eida' else service]['event']
     except (IndexError, KeyError):
         raise ValueError("Service '%s'\\'s web service not found" % service)
-#     return df
-# 
-#     data = [(name, type_, url) for name, type2url in dic.iteritems()
-#             for type_, url in type2url.iteritems()]
-#     df = pd.DataFrame(data, columns=[EWS_NAME_NAME, EWS_TYPE_NAME, EWS_URL_NAME])
-#     df = dbsync("syncdf", "web services", df, session, [EWS_URL_COL], EWS_ID_COL)
-#     try:
-#         return df[(df[EWS_NAME_NAME] == 'seismicportal' if service == 'eida' else service) &
-#                   (df[EWS_TYPE_NAME] == "event")][EWS_URL_NAME].iloc[0]
-#     except (IndexError, KeyError):
-#         raise ValueError("Service '%s'\\'s web service not found" % service)
-#     return df
 
 
 def add_classes(session, class_labels):
@@ -101,7 +107,9 @@ def dbsync(method, table, dataframe, session, matching_columns,
 
 
 def dblog(table, new, new_discarded, updated=0, updated_discarded=0):
-    """Function that harmonizes the way db IO operations are written to log"""
+    """Prints to log the result of a database wrtie operation.
+    Use this function to harmonize the message format and make it more readable in log or
+    terminal"""
     if new or new_discarded:
         total = new + new_discarded
         item = "items" if total != 1 else "item"
@@ -151,23 +159,23 @@ def get_events_df(session, eventws_url, **args):
     try:
         datalist = get_events_list(eventws_url, **args)
         if len(datalist) > 1:
-            logger.info(MSG("events query",
-                            "Request was splitted into sub-queries, aggregating the results",
+            logger.info(MSG("",
+                            "Request was split into sub-queries, aggregating the results",
                             "Original request entity too large", url))
         for data, msg, url in datalist:
             if not data and msg:
-                logger.warning(MSG("events query", "discarding result", msg, url))
+                logger.warning(MSG("", "discarding request", msg, url))
             elif data:
                 try:
                     events_df = response2normalizeddf(url, data, "event")
                     ret.append(events_df)
                 except ValueError as exc:
-                    logger.warning(MSG("events query", "discarding query result", exc, url))
+                    logger.warning(MSG("", "discarding response", exc, url))
         events_df = pd.concat(ret, axis=0, ignore_index=True, copy=False)
         events_df[Event.webservice_id.key] = eventws_id
 
         if empty(events_df):
-            raise Exception("No events fetched")
+            raise ValueError("No well-formed events found")
 
         events_df = dbsync("syncdf", Event, events_df, session,
                            [Event.eventid, Event.webservice_id], Event.id)
@@ -177,12 +185,9 @@ def get_events_df(session, eventws_url, **args):
                          Event.depth_km.key, Event.time.key]].copy()
         del events_df
         return ret
-    except Exception as exc:
-#         if hasattr(exc, 'exc'):  # stream2segment URLException
-#             exc = exc.exc
-        # msg = MSG("events query", "Quitting", exc, url)
-        # logger.error(msg)
-        raise ValueError(str(exc))
+    except ValueError as exc:
+        raise DownloadError(exc)
+    # anything else is raised
 
 
 def response2normalizeddf(url, raw_data, dbmodel_key):
@@ -239,6 +244,8 @@ def get_datacenters_df(session, service=None, channels=None, **query_args):
     DC_DURL_COL = DataCenter.dataselect_url
     DC_SURL_NAME = DC_SURL_COL.key
     DC_DURL_NAME = DC_DURL_COL.key
+    DC_ID_COL = DataCenter.id
+    DC_ID_NAME = DC_ID_COL.key
 
     # do not return only new datacenters, return all of them
     query_args['service'] = 'dataselect'
@@ -246,8 +253,7 @@ def get_datacenters_df(session, service=None, channels=None, **query_args):
     url = urljoin('http://geofon.gfz-potsdam.de/eidaws/routing/1/query', **query_args)
 
     accept_dc = get_dc_filterfunc(service)
-    dc_df = dbquery2df(session.query(DataCenter.id, DC_SURL_COL,
-                                     DC_DURL_COL)).reset_index(drop=True)
+    dc_df = dbquery2df(session.query(DC_ID_COL, DC_SURL_COL, DC_DURL_COL)).reset_index(drop=True)
     # filter by service:
     dc_df = dc_df[dc_df.apply(lambda x: accept_dc(x[DC_DURL_NAME]), axis=1)]
 
@@ -283,8 +289,14 @@ def get_datacenters_df(session, service=None, channels=None, **query_args):
             if (i == lastline or is_dc_line) and current_dc_url is not None:
                 # get index of given dataselect url:
                 if accept_dc(current_dc_url):
-                    _ = dc_df.index[(dc_df[DC_DURL_NAME] == current_dc_url)].values
-                    idx = _[0] if len(_) else None
+#                     try:
+#                         idx = dc_df[dc_df[DC_DURL_NAME] == current_dc_url].iloc[0][DC_ID_NAME]
+#                     except IndexError:
+#                         # index not found:
+#                         idx = None
+                    indices = dc_df.index[(dc_df[DC_DURL_NAME] == current_dc_url)].values
+                    idx = indices[0] if len(indices) else None
+
                     # index not found? add the item:
                     if idx is None:
                         idx = len(dc_df)
@@ -312,8 +324,7 @@ def get_datacenters_df(session, service=None, channels=None, **query_args):
         if empty(dc_df):
             msg = MSG("", "routing service error, no data-center saved in database",
                       urlexc.exc, url)
-            # logger.error(msg)
-            raise ValueError(msg)
+            raise DownloadError(msg)
         else:
             msg = MSG("", "routing service error, working with already saved data-centers (%d)",
                       urlexc.exc, url)
@@ -367,7 +378,8 @@ def get_channels_df(session, datacenters_df, post_data, channels, min_sample_rat
         if expr is not None:
             qry = qry.filter(expr)
         ret_df = dbquery2df(qry)
-        logger.info("No channel found in database according to given parameters")
+        if empty(ret_df):
+            logger.info("No channel found in database according to given parameters")
     else:
         ret = []
 
@@ -420,9 +432,9 @@ def get_channels_df(session, datacenters_df, post_data, channels, min_sample_rat
             else:
                 logger.info("No channel found with sample rate >= %f", min_sample_rate)
         else:
-            raise ValueError("No channel found. "
-                             "Possible causes: server / client errors in server responses "
-                             "(check log for details)")
+            raise DownloadError("No channel found. Possible causes: "
+                                "server / client errors in server responses "
+                                "(check log for details)")
 
     return ret_df
 
@@ -464,29 +476,45 @@ def save_stations_and_channels(session, channels_df):
     return channels_df
 
 
-def save_inventories(session, stations, max_thread_workers, timeout,
+def _get_sta_request(datacenter_url, network, station, start_time):
+    """
+    returns a Request object from the given station arguments to download the inventory xml"""
+    post_data = " ".join("*" if not x else x for x in[network, station, "*", "*",
+                                                      start_time.isoformat()])
+    return Request(url=datacenter_url, data="level=response\n{}".format(post_data))
+
+
+def save_inventories(session, stations_df, max_thread_workers, timeout,
                      download_blocksize, notify_progress_func=lambda *a, **v: None):
-    def ondone(obj, result, exc, cancelled):
+    _msg = "Unable to save inventory (station id=%d)"
+
+    dbmanager = DbManager(session, Station.id, [Station.inventory_xml], ADDBUFSIZE)
+
+    def ondone(obj, result, exc, request):
         notify_progress_func(1)
-        sta, url = obj
+        sta_id = obj[0]
+        url = request.get_full_url()
+        data, code, msg = result
         if exc:
-            logger.warning(MSG("", "discarding query result", exc, url))
+            logger.warning(MSG("", _msg, exc, url), sta_id)
         else:
             if not result:
-                logger.warning(MSG("", "discarding query result",
-                                   "empty response", url))
+                logger.warning(MSG("", _msg, "empty response", url), sta_id)
                 return
-            try:
-                save_inventory(result, sta)
-            except (TypeError, SQLAlchemyError) as _:
-                session.rollback()
-                logger.warning(MSG("", "item (station id=%s) not saved", _, url),
-                               str(sta.id))
+            dbmanager.add(pd.DataFrame({Station.id.key: [sta_id],
+                                        Station.inventory_xml.key: [dumps_inv(data)]}))
 
-    iterable = izip(stations, (get_inventory_url(sta) for sta in stations))
-    read_async(iterable, ondone, urlkey=lambda obj: obj[1],
+    iterable = izip(stations_df[Station.id.key],
+                    stations_df[DataCenter.station_url.key],
+                    stations_df[Station.network.key],
+                    stations_df[Station.station.key],
+                    stations_df[Station.start_time.key]
+                   )
+    read_async(iterable, ondone, urlkey=lambda obj: _get_sta_request(*obj[1:]),
                max_workers=max_thread_workers,
-               blocksize=download_blocksize, timeout=timeout)
+               blocksize=download_blocksize, timeout=timeout, raise_http_err=True)
+
+    dbmanager.close()
 
 
 def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius, maxmag_radius):
@@ -762,7 +790,7 @@ def _strcat(segments_df):
     return n(s(l(c, sep='.', na_rep=''), sep='.', na_rep=''), sep='.', na_rep='')
 
 
-def _get_request(segments_df, datacenter_url):
+def _get_seg_request(segments_df, datacenter_url):
     """
     returns a Request object from the given segments_df"""
     SEG_STIME = Segment.start_time.key
@@ -832,7 +860,8 @@ def download_save_segments(session, segments_df, datacenters_df,
     segments_df[SEG_SEEDID_NAME] = None
     segments_df[SEG_DSC_NAME] = float('nan')
 
-    segmanager = SegmentsDbManager(session, ADDBUFSIZE)
+    segmanager = DbManager(session, SEG_ID_COL, [SEG_RUNID_COL, SEG_DATA_COL, SEG_MGR_COL,
+                                                 SEG_SRATE_COL, SEG_DSC_COL], ADDBUFSIZE)
 
     def ondone(df, result, exc, request):
         """function executed when a given url has successfully downloaded `data`"""
@@ -886,23 +915,6 @@ def download_save_segments(session, segments_df, datacenters_df,
             logger.warning(MSG("", "Unable to get waveform data", exc, request))
 
         segmanager.add(df)
-#         mask = pd.isnull(df[SEG_ID_NAME])
-#         if mask.any():
-#             total, new = insertdf_napkeys(df[mask], session, SEG_ID_COL, ADDBUFSIZE,
-#                                           return_df=False)
-#             info[I_TOT] += total
-#             info[I_NEW] += new
-# 
-#         mask = ~mask
-#         if mask.any():
-#             upd_df = df[mask]
-#             total = len(upd_df)
-#             updated = updatedf(upd_df, session, SEG_ID_COL,
-#                                [SEG_RUNID_COL, SEG_DATA_COL, SEG_MGR_COL, SEG_SRATE_COL,
-#                                 SEG_DSC_COL], ADDBUFSIZE, return_df=False)
-#             info[U_TOT] += total
-#             info[U_NEW] += updated
-
         notify_progress_func(len(df))
 
     seg_groups = segments_df.groupby([SEG_DCID_NAME, SEG_STIME_NAME, SEG_ETIME_NAME], sort=False)
@@ -910,7 +922,7 @@ def download_save_segments(session, segments_df, datacenters_df,
     # seg group is an iterable of 2 element tuples. The first element is the tuple of keys[:idx]
     # values, and the second element is the dataframe
     read_async(seg_groups,
-               urlkey=lambda obj: _get_request(obj[1], datcen_id2url[obj[0][0]]),
+               urlkey=lambda obj: _get_seg_request(obj[1], datcen_id2url[obj[0][0]]),
                ondone=ondone, raise_http_err=False,
                max_workers=max_thread_workers,
                timeout=timeout, blocksize=download_blocksize)
@@ -922,18 +934,15 @@ def download_save_segments(session, segments_df, datacenters_df,
                    timeout=timeout, blocksize=download_blocksize)
 
     segmanager.close()  # flush remaining stuff to insert / update, if any
-    new, ntot, upd, utot = segmanager.info
-    dblog(Segment, new, ntot - new, upd, utot - upd)
-
     return stats
 
 
-class SegmentsDbManager(object):
-    """Class managing the insertion of segments into db. As insertion/updates should
+class DbManager(object):
+    """Class managing the insertion of table rows into db. As insertion/updates should
     be happening during download for not losing data in case of unexpected error, this class
     manages the buffer size for the insertion/ updates on the db"""
 
-    def __init__(self, session, bufsize):
+    def __init__(self, session, id_col, update_cols, bufsize):
         self.info = [0, 0, 0, 0]  # new, total_new, updated, updated_new
         self.inserts = []
         self.updates = []
@@ -941,16 +950,29 @@ class SegmentsDbManager(object):
         self._num2insert = 0
         self._num2update = 0
         self.session = session
-        self.SEG_ID_COL = Segment.id
-        self.SEG_ID_NAME = self.SEG_ID_COL.key
-        self.UPD_COLS = [Segment.run_id, Segment.data, Segment.max_gap_ratio, Segment.sample_rate,
-                         Segment.download_status_code]
+        self.id_col = id_col
+        self.update_cols = update_cols
+        self.table = id_col.class_
+#         self.SEG_ID_COL = Segment.id
+#         self.SEG_ID_NAME = self.SEG_ID_COL.key
+#         self.UPD_COLS = [Segment.run_id, Segment.data, Segment.max_gap_ratio, Segment.sample_rate,
+#                          Segment.download_status_code]
 
     def add(self, df):
         bufsize = self.bufsize
-        mask = pd.isnull(df[self.SEG_ID_NAME])
+        mask = pd.isnull(df[self.id_col.key])
         if mask.any():
-            dfinsert = df[mask]
+            if mask.all():
+                dfinsert = df
+                dfupdate = None
+            else:
+                dfinsert = df[mask]
+                dfupdate = df[~mask]
+        else:
+            dfinsert = None
+            dfupdate = df
+
+        if dfinsert is not None:
             self.inserts.append(dfinsert)
             self._num2insert += len(dfinsert)
             if self._num2insert > bufsize:
@@ -958,11 +980,9 @@ class SegmentsDbManager(object):
                 self._num2insert = 0
                 self.inserts = []
 
-        mask = ~mask
-        if mask.any():
-            upd_df = df[mask]
-            self.updates.append(upd_df)
-            self._num2update += len(upd_df)
+        if dfupdate is not None:
+            self.updates.append(dfupdate)
+            self._num2update += len(dfupdate)
             if self._num2update > bufsize:
                 self.update()
                 self._num2update = 0
@@ -970,7 +990,7 @@ class SegmentsDbManager(object):
 
     def insert(self):
         df = pd.concat(self.inserts, axis=0, ignore_index=True, copy=False, verify_integrity=False)
-        total, new = insertdf_napkeys(df, self.session, self.SEG_ID_COL, len(df), return_df=False)
+        total, new = insertdf_napkeys(df, self.session, self.id_col, len(df), return_df=False)
         info = self.info
         info[0] += new
         info[1] += total
@@ -978,17 +998,19 @@ class SegmentsDbManager(object):
     def update(self):
         df = pd.concat(self.updates, axis=0, ignore_index=True, copy=False, verify_integrity=False)
         total = len(df)
-        updated = updatedf(df, self.session, self.SEG_ID_COL, self.UPD_COLS, total, return_df=False)
+        updated = updatedf(df, self.session, self.id_col, self.update_cols, total, return_df=False)
         info = self.info
         info[2] += updated
         info[3] += total
 
     def close(self):
-        """flushes remaining stuff to insert/ update, if any"""
+        """flushes remaining stuff to insert/ update, if any, prints to log updates and inserts"""
         if self.inserts:
             self.insert()
         if self.updates:
             self.update()
+        new, ntot, upd, utot = self.info
+        dblog(self.table, new, ntot - new, upd, utot - upd)
 
 
 def run(session, run_id, start, end, service, eventws_query_args,
@@ -997,36 +1019,7 @@ def run(session, run_id, start, end, service, eventws_query_args,
         wtimespan, retry_no_code, retry_url_errors, retry_mseed_errors, retry_4xx, retry_5xx,
         advanced_settings, class_labels=None, isterminal=False):
     """
-        Downloads waveforms related to events to a specific path
-        :param eventws: Event WS to use in queries. E.g. 'eida', 'iris'
-        :type eventws: string
-        :param eventws_query_args: a dict of fdsn arguments to be passed to the eventws query. E.g.
-        {'minmag' : 3.0}
-        :param search_radius_args: The arguments required to get the search radius R whereby all
-            stations within R will be queried from a given event location E_lat, E_lon
-        :type search_radius_args: list or iterable of numeric values:
-            (min_magnitude, max_magnitude, min_distance, max_distance)
-        :param datacenters_dict: a dict of data centers as a dictionary of the form
-            {name1: url1, ..., nameN: urlN} where url1, url2,... are strings
-        :type datacenters_dict dict of key: string entries
-        :param channels: iterable (e.g. list) of channels (as strings), e.g.
-            ['HH?', 'SH?', 'BH?', 'HN?', 'SN?', 'BN?']
-        :type channels: iterable of strings
-        :param start: Limit to events on or after the specified start time
-            E.g. (date.today() - timedelta(days=1))
-        :type start: datetime
-        :param end: Limit to events on or before the specified end time
-            E.g. date.today().isoformat()
-        :type end: datetime
-        :param ptimespan: the minutes before and after P wave arrival for the waveform query time
-            span
-        :type ptimespan: iterable of two float
-        :param min_sample_rate: the minimum sample rate required to download data
-        channels with a field 'SampleRate' lower than this value (in Hz) will be discarded and
-        relative data not downloaded
-        :type min_sample_rate: float
-        :param session: sql alchemy session object
-        :type outpath: string
+        Downloads waveforms related to events to a specific path. FIXME: improve doc
     """
     # set blocksize if zero:
     if advanced_settings['download_blocksize'] <= 0:
@@ -1034,7 +1027,7 @@ def run(session, run_id, start, end, service, eventws_query_args,
     if advanced_settings['max_thread_workers'] <= 0:
         advanced_settings['max_thread_workers'] = None
 
-    progressbar = get_progressbar(isterminal)
+    progressbar = get_progressbar(isterminal)  # no-op if isterminal=False
 
     __steps = 9 if inventory else 8
     stepiter = imap(lambda i: "%d of %d" % (i+1, __steps), xrange(__steps))
@@ -1045,23 +1038,26 @@ def run(session, run_id, start, end, service, eventws_query_args,
     startiso = start.isoformat()
     endiso = end.isoformat()
 
-    # events and datacenters should raise exceptions so that we can print the message in case.
-    # Delegating the log only does not help a user when the program stops so quickly
+    # events and datacenters should print meaningful stuff
+    # cause otherwise is unclear why the program stop so quickly
+    logger.info("")
+    logger.info("STEP %s: Requesting events", next(stepiter))
+    eventws_url = get_eventws_url(session, service)
     try:
-        # Get events, store them in the db, returns the event instances (db rows) correctly added:
-        logger.info("")
-        logger.info("STEP %s: Requesting events", next(stepiter))
-        eventws_url = get_eventws_url(session, service)
         events_df = get_events_df(session, eventws_url, start=startiso, end=endiso,
                                   **eventws_query_args)
-        # Get datacenters, store them in the db, returns the dc instances (db rows) correctly added:
-        logger.info("")
-        logger.info("STEP %s: Requesting data-centers", next(stepiter))
+    except DownloadError as dexc:
+        logger.error(dexc)
+        return 1
+
+    # Get datacenters, store them in the db, returns the dc instances (db rows) correctly added:
+    logger.info("")
+    logger.info("STEP %s: Requesting data-centers", next(stepiter))
+    try:
         datacenters_df, postdata = get_datacenters_df(session, service, channels, start=startiso,
                                                       end=endiso)
-    except Exception as exc:
-        if isterminal:
-            print str(exc)
+    except DownloadError as dexc:
+        logger.error(dexc)
         return 1
 
     logger.info("")
@@ -1075,24 +1071,19 @@ def run(session, run_id, start, end, service, eventws_query_args,
                     'data-center' if len(datacenters_df) == 1 else 'data-centers')
         _pbar = progressbar
 
-    with _pbar(length=len(datacenters_df)) as bar:
-        channels_df = get_channels_df(session, datacenters_df, postdata, channels, min_sample_rate,
-                                      advanced_settings['max_thread_workers'],
-                                      advanced_settings['s_timeout'],
-                                      advanced_settings['download_blocksize'], bar.update)
+    try:
+        with _pbar(length=len(datacenters_df)) as bar:
+            channels_df = get_channels_df(session, datacenters_df, postdata, channels,
+                                          min_sample_rate,
+                                          advanced_settings['max_thread_workers'],
+                                          advanced_settings['s_timeout'],
+                                          advanced_settings['download_blocksize'], bar.update)
+    except DownloadError as dexc:
+        logger.error(dexc)
+        return 1
 
     if empty(channels_df):  # info already written to log inside the function, just quit
         return 0
-
-    if inventory:
-        stations = session.query(Station).filter(~withdata(Station.inventory_xml)).all()
-        logger.info("")
-        logger.info(("STEP %s: Downloading %d stations inventories"), next(stepiter), len(stations))
-        with progressbar(length=len(stations)) as bar:
-            save_inventories(session, stations,
-                             advanced_settings['max_thread_workers'],
-                             advanced_settings['i_timeout'],
-                             advanced_settings['download_blocksize'], bar.update)
 
     logger.info(("STEP %s: Selecting stations within search radius from %d events"), next(stepiter),
                 len(events_df))
@@ -1116,26 +1107,50 @@ def run(session, run_id, start, end, service, eventws_query_args,
     segments_df = prepare_for_download(session, segments_df, run_id, retry_no_code,
                                        retry_url_errors, retry_mseed_errors, retry_4xx, retry_5xx)
 
+    # if segments_df is empty
+    logger.info("")
     if empty(segments_df):  # info already written to log inside the function, just quit
+        logger.info("STEP %s: Skipping: no segment to download",
+                    next(stepiter))
+    else:
+        segments_count = len(segments_df)
+        logger.info("STEP %s: Downloading %d segments and saving to database",
+                    next(stepiter), segments_count)
+        with progressbar(length=segments_count) as bar:
+            d_stats = download_save_segments(session, segments_df, datacenters_df,
+                                             advanced_settings['max_thread_workers'],
+                                             advanced_settings['w_timeout'],
+                                             advanced_settings['download_blocksize'],
+                                             bar.update)
+
+    if inventory:
+        # query station id, network station, datacenter_url
+        # for those stations with empty inventory_xml
+        # AND at least one segment non emtpy/ull
+        # Download inventories for those segments
+        qry = session.query(Station.id, Station.network, Station.station, DataCenter.station_url,
+                            Station.start_time).\
+            join(Station.datacenter).\
+            filter(~(withdata(Station.inventory_xml)) &
+                   (Station.segments.any(withdata(Segment.data))))  # @UndefinedVariable
+        sta_df = dbquery2df(qry)
+        # stations = session.query(Station).filter(~withdata(Station.inventory_xml)).all()
+        logger.info("")
+        if empty(sta_df):  # info already written to log inside the function, just quit
+            logger.info("STEP %s: Skipping: no station inventory to download",
+                        next(stepiter))
+        else:
+            logger.info(("STEP %s: Downloading %d stations inventories"), next(stepiter), len(sta_df))
+            with progressbar(length=len(sta_df)) as bar:
+                save_inventories(session, sta_df,
+                                 advanced_settings['max_thread_workers'],
+                                 advanced_settings['i_timeout'],
+                                 advanced_settings['download_blocksize'], bar.update)
+
+    if empty(segments_df):
         return 0
 
-    segments_count = len(segments_df)
-    logger.info("")
-    logger.info("STEP %s: Downloading %d segments and saving to database",
-                next(stepiter), segments_count)
-
-    with progressbar(length=segments_count) as bar:
-        d_stats = download_save_segments(session, segments_df, datacenters_df,
-                                         advanced_settings['max_thread_workers'],
-                                         advanced_settings['w_timeout'],
-                                         advanced_settings['download_blocksize'],
-                                         bar.update)
-
-#     logger.info("")
-#     logger.info("STEP %s: Saving waveform segments to db", next(stepiter))
-#     save_segments(session, segments_df, run_id, sync_session_on_update=False)
-#     logger.info("")
-
+    # STATS PRINTING:
     # define functions to represent stats:
     def rfunc(row):
         """function for modifying each row display"""
@@ -1147,10 +1162,6 @@ def run(session, run_id, start, end, service, eventws_query_args,
         """function for modifying each col display"""
         return col if col.find(":") < 0 else col[:col.find(":")]
 
-#     logger.info("Summary Station WS query info:")
-#     logger.info(stats2str(s_stats, fillna=0, transpose=True, lambdarow=rfunc, lambdacol=cfunc,
-#                           sort='col'))
-#     logger.info("")
     logger.info("Summary of web service requests for waveform segments:")
     logger.info(stats2str(d_stats, fillna=0, transpose=True, lambdacol=cfunc,
                           sort='col'))
