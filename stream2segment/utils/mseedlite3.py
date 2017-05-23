@@ -17,9 +17,8 @@ any later version.
 
 import datetime
 import struct
-
 from io import BytesIO
-import obspy
+
 # No need to do this import here, BytesIO is performing almost the same as cStringIO:
 # import sys
 # if sys.version_info[0] < 3:

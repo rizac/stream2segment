@@ -24,7 +24,7 @@ from sqlalchemy import or_, and_
 from sqlalchemy.exc import SQLAlchemyError
 # from obspy.taup.tau import TauPyModel
 # from obspy.taup.helper_classes import TauModelError, SlownessModelError
-from stream2segment.utils.url import urlread, read_async, URLException, read_async2
+from stream2segment.utils.url import urlread, read_async, URLException
 from stream2segment.io.db.models import Class, Event, DataCenter, Segment, Station,\
     dc_get_other_service_url, Channel, WebService
 from stream2segment.io.db.pd_sql_utils import withdata, dfrowiter, mergeupdate,\
@@ -40,7 +40,7 @@ from stream2segment.io.utils import dumps_inv
 
 logger = logging.getLogger(__name__)
 
-ADDBUFSIZE = 10  # FIXME: add this as parameter!!!
+# ADDBUFSIZE = 10  # FIXME: add this as parameter!!!
 
 
 class DownloadError(Exception):
@@ -76,7 +76,7 @@ def get_eventws_url(session, service):
         raise ValueError("Service '%s'\\'s web service not found" % service)
 
 
-def add_classes(session, class_labels):
+def add_classes(session, class_labels, db_bufsize):
     """Inserts the given classes to the relative table
     :param class_labels: a dict of class_label mapped to the class description
     (e.g. "low_snr": "segment with low signal-to-noise ratio")
@@ -84,25 +84,49 @@ def add_classes(session, class_labels):
     if class_labels:
         cdf = pd.DataFrame(data=[{Class.label.key: k, Class.description.key: v}
                            for k, v in class_labels.iteritems()])
-        dbsync("insertdf", Class, cdf, session, [Class.label])
+        dbinsertdf(cdf, session, [Class.label], db_bufsize)
 
 
-def dbsync(method, table, dataframe, session, matching_columns,
-           autoincrement_pkey_col=None, buf_size=ADDBUFSIZE, **kw):
-    """Calls either `insertdf` or syncdf` and writes to the logger before returning the
-    new dataframe. autoincrement_pkey_col is used only if method ='syncdf'"""
+# def dbsync(method, table, dataframe, session, matching_columns,
+#            autoincrement_pkey_col=None, buf_size=ADDBUFSIZE, **kw):
+#     """Calls either `insertdf` or syncdf` and writes to the logger before returning the
+#     new dataframe. autoincrement_pkey_col is used only if method ='syncdf'"""
+#     oldlen = len(dataframe)
+#     if method == 'insertdf':
+#         df, new = insertdf(dataframe, session, matching_columns, buf_size, **kw)
+#     elif method == 'syncdf':
+#         assert autoincrement_pkey_col is not None
+#         df, new = syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_size,
+#                          **kw)
+#     else:
+#         raise ValueError('%s invalid method. Use "insertdf" or "syncdf"' % method)
+# 
+#     discarded = oldlen - len(df)
+#     dblog(table, new, discarded)
+#     return df
+
+
+def dbinsertdf(dataframe, session, matching_columns, buf_size=10, query_first=True,
+               drop_duplicates=True, return_df=True):
+    """Calls `insertdf` and writes to the logger before returning the
+    new dataframe."""
     oldlen = len(dataframe)
-    if method == 'insertdf':
-            df, new = insertdf(dataframe, session, matching_columns, buf_size, **kw)
-    elif method == 'syncdf':
-        assert autoincrement_pkey_col is not None
-        df, new = syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_size,
-                         **kw)
-    else:
-        raise ValueError('%s invalid method. Use "insertdf" or "syncdf"' % method)
-
+    df, new = insertdf(dataframe, session, matching_columns, buf_size, query_first,
+                       drop_duplicates, return_df)
     discarded = oldlen - len(df)
-    dblog(table, new, discarded)
+    dblog(matching_columns[0].class_, new, discarded)
+    return df
+
+
+def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_size=10,
+             drop_duplicates=True, return_df=True):
+    """Calls `syncdf` and writes to the logger before returning the
+    new dataframe"""
+    oldlen = len(dataframe)
+    df, new = syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_size,
+                     drop_duplicates, return_df)
+    discarded = oldlen - len(df)
+    dblog(autoincrement_pkey_col.class_, new, discarded)
     return df
 
 
@@ -135,7 +159,7 @@ def dblog(table, new, new_discarded, updated=0, updated_discarded=0):
                        table.__tablename__, updated_discarded, item)
 
 
-def get_events_df(session, eventws_url, **args):
+def get_events_df(session, eventws_url, db_bufsize, **args):
     """
         Returns the events from an event ws query. Splits the results into smaller chunks
         (according to 'start' and 'end' parameters, if they are not supplied in **args they will
@@ -148,7 +172,7 @@ def get_events_df(session, eventws_url, **args):
     if eventws_id is None:  # write url to table
         data = [("event", eventws_url)]
         df = pd.DataFrame(data, columns=[WebService.type.key, WebService.url.key])
-        df = dbsync("syncdf", WebService, df, session, [WebService.url], WebService.id)
+        df = dbsyncdf(df, session, [WebService.url], WebService.id, db_bufsize)
         if empty(df):
             raise ValueError(MSG("event web service", "Unable to save '%s', please check "
                                  "database connection and try again" % eventws_url, "db error"))
@@ -177,8 +201,8 @@ def get_events_df(session, eventws_url, **args):
         if empty(events_df):
             raise ValueError("No well-formed events found")
 
-        events_df = dbsync("syncdf", Event, events_df, session,
-                           [Event.eventid, Event.webservice_id], Event.id)
+        events_df = dbsyncdf(events_df, session,
+                             [Event.eventid, Event.webservice_id], Event.id, db_bufsize)
 
         # try to release memory for unused columns (FIXME: NEEDS TO BE TESTED)
         ret = events_df[[Event.id.key, Event.magnitude.key, Event.latitude.key, Event.longitude.key,
@@ -221,7 +245,7 @@ def get_dc_filterfunc(service):
     return lambda x: True
 
 
-def get_datacenters_df(session, service=None, channels=None, **query_args):
+def get_datacenters_df(session, service, channels, db_bufsize, **query_args):
     """Queries 'http://geofon.gfz-potsdam.de/eidaws/routing/1/query' for all datacenters
     available
     :param query_args: any key value pair for the url. Note that 'service' and 'format' will
@@ -289,11 +313,6 @@ def get_datacenters_df(session, service=None, channels=None, **query_args):
             if (i == lastline or is_dc_line) and current_dc_url is not None:
                 # get index of given dataselect url:
                 if accept_dc(current_dc_url):
-#                     try:
-#                         idx = dc_df[dc_df[DC_DURL_NAME] == current_dc_url].iloc[0][DC_ID_NAME]
-#                     except IndexError:
-#                         # index not found:
-#                         idx = None
                     indices = dc_df.index[(dc_df[DC_DURL_NAME] == current_dc_url)].values
                     idx = indices[0] if len(indices) else None
 
@@ -314,10 +333,7 @@ def get_datacenters_df(session, service=None, channels=None, **query_args):
             if is_dc_line:
                 current_dc_url = line
 
-        dc_df = dbsync("syncdf", DataCenter, dc_df, session, [DC_SURL_COL],
-                       DataCenter.id)
-
-        # dc_postdata, dc_df = dc_df[DC_POSTDATA], dc_df.drop(DC_POSTDATA, axis=1)
+        dc_df = dbsyncdf(dc_df, session, [DC_SURL_COL], DataCenter.id, db_bufsize)
         return dc_df, dc_postdata
 
     except URLException as urlexc:
@@ -334,7 +350,7 @@ def get_datacenters_df(session, service=None, channels=None, **query_args):
 
 
 def get_channels_df(session, datacenters_df, post_data, channels, min_sample_rate,
-                    max_thread_workers, timeout, blocksize,
+                    max_thread_workers, timeout, blocksize, db_bufsize,
                     notify_progress_func=lambda *a, **v: None):
     """Returns a dataframe representing a query to the eida services (or the internal db
     if `post_data` is None) with the given argument.  The
@@ -383,8 +399,14 @@ def get_channels_df(session, datacenters_df, post_data, channels, min_sample_rat
     else:
         ret = []
 
-        def ondone(obj, result, exc, url):  # pylint:disable=unused-argument
-            """function executed when a given url has successfully downloaded data"""
+        iterable = ((id_, Request(url, data='format=text\nlevel=channel\n'+post_data_str))
+                    for url, id_, post_data_str in
+                    izip(datacenters_df[DataCenter.station_url.key],
+                         datacenters_df[DataCenter.id.key], post_data) if post_data_str)
+
+        for obj, result, exc, url in read_async(iterable, urlkey=lambda obj: obj[-1],
+                                                blocksize=blocksize, max_workers=max_thread_workers,
+                                                decode='utf8', timeout=timeout):
             notify_progress_func(1)
             dcen_id, fullurl = obj[0], url.get_full_url()
             if exc:
@@ -398,14 +420,6 @@ def get_channels_df(session, datacenters_df, post_data, channels, min_sample_rat
                 if not empty(df):
                     df[Station.datacenter_id.key] = dcen_id
                     ret.append(df)
-
-        iterable = ((id_, Request(url, data='format=text\nlevel=channel\n'+post_data_str))
-                    for url, id_, post_data_str in
-                    izip(datacenters_df[DataCenter.station_url.key],
-                         datacenters_df[DataCenter.id.key], post_data) if post_data_str)
-
-        read_async(iterable, ondone, urlkey=lambda obj: obj[-1], blocksize=blocksize,
-                   max_workers=max_thread_workers, decode='utf8', timeout=timeout)
 
         if ret:  # pd.concat complains for empty list
             channels_df = pd.concat(ret, axis=0, ignore_index=True, copy=False)
@@ -423,7 +437,7 @@ def get_channels_df(session, datacenters_df, post_data, channels, min_sample_rat
 
             if not empty(channels_df):
                 # logger.info("Saving channels (%d) and relative stations", len(channels_df))
-                channels_df = save_stations_and_channels(session, channels_df)
+                channels_df = save_stations_and_channels(session, channels_df, db_bufsize)
 
                 if not empty(channels_df):
                     ret_df = channels_df[COLS_DF].copy()
@@ -439,7 +453,7 @@ def get_channels_df(session, datacenters_df, post_data, channels, min_sample_rat
     return ret_df
 
 
-def save_stations_and_channels(session, channels_df):
+def save_stations_and_channels(session, channels_df, db_bufsize):
     """
         Saves to db channels (and their stations) and returns a dataframe with only channels saved
         The returned data frame will have the column 'id' (`Station.id`) renamed to
@@ -462,7 +476,7 @@ def save_stations_and_channels(session, channels_df):
     # by default)
 
     # attempt to write only unique stations
-    stas_df = dbsync("syncdf", Station, channels_df, session, STA_COLS_DB, STA_ID_DB)
+    stas_df = dbsyncdf(channels_df, session, STA_COLS_DB, STA_ID_DB, db_bufsize)
     if empty(stas_df):
         return empty()
     channels_df = mergeupdate(channels_df, stas_df, STA_COLS_DF, [STA_ID_DF])
@@ -472,7 +486,7 @@ def save_stations_and_channels(session, channels_df):
         logger.warning(MSG("", "discarding %d channels", "station id n/a"),
                        oldlen - len(channels_df))
     # add to db:
-    channels_df = dbsync("syncdf", Channel, channels_df, session, CHA_COLS_DB, CHA_ID_DB)
+    channels_df = dbsyncdf(channels_df, session, CHA_COLS_DB, CHA_ID_DB, db_bufsize)
     return channels_df
 
 
@@ -485,12 +499,22 @@ def _get_sta_request(datacenter_url, network, station, start_time):
 
 
 def save_inventories(session, stations_df, max_thread_workers, timeout,
-                     download_blocksize, notify_progress_func=lambda *a, **v: None):
+                     download_blocksize, db_bufsize, notify_progress_func=lambda *a, **v: None):
     _msg = "Unable to save inventory (station id=%d)"
 
-    dbmanager = DbManager(session, Station.id, [Station.inventory_xml], ADDBUFSIZE)
+    dbmanager = DbManager(session, Station.id, [Station.inventory_xml], db_bufsize)
 
-    def ondone(obj, result, exc, request):
+    iterable = izip(stations_df[Station.id.key],
+                    stations_df[DataCenter.station_url.key],
+                    stations_df[Station.network.key],
+                    stations_df[Station.station.key],
+                    stations_df[Station.start_time.key]
+                    )
+    for obj, result, exc, request in read_async(iterable,
+                                                urlkey=lambda obj: _get_sta_request(*obj[1:]),
+                                                max_workers=max_thread_workers,
+                                                blocksize=download_blocksize, timeout=timeout,
+                                                raise_http_err=True):
         notify_progress_func(1)
         sta_id = obj[0]
         url = request.get_full_url()
@@ -503,16 +527,6 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
                 return
             dbmanager.add(pd.DataFrame({Station.id.key: [sta_id],
                                         Station.inventory_xml.key: [dumps_inv(data)]}))
-
-    iterable = izip(stations_df[Station.id.key],
-                    stations_df[DataCenter.station_url.key],
-                    stations_df[Station.network.key],
-                    stations_df[Station.station.key],
-                    stations_df[Station.start_time.key]
-                   )
-    read_async(iterable, ondone, urlkey=lambda obj: _get_sta_request(*obj[1:]),
-               max_workers=max_thread_workers,
-               blocksize=download_blocksize, timeout=timeout, raise_http_err=True)
 
     dbmanager.close()
 
@@ -804,7 +818,7 @@ def _get_seg_request(segments_df, datacenter_url):
 
 
 def download_save_segments(session, segments_df, datacenters_df,
-                           max_thread_workers, timeout, download_blocksize,
+                           max_thread_workers, timeout, download_blocksize, db_bufsize,
                            notify_progress_func=lambda *a, **v: None):
 
     """Downloads and saves the segments.
@@ -861,17 +875,17 @@ def download_save_segments(session, segments_df, datacenters_df,
     segments_df[SEG_DSC_NAME] = float('nan')
 
     segmanager = DbManager(session, SEG_ID_COL, [SEG_RUNID_COL, SEG_DATA_COL, SEG_MGR_COL,
-                                                 SEG_SRATE_COL, SEG_DSC_COL], ADDBUFSIZE)
+                                                 SEG_SRATE_COL, SEG_DSC_COL], db_bufsize)
 
     seg_groups = segments_df.groupby([SEG_DCID_NAME, SEG_STIME_NAME, SEG_ETIME_NAME], sort=False)
 
     # seg group is an iterable of 2 element tuples. The first element is the tuple of keys[:idx]
     # values, and the second element is the dataframe
-    itr = read_async2(seg_groups,
-                      urlkey=lambda obj: _get_seg_request(obj[1], datcen_id2url[obj[0][0]]),
-                      raise_http_err=False,
-                      max_workers=max_thread_workers,
-                      timeout=timeout, blocksize=download_blocksize)
+    itr = read_async(seg_groups,
+                     urlkey=lambda obj: _get_seg_request(obj[1], datcen_id2url[obj[0][0]]),
+                     raise_http_err=False,
+                     max_workers=max_thread_workers,
+                     timeout=timeout, blocksize=download_blocksize)
 
     while itr is not None:
         retries = []
@@ -929,11 +943,11 @@ def download_save_segments(session, segments_df, datacenters_df,
             notify_progress_func(len(df))
 
         if retries:
-            itr = read_async2(retries,
-                              urlkey=lambda obj: obj[0],
-                              raise_http_err=False,
-                              max_workers=max_thread_workers,
-                              timeout=timeout, blocksize=download_blocksize)
+            itr = read_async(retries,
+                             urlkey=lambda obj: obj[0],
+                             raise_http_err=False,
+                             max_workers=max_thread_workers,
+                             timeout=timeout, blocksize=download_blocksize)
         else:
             break
 
@@ -979,7 +993,7 @@ class DbManager(object):
         if dfinsert is not None:
             self.inserts.append(dfinsert)
             self._num2insert += len(dfinsert)
-            if self._num2insert > bufsize:
+            if self._num2insert >= bufsize:
                 self.insert()
                 self._num2insert = 0
                 self.inserts = []
@@ -987,7 +1001,7 @@ class DbManager(object):
         if dfupdate is not None:
             self.updates.append(dfupdate)
             self._num2update += len(dfupdate)
-            if self._num2update > bufsize:
+            if self._num2update >= bufsize:
                 self.update()
                 self._num2update = 0
                 self.updates = []
@@ -1030,6 +1044,7 @@ def run(session, run_id, start, end, service, eventws_query_args,
         advanced_settings['download_blocksize'] = -1
     if advanced_settings['max_thread_workers'] <= 0:
         advanced_settings['max_thread_workers'] = None
+    dbbufsize = min(advanced_settings['db_buf_size'], 1)
 
     progressbar = get_progressbar(isterminal)  # no-op if isterminal=False
 
@@ -1037,7 +1052,7 @@ def run(session, run_id, start, end, service, eventws_query_args,
     stepiter = imap(lambda i: "%d of %d" % (i+1, __steps), xrange(__steps))
 
     # write the class labels:
-    add_classes(session, class_labels)
+    add_classes(session, class_labels, dbbufsize)
 
     startiso = start.isoformat()
     endiso = end.isoformat()
@@ -1048,7 +1063,7 @@ def run(session, run_id, start, end, service, eventws_query_args,
     logger.info("STEP %s: Requesting events", next(stepiter))
     eventws_url = get_eventws_url(session, service)
     try:
-        events_df = get_events_df(session, eventws_url, start=startiso, end=endiso,
+        events_df = get_events_df(session, eventws_url, dbbufsize, start=startiso, end=endiso,
                                   **eventws_query_args)
     except DownloadError as dexc:
         logger.error(dexc)
@@ -1058,8 +1073,8 @@ def run(session, run_id, start, end, service, eventws_query_args,
     logger.info("")
     logger.info("STEP %s: Requesting data-centers", next(stepiter))
     try:
-        datacenters_df, postdata = get_datacenters_df(session, service, channels, start=startiso,
-                                                      end=endiso)
+        datacenters_df, postdata = get_datacenters_df(session, service, channels, dbbufsize, 
+                                                      start=startiso, end=endiso)
     except DownloadError as dexc:
         logger.error(dexc)
         return 1
@@ -1081,7 +1096,8 @@ def run(session, run_id, start, end, service, eventws_query_args,
                                           min_sample_rate,
                                           advanced_settings['max_thread_workers'],
                                           advanced_settings['s_timeout'],
-                                          advanced_settings['download_blocksize'], bar.update)
+                                          advanced_settings['download_blocksize'], dbbufsize,
+                                          bar.update)
     except DownloadError as dexc:
         logger.error(dexc)
         return 1
@@ -1125,6 +1141,7 @@ def run(session, run_id, start, end, service, eventws_query_args,
                                              advanced_settings['max_thread_workers'],
                                              advanced_settings['w_timeout'],
                                              advanced_settings['download_blocksize'],
+                                             dbbufsize,
                                              bar.update)
 
     if inventory:
@@ -1144,12 +1161,13 @@ def run(session, run_id, start, end, service, eventws_query_args,
             logger.info("STEP %s: Skipping: no station inventory to download",
                         next(stepiter))
         else:
-            logger.info(("STEP %s: Downloading %d stations inventories"), next(stepiter), len(sta_df))
+            logger.info(("STEP %s: Downloading %d stations inventories"), next(stepiter),
+                        len(sta_df))
             with progressbar(length=len(sta_df)) as bar:
                 save_inventories(session, sta_df,
                                  advanced_settings['max_thread_workers'],
                                  advanced_settings['i_timeout'],
-                                 advanced_settings['download_blocksize'], bar.update)
+                                 advanced_settings['download_blocksize'], dbbufsize, bar.update)
 
     if empty(segments_df):
         return 0

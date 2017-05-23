@@ -2,7 +2,7 @@
 """
     Common utilities for the program
 """
-from __future__ import print_function  # , unicode_literals
+# from __future__ import print_function  # , unicode_literals
 import os
 import yaml
 import re
@@ -318,31 +318,6 @@ def secure_dburl(dburl):
     http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls
     """
     return re.sub(r"://(.*?):(.*)@", r"://\1:***@", dburl)
-# def timedelta2str(tdelta):
-#     """Returns a formatted timedelta with seconds rounded up or down.
-#     It is basically str(tdelta) but with timedelta rounded up to seconds, and 'h', 'm' 's'
-#     labels added:
-#     ```
-#     >>> t = timedelta(hours=15000,seconds=4500)
-#     >>> str(t)
-#     '625 days, 1:15:00'
-#     >>>timedelta2str(t)
-#     '625 days, 1h:15m:00s'
-#     >>> t = timedelta(hours=15000, seconds=4500, microseconds=1)
-#     >>> str(t)
-#     '625 days, 1:15:00.000001'
-#     >>>timedelta2str(t)
-#     '625 days, 1h:15m:00s'
-#     ```
-#     """
-#     # remainder. timedelta has already a nicer formatting with its str method:
-#     # str(timedelta(hours=15000,seconds=4500))
-#     # >>> '625 days, 1:15:00'
-#     # str(timedelta(seconds=4500) - timedelta(microseconds=1))
-#     # >>> '1:14:59.999999'
-#     # so we just need to append 'hours' and round microseconds
-#     spl = str(timedeltaround(tdelta)).split(":")
-#     return "".join(spl) if len(spl) != 3 else "%sh:%sm:%ss" % (spl[0], spl[1], spl[2])
 
 
 def get_progressbar(isterminal=False):
@@ -394,9 +369,9 @@ def indent(string, n_chars=3):
     return reg.sub("\t" if n_chars == 'tab' else " " * n_chars, string)
 
 
-def printfunc(isterminal=False):
-    """Returns the print function if isterminal is True else a no-op function"""
-    if isterminal:
-        return print
-    else:
-        return lambda *a, **v: None
+# def printfunc(isterminal=False):
+#     """Returns the print function if isterminal is True else a no-op function"""
+#     if isterminal:
+#         return print
+#     else:
+#         return lambda *a, **v: None

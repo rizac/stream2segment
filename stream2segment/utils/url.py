@@ -3,6 +3,7 @@ Created on Apr 15, 2017
 
 @author: riccardo
 '''
+from __future__ import print_function
 from contextlib import closing
 import threading
 import urllib2
@@ -10,6 +11,7 @@ import httplib
 import socket
 import concurrent.futures
 import multiprocessing
+import time
 
 
 def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
@@ -87,8 +89,8 @@ class URLException(Exception):
         return str(self.exc)
 
 
-def read_async(iterable, ondone, urlkey=None, max_workers=None, blocksize=1024*1024,
-               decode=None, raise_http_err=True, **kwargs):  # pylint:disable=too-many-arguments
+def read_async_old(iterable, ondone, urlkey=None, max_workers=None, blocksize=1024*1024,
+                   decode=None, raise_http_err=True, **kwargs):  # pylint:disable=too-many-arguments
     """
         Wrapper around `concurrent.futures.ThreadPoolExecutor` for downloading asynchronously
         data from urls in `iterable`. Each download is executed on a separate *worker thread*,
@@ -214,8 +216,8 @@ def read_async(iterable, ondone, urlkey=None, max_workers=None, blocksize=1024*1
             raise
 
 
-def read_async2(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
-                decode=None, raise_http_err=True, **kwargs):  # pylint:disable=too-many-arguments
+def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
+               decode=None, raise_http_err=True, **kwargs):  # pylint:disable=too-many-arguments
     """
         Wrapper around `concurrent.futures.ThreadPoolExecutor` for downloading asynchronously
         data from urls in `iterable`. Each download is executed on a separate *worker thread*,
@@ -316,28 +318,34 @@ def read_async2(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
 
     # We can use a with statement to ensure threads are cleaned up promptly
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Start the load operations and mark each future with its iterable item and URL
+        future_to_obj = (executor.submit(urlwrapper, obj, urlkey, blocksize, decode,
+                                         raise_http_err, **kwargs) for obj in iterable)
         try:
-            # Start the load operations and mark each future with its iterable item and URL
-            future_to_obj = (executor.submit(urlwrapper, obj, urlkey, blocksize, decode,
-                                             raise_http_err, **kwargs) for obj in iterable)
+            # this try is for the keyboard interrupt, which will be caught inside the
+            # as_completed below
             for future in concurrent.futures.as_completed(future_to_obj):
                 # this is executed in the main thread (thus is thread safe):
-                if kill:  # pylint:disable=protected-access
-                    continue
                 yield future.result()
-        except:
-            # According to this post:
-            # http://stackoverflow.com/questions/29177490/how-do-you-kill-futures-once-they-have-started,
-            # after a KeyboardInterrupt this method does not return until all
-            # working threads have finished. Thus, we implement the urlreader._kill flag
-            # which makes them exit immediately, and hopefully this function will return within
-            # seconds at most. We catch  a bare except cause we want the same to apply to all
-            # other exceptions which we might raise (see few line above)
-            kill = True  # pylint:disable=protected-access
-            # the time here before executing 'raise' below is the time taken to finish all threads.
-            # Without the line above, it might be a lot (minutes, hours), now it is much shorter
-            # (in the order of few seconds max) and the command below can be executed quickly:
+        except KeyboardInterrupt:
+            # Same case as below, just print something because it might require time
+            # before exiting
+            print("Aborted by user, please wait...")
+            kill = True
             raise
+        except:
+            # We are here either because of a keyboardinterrupt, or an exception in the
+            # future.result(),
+            # or an exception in the consumer of the yield result (exception: GeneratorExit)
+            # in all cases the `as_completed` will shortly exit, issuing a shutdown(wait=True).
+            # kill = true flag speeds up the exit time. Nothing will be executed anyway, so
+            # raise the exception to be handled
+            kill = True
+            raise
+
+#     if exc is not None:
+#         raise exc
+
 
 # def read_async(iterable, ondone, cancel=False,
 #                urlkey=lambda obj: obj,

@@ -26,7 +26,7 @@ from click.testing import CliRunner
 import pandas as pd
 from stream2segment.download.main import add_classes, get_events_df, get_datacenters_df, logger as query_logger, \
 get_channels_df, merge_events_stations, set_saved_arrivaltimes, get_arrivaltimes,\
-    prepare_for_download, download_save_segments, _strcat, get_eventws_url, dbsync,\
+    prepare_for_download, download_save_segments, _strcat, get_eventws_url,\
     DownloadError
 # ,\
 #     get_fdsn_channels_df, save_stations_and_channels, get_dists_and_times, set_saved_dist_and_times,\
@@ -187,16 +187,27 @@ class Test(unittest.TestCase):
         # mock threadpoolexecutor to run one instance at a time, so we get deterministic results:
         self.patcher23 = patch('stream2segment.download.main.read_async')
         self.mock_read_async = self.patcher23.start()
-        def readasync(iterable, ondone, *a, **v):
+#         def readasync(iterable, ondone, *a, **v):
+#             ret = list(iterable)
+#             ondones = [None] * len(ret)
+#             def _ondone(*a_):
+#                 ondones[ret.index(a_[0])] = a_
+#             
+#             read_async(ret, _ondone, *a, **v)
+#             
+#             for k in ondones:
+#                 ondone(*k)
+        def readasync(iterable, *a, **v):
+            # make readasync deterministic by returning the order of iterable
             ret = list(iterable)
             ondones = [None] * len(ret)
-            def _ondone(*a_):
+            
+            for a_ in read_async(ret, *a, **v):
                 ondones[ret.index(a_[0])] = a_
-            
-            read_async(ret, _ondone, *a, **v)
-            
+
             for k in ondones:
-                ondone(*k)
+                yield k
+
         self.mock_read_async.side_effect = readasync
         
         
@@ -282,6 +293,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         #add cleanup (in case tearDown is not called due to exceptions):
         self.addCleanup(Test.cleanup, self.session, self.handler, *self.patchers)
                         #self.patcher3)
+                        
+        self.db_buf_size = 1
 
     def log_msg(self):
         return self.logout.getvalue()
@@ -351,11 +364,11 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
     def test_add_classes(self):
         cls = {'a' : 'bla', 'b' :'c'}
-        add_classes(self.session, cls)
+        add_classes(self.session, cls, db_bufsize=self.db_buf_size)
         assert len(self.session.query(Class).all()) == 2
         logmsg = self.log_msg()
         assert "Writing to database table 'classes': 2 of 2 new items saved" in logmsg
-        add_classes(self.session, cls)
+        add_classes(self.session, cls, db_bufsize=self.db_buf_size)
         # assert we did not write any new class
         assert len(self.session.query(Class).all()) == 2
         # and also that nothing is printed to log (we print only new and discarded)
@@ -394,7 +407,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 """]
         
         
-        data = self.get_events_df(urlread_sideeffect, self.session, "http://eventws")
+        data = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", db_bufsize=self.db_buf_size)
         # assert only three events were successfully saved to db (two have same id) 
         assert len(self.session.query(Event).all()) == len(pd.unique(data['id'])) == 3
         # AND data to save has length 3: (we skipped last or next-to-last cause they are dupes)
@@ -411,7 +424,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 --- ERRROR --- THIS IS MALFORMED 20160508_abc0113|2016-05-08 22:37:20.100000| --- ERROR --- |26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
 """, URLError('blabla23___')]
         
-        data = self.get_events_df(urlread_sideeffect, self.session, "http://eventws")
+        data = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", db_bufsize=self.db_buf_size)
         # assert nothing new has added:
         assert len(self.session.query(Event).all()) == len(pd.unique(data['id'])) == 3
         # AND data to save has length 3: (we skipped last or next-to-last cause they are dupes)
@@ -435,7 +448,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # will return that, so that we will end up having a 413 when the string is not
         # further splittable:
         with pytest.raises(DownloadError):
-            data = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", start=datetime(2010,1,1).isoformat(),
+            data = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", self.db_buf_size,
+                                      start=datetime(2010,1,1).isoformat(),
                                       end=datetime(2011,1,1).isoformat())
         # assert only three events were successfully saved to db (two have same id) 
         assert len(self.session.query(Event).all()) == 0
@@ -447,18 +461,24 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert len(self.session.query(Event).all()) == 0
         
 
+#     @patch('stream2segment.download.main.urljoin', return_value='a')
+#     @patch('stream2segment.download.main.dbsync')
+#     def test_get_events_eventws_not_saved(self, mock_dbsync, mock_query): # FIXME: implement it!
+#         urlread_sideeffect = [413]  # this is useless, we test stuff which raises before it
+#         
+#         # now we want to return all times 413, and see that we raise a ValueError:
+#         
+#         mock_dbsync.reset_mock()
+#         mock_dbsync.side_effect = lambda *a, **v: dbsync(*a, **v)
     @patch('stream2segment.download.main.urljoin', return_value='a')
-    @patch('stream2segment.download.main.dbsync')
-    def test_get_events_eventws_not_saved(self, mock_dbsync, mock_query): # FIXME: implement it!
+    def test_get_events_eventws_not_saved(self, mock_query): # FIXME: implement it!
         urlread_sideeffect = [413]  # this is useless, we test stuff which raises before it
-        
-        # now we want to return all times 413, and see that we raise a ValueError:
-        
-        mock_dbsync.reset_mock()
-        mock_dbsync.side_effect = lambda *a, **v: dbsync(*a, **v)
+
+        # we want to return all times 413, and see that we raise a ValueError:
         with pytest.raises(DownloadError):
             # now it should raise because of a 413:
-            data = self.get_events_df(urlread_sideeffect, self.session, "abcd", start=datetime(2010,1,1).isoformat(),
+            data = self.get_events_df(urlread_sideeffect, self.session, "abcd", self.db_buf_size,
+                                      start=datetime(2010,1,1).isoformat(),
                                          end=datetime(2011,1,1).isoformat())
             
         # assert we wrote the url
@@ -486,7 +506,7 @@ http://geofon.gfz-potsdam.de/fdsnws/station/1/query
 
 ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
 UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session)
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, None, None, db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == len(data) == 2
         mock_query.assert_called_once()  # we might be more fine grained, see code
         # geofon has actually a post line since 'indentation is bad..' is splittable)
@@ -502,13 +522,15 @@ http://ws.resif.fr/fdsnws/dataselect/1/query
 
 ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
 """]
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, channels=['BH?'])
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service=None,
+                                                       channels=['BH?'], db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == len(data) == 2
         mock_query.assert_called_once()  # we might be more fine grained, see code
         assert post_data_list[0] is not None and post_data_list[1] is None
         
         # now download with a channel matching:
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, channels=['H??'])
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service=None,
+                                                       channels=['H??'], db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == len(data) == 2
         assert mock_query.call_count == 2  # we might be more fine grained, see code
         assert post_data_list[0] is not None and post_data_list[1] is not None
@@ -546,32 +568,32 @@ C * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
 """]
         mock_dc_filter.side_effect = func
 
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service='', channels=['BH?'])
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service='', channels=['BH?'], db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == len(data) == 3
         assert post_data_list[0] is not None and all(post_data_list[i] is None for i in [1,2])
         
         self.session.query(DataCenter).delete()
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service="geofon")
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service="geofon", channels=None, db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == len(data) == 1
         assert post_data_list[0] is not None
         
         self.session.query(DataCenter).delete()
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service="resif")
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service="resif", channels=None, db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == len(data) == 1
         assert post_data_list[0] is not None
         
         self.session.query(DataCenter).delete()
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service="iris")
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service="iris", channels=None, db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == len(data) == 1
         assert post_data_list[0] is not None
         
         self.session.query(DataCenter).delete()
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service="eida")
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service="eida", channels=None, db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == len(data) == 2
         assert len(post_data_list) == 2 and all(p is not None for p in post_data_list) and len(post_data_list[0].split("\n")) ==2
         
         self.session.query(DataCenter).delete()
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service="eida", channels=['BH?'])
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service="eida", channels=['BH?'], db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == len(data) == 2
         assert len(post_data_list) == 2
         assert len(post_data_list[0].split("\n")) == 2
@@ -591,17 +613,17 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
 """, 501]
         
         with pytest.raises(DownloadError):
-            data, post_data_list = self.get_datacenters_df(urlread_sideeffect[0], self.session, channels=['BH?'])
+            data, post_data_list = self.get_datacenters_df(urlread_sideeffect[0], self.session, service=None, channels=['BH?'], db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == 0
         mock_query.assert_called_once()  # we might be more fine grained, see code
         
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[1], self.session, channels=['BH?'])
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[1], self.session, service=None, channels=['BH?'], db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == len(data) == 2
         mock_query.call_count == 2  # we might be more fine grained, see code
         assert post_data_list[0] is not None and post_data_list[1] is None
         
         # this raises again a server error, but we have datacenters in cahce:
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[2], self.session, channels=['BH?'])
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[2], self.session, service=None, channels=['BH?'], db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == len(data) == 2
         mock_query.call_count == 3  # we might be more fine grained, see code
         assert post_data_list is None
@@ -613,10 +635,10 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
 http://ws.resif.fr/fdsnws/dataselect/1/query
 """]
         
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[0], self.session, channels=['BH?'])
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[0], self.session, service=None, channels=['BH?'], db_bufsize=self.db_buf_size)
         assert all(x is None for x in post_data_list)
         
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[0], self.session)
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[0], self.session, service=None, channels=None, db_bufsize=self.db_buf_size)
         assert all(x is None for x in post_data_list)
 
 # =================================================================================================
@@ -635,7 +657,7 @@ http://ws.resif.fr/fdsnws/dataselect/1/query
 20160508_0000113|2016-05-08 22:37:20.100000|45.68|26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
 --- ERRROR --- THIS IS MALFORMED 20160508_abc0113|2016-05-08 22:37:20.100000| --- ERROR --- |26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
 """
-        events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws")
+        events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", db_bufsize=self.db_buf_size)
 
         urlread_sideeffect = """http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query
 ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
@@ -645,7 +667,8 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
 
 """
         channels = None
-        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, channels=channels)
+        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, service=None,
+                                                           channels=channels, db_bufsize=self.db_buf_size)
         
         # url read for channels: Note: first response data raises, second has an error and
         #that error is skipped (other channels are added), and last two channels are from two
@@ -671,7 +694,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
-                                                       100, 'a', 'b', -1
+                                                       100, 'a', 'b', -1, self.db_buf_size
                                                )
          
         # we should have called mock_urlopen_in_async times the datacenters
@@ -693,7 +716,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
                                                        datacenters_df,
                                                        None,
                                                        channels,
-                                                       100, 'a', 'b', -1
+                                                       100, 'a', 'b', -1, self.db_buf_size
                                                )
 
         assert len(cha_df2) == len(cha_df)
@@ -712,7 +735,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
                                                            datacenters_df,
                                                            ['x', None],
                                                            channels,
-                                                           100, 'a', 'b', -1
+                                                           100, 'a', 'b', -1, self.db_buf_size
                                                    )
         assert 'discarding response data' in self.log_msg()
 
@@ -722,7 +745,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
                                                            datacenters_df,
                                                            [None, 'x'],
                                                            channels,
-                                                           100, 'a', 'b', -1
+                                                           100, 'a', 'b', -1, self.db_buf_size
                                                    )
         assert 'urlerror_wat' in self.log_msg()
 
@@ -732,7 +755,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
                                                            datacenters_df,
                                                            [None, 'x'],
                                                            channels,
-                                                           100, 'a', 'b', -1
+                                                           100, 'a', 'b', -1, self.db_buf_size
                                                    )
         assert 'timeout' in self.log_msg()
         
@@ -743,7 +766,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
                                                            datacenters_df,
                                                            [None, 'x'],
                                                            channels,
-                                                           100, 'a', 'b', -1
+                                                           100, 'a', 'b', -1, self.db_buf_size
                                                    )
         
         assert len(cha_df2) == 6
@@ -754,7 +777,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
-                                                       10, 'a', 'b', -1
+                                                       10, 'a', 'b', -1, self.db_buf_size
                                                )
         assert len(cha_df3) == len(cha_df)
         
@@ -771,7 +794,7 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
-                                                       100, 'a', 'b', -1
+                                                       100, 'a', 'b', -1, self.db_buf_size
                                                )
 
         assert len(cha_df) == 1
@@ -782,7 +805,7 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
-                                                       10, 'a', 'b', -1
+                                                       10, 'a', 'b', -1, self.db_buf_size
                                                )
 
         assert len(cha_df) == 2
@@ -793,7 +816,7 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
                                                        datacenters_df,
                                                        postdata,
                                                        ['B??'],
-                                                       10, 'a', 'b', -1
+                                                       10, 'a', 'b', -1, self.db_buf_size
                                                )
 
         assert len(cha_df) == 2
@@ -806,7 +829,7 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
                                                            datacenters_df,
                                                            None,
                                                            ['B??'],
-                                                           10, 'a', 'b', -1
+                                                           10, 'a', 'b', -1, self.db_buf_size
                                                    )
 
         assert cha_df.empty
@@ -817,7 +840,7 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
                                                            datacenters_df,
                                                            postdata,
                                                            ['B??'],
-                                                           1000000000, 'a', 'b', -1
+                                                           1000000000, 'a', 'b', -1, self.db_buf_size
                                                    )
 
         assert cha_df.empty
@@ -829,7 +852,7 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
                                                                datacenters_df,
                                                                postdata,
                                                                ['B??'],
-                                                               10, 'a', 'b', -1
+                                                               10, 'a', 'b', -1, self.db_buf_size
                                                        )
 
         
@@ -843,7 +866,7 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
 20160508_0000129|2016-05-08 05:17:11.500000|1|1|60.0|AZER|EMSC-RTS|AZER|505483|ml|3|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 01:45:30.300000|2|2|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|4|EMSC|CROATIA
 """
-        events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws")
+        events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", db_bufsize=self.db_buf_size)
 
         # this urlread_sideeffect is actually to be considered for deciding which datacenters to store,
         # their post data is not specified as it
@@ -853,7 +876,7 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
 http://ws.resif.fr/fdsnws/dataselect/1/query
 """
         channels = None
-        datacenters_df, postdata = self.get_datacenters_df(None, self.session, channels=channels)
+        datacenters_df, postdata = self.get_datacenters_df(None, self.session, service=None, channels=channels, db_bufsize=self.db_buf_size)
 
         # url read for channels: Note: first response data raises, second has an error and
         #that error is skipped (other channels are added), and last two channels are from two
@@ -872,7 +895,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
-                                                       10, 'a', 'b', -1
+                                                       10, 'a', 'b', -1, self.db_buf_size
                                                )
         
         assert len(channels_df) == 5
@@ -948,14 +971,15 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     def test_getset_arrivaltimes(self):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
         # prepare:
         urlread_sideeffect = None  # use defaults from class
-        events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws")
+        events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", db_bufsize=self.db_buf_size)
         channels = None
-        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, channels=channels)                                      
+        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, service=None,
+                                                           channels=channels, db_bufsize=self.db_buf_size)                                      
         channels_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
-                                                       100, 'a', 'b', -1
+                                                       100, 'a', 'b', -1, self.db_buf_size
                                                )
         assert len(channels_df) == 12  # just to be sure. If failing, we might have changed the class default
     # events_df
@@ -1107,14 +1131,15 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     def test_prepare_for_download(self):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
         # prepare:
         urlread_sideeffect = None  # use defaults from class
-        events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws")
+        events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", db_bufsize=self.db_buf_size)
         channels = None
-        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, channels=channels)                                      
+        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, service=None,
+                                                           channels=channels, db_bufsize=self.db_buf_size)                                      
         channels_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
-                                                       100, 'a', 'b', -1
+                                                       100, 'a', 'b', -1, self.db_buf_size
                                                )
         assert len(channels_df) == 12  # just to be sure. If failing, we might have changed the class default
     # events_df
@@ -1265,22 +1290,22 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     @patch("stream2segment.download.main.mseedunpack")
     @patch("stream2segment.download.main.insertdf_napkeys")
     @patch("stream2segment.download.main.updatedf")
-    def test_download_save_segments(self, update_segments, insert_segments, mseed_unpack):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
+    def test_download_save_segments(self, mock_updatedf, mock_insertdf_napkeys, mseed_unpack):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
         # prepare:
         mseed_unpack.side_effect = lambda *a, **v: mseedlite3.unpack(*a, **v)
-        insert_segments.side_effect = lambda *a, **v: insertdf_napkeys(*a, **v)
-        update_segments.side_effect = lambda *a, **v: updatedf(*a, **v)
+        mock_insertdf_napkeys.side_effect = lambda *a, **v: insertdf_napkeys(*a, **v)
+        mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
         
         urlread_sideeffect = None  # use defaults from class
-        events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws")
+        events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", db_bufsize=self.db_buf_size)
         channels = None
         datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, self.service,
-                                                           channels)                                      
+                                                           channels, db_bufsize=self.db_buf_size)                                      
         channels_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
-                                                       10, 'a', 'b', -1
+                                                       10, 'a', 'b', -1, self.db_buf_size
                                                )
         assert len(channels_df) == 12  # just to be sure. If failing, we might have changed the class default
     # events_df
@@ -1392,7 +1417,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         urlread_sideeffect = [self._seg_data, 413, self._seg_data[:2], 413,
                               '', self._seg_data_gaps, self._seg_data_gaps, URLError("++urlerror++"), 500, 413]
         # Let's go:
-        ztatz = self.download_save_segments(urlread_sideeffect, self.session, segments_df, datacenters_df, 1,2,3)
+        ztatz = self.download_save_segments(urlread_sideeffect, self.session, segments_df, datacenters_df, 1,2,3, db_bufsize=self.db_buf_size)
         # get columns from db which we are interested on to check
         cols = [Segment.id, Segment.channel_id, Segment.datacenter_id,
                 Segment.download_status_code, Segment.max_gap_ratio, \
@@ -1428,11 +1453,25 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
  
         assert len(ztatz) == len(datacenters_df)
         assert len(db_segments_df) == len(segments_df)
-        assert update_segments.call_count == 0
-        # as we have 12 segments and a buf size of 10, this below is two
+        assert mock_updatedf.call_count == 0
+        # as we have 12 segments and a buf size of self.db_buf_size(=1, but it might change in the
+        # future), this below is two
         # it might change if we changed the buf size in the future
-        ADD_BUF_SIZE = 10
-        assert insert_segments.call_count == len(db_segments_df) // ADD_BUF_SIZE + np.sign(len(db_segments_df) % ADD_BUF_SIZE)
+        
+        # test that we correctly called mock_insertdf_napkeys. Note that we assume that the
+        # latter is called ONLY inside download.main.DbManager. To test that, as the number of stuff
+        # to be added (length of the dataframes) varies, we need to implement a counter here:
+        mock_insertdf_napkeys_call_count = 0
+        _bufzise = 0
+        for c in mock_insertdf_napkeys.call_args_list:
+            c_args =  c[0]
+            df_ = c_args[0]
+            _bufzise += len(df_)
+            if _bufzise >= self.db_buf_size:
+                mock_insertdf_napkeys_call_count += 1
+                _bufzise = 0
+        
+        assert mock_insertdf_napkeys.call_count == mock_insertdf_napkeys_call_count
         
         # assert data is consistent
         COL = Segment.data.key
@@ -1478,10 +1517,10 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert len(segments_df) == len(db_segments_df[mask])
         
         urlread_sideeffect = [413]
-        update_segments.reset_mock()
-        insert_segments.reset_mock()
+        mock_updatedf.reset_mock()
+        mock_insertdf_napkeys.reset_mock()
         # Let's go:
-        ztatz = self.download_save_segments(urlread_sideeffect, self.session, segments_df, datacenters_df, 1,2,3)
+        ztatz = self.download_save_segments(urlread_sideeffect, self.session, segments_df, datacenters_df, 1,2,3, db_bufsize=self.db_buf_size)
         # get columns from db which we are interested on to check
         cols = [Segment.download_status_code, Segment.channel_id]
         db_segments_df = dbquery2df(self.session.query(*cols))
@@ -1498,7 +1537,21 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert (db_segments_df[COL] == 413).all()
         assert len(ztatz) == len(datacenters_df)
         assert len(db_segments_df) == len(segments_df)
-        # as we have 12 segments and a buf size of 10, this below is two
-        # it might change if we changed the buf size in the future
-        assert update_segments.call_count == len(db_segments_df) // ADD_BUF_SIZE + np.sign(len(db_segments_df) % ADD_BUF_SIZE)
-        assert insert_segments.call_count == 0
+        
+        # same as above: but with updatedf: test that we correctly called mock_insertdf_napkeys. Note that we assume that the
+        # latter is called ONLY inside download.main.DbManager. To test that, as the number of stuff
+        # to be added (length of the dataframes) varies, we need to implement a counter here:
+        mock_updatedf_call_count = 0
+        _bufzise = 0
+        for c in mock_updatedf.call_args_list:
+            c_args =  c[0]
+            df_ = c_args[0]
+            _bufzise += len(df_)
+            if _bufzise >= self.db_buf_size:
+                mock_updatedf_call_count += 1
+                _bufzise = 0
+        
+        assert mock_updatedf.call_count == mock_updatedf_call_count
+        
+        
+        assert mock_insertdf_napkeys.call_count == 0

@@ -27,7 +27,7 @@ from click.testing import CliRunner
 import pandas as pd
 from stream2segment.download.main import add_classes, get_events_df, get_datacenters_df, \
 get_channels_df, merge_events_stations, set_saved_arrivaltimes, get_arrivaltimes,\
-    prepare_for_download, download_save_segments, _strcat, get_eventws_url, dbsync, save_inventories
+    prepare_for_download, download_save_segments, _strcat, get_eventws_url, save_inventories
 # ,\
 #     get_fdsn_channels_df, save_stations_and_channels, get_dists_and_times, set_saved_dist_and_times,\
 #     download_segments, drop_already_downloaded, set_download_urls, save_segments
@@ -46,7 +46,7 @@ from stream2segment.utils import get_session, mseedlite3
 from stream2segment.io.db.pd_sql_utils import withdata, dbquery2df, insertdf_napkeys, updatedf
 from logging import StreamHandler
 import logging
-from _io import BytesIO
+from io import BytesIO
 import urllib2
 from stream2segment.download.utils import get_url_mseed_errorcodes
 from test.test_userdict import d1
@@ -188,16 +188,26 @@ class Test(unittest.TestCase):
         # mock threadpoolexecutor to run one instance at a time, so we get deterministic results:
         self.patcher23 = patch('stream2segment.download.main.read_async')
         self.mock_read_async = self.patcher23.start()
-        def readasync(iterable, ondone, *a, **v):
+#         def readasync(iterable, ondone, *a, **v):
+#             ret = list(iterable)
+#             ondones = [None] * len(ret)
+#             def _ondone(*a_):
+#                 ondones[ret.index(a_[0])] = a_
+#             
+#             read_async(ret, _ondone, *a, **v)
+#             
+#             for k in ondones:
+#                 ondone(*k)
+        def readasync(iterable, *a, **v):
+            # make readasync deterministic by returning the order of iterable
             ret = list(iterable)
             ondones = [None] * len(ret)
-            def _ondone(*a_):
+            
+            for a_ in read_async(ret, *a, **v):
                 ondones[ret.index(a_[0])] = a_
-            
-            read_async(ret, _ondone, *a, **v)
-            
+
             for k in ondones:
-                ondone(*k)
+                yield k
         self.mock_read_async.side_effect = readasync
         
         

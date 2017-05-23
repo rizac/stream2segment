@@ -15,6 +15,7 @@
    :License:
        To be decided!
 """
+from __future__ import print_function  # , unicode_literals
 import logging
 import sys
 from StringIO import StringIO
@@ -30,12 +31,12 @@ from stream2segment.utils.log import configlog4download, configlog4processing,\
     elapsedtime2logger_when_finished, configlog4stdout
 from stream2segment.download.utils import run_instance
 from stream2segment.utils.resources import get_proc_template_files, get_default_cfg_filepath
-from stream2segment.io.db import models
-from stream2segment.io.db.pd_sql_utils import commit
+# from stream2segment.io.db import models
+# from stream2segment.io.db.pd_sql_utils import commit
 from stream2segment.process.main import run as run_process
 from stream2segment.download.main import run as run_download
 from stream2segment.utils import tounicode, yaml_load, get_session, strptime, yaml_load_doc,\
-    get_default_dbpath, printfunc, indent, secure_dburl
+    get_default_dbpath, indent, secure_dburl
 
 # set root logger if we are executing this module as script, otherwise as module name following
 # logger conventions. Discussion here:
@@ -97,50 +98,6 @@ def data_aval(dburl, outfile):
         webbrowser.open_new_tab('file://' + os.path.realpath(outfile))
 
 
-# IMPORTANT !!!
-# IMPORTANT: THE ARGUMENT NAMES HERE MUST BE THE SAME AS THE CONFIG FILE!!! SEE FUNCTION DOC BELOW
-# IMPORTANT !!!
-# def download(dburl, start, end, eventws, eventws_query_args, stimespan,
-#              search_radius,
-#              channels, min_sample_rate, inventory, traveltime_phases, wtimespan,
-#              retry, advanced_settings, class_labels=None, isterminal=False):
-#     """
-#         Main run method. KEEP the ARGUMENT THE SAME AS THE config.yaml OTHERWISE YOU'LL GET
-#         A DIFFERENT CONFIG SAVED IN THE DB
-#         :param processing: a dict as load from the config
-#     """
-#     yaml_dict = dict(locals())  # this must be the first statement, so that we catch all arguments
-#     # and no local variable (none has been declared yet). Note: dict(locals()) avoids problems with
-#     # variables created inside loops, when iterating over _args_ (see below)
-#     yaml_dict.pop('isterminal')  # not a yaml var
-#     # remove db url password when printing:
-# 
-#     with closing(dburl) as session:
-#         # print local vars: use safe_dump to avoid python types. See:
-#         # http://stackoverflow.com/questions/1950306/pyyaml-dumping-without-tags
-#         run_inst = run_instance(session, config=tounicode(yaml.safe_dump(yaml_dict,
-#                                                                          default_flow_style=False)))
-# 
-#         echo = printfunc(isterminal)  # no-op if argument is False
-#         echo("Arguments:")
-#         # replace dbrul passowrd for printing to terminal
-#         yaml_dict['dburl'] = secure_dburl(yaml_dict['dburl'])
-#         echo(indent(yaml.safe_dump(yaml_dict, default_flow_style=False), 2))
-# 
-#         configlog4download(logger, session, run_inst, isterminal)
-#         with elapsedtime2logger_when_finished(logger):
-#             query_main(session, run_inst.id, start, end, eventws, eventws_query_args,
-#                        stimespan, search_radius['minmag'],
-#                        search_radius['maxmag'], search_radius['minradius'],
-#                        search_radius['maxradius'], channels,
-#                        min_sample_rate, inventory, traveltime_phases, wtimespan,
-#                        retry, advanced_settings, class_labels, isterminal)
-#             logger.info("%d total error(s), %d total warning(s)", run_inst.errors,
-#                         run_inst.warnings)
-# 
-#     return 0
-
-
 def download(isterminal=False, **yaml_dict):
     """
         Downloads the given segment providing a set of keyword arguments to match those of the
@@ -153,13 +110,13 @@ def download(isterminal=False, **yaml_dict):
         run_inst = run_instance(session, config=tounicode(yaml.safe_dump(yaml_dict,
                                                                          default_flow_style=False)))
 
-        echo = printfunc(isterminal)  # no-op if argument is False
-        echo("Arguments:")
-        # replace dbrul passowrd for printing to terminal
-        # Note that we remove dburl from yaml_dict cause query_main gets its session object
-        # (which we just built)
-        yaml_safe = dict(yaml_dict, dburl=secure_dburl(yaml_dict.pop('dburl')))
-        echo(indent(yaml.safe_dump(yaml_safe, default_flow_style=False), 2))
+        if isterminal:
+            print("Arguments:")
+            # replace dbrul passowrd for printing to terminal
+            # Note that we remove dburl from yaml_dict cause query_main gets its session object
+            # (which we just built)
+            yaml_safe = dict(yaml_dict, dburl=secure_dburl(yaml_dict.pop('dburl')))
+            print(indent(yaml.safe_dump(yaml_safe, default_flow_style=False), 2))
 
         configlog4download(logger, session, run_inst, isterminal)
         with elapsedtime2logger_when_finished(logger):
@@ -176,8 +133,8 @@ def process(dburl, pysourcefile, configsourcefile, outcsvfile, isterminal=False)
         :param processing: a dict as load from the config
     """
     with closing(dburl) as session:
-        echo = printfunc(isterminal)  # no-op if argument is False
-        echo("Processing, please wait")
+        if isterminal:
+            print("Processing, please wait")
         logger.info('Output file: %s', outcsvfile)
 
         configlog4processing(logger, outcsvfile, isterminal)
