@@ -478,7 +478,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         dfres1 = dbquery2df(self.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
                                                Segment.event_id,
                                          Segment.download_status_code, Segment.data,
-                                         Segment.max_gap_ratio, Segment.run_id,
+                                         Segment.max_gap_ovlap_ratio, Segment.run_id,
                                          Segment.sample_rate, Segment.seed_identifier))
         dfres1.loc[(~pd.isnull(dfres1[Segment.data.key])) & (dfres1[Segment.data.key].str.len()>0),
                   Segment.data.key] = b'data'
@@ -501,7 +501,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         dfres2 = dbquery2df(self.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
                                                Segment.event_id,
                                          Segment.download_status_code, Segment.data,
-                                         Segment.max_gap_ratio, Segment.run_id,
+                                         Segment.max_gap_ovlap_ratio, Segment.run_id,
                                          Segment.sample_rate, Segment.seed_identifier))
         dfres2.loc[(~pd.isnull(dfres2[Segment.data.key])) & (dfres2[Segment.data.key].str.len()>0),
                   Segment.data.key] = b'data'

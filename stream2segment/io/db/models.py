@@ -315,7 +315,7 @@ class Segment(Base):
     arrival_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
     sample_rate = Column(Float)
-    max_gap_ratio = Column(Float)
+    max_gap_ovlap_ratio = Column(Float)
     run_id = Column(Integer, ForeignKey("runs.id"), nullable=False)
 
     event = relationship("Event", backref=backref("segments", lazy="dynamic"))

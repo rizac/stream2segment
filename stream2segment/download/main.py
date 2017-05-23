@@ -844,7 +844,7 @@ def download_save_segments(session, segments_df, datacenters_df,
     SEG_DATA_COL = Segment.data
     SEG_DSC_COL = Segment.download_status_code
     SEG_SEEDID_COL = Segment.seed_identifier
-    SEG_MGR_COL = Segment.max_gap_ratio
+    SEG_MGR_COL = Segment.max_gap_ovlap_ratio
     SEG_SRATE_COL = Segment.sample_rate
     SEG_RUNID_COL = Segment.run_id
  

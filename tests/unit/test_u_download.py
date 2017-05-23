@@ -1420,7 +1420,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         ztatz = self.download_save_segments(urlread_sideeffect, self.session, segments_df, datacenters_df, 1,2,3, db_bufsize=self.db_buf_size)
         # get columns from db which we are interested on to check
         cols = [Segment.id, Segment.channel_id, Segment.datacenter_id,
-                Segment.download_status_code, Segment.max_gap_ratio, \
+                Segment.download_status_code, Segment.max_gap_ovlap_ratio, \
                 Segment.sample_rate, Segment.seed_identifier, Segment.data, Segment.run_id, Segment.start_time, Segment.end_time,
                 ]
         db_segments_df = dbquery2df(self.session.query(*cols))
@@ -1435,19 +1435,19 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         db_segments_df = pd.concat(ret, axis=0)
 
 # db_segments_df:
-#    id  channel_id  datacenter_id  download_status_code  max_gap_ratio  sample_rate seed_identifier  data  run_id          start_time            end_time
-# 0  1   1           1              200.0                 0.0001         100.0        GE.FLT1..HHE    data  1      2016-05-08 05:16:12 2016-05-08 05:19:12
-# 1  2   2           1              200.0                 0.0001         100.0        GE.FLT1..HHN    data  1      2016-05-08 05:16:12 2016-05-08 05:19:12
-# 2  3   3           1              200.0                 0.0001         100.0        GE.FLT1..HHZ    data  1      2016-05-08 05:16:12 2016-05-08 05:19:12
-# 6  7   7           2              200.0                 NaN            NaN          None                  1      2016-05-08 05:16:12 2016-05-08 05:19:12
-# 7  8   8           2              NaN                   NaN            NaN          None            None  1      2016-05-08 05:16:12 2016-05-08 05:19:12
-# 8  9   9           2              200.0                 20.0           20.0         IA.BAKI..BHZ    data  1      2016-05-08 05:16:12 2016-05-08 05:19:12
-# 3  4   4           1             -2.0                   NaN            NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
-# 4  5   5           1             -2.0                   NaN            NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
-# 5  6   6           1             -2.0                   NaN            NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
-# 9  10  10          2              -1.0                  NaN            NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
-# 10 11  11          2              500.0                 NaN            NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
-# 11 12  12          2              413.0                 NaN            NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
+#    id  channel_id  datacenter_id  download_status_code  max_gap_ovlap_ratio  sample_rate seed_identifier  data  run_id          start_time            end_time
+# 0  1   1           1              200.0                 0.0001               100.0        GE.FLT1..HHE    data  1      2016-05-08 05:16:12 2016-05-08 05:19:12
+# 1  2   2           1              200.0                 0.0001               100.0        GE.FLT1..HHN    data  1      2016-05-08 05:16:12 2016-05-08 05:19:12
+# 2  3   3           1              200.0                 0.0001               100.0        GE.FLT1..HHZ    data  1      2016-05-08 05:16:12 2016-05-08 05:19:12
+# 6  7   7           2              200.0                 NaN                  NaN          None                  1      2016-05-08 05:16:12 2016-05-08 05:19:12
+# 7  8   8           2              NaN                   NaN                  NaN          None            None  1      2016-05-08 05:16:12 2016-05-08 05:19:12
+# 8  9   9           2              200.0                 20.0                 20.0         IA.BAKI..BHZ    data  1      2016-05-08 05:16:12 2016-05-08 05:19:12
+# 3  4   4           1             -2.0                   NaN                  NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
+# 4  5   5           1             -2.0                   NaN                  NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
+# 5  6   6           1             -2.0                   NaN                  NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
+# 9  10  10          2              -1.0                  NaN                  NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
+# 10 11  11          2              500.0                 NaN                  NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
+# 11 12  12          2              413.0                 NaN                  NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
 
 
  
@@ -1495,7 +1495,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         
         # assert gaps are only in the given position
         URLERR_CODE, MSEEDERR_CODE = get_url_mseed_errorcodes()
-        COL = Segment.max_gap_ratio.key
+        COL = Segment.max_gap_ovlap_ratio.key
         assert (db_segments_df.iloc[:3][COL] < 0.01).all()
         assert pd.isnull(db_segments_df.iloc[3:5][COL]).all()
         assert (db_segments_df.iloc[5][COL] > 1).all()

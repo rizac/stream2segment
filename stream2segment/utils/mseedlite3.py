@@ -508,9 +508,13 @@ def _get_id(n, s, l, c):
 def unpack(data):
     """
     Unpacks data into its "traces" (time series). Returns a dict where keys are the seed id as
-    strings ("network.station.location.channel") mapped to a tuple
+    strings:
+    "network.station.location.channel"
+    mapped to a tuple
+    ```
     (data, sample_rate, max_gap_ratio, error)
-    which are:
+    ```
+    whose elements are:
     - the data in bytes read (can be None)
     - the sample rate (float)
     - the max gap ratio as a ratio of max_gap / delta_time (delta_time = 1/sample_rate)
@@ -534,37 +538,54 @@ def unpack(data):
     """
     # don't bother initializing keys if do not exist: use defaultdict:
     # remember, the fields are: bytesio, sample_rate, max_gap_ratio, last_endtime, error
-    ret_dic = defaultdict(lambda: [BytesIO(), None, 0, None, None])
+    ret_dic = defaultdict(lambda: [[], None, 0, None, None])
     input_ = Input2(data)
     for id_, rec, exc in input_:
         value = ret_dic[id_]
-        if value[-1] is not None:
+        if value[-1] is not None:  # key already existed and has error
             continue
-        if exc is not None:
+        if exc is not None:  # key does not exist, data read has error
             value[-1] = exc
-            value[0].close()
-            value[0] = None  # help gc??
+            value[0] = []  # help gc??
             continue
-        # set gaps:
-        last_endtime = value[-2]
-        if last_endtime is not None:
-            fsamp = value[1]
-            gap_ratio = abs(last_endtime - rec.begin_time).total_seconds() * fsamp
-            value[-3] = max(value[-3], gap_ratio)
-        else:
-            value[1] = float(rec.fsamp)
-        value[-2] = rec.end_time
 
-        # tuple is hashable, as well as its args in this case:
-        rec.write(value[0], int(log(rec.size)/log(2)))
+        if not value[0]:  # set sample frequency (only first time)
+            value[1] = float(rec.fsamp)
+
+        value[0].append(rec)
+
+#         # set gaps:
+#         last_endtime = value[-2]
+#         if last_endtime is not None:
+#             fsamp = value[1]
+#             gap_ratio = abs(last_endtime - rec.begin_time).total_seconds() * fsamp
+#             value[-3] = max(value[-3], gap_ratio)
+#         else:
+#             value[1] = float(rec.fsamp)
+#         value[-2] = rec.end_time
+# 
+#         # tuple is hashable, as well as its args in this case:
+#         rec.write(value[0], int(log(rec.size)/log(2)))
 
     unpacked_data = {}
     for id_, value in ret_dic.iteritems():
         if value[-1] is not None:
             unpacked_data[id_] = (None, None, None, value[-1])
         else:
-            bytez = value[0].getvalue()
-            value[0].close()
-            unpacked_data[id_] = (bytez, value[1], value[2], None)
+            # get chunks and sort ascending by time
+            chunks = value[0]
+            chunks.sort(key=lambda elm: elm.begin_time)
+            fsamp = value[1]
+            max_gap_ratio = 0
+            bytesio = BytesIO()
+            for i, record in enumerate(chunks):
+                if i > 0:
+                    max_gap_ratio = max(max_gap_ratio,
+                                        abs(chunks[i-1].end_time -
+                                            record.begin_time).total_seconds() * fsamp)
+                record.write(bytesio, int(log(record.size)/log(2)))
+            bytez = bytesio.getvalue()
+            bytesio.close()
+            unpacked_data[id_] = (bytez, value[1], max_gap_ratio, None)
 
     return unpacked_data
