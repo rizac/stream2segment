@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-
 #!/usr/bin/python
 # event2wav: First draft to download waveforms related to events
 #
@@ -30,13 +29,15 @@ import shutil
 from stream2segment.utils.log import configlog4download, configlog4processing,\
     elapsedtime2logger_when_finished, configlog4stdout
 from stream2segment.download.utils import run_instance
-from stream2segment.utils.resources import get_proc_template_files, get_default_cfg_filepath
+# from stream2segment.utils.resources import get_proc_template_files
 # from stream2segment.io.db import models
 # from stream2segment.io.db.pd_sql_utils import commit
 from stream2segment.process.main import run as run_process
 from stream2segment.download.main import run as run_download
 from stream2segment.utils import tounicode, yaml_load, get_session, strptime, yaml_load_doc,\
-    get_default_dbpath, indent, secure_dburl
+    indent, secure_dburl
+from stream2segment.utils.resources import get_templates_fpath
+
 
 # set root logger if we are executing this module as script, otherwise as module name following
 # logger conventions. Discussion here:
@@ -47,14 +48,94 @@ from stream2segment.utils import tounicode, yaml_load, get_session, strptime, ya
 logger = logging.getLogger("stream2segment")
 
 
-def valid_date(string):
-    """does a check on string to see if it's a valid datetime string.
-    Returns the string on success, throws an ArgumentTypeError otherwise"""
-    try:
-        return strptime(string)
-    except ValueError as exc:
-        raise BadParameter(str(exc))
-    # return string
+class click_stuff(object):
+    """just a wrapper around click stuff used for validating/defaults etcetera"""
+
+    @staticmethod
+    def valid_date(string):
+        """does a check on string to see if it's a valid datetime string.
+        This is executed only if the relative Option is given
+        Returns the datetime on success, throws an BadParameter otherwise"""
+        try:
+            return strptime(string)
+        except ValueError as exc:
+            raise BadParameter(str(exc))
+        # return string
+
+    @staticmethod
+    def set_help_from_download_yaml(ctx, param, value):
+        """
+        Attach this function as `callback` argument to an Option (`click.Option`), and it will set
+        an automatic help for all Options of the same command, which do not have an `help`
+        specified and are found in the default config file for downloading
+        (currently `download.yaml`).
+        The Option having as callback this function must also have `is_eager=True`.
+        Example:
+        Assuming opt1, opt2, opt3 are variables of the config yaml file, and opt4 not, this
+        sets the default help for opt1 and opt2:
+        ```
+        \@click.Option('--opt1', ..., callback=set_help_from_download_yaml, is_eager=True,...)
+        \@click.Option('--opt2'...)
+        \@click.Option('--opt3'..., help='my custom help do not set the config help')
+        \@click.Option('--opt4'...)
+        ...
+        ```
+        """
+        # define iterator over options (no arguments):
+        def _optsiter():
+            for option in ctx.command.params:
+                if option.param_type_name == 'option':
+                    yield option
+
+        cfg_doc = yaml_load_doc(get_templates_fpath("download.yaml"))
+
+        for option in _optsiter():
+            if option.help is None:
+                option.help = cfg_doc[option.name]
+
+        return value
+
+    @staticmethod
+    def proc_eventws_args(ctx, param, value):
+        """parses optional event query args into a dict for the 'd' command"""
+        # stupid way to iterate as pair (key, value) in eventws_query_args as the latter is
+        # supposed to be in the form (key, value, key, value,...):
+        ret = {}
+        key = None
+        for val in value:
+            if key is None:
+                key = val
+            else:
+                ret[key] = val
+                key = None
+        return ret
+
+    @staticmethod
+    def set_dburl(ctx, param, value):
+        """
+        For all non-download options, returns the database path by reading it from
+        `value`, if the latter is a file, or returning `value` otherwise (assuming in this
+        case it is already a db path). Sets also the help for the option
+        """
+
+        param.help = """Database path where to fetch the segments.
+It can be specified also as a yaml file path with the variable 'dburl' defined therein
+(for instance, the config file previously used for downloading the data).
+In any case, the db url must denote an sql database (currently supported are sqlite or postresql).
+If sqlite, just write the path to your local file prefixed with 'sqlite:///'
+(e.g., 'sqlite:////home/my_folder/db.sqlite'). If read from a config file,
+non-absolute paths will be relative to the config file. If specified from the command line,
+they should be relative to the current working directory, although this has not be tested.
+If not sqlite, the syntax is:
+dialect+driver://username:password@host:port/database
+(e.g.: 'postgresql://smith:Hw_6,9@hh21.uni-northpole.org/stream2segment_db')
+(for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)"""
+
+        if value and os.path.isfile(value):
+            value = yaml_load_doc(get_templates_fpath("download.yaml"))['dburl']
+
+        return value
+# other utility functions:
 
 
 def get_def_timerange():
@@ -74,12 +155,14 @@ def get_template_config_path(filepath):
 
 
 def create_template(outpath):
-    pyfile, configfile = get_proc_template_files()
+    pyfile, configfile =  'caz', 'wat'  #  FIXME: FIX THIS
     shutil.copy2(pyfile, outpath)
     outconfigpath = get_template_config_path(outpath)
     shutil.copy2(configfile, outconfigpath)
     return outpath, outconfigpath
 
+
+# main functionalities:
 
 def visualize(dburl):
     from stream2segment.gui import main as main_gui
@@ -200,6 +283,8 @@ def closing(dburl, scoped=False, close_logger=True, close_session=True):
                 pass
 
 
+# click commands:
+
 @click.group()
 def main():
     """stream2segment is a program to download, process, visualize or annotate EIDA web services
@@ -221,62 +306,17 @@ def main():
     pass
 
 
-def setup_help(ctx, param, value):
-    """this function does not check the value (it simply returns it) but
-    dynamically sets help and default values from config. It must be
-    attached to an eager click.Option so that the option is executed FIRST (before even --help)
-    """
-    # define iterator over options (no arguments):
-    def _optsiter():
-        for option in ctx.command.params:
-            if option.param_type_name == 'option':
-                yield option
-
-    # cfg_dict = yaml_load(get_default_cfg_filepath(filename='config.example.yaml'))
-    cfg_doc = yaml_load_doc()
-
-    for option in _optsiter():
-        if option.help is None:
-            option.help = cfg_doc[option.name]
-
-    return value
-
-
-def proc_e(ctx, param, value):
-    """parses optional event query args into a dict"""
-    # stupid way to iterate as pair (key, value) in eventws_query_args as the latter is supposed to
-    # be in the form (key, value, key, value,...):
-    ret = {}
-    key = None
-    for val in value:
-        if key is None:
-            key = val
-        else:
-            ret[key] = val
-            key = None
-    return ret
-
-
-def config_defaults_when_missing():
-    """defaults for download cannot be set via click cause they need to be set only if
-    missing in the config file"""
-    start_def, end_def = get_def_timerange()
-    return dict(start=start_def, end=end_def, inventory=False)
-
-
 @main.command(short_help='Efficiently download waveform data segments')
-@click.option("-c", "--configfile", default=get_default_cfg_filepath(),
-              help=("The path to the configuration file. If missing, it defaults to `config.yaml` "
-                    "in the stream2segment directory"), type=click.Path(exists=True,
-                                                                        file_okay=True,
-                                                                        dir_okay=False,
-                                                                        writable=False,
-                                                                        readable=True),
-              is_eager=True, callback=setup_help)
+@click.option("-c", "--configfile",
+              help=("The path to the configuration file. For creating a default config file, "
+                    "run the program with the 't' option first ('t --help' for help)"),
+              type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
+                              readable=True), is_eager=True,
+              callback=click_stuff.set_help_from_download_yaml)
 @click.option('-d', '--dburl')
-@click.option('-s', '--start', type=valid_date)
-@click.option('-e', '--end', type=valid_date)
-@click.option('-E', '--eventws')
+@click.option('-t0', '--start', type=click_stuff.valid_date)
+@click.option('-t1', '--end', type=click_stuff.valid_date)
+@click.option('-s', '--service')
 @click.option('--wtimespan', nargs=2, type=int)
 @click.option('--min_sample_rate')
 @click.option('-r1', '--retry_url_errors', is_flag=True, default=None)
@@ -285,8 +325,9 @@ def config_defaults_when_missing():
 @click.option('-r4', '--retry_4xx', is_flag=True, default=None)
 @click.option('-r5', '--retry_5xx', is_flag=True, default=None)
 @click.option('-i', '--inventory', is_flag=True, default=None)
-@click.argument('eventws_query_args', nargs=-1, type=click.UNPROCESSED, callback=proc_e)
-def d(configfile, dburl, start, end, eventws, wtimespan, min_sample_rate, retry_no_code,
+@click.argument('eventws_query_args', nargs=-1, type=click.UNPROCESSED,
+                callback=click_stuff.proc_eventws_args)
+def d(configfile, dburl, start, end, service, wtimespan, min_sample_rate, retry_no_code,
       retry_url_errors, retry_mseed_errors, retry_4xx, retry_5xx, inventory,
       eventws_query_args):
     """Efficiently download waveform data segments and relative events, stations and channels
@@ -296,25 +337,26 @@ def d(configfile, dburl, start, end, eventws, wtimespan, min_sample_rate, retry_
     values are those set in the value of the configfile option.
     [EVENTWS_QUERY_ARGS] is an optional list of space separated arguments to be passed
     to the event web service query (example: minmag 5.5 minlon 34.5) and will be added to
-    (or override) the arguments of `eventws_query_args` specified in in the config file,
-    if any.
+    the arguments of `eventws_query_args` specified in in the config file,
+    if any. In case of conflicts, the values command line values supplied here will override the
+    config ones
     All FDSN query arguments are valid
-    *EXCEPT* 'start', 'end' and 'format' (the first two are set via the relative options, the
-    format will default in most cases to 'text' for performance reasons)
+    *EXCEPT* 'start', 'end' and 'format' (the first two are set via 't0' or 'start' and 't1' or
+    'end'), the format will default in most cases to 'text' for performance reasons)
     """
     _ = dict(locals())
     cfg_dict = yaml_load(_.pop('configfile'))
 
+    # set start and end as default if not provided. If specified in the command line, they will
+    # be overidden below
+    start_def, end_def = get_def_timerange()
+    cfg_dict['start'] = cfg_dict.get('start', start_def)
+    cfg_dict['end'] = cfg_dict.get('end', end_def)
+
     # override with command line values, if any:
     for var, val in _.iteritems():
-        if val not in (None, (), {}, []):
+        if val:
             cfg_dict[var] = val
-    # set defaults when missing. This cannot be set via click.Option(default=...) because
-    # we wouldn't diistinguish the cases [provided as command line / not provided as command line]
-    # when the option is also provided in the config
-    for key, val in config_defaults_when_missing().iteritems():
-        if key not in cfg_dict:
-            cfg_dict[key] = val
 
     try:
         ret = download(isterminal=True, **cfg_dict)
@@ -327,11 +369,11 @@ def d(configfile, dburl, start, end, eventws, wtimespan, min_sample_rate, retry_
 @click.argument('pyfile')
 @click.argument('configfile')
 @click.argument('outfile')
-@click.option('-d', '--dburl', callback=setup_help, is_eager=True, default=get_default_dbpath())
+@click.option('-d', '--dburl', callback=click_stuff.set_dburl, is_eager=True)
 def p(pyfile, configfile, outfile, dburl):
     """Process downloaded waveform data segments via a custom python file and a configuration
-    file. Options are listed below. When missing, they default to the values provided in the
-    config file `config.yaml`"""
+    file. The argument --dburl (or -d) can be specified also as the config file path used for
+    downloading data. In that case it will default to the 'dburl' variable defined therein"""
     try:
         process(dburl, pyfile, configfile, outfile, isterminal=True)
     except KeyboardInterrupt:  # this except avoids printing traceback
@@ -339,28 +381,31 @@ def p(pyfile, configfile, outfile, dburl):
 
 
 @main.command(short_help='Visualize downloaded waveform data segments in a browser')
-@click.option('-d', '--dburl', callback=setup_help, is_eager=True, default=get_default_dbpath())
+@click.option('-d', '--dburl', callback=click_stuff.set_dburl, is_eager=True)
 def v(dburl):
     """Visualize downloaded waveform data segments in a browser.
     Options are listed below. When missing, they default to the values provided in the
     config file `config.yaml`"""
+    a = 1/0  # FIXME: check dbpath!! implement it in the config for processing?
     visualize(dburl)
 
 
 @main.command(short_help='Create a data availability html file showing downloaded data '
                          'quality on a map')
-@click.option('-d', '--dburl', callback=setup_help, is_eager=True, default=get_default_dbpath())
+@click.option('-d', '--dburl', callback=click_stuff.set_dburl, is_eager=True)
 @click.argument('outfile')
 def a(dburl, outfile):
     """Creates a data availability html file, where the user can interactively inspect the
     quality of the waveform data downloaded"""
+    a = 1/0  # FIXME: check dbpath!! implement it in the config for processing?
     data_aval(dburl, outfile)
 
 
-@main.command(short_help='Creates processing template file(s)')
+@main.command(short_help='Creates template/config files in a specified directory')
 @click.argument('outfile')
 def t(outfile):
-    """Creates a template python file which can be inspected and edited for launching processing.
+    """Creates template/config files which can be inspected and edited for launching download and
+    processing.
     A config file in the same path is also created with the same name and suffix 'config.yaml'.
     If either file already exists, the program will ask for confirmation
     """

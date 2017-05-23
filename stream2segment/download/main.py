@@ -245,7 +245,7 @@ def get_dc_filterfunc(service):
     return lambda x: True
 
 
-def get_datacenters_df(session, service, channels, db_bufsize, **query_args):
+def get_datacenters_df(session, routing_service_url, service, channels, db_bufsize, **query_args):
     """Queries 'http://geofon.gfz-potsdam.de/eidaws/routing/1/query' for all datacenters
     available
     :param query_args: any key value pair for the url. Note that 'service' and 'format' will
@@ -274,7 +274,7 @@ def get_datacenters_df(session, service, channels, db_bufsize, **query_args):
     # do not return only new datacenters, return all of them
     query_args['service'] = 'dataselect'
     query_args['format'] = 'post'
-    url = urljoin('http://geofon.gfz-potsdam.de/eidaws/routing/1/query', **query_args)
+    url = urljoin(routing_service_url, **query_args)
 
     accept_dc = get_dc_filterfunc(service)
     dc_df = dbquery2df(session.query(DC_ID_COL, DC_SURL_COL, DC_DURL_COL)).reset_index(drop=True)
@@ -1073,7 +1073,9 @@ def run(session, run_id, start, end, service, eventws_query_args,
     logger.info("")
     logger.info("STEP %s: Requesting data-centers", next(stepiter))
     try:
-        datacenters_df, postdata = get_datacenters_df(session, service, channels, dbbufsize, 
+        datacenters_df, postdata = get_datacenters_df(session,
+                                                      advanced_settings['routing_service_url'],
+                                                      service, channels, dbbufsize,
                                                       start=startiso, end=endiso)
     except DownloadError as dexc:
         logger.error(dexc)

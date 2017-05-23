@@ -14,7 +14,6 @@ from sqlalchemy.orm.session import sessionmaker
 from click import progressbar as click_progressbar
 from collections import defaultdict
 from stream2segment.io.db.models import Base
-from stream2segment.utils.resources import get_default_cfg_filepath
 import sys
 from itertools import izip
 
@@ -195,13 +194,11 @@ def strptime(string, formats=None):
     raise ValueError("%s: invalid date time" % string)
 
 
-def yaml_load(filepath=None, raw=False, **defaults):
+def yaml_load(filepath, raw=False, **defaults):
     """Loads default config from yaml file, normalizing relative sqlite file paths if any
     assuming they are relative to `filepath`, and setting the given defaults (if any)
     for arguments missing in the config
     (if raw is True)"""
-    if filepath is None:
-        filepath = get_default_cfg_filepath()
     with open(filepath, 'r') as stream:
         ret = yaml.safe_load(stream) if not raw else stream.read()
     if not raw:
@@ -229,16 +226,13 @@ def yaml_load(filepath=None, raw=False, **defaults):
     return ret
 
 
-def yaml_load_doc(filepath=None):
+def yaml_load_doc(filepath):
     """Loads the doc from a yaml. The doc is intended to be all consecutive commented lines (i.e.,
     without blank lines) before each top-level variable (nested variables are not considered).
     The returned dict is a defaultdict which returns as string values (**unicode** strings in
     python 2) or an empty string for non-found documented variables.
-    :param filepath: if None, it defaults to `config.example.yaml`. Otherwise, the yaml file to
-    read the doc from
+    :param filepath: The yaml file to read the doc from
     """
-    if filepath is None:
-        filepath = get_default_cfg_filepath('config.example.yaml')
     last_comment = ''
     prev_line = None
     reg = re.compile("([^:]+):.*")
@@ -270,21 +264,12 @@ def yaml_load_doc(filepath=None):
     return ret
 
 
-def get_default_dbpath(config_filepath=None):
-    if config_filepath is None:
-        config_filepath = get_default_cfg_filepath()
-    return yaml_load(config_filepath)['dburl']
-
-
-def get_session(dbpath=None, scoped=False):  # , enable_fk_if_sqlite=True):
+def get_session(dbpath, scoped=False):  # , enable_fk_if_sqlite=True):
     """
     Create an sql alchemy session for IO db operations
     :param dbpath: the path to the database, e.g. sqlite:///path_to_my_dbase.sqlite
-    if None or missing, it defaults to the 'dburi' field in config.yaml
     :param scoped: boolean (False by default) if the session must be scoped session
     """
-    if dbpath is None:
-        dbpath = get_default_dbpath()
     # init the session:
     engine = create_engine(dbpath)
     Base.metadata.create_all(engine)  # @UndefinedVariable

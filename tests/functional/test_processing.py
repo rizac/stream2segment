@@ -23,10 +23,10 @@ import pytest
 import multiprocessing
 from stream2segment.process.main import load_proc_cfg
 from stream2segment import process
-from stream2segment.utils import resources
 from obspy.core.stream import read
 from stream2segment.io.db.pd_sql_utils import withdata
 import StringIO
+from stream2segment.utils.resources import get_templates_fpaths
 
 class DB():
     def __init__(self):
@@ -240,10 +240,11 @@ class Test(unittest.TestCase):
 
     @staticmethod
     def get_processing_files(get_template_returning_list=False):
-        ret = list(resources.get_proc_template_files())
+        pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
         if get_template_returning_list:
-            ret[0] = os.path.join(os.path.dirname(ret[0]), os.path.basename(ret[0]).replace(".py", ".returning_list.py"))
-        return ret
+            pyfile = os.path.join(os.path.dirname(pyfile),
+                                  os.path.basename(pyfile).replace(".py", ".returning_list.py"))
+        return pyfile, conffile
 
     # DEPRECATED: NOT USED ANYMORE (WE DONT USE PYTHON MULTIPROCESSING ANYMORE):
     # IMPLEMENTED BECAUSE

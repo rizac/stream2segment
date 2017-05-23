@@ -42,7 +42,7 @@ from obspy.taup.helper_classes import TauModelError
 import sys
 # from stream2segment.main import logger as main_logger
 from sqlalchemy.sql.expression import func
-from stream2segment.utils import get_session, mseedlite3
+from stream2segment.utils import get_session, mseedlite3, yaml_load
 from stream2segment.io.db.pd_sql_utils import withdata, dbquery2df, insertdf_napkeys, updatedf
 from logging import StreamHandler
 import logging
@@ -53,7 +53,7 @@ from test.test_userdict import d1
 from stream2segment.utils.mseedlite3 import MSeedError, unpack
 import threading
 from stream2segment.utils.url import read_async
-from stream2segment.utils.resources import get_default_cfg_filepath
+from stream2segment.utils.resources import get_templates_fpath
 
 
 # when debugging, I want the full dataframe with to_string(), not truncated
@@ -295,6 +295,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                         #self.patcher3)
                         
         self.db_buf_size = 1
+        
+        self.routing_service = yaml_load(get_templates_fpath("download.yaml"))['advanced_settings']['routing_service_url']
 
     def log_msg(self):
         return self.logout.getvalue()
@@ -506,7 +508,9 @@ http://geofon.gfz-potsdam.de/fdsnws/station/1/query
 
 ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
 UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, None, None, db_bufsize=self.db_buf_size)
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session,
+                                                       self.routing_service, None, None,
+                                                       db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == len(data) == 2
         mock_query.assert_called_once()  # we might be more fine grained, see code
         # geofon has actually a post line since 'indentation is bad..' is splittable)
@@ -522,14 +526,16 @@ http://ws.resif.fr/fdsnws/dataselect/1/query
 
 ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
 """]
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service=None,
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
+                                                       service=None,
                                                        channels=['BH?'], db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == len(data) == 2
         mock_query.assert_called_once()  # we might be more fine grained, see code
         assert post_data_list[0] is not None and post_data_list[1] is None
         
         # now download with a channel matching:
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service=None,
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
+                                                       service=None,
                                                        channels=['H??'], db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == len(data) == 2
         assert mock_query.call_count == 2  # we might be more fine grained, see code
@@ -568,32 +574,38 @@ C * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
 """]
         mock_dc_filter.side_effect = func
 
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service='', channels=['BH?'], db_bufsize=self.db_buf_size)
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
+                                                       service='', channels=['BH?'], db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == len(data) == 3
         assert post_data_list[0] is not None and all(post_data_list[i] is None for i in [1,2])
         
         self.session.query(DataCenter).delete()
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service="geofon", channels=None, db_bufsize=self.db_buf_size)
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
+                                                       service="geofon", channels=None, db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == len(data) == 1
         assert post_data_list[0] is not None
         
         self.session.query(DataCenter).delete()
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service="resif", channels=None, db_bufsize=self.db_buf_size)
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
+                                                       service="resif", channels=None, db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == len(data) == 1
         assert post_data_list[0] is not None
         
         self.session.query(DataCenter).delete()
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service="iris", channels=None, db_bufsize=self.db_buf_size)
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
+                                                       service="iris", channels=None, db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == len(data) == 1
         assert post_data_list[0] is not None
         
         self.session.query(DataCenter).delete()
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service="eida", channels=None, db_bufsize=self.db_buf_size)
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
+                                                       service="eida", channels=None, db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == len(data) == 2
         assert len(post_data_list) == 2 and all(p is not None for p in post_data_list) and len(post_data_list[0].split("\n")) ==2
         
         self.session.query(DataCenter).delete()
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, service="eida", channels=['BH?'], db_bufsize=self.db_buf_size)
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
+                                                       service="eida", channels=['BH?'], db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == len(data) == 2
         assert len(post_data_list) == 2
         assert len(post_data_list[0].split("\n")) == 2
@@ -613,17 +625,20 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
 """, 501]
         
         with pytest.raises(DownloadError):
-            data, post_data_list = self.get_datacenters_df(urlread_sideeffect[0], self.session, service=None, channels=['BH?'], db_bufsize=self.db_buf_size)
+            data, post_data_list = self.get_datacenters_df(urlread_sideeffect[0], self.session, self.routing_service,
+                                                       service=None, channels=['BH?'], db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == 0
         mock_query.assert_called_once()  # we might be more fine grained, see code
         
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[1], self.session, service=None, channels=['BH?'], db_bufsize=self.db_buf_size)
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[1], self.session, self.routing_service,
+                                                       service=None, channels=['BH?'], db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == len(data) == 2
         mock_query.call_count == 2  # we might be more fine grained, see code
         assert post_data_list[0] is not None and post_data_list[1] is None
         
         # this raises again a server error, but we have datacenters in cahce:
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[2], self.session, service=None, channels=['BH?'], db_bufsize=self.db_buf_size)
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[2], self.session, self.routing_service,
+                                                       service=None, channels=['BH?'], db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == len(data) == 2
         mock_query.call_count == 3  # we might be more fine grained, see code
         assert post_data_list is None
@@ -635,10 +650,12 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
 http://ws.resif.fr/fdsnws/dataselect/1/query
 """]
         
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[0], self.session, service=None, channels=['BH?'], db_bufsize=self.db_buf_size)
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[0], self.session, self.routing_service,
+                                                       service=None, channels=['BH?'], db_bufsize=self.db_buf_size)
         assert all(x is None for x in post_data_list)
         
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[0], self.session, service=None, channels=None, db_bufsize=self.db_buf_size)
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[0], self.session, self.routing_service,
+                                                       service=None, channels=None, db_bufsize=self.db_buf_size)
         assert all(x is None for x in post_data_list)
 
 # =================================================================================================
@@ -667,7 +684,8 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
 
 """
         channels = None
-        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, service=None,
+        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
+                                                           service=None,
                                                            channels=channels, db_bufsize=self.db_buf_size)
         
         # url read for channels: Note: first response data raises, second has an error and
@@ -876,7 +894,8 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
 http://ws.resif.fr/fdsnws/dataselect/1/query
 """
         channels = None
-        datacenters_df, postdata = self.get_datacenters_df(None, self.session, service=None, channels=channels, db_bufsize=self.db_buf_size)
+        datacenters_df, postdata = self.get_datacenters_df(None, self.session, self.routing_service,
+                                                           service=None, channels=channels, db_bufsize=self.db_buf_size)
 
         # url read for channels: Note: first response data raises, second has an error and
         #that error is skipped (other channels are added), and last two channels are from two
@@ -973,7 +992,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         urlread_sideeffect = None  # use defaults from class
         events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", db_bufsize=self.db_buf_size)
         channels = None
-        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, service=None,
+        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
+                                                           service=None,
                                                            channels=channels, db_bufsize=self.db_buf_size)                                      
         channels_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
@@ -1133,7 +1153,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         urlread_sideeffect = None  # use defaults from class
         events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", db_bufsize=self.db_buf_size)
         channels = None
-        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, service=None,
+        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
+                                                           service=None,
                                                            channels=channels, db_bufsize=self.db_buf_size)                                      
         channels_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
@@ -1299,7 +1320,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         urlread_sideeffect = None  # use defaults from class
         events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", db_bufsize=self.db_buf_size)
         channels = None
-        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, self.service,
+        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
+                                                           self.service,
                                                            channels, db_bufsize=self.db_buf_size)                                      
         channels_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,

@@ -88,7 +88,7 @@ save_downloaded_inventory: False
 # (run refers to the download run of the segment)
 #
 # Finally, here the parameter. By default, it has only withdata set to True, as nobody wants to
-# process 'no' data:
+# process 'no' data segments (which includes client/server errors):
 segment_select:
   'withdata': true
 

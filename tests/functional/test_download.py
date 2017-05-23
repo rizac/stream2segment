@@ -53,7 +53,7 @@ from test.test_userdict import d1
 from stream2segment.utils.mseedlite3 import MSeedError, unpack
 import threading
 from stream2segment.utils.url import read_async
-from stream2segment.utils.resources import get_default_cfg_filepath
+from stream2segment.utils.resources import get_templates_fpath
 from stream2segment.utils.log import configlog4download
 
 
@@ -301,7 +301,9 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         #add cleanup (in case tearDown is not called due to exceptions):
         self.addCleanup(Test.cleanup, self.session, self.handler, *self.patchers)
                         #self.patcher3)
-
+        
+        self.configfile = get_templates_fpath("download.yaml")
+        
     def log_msg(self):
         return self.logout.getvalue()
     
@@ -447,7 +449,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
      
         runner = CliRunner()
         result = runner.invoke(main , ['d',
-                                       '-c', get_default_cfg_filepath("config.example.yaml"),
+                                       '-c', self.configfile,
                                         '--dburl', self.dburi,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
@@ -493,7 +495,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         idx = len(self.log_msg())
         runner = CliRunner()
         result = runner.invoke(main , ['d',
-                                       '-c', get_default_cfg_filepath("config.example.yaml"),
+                                       '-c', self.configfile,
                                         '--dburl', self.dburi,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
@@ -530,7 +532,9 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_download_save_segments.reset_mock()
         # check that now we should skip all segments
         runner = CliRunner()
-        result = runner.invoke(main , ['d', '--dburl', self.dburi,
+        result = runner.invoke(main , ['d', 
+                                       '-c', self.configfile,
+                                       '--dburl', self.dburi,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         if result.exception:
@@ -553,7 +557,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_download_save_segments.reset_mock()
         
         runner = CliRunner()
-        result = runner.invoke(main , ['d', '--dburl', self.dburi,
+        result = runner.invoke(main , ['d', '-c', self.configfile,
+                                       '--dburl', self.dburi,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         if result.exception:
@@ -584,7 +589,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_get_arrivaltimes.reset_mock()
         
         runner = CliRunner()
-        result = runner.invoke(main , ['d', '--dburl', self.dburi,
+        result = runner.invoke(main , ['d', '-c', self.configfile,
+                                       '--dburl', self.dburi,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         if result.exception:
@@ -610,7 +616,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_get_arrivaltimes.reset_mock()
         
         runner = CliRunner()
-        result = runner.invoke(main , ['d', '--dburl', self.dburi,
+        result = runner.invoke(main , ['d', '-c', self.configfile,
+                                       '--dburl', self.dburi,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         
@@ -627,7 +634,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert len(stainvs) == 0
         
         runner = CliRunner()
-        result = runner.invoke(main , ['d', '--dburl', self.dburi,
+        result = runner.invoke(main , ['d', '-c', self.configfile,
+                                       '--dburl', self.dburi,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         if result.exception:
@@ -647,7 +655,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # check now that none is downloaded
         mock_save_inventories.reset_mock()
         runner = CliRunner()
-        result = runner.invoke(main , ['d', '--dburl', self.dburi,
+        result = runner.invoke(main , ['d', '-c', self.configfile,
+                                       '--dburl', self.dburi,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         if result.exception:
@@ -688,7 +697,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         self._sta_urlread_sideeffect = oldst_se[::-1]  # swap station return values from urlread
     
         runner = CliRunner()
-        result = runner.invoke(main , ['d', '--dburl', self.dburi,
+        result = runner.invoke(main , ['d', '-c', self.configfile,
+                                       '--dburl', self.dburi,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         if result.exception:
@@ -732,7 +742,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         suse = self._seg_urlread_sideeffect  # remainder (reset later)
         self._seg_urlread_sideeffect = re.compile(".*")  # just return something not number nor string
         runner = CliRunner()
-        result = runner.invoke(main , ['d', '--dburl', self.dburi,
+        result = runner.invoke(main , ['d', '-c', self.configfile,
+                                       '--dburl', self.dburi,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         if result.exception:
