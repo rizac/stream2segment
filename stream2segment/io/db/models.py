@@ -358,5 +358,6 @@ class ClassLabelling(Base):
     segment_id = Column(Integer, ForeignKey("segments.id"), nullable=False)
     class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
     is_hand_labelled = Column(Boolean, server_default="1")  # Note: "TRUE" fails in sqlite!
+    annotator = Column(String, nullable=True)  # Note: "TRUE" fails in sqlite!
 
     __table_args__ = (UniqueConstraint('segment_id', 'class_id', name='seg_class_uc'),)
