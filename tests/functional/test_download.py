@@ -633,6 +633,17 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         stainvs = self.session.query(Station).filter(withdata(Station.inventory_xml)).all()
         assert len(stainvs) == 0
         
+    
+        # calculate the expected stations:
+        expected_invs_to_download_ids = [x[0] for x in self.session.query(Station.id).filter(~(withdata(Station.inventory_xml)) &
+                   (Station.segments.any(withdata(Segment.data)))).all()]
+        
+        # test that we have data, but also errors
+        num_expected_inventories_to_download = len(expected_invs_to_download_ids)
+        assert num_expected_inventories_to_download == 2  # just in order to set the value below
+        # and be more safe about the fact that we will have only ONE station inventory saved
+        inv_urlread_ret_val = [self._get_inv(), URLError('a')]
+        mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(inv_urlread_ret_val, *a, **v)
         runner = CliRunner()
         result = runner.invoke(main , ['d', '-c', self.configfile,
                                        '--dburl', self.dburi,
@@ -646,10 +657,55 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             return
         
         stainvs = self.session.query(Station).filter(withdata(Station.inventory_xml)).all()
-        assert len(stainvs) == len(self.session.query(Station).filter(Station.segments.any(withdata(Segment.data))).all())
-        ix = self.session.query(Station.inventory_xml).filter(Station.segments.any(withdata(Segment.data))).first()
-        assert not ix[0].startswith('<?xml ') # assert we compressed data  
+        assert len(stainvs) == 1
+        assert "Unable to save inventory" in self.log_msg()
+        ix = self.session.query(Station.id, Station.inventory_xml).filter(withdata(Station.inventory_xml)).all()
+        num_downloaded_inventories_first_try = len(ix)
+        assert len(ix) == num_downloaded_inventories_first_try
+        staid, invdata = ix[0][0], ix[0][1]
+        expected_invs_to_download_ids.remove(staid)  # remove the saved inventory
+        assert not invdata.startswith('<?xml ') # assert we compressed data  
         assert mock_save_inventories.called                                                    
+        mock_save_inventories.reset_mock
+
+
+        # Now mock empty data:
+        mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories([b""], *a, **v)
+        runner = CliRunner()
+        result = runner.invoke(main , ['d', '-c', self.configfile,
+                                       '--dburl', self.dburi,
+                                       '--start', '2016-05-08T00:00:00',
+                                       '--end', '2016-05-08T9:00:00', '--inventory'])
+        if result.exception:
+            import traceback
+            traceback.print_exception(*result.exc_info)
+            print result.output
+            assert False
+            return
+        
+        stainvs = self.session.query(Station).filter(withdata(Station.inventory_xml)).all()
+        # assert we still have one station (the one we saved before):
+        assert len(stainvs) == num_downloaded_inventories_first_try
+        mock_save_inventories.reset_mock
+
+        
+        # now mock url returning always data (the default: it returns self._get_inv():
+        mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
+        
+        runner = CliRunner()
+        result = runner.invoke(main , ['d', '-c', self.configfile,
+                                       '--dburl', self.dburi,
+                                       '--start', '2016-05-08T00:00:00',
+                                       '--end', '2016-05-08T9:00:00', '--inventory'])
+        if result.exception:
+            import traceback
+            traceback.print_exception(*result.exc_info)
+            print result.output
+            assert False
+            return
+        
+        ix = self.session.query(Station.id, Station.inventory_xml).filter(withdata(Station.inventory_xml)).all()
+        assert len(ix) == num_expected_inventories_to_download
         
         
         # check now that none is downloaded
@@ -667,7 +723,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             return
         
         stainvs2 = self.session.query(Station).filter(withdata(Station.inventory_xml)).all()
-        assert len(stainvs) == len(stainvs2)
+        assert len(stainvs2) == num_expected_inventories_to_download
         assert not mock_save_inventories.called  
                                                                                     
         

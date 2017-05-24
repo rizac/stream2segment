@@ -518,11 +518,11 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
         notify_progress_func(1)
         sta_id = obj[0]
         url = request.get_full_url()
-        data, code, msg = result
         if exc:
             logger.warning(MSG("", _msg, exc, url), sta_id)
         else:
-            if not result:
+            data, code, msg = result
+            if not data:
                 logger.warning(MSG("", _msg, "empty response", url), sta_id)
                 return
             dbmanager.add(pd.DataFrame({Station.id.key: [sta_id],
@@ -1048,7 +1048,7 @@ def run(session, run_id, start, end, service, eventws_query_args,
 
     progressbar = get_progressbar(isterminal)  # no-op if isterminal=False
 
-    __steps = 9 if inventory else 8
+    __steps = 7 + inventory  # bool substraction works: 8 - True == 7
     stepiter = imap(lambda i: "%d of %d" % (i+1, __steps), xrange(__steps))
 
     # write the class labels:
@@ -1116,10 +1116,15 @@ def run(session, run_id, start, end, service, eventws_query_args,
     logger.info("")
     logger.info(("STEP %s: Calculating P-arrival times and time ranges"), next(stepiter))
     segments_df = set_saved_arrivaltimes(session, segments_df)
-    with progressbar(length=segments_df[Segment.arrival_time.key].isnull().sum()) as bar:
+    s2d = segments_df[Segment.arrival_time.key].isnull().sum()
+    with progressbar(length=s2d) as bar:
         # rename dataframe to make clear that now we have segments:
         segments_df = get_arrivaltimes(segments_df, wtimespan, traveltime_phases, 'ak135',
                                        mp_max_workers=None, notify_progress_func=bar.update)
+    if s2d == 0:  # do NOT skip get_arrivaltimes if we do not have to update anything
+        # because we need to set the proper columns anyway. This has the drawback of printing
+        # an empty progressbar on terminal, so just print this message to warn that everything is ok
+        logger.info("All P-arrival times and time ranges already calculated (fetched from db)")
 
     # merging into channels_df:
     # segments_df = create_segments_df(channels_df, segments_df)
