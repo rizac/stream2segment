@@ -151,7 +151,7 @@ def query(sa_query, model, conditions, orderby=None):
     `conditions` and `orderby`, which are dicts / lists of string evaluable expressions
 
     As an example
-    
+
     The returned query can be further manipulated **in most cases**, e.g.:
     ```
         query(session, mytable.id, ....).all()
@@ -170,7 +170,7 @@ def query(sa_query, model, conditions, orderby=None):
 
     :param session: an sql-alchemy session
     :param query_arg: the argument to the query: can be a model instance ('mymodel')
-    or one of its attribute ('mymodel.id')
+    or one of its columns ('mymodel.id')
     :param conditions: a dict of string columns mapped to strings expression, e.g.
     "column2": "[1, 45]".
     A string column is an expression denoting an attribute of the underlying model (retrieved

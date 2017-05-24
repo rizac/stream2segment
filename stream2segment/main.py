@@ -49,7 +49,8 @@ logger = logging.getLogger("stream2segment")
 
 
 class click_stuff(object):
-    """just a wrapper around click stuff used for validating/defaults etcetera"""
+    """just a wrapper (to make code more readable) around
+    click stuff used for validating/defaults etcetera"""
 
     @staticmethod
     def valid_date(string):
@@ -132,7 +133,7 @@ dialect+driver://username:password@host:port/database
 (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)"""
 
         if value and os.path.isfile(value):
-            value = yaml_load_doc(get_templates_fpath("download.yaml"))['dburl']
+            value = yaml_load(get_templates_fpath("download.yaml"))['dburl']
 
         return value
 # other utility functions:
@@ -170,12 +171,12 @@ def visualize(dburl):
     return 0
 
 
-def data_aval(dburl, outfile):
+def data_aval(dburl, outfile, max_gap_ovlap_ratio=0.5):
     from stream2segment.gui.da_report.main import create_da_html
     # errors are printed to terminal:
     configlog4stdout(logger)
     with closing(dburl) as session:
-        create_da_html(session, outfile, True)
+        create_da_html(session, outfile, max_gap_ovlap_ratio, True)
     if os.path.isfile(outfile):
         import webbrowser
         webbrowser.open_new_tab('file://' + os.path.realpath(outfile))
@@ -287,8 +288,8 @@ def closing(dburl, scoped=False, close_logger=True, close_session=True):
 
 @click.group()
 def main():
-    """stream2segment is a program to download, process, visualize or annotate EIDA web services
-    waveform data segments.
+    """stream2segment is a program to download, process, visualize or annotate massive amounts of
+    seismic waveform data segments.
     According to the given command, segments can be:
 
     \b
@@ -382,23 +383,27 @@ def p(pyfile, configfile, outfile, dburl):
 
 @main.command(short_help='Visualize downloaded waveform data segments in a browser')
 @click.option('-d', '--dburl', callback=click_stuff.set_dburl, is_eager=True)
-def v(dburl):
+@click.option('-c', '--configfile', type=click.Path(exists=True, file_okay=True, dir_okay=False,
+                                                    writable=False,
+                                                    readable=True))
+def v(dburl, configgile):
     """Visualize downloaded waveform data segments in a browser.
     Options are listed below. When missing, they default to the values provided in the
     config file `config.yaml`"""
-    a = 1/0  # FIXME: check dbpath!! implement it in the config for processing?
     visualize(dburl)
 
 
 @main.command(short_help='Create a data availability html file showing downloaded data '
                          'quality on a map')
 @click.option('-d', '--dburl', callback=click_stuff.set_dburl, is_eager=True)
+@click.option('-m', '--max_gap_ovlap_ratio', help="""Sets the maximum gap/overlap ratio.
+Mark segments has 'corrupted' because of gaps/overlaps if they exceed this threshold.
+Defaults to 0.5 (half of the segment sampling frequency)""", default=0.5)
 @click.argument('outfile')
-def a(dburl, outfile):
+def a(dburl, max_gap_ovlap_ratio, outfile):
     """Creates a data availability html file, where the user can interactively inspect the
     quality of the waveform data downloaded"""
-    a = 1/0  # FIXME: check dbpath!! implement it in the config for processing?
-    data_aval(dburl, outfile)
+    data_aval(dburl, outfile, max_gap_ovlap_ratio)
 
 
 @main.command(short_help='Creates template/config files in a specified directory')

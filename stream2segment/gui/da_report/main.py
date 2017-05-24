@@ -47,47 +47,60 @@ def segquery(session):
     return qry
 
 
-def process_segment(segment):
+def process_segment(segment, max_gap_ovlap_ratio):
     """Returns stats for the given segment"""
 #     seg_ch_id, seg_stime, seg_etime, seg_id, data, channel_sample_rate, datacenter_station_url =\
 #         segqueryargs
-    
+
     data = segment.data
     warn, err = None, None
-    if data is None:
-        warn = 'HTTP client/server error'
-    elif not data:
-        warn = 'HTTP response: empty data (0 bytes received)'
+    if not data:
+        code = segment.download_status_code
+        if code >= 400 and code < 500:
+            warn = "4xx: client error"
+        elif code >= 500:
+            warn = "5xx: server error"
+        elif code != 204:
+            if code is None:
+                warn = "Null code: unknown error"
+            else:
+                warn = "No data, response code != 204"
+        else:
+            warn = "204: No data"
     else:
         try:
-            mseed = read(StringIO(data))
-            if len(mseed) > 1:  # do this check before cause get_gaps
-                # might take more time
-                gaps = mseed.get_gaps()
-                # From the docs: The returned list contains one item in the
-                # following form for each gap/overlap:
-                # [network, station, location, channel, starttime of the gap,
-                # end time of the gap, duration of the gap,
-                # number of missing samples]
-                if gaps:
-                    if any(g[-1] < 0 for g in gaps):
-                        warn = 'Has overlaps'
-                    else:
-                        warn = 'Has gaps'
-                else:
-                    # this should never happen, for safety:
-                    warn = 'No gaps but num. of traces > 1'
+            if segment.max_gap_ovlap_ratio >= max_gap_ovlap_ratio:
+                warn = 'Max gap/overlap duration >= %f sampling period' % max_gap_ovlap_ratio
             else:
-                # surely only one trace:
-                trace = mseed[0]
-                if trace.stats.endtime <= trace.stats.starttime:
-                    warn = 'endtime <= starttime'
+                mseed = read(StringIO(data))
+                if len(mseed) > 1:  # do this check before cause get_gaps
+                    warn = 'More than one trace (potential gaps/overlaps)'
+#                     # might take more time
+#                     gaps = segment.max_gap_ovlap_ratio >= mac_gap_ovlap_ratio
+#                     # From the docs: The returned list contains one item in the
+#                     # following form for each gap/overlap:
+#                     # [network, station, location, channel, starttime of the gap,
+#                     # end time of the gap, duration of the gap,
+#                     # number of missing samples]
+#                     if gaps:
+#                         if any(g[-1] < 0 for g in gaps):
+#                             warn = 'More than one trace'
+#                         else:
+#                             warn = 'Has gaps'
+#                     else:
+#                         # this should never happen, for safety:
+#                         warn = 'No gaps but num. of traces > 1'
                 else:
-                    channel_sample_rate = segment.channel.sample_rate
-                    srate_real = trace.stats.sampling_rate
-                    srate_nominal = channel_sample_rate
-                    if srate_real != srate_nominal:
-                        warn = 'sample rate != channel sample rate'
+                    # surely only one trace:
+                    trace = mseed[0]
+                    if trace.stats.endtime <= trace.stats.starttime:
+                        warn = 'endtime <= starttime'
+                    else:
+                        channel_sample_rate = segment.channel.sample_rate
+                        srate_real = trace.stats.sampling_rate
+                        srate_nominal = channel_sample_rate
+                        if srate_real != srate_nominal:
+                            warn = 'sample rate != channel sample rate'
 
         except Exception as exc:
             # some semgnet might raise a obspy.io.mseed.core.InternalMSEEDReadingError
@@ -113,7 +126,7 @@ def process_segment(segment):
         seg_info_list
 
 
-def create_da_html(sess, outfile, isterminal=False):
+def create_da_html(sess, outfile, max_gap_ovlap_ratio=0.5, isterminal=False):
     """Creates an html file displaying interactive data availability statistics
     from a given session bound to a database with already downloaded data"""
     # defaultdicts of errors/ warnings. Basically the allow to be default
@@ -143,7 +156,8 @@ def create_da_html(sess, outfile, isterminal=False):
         for seg in seg_query:
             pb.update(1)
             try:
-                warn, err, sta_id, dc_name, seg_info_list = process_segment(seg)
+                warn, err, sta_id, dc_name, seg_info_list = process_segment(seg,
+                                                                            max_gap_ovlap_ratio)
                 stats_df.loc[sta_id, 'total'] += 1
                 if dc_name not in dc2idx:
                     dc2idx[dc_name] = len(dc2idx)
@@ -160,7 +174,7 @@ def create_da_html(sess, outfile, isterminal=False):
                         err2colidx[err] = stats_df.columns.get_loc(err)
                     stats_df.loc[sta_id, err] += 1
                     errors[sta_id][err2colidx[err]].append(seg_info_list)
-            except Exception as exc:
+            except Exception as _:
                 unexpected_errs += 1
 
     sess.close()  # for safety
