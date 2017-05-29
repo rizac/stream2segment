@@ -12,8 +12,11 @@ import pytest
 from urllib2 import URLError, HTTPError
 import socket
 import mock
-from stream2segment.utils import secure_dburl
+from stream2segment.utils import secure_dburl, get_progressbar, Nop
 from io import BytesIO
+from click.termui import progressbar
+
+DEFAULT_TIMEOUT = socket._GLOBAL_DEFAULT_TIMEOUT
 
 class Test(unittest.TestCase):
 
@@ -65,14 +68,14 @@ def test_utils_url_read(mock_urlopen):  # mock_ul_urlopen, mock_ul_request, mock
     val = 'url'
     blockSize = 1024*1024
     assert urlread(val, blockSize)[0] == val
-    mock_urlopen.assert_called_with(val)
+    mock_urlopen.assert_called_with(val, timeout=DEFAULT_TIMEOUT)
     assert mockread.call_count == 2
     mockread.assert_called_with(blockSize)
 
     mock_urlopen.side_effect = lambda url, **kw: mybytesio(url, **kw)
     defBlockSize = -1
     assert urlread(val, arg_to_read=56)[0] == val
-    mock_urlopen.assert_called_with(val, arg_to_read=56)
+    mock_urlopen.assert_called_with(val, arg_to_read=56, timeout=DEFAULT_TIMEOUT)
     assert mockread.call_count == 1  # because blocksize is -1
 
     mock_urlopen.side_effect = lambda url, **kw: mybytesio(URLError('wat?'))
@@ -110,6 +113,63 @@ def test_utils_url_read(mock_urlopen):  # mock_ul_urlopen, mock_ul_request, mock
 def test_secure_dburl(input, expected_result):
     assert secure_dburl(input) == expected_result
     
+
+@patch("stream2segment.utils.Nop", side_effect=lambda *a, **v: Nop(*a, **v))
+@patch("stream2segment.utils.click_progressbar", side_effect=lambda *a, **v: progressbar(*a, **v))
+def test_progressbar(mock_pbar, mock_nop):
+    N = 5
+    with get_progressbar(False) as bar:  # no-op
+        for i in xrange(N):
+            bar.update(i)
+    assert mock_nop.call_count == 1
+    assert mock_pbar.call_count == 0
+    
+    with get_progressbar(False, length=0) as bar: # no-op
+        for i in xrange(N):
+            bar.update(i)
+    assert mock_nop.call_count == 2
+    assert mock_pbar.call_count == 0
+    
+    with get_progressbar(False, length=10) as bar: # normal progressbar
+        for i in xrange(N):
+            bar.update(i)
+    assert mock_nop.call_count == 3
+    assert mock_pbar.call_count == 0
+    
+    with get_progressbar(True, length=0) as bar: # normal progressbar
+        for i in xrange(N):
+            bar.update(i)
+    assert mock_nop.call_count == 4
+    assert mock_pbar.call_count == 0
+    
+    with get_progressbar(True, length=10) as bar: # normal progressbar
+        for i in xrange(N):
+            bar.update(i)
+    assert mock_nop.call_count == 4
+    assert mock_pbar.call_count == 1
+
+# same as above, but we run for safety the real classes (not mocked)
+def test_progressbar_functional():
+    N = 5
+    with get_progressbar(False) as bar:  # no-op
+        for i in xrange(N):
+            bar.update(i)
+    
+    with get_progressbar(False, length=0) as bar: # no-op
+        for i in xrange(N):
+            bar.update(i)
+    
+    with get_progressbar(False, length=10) as bar: # normal progressbar
+        for i in xrange(N):
+            bar.update(i)
+    
+    with get_progressbar(True, length=0) as bar: # normal progressbar
+        for i in xrange(N):
+            bar.update(i)
+    
+    with get_progressbar(True, length=10) as bar: # normal progressbar
+        for i in xrange(N):
+            bar.update(i)
 
 # @patch('stream2segment.utils.Request')
 # @patch('stream2segment.utils.urlopen')

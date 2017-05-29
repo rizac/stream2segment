@@ -16,6 +16,7 @@ from collections import defaultdict
 from stream2segment.io.db.models import Base
 import sys
 from itertools import izip
+from contextlib import contextmanager
 
 
 # THESE FUNCTIONS WERE IMPLEMENTED TO BE PYTHON2 AND 3 COMPLIANT, BUT WE DO NOT USE THEM ANYWHERE...
@@ -305,44 +306,44 @@ def secure_dburl(dburl):
     return re.sub(r"://(.*?):(.*)@", r"://\1:***@", dburl)
 
 
-def get_progressbar(isterminal=False):
-    """Returns a click progressbar if isterminal is True or, if False, a mock class which supports
-    `with` statement and the .update(N) method (no-op). In this latter case the returned object
-    is NOT an iterator (contrarily to click.progressbar) so you should use it like this:
+# https://stackoverflow.com/questions/24946321/how-do-i-write-a-no-op-or-dummy-class-in-python
+class Nop(object):
+    def __init__(self, *a, **kw):
+        pass
+
+    @staticmethod
+    def __nop(*args, **kw):
+        pass
+
+    def __getattr__(self, _):
+        return self.__nop
+
+
+@contextmanager
+def get_progressbar(show, **kw):
+    """Returns a `click.progressbar` if `show` is True, otherwise a No-op class, so that we can
+    run programs from code (do not print progress) and from terminal (print progress) by simply
+    doing:
     ```
-        pbar = utils.progressbar(isterminal)  # <-- class instance, not object!
-        with pbar(length=..., ...) as bar:
+        isterminal = True  # or False for no-op class
+        with get_progressbar(isterminal, length=..., ...) as bar:
             # do your stuff in iterators and call
             bar.update(num_increments)  # will update the terminal with a progressbar, or
                                         # do nothing (no-op) if isterminal=True
     ```
     """
-    if not isterminal:
-        class DPB(object):
-            # support for iteration, if iterator is given, support for update and __enter__ __exit__
-            def __init__(self, *a, **v):
-                pass
-
-            def __enter__(self, *a, **v):
-                return self
-
-            def __exit__(self, *a, **v):
-                pass
-
-            def update(self, *a, **v):
-                pass
-
-        return DPB
+    if not show or kw.get('length', 1) == 0:
+        yield Nop(**kw)
     else:
-        def pb(*a, **v):
-            if 'fill_char' not in v:
-                v['fill_char'] = "●"
-            if 'empty_char' not in v:
-                v['empty_char'] = '○'
-            if 'bar_template' not in v:
-                v['bar_template'] = '%(label)s %(bar)s %(info)s'
-            return click_progressbar(*a, **v)
-        return pb
+        # some custom setup if missing:
+        if 'fill_char' not in kw:
+            kw['fill_char'] = "●"
+        if 'empty_char' not in kw:
+            kw['empty_char'] = '○'
+        if 'bar_template' not in kw:
+            kw['bar_template'] = '%(label)s %(bar)s %(info)s'
+        with click_progressbar(**kw) as bar:
+            yield bar
 
 
 def indent(string, n_chars=3):

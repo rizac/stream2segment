@@ -27,7 +27,7 @@ import pandas as pd
 from stream2segment.download.main import add_classes, get_events_df, get_datacenters_df, logger as query_logger, \
 get_channels_df, merge_events_stations, set_saved_arrivaltimes, get_arrivaltimes,\
     prepare_for_download, download_save_segments, _strcat, get_eventws_url,\
-    DownloadError
+    QuitDownload
 # ,\
 #     get_fdsn_channels_df, save_stations_and_channels, get_dists_and_times, set_saved_dist_and_times,\
 #     download_segments, drop_already_downloaded, set_download_urls, save_segments
@@ -449,7 +449,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # as urlread returns alternatively a 413 and a good string, also sub-queries
         # will return that, so that we will end up having a 413 when the string is not
         # further splittable:
-        with pytest.raises(DownloadError):
+        with pytest.raises(QuitDownload):
             data = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", self.db_buf_size,
                                       start=datetime(2010,1,1).isoformat(),
                                       end=datetime(2011,1,1).isoformat())
@@ -477,7 +477,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         urlread_sideeffect = [413]  # this is useless, we test stuff which raises before it
 
         # we want to return all times 413, and see that we raise a ValueError:
-        with pytest.raises(DownloadError):
+        with pytest.raises(QuitDownload):
             # now it should raise because of a 413:
             data = self.get_events_df(urlread_sideeffect, self.session, "abcd", self.db_buf_size,
                                       start=datetime(2010,1,1).isoformat(),
@@ -624,7 +624,7 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
 
 """, 501]
         
-        with pytest.raises(DownloadError):
+        with pytest.raises(QuitDownload):
             data, post_data_list = self.get_datacenters_df(urlread_sideeffect[0], self.session, self.routing_service,
                                                        service=None, channels=['BH?'], db_bufsize=self.db_buf_size)
         assert len(self.session.query(DataCenter).all()) == 0
@@ -748,7 +748,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         # since the second datacenter is discarded, we won't have any data due to 
         # client server error. This is a download error that must raise
         # (in the main download program flow, it will be caught inside download.main.run.py)
-        with pytest.raises(DownloadError):
+        with pytest.raises(QuitDownload):
             cha_df2 = self.get_channels_df(urlread_sideeffect, self.session,
                                                            datacenters_df,
                                                            ['x', None],
@@ -758,7 +758,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         assert 'discarding response data' in self.log_msg()
 
         # now test the opposite, but note that urlreadside effect should return now an urlerror and a socket error:
-        with pytest.raises(DownloadError):
+        with pytest.raises(QuitDownload):
             cha_df2 = self.get_channels_df(URLError('urlerror_wat'), self.session,
                                                            datacenters_df,
                                                            [None, 'x'],
@@ -768,7 +768,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         assert 'urlerror_wat' in self.log_msg()
 
         # now test again, we should ahve a socket timeout
-        with pytest.raises(DownloadError):
+        with pytest.raises(QuitDownload):
             cha_df2 = self.get_channels_df(socket.timeout(), self.session,
                                                            datacenters_df,
                                                            [None, 'x'],
@@ -828,7 +828,7 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
 
         assert len(cha_df) == 2
         
-        # now change channels=['B??'], we should have no effect as the channels takes effect
+        # now change channels=['B??'], we should have no effect as the arg has effect
         # when postdata is None (=query to the db)
         cha_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
@@ -839,33 +839,32 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
 
         assert len(cha_df) == 2
         
-        # let's see if now channels=['BH?'] has effect:
-        # now change channels=['B??'], we should have no effect as the channels takes effect
-        # when postdata is None (=query to the db)
-        # Note that we query the db cause postdata is None
-        cha_df = self.get_channels_df(urlread_sideeffect, self.session,
-                                                           datacenters_df,
-                                                           None,
-                                                           ['B??'],
-                                                           10, 'a', 'b', -1, self.db_buf_size
-                                                   )
-
-        assert cha_df.empty
-        assert "No channel found in database according to given parameters" in self.log_msg()
+        # now change channels=['B??'], we should have an effect (QuitDownload) as the arg has effect
+        # because postdata is now None (=query to the db)
+        # QuitDownload is an exception raised in download module to say we cannot continue
+        with pytest.raises(QuitDownload):
+            cha_df = self.get_channels_df(urlread_sideeffect, self.session,
+                                                               datacenters_df,
+                                                               None,
+                                                               ['B??'],
+                                                               10, 'a', 'b', -1, self.db_buf_size
+                                                       )
+        assert "Getting already-saved stations and channels from db" in self.log_msg()
         
-        # same as above but we do not query the internal db: use postdata and high sample rate
-        cha_df = self.get_channels_df(urlread_sideeffect, self.session,
-                                                           datacenters_df,
-                                                           postdata,
-                                                           ['B??'],
-                                                           1000000000, 'a', 'b', -1, self.db_buf_size
-                                                   )
+        # same as above (no channels found) but use a very high sample rate:
+        with pytest.raises(QuitDownload):
+            cha_df = self.get_channels_df(urlread_sideeffect, self.session,
+                                                               datacenters_df,
+                                                               postdata,
+                                                               ['B??'],
+                                                               1000000000, 'a', 'b', -1, self.db_buf_size
+                                                       )
 
-        assert cha_df.empty
-        assert "No channel found with sample rate" in self.log_msg()
+        # assert cha_df.empty
+        assert "discarding %d channels (sample rate < 1000000000 Hz)" % len(cha_df) in self.log_msg()
         
         # this on the other hand must raise cause we get no data from the server
-        with pytest.raises(DownloadError):
+        with pytest.raises(QuitDownload):
             cha_df = self.get_channels_df("", self.session,
                                                                datacenters_df,
                                                                postdata,

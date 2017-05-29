@@ -298,8 +298,6 @@ def normalize_fdsn_dframe(dframe, query_type):
         raise ValueError("Malformed data (invalid values, e.g., NaN's)")
     return ret
 
-_EMPTY = pd.DataFrame()
-
 
 def empty(*obj):
     """
@@ -312,11 +310,11 @@ def empty(*obj):
     len(empty()) does not raise Exceptions and correctly returns 0).
     """
     if not len(obj):
-        return _EMPTY  # this allows us to call len(empty()) without errors
+        return pd.DataFrame()  # this allows us to call len(empty()) without errors
     elif len(obj) > 1:
         return [empty(o) for o in obj]
     obj = obj[0]
-    return obj is None or (hasattr(obj, 'empty') and obj.empty)
+    return obj is None or obj.empty  # (hasattr(obj, 'empty') and obj.empty)
 
 
 # def appenddf(df1, df2):

@@ -29,7 +29,7 @@ def MSG(topic=None, action=None, errmsg=None, url=None):
     :param topic: string or None: the topic of the message (e.g. "downloading channels")
     :param action: string or None: what has been done (e.g. "discarded 3 events")
     :param errmsg: string or Exception: the Exception or error message which caused the action
-    :param url: the url (string) or urllib2.Request object: the url originating the message, if
+    :param url: the url (string) or `urllib2.Request` object: the url originating the message, if
     the latter was issued from a web request
     """
     msg = ""

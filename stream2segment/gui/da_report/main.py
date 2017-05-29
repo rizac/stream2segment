@@ -10,7 +10,7 @@ import jinja2
 from cStringIO import StringIO
 from stream2segment.utils import get_session, get_progressbar
 from stream2segment.io.db.models import Channel, Segment, Station, DataCenter, Event
-from stream2segment.io.utils import loads
+# from stream2segment.io.utils import loads
 from click import progressbar
 from obspy.io.mseed.core import InternalMSEEDReadingError
 
@@ -149,12 +149,11 @@ def create_da_html(sess, outfile, max_gap_ovlap_ratio=0.5, isterminal=False):
 
     seg_query = segquery(sess)
 
-    pbar = get_progressbar(isterminal)
     unexpected_errs = 0
 
-    with pbar(length=seg_query.count()) as pb:
+    with get_progressbar(isterminal, length=seg_query.count()) as pbar:
         for seg in seg_query:
-            pb.update(1)
+            pbar.update(1)
             try:
                 warn, err, sta_id, dc_name, seg_info_list = process_segment(seg,
                                                                             max_gap_ovlap_ratio)

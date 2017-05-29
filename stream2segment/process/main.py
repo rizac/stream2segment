@@ -90,7 +90,7 @@ def load_proc_cfg(configsourcefile):
     return yaml_load(configsourcefile)
 
 
-def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
+def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=False):
     reg = re.compile("^(.*):([a-zA-Z_][a-zA-Z0-9_]*)$")
     m = reg.match(pysourcefile)
     if m and m.groups():
@@ -161,7 +161,6 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
 
     # do an iteration on the main process to check when AsyncResults is ready
     done = 0
-    progressbar = get_progressbar(isterminal)
 #     sta_query = session.query(Station).\
 #         options(load_only(*(sta_atts + ['inventory_xml'] if inventory_required else sta_atts))).\
 #         filter(Station.segments.any(seg_filter))  # @UndefinedVariable
@@ -204,7 +203,7 @@ def run(session, pysourcefile, ondone, configsourcefile=None, isterminal=False):
     stations_saved = 0
 
     with redirect(sys.stderr):
-        with progressbar(length=seg_len) as pbar:
+        with get_progressbar(show_progress, length=seg_len) as pbar:
             try:
                 for seg, sta_id in segs_staids:
                     pbar.update(1)
