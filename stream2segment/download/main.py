@@ -844,6 +844,10 @@ def _get_seg_request(segments_df, datacenter_url):
     return Request(url=datacenter_url, data=post_data)
 
 
+def _mem_percent(process=None):
+    return 0 if process is None else process.memory_percent()
+
+
 def download_save_segments(session, segments_df, datacenters_df, run_id,
                            max_thread_workers, timeout, download_blocksize, db_bufsize,
                            show_progress=False):
@@ -909,7 +913,7 @@ def download_save_segments(session, segments_df, datacenters_df, run_id,
             for df, result, exc, request in itr:
 
                 # first check if we are not overflowing:
-                if process and process.memory_percent() > 90:
+                if _mem_percent(process) > 90:
                     raise QuitDownload(Exception(MSG("", "QUITTING: please re-try downloading segments",
                                                      "too much memory used: %.2f%%" %
                                                      process.memory_percent())))
@@ -1212,6 +1216,7 @@ def run(session, run_id, start, end, service, eventws_query_args,
     # help gc by deleting the (only) refs to unused dataframes
     del events_df
     del channels_df
+    # session.expunge_all()  # for memory: https://stackoverflow.com/questions/30021923/how-to-delete-a-sqlalchemy-mapped-object-from-memory
 
     logger.info("")
     logger.info(("STEP %s: Calculating P-arrival times and time ranges"), next(stepiter))
