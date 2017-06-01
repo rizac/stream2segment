@@ -128,6 +128,7 @@ setup(
     entry_points={
         'console_scripts': [
             'stream2segment=stream2segment.main:main',
+            's2s=stream2segment.main:main',
         ],
     },
 )
