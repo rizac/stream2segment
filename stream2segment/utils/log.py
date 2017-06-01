@@ -46,7 +46,7 @@ class DbStreamHandler(logging.StreamHandler):
         self.csoc = close_session_on_close
         # configure level and formatter
         self.setLevel(min_level)
-        self.setFormatter(logging.Formatter('[%(levelname)s] - %(message)s'))
+        self.setFormatter(logging.Formatter('[%(levelname)s]  %(message)s'))
 
     def emit(self, record):
         if record.levelno == 30:
@@ -81,9 +81,9 @@ class LevelFilter(object):
 class SysOutStreamHandler(logging.StreamHandler):
     """Handler that prints to screen the loggin messages.
     It implements a LevelFilter so that only special levels (not only levels "up to")
-    Are printed to screen. By default, these levels are 20 (info) and 50 (critical)"""
+    Are printed to screen. By default, these levels are 20 (info) 40 (error) and 50 (critical)"""
 
-    def __init__(self, out=sys.stdout, levels=(20, 50)):
+    def __init__(self, out=sys.stdout, levels=(20, 40, 50)):
         super(SysOutStreamHandler, self).__init__(out)
         self.setLevel(min(levels))
         # custom filtering: do not print certain levels (default: print info and critical):

@@ -163,7 +163,8 @@ def query(sa_query, model, conditions, orderby=None):
     ```
         query(session, mytable.id, ....).group_by(someothertable.attr)
     ```
-    (for info, see http://stackoverflow.com/questions/18061285/postgresql-must-appear-in-the-group-by-clause-or-be-used-in-an-aggregate-functi)
+    (for info, see
+    http://stackoverflow.com/questions/18061285/postgresql-must-appear-in-the-group-by-clause-or-be-used-in-an-aggregate-functi)
 
     When a workaround is not feasible (for instance, replacing `group_by` with `distinct`), this
     function has limited performances
@@ -226,91 +227,6 @@ def query(sa_query, model, conditions, orderby=None):
     if orders:
         sa_query = sa_query.order_by(*orders)
     return sa_query
-
-
-def queryold(session, query_arg, conditions, orderby=None, *sqlalchemy_query_expressions):
-    """
-    Builds a query o sql-alchemy query object according to
-    `conditions` and `orderby`, which are dicts / lists of string evaluable expressions
-
-    As an example
-    
-    The returned query can be further manipulated **in most cases**, e.g.:
-    ```
-        query(session, mytable.id, ....).all()
-        query(session, mytable.id, ....).distinct()
-    ```
-    However, exceptions might be raised, for instance a
-    "must appear in the GROUP BY clause or be used in an aggregate function" error
-    if using Postgres as underlying db:
-    ```
-        query(session, mytable.id, ....).group_by(someothertable.attr)
-    ```
-    (for info, see http://stackoverflow.com/questions/18061285/postgresql-must-appear-in-the-group-by-clause-or-be-used-in-an-aggregate-functi)
-
-    When a workaround is not feasible (for instance, replacing `group_by` with `distinct`), this
-    function has limited performances
-
-    :param session: an sql-alchemy session
-    :param query_arg: the argument to the query: can be a model instance ('mymodel')
-    or one of its attribute ('mymodel.id')
-    :param conditions: a dict of string columns mapped to strings expression, e.g.
-    "column2": "[1, 45]".
-    A string column is an expression denoting an attribute of the underlying model (retrieved
-    from `query_arg`) and can include relationships. Example: if query arg is 'mymodel' or
-    'mymodel.id', then a string column 'name' will refer to 'mymodel.name', 'name.id' denotes
-    on the other hand a relationship 'name' on 'mymodel' and will refer to the 'id' attribute of the
-    table mapped by 'mymodel.name'.
-    The values of the dict on the other hand are string expressions in the form recognized
-    by `get_condition`. E.g. '>=5', '["4", "5"]' ...
-    If this argument is None or evaluates to False, no filter is applied
-    :param orderby: a list of string columns (same format
-    as `conditions` keys), or a list of tuples where the first element is
-    a string column, and the second is either "asc" (scending, the default) or "desc" (descending)
-    """
-
-    # contrarily to query_args, this function returns the arguments for
-    # an sqlalchemy join(...).filter(...).order_by(...).
-    # Thus, providing query_arg ans session, it builds:
-    parsed_conditions = list(sqlalchemy_query_expressions) or []
-    joins = set()  # relationships have an hash, this assures no duplicates
-
-    # if its'an InstrumentedAttribute, use the class
-    model = query_arg.class_ if hasattr(query_arg, "class_") else query_arg
-    relations = inspect(model).relationships
-
-    if conditions:
-        for attname, expression in conditions.iteritems():
-            if not expression:
-                continue
-            relationship, column = get_rel_and_column(model, attname, relations)
-            if relationship is not None:
-                joins.add(relationship)
-            condition = get_condition(column, expression)
-            parsed_conditions.append(condition)
-
-    directions = {"asc": asc, "desc": desc}
-    orders = []
-    if orderby:
-        for order in orderby:
-            try:
-                column_str, direction = order
-            except ValueError:
-                column_str, direction = order, "asc"
-            directionfunc = directions[direction]
-            relationship, column = get_rel_and_column(model, column_str, relations)
-            if relationship is not None:
-                joins.add(relationship)
-            orders.append(directionfunc(column))
-
-    query = session.query(query_arg)
-    if joins:
-        query = query.join(*joins)
-    if parsed_conditions:
-        query = query.filter(and_(*parsed_conditions))
-    if orders:
-        query = query.order_by(*orders)
-    return query
 
 
 def query_args(model, conditions):

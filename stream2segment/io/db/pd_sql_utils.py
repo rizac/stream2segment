@@ -323,40 +323,6 @@ def withdata(model_column):
     return (model_column.isnot(None)) & (func.length(model_column) > 0)
 
 
-def flush(session, on_exc=None):
-    """Flushes the given section. In case of Exception (IntegrityError), rolls back the session
-    and returns False. Otherwise True is returned
-    :param on_exc: a callable (function) which will be called with the given exception as first
-    argument
-    :return: True on success, False otherwise
-    """
-    try:
-        session.flush()
-        return True
-    except SQLAlchemyError as _:
-        session.rollback()
-        if hasattr(on_exc, "__call__"):  # on_exc=None returns False
-            on_exc(_)
-        return False
-
-
-def commit(session, on_exc=None):
-    """Commits the given section. In case of Exception (IntegrityError), rolls back the session
-    and returns False. Otherwise True is returned
-    :param on_exc: a callable (function) which will be called with the given exception as first
-    argument.
-    :return: True on success, False otherwise
-    """
-    try:
-        session.commit()
-        return True
-    except SQLAlchemyError as _:
-        session.rollback()
-        if hasattr(on_exc, "__call__"):  # on_exc=None returns False
-            on_exc(_)
-        return False
-
-
 def dfrowiter(dataframe, columns=None):
     """Returns an efficient iterator over `dataframe` rows. The i-th returned values is
     a `dict`s of `dataframe` columns (strings) keyed to the i-th row values. Each value is
@@ -823,3 +789,37 @@ def mergeupdate(df_old, df_new, matching_columns, set_columns, drop_df_new_dupli
         df_old[col] = ser
 
     return df_old
+
+
+# def flush(session, on_exc=None):
+#     """Flushes the given section. In case of Exception (IntegrityError), rolls back the session
+#     and returns False. Otherwise True is returned
+#     :param on_exc: a callable (function) which will be called with the given exception as first
+#     argument
+#     :return: True on success, False otherwise
+#     """
+#     try:
+#         session.flush()
+#         return True
+#     except SQLAlchemyError as _:
+#         session.rollback()
+#         if hasattr(on_exc, "__call__"):  # on_exc=None returns False
+#             on_exc(_)
+#         return False
+
+
+def commit(session, on_exc=None):
+    """Commits the given section. In case of Exception (IntegrityError), rolls back the session
+    and returns False. Otherwise True is returned
+    :param on_exc: a callable (function) which will be called with the given exception as first
+    argument.
+    :return: True on success, False otherwise
+    """
+    try:
+        session.commit()
+        return True
+    except SQLAlchemyError as _:
+        session.rollback()
+        if hasattr(on_exc, "__call__"):  # on_exc=None returns False
+            on_exc(_)
+        return False

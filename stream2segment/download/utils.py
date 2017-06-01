@@ -19,6 +19,10 @@ from stream2segment.io.db.pd_sql_utils import harmonize_columns,\
 from stream2segment.utils.resources import version
 from stream2segment.utils.url import urlread, URLException
 from stream2segment.io.utils import dumps_inv, loads_inv
+from obspy.taup.tau_model import TauModel
+from obspy.taup.seismic_phase import SeismicPhase
+from obspy.taup.utils import get_phase_names
+from obspy.taup.helper_classes import TauModelError
 
 
 def get_events_list(eventws, **args):
@@ -70,10 +74,42 @@ def run_instance(session=None, **args):
     return run_row
 
 
-def get_min_travel_time(source_depth_in_km, distance_in_degree, traveltime_phases, model='ak135'):
+def get_arrival_time(distance_in_degrees, ev_depth_km, ev_time, traveltime_phases,
+                     receiver_depth_in_km=0.0, model='ak135'):
+    """
+        Returns the arrival time by calculating the minimum travel time of p-waves
+        :param distance_in_degrees: (float) the distance in degrees between station and event
+        :param ev_depth_km: (numeric) the event depth in km
+        :param ev_time: (datetime) the event time
+        :param model: string (optional, default 'ak135') the model. Either an internal obspy TauPy
+        model name, as string (see https://docs.obspy.org/packages/obspy.taup.html) or an instance
+        of :ref:`obspy.taup.tau.TauPyModel
+        :return: the P-wave arrival time
+    """
+    travel_time = get_min_travel_time(ev_depth_km, distance_in_degrees, traveltime_phases,
+                                      receiver_depth_in_km, model)
+    arrival_time = ev_time + timedelta(seconds=float(travel_time))
+    return arrival_time
+
+
+def get_taumodel(string_or_model):
+    """Returns a TauModel from string, or the argument in case of TypeError, assuming the
+    latter is already a TauModel
+    NOTE: bug (reported) in obspy 1.0.2 if cahce is False! (we do not provide the arg here for this
+    reason)
+    """
+    try:
+        return TauModel.from_file(string_or_model)
+    except TypeError:
+        return string_or_model  # ok, we assume the argument is already a TaupModel then
+
+
+def get_min_travel_time(source_depth_in_km, distance_in_degree, traveltime_phases,
+                        receiver_depth_in_km=0.0, model='ak135'):
     """
         Assess and return the minimum travel time of P phases.
-        Uses obspy.getTravelTimes
+        Uses obspy.getTravelTimes optimized for speed (do not allocate arrays of arrivals objects,
+        possibility to pass as model an already pre-computed `TauModel` object
         :param source_depth_in_km: (float) Depth in kilometer.
         :param distance_in_degree: (float) Distance in degrees.
         :param model: string (optional, default 'ak135') or model. Either an internal obspy TauPy
@@ -86,41 +122,27 @@ def get_min_travel_time(source_depth_in_km, distance_in_degree, traveltime_phase
         obspy.taup.helper_classes.SlownessModelError,
         ValueError (if no travel time was found)
     """
-    try:
-        taupmodel = TauPyModel(model)
-    except TypeError:
-        taupmodel = model  # ok, we assume the argument is already a TaupModel then
+    # little preamble for optimization:
+    # given a model string, obspy allocates an `obspy.taup.tau.TauPyModel` object
+    # the TauPyModel object has member `model` which is a `obspy.taup.tau_model.TauModel` object
+    # the `TauModel` is used in `TauPyModel.get_travel_times` method, which is the method
+    # we should call: instead, we write it here getting rid of the `TauPyModel` object
+    # A further optimization is that our get_travel_times returns the minimum, thus
+    # avoiding allocating an array of all arrival times, but returning the minimum
+    # but this does not seem to dramatically increase performances, on the other hand is almost
+    # inefficient. The only effective improvement is to pre-allocate
+    # with  `get_taumodel(string)` and pass it here as model
 
-    # see: https://docs.obspy.org/packages/obspy.taup.html
-    receiver_depth_in_km = 0.0
-    tt = TauPTime(taupmodel.model, traveltime_phases, source_depth_in_km,
+    # allocate TauModel. We might pass a TauModel object or a string:
+    tau_model = get_taumodel(model)
+
+    tt = TauPTime(tau_model, traveltime_phases, source_depth_in_km,
                   distance_in_degree, receiver_depth_in_km)
     tt.run()
-    # now instead of doing this (excpensive):
-    # return Arrivals(sorted(tt.arrivals, key=lambda x: x.time), model=self.model)
-    # we just might just in place and return the time of the first element
-    # but it's faster to specify a phase list above (which speeds up calculations)
-    # and check for min
-    if tt.arrivals:
-        return min(tt.arrivals, key=lambda x: x.time).time
-    else:
+    if not tt.arrivals:
         raise ValueError("No travel times found")
 
-
-def get_arrival_time(distance_in_degrees, ev_depth_km, ev_time, traveltime_phases, model='ak135'):
-    """
-        Returns the arrival time by calculating the minimum travel time of p-waves
-        :param distance_in_degrees: (float) the distance in degrees between station and event
-        :param ev_depth_km: (numeric) the event depth in km
-        :param ev_time: (datetime) the event time
-        :param model: string (optional, default 'ak135') the model. Either an internal obspy TauPy
-        model name, as string (see https://docs.obspy.org/packages/obspy.taup.html) or an instance
-        of :ref:`obspy.taup.tau.TauPyModel
-        :return: the P-wave arrival time
-    """
-    travel_time = get_min_travel_time(ev_depth_km, distance_in_degrees, traveltime_phases, model)
-    arrival_time = ev_time + timedelta(seconds=float(travel_time))
-    return arrival_time
+    return tt.arrivals[0].time
 
 
 def get_search_radius(mag, minmag, maxmag, minmag_radius, maxmag_radius):

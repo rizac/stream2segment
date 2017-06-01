@@ -607,7 +607,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         
         # now we should raise cause this case of "no channels" differs from the above
         # check log message for that
-        str_err = "No channel found. Possible causes:"
+        str_err = "No channel found ("
         assert str_err not in self.log_msg()
 
         rem = self._sta_urlread_sideeffect

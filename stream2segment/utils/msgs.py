@@ -57,9 +57,11 @@ def url2str(obj):
     try:
         url = obj.get_full_url()
         data = obj.data
-        idx = data.find("\n")
-        url = "%s, data%s: '%s'" % (url, " (showing first line only)" if idx > -1 else '',
-                                    data[:idx])
+        if data is not None:
+            N = 200
+            str_data = ("%s\n...(showing first %d characters only)" % (data[:N], N)) \
+                if len(data) > N else data
+        url = "%s, POST data:\n%s" % (url, str_data)
     except AttributeError:
         url = obj
     return url
