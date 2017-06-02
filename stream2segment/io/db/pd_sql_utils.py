@@ -544,7 +544,6 @@ def insertdf(dataframe, session, matching_columns, buf_size=10, query_first=True
     # allocate all primary keys for the given model
     existing_keys = set() if not query_first else _dbquery2set(session, matching_columns)
     shared_cnames = list(shared_colnames(table_model, dataframe))
-    # conn = session.connection()
     last = len(dataframe) - 1
     existing = 0
     indices = []  # indices to keep (already existing or successfully written)
@@ -639,7 +638,6 @@ def updatedf(dataframe, session, where_col, update_columns, buf_size=10, return_
     stmt = table_model.__table__.update().\
         where(where_col == bindparam(where_col_bindname)).\
         values({c.key: bindparam(c.key) for c in update_columns})
-    # conn = session.connection()
     buf = {}
     last = len(dataframe) - 1
     indices = []

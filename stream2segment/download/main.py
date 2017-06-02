@@ -185,7 +185,7 @@ def dblog(table, inserted, not_inserted, updated=-1, not_updated=-1):
 
     logger.info(MSG(_header, msgs[0], msgs[1]), table.__tablename__, *args)
 
-    if not updated == -1 and not_updated == -1:  # do not log if we did not updated stuff
+    if updated == -1 and not_updated == -1:  # do not log if we did not updated stuff
         return
 
     if updated or not_updated:
@@ -1255,16 +1255,16 @@ def run(session, run_id, start, end, service, eventws_query_args,
                                          isterminal)
         # help gc by deleting the (only) refs to unused dataframes
         del segments_df
-        gc.collect()  # this should free some memory usage
+        gc.collect()  # this should free some memory (maybe...)
         logger.info("")
         print_stats(d_stats, datacenters_df)
 
     except QuitDownload as dexc:
         # we are here if:
-        # 1) we didn't have segments in prepare_for... (quit download with string message)
-        # 2) we ran out of memory in download_... (quitdownload with exception message
+        # 1) we didn't have segments in prepare_for... (QuitDownload with string message)
+        # 2) we ran out of memory in download_... (QuitDownload with exception message
 
-        # in any case store exit code and return it after we downloaded inventories, if any
+        # in the first case continue, in the latter return a nonzero exit code
         exit_code = dexc.log()
         if exit_code != 0:
             return exit_code
