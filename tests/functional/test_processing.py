@@ -30,7 +30,7 @@ from stream2segment.utils.resources import get_templates_fpaths
 
 class DB():
     def __init__(self):
-        self.dburi = "sqlite:///:memory:"
+        self.dburi = os.getenv("DB_URL", "sqlite:///:memory:")
         # an Engine, which the Session will use for connection
         # resources
         # some_engine = create_engine('postgresql://scott:tiger@localhost/')
@@ -138,7 +138,18 @@ class DB():
         
         
     def close(self):
-        self.session.close()
+        if self.engine:
+            if self.session:
+                try:
+                    self.session.rollback()
+                    self.session.close()
+                except:
+                    pass
+            try:
+                Base.metadata.drop_all(self.engine)  # @UndefinedVariable
+            except:
+                pass
+#        self.session.close()
 #         self.patcher1.stop()
 #         self.patcher2.stop()
 

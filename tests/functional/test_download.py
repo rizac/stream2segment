@@ -55,7 +55,7 @@ import threading
 from stream2segment.utils.url import read_async
 from stream2segment.utils.resources import get_templates_fpath
 from stream2segment.utils.log import configlog4download
-
+from stream2segment.io.db.pd_sql_utils import _get_max as _get_db_autoinc_col_max
 
 # when debugging, I want the full dataframe with to_string(), not truncated
 pd.set_option('display.max_colwidth', -1)
@@ -130,16 +130,19 @@ responses = {
 class Test(unittest.TestCase):
 
     @staticmethod
-    def cleanup(session, handler, *patchers):
-        if session:
+    def cleanup(me):
+        engine, session, handler, patchers = me.engine, me.session, me.handler, me.patchers
+        if me.engine:
+            if me.session:
+                try:
+                    me.session.rollback()
+                    me.session.close()
+                except:
+                    pass
             try:
-                session.flush()
-                session.commit()
-            except SQLAlchemyError as _:
+                Base.metadata.drop_all(me.engine)
+            except:
                 pass
-                # self.session.rollback()
-            session.close()
-            session.bind.dispose()
         
         for patcher in patchers:
             patcher.stop()
@@ -154,16 +157,16 @@ class Test(unittest.TestCase):
         return self.session
 
     def setUp(self):
-
+        url = os.getenv("DB_URL", "sqlite:///:memory:")
         from sqlalchemy import create_engine
-        self.dburi = 'sqlite:///:memory:'
-        engine = create_engine('sqlite:///:memory:', echo=False)
+        self.dburi = url
+        engine = create_engine(self.dburi, echo=False)
         Base.metadata.create_all(engine)
         # create a configured "Session" class
         Session = sessionmaker(bind=engine)
         # create a Session
         self.session = Session()
-        
+        self.engine = engine
         
         self.patcher = patch('stream2segment.utils.url.urllib2.urlopen')
         self.mock_urlopen = self.patcher.start()
@@ -299,7 +302,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         self.service = ''  # so get_datacenters_df accepts any row by default
 
         #add cleanup (in case tearDown is not called due to exceptions):
-        self.addCleanup(Test.cleanup, self.session, self.handler, *self.patchers)
+        self.addCleanup(Test.cleanup, self)
                         #self.patcher3)
         
         self.configfile = get_templates_fpath("download.yaml")
@@ -419,6 +422,91 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             return opn_.read()
 
 
+    @patch('stream2segment.io.db.pd_sql_utils._get_max')
+    @patch('stream2segment.download.main.get_events_df')
+    @patch('stream2segment.download.main.get_datacenters_df')
+    @patch('stream2segment.download.main.get_channels_df')
+    @patch('stream2segment.download.main.save_inventories')
+    @patch('stream2segment.download.main.get_arrivaltimes')
+    @patch('stream2segment.download.main.download_save_segments')
+    @patch('stream2segment.download.main.mseedunpack')
+    @patch('stream2segment.download.main.insertdf_napkeys')
+    @patch('stream2segment.download.main.updatedf')
+    def test_cmdline(self, mock_updatedf, mock_insertdf_napkeys, mock_mseed_unpack,
+                     mock_download_save_segments, mock_get_arrivaltimes, mock_save_inventories, mock_get_channels_df,
+                    mock_get_datacenters_df, mock_get_events_df, mock_autoinc_db):
+        
+        mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
+        mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
+        mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
+        mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
+        mock_get_arrivaltimes.side_effect = lambda *a, **v: self.get_arrivaltimes(None, *a, **v)
+        mock_download_save_segments.side_effect = lambda *a, **v: self.download_save_segments(None, *a, **v)
+        mock_mseed_unpack.side_effect = lambda *a, **v: unpack(*a, **v)
+        mock_insertdf_napkeys.side_effect = lambda *a, **v: insertdf_napkeys(*a, **v)
+        mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
+        # prevlen = len(self.session.query(Segment).all())
+     
+        # The run table is populated with a run_id in the constructor of this class
+        # for checking run_ids, store here the number of runs we have in the table:
+        runs = len(self.session.query(Run.id).all())
+
+
+        # first thing to check is that, when we have a db error, channels and stations are correctly
+        # written.
+        # this calls the original function whihc returns the autoincrement col BUT
+        # with -1 we should actually mess up things so elements are not written
+        # maybe except the first one which is zero
+        # BUT ONLY FOR SEGMENTS!
+        def _mapkey(session, column):
+            ret = _get_db_autoinc_col_max(session, column)
+            if column.class_ == Segment:
+                ret = 0  # this should make the first bulk of segments writtable
+                # but from the next one on failing. Not really a deterministic way to know
+                # how many we wrote, but it's already something
+            return ret
+                
+        mock_autoinc_db.side_effect = _mapkey
+        
+        runner = CliRunner()
+        result = runner.invoke(main , ['d',
+                                       '-c', self.configfile,
+                                        '--dburl', self.dburi,
+                                       '--start', '2016-05-08T00:00:00',
+                                       '--end', '2016-05-08T9:00:00'])
+        if result.exception:
+            print "EXCEPTION"
+            print "========="
+            print ""
+            import traceback
+            traceback.print_exception(*result.exc_info)
+            print result.output
+            print ""
+            print "========="
+            assert False
+            return
+        
+        assert self.session.query(Station).count() == 4
+        # get the excpeted segment we should have downloaded:
+        segments_df = mock_download_save_segments.call_args_list[0][0][1]
+        assert self.session.query(Segment).count() < len(segments_df)
+        
+        # get the first group written to the db. Note that as we mocked read_async (see above)
+        # the first dataframe given to urlread should be also the first to be written to db,
+        # and so on for the second, third. If the line below fails, check that maybe it's not
+        # the case and we should be less strict
+        first_segments_df = segments_df.groupby(['datacenter_id', 'start_time', 'end_time'], sort=False).first()
+        assert self.session.query(Segment).count()  == len(first_segments_df)
+        # assert 
+        assert self.session.query(Channel).count() == 12
+        assert self.session.query(Event).count() == 2
+        
+        # assert run log has been written correctly, i.e. that the db error on the segments
+        # has not affected further writing operations. To do this quickly, assert that
+        # all run.log have something written in (not null, not empty)
+        assert self.session.query(withdata(Run.log)).count() == self.session.query(Run).count()
+        
+             
     @patch('stream2segment.download.main.get_events_df')
     @patch('stream2segment.download.main.get_datacenters_df')
     @patch('stream2segment.download.main.get_channels_df')
@@ -446,7 +534,9 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # The run table is populated with a run_id in the constructor of this class
         # for checking run_ids, store here the number of runs we have in the table:
         runs = len(self.session.query(Run.id).all())
-     
+
+
+
         runner = CliRunner()
         result = runner.invoke(main , ['d',
                                        '-c', self.configfile,
@@ -482,12 +572,20 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                          Segment.download_status_code, Segment.data,
                                          Segment.max_gap_ovlap_ratio, Segment.run_id,
                                          Segment.sample_rate, Segment.seed_identifier))
+        dfres1.sort_values(by=Segment.id.key, inplace=True)  # for easier visual compare
+        dfres1.reset_index(drop=True, inplace=True)  # we need to normalize indices for comparison later
+        # just change the value of the bytes so that we can better 
+        # visually inspect dataframe under clipse, in case:
         dfres1.loc[(~pd.isnull(dfres1[Segment.data.key])) & (dfres1[Segment.data.key].str.len()>0),
                   Segment.data.key] = b'data'
-        
+
+
+
+
         # re-launch with the same setups.
-        # what we want to test is the addition of an already downloaded segment which was empty
-        # before and now is not. So:
+        # what we want to test is the 413 error on every segment. This should split downloads and
+        # retry until there is just one segment and this should write 413 for all segments to retry
+        # WARNING: THIS TEST COULD FAIL IF WE CHANGE THE DEFAULTS. CHANGE `mask` IN CASE
         mock_download_save_segments.reset_mock()
         mock_updatedf.reset_mock()
         mock_insertdf_napkeys.reset_mock()
@@ -505,6 +603,10 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                          Segment.download_status_code, Segment.data,
                                          Segment.max_gap_ovlap_ratio, Segment.run_id,
                                          Segment.sample_rate, Segment.seed_identifier))
+        dfres2.sort_values(by=Segment.id.key, inplace=True)  # for easier visual compare
+        dfres2.reset_index(drop=True, inplace=True)  # we need to normalize indices for comparison later
+        # just change the value of the bytes so that we can better 
+        # visually inspect dataframe under clipse, in case:
         dfres2.loc[(~pd.isnull(dfres2[Segment.data.key])) & (dfres2[Segment.data.key].str.len()>0),
                   Segment.data.key] = b'data'
         
@@ -528,9 +630,12 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert (retried[Segment.run_id.key] > dfres1.loc[retried.index, Segment.run_id.key]).all()
         
         assert mock_download_save_segments.called
-        
-        mock_download_save_segments.reset_mock()
+
+
+
+        # Ok, now with the current config 413 is not retried: 
         # check that now we should skip all segments
+        mock_download_save_segments.reset_mock()
         runner = CliRunner()
         result = runner.invoke(main , ['d', 
                                        '-c', self.configfile,

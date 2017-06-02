@@ -544,7 +544,7 @@ def insertdf(dataframe, session, matching_columns, buf_size=10, query_first=True
     # allocate all primary keys for the given model
     existing_keys = set() if not query_first else _dbquery2set(session, matching_columns)
     shared_cnames = list(shared_colnames(table_model, dataframe))
-    conn = session.connection()
+    # conn = session.connection()
     last = len(dataframe) - 1
     existing = 0
     indices = []  # indices to keep (already existing or successfully written)
@@ -566,10 +566,13 @@ def insertdf(dataframe, session, matching_columns, buf_size=10, query_first=True
 
         if len(buf) == buf_size or (i == last and buf):
             try:
-                conn.execute(table_model.__table__.insert(), buf.values())
+                session.connection().execute(table_model.__table__.insert(), buf.values())
+                session.commit()
             except IntegrityError as _:
+                session.rollback()
                 # if we had an integrity error, it might be that buf had dupes
-                # in this case, some rows might be added! So to be sure we issue a
+                # in this case, some rows might be added: FIXME: DOES NOT TO SEEM TRUE FROM THE
+                # TESTS. IS THE CODE BELOW STILL VALID??!!! Anyway, to be sure we issue a
                 # query to know which elements have been added
                 if not existing_keys:  # we don't have the set of existing keys, calculate now
                     # the tuples of inserted elements
@@ -580,6 +583,7 @@ def insertdf(dataframe, session, matching_columns, buf_size=10, query_first=True
                 _tup2idx = {}
 
             except SQLAlchemyError as _:
+                session.rollback()
                 buf.clear()
 
             if buf:
@@ -635,7 +639,7 @@ def updatedf(dataframe, session, where_col, update_columns, buf_size=10, return_
     stmt = table_model.__table__.update().\
         where(where_col == bindparam(where_col_bindname)).\
         values({c.key: bindparam(c.key) for c in update_columns})
-    conn = session.connection()
+    # conn = session.connection()
     buf = {}
     last = len(dataframe) - 1
     indices = []
@@ -647,10 +651,13 @@ def updatedf(dataframe, session, where_col, update_columns, buf_size=10, return_
         buf[i] = rowdict
         if len(buf) == buf_size or (i == last and buf):
             try:
-                conn.execute(stmt, buf.values())
+                session.connection().execute(stmt, buf.values())
+                session.commit()
             except IntegrityError as _:
+                session.rollback()
                 # if we had an integrity error, it might be that buf had dupes
-                # in this case, some rows might be added! So to be sure we issue a
+                # in this case, some rows might be added. FIXME: DOES NOT TO SEEM TRUE FROM THE
+                # TESTS. IS THE CODE BELOW STILL VALID??!!! Anyway, to be sure we issue a
                 # query to know which elements have been added
                 _tup2idx = {}
                 for i, dic in buf.iteritems():
@@ -660,6 +667,7 @@ def updatedf(dataframe, session, where_col, update_columns, buf_size=10, return_
                 buf = {_tup2idx[k]: buf[_tup2idx[k]] for k in exist_tups}
 
             except SQLAlchemyError as _:
+                session.rollback()
                 buf.clear()
 
             if buf:

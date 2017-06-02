@@ -15,6 +15,8 @@ from datetime import datetime
 import numpy as np
 from itertools import izip
 from sqlalchemy.sql.expression import bindparam
+import os
+import psutil
 
 Base = declarative_base()
 
@@ -30,7 +32,18 @@ class Test(unittest.TestCase):
 
 
     def setUp(self):
-        self.dburl = "sqlite:///:memory:"
+        
+        self.addCleanup(Test.cleanup, self)
+        
+        
+        url = os.getenv("DB_URL", "sqlite:///:memory:")
+        self.dburl = url
+        # print self.dburl
+        
+#         if not url:
+#            self.skipTest("No database URL set")
+#         
+#         self.dburl = "sqlite:///:memory:"
         
         
         DBSession = scoped_session(sessionmaker())
@@ -41,6 +54,20 @@ class Test(unittest.TestCase):
         Base.metadata.create_all(self.engine)
         
         self.session = DBSession
+
+    @staticmethod
+    def cleanup(me):
+        if me.engine:
+            if me.session:
+                try:
+                    me.session.rollback()
+                    me.session.close()
+                except:
+                    pass
+            try:
+                Base.metadata.drop_all(me.engine)
+            except:
+                pass
 
     def tearDown(self):
         pass
@@ -137,10 +164,26 @@ class Test(unittest.TestCase):
         # add a wrong entry {'id': 1, 'time': d2009} and a good one {'id': 22, 'time': d2009},
         # but as the wrong entry
         # is before the good one and in the same buffer chunk, the second is not 
-        # added too
+        # added too: THAT's NOT TRUE AS WE WILL SHOW IJ THE NEXT TRY (SEE BELOW)
         d = pd.DataFrame([{'id': 1, 'time': d2009}, {'id': 22, 'time': d2009}, {'id': 3, 'time': d2008}])
         dlen = len(d)
         newd, new = insertdf(d, self.session, [Customer.id, Customer.time])
+        assert dlen - len(newd) == 2
+        assert new == 0
+        assert len(newd) == dlen - 2
+
+        # NEXT TRY:
+        # add a good entry {'id': 23, 'time': d2009} and a wrong one {'id': 1, 'time': d2009},
+        # now at least the good entry is added because it's BEFORE the wrong one: NOT TRUE,
+        # NOTHING IS ADDED
+        d = pd.DataFrame([{'id': 23, 'time': d2009}, {'id': 1, 'time': d2009}, {'id': 3, 'time': d2008}])
+        dlen = len(d)
+        newd, new = insertdf(d, self.session, [Customer.id, Customer.time])
+        # THIS IS FALSE (COMMENTED OUT):
+#         assert dlen - len(newd) == 1
+#         assert new == 1
+#         assert len(newd) == dlen - 1
+        # NOW THIS IS TRUE:
         assert dlen - len(newd) == 2
         assert new == 0
         assert len(newd) == dlen - 2
@@ -150,15 +193,6 @@ class Test(unittest.TestCase):
         d = pd.DataFrame([{'id': 1, 'time': d2009}, {'id': 22, 'time': d2009}, {'id': 3, 'time': d2008}])
         dlen = len(d)
         newd, new = insertdf(d, self.session, [Customer.id, Customer.time], buf_size=1)
-        assert dlen - len(newd) == 1
-        assert new == 1
-        assert len(newd) == dlen - 1
-
-        # add a good entry {'id': 23, 'time': d2009} and a wrong one {'id': 1, 'time': d2009},
-        # now at least the good entry is added because it's BEFORE the wrong one
-        d = pd.DataFrame([{'id': 23, 'time': d2009}, {'id': 1, 'time': d2009}, {'id': 3, 'time': d2008}])
-        dlen = len(d)
-        newd, new = insertdf(d, self.session, [Customer.id, Customer.time])
         assert dlen - len(newd) == 1
         assert new == 1
         assert len(newd) == dlen - 1
@@ -471,10 +505,49 @@ class Test(unittest.TestCase):
         # third item violates a non-null constraint
         d = pd.DataFrame([{'id':1, 'name': 'x'}, {'id':2, 'name': 'x'}, {'id':3, 'name': None}])
         d2 = updatedf(d, self.session, Customer.id, [Customer.name])
-        assert array_equal(d2['id'], [1,2])
-        assert sorted([x[0] for x in self.session.query(Customer.name).all()]) == ['c', 'x', 'x']
-#         assert lst == expected_lst
-#         assert [x[0] for x in self.session.query(Customer.name).all()] == ['x', 'x', 'c']
+        
+        # IT IS NOT TRUE THAT THE FIRST ITEMS ARE UPLOADED, ACTUALLY THIS IS FALSE (COMMENTED OUT):
+#         assert array_equal(d2['id'], [1,2])
+#         assert sorted([x[0] for x in self.session.query(Customer.name).all()]) == ['c', 'x', 'x']
+        # THIS IS TRUE (AS THE FUNCTION ABOVE):
+        assert d2.empty
+        assert not self.session.query(Customer.name).filter(Customer.id.in_(d2['id'].values)).all()
+
+
+    def test_assert_perfs(self):
+        """Assert that our kinds bulk update and insert (low level) are less memory consuming"""
+        process = psutil.Process(os.getpid())
+        N = 1000
+        data = 'x' * 5000
+        mem_perc1a = process.memory_percent()
+        
+        for i in xrange(N):
+            self.session.add(Customer(id=i+1, name=str(i+1), data=data))
+        self.session.commit()
+        
+        mem_perc1b = process.memory_percent()
+        
+        MEM_CONSUMED_SQLALCHEMY = mem_perc1b - mem_perc1a
+        
+        assert self.session.query(Customer).count() == N  # to be sure db has been correctly written
+        self.session.query(Customer).delete()
+        self.session.commit()
+        self.session.expunge_all()
+        assert self.session.query(Customer).count() == 0
+        
+        mem_perc2a = process.memory_percent()
+        
+        d2, new = insertdf(pd.DataFrame([{'id': i+1, 'name': str(i+1), 'data':data} for i in xrange(N)]),
+                           self.session, [Customer.name])
+
+        mem_perc2b = process.memory_percent()
+        
+        MEM_CONSUMED_S2S = mem_perc2b - mem_perc2a
+         
+        # HERE THE TEST: MEMORY DIFF NOW IS LOWER THAN MEMORY DIFF BEFORE:
+        assert MEM_CONSUMED_S2S < MEM_CONSUMED_SQLALCHEMY
+        
+        assert self.session.query(Customer).count() == N  # to be sure db has been correctly written
 
 
 def array_equal(a1, a2):

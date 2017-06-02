@@ -161,7 +161,7 @@ def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_s
     return df
 
 
-def dblog(table, inserted, not_inserted, updated=0, not_updated=0):
+def dblog(table, inserted, not_inserted, updated=-1, not_updated=-1):
     """Prints to log the result of a database wrtie operation.
     Use this function to harmonize the message format and make it more readable in log or
     terminal"""
@@ -184,6 +184,9 @@ def dblog(table, inserted, not_inserted, updated=0, not_updated=0):
         args = []
 
     logger.info(MSG(_header, msgs[0], msgs[1]), table.__tablename__, *args)
+
+    if not updated == -1 and not_updated == -1:  # do not log if we did not updated stuff
+        return
 
     if updated or not_updated:
         if not_updated:

@@ -23,6 +23,7 @@ from sqlalchemy.inspection import inspect
 from datetime import datetime, timedelta
 from sqlalchemy.orm.session import object_session
 from stream2segment.process.utils import dcname
+from sqlalchemy.sql.expression import func, bindparam
 import time
 
 class Test(unittest.TestCase):
@@ -621,11 +622,41 @@ class Test(unittest.TestCase):
         qry = self.session.query(Station).filter(Station.segments.any(flt)).all()
         assert len(qry) == 1
         
-        
+        # self.tst_hybrid_atts()
+       
         
         self.tst_get_cols(seg)
 
 
+    def tst_hybrid_atts(self):
+        
+        
+        q1 = self.session.query(withdata(Segment.data))
+        q2 = self.session.query(Segment.has_data)
+        
+        # string are equal except "AS anon_1" which is "has_data"
+        assert str(q1) == str(q2).replace('has_data', 'anon_1')
+        
+        segs = q2.all()
+        assert len(segs) == 4
+        
+        # now use hybrid on instances:
+        segz = self.session.query(Segment).all()
+        assert sorted(x.has_data for x in segz) == sorted(x[0] for x in segs)
+        
+        # is_labelled:
+        segs = self.session.query(Segment.is_labelled).all()
+        assert sorted(x.is_labelled for x in segz) == sorted(x[0] for x in segs)
+        
+        segs = self.session.query(Segment).filter(Segment.is_labelled).all()
+        assert sum(x.is_labelled for x in segz) == len(segs)
+        
+        h = 9
+        
+        
+        
+        
+        
     def tst_get_cols(self, seg):
         
         clen = len(seg.__class__.__table__.columns)

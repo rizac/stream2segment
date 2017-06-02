@@ -129,16 +129,19 @@ responses = {
 class Test(unittest.TestCase):
 
     @staticmethod
-    def cleanup(session, handler, *patchers):
-        if session:
+    def cleanup(me):
+        engine, session, handler, patchers = me.engine, me.session, me.handler, me.patchers
+        if me.engine:
+            if me.session:
+                try:
+                    me.session.rollback()
+                    me.session.close()
+                except:
+                    pass
             try:
-                session.flush()
-                session.commit()
-            except SQLAlchemyError as _:
+                Base.metadata.drop_all(me.engine)
+            except:
                 pass
-                # self.session.rollback()
-            session.close()
-            session.bind.dispose()
         
         for patcher in patchers:
             patcher.stop()
@@ -153,15 +156,17 @@ class Test(unittest.TestCase):
         return self.session
 
     def setUp(self):
+        url = os.getenv("DB_URL", "sqlite:///:memory:")
 
         from sqlalchemy import create_engine
-        self.dburi = 'sqlite:///:memory:'
+        self.dburi = url
         engine = create_engine('sqlite:///:memory:', echo=False)
         Base.metadata.create_all(engine)
         # create a configured "Session" class
         Session = sessionmaker(bind=engine)
         # create a Session
         self.session = Session()
+        self.engine = engine
         
         
         self.patcher = patch('stream2segment.utils.url.urllib2.urlopen')
@@ -291,7 +296,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         self.service = ''  # so get_datacenters_df accepts any row by default
 
         #add cleanup (in case tearDown is not called due to exceptions):
-        self.addCleanup(Test.cleanup, self.session, self.handler, *self.patchers)
+        self.addCleanup(Test.cleanup, self)
                         #self.patcher3)
                         
         self.db_buf_size = 1

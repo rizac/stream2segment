@@ -25,6 +25,7 @@ from sqlalchemy.sql.expression import func, text
 from sqlalchemy.orm.mapper import validates
 # from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.inspection import inspect
+from sqlalchemy.ext.hybrid import hybrid_property, hybrid_method
 
 _Base = declarative_base()
 
@@ -201,6 +202,14 @@ def dc_get_other_service_url(url):
     raise ValueError("url does not contain neither '/dataselect/' nor '/station/'")
 
 
+def withdata(column):
+    """Function that returns a binary expression for querying a table column with data
+    (not Null and not empty)
+    :param column: a bytes or string column
+    """
+    return (column.isnot(None)) & (func.length(column) > 0)
+
+
 class Station(Base):
     """Stations"""
 
@@ -217,6 +226,14 @@ class Station(Base):
     start_time = Column(DateTime, nullable=False)
     end_time = deferred(Column(DateTime))
     inventory_xml = deferred(Column(LargeBinary))  # lazy load: only upon direct access
+
+    @hybrid_property
+    def has_inventory(self):
+        return bool(self.data)
+
+    @has_inventory.expression
+    def has_inventory(cls):  # @NoSelf
+        return withdata(cls.inventory_xml)
 
     __table_args__ = (
                       UniqueConstraint('network', 'station', 'start_time', name='net_sta_stime_uc'),
@@ -318,6 +335,42 @@ class Segment(Base):
     max_gap_ovlap_ratio = Column(Float)
     run_id = Column(Integer, ForeignKey("runs.id"), nullable=False)
 
+#     @hybrid_property
+#     def seedid(self):
+#         if self.seed_identifier:
+#             return self.seed_identifier
+#         else:
+#             return ".".join([x if x else "" for x in
+#                              [self.station.network, self.station.station, self.channel.location,
+#                               self.channel.channel]])
+
+    # DEFINE HTBRID PROPERTIES. ACTUALY, WE ARE JUST INTERESTED IN HYBRID CLASSMETHODS FOR
+    # QUERYING, BUT IT SEEMS THERE IS NO WAY TO DEFINE THEM WITHOUT DEFINING THE INSTANCE METHOD
+    @hybrid_property
+    def has_data(self):
+        return bool(self.data)
+
+    @has_data.expression
+    def has_data(cls):  # @NoSelf
+        return withdata(cls.data)
+
+    @hybrid_property
+    def has_classlabel(self):
+        return self.classes.count() > 0
+
+    @has_classlabel.expression
+    def has_classlabel(cls):  # @NoSelf
+        return cls.classes.any()
+
+    @hybrid_method
+    def has_class(self, *ids):
+        _ids = set(ids)
+        return any(c.id in _ids for c in self.classes)
+
+    @has_class.expression
+    def has_class(cls, *ids):  # @NoSelf
+        return cls.classes.any(Class.id.isin_(ids))
+
     event = relationship("Event", backref=backref("segments", lazy="dynamic"))
     channel = relationship("Channel", backref=backref("segments", lazy="dynamic"))
     datacenter = relationship("DataCenter", backref=backref("segments", lazy="dynamic"))
@@ -358,6 +411,5 @@ class ClassLabelling(Base):
     segment_id = Column(Integer, ForeignKey("segments.id"), nullable=False)
     class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
     is_hand_labelled = Column(Boolean, server_default="1")  # Note: "TRUE" fails in sqlite!
-    annotator = Column(String, nullable=True)
 
     __table_args__ = (UniqueConstraint('segment_id', 'class_id', name='seg_class_uc'),)
