@@ -11,6 +11,8 @@ import httplib
 import socket
 import concurrent.futures
 import multiprocessing
+import psutil
+import os
 # import time
 
 
@@ -95,8 +97,12 @@ class URLException(Exception):
         return str(self.exc)
 
 
+def _mem_percent(process=None):
+    return 0 if process is None else process.memory_percent()
+
+
 def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
-               decode=None, raise_http_err=True, timeout=None,
+               decode=None, raise_http_err=True, timeout=None, max_mem_consumption=90,
                **kwargs):  # pylint:disable=too-many-arguments
     """
         Wrapper around `concurrent.futures.ThreadPoolExecutor` for downloading asynchronously
@@ -174,6 +180,11 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
         threads have finished, an internal boolean flag makes all remaining worker threads quit as
         soon as possible, making the function return (or raise) much more quickly
     """
+    if not (max_mem_consumption > 0 and max_mem_consumption < 100):
+        max_mem_consumption = -1
+
+    process = psutil.Process(os.getpid()) if max_mem_consumption != -1 else None
+
     # flag for CTRL-C or cancelled tasks
     kill = False
 
@@ -208,15 +219,21 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
             # this try is for the keyboard interrupt, which will be caught inside the
             # as_completed below
             for future in concurrent.futures.as_completed(future_to_obj):
+                mem_percent = _mem_percent(process)
+                if mem_percent > max_mem_consumption:
+                    raise MemoryError("too much memory used: %.2f%% > %.2f%%" %
+                                    (mem_percent, max_mem_consumption))
+
+                if kill:
+                    continue
                 # this is executed in the main thread (thus is thread safe):
                 yield future.result()
-        except KeyboardInterrupt:
+        except KeyboardInterrupt as exc:
             # Same case as below, just print something because it might require time
             # before exiting
             print("Aborted by user, please wait...")
             kill = True
-            raise
-        except:
+        except Exception as exc:
             # We are here either because of a keyboardinterrupt, or an exception in the
             # future.result(),
             # or an exception in the consumer of the yield result (exception: GeneratorExit)
@@ -224,11 +241,11 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
             # kill = true flag speeds up the exit time. Nothing will be executed anyway, so
             # raise the exception to be handled
             kill = True
-            raise
 
-#     if exc is not None:
-#         raise exc
-
+    try:
+        raise exc
+    except NameError:
+        pass
 
 # def read_async(iterable, ondone, cancel=False,
 #                urlkey=lambda obj: obj,

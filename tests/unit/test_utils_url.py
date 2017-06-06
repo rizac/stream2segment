@@ -74,6 +74,7 @@ class Test(unittest.TestCase):
                 self.errors.append(exc)
             else:
                 self.successes.append(result)
+                    
 
     def tearDown(self):
         self.successes = []
@@ -168,7 +169,29 @@ class Test(unittest.TestCase):
         with pytest.raises(KeyboardInterrupt):
             self.read_async_raise_exc_in_called_func(self.urls)
         assert self.progress == 0
+    
+    @patch("stream2segment.utils.url._mem_percent")
+    def test_exception_max_mem_cons(self, mock_mem_consumption):
+        N= 5000
+        data = [''] * N  # supply an empty string otherwise urllib.read does not stop
+        urls = ["http://sdgfjvkherkdfvsffd"] *N 
+        self.config_urlopen(data)
         
+        mmc = 90
+        
+        itr = [0]
+        def mmc_se(*a, **v):
+            if itr[0] > 5:
+                return mmc+1
+            itr[0] += 1
+            return 0
+        mock_mem_consumption.side_effect = mmc_se
+        
+        with pytest.raises(MemoryError) as excinfo:
+            self.read_async(urls, max_memoru_consumption=mmc)
+        assert self.progress == 6
+        assert "too much memory used: %.2f%% > %.2f%%" % (mmc+1, mmc) in str(excinfo.value)
+    
 #     def test_cancelled1(self):
 #         """Tests cancelled, when url returns without errors"""
 #         

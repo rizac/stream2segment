@@ -264,6 +264,7 @@ def closing(dburl, scoped=False, close_logger=True, close_session=True):
         session = get_session(dburl, scoped=scoped)
         yield session
     except Exception as exc:
+        print("caught!")
         logger.critical(str(exc))
         raise
     finally:

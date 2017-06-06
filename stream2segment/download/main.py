@@ -24,7 +24,7 @@ from sqlalchemy import or_, and_
 from sqlalchemy.exc import SQLAlchemyError
 # from obspy.taup.tau import TauPyModel
 # from obspy.taup.helper_classes import TauModelError, SlownessModelError
-from stream2segment.utils.url import urlread, read_async, URLException
+from stream2segment.utils.url import urlread, read_async as original_read_async, URLException
 from stream2segment.io.db.models import Class, Event, DataCenter, Segment, Station,\
     dc_get_other_service_url, Channel, WebService
 from stream2segment.io.db.pd_sql_utils import withdata, dfrowiter, mergeupdate,\
@@ -96,6 +96,19 @@ class QuitDownload(Exception):
             # we might be ready to distinguish the cases
             logger.info(str(self))
             return 0  # that's the program return, 0 means ok anyway
+
+
+def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
+               decode=None, raise_http_err=True, timeout=None, max_mem_consumption=0.9,
+               **kwargs):
+    """Wrapper around read_async defined in url which raises a QuitDownload in case of MemoryError
+    """
+    try:
+        for _ in original_read_async(iterable, urlkey, max_workers, blocksize, decode,
+                                     raise_http_err, timeout, max_mem_consumption, **kwargs):
+            yield _
+    except MemoryError as exc:
+        raise QuitDownload(exc)
 
 
 def get_eventws_url(session, service):
@@ -357,8 +370,6 @@ def get_datacenters_df(session, routing_service_url, service, channels, db_bufsi
                         dc_data_buf.append(line)
 
             if (i == lastline or is_dc_line) and current_dc_url is not None:
-                if any('KEA00' in k for k in dc_data_buf):
-                    dfg = 9
                 # get index of given dataselect url:
                 if accept_dc(current_dc_url):
                     indices = dc_df.index[(dc_df[DC_DURL_NAME] == current_dc_url)].values
@@ -847,10 +858,6 @@ def _get_seg_request(segments_df, datacenter_url):
     return Request(url=datacenter_url, data=post_data)
 
 
-def _mem_percent(process=None):
-    return 0 if process is None else process.memory_percent()
-
-
 def download_save_segments(session, segments_df, datacenters_df, run_id,
                            max_thread_workers, timeout, download_blocksize, db_bufsize,
                            show_progress=False):
@@ -900,8 +907,6 @@ def download_save_segments(session, segments_df, datacenters_df, run_id,
 
     # we assume it's the terminal, thus allocate the current process to track
     # memory overflows
-    process = psutil.Process(os.getpid()) if show_progress else None
-
     with get_progressbar(show_progress, length=len(segments_df)) as bar:
         # seg group is an iterable of 2 element tuples. The first element is the tuple of keys[:idx]
         # values, and the second element is the dataframe
@@ -914,12 +919,6 @@ def download_save_segments(session, segments_df, datacenters_df, run_id,
         while itr is not None:
             retries = []
             for df, result, exc, request in itr:
-
-                # first check if we are not overflowing:
-                if _mem_percent(process) > 90:
-                    raise QuitDownload(Exception(MSG("", "QUITTING: please re-try downloading segments",
-                                                     "too much memory used: %.2f%%" %
-                                                     process.memory_percent())))
                 _ = df[0]  # not used. NOTE that the type of this var changes according to
                 # whether we are retriying from a  previous 413 http code or not
                 df = df[1]  # copy data so that we do not have refs to the old dataframe
@@ -981,7 +980,7 @@ def download_save_segments(session, segments_df, datacenters_df, run_id,
 
                 segmanager.add(df)
                 bar.update(len(df))
-                del df  # remove ref to df (helps gc when done in DbMAnager??)
+                # del df  # remove ref to df (helps gc when done in DbMAnager??)
 
             if retries:
                 itr = read_async(retries,
