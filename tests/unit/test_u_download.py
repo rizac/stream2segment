@@ -24,7 +24,7 @@ from stream2segment.main import main, closing
 from click.testing import CliRunner
 # from stream2segment.s2sio.db.pd_sql_utils import df2dbiter, get_col_names
 import pandas as pd
-from stream2segment.download.main import add_classes, get_events_df, get_datacenters_df, logger as query_logger, \
+from stream2segment.download.main import get_events_df, get_datacenters_df, logger as query_logger, \
 get_channels_df, merge_events_stations, set_saved_arrivaltimes, get_arrivaltimes,\
     prepare_for_download, download_save_segments, _strcat, get_eventws_url,\
     QuitDownload
@@ -369,18 +369,18 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 #        self.mock_urlopen.side_effect = Cycler(urlread_side_effect)
         
 
-    def test_add_classes(self):
-        cls = {'a' : 'bla', 'b' :'c'}
-        add_classes(self.session, cls, db_bufsize=self.db_buf_size)
-        assert len(self.session.query(Class).all()) == 2
-        logmsg = self.log_msg()
-        assert "Db table 'classes': 2 new items inserted (no sql errors)" in logmsg
-        #assert "Db table 'classes': no new item to insert" not in logmsg
-        add_classes(self.session, cls, db_bufsize=self.db_buf_size)
-        # assert we did not write any new class
-        assert len(self.session.query(Class).all()) == 2
-        # and also that nothing is printed to log (we print only new and discarded)
-        assert "Db table 'classes': no new item to insert" in self.log_msg()
+#     def test_add_classes(self):
+#         cls = {'a' : 'bla', 'b' :'c'}
+#         add_classes(self.session, cls, db_bufsize=self.db_buf_size)
+#         assert len(self.session.query(Class).all()) == 2
+#         logmsg = self.log_msg()
+#         assert "Db table 'classes': 2 new items inserted (no sql errors)" in logmsg
+#         #assert "Db table 'classes': no new item to insert" not in logmsg
+#         add_classes(self.session, cls, db_bufsize=self.db_buf_size)
+#         # assert we did not write any new class
+#         assert len(self.session.query(Class).all()) == 2
+#         # and also that nothing is printed to log (we print only new and discarded)
+#         assert "Db table 'classes': no new item to insert" in self.log_msg()
         
 # ===========================
 

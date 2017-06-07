@@ -372,7 +372,7 @@ def dbquery2df(query):
 
 
 def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_size=10,
-           drop_duplicates=True, return_df=True):
+           drop_duplicates=True, return_df=True, onerr=None):
     """
     Efficiently synchronizes `dataframe` with the corresponding database table T.
     Returns the tuple `(d, new)` where:
@@ -450,7 +450,8 @@ def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_siz
                             return_df)
 
 
-def insertdf_napkeys(dataframe, session, autoincrement_pkey_col, buf_size=10, return_df=True):
+def insertdf_napkeys(dataframe, session, autoincrement_pkey_col, buf_size=10, return_df=True,
+                     onerr=None):
     """
     Efficiently inserts rows of `dataframe` in the corresponding database table T, but only
     where `autoincrement_pkey_col` is N/A (handling auto-incrementing of `autoincrement_pkey_col`
@@ -493,7 +494,8 @@ def insertdf_napkeys(dataframe, session, autoincrement_pkey_col, buf_size=10, re
         new_pkeys = np.arange(max_pkey, max_pkey+numnans, dtype=int)
         dtmp[df_pkey_col] = new_pkeys
         new_df, new = insertdf(dtmp, session, [autoincrement_pkey_col], buf_size,
-                               query_first=False, drop_duplicates=False, return_df=return_df)
+                               query_first=False, drop_duplicates=False, return_df=return_df,
+                               onerr=onerr)
         if return_df:
             if df_has_pkey:
                 dframe_with_pkeys.loc[new_df.index, df_pkey_col] = new_df[df_pkey_col]
@@ -506,7 +508,8 @@ def insertdf_napkeys(dataframe, session, autoincrement_pkey_col, buf_size=10, re
 
 
 def insertdf(dataframe, session, matching_columns, buf_size=10, query_first=True,
-             drop_duplicates=True, return_df=True):
+             drop_duplicates=True, return_df=True,
+             onerr=None):
     """
     Efficiently inserts row of `dataframe` to the corresponding database table T. Rows found on
     T (according to `matching_columns`) are not inserted again. Returns the tuple `(d, new)` where:
@@ -536,7 +539,6 @@ def insertdf(dataframe, session, matching_columns, buf_size=10, query_first=True
 
     buf_size = max(buf_size, 1)
     buf = {}
-    new = 0
     matching_colnames = [c.key for c in matching_columns]
     if drop_duplicates:
         dataframe.drop_duplicates(subset=matching_colnames, inplace=True)
@@ -546,20 +548,21 @@ def insertdf(dataframe, session, matching_columns, buf_size=10, query_first=True
     shared_cnames = list(shared_colnames(table_model, dataframe))
     last = len(dataframe) - 1
     existing = 0
-    indices = []  # indices to keep (already existing or successfully written)
-    _tup2idx = {}  # dict to be allocated only if existing_keys is set
+    not_inserted = 0
+    indices_discarded = []
+    # _tup2idx = {}  # dict to be allocated only if existing_keys is set
 
     for i, rowdict in enumerate(dfrowiter(dataframe, shared_cnames)):
         if existing_keys:
             rowtup = tuple(rowdict[col] for col in matching_colnames)
             if rowtup not in existing_keys:
-                _tup2idx[rowtup] = i
+                # _tup2idx[rowtup] = i
                 buf[i] = rowdict
             else:
-                if return_df:
-                    indices.append(i)
-                else:
-                    existing += 1
+#                 if return_df:
+#                     indices.append(i)
+#                 else:
+                existing += 1
         else:
             buf[i] = rowdict
 
@@ -567,44 +570,55 @@ def insertdf(dataframe, session, matching_columns, buf_size=10, query_first=True
             try:
                 session.connection().execute(table_model.__table__.insert(), buf.values())
                 session.commit()
-            except IntegrityError as _:
-                session.rollback()
-                # if we had an integrity error, it might be that buf had dupes
-                # in this case, some rows might be added: FIXME: DOES NOT TO SEEM TRUE FROM THE
-                # TESTS. IS THE CODE BELOW STILL VALID??!!! Anyway, to be sure we issue a
-                # query to know which elements have been added
-                if not existing_keys:  # we don't have the set of existing keys, calculate now
-                    # the tuples of inserted elements
-                    _tup2idx = {tuple(dic[col] for col in matching_colnames): index
-                                for index, dic in buf.iteritems()}
-                exist_tups = _existing_insts(_tup2idx.keys(), session, matching_columns)
-                buf = {_tup2idx[k]: buf[_tup2idx[k]] for k in exist_tups}
-                _tup2idx = {}
+#             except IntegrityError as _:
+#                 session.rollback()
+#                 # if we had an integrity error, it might be that buf had dupes
+#                 # in this case, some rows might be added: FIXME: DOES NOT TO SEEM TRUE FROM THE
+#                 # TESTS. IS THE CODE BELOW STILL VALID??!!! Anyway, to be sure we issue a
+#                 # query to know which elements have been added
+#                 if not existing_keys:  # we don't have the set of existing keys, calculate now
+#                     # the tuples of inserted elements
+#                     _tup2idx = {tuple(dic[col] for col in matching_colnames): index
+#                                 for index, dic in buf.iteritems()}
+#                 exist_tups = _existing_insts(_tup2idx.keys(), session, matching_columns)
+#                 buf = {_tup2idx[k]: buf[_tup2idx[k]] for k in exist_tups}
+#                 _tup2idx = {}
 
             except SQLAlchemyError as _:
                 session.rollback()
-                buf.clear()
-
-            if buf:
-                new += len(buf)
+                if onerr is not None:
+                    onerr(dataframe, buf.iterkeys(), _)
+                not_inserted += len(buf)
                 if return_df:
-                    indices.extend(buf.iterkeys())
-                buf.clear()
+                    indices_discarded.extend(buf.iterkeys())
 
+            buf.clear()
+
+#             if buf:
+#                 new += len(buf)
+#                 if return_df:
+#                     indices.extend(buf.iterkeys())
+#                 buf.clear()
+
+    new = len(dataframe) - not_inserted - existing
     if not return_df:
-        first_ret_arg = existing + new
+        first_ret_arg = len(dataframe) - not_inserted
     else:
-        indices = np.array(indices, dtype=int)  # use np.arrays as they are slightly faster
-        # in pandas indexing below
-        indices.sort()
-        df = dataframe.iloc[indices]
-        df.is_copy = False  # avoid settings with copy warning
-        first_ret_arg = df
+        first_ret_arg = dataframe
+        if not_inserted:
+            if not_inserted == len(dataframe):
+                first_ret_arg = dataframe.iloc[[]]  # basically, empty dataframe, preserving cols
+            else:
+                indices_discarded = np.array(indices_discarded, dtype=int)
+                indices = np.in1d(np.arange(len(dataframe)), indices_discarded, assume_unique=True,
+                                  invert=True)
+                first_ret_arg = dataframe.iloc[indices]
 
     return first_ret_arg, new
 
 
-def updatedf(dataframe, session, where_col, update_columns, buf_size=10, return_df=True):
+def updatedf(dataframe, session, where_col, update_columns, buf_size=10, return_df=True,
+             onerr=None):
     """
     Efficiently updates row of `dataframe` to the corresponding database table T.
     Returns `d`, where:
@@ -640,8 +654,8 @@ def updatedf(dataframe, session, where_col, update_columns, buf_size=10, return_
         values({c.key: bindparam(c.key) for c in update_columns})
     buf = {}
     last = len(dataframe) - 1
-    indices = []
-    updated = 0
+    indices_discarded = []
+    not_updated = 0
 
     for i, rowdict in enumerate(dfrowiter(dataframe, shared_cnames)):
         # replace the where column:
@@ -651,38 +665,47 @@ def updatedf(dataframe, session, where_col, update_columns, buf_size=10, return_
             try:
                 session.connection().execute(stmt, buf.values())
                 session.commit()
-            except IntegrityError as _:
-                session.rollback()
-                # if we had an integrity error, it might be that buf had dupes
-                # in this case, some rows might be added. FIXME: DOES NOT TO SEEM TRUE FROM THE
-                # TESTS. IS THE CODE BELOW STILL VALID??!!! Anyway, to be sure we issue a
-                # query to know which elements have been added
-                _tup2idx = {}
-                for i, dic in buf.iteritems():
-                    dic[where_col.key] = dic.pop(where_col_bindname)  # replace back bindname
-                    _tup2idx[tuple(dic[k] for k in shared_cnames)] = i
-                exist_tups = _existing_insts(_tup2idx.keys(), session, shared_columns)
-                buf = {_tup2idx[k]: buf[_tup2idx[k]] for k in exist_tups}
+#             except IntegrityError as _:
+#                 session.rollback()
+#                 # if we had an integrity error, it might be that buf had dupes
+#                 # in this case, some rows might be added. FIXME: DOES NOT TO SEEM TRUE FROM THE
+#                 # TESTS. IS THE CODE BELOW STILL VALID??!!! Anyway, to be sure we issue a
+#                 # query to know which elements have been added
+#                 _tup2idx = {}
+#                 for i, dic in buf.iteritems():
+#                     dic[where_col.key] = dic.pop(where_col_bindname)  # replace back bindname
+#                     _tup2idx[tuple(dic[k] for k in shared_cnames)] = i
+#                 exist_tups = _existing_insts(_tup2idx.keys(), session, shared_columns)
+#                 buf = {_tup2idx[k]: buf[_tup2idx[k]] for k in exist_tups}
 
             except SQLAlchemyError as _:
                 session.rollback()
-                buf.clear()
-
-            if buf:
-                updated += len(buf)
+                if onerr is not None:
+                    onerr(dataframe, buf.iterkeys(), _)
+                not_updated += len(buf)
                 if return_df:
-                    indices.extend(buf.iterkeys())
-                buf.clear()
+                    indices_discarded.extend(buf.iterkeys())
+
+            buf.clear()
+
+#             if buf:
+#                 updated += len(buf)
+#                 if return_df:
+#                     indices.extend(buf.iterkeys())
+#                 buf.clear()
 
     if not return_df:
-        first_ret_arg = updated
+        first_ret_arg = last + 1 - not_updated
     else:
-        indices = np.array(indices, dtype=int)  # use np.arrays as they are slightly faster
-        # in pandas indexing below
-        indices.sort()
-        df = dataframe.iloc[indices]
-        df.is_copy = False  # avoid settings with copy warning
-        first_ret_arg = df
+        first_ret_arg = dataframe
+        if not_updated:
+            if not_updated == len(dataframe):
+                first_ret_arg = dataframe.iloc[[]]  # basically, empty dataframe, preserving cols
+            else:
+                indices_discarded = np.array(indices_discarded, dtype=int)
+                indices = np.in1d(np.arange(len(dataframe)), indices_discarded, assume_unique=True,
+                                  invert=True)
+                first_ret_arg = dataframe.iloc[indices]
 
     return first_ret_arg
 

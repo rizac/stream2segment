@@ -34,16 +34,19 @@ def MSG(topic=None, action=None, errmsg=None, url=None):
     """
     msg = ""
     if topic:
-        msg = topic
+        msg = topic.strip()
     if action:
+        action = action.strip()
         msg = "{}: {}".format(msg, action) if msg else action
     if errmsg:
         # sometimes exceptions have no message, append their name
         # (e.g. socket.timeout would now print at least 'timeout')
         strerr = str(errmsg) or str(errmsg.__class__.__name__)
+        strerr = strerr.strip()
         msg = "{} ({})".format(msg, strerr) if msg else strerr
     if url:
         _ = url2str(url)
+        _ = _.strip()
         msg = "{}. url: {}".format(msg, _) if msg else _
     return msg
 

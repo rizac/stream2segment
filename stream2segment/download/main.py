@@ -12,39 +12,34 @@
 import logging
 import re
 from collections import defaultdict
-from datetime import timedelta  #, datetime
+from datetime import timedelta, datetime
 from urlparse import urlparse
-from itertools import izip, imap  #, cycle
+import gc
+from itertools import izip, imap  # , cycle
 from urllib2 import Request
 from multiprocessing import cpu_count
 import concurrent.futures
 import numpy as np
 import pandas as pd
 from sqlalchemy import or_, and_
-from sqlalchemy.exc import SQLAlchemyError
+# from sqlalchemy.exc import SQLAlchemyError
 # from obspy.taup.tau import TauPyModel
 # from obspy.taup.helper_classes import TauModelError, SlownessModelError
 from stream2segment.utils.url import urlread, read_async as original_read_async, URLException
-from stream2segment.io.db.models import Class, Event, DataCenter, Segment, Station,\
+from stream2segment.io.db.models import Event, DataCenter, Segment, Station,\
     dc_get_other_service_url, Channel, WebService
 from stream2segment.io.db.pd_sql_utils import withdata, dfrowiter, mergeupdate,\
-    dbquery2df, insertdf, syncdf, insertdf_napkeys, updatedf
+    dbquery2df, syncdf, insertdf_napkeys, updatedf
 from stream2segment.download.utils import empty, urljoin, response2df, normalize_fdsn_dframe,\
-    get_search_radius, UrlStats, stats2str, get_inventory_url, save_inventory,\
+    get_search_radius, UrlStats, stats2str,\
     get_events_list, locations2degrees, get_arrival_time, get_url_mseed_errorcodes, get_taumodel
 from stream2segment.utils import strconvert, get_progressbar, yaml_load
 from stream2segment.utils.mseedlite3 import MSeedError, unpack as mseedunpack
 from stream2segment.utils.msgs import MSG
 from stream2segment.utils.resources import get_ws_fpath
 from stream2segment.io.utils import dumps_inv
-from datetime import datetime
-import psutil
-import os
-import gc
 
 logger = logging.getLogger(__name__)
-
-# ADDBUFSIZE = 10  # FIXME: add this as parameter!!!
 
 
 class QuitDownload(Exception):
@@ -99,7 +94,7 @@ class QuitDownload(Exception):
 
 
 def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
-               decode=None, raise_http_err=True, timeout=None, max_mem_consumption=0.9,
+               decode=None, raise_http_err=True, timeout=None, max_mem_consumption=90,
                **kwargs):
     """Wrapper around read_async defined in url which raises a QuitDownload in case of MemoryError
     """
@@ -122,30 +117,30 @@ def get_eventws_url(session, service):
         raise ValueError("Service '%s'\\'s web service not found" % service)
 
 
-def add_classes(session, class_labels, db_bufsize):
-    """Inserts the given classes to the relative table
-    :param class_labels: a dict of class_label mapped to the class description
-    (e.g. "low_snr": "segment with low signal-to-noise ratio")
-    """
-    if class_labels:
-        cdf = pd.DataFrame(data=[{Class.label.key: k, Class.description.key: v}
-                           for k, v in class_labels.iteritems()])
-        dbinsertdf(cdf, session, [Class.label], db_bufsize)
-
-
-# FIXME: this method is just called from add_classes above. Worth using?
-# We might move to dbsyncdf below but then the program would stop if no classes are added
-# Is what we want? Or maybe move classes to GUI?
-def dbinsertdf(dataframe, session, matching_columns, buf_size=10, query_first=True,
-               drop_duplicates=True, return_df=True):
-    """Calls `insertdf` and writes to the logger before returning the
-    new dataframe."""
-    oldlen = len(dataframe)
-    df, new = insertdf(dataframe, session, matching_columns, buf_size, query_first,
-                       drop_duplicates, return_df)
-    discarded = oldlen - len(df)
-    dblog(matching_columns[0].class_, new, discarded)
-    return df
+# def add_classes(session, class_labels, db_bufsize):
+#     """Inserts the given classes to the relative table
+#     :param class_labels: a dict of class_label mapped to the class description
+#     (e.g. "low_snr": "segment with low signal-to-noise ratio")
+#     """
+#     if class_labels:
+#         cdf = pd.DataFrame(data=[{Class.label.key: k, Class.description.key: v}
+#                            for k, v in class_labels.iteritems()])
+#         dbinsertdf(cdf, session, [Class.label], db_bufsize)
+# 
+# 
+# # FIXME: this method is just called from add_classes above. Worth using?
+# # We might move to dbsyncdf below but then the program would stop if no classes are added
+# # Is what we want? Or maybe move classes to GUI?
+# def dbinsertdf(dataframe, session, matching_columns, buf_size=10, query_first=True,
+#                drop_duplicates=True, return_df=True):
+#     """Calls `insertdf` and writes to the logger before returning the
+#     new dataframe."""
+#     oldlen = len(dataframe)
+#     df, new = insertdf(dataframe, session, matching_columns, buf_size, query_first,
+#                        drop_duplicates, return_df)
+#     discarded = oldlen - len(df)
+#     dblog(matching_columns[0].class_, new, discarded)
+#     return df
 
 
 def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_size=10,
@@ -154,7 +149,7 @@ def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_s
     new dataframe. Raises `QuitDownload` if the returned dataframe is empty (no items saved)"""
     oldlen = len(dataframe)
     df, new = syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_size,
-                     drop_duplicates, return_df)
+                     drop_duplicates, return_df, onerr=handledbexc(cols_to_print_on_err))
     table = autoincrement_pkey_col.class_
     if empty(df):
         raise QuitDownload(Exception(MSG("",
@@ -162,16 +157,33 @@ def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_s
                                          "unknown error, check database connection")))
     discarded = oldlen - len(df)
     dblog(table, new, discarded)
-    if discarded:
-        _df = dataframe[~dataframe.index.isin(df.index)]
-        if cols_to_print_on_err is not None:
-            _df = _df[cols_to_print_on_err]
-        if not empty(_df):
-            N = 50
-            msg = (" (showing first %d only)" % N) if len(_df) > N else ""
-            _df = _df.iloc[:N] if len(_df) > N else _df
-            logger.warning("%s%s:\n%s" % ("Discarded items", msg, _df.to_string(index=False)))
     return df
+
+
+def handledbexc(cols_to_print_on_err, update=False):
+    """Returns a **function** to be passed to pd_sql_utils functions when inserting/ updating
+    the db. Basically, it prints to log"""
+    def hde(dataframe, iterindices, exception):
+        _df = dataframe.loc[list(iterindices)]
+        if not empty(_df):
+            N = 30
+            try:
+                errmsg = str(exception.orig)
+            except AttributeError:
+                errmsg = str(exception)
+            len_df = len(_df)
+            msg = MSG("", "%d database rows not %s" % (len_df,
+                                                       "updated" if update else "inserted"),
+                      errmsg)
+            if len_df > N:
+                footer = "\n... (showing first %d rows only)" % N
+                _df = _df.iloc[:N]
+            else:
+                footer = ""
+            msg = "{}:\n{}{}".format(msg, _df.to_string(columns=cols_to_print_on_err,
+                                                        index=False), footer)
+            logger.warning(msg)
+    return hde
 
 
 def dblog(table, inserted, not_inserted, updated=-1, not_updated=-1):
@@ -181,8 +193,8 @@ def dblog(table, inserted, not_inserted, updated=-1, not_updated=-1):
 
     def item(num):
         return "item" if num == 1 else "items"
-    _header = "Db table '%s'"
-    _errmsg = "sql error, e.g. unique / not null constraint violation"
+    _header = "Db table '%s' summary"
+    _errmsg = "sql error (e.g., null constr., unique constr.)"
     _noerrmsg = "no sql errors"
 
     if inserted or not_inserted:
@@ -873,7 +885,7 @@ def download_save_segments(session, segments_df, datacenters_df, run_id,
     DC_DSQU_COL = DataCenter.dataselect_url
     DC_DSQU_NAME = DC_DSQU_COL.key
     SEG_ID_COL = Segment.id
-    # SEG_ID_NAME = SEG_ID_COL.key
+    SEG_ID_NAME = SEG_ID_COL.key
     SEG_STIME_COL = Segment.start_time
     SEG_ETIME_COL = Segment.end_time
     SEG_STIME_NAME = SEG_STIME_COL.key
@@ -901,7 +913,9 @@ def download_save_segments(session, segments_df, datacenters_df, run_id,
     datcen_id2url = datacenters_df.set_index([DC_ID_NAME])[DC_DSQU_NAME].to_dict()
 
     segmanager = DbManager(session, SEG_ID_COL, [SEG_RUNID_COL, SEG_DATA_COL, SEG_MGR_COL,
-                                                 SEG_SRATE_COL, SEG_DSC_COL], db_bufsize)
+                                                 SEG_SRATE_COL, SEG_DSC_COL], db_bufsize,
+                           [SEG_ID_NAME, Segment.channel_id.key, Segment.start_time.key,
+                            Segment.end_time.key, Segment.datacenter_id.key])
 
     seg_groups = segments_df.groupby([SEG_DCID_NAME, SEG_STIME_NAME, SEG_ETIME_NAME], sort=False)
 
@@ -1013,7 +1027,9 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
     _msg = "Unable to save inventory (station id=%d)"
 
     downloaded, errors, empty = 0, 0, 0
-    dbmanager = DbManager(session, Station.id, [Station.inventory_xml], db_bufsize)
+    dbmanager = DbManager(session, Station.id, [Station.inventory_xml], db_bufsize,
+                          [Station.id.key, Station.network.key, Station.station.key,
+                           Station.start_time.key])
     with get_progressbar(show_progress, length=len(stations_df)) as bar:
         iterable = izip(stations_df[Station.id.key],
                         stations_df[DataCenter.station_url.key],
@@ -1044,7 +1060,7 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
     logger.info(("Summary of web service responses for station inventories:\n"
                  "downloaded %d\n"
                  "discarded: %d (empty response)\n"
-                 "not downloaded: %d (client/server errors: check log for details)") %
+                 "not downloaded: %d (client/server errors)") %
                 (downloaded, empty, errors))
     dbmanager.close()
 
@@ -1054,7 +1070,8 @@ class DbManager(object):
     be happening during download for not losing data in case of unexpected error, this class
     manages the buffer size for the insertion/ updates on the db"""
 
-    def __init__(self, session, id_col, update_cols, bufsize):
+    def __init__(self, session, id_col, update_cols, bufsize,
+                 cols_to_print_on_err):
         self.info = [0, 0, 0, 0]  # new, total_new, updated, updated_new
         self.inserts = []
         self.updates = []
@@ -1065,6 +1082,7 @@ class DbManager(object):
         self.id_col = id_col
         self.update_cols = update_cols
         self.table = id_col.class_
+        self.cols_to_print_on_err = cols_to_print_on_err
 #         self.SEG_ID_COL = Segment.id
 #         self.SEG_ID_NAME = self.SEG_ID_COL.key
 #         self.UPD_COLS = [Segment.run_id, Segment.data, Segment.max_gap_ratio, Segment.sample_rate,
@@ -1098,7 +1116,8 @@ class DbManager(object):
 
     def insert(self):
         df = pd.concat(self.inserts, axis=0, ignore_index=True, copy=False, verify_integrity=False)
-        total, new = insertdf_napkeys(df, self.session, self.id_col, len(df), return_df=False)
+        total, new = insertdf_napkeys(df, self.session, self.id_col, len(df), return_df=False,
+                                      onerr=handledbexc(self.cols_to_print_on_err))
         info = self.info
         info[0] += new
         info[1] += total
@@ -1109,7 +1128,8 @@ class DbManager(object):
     def update(self):
         df = pd.concat(self.updates, axis=0, ignore_index=True, copy=False, verify_integrity=False)
         total = len(df)
-        updated = updatedf(df, self.session, self.id_col, self.update_cols, total, return_df=False)
+        updated = updatedf(df, self.session, self.id_col, self.update_cols, total, return_df=False,
+                           onerr=handledbexc(self.cols_to_print_on_err, True))
         info = self.info
         info[2] += updated
         info[3] += total
@@ -1149,7 +1169,7 @@ def run(session, run_id, start, end, service, eventws_query_args,
         search_radius,
         channels, min_sample_rate, inventory, traveltime_phases,
         wtimespan, retry_no_code, retry_url_errors, retry_mseed_errors, retry_4xx, retry_5xx,
-        advanced_settings, class_labels=None, isterminal=False):
+        advanced_settings, isterminal=False):
     """
         Downloads waveforms related to events to a specific path. FIXME: improve doc
     """
@@ -1164,7 +1184,7 @@ def run(session, run_id, start, end, service, eventws_query_args,
     stepiter = imap(lambda i: "%d of %d" % (i+1, __steps), xrange(__steps))
 
     # write the class labels:
-    add_classes(session, class_labels, dbbufsize)
+    # add_classes(session, class_labels, dbbufsize)
 
     startiso = start.isoformat()
     endiso = end.isoformat()

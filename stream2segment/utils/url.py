@@ -222,7 +222,7 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
                 mem_percent = _mem_percent(process)
                 if mem_percent > max_mem_consumption:
                     raise MemoryError("too much memory used: %.2f%% > %.2f%%" %
-                                    (mem_percent, max_mem_consumption))
+                                      (mem_percent, max_mem_consumption))
 
                 if kill:
                     continue

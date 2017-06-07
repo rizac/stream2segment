@@ -17,6 +17,7 @@ from itertools import izip
 from sqlalchemy.sql.expression import bindparam
 import os
 import psutil
+from sqlalchemy.sql import default_comparator
 
 Base = declarative_base()
 
@@ -171,6 +172,7 @@ class Test(unittest.TestCase):
         assert dlen - len(newd) == 2
         assert new == 0
         assert len(newd) == dlen - 2
+
 
         # NEXT TRY:
         # add a good entry {'id': 23, 'time': d2009} and a wrong one {'id': 1, 'time': d2009},
@@ -488,12 +490,14 @@ class Test(unittest.TestCase):
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
         d2009 = datetime(2009, 9, 25)
-        self.init_db([{'id':1, 'name':'a'}, {'id':2, 'name':'b'}, {'id':3, 'name': "c"}])
+        self.init_db([{'id': 1, 'name': 'a'}, {'id':2, 'name':'b'}, {'id':3, 'name': "c"}])
         # first item violates a non-null constraint
         d = pd.DataFrame([{'id':1, 'name': None}, {'id':2, 'name': 'x'}, {'id':3, 'name': 'x'}])
         d2 = updatedf(d, self.session, Customer.id, [Customer.name])
         assert d2.empty
-        assert not self.session.query(Customer.name).filter(Customer.id.in_(d2['id'].values)).all()
+        # comment out the "assert..." below, as it
+        # is already proven by d2.empty above, and moreover issues an sqlalchemy warning
+        # assert not self.session.query(Customer.name).filter(Customer.id.in_(d2['id'].values)).all()
        
 
     def test_updatedf_nullcontraint_violation2(self):
@@ -511,7 +515,9 @@ class Test(unittest.TestCase):
 #         assert sorted([x[0] for x in self.session.query(Customer.name).all()]) == ['c', 'x', 'x']
         # THIS IS TRUE (AS THE FUNCTION ABOVE):
         assert d2.empty
-        assert not self.session.query(Customer.name).filter(Customer.id.in_(d2['id'].values)).all()
+        # comment out the "assert..." below, as it
+        # is already proven by d2.empty above, and moreover issues an sqlalchemy warning
+        # assert not self.session.query(Customer.name).filter(Customer.id.in_(d2['id'].values)).all()
 
 
     def test_assert_perfs(self):

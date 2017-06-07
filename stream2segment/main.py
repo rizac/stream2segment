@@ -37,6 +37,7 @@ from stream2segment.download.main import run as run_download
 from stream2segment.utils import tounicode, yaml_load, get_session, strptime, yaml_load_doc,\
     indent, secure_dburl
 from stream2segment.utils.resources import get_templates_fpath
+from stream2segment.io.db.models import Run
 
 
 # set root logger if we are executing this module as script, otherwise as module name following
@@ -202,7 +203,15 @@ def download(isterminal=False, **yaml_dict):
             yaml_safe = dict(yaml_dict, dburl=secure_dburl(yaml_dict.pop('dburl')))
             print(indent(yaml.safe_dump(yaml_safe, default_flow_style=False), 2))
 
-        configlog4download(logger, session, run_inst, isterminal)
+        fileout = configlog4download(logger, session, run_inst, isterminal)
+
+        if isterminal:
+            print("Log messages will be written to table '%s' (column '%s')" %
+                  (Run.__tablename__, Run.log.key))
+            print("and to '%s'" % str(fileout))
+            # print("(check the file in case of unexpected errors")
+            # print("such as Memory overflow which might prevent the database column to be written)")
+
         with elapsedtime2logger_when_finished(logger):
             run_download(session=session, run_id=run_inst.id, isterminal=isterminal, **yaml_dict)
             logger.info("%d total error(s), %d total warning(s)", run_inst.errors,
@@ -263,9 +272,8 @@ def closing(dburl, scoped=False, close_logger=True, close_session=True):
     try:
         session = get_session(dburl, scoped=scoped)
         yield session
-    except Exception as exc:
-        print("caught!")
-        logger.critical(str(exc))
+    except:
+        logger.critical(sys.exc_info()[1])
         raise
     finally:
         if close_logger:

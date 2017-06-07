@@ -5,15 +5,18 @@ Created on Feb 20, 2017
 @author: riccardo
 '''
 import logging
-from datetime import timedelta
+from datetime import timedelta, datetime
 from cStringIO import StringIO
 import sys
 from contextlib import contextmanager
 import time
 from stream2segment.io.db.pd_sql_utils import commit
 from stream2segment.utils import timedeltaround
-from sqlalchemy.orm.session import object_session
-from stream2segment.io.db.models import Run
+# from sqlalchemy.orm.session import object_session
+# from stream2segment.io.db.models import Run
+import tempfile
+import os
+
 # CRITICAL    50
 # ERROR    40
 # WARNING    30
@@ -96,16 +99,26 @@ def configlog4processing(logger, outcsvfile, isterminal):
     # config logger (FIXME: merge with download logger?):
     logger.setLevel(logging.INFO)  # this is necessary to configure logger HERE, otherwise the
     # handler below does not work. FIXME: better implementation!!
-    logger_handler = logging.FileHandler(outcsvfile + ".log", mode='w')
-    logger_handler.setLevel(logging.DEBUG)
+    logger_handler = getfilehandler(outcsvfile + ".log", logging.DEBUG)
     logger.addHandler(logger_handler)
     if isterminal:
         # configure print to stdout (by default only info warning errors and critical messages)
         logger.addHandler(SysOutStreamHandler(sys.stdout))
 
 
-def configlog4download(logger, db_session, run_instance, isterminal):
+def getfilehandler(out=None, level=logging.DEBUG):
+    """returns a file handler. If out is None, if will default to
+    tmp_dir/utcnow().log
+    Note: A logger file handler flushes at every emit
+    """
+    if out is None:
+        out = os.path.join(tempfile.gettempdir(), datetime.utcnow().isoformat() + ".log")
+    return logging.FileHandler(out, mode='w')
 
+
+def configlog4download(logger, db_session, run_instance, isterminal):
+    """configs for download and returns the tmp file where to write the log, if
+    isterminal=True, or None"""
     logger.setLevel(logging.INFO)  # necessary to forward to handlers
 
     # custom StreamHandler: count errors and warnings
@@ -113,7 +126,10 @@ def configlog4download(logger, db_session, run_instance, isterminal):
     if isterminal:
         # configure print to stdout (by default only info and critical messages)
         logger.addHandler(SysOutStreamHandler(sys.stdout))
-
+        logger_handler = getfilehandler(None, logging.DEBUG)
+        logger.addHandler(logger_handler)
+        return logger_handler.baseFilename
+    return None
 
 def configlog4stdout(logger):
     logger.setLevel(logging.INFO)  # necessary to forward to handlers

@@ -162,17 +162,3 @@ advanced_settings:
  db_buf_size: 15
 
 
-###############################################################################
-# Classes (label: description) This is used for labelling (annotating via GUI):
-# optional argument, you can remove it completely for no labelling
-###############################################################################
-
-class_labels:
-  Discarded: "Segment which does not fall in any other cathegory (e.g., unknown artifacts, bad formats etcetera)"
-  Unknown: "Segment which is either: unlabeled (not annotated) or unclassified"
-  Ok: "Segment with no artifact"
-  LowS2N: "Segment has a low signal-to-noise ratio"
-  Aftershock: "Segment with non overlapping multi-events recorded (aftershock)"
-  MultiEvent: "Segment with overlapping multi-events recorded (no aftershock)"
-  BadCoda: "Segment with a bad coda (bad decay)"
-
