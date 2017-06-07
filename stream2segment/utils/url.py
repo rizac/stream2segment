@@ -228,24 +228,19 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
                     continue
                 # this is executed in the main thread (thus is thread safe):
                 yield future.result()
-        except KeyboardInterrupt as exc:
-            # Same case as below, just print something because it might require time
-            # before exiting
-            print("Aborted by user, please wait...")
-            kill = True
-        except Exception as exc:
-            # We are here either because of a keyboardinterrupt, or an exception in the
-            # future.result(),
-            # or an exception in the consumer of the yield result (exception: GeneratorExit)
-            # in all cases the `as_completed` will shortly exit, issuing a shutdown(wait=True).
-            # kill = true flag speeds up the exit time. Nothing will be executed anyway, so
-            # raise the exception to be handled
-            kill = True
-
-    try:
-        raise exc
-    except NameError:
-        pass
+        except:
+            # According to this post:
+            # http://stackoverflow.com/questions/29177490/how-do-you-kill-futures-once-they-have-started,
+            # after a KeyboardInterrupt this method does not return until all
+            # working threads have finished. Thus, we implement the urlreader._kill flag
+            # which makes them exit immediately, and hopefully this function will return within
+            # seconds at most. We catch  a bare except cause we want the same to apply to all
+            # other exceptions which we might raise (see few line above)
+            kill = True  # pylint:disable=protected-access
+            # the time here before executing 'raise' below is the time taken to finish all threads.
+            # Without the line above, it might be a lot (minutes, hours), now it is much shorter
+            # (in the order of few seconds max) and the command below can be executed quickly:
+            raise
 
 # def read_async(iterable, ondone, cancel=False,
 #                urlkey=lambda obj: obj,
