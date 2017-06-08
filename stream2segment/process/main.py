@@ -12,18 +12,18 @@ from cStringIO import StringIO
 from contextlib import contextmanager
 import warnings
 import re
-from collections import OrderedDict as odict
+# from collections import OrderedDict as odict
 import traceback
-from sqlalchemy import func, distinct
-from sqlalchemy.orm import load_only
+# from sqlalchemy import func, distinct
+# from sqlalchemy.orm import load_only
+import csv
 from obspy.core.stream import read
 from stream2segment.utils import yaml_load, get_progressbar, load_source, secure_dburl
-from stream2segment.io.db.models import Segment, Station
+from stream2segment.io.db.models import Segment  # , Station
 from stream2segment.download.utils import get_inventory
-from stream2segment.io.db.pd_sql_utils import withdata
 from stream2segment.process.utils import segstr
-from stream2segment.utils.sqlevalexpr_s2s import segment_query
-from stream2segment.utils.sqlevalexpr import parsevals
+from stream2segment.io.db.queries import getquery4process
+
 
 logger = logging.getLogger(__name__)
 
@@ -74,11 +74,6 @@ def redirect(src=sys.stdout, dst=os.devnull):
         finally:
             # restore stdout. buffering and flags such as CLOEXEC may be different:
             _redirect_(to=old_)
-
-
-def getid(segment):
-    return str(segment.channel.id), segment.start_time.isoformat(), segment.end_time.isoformat(),\
-            str(segment.id)
 
 
 def load_proc_cfg(configsourcefile):
@@ -137,56 +132,13 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
     # each segment object, or we simply do not use multiprocess. We will opt for the second choice
     # (maybe implement tests in the future to see which is faster)
 
-    seg_filter = withdata(Segment.data)
-
-    # LEVE NOTE HERE EVEN IF WE DO NOT USE THREADING NOR MULTIPROCESSING FOR NOW:
-    # another thing experienced with ThreadPoolExecutor:
-    # we experienced some problems if max_workers is None. The doc states that it is the number
-    # of processors on the machine, multiplied by 5, assuming that ThreadPoolExecutor is often
-    # used to overlap I/O instead of CPU work and the number of workers should be higher than the
-    # number of workers for ProcessPoolExecutor. But the source code seems not to set this value
-    # at all!! (at least in python2, probably in pyhton3 is fine). So let's do it manually
-    # (remember, for multiprocessing don't multiply to 5):
-    # max_workers = 5 * multiprocessing.cpu_count()
-
-    # attributes to load only for stations and segments (sppeeds up db queries):
-    seg_atts = ["channel_id", "start_time", "end_time", "id"]
-
-    def _ztr(itm):
-        """function returning the id attrs defined in seg_atts mapped to their str represenation"""
-        try:
-            return itm.isoformat()
-        except AttributeError:
-            return str(itm)
-
     # do an iteration on the main process to check when AsyncResults is ready
     done = 0
-#     sta_query = session.query(Station).\
-#         options(load_only(*(sta_atts + ['inventory_xml'] if inventory_required else sta_atts))).\
-#         filter(Station.segments.any(seg_filter))  # @UndefinedVariable
 
-    # segement selection, build query:
-    # Base query: query segments and station id Note: without the join below, rows would be
-    # duplicated
-    segs_staids = session.query(Segment, Station.id).join(Segment.station).\
-        options(load_only(*seg_atts)).\
-        order_by(Station.id)  # @UndefinedVariable
-    # Now parse selection:
-    seg_select = config.get('segment_select', {})
-    if seg_select:
-        # parse withdata
-        withdataonly = seg_select.pop('withdata', None)
-        if withdataonly is not None:
-            assert withdataonly in (True, False), "withdata must be a boolean in config"
-        segs_staids = segment_query(segs_staids, conditions=seg_select,
-                                    withdataonly=withdataonly, distinct=True, orderby=None)
-
-    # Note: without the join below, rows would be duplicated
-#     segs_staids = session.query(Segment, Station.id).join(Segment.station).\
-#         filter(seg_filter).distinct().\
-#         options(load_only(*(seg_atts + ['data'] if load_stream else seg_atts))).\
-#         order_by(Station.id)  # @UndefinedVariable
-
+    # attributes to load only for stations and segments (sppeeds up db queries):
+    SEG_ID = Segment.id.key
+    seg_atts = [SEG_ID]  # ["channel_id", "start_time", "end_time", "id"]
+    segs_staids = getquery4process(session, config.get('segment_select', {}), *seg_atts)
 
     # get total segment length:
     seg_len = segs_staids.count()
@@ -227,24 +179,14 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
                             except Exception as exc:
                                 raise ValueError("Error while reading mseed: " + str(exc))
                         array = pyfunc(seg, mseed, current_inv, config)
-                        if isinstance(array, dict):
-                            ddd = odict([('_segment_' + at, _ztr(getattr(seg, at)))
-                                         for at in seg_atts])
-                            ddd.update(array)
-                            ondone(ddd)
-                        elif hasattr(array, '__iter__') and not isinstance(array, str):
-                            ondone(list(_ztr(getattr(seg, at)) for at in seg_atts) + list(array))
-                        elif array is not None:
-                            msg = ("'%s' in '%s' cannot return '%s' objects") \
-                                   % (funcname, pysourcefile, str(type(array)))
-                            logger.error(msg)
-                            raise SyntaxError(msg)
+                        if array is not None:
+                            ondone(seg, array)
                         done += 1
-                    except (ImportError, NameError, SyntaxError, TypeError) as _:
+                    except (ImportError, NameError, AttributeError, SyntaxError, TypeError) as _:
                         raise  # sys.exc_info()
                     except Exception as generr:
                         logger.warning("%s: %s", segstr(seg), str(generr))
-            except Exception as stopexc:
+            except:
                 err_msg = traceback.format_exc()
                 logger.critical(err_msg)
                 return 0
@@ -275,3 +217,50 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
         logger.info("station inventories saved: %d", stations_saved)
 
     logger.info("%d of %d segments successfully processed\n" % (done, seg_len))
+
+
+def to_csv(outcsvfile, session, pysourcefile, configsourcefile, isterminal):
+    kwargs = dict(delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+    flush_num = [1, 10]  # determines when to flush (not used. We use the
+    # last argument to open which tells to flush line-wise. To add custom flush, see commented
+    # lines at the end of the with statement and uncomment them
+    # ------------------------
+    # cols always written (1 for the moment, the id): Segment ORM table attribute name(s):
+    col_headers = [Segment.id.key]
+    CHEAD_FRMT = "_segment_db_%s_"  # try avoiding overridding user defined keys
+    csvwriter = [None, None]  # bad hack: in python3, we might use 'nonlocal' @UnusedVariable
+
+    with open(outcsvfile, 'wb', 1) as csvfile:
+
+        def ondone(segment, result):  # result is surely not None
+            if csvwriter[0] is None:  # instanitate writer according to first input
+                isdict = isinstance(result, dict)
+                csvwriter[1] = isdict
+                # write first column(s):
+                if isdict:
+                    # we need to pass a list and not an iterable cause the iterable needs
+                    # to be consumed twice (the doc states differently, however...):
+                    fieldnames = [(CHEAD_FRMT % c) for c in col_headers]
+                    fieldnames.extend(result.iterkeys())
+                    csvwriter[0] = csv.DictWriter(csvfile, fieldnames=fieldnames, **kwargs)
+                    csvwriter[0].writeheader()
+                else:
+                    csvwriter[0] = csv.writer(csvfile,  **kwargs)
+
+            csv_writer, isdict = csvwriter
+            if isdict:
+                result.update({(CHEAD_FRMT % c): getattr(segment, c) for c in col_headers})
+            else:
+                # we might have numpy arrays, we should support variable types (numeric, strings,..)
+                res = [getattr(segment, c) for c in col_headers]
+                res.extend(result)
+                result = res
+
+            csv_writer.writerow(result)
+
+            # if flush_num[0] % flush_num[1] == 0:
+            #    csvfile.flush()  # this should force writing so if errors we have something
+            #    # http://stackoverflow.com/questions/3976711/csvwriter-not-saving-data-to-file-why
+            # flush_num[0] += 1
+
+        run(session, pysourcefile, ondone, configsourcefile, isterminal)

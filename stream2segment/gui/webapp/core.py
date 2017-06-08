@@ -3,15 +3,15 @@ Created on Jul 31, 2016
 
 @author: riccardo
 '''
-from stream2segment.io.db.pd_sql_utils import colnames, commit, withdata
+from stream2segment.io.db.pd_sql_utils import colnames, commit
 from stream2segment.io.db.models import Segment, Class, Station, Channel, DataCenter, Event,\
     ClassLabelling
-from stream2segment.utils.sqlevalexpr import query, get_columns
+# from stream2segment.io.db.sqlevalexpr import query, get_columns
 from stream2segment.gui.webapp import get_session
 from stream2segment.gui.webapp.plots import View, jsontimestamp, set_spectra_config
 from stream2segment.utils import evalexpr
-from sqlalchemy.sql.expression import and_
-from stream2segment.utils.sqlevalexpr_s2s import segment_query
+# from sqlalchemy.sql.expression import and_
+from stream2segment.io.db.queries import query4gui
 
 
 NPTS_WIDE = 900
@@ -29,7 +29,10 @@ SETTINGS = {
 def get_init_data(orderby, withdataonly):
     classes = get_classes()
     metadata = create_metadata_list(True if classes else None)
-    return {'segment_ids': get_segment_ids(orderby=orderby, withdataonly=withdataonly),
+    conditions = {}
+    if withdataonly:
+        conditions['has_data'] = True
+    return {'segment_ids': get_segment_ids(conditions, orderby=orderby),
             'classes': classes,
             'metadata': metadata}
 
@@ -61,9 +64,8 @@ def type2str(python_type):
     return python_type.__name__
 
 
-def get_segment_ids(filterdata=None, orderby=None, withdataonly=True):
-    qry = segment_query(get_session().query(Segment.id), conditions=filterdata,
-                        withdataonly=withdataonly, distinct=True, orderby=orderby)
+def get_segment_ids(conditions=None, orderby=None):
+    qry = query4gui(get_session(), conditions=conditions, orderby=orderby)
     return [seg[0] for seg in qry]
 
 

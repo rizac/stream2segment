@@ -9,13 +9,13 @@ import unittest
 import numpy as np
 import os
 from stream2segment.io.db.models import Base, Event, WebService, Channel, Station, \
-    DataCenter, Segment, Class, Run, ClassLabelling
+    DataCenter, Segment, Class, Run, ClassLabelling, withdata
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, load_only
 import pandas as pd
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError, DataError
 from stream2segment.io.db.pd_sql_utils import _harmonize_columns, harmonize_columns, \
-    harmonize_rows, colnames, withdata
+    harmonize_rows, colnames, dbquery2df
 from stream2segment.io.utils import dumps_inv, loads_inv
 from sqlalchemy.orm.exc import FlushError
 from sqlalchemy.orm.attributes import InstrumentedAttribute
@@ -28,35 +28,67 @@ import time
 
 class Test(unittest.TestCase):
     
-    engine = None
+#     engine = None
+# 
+#     @classmethod
+#     def setUpClass(cls):
+#         url = os.getenv("DB_URL", "sqlite:///:memory:")
+#         # an Engine, which the Session will use for connection
+#         # resources
+#         # some_engine = create_engine('postgresql://scott:tiger@localhost/')
+#         cls.engine = create_engine(url)
+#         Base.metadata.drop_all(cls.engine)
+#         Base.metadata.create_all(cls.engine)
+#         
+# #         file = os.path.dirname(__file__)
+# #         filedata = os.path.join(file,"..","data")
+# #         url = os.path.join(filedata, "_test.sqlite")
+# #         cls.dbfile = url
+# #         cls.deletefile()
+# #         
+# #         # an Engine, which the Session will use for connection
+# #         # resources
+# #         # some_engine = create_engine('postgresql://scott:tiger@localhost/')
+# #         cls.engine = create_engine('sqlite:///'+url)
+# #         Base.metadata.drop_all(cls.engine)
+# #         Base.metadata.create_all(cls.engine)
+# 
+#     @classmethod
+#     def tearDownClass(cls):
+#         # cls.deletefile()
+#         Base.metadata.drop_all(cls.engine)
+#     
+# #     @classmethod
+# #     def deletefile(cls):
+# #         if os.path.isfile(cls.dbfile):
+# #             os.remove(cls.dbfile)
+# 
+#     def setUp(self):
+#         
+#         # create a configured "Session" class
+#         Session = sessionmaker(bind=self.engine)
+#         # create a Session
+#         self.session = Session()
+# 
+#     def tearDown(self):
+#         try:
+#             self.session.flush()
+#             self.session.commit()
+#         except SQLAlchemyError as _:
+#             pass
+#             # self.session.rollback()
+#         self.session.close()
+#         # self.DB.drop_all()
 
-    @classmethod
-    def setUpClass(cls):
-        file = os.path.dirname(__file__)
-        filedata = os.path.join(file,"..","data")
-        url = os.path.join(filedata, "_test.sqlite")
-        cls.dbfile = url
-        cls.deletefile()
-        
+    def setUp(self):
+        url = os.getenv("DB_URL", "sqlite:///:memory:")
         # an Engine, which the Session will use for connection
         # resources
         # some_engine = create_engine('postgresql://scott:tiger@localhost/')
-        cls.engine = create_engine('sqlite:///'+url)
-        Base.metadata.drop_all(cls.engine)
-        Base.metadata.create_all(cls.engine)
+        self.engine = create_engine(url)
+        Base.metadata.drop_all(self.engine)
+        Base.metadata.create_all(self.engine)
 
-    @classmethod
-    def tearDownClass(cls):
-        cls.deletefile()
-        Base.metadata.drop_all(cls.engine)
-    
-    @classmethod
-    def deletefile(cls):
-        if os.path.isfile(cls.dbfile):
-            os.remove(cls.dbfile)
-
-    def setUp(self):
-        
         # create a configured "Session" class
         Session = sessionmaker(bind=self.engine)
         # create a Session
@@ -70,8 +102,16 @@ class Test(unittest.TestCase):
             pass
             # self.session.rollback()
         self.session.close()
-        # self.DB.drop_all()
-
+        Base.metadata.drop_all(self.engine)
+    
+    @property
+    def is_sqlite(self):
+        return str(self.engine.url).startswith("sqlite:///")
+    
+    @property
+    def is_postgres(self):
+        return str(self.engine.url).startswith("postgresql://")
+    
 #     def testParseCol(self):
 #         e = Event()
 #         leng = len(e.get_col_names())
@@ -93,9 +133,14 @@ class Test(unittest.TestCase):
         assert r.run_time is not None and r.warnings == 0 and r.errors == 0 and r.id is not None
 
     def test_inventory_io(self):
+        
+        dc = DataCenter(station_url='http://www.orfeus-eu.org/fdsnws/station/1/query')
+        self.session.add(dc)
+        self.session.commit()
+        
         from obspy.core.inventory.inventory import Inventory
         e = Station(network='abcwerwre', station='gwdgafsf',
-                           datacenter_id=self.session.query(DataCenter)[0].id,
+                           datacenter_id=dc.id,
                            latitude=3,
                            longitude=3, start_time=datetime.utcnow())
 
@@ -151,7 +196,40 @@ class Test(unittest.TestCase):
         
         dc = DataCenter(station_url='http://geofon.gfz-potsdam.de/fdsnws/station/1/query')
         assert dcname(dc) == 'geofon.gfz-potsdam.de'
+    
+    # Note that the naming here RUNS this test FIRST!!!
+    def test_010_difference_supplying_autoinc_id(self):
+        ID  =1 # put a very high number to be sure is unique
+        # add a webservice specifying the id (which is autocincrement)
+        ws = WebService(id=ID, url = 'asd_________')  
+        self.session.add(ws)
+        self.session.commit()
         
+        # that's REALLY IMPORTANT!:
+        # we added above a Webservice row SPECIFYING THE id explicitly!
+        # from https://stackoverflow.com/questions/40280158/postgres-sqlalchemy-auto-increment-not-working:
+        # With Postgres if you happen to supply the id field when you insert a new record,
+        # the sequence of the table is not used. Upon further insertion if you don't specify the id,
+        # the sequence table is not used and hence you have duplication.
+        # For details see also:
+        # https://stackoverflow.com/questions/37970743/unique-violation-7-error-duplicate-key-value-violates-unique-constraint-users/37972960#37972960
+        if not self.is_postgres:
+            ws = WebService(url='webservicASDKeurl')
+            self.session.add(ws)
+            self.session.commit()
+        else:
+            with pytest.raises(IntegrityError):
+                ws = WebService(url='webservicASDKeurl')
+                self.session.add(ws)
+                self.session.commit()
+            self.session.rollback()
+            # NOW THIS WORKS:
+            ws = WebService(url='webservicASDKeurl', id=ID+1)
+            self.session.add(ws)
+            self.session.commit()
+            
+        self.session.query(WebService).delete()
+        assert not self.session.query(WebService).all()
         
     def testSqlAlchemy(self):
         #run_cols = Run.__table__.columns.keys()
@@ -200,8 +278,11 @@ class Test(unittest.TestCase):
         
         # assert the two timestamps are equal cause issued within the same session:
         # (https://www.ibm.com/developerworks/community/blogs/SQLTips4DB2LUW/entry/current_timestamp?lang=en)
-        assert runz[0].run_time == runz[1].run_time
-        
+        # this is true in sqlite!!!
+        if self.is_sqlite:
+            assert runz[0].run_time == runz[1].run_time
+        else:
+            assert runz[0].run_time <= runz[1].run_time
         
         # now pass a utcdatetime and see if we keep that value:
         utcnow = datetime.utcnow()
@@ -226,35 +307,42 @@ class Test(unittest.TestCase):
         self.session.commit()
         assert e.id == int(val)
 
-        # test types. string floats are parsed automatically as int? YES if INT
-        # so this is NO:
+        # test types. string floats are parsed automatically as int? YES if INT in sqlite
+        # so this is IntegrityError in sqlite (for what we just stated) and No on postgres (but raises a DataError instead)
         val = '5.2'
         e = Class(id=val)
         assert e.id != float(val)
         self.session.add(e)
 
-        with pytest.raises(IntegrityError):
+        error = IntegrityError if self.is_sqlite else DataError
+        with pytest.raises(error):
             self.session.commit()
         # necessary after failure? FIXME: check!
         self.session.rollback()
             
-        # this is YES:
+        # this is YES in sqlite, not in postgres:
         val = '5.0'
         e = Class(id=val)
         assert e.id != int(float(val))
-        self.session.add(e)
-        self.session.commit()
-        assert e.id == int(float(val))
-
+        
+        if self.is_sqlite:
+            self.session.add(e)
+            self.session.commit()
+            assert e.id == int(float(val))
+        else:
+            with pytest.raises(DataError):
+                self.session.add(e)
+                self.session.commit()
+            self.session.rollback()
 
         # test types. String floats are parsed automatically? YES
         
-        ws = WebService(id=1, url = 'asd')
+        ws = WebService(url = 'asd')
         self.session.add(ws)
         self.session.commit()
         
         val = '6.7'
-        e = Event(id=1, eventid='abc', webservice_id=ws.id, time=datetime.utcnow(),
+        e = Event(eventid='abc', webservice_id=ws.id, time=datetime.utcnow(),
                          latitude=val, longitude=78, magnitude=56, depth_km=45)
         assert e.latitude != float(val)
         assert object_session(e) == None
@@ -392,11 +480,11 @@ class Test(unittest.TestCase):
 
         run = Run(run_time=utcnow)
         self.session.add(run)
-
+        
         ws = WebService(url='webserviceurl')
         self.session.add(ws)
         self.session.commit()
-        
+            
         id = '__abcdefghilmnopq'
         e = Event(eventid=id, webservice_id=ws.id, time=utcnow, latitude=89.5, longitude=6,
                          depth_km=7.1, magnitude=56)
@@ -622,39 +710,80 @@ class Test(unittest.TestCase):
         qry = self.session.query(Station).filter(Station.segments.any(flt)).all()
         assert len(qry) == 1
         
-        # self.tst_hybrid_atts()
+        self.tst_hybrid_atts()
        
         
         self.tst_get_cols(seg)
 
 
     def tst_hybrid_atts(self):
+        # when called from the method above, this is the situation now:
         
+        # segments:
+        #       id has_data
+        #  0  1111 False
+        #  1  1112 False
+        #  2     2 True
+        #  3     3 False
+
+        # classes:
+        #      id
+        #  0    5
+        #  1    6
+        #  2    8
+        #  3   56
         
+        # class_labellings:
+        #     segment_id  class_id
+        #  0           2         8
+        #  1           2        56
+        #  2           3        56
+        
+        # test has_data as query argument
         q1 = self.session.query(withdata(Segment.data))
         q2 = self.session.query(Segment.has_data)
-        
         # string are equal except "AS anon_1" which is "has_data"
         assert str(q1) == str(q2).replace('has_data', 'anon_1')
         
-        segs = q2.all()
-        assert len(segs) == 4
-        
-        # now use hybrid on instances:
+        # test has_data as filter argument
+        seg1 = self.session.query(Segment.id).filter(Segment.has_data)
+        seg2 = self.session.query(Segment.id).filter(withdata(Segment.data))
+        assert str(seg1) == str(seg2)
+        assert sorted(x[0] for x in seg1.all()) == sorted(x[0] for x in seg2.all())
+        assert len(seg1.all()) == 1
+        # test hybrid on instances:
         segz = self.session.query(Segment).all()
-        assert sorted(x.has_data for x in segz) == sorted(x[0] for x in segs)
+        assert sum(x.has_data for x in segz) == len(seg1.all())
         
-        # is_labelled:
-        segs = self.session.query(Segment.is_labelled).all()
-        assert sorted(x.is_labelled for x in segz) == sorted(x[0] for x in segs)
+        # test has_inventory
+        stas1 = self.session.query(Station.id).filter(Station.has_inventory)
+        stas2 = self.session.query(Station.id).filter(withdata(Station.inventory_xml))
+        assert str(stas1) == str(stas2)
+        assert sorted(x[0] for x in stas1.all()) == sorted(x[0] for x in stas2.all())
         
-        segs = self.session.query(Segment).filter(Segment.is_labelled).all()
-        assert sum(x.is_labelled for x in segz) == len(segs)
+        # we might test in the future hybrid attributes on relationships
+        # REMEMBER: relationships have the .any() and .has() methods which can avoid join,
+        # BUT: they might be more time consuming:
+        # https://stackoverflow.com/questions/33809066/difference-between-join-and-has-any-in-sqlalchemy
         
-        h = 9
         
+        # NOTe however that join returns dupes:
+        qry1 = sorted([x[0] for x in self.session.query(Segment.id).join(Segment.classes).filter(Segment.has_class()).all()])
+        qry2 = sorted([x[0] for x in self.session.query(Segment.id).filter(Segment.has_class()).all()])
         
+        assert len(qry1) ==3
+        assert len(qry2) == 2
+
+        # we should do like this
+        qry1b = sorted([x[0] for x in self.session.query(Segment.id).join(Segment.classes).filter(Segment.has_class()).distinct().all()])
         
+        assert len(qry1b) == 2
+        assert qry1b == qry2
+        
+        # Thus: we have basically 3 types of query:
+        # stations with data: use query, not hybrid attrs (in download.main)
+        # segments with data, stations with inventory data: use hybrid attrs (in process.main)
+        # segments with classes: any, none: use query, not hybrid attrs (in gui)
         
         
     def tst_get_cols(self, seg):

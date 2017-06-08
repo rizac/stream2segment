@@ -7,50 +7,17 @@ import os
 import yaml
 import re
 import time
-import datetime as dt
+from datetime import datetime, timedelta
+import sys
+from collections import defaultdict
+from itertools import izip
+from contextlib import contextmanager
 from sqlalchemy.orm.scoping import scoped_session
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm.session import sessionmaker
 from click import progressbar as click_progressbar
-from collections import defaultdict
 from stream2segment.io.db.models import Base
-import sys
-from itertools import izip
-from contextlib import contextmanager
 
-
-# THESE FUNCTIONS WERE IMPLEMENTED TO BE PYTHON2 AND 3 COMPLIANT, BUT WE DO NOT USE THEM ANYWHERE...
-# def isstr(val):
-#     """
-#     :return: True if val denotes a string (`basestring` in python2 and `str` otherwise).
-#     """
-#     try:
-#         return isinstance(val, basestring)
-#     except NameError:  # python3
-#         return isinstance(val, str)
-# 
-# 
-# def isunicode(val):
-#     """
-#     :return: True if val denotes a unicode string (`unicode` in python2 and `str` otherwise)
-#     """
-#     try:
-#         if isinstance(val, basestring):
-#             return isinstance(val, unicode)
-#     except NameError:  # python3
-#         return isinstance(val, str)
-# 
-# 
-# def tobytes(unicodestr, encoding='utf-8'):
-#     """
-#         Converts unicodestr to a byte sequence, with the given encoding. Python 2-3 compatible.
-#         :param unicodestr: a unicode string. If already byte string, this method just returns it
-#         :param encoding: the encoding used. Defaults to 'utf-8' when missing
-#         :return: a `bytes` object (same as `str` in python2) resulting from encoding unicodestr
-#     """
-#     if isinstance(unicodestr, bytes):  # works for both py2 and py3
-#         return unicodestr
-#     return unicodestr.encode(encoding)
 
 class strconvert(object):
 
@@ -143,7 +110,7 @@ def tounicode(bytestr, decoding='utf-8'):
 def strptime(string, formats=None):
     """
         Converts a date in string format into a datetime python object. The inverse can be obtained
-        by calling dt.isoformat() (which returns 'T' as date time separator, and optionally
+        by calling datetime.isoformat() (which returns 'T' as date time separator, and optionally
         microseconds if they are not zero). This function is an easy version of
         `dateutil.parser.parse` for parsing iso-like datetime format (e.g. fdnsws standard)
         without the need of a module import
@@ -171,7 +138,7 @@ def strptime(string, formats=None):
             strptime("2016-06-01")
         ```
     """
-    if isinstance(string, dt.datetime):
+    if isinstance(string, datetime):
         return string
 
     string = string.strip()
@@ -188,7 +155,7 @@ def strptime(string, formats=None):
 
     for dtformat in formats:
         try:
-            return dt.datetime.strptime(string, dtformat)
+            return datetime.strptime(string, dtformat)
         except ValueError:  # as exce:
             pass
 
@@ -293,7 +260,7 @@ def get_session(dbpath, scoped=False):  # , enable_fk_if_sqlite=True):
 def timedeltaround(tdelta):
     """Rounds a timedelta to seconds"""
     add = 1 if tdelta.microseconds >= 500000 else 0
-    return dt.timedelta(days=tdelta.days, seconds=tdelta.seconds+add, microseconds=0)
+    return timedelta(days=tdelta.days, seconds=tdelta.seconds+add, microseconds=0)
 
 
 def secure_dburl(dburl):

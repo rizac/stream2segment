@@ -32,7 +32,8 @@ get_channels_df, merge_events_stations, set_saved_arrivaltimes, get_arrivaltimes
 #     get_fdsn_channels_df, save_stations_and_channels, get_dists_and_times, set_saved_dist_and_times,\
 #     download_segments, drop_already_downloaded, set_download_urls, save_segments
 from obspy.core.stream import Stream, read
-from stream2segment.io.db.models import DataCenter, Segment, Run, Station, Channel, WebService
+from stream2segment.io.db.models import DataCenter, Segment, Run, Station, Channel, WebService,\
+    withdata
 from itertools import cycle, repeat, count, product, izip
 from urllib2 import URLError
 import socket
@@ -43,7 +44,7 @@ import sys
 # from stream2segment.main import logger as main_logger
 from sqlalchemy.sql.expression import func
 from stream2segment.utils import get_session, mseedlite3
-from stream2segment.io.db.pd_sql_utils import withdata, dbquery2df, insertdf_napkeys, updatedf
+from stream2segment.io.db.pd_sql_utils import dbquery2df, insertdf_napkeys, updatedf
 from logging import StreamHandler
 import logging
 from io import BytesIO
@@ -565,10 +566,10 @@ DETAIL:  Key (id)=(1) already exists""" in self.log_msg()
         runs += 1
         segments = self.session.query(Segment).all()
         assert len(segments) == 12
-        segments = self.session.query(Segment).filter(withdata(Segment.data)).all()
+        segments = self.session.query(Segment).filter(Segment.has_data).all()
         assert len(segments) == 4
         
-        assert len(self.session.query(Station).filter(withdata(Station.inventory_xml)).all()) == 0
+        assert len(self.session.query(Station).filter(Station.has_inventory).all()) == 0
         
         assert not mock_updatedf.called
         assert mock_insertdf_napkeys.called
@@ -741,13 +742,13 @@ DETAIL:  Key (id)=(1) already exists""" in self.log_msg()
         # test with loading station inventories:
         
         # we should not have inventories saved:
-        stainvs = self.session.query(Station).filter(withdata(Station.inventory_xml)).all()
+        stainvs = self.session.query(Station).filter(Station.has_inventory).all()
         assert len(stainvs) == 0
         
     
         # calculate the expected stations:
-        expected_invs_to_download_ids = [x[0] for x in self.session.query(Station.id).filter(~(withdata(Station.inventory_xml)) &
-                   (Station.segments.any(withdata(Segment.data)))).all()]
+        expected_invs_to_download_ids = [x[0] for x in self.session.query(Station.id).filter((~Station.has_inventory) &
+                   (Station.segments.any(Segment.has_data))).all()]
         
         # test that we have data, but also errors
         num_expected_inventories_to_download = len(expected_invs_to_download_ids)
@@ -767,10 +768,10 @@ DETAIL:  Key (id)=(1) already exists""" in self.log_msg()
             assert False
             return
         
-        stainvs = self.session.query(Station).filter(withdata(Station.inventory_xml)).all()
+        stainvs = self.session.query(Station).filter(Station.has_inventory).all()
         assert len(stainvs) == 1
         assert "Unable to save inventory" in self.log_msg()
-        ix = self.session.query(Station.id, Station.inventory_xml).filter(withdata(Station.inventory_xml)).all()
+        ix = self.session.query(Station.id, Station.inventory_xml).filter(Station.has_inventory).all()
         num_downloaded_inventories_first_try = len(ix)
         assert len(ix) == num_downloaded_inventories_first_try
         staid, invdata = ix[0][0], ix[0][1]
@@ -794,7 +795,7 @@ DETAIL:  Key (id)=(1) already exists""" in self.log_msg()
             assert False
             return
         
-        stainvs = self.session.query(Station).filter(withdata(Station.inventory_xml)).all()
+        stainvs = self.session.query(Station).filter(Station.has_inventory).all()
         # assert we still have one station (the one we saved before):
         assert len(stainvs) == num_downloaded_inventories_first_try
         mock_save_inventories.reset_mock
@@ -815,7 +816,7 @@ DETAIL:  Key (id)=(1) already exists""" in self.log_msg()
             assert False
             return
         
-        ix = self.session.query(Station.id, Station.inventory_xml).filter(withdata(Station.inventory_xml)).all()
+        ix = self.session.query(Station.id, Station.inventory_xml).filter(Station.has_inventory).all()
         assert len(ix) == num_expected_inventories_to_download
         
         
@@ -833,7 +834,7 @@ DETAIL:  Key (id)=(1) already exists""" in self.log_msg()
             assert False
             return
         
-        stainvs2 = self.session.query(Station).filter(withdata(Station.inventory_xml)).all()
+        stainvs2 = self.session.query(Station).filter(Station.has_inventory).all()
         assert len(stainvs2) == num_expected_inventories_to_download
         assert not mock_save_inventories.called  
                                                                                     
@@ -843,7 +844,7 @@ DETAIL:  Key (id)=(1) already exists""" in self.log_msg()
         # miniseed only is downloaded again
         dfz = dbquery2df(self.session.query(Segment.id, Segment.seed_identifier,
                                             Segment.datacenter_id, Channel.station_id).
-                         join(Segment.station, Segment.channel).filter(withdata(Segment.data)))
+                         join(Segment.station, Segment.channel).filter(Segment.has_data))
         
         # dfz:
     #     id  seed_identifier datacenter_id  Station.datacenter_id
@@ -858,7 +859,7 @@ DETAIL:  Key (id)=(1) already exists""" in self.log_msg()
         # deleted_seed_id = dfz[dfz[Segment.id.key] == deleted_seg_id].iloc[0][Segment.seed_identifier.key]
         self.session.query(Segment).filter(Segment.id == deleted_seg_id).delete()
         # be sure we deleted it:
-        assert len(self.session.query(Segment.id).filter(withdata(Segment.data)).all()) == len(dfz) - 1
+        assert len(self.session.query(Segment.id).filter(Segment.has_data).all()) == len(dfz) - 1
         
         oldst_se = self._sta_urlread_sideeffect  # keep last side effect to restore it later
         self._sta_urlread_sideeffect = oldst_se[::-1]  # swap station return values from urlread

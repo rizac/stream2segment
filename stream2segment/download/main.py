@@ -28,7 +28,7 @@ from sqlalchemy import or_, and_
 from stream2segment.utils.url import urlread, read_async as original_read_async, URLException
 from stream2segment.io.db.models import Event, DataCenter, Segment, Station,\
     dc_get_other_service_url, Channel, WebService
-from stream2segment.io.db.pd_sql_utils import withdata, dfrowiter, mergeupdate,\
+from stream2segment.io.db.pd_sql_utils import dfrowiter, mergeupdate,\
     dbquery2df, syncdf, insertdf_napkeys, updatedf
 from stream2segment.download.utils import empty, urljoin, response2df, normalize_fdsn_dframe,\
     get_search_radius, UrlStats, stats2str,\
@@ -38,6 +38,9 @@ from stream2segment.utils.mseedlite3 import MSeedError, unpack as mseedunpack
 from stream2segment.utils.msgs import MSG
 from stream2segment.utils.resources import get_ws_fpath
 from stream2segment.io.utils import dumps_inv
+import psutil
+import os
+from stream2segment.io.db.queries import query4inventorydownload
 
 logger = logging.getLogger(__name__)
 
@@ -1180,8 +1183,12 @@ def run(session, run_id, start, end, service, eventws_query_args,
         advanced_settings['max_thread_workers'] = None
     dbbufsize = min(advanced_settings['db_buf_size'], 1)
 
+    process = psutil.Process(os.getpid()) if isterminal else None
     __steps = 7 + inventory  # bool substraction works: 8 - True == 7
-    stepiter = imap(lambda i: "%d of %d" % (i+1, __steps), xrange(__steps))
+    stepiter = imap(lambda i: "%d of %d%s" % (i+1, __steps,
+                                              "" if process is None else
+                                              (" (current memory usage: %.2f%%)" %
+                                               process.memory_percent())), xrange(__steps))
 
     # write the class labels:
     # add_classes(session, class_labels, dbbufsize)
@@ -1294,14 +1301,9 @@ def run(session, run_id, start, end, service, eventws_query_args,
 
         # query station id, network station, datacenter_url
         # for those stations with empty inventory_xml
-        # AND at least one segment non emtpy/ull
-        # Download inventories for those segments
-        qry = session.query(Station.id, Station.network, Station.station, DataCenter.station_url,
-                            Station.start_time, Station.end_time).\
-            join(Station.datacenter).\
-            filter((~withdata(Station.inventory_xml)) &
-                   (Station.segments.any(withdata(Segment.data))))  # @UndefinedVariable
-        sta_df = dbquery2df(qry)
+        # AND at least one segment non emtpy/null
+        # Download inventories for those stations only
+        sta_df = dbquery2df(query4inventorydownload(session))
         # stations = session.query(Station).filter(~withdata(Station.inventory_xml)).all()
         logger.info("")
         if empty(sta_df):

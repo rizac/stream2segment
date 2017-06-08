@@ -43,7 +43,7 @@ import sys
 # from stream2segment.main import logger as main_logger
 from sqlalchemy.sql.expression import func
 from stream2segment.utils import get_session, mseedlite3, yaml_load
-from stream2segment.io.db.pd_sql_utils import withdata, dbquery2df, insertdf_napkeys, updatedf
+from stream2segment.io.db.pd_sql_utils import dbquery2df, insertdf_napkeys, updatedf
 from logging import StreamHandler
 import logging
 from _io import BytesIO

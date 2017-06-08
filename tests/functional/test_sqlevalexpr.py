@@ -12,33 +12,36 @@ from stream2segment.io.db.models import Base  # This is your declarative base cl
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 import pandas as pd
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError, InvalidRequestError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError, InvalidRequestError, ProgrammingError
 from stream2segment.io.db.pd_sql_utils import _harmonize_columns, harmonize_columns,\
-    harmonize_rows, colnames, withdata
+    harmonize_rows, colnames, dbquery2df
 from stream2segment.io.utils import dumps_inv, loads_inv
 from sqlalchemy.orm.exc import FlushError
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.inspection import inspect
 from datetime import datetime, timedelta
 from sqlalchemy.orm.session import object_session
-from stream2segment.utils.sqlevalexpr import  get_column, query, query_args, get_condition
+from stream2segment.io.db.sqlevalexpr import exprquery, get_condition
 from stream2segment.io.db.models import ClassLabelling, Class, Segment, Station, Channel,\
     Event, DataCenter, Run, WebService
 from sqlalchemy.sql.expression import desc
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 class Test(unittest.TestCase):
         
 
     
     def setUp(self):
-        from sqlalchemy import create_engine
-        engine = create_engine('sqlite:///:memory:', echo=False)
-        Base.metadata.create_all(engine)
-        from sqlalchemy.orm import sessionmaker
-        session = sessionmaker(bind=engine)()
+        url = os.getenv("DB_URL", "sqlite:///:memory:")
+        self.engine = create_engine(url, echo=False)
+        Base.metadata.drop_all(self.engine)
+        Base.metadata.create_all(self.engine)
+        
+        # session = sessionmaker(bind=self.engine)()
     
         # create a configured "Session" class
-        Session = sessionmaker(bind=engine)
+        Session = sessionmaker(bind=self.engine)
         # create a Session
         self.session = Session()
 
@@ -50,8 +53,16 @@ class Test(unittest.TestCase):
             pass
             # self.session.rollback()
         self.session.close()
-        # self.DB.drop_all()
+        self.session.close()
+        Base.metadata.drop_all(self.engine)
 
+    @property
+    def is_sqlite(self):
+        return str(self.engine.url).startswith("sqlite:///")
+    
+    @property
+    def is_postgres(self):
+        return str(self.engine.url).startswith("postgresql://")
 
     def test_query_joins(self):
         sess = self.session
@@ -129,9 +140,9 @@ class Test(unittest.TestCase):
         sess.add_all([clb1])
         sess.commit()
         
-        # segment 3, no class label 'a'
+        # segment 3, no class label 'a' (and with data attr, useful later)
         seg3 = Segment(event_id=event1.id, channel_id=cha1.id, datacenter_id=dcen.id,
-                              event_distance_deg=7, run_id=run.id, 
+                              event_distance_deg=7, run_id=run.id, data=b'data',
                               arrival_time = datetime.utcnow(), start_time = datetime.utcnow(),
                               end_time=datetime.utcnow())
         sess.add(seg3)
@@ -165,21 +176,11 @@ class Test(unittest.TestCase):
         
         # ============================
         
-        
-        # redo the same queries with our implemented method, used to parse simple output from user:
-        
-        res3b = sess.query(Segment.id).filter(query_args(Segment, {'station.station': 's1'})).all()
-        res4b = sess.query(Segment.id).filter(query_args(Segment, {'classes.label': "a"})).all()
-        
-        assert res3b == res3 and res4b == res4
-        
-        # test that passing null as argument returns segments which do NOT have any class set:
-        res5 = sess.query(Segment.id).filter(query_args(Segment, {'classes.id': "null"})).all()
-        # test that passing not null as argument returns segments which do NOT have any class set:
-        res6 = sess.query(Segment.id).filter(query_args(Segment, {'classes.id': "!=null"})).all()
-        
-        assert len(res5) == 0 and len(res6) == 2
-        
+        # current segments are these:
+        # id  channel_id  event_distance_deg  class_id
+        # 1   3           5.0                 1
+        # 1   3           5.0                 2
+        # 2   2           6.6                 1
         
         # now we try to test the order_by with relationships:
         # this fails:
@@ -211,39 +212,131 @@ class Test(unittest.TestCase):
         res0 = sess.query(Segment.id).join(Segment.channel).order_by(Channel.id,Segment.event_distance_deg).all()        
         # now we test the query function. Set channel.id !=null in order to take all channels
         # The two queries below should be the same
-        res1 = query(sess.query(Segment.id), Segment, {'channel.id': '!=null'}, ['channel.id', 'event_distance_deg']).all()
-        res2 = query(sess.query(Segment.id), Segment, {'channel.id': '!=null'}, [('channel.id', 'asc'), ('event_distance_deg', 'asc')]).all()
+        res1 = exprquery(sess.query(Segment.id), {'channel.id': '!=null'},
+                     ['channel.id', 'event_distance_deg']).all()
+        res2 = exprquery(sess.query(Segment.id), {'channel.id': '!=null'},
+                     [('channel.id', 'asc'), ('event_distance_deg', 'asc')]).all()
         assert res0 == res1
         assert res0 == res2
         gh = 9
         
+        
+        # test the case where we supply a model instead of a column as first arg
+        res1 = exprquery(sess.query(Segment), {'event_distance_deg': '==5'}).all()
+        # now a double column
+        res2 = exprquery(sess.query(Segment.id, Station.id).join(Segment.station),
+                         {'event_distance_deg': '[5,5]'}).all()
+        assert res1[0].id == res2[0][0]
+        # now the same as above in inversed order (should raise, as Station is considered
+        # the model class, but has no event_distance_deg attribute
+        with pytest.raises(AttributeError):
+            res3 = exprquery(sess.query(Station.id, Segment.id).join(Segment.station),
+                             {'event_distance_deg': '[5,5]'}).all()
+            sess.rollback()  # for safety
+
+        # what happens if we supply more than one join? we issue a warning, but the query is ok
+        # (so the following does not raise)
+        res1 = exprquery(sess.query(Segment).join(Segment.channel).\
+                         filter(Channel.id>0), {'channel.id': '!=null'}).all()
+        
+        
+        # test any and none:
+        # Note: contrarily to classes.id specified as interval, which issues a join
+        # in exprquery, 'any' and 'none' issue a less-performant 'exist' at sql level, whcih
+        # DOES NOT PRODUCE DUPLICATES. Check few line below for the duplicate case
+        res1 = exprquery(sess.query(Segment.id), {'classes.id': 'any'},
+                             ['channel.id', 'event_distance_deg']).all()
+        res2 = exprquery(sess.query(Segment.id), {'classes.id': 'none'},
+                     ['channel.id', 'event_distance_deg']).all()
+        res3 = exprquery(sess.query(Segment.id), {'classes': 'any'},
+                     ['channel.id', 'event_distance_deg']).all()
+        res4 = exprquery(sess.query(Segment.id), {'classes': 'none'},
+                     ['channel.id', 'event_distance_deg']).all()
+        assert res1 == res3 and res2 == res4
+        
+        # classes is a many to many relationship on Segment,
+        # what if we provide a many-to-one (column)? it does not work. From the docs:
+        #     :meth:`~.RelationshipProperty.Comparator.any` is only
+        #     valid for collections, i.e. a :func:`.relationship`
+        #     that has ``uselist=True``.  For scalar references,
+        #     use :meth:`~.RelationshipProperty.Comparator.has`.
+        with pytest.raises(InvalidRequestError):
+            res1 = exprquery(sess.query(Segment.id), {'station.id': 'any'}).all()
+            sess.rollback()  # for safety
+        # what if we provide a normal attribute? it does not work either cause station is 'scalar':
+        with pytest.raises(AttributeError):
+            res2 = exprquery(sess.query(Segment.id), {'id': 'any'}).all()
+            sess.rollback()  # for safety
+        # what if we provide a one-to-many? it works
+        res3 = exprquery(sess.query(Station.id), {'segments': 'any'}).all()
+                             
+#         reminder
+        # current segments are these:
+        # id  channel_id  event_distance_deg  class_id
+        # 1   3           5.0                 1
+        # 1   3           5.0                 2
+        # 2   2           6.6                 1
+        
+        
+        # test many to many with specific values, not 'any' and 'none' as above
+        res1 = exprquery(sess.query(Segment.id), {'classes.id': '[0 1]'},
+                     ['channel.id', 'event_distance_deg']).all()
+        res1 = exprquery(sess.query(Segment.id), {'classes.id': '[0 1]'},
+                     ['channel.id', 'event_distance_deg']).all()
         #classes have ids 1 and 2
         # segment 1 has classes 1 and 2
         # segment 2 has class 2.
-        res1 = query(sess.query(Segment.id), Segment, {'classes.id': '[0 1]'}, ['channel.id', 'event_distance_deg']).all()
-        assert sorted([c[0] for c in res1]) == [1, 2]  # regardless of order, we are interested in segments
-        f = 9
+        res1 = exprquery(sess.query(Segment.id), {'classes.id': '[0 1]'},
+                     ['channel.id', 'event_distance_deg']).all()
+        seg_ids = [c[0] for c in res1]
+        assert sorted(seg_ids) == [1, 2]  # regardless of order, we are interested in segments
         
         # BUT notice this: now segment 1 is returned TWICE
         # http://stackoverflow.com/questions/23786401/why-do-multiple-table-joins-produce-duplicate-rows
-        res1 = query(sess.query(Segment.id), Segment, {'classes.id': '[1 2]'}, ['channel.id', 'event_distance_deg']).all()
-        assert sorted([c[0] for c in res1]) == [1,1,2]  # regardless of order, we are interested in segments
+        res1 = exprquery(sess.query(Segment.id), {'classes.id': '[1 2]'},
+                     ['channel.id', 'event_distance_deg']).all()
+        seg_ids = [c[0] for c in res1]
+        assert sorted(seg_ids) == [1,1,2]  # regardless of order, we are interested in segments
         # solution? distinct!. You could use also group_by BUT NOTE:
         # group_by HAS PROBLEMS in postgres, as the grpup by column must be specified also in the
         # group_by argument!
-        res1 = query(sess.query(Segment.id), Segment, {'classes.id': '[1 2]'}, ['channel.id', 'event_distance_deg']).group_by(Segment.id).all()
-        assert sorted([c[0] for c in res1]) == [1, 2]  # regardless of order, we are interested in segments
+        if self.is_postgres:
+            with pytest.raises(ProgrammingError):
+                res1 = exprquery(sess.query(Segment.id), {'classes.id': '[1 2]'},
+                             ['channel.id', 'event_distance_deg']).group_by(Segment.id).all()
+            self.session.rollback()
+        else:
+            res1 = exprquery(sess.query(Segment.id), {'classes.id': '[1 2]'},
+                         ['channel.id', 'event_distance_deg']).group_by(Segment.id).all()
+            assert sorted([c[0] for c in res1]) == [1, 2]  # regardless of order, we are interested in segments
+        
         #distinct is ok as it's without args, sqlalchemy does the job for us of getting the columns:
-        res1 = query(sess.query(Segment.id), Segment, {'classes.id': '[1 2]'}, ['channel.id', 'event_distance_deg']).distinct().all()
+        res1 = exprquery(sess.query(Segment.id), {'classes.id': '[1 2]'},
+                     ['channel.id', 'event_distance_deg']).distinct().all()
         assert sorted([c[0] for c in res1]) == [1, 2]  # regardless of order, we are interested in segments
         
         
-        res1 = query(sess.query(Segment.id).filter(~(withdata(Segment.data))), Segment, {'classes.id': '[1 2]'}, ['channel.id', 'event_distance_deg'],
+        # again, as above, test with postgres fails:
+        if self.is_postgres:
+            with pytest.raises(ProgrammingError):
+                res1 = exprquery(sess.query(Segment.id).filter(~Segment.has_data),
+                             {'classes.id': '[1 2]'}, ['channel.id', 'event_distance_deg'],
                      ).group_by(Segment.id).all()
-        assert sorted([c[0] for c in res1]) == [1, 2]  # regardless of order, we are interested in segments
+            self.session.rollback()
+        else:
+            res1 = exprquery(sess.query(Segment.id).filter(~Segment.has_data),
+                         {'classes.id': '[1 2]'}, ['channel.id', 'event_distance_deg'],
+                     ).group_by(Segment.id).all()
+            assert sorted([c[0] for c in res1]) == [1, 2]  # regardless of order, we are interested in segments
         
-        
-        assert sorted(get_column(seg1, "classes.id")) == [1,2]
+        # test hybrid attrs:
+        res3 = sess.query(Segment.id).filter(Segment.has_data).all()
+        res2 = sess.query(Segment.id).filter(Segment.has_data == True).all()
+        res1 = exprquery(sess.query(Segment.id), {'has_data': 'true'}).all()
+        assert res1 == res2 and res1 == res3
+        # now test the opposite query and assert result sets habe no intersection
+        res1 = exprquery(sess.query(Segment.id), {'has_data': 'false'}).all()
+        assert not(set((_[0] for _ in res1)) - set((_[0] for _ in res2)))
         
     def test_eval_expr(self):
         from stream2segment.io.db.models import Segment, Event, Station, Channel

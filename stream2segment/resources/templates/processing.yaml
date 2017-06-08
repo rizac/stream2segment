@@ -25,7 +25,7 @@ save_downloaded_inventory: False
 # than 1st january 2016:
 #
 # segment_select:
-#   withdata: true
+#   has_data: true
 #   id: "1 4 5 67 89 342"
 #   event.latitude: "[4.5, 5.6]"
 #   station.start_time: "<= 2016-01-01T00:00:00"
@@ -34,7 +34,7 @@ save_downloaded_inventory: False
 #
 # Key                               Type
 # =================================  =================
-#    withdata                        bool
+#    has_data                        bool
 #    id                              int
 #    event_distance_deg              float
 #    start_time                      datetime.datetime
@@ -85,12 +85,19 @@ save_downloaded_inventory: False
 #    run.run_time                    datetime.datetime
 #    run.program_version             str
 #
-# (run refers to the download run of the segment)
+#    (run refers to the download run of the segment)
+#    
+#    classes                         str either 'any' (segment which have at least one class assigned) or 'none' (segments with no class assigned)
+#    classes.id                      int
 #
-# Finally, here the parameter. By default, it has only withdata set to True, as nobody wants to
-# process 'no' data segments (which includes client/server errors):
+# Finally, here the parameter. Each value must be a string (i.e., quoted with " or ')
+# each string will be then splitted using shell-like syntax. In the (rare) cases where spaces
+# should not seaprate chunks, they should be quoted again: for instance, select segments where
+# its event 'author' is either 'Will Smith' or 'Ross' write:
+#    event.author: "'Will Smith' Ross"
+# By default, avoid processing null/empty-data segments:
 segment_select:
-  'withdata': true
+  has_data: 'true'
 
 
 # custom parameters:

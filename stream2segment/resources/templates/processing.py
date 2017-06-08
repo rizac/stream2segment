@@ -301,7 +301,3 @@ def mag2freq(magnitude):
     else:
         freq_min = 0.05
     return freq_min
-
-    
-    
-    return ret

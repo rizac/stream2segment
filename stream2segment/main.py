@@ -30,14 +30,13 @@ from stream2segment.utils.log import configlog4download, configlog4processing,\
     elapsedtime2logger_when_finished, configlog4stdout
 from stream2segment.download.utils import run_instance
 # from stream2segment.utils.resources import get_proc_template_files
-# from stream2segment.io.db import models
+from stream2segment.io.db.models import Segment, Run
 # from stream2segment.io.db.pd_sql_utils import commit
-from stream2segment.process.main import run as run_process
+from stream2segment.process.main import run as run_process, to_csv
 from stream2segment.download.main import run as run_download
 from stream2segment.utils import tounicode, yaml_load, get_session, strptime, yaml_load_doc,\
     indent, secure_dburl
 from stream2segment.utils.resources import get_templates_fpath
-from stream2segment.io.db.models import Run
 
 
 # set root logger if we are executing this module as script, otherwise as module name following
@@ -231,30 +230,8 @@ def process(dburl, pysourcefile, configsourcefile, outcsvfile, isterminal=False)
         logger.info('Output file: %s', outcsvfile)
 
         configlog4processing(logger, outcsvfile, isterminal)
-        csvwriter = [None]  # bad hack: in python3, we might use 'nonlocal' @UnusedVariable
-        kwargs = dict(delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-
-        flush_num = [1, 10]  # determines when to flush (not used. We use the
-        # last arg to open whihc tells to flush line-wise. To add custom flush, see commented
-        # lines at the end of the with statement and uncomment them
-        with open(outcsvfile, 'wb', 1) as csvfile:
-
-            def ondone(result):
-                if csvwriter[0] is None:
-                    if isinstance(result, dict):
-                        csvwriter[0] = csv.DictWriter(csvfile, fieldnames=result.keys(),
-                                                      **kwargs)
-                        csvwriter[0].writeheader()
-                    else:
-                        csvwriter[0] = csv.writer(csvfile,  **kwargs)
-                csvwriter[0].writerow(result)
-                # if flush_num[0] % flush_num[1] == 0:
-                #    csvfile.flush()  # this should force writing so if errors we have something
-                #    # http://stackoverflow.com/questions/3976711/csvwriter-not-saving-data-to-file-why
-                # flush_num[0] += 1
-
-            with elapsedtime2logger_when_finished(logger):
-                run_process(session, pysourcefile, ondone, configsourcefile, isterminal)
+        with elapsedtime2logger_when_finished(logger):
+            to_csv(outcsvfile, session, pysourcefile, configsourcefile, isterminal)
 
     return 0
 

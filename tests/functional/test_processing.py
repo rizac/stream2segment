@@ -24,7 +24,6 @@ import multiprocessing
 from stream2segment.process.main import load_proc_cfg
 from stream2segment import process
 from obspy.core.stream import read
-from stream2segment.io.db.pd_sql_utils import withdata
 import StringIO
 from stream2segment.utils.resources import get_templates_fpaths
 
@@ -361,9 +360,9 @@ class Test(unittest.TestCase):
                 for row in spamreader:
                     rowz += 1
                     if rowz == 2:
-                        assert row[0] == str(self.db.seg1.channel.id)
-                        assert row[1] == self.db.seg1.start_time.isoformat()
-                        assert row[2] == self.db.seg1.end_time.isoformat()
+                        assert row[0] == str(self.db.seg1.id)
+#                         assert row[1] == self.db.seg1.start_time.isoformat()
+#                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 2
                 assert len(self.read_and_remove(file.name+".log")) > 0
 
@@ -374,7 +373,7 @@ class Test(unittest.TestCase):
 
 
         # save_downloaded_inventory True, test that we did save any:
-        assert len(self.session.query(Station).filter(withdata(Station.inventory_xml)).all()) > 0
+        assert len(self.session.query(Station).filter(Station.has_inventory).all()) > 0
 
         # Or alternatively:
         # test we did save any inventory:
@@ -420,9 +419,9 @@ class Test(unittest.TestCase):
                 for row in spamreader:
                     rowz += 1
                     if rowz == 2:
-                        assert row[0] == str(self.db.seg1.channel.id)
-                        assert row[1] == self.db.seg1.start_time.isoformat()
-                        assert row[2] == self.db.seg1.end_time.isoformat()
+                        assert row[0] == str(self.db.seg1.id)
+#                         assert row[1] == self.db.seg1.start_time.isoformat()
+#                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 2
                 assert len(self.read_and_remove(file.name+".log")) > 0
 
@@ -433,7 +432,7 @@ class Test(unittest.TestCase):
 
 
         # save_downloaded_inventory False, test that we did not save any:
-        assert len(self.session.query(Station).filter(withdata(Station.inventory_xml)).all()) == 0
+        assert len(self.session.query(Station).filter(Station.has_inventory).all()) == 0
 
 
     # Recall: we have 5 segments:
@@ -479,9 +478,9 @@ class Test(unittest.TestCase):
                 for row in spamreader:
                     rowz += 1
                     if rowz == 2:
-                        assert row[0] == str(self.db.seg1.channel.id)
-                        assert row[1] == self.db.seg1.start_time.isoformat()
-                        assert row[2] == self.db.seg1.end_time.isoformat()
+                        assert row[0] == str(self.db.seg1.id)
+#                         assert row[1] == self.db.seg1.start_time.isoformat()
+#                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 0
                 sss = self.read_and_remove(file.name+".log")
                 # as we have joined twice segment with stations (one is done by default, the other
@@ -511,7 +510,7 @@ class Test(unittest.TestCase):
         # now we want to set a filter which gets us only the segments from stations not ok.
         # Note: withdata is True so we will get 1 segment (1 with data which raises
         # errors for station inventory)
-        self.custom_config['segment_select'] = {'withdata': True, 'station.latitude': '<10', 'station.longitude': '<10'}
+        self.custom_config['segment_select'] = {'has_data': 'true', 'station.latitude': '<10', 'station.longitude': '<10'}
         self.custom_config['inventory'] = True
         mock_load_cfg.side_effect = self.load_proc_cfg
         
@@ -538,9 +537,9 @@ class Test(unittest.TestCase):
                 for row in spamreader:
                     rowz += 1
                     if rowz == 2:
-                        assert row[0] == str(self.db.seg1.channel.id)
-                        assert row[1] == self.db.seg1.start_time.isoformat()
-                        assert row[2] == self.db.seg1.end_time.isoformat()
+                        assert row[0] == str(self.db.seg1.id)
+#                         assert row[1] == self.db.seg1.start_time.isoformat()
+#                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 0
                 assert len(self.read_and_remove(file.name+".log")) > 0
                 # ===================================================================
@@ -582,9 +581,9 @@ class Test(unittest.TestCase):
                 for row in spamreader:
                     rowz += 1
                     if rowz == 1:
-                        assert row[0] == str(self.db.seg1.channel.id)
-                        assert row[1] == self.db.seg1.start_time.isoformat()
-                        assert row[2] == self.db.seg1.end_time.isoformat()
+                        assert row[0] == str(self.db.seg1.id)
+#                         assert row[1] == self.db.seg1.start_time.isoformat()
+#                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 1
                 assert len(self.read_and_remove(file.name+".log")) > 0
 

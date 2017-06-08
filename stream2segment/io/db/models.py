@@ -33,6 +33,26 @@ from sqlalchemy.engine import Engine  # @IgnorePep8
 import sqlite3  # @IgnorePep8
 
 
+def withdata(model_column):
+    """Returns a filter argument for returning instances with values of
+    `model_column` NOT *empty* nor *null*. `model_column` type must be STRING or BLOB
+    :param model_column: A valid column name, e.g. an attribute Column defined in some
+    sqlalchemy orm model class (e.g., 'User.data'). **The type of the column must be STRING or
+    BLOB**, otherwise result is undefined. For instance, numeric column with zero as value
+    are *not* empty (as the sql length function applied to numeric returns the number of
+    bytes)
+    :example:
+    ```
+    # given a table User, return empty or none via "~"
+    session.query(User.id).filter(~withdata(User.data)).all()
+
+    # return "valid" columns:
+    session.query(User.id).filter(withdata(User.data)).all()
+    ```
+    """
+    return (model_column.isnot(None)) & (func.length(model_column) > 0)
+
+
 # http://stackoverflow.com/questions/13712381/how-to-turn-on-pragma-foreign-keys-on-in-sqlalchemy-migration-script-or-conf
 # for setting foreign keys in sqlite:
 @event.listens_for(Engine, "connect")
@@ -202,14 +222,6 @@ def dc_get_other_service_url(url):
     raise ValueError("url does not contain neither '/dataselect/' nor '/station/'")
 
 
-def withdata(column):
-    """Function that returns a binary expression for querying a table column with data
-    (not Null and not empty)
-    :param column: a bytes or string column
-    """
-    return (column.isnot(None)) & (func.length(column) > 0)
-
-
 class Station(Base):
     """Stations"""
 
@@ -354,22 +366,21 @@ class Segment(Base):
     def has_data(cls):  # @NoSelf
         return withdata(cls.data)
 
-    @hybrid_property
-    def has_classlabel(self):
-        return self.classes.count() > 0
-
-    @has_classlabel.expression
-    def has_classlabel(cls):  # @NoSelf
-        return cls.classes.any()
-
     @hybrid_method
     def has_class(self, *ids):
-        _ids = set(ids)
-        return any(c.id in _ids for c in self.classes)
+        if not ids:
+            return self.classes.count() > 0
+        else:
+            _ids = set(ids)
+            return any(c.id in _ids for c in self.classes)
 
     @has_class.expression
     def has_class(cls, *ids):  # @NoSelf
-        return cls.classes.any(Class.id.isin_(ids))
+        any_ = cls.classes.any
+        if not ids:
+            return any_()
+        else:
+            return any_(Class.id.isin_(ids))
 
     event = relationship("Event", backref=backref("segments", lazy="dynamic"))
     channel = relationship("Channel", backref=backref("segments", lazy="dynamic"))
@@ -387,6 +398,12 @@ class Segment(Base):
     classes = relationship("Class", lazy='dynamic',
                            secondary="class_labellings",  # <-  must be table name in metadata
                            viewonly=True, backref=backref("segments", lazy="dynamic"))
+#     hl_classes = relationship("Class", lazy='dynamic',
+#                               secondary="class_labellings",  # <-  must be table name in metadata
+#                               viewonly=True, backref=backref("segments", lazy="dynamic"))
+#     cl_classes = relationship("Class", lazy='dynamic',
+#                               secondary="class_labellings",  # <-  must be table name in metadata
+#                               viewonly=True, backref=backref("segments", lazy="dynamic"))
 
     __table_args__ = (
                       UniqueConstraint('channel_id', 'start_time', 'end_time',
@@ -411,5 +428,6 @@ class ClassLabelling(Base):
     segment_id = Column(Integer, ForeignKey("segments.id"), nullable=False)
     class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
     is_hand_labelled = Column(Boolean, server_default="1")  # Note: "TRUE" fails in sqlite!
+    annotator = Column(String, nullable=True)
 
     __table_args__ = (UniqueConstraint('segment_id', 'class_id', name='seg_class_uc'),)
