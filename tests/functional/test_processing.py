@@ -152,7 +152,7 @@ class DB():
 #         self.patcher1.stop()
 #         self.patcher2.stop()
 
-        
+
 class Test(unittest.TestCase):
 
     dburi = ""
@@ -164,14 +164,13 @@ class Test(unittest.TestCase):
         for patcher in patchers:
             patcher.stop()
 
-#     @classmethod
-#     def setUpClass(cls):
-#         file_ = os.path.dirname(__file__)
-#         filedata = os.path.join(file_, "..", "data")
-#         url = os.path.join(filedata, "_test.sqlite")
-#         cls.dburi = 'sqlite:///' + url
-#         cls.file = url
-
+    @property
+    def is_sqlite(self):
+        return str(self.db.engine.url).startswith("sqlite:///")
+    
+    @property
+    def is_postgres(self):
+        return str(self.db.engine.url).startswith("postgresql://")
 
     def setUp(self):
         # remove file if not removed:

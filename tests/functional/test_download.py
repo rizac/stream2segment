@@ -156,6 +156,14 @@ class Test(unittest.TestCase):
 
     def _get_sess(self, *a, **v):
         return self.session
+    
+    @property
+    def is_sqlite(self):
+        return str(self.engine.url).startswith("sqlite:///")
+    
+    @property
+    def is_postgres(self):
+        return str(self.engine.url).startswith("postgresql://")
 
     def setUp(self):
         url = os.getenv("DB_URL", "sqlite:///:memory:")
@@ -491,7 +499,9 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         
         # assert log msg printed
         assert """duplicate key value violates unique constraint "segments_pkey"
-DETAIL:  Key (id)=(1) already exists""" in self.log_msg()
+DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
+"(UNIQUE constraint failed: segments.id)" in self.log_msg() 
+    
         
         # get the excpeted segment we should have downloaded:
         segments_df = mock_download_save_segments.call_args_list[0][0][1]

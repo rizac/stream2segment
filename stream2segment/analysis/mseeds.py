@@ -247,7 +247,8 @@ def fft(trace, fixed_time=None, window_in_sec=None, taper_max_percentage=0.05, t
     :param trace: the input obspy.core.Trace
     :param fixed_time: the fixed time where to set the start (if `window_in_sec` > 0) or end
     (if `window_in_sec` < 0) of the trace slice on which to apply the fft. If None, it defaults
-    to the start of each trace
+    to the start of each trace. If not None, it can be any valid argument to `UTCDateTime`
+    (including python `datetime`)
     :type fixed_time: an `obspy.UTCDateTime` object or any object that can be passed as argument
     to the latter (e.g., a numeric timestamp)
     :param window_in_sec: the window, in sec, of the trace slice where to apply the fft. If None,
@@ -258,16 +259,7 @@ def fft(trace, fixed_time=None, window_in_sec=None, taper_max_percentage=0.05, t
     fixed_time = utcdatetime(fixed_time)
 
     tra = trace.copy()
-    if fixed_time is None:
-        starttime = None
-        endtime = None if window_in_sec is None else tra.stats.starttime + window_in_sec
-    elif window_in_sec is None:
-        starttime = fixed_time
-        endtime = None
-    else:
-        t01 = fixed_time
-        t02 = fixed_time + window_in_sec
-        starttime, endtime = min(t01, t02), max(t01, t02)
+    starttime, endtime = get_tbounds(tra, fixed_time, window_in_sec)
 
     trim_tra = tra.trim(starttime=starttime, endtime=endtime, pad=True, fill_value=0)
     if taper_max_percentage > 0:
@@ -300,6 +292,34 @@ def fft(trace, fixed_time=None, window_in_sec=None, taper_max_percentage=0.05, t
     # each :class:`~obspy.core.trace.Trace` as well as ``kwargs`` of this
     # function. If both are given the ``kwargs`` will be used.
     return t
+
+
+def get_tbounds(trace, fixed_time=None, window_in_sec=None):
+    """Returns the bounds (start_time, end_time) of a given trace, fixed time and a window
+    starting (if positive) or ending (if negative) at `fixed_time`
+    The returned tuple can be used with obspy trace `trim` method
+    :param trace: a given obspy trace
+    :param fixed_time: an UTCDateTime denoting a fixed time. This will be the start time or
+    end time of the resulting window (see `window_in_sec`). If None, the first element of the
+    returned tuple is None, which obspy `trace.trim` considers as the trace start time
+    :param window_in_sec: a float of seconds denoting the window length: if positive, then
+    `fixed_time` will be the start time (first element) of the returned tuple. If negative, then
+    `fixed_time` will be the end time of the returned tuple (seconds element). If None, then
+    the second element of the returned tuple will be None, which obspy `trace.trim` considers as
+    the trace end time
+    :return: the tuple start_time, end_time denoting a time window (both arguments `UTCDateTime`)
+    """
+    if fixed_time is None:
+        starttime = None
+        endtime = None if window_in_sec is None else trace.stats.starttime + window_in_sec
+    elif window_in_sec is None:
+        starttime = fixed_time
+        endtime = None
+    else:
+        t01 = fixed_time
+        t02 = fixed_time + window_in_sec
+        starttime, endtime = min(t01, t02), max(t01, t02)
+    return starttime, endtime
 
 
 def snr(trace, noisy_trace, fmin=None, fmax=None, nearest_sample=False, in_db=False):

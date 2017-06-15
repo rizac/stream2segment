@@ -8,6 +8,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	$scope.segData = {}; // the segment data (classes, plot data, metadata etc...)
 	$scope.plots = $window.plots;
 	$scope.showFiltered = true;
+	$scope.showAllComponents = false;
 	$scope.classes = [];
 
 	$scope.loading=true;
@@ -178,7 +179,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			return;
 		}
 
-		var param = {segId: $scope.segIds[index], filteredRemResp: $scope.showFiltered, zooms:null,
+		var param = {segId: $scope.segIds[index], filtered: $scope.showFiltered, zooms:null,
 				plotIndices: [], metadataKeys: $scope.metadata.map(function(elm){return elm[0];})};
 		$scope.loading = true;
 		$http.post("/get_segment_data", param, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
@@ -206,6 +207,12 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	    });
 	};
 	
+	$scope.toggleAllComponentView = function(){
+		$scope.showAllComponents = !$scope.showAllComponents;
+		// update plots:
+		$scope.refreshView
+	}
+	
 	$scope.refreshView = function(indices){
 		var index = $scope.segIdx;
 		if (index < 0){
@@ -220,7 +227,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			});
 		}
 		var zooms = $scope.getAndClearZooms();
-		var param = {segId: $scope.segIds[index], filteredRemResp: $scope.showFiltered, zooms:zooms,
+		var param = {segId: $scope.segIds[index], filtered: $scope.showFiltered, zooms:zooms,
 				plotIndices: indices, metadataKeys: null};
 		$scope.loading = true;
 		// initialize if undefined (as it is the first time we download plots)

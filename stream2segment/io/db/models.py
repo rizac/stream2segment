@@ -191,6 +191,26 @@ class DataCenter(Base):
     # segments = relationship("Segment", backref="data_centers")
     # stations = relationship("Station", backref="data_centers")
 
+    @hybrid_property
+    def netloc(self):
+        """Returns the network location of the current datacenter, following urlparse.netloc
+        This property is only intended for test purposes
+        """
+        # we implement our custom function to avoid useless imports
+        address = self.station_url if self.station_url else self.dataselect_url
+        if not address:
+            return ''
+        address_ = address.lower()
+        start = 0
+        if address_.startswith("http://"):
+            start = 7
+        elif address_.startswith("https://"):
+            start = 8
+        end = address.find("/", start)
+        if end == -1:
+            end = None
+        return address[start:end]
+
     __table_args__ = (
                       UniqueConstraint('station_url', 'dataselect_url',
                                        name='sta_data_uc'),

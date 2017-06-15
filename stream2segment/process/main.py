@@ -21,7 +21,6 @@ from obspy.core.stream import read
 from stream2segment.utils import yaml_load, get_progressbar, load_source, secure_dburl
 from stream2segment.io.db.models import Segment  # , Station
 from stream2segment.download.utils import get_inventory
-from stream2segment.process.utils import segstr
 from stream2segment.io.db.queries import getquery4process
 
 
@@ -185,7 +184,7 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
                     except (ImportError, NameError, AttributeError, SyntaxError, TypeError) as _:
                         raise  # sys.exc_info()
                     except Exception as generr:
-                        logger.warning("%s: %s", segstr(seg), str(generr))
+                        logger.warning("segment (id=%d): %s", seg.id, str(generr))
             except:
                 err_msg = traceback.format_exc()
                 logger.critical(err_msg)

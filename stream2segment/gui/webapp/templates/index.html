@@ -60,6 +60,10 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 									<button class='btn btn-default' ng-click="setPreviousSegment()">&larr;</button>
 									<button class='btn btn-default' ng-click="setNextSegment()" >&rarr;</button>
 								</div>
+								<div class="checkbox">
+									<label><input type="checkbox" ng-model="showAllComponents" ng-change="toggleAllComponentView()"> Filter</label>
+								
+								</div>
 							</div>
 							<button class='btn btn-default btn-block' ng-click="selection.showForm=true">Select</button>
 	  					</div>
@@ -117,15 +121,15 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 
 							<div class="radio">Bottom plot</div>
 
-							<div class="radio">	
+							<!-- <div class="radio">	
 								<label><input type="radio" ng-change="bottomPlotChanged()" ng-model="bottomPlotId" value="3">components</label>
 							</div>
 							<div class="radio">
 							  	<label><input type="radio" ng-change="bottomPlotChanged()" ng-model="bottomPlotId" value="4">cumulative</label>
-							</div>
-							{% endraw %}{% for (index, name) in userDefinedPlots.items() %}
+							</div> -->
+							{% endraw %}{% for name in userDefinedPlots %}
 							<div class="radio">
-								<label><input type="radio" ng-change="bottomPlotChanged()" ng-model="bottomPlotId" value="{{ index }}">{{ name }}</label>
+								<label><input type="radio" ng-change="bottomPlotChanged()" ng-model="bottomPlotId" value="{{ loop.index0 + 2}}">{{ name }}</label>
 							</div>
 							{% endfor %}{% raw %}
 	  					</div>
@@ -144,21 +148,22 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 				<!-- plotly (as of feb 2017) does NOT work with flex layout. TOO BAD.
 				
 			  <!--  NOTE: IMPORTANT!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-			  (see plotlyconfig.js in case, verything is there)
+			  		(see plotlyconfig.js in case, verything is there)
     			  - data-plot makes the div plottable
 				  - data-plotindex refers to the index on the server. If you edit any of those, edit also the other
-				    (see webapp.plots.py)
+				    (see webapp.plots.py). Note that index=0: current trace, index=1: spectra, so indices start from 2 to correctly
+				    point to the server plot
 				  - ID SET AUTOMATICALLY AS "plot" + getAttribute('data-plotindex)
 				   -->
 				 <div class='tl'>
 					 <div data-plotindex=0 class='plot' data-plot='time-series'></div>
 				 </div>
 				 <div class="bl">
-					<div ng-show='plots[2].visible' data-plotindex=2 class='plot plot-other-component' data-plot='time-series'></div>
+					<!-- <div ng-show='plots[2].visible' data-plotindex=2 class='plot plot-other-component' data-plot='time-series'></div>
 					<div ng-show='plots[3].visible' data-plotindex=3 class='plot plot-other-component' data-plot='time-series'></div>
-					<div ng-show='plots[4].visible' data-plotindex=4 class='plot' data-plot='time-series'></div>
-					{% endraw %}{% for (index, name) in userDefinedPlots.items() %}
-					<div ng-show='plots[{{index}}].visible' data-plotindex={{index}} class='plot' data-plot='time-series'></div>
+					<div ng-show='plots[4].visible' data-plotindex=4 class='plot' data-plot='time-series'></div> -->
+					{% endraw %}{% for name in userDefinedPlots %}
+					<div ng-show='plots[{{loop.index + 2}}].visible' data-plotindex={{ loop.index0 + 2 }} class='plot'></div>
 					{% endfor %}{% raw %}
 				</div>
 				<div  class="tr">

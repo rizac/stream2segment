@@ -155,6 +155,14 @@ class Test(unittest.TestCase):
     def _get_sess(self, *a, **v):
         return self.session
 
+    @property
+    def is_sqlite(self):
+        return str(self.engine.url).startswith("sqlite:///")
+    
+    @property
+    def is_postgres(self):
+        return str(self.engine.url).startswith("postgresql://")
+
     def setUp(self):
         url = os.getenv("DB_URL", "sqlite:///:memory:")
 

@@ -17,6 +17,7 @@ from sqlalchemy.engine import create_engine
 from sqlalchemy.orm.session import sessionmaker
 from click import progressbar as click_progressbar
 from stream2segment.io.db.models import Base
+import inspect
 
 
 class strconvert(object):
@@ -84,15 +85,45 @@ class strconvert(object):
 
 def load_source(pyfilepath):
     """Loads a source python file and returns it"""
+    # First let's define a module name. What the name does and why is necessary is not well
+    # documented. However, we cannot supply whatever we want for two reasons following
+    # python import mechanism (tested in python2):
+    # 1. two different `pyfilepath`s must have different `name`s, otherwise when importing the
+    # second file the module of the former is actually returned
+    # 2. Names should contain dots, as otherwise a `RuntimeWarning: Parent module ... not found`
+    # is issued
+    # So, make the name equal to the pathname to avoid as most dupes in names, by replacing
+    # pathseps with underscores:
+    name = os.path.abspath(os.path.realpath(pyfilepath)).replace(".", "_").\
+        replace(os.path.sep, "_")
+    # note above: os.path.sep returns '/' on mac, os.pathsep returns ':'
     if sys.version_info[0] == 2:
         import imp  # @UnresolvedImport
-        return imp.load_source('processing_module_name', pyfilepath)
+        return imp.load_source(name, pyfilepath)
     else:
         import importlib.util  # @UnresolvedImport
-        spec = importlib.util.spec_from_file_location('processing_module_name', pyfilepath)
+        spec = importlib.util.spec_from_file_location(name, pyfilepath)
         foo = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(foo)
         return foo
+
+
+def is_mod_function(pymodule, func):
+    '''returns True if the python function `func` is a function defined (and not imported) in
+    the python module `pymodule`
+    '''
+    return inspect.isfunction(func) and inspect.getmodule(func) == pymodule
+
+
+def iterfuncs(pymodule):
+    '''Returns an iterator over all functions defined (and not imported)
+    in the given python module `pymodule`
+    '''
+    for func in pymodule.__dict__.itervalues():
+        if is_mod_function(pymodule, func):
+            yield func
+#     return [func.__name__ for func in pymodule.__dict__.itervalues() 
+#             if is_mod_function(pymodule, func)]
 
 
 def tounicode(bytestr, decoding='utf-8'):

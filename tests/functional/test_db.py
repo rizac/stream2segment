@@ -22,7 +22,6 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.inspection import inspect
 from datetime import datetime, timedelta
 from sqlalchemy.orm.session import object_session
-from stream2segment.process.utils import dcname
 from sqlalchemy.sql.expression import func, bindparam
 import time
 
@@ -186,16 +185,16 @@ class Test(unittest.TestCase):
     def test_dcanter_name(self):
         
         dc = DataCenter(station_url='abc')
-        assert dcname(dc) == ''
+        assert dc.netloc == 'abc'
         
         dc = DataCenter(station_url='http://www.orfeus-eu.org/fdsnws/station/1/query')
-        assert dcname(dc) == 'www.orfeus-eu.org'
+        assert dc.netloc == 'www.orfeus-eu.org'
         
         dc = DataCenter(station_url='http://eida.ethz.ch/fdsnws/station/1/query')
-        assert dcname(dc) == 'eida.ethz.ch'
+        assert dc.netloc == 'eida.ethz.ch'
         
         dc = DataCenter(station_url='http://geofon.gfz-potsdam.de/fdsnws/station/1/query')
-        assert dcname(dc) == 'geofon.gfz-potsdam.de'
+        assert dc.netloc == 'geofon.gfz-potsdam.de'
     
     # Note that the naming here RUNS this test FIRST!!!
     def test_010_difference_supplying_autoinc_id(self):
@@ -784,7 +783,6 @@ class Test(unittest.TestCase):
         # stations with data: use query, not hybrid attrs (in download.main)
         # segments with data, stations with inventory data: use hybrid attrs (in process.main)
         # segments with classes: any, none: use query, not hybrid attrs (in gui)
-        
         
     def tst_get_cols(self, seg):
         

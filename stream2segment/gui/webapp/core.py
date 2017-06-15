@@ -5,82 +5,83 @@ Created on Jul 31, 2016
 '''
 from stream2segment.io.db.pd_sql_utils import colnames, commit
 from stream2segment.io.db.models import Segment, Class, Station, Channel, DataCenter, Event,\
-    ClassLabelling
+    ClassLabelling, Run
 # from stream2segment.io.db.sqlevalexpr import query, get_columns
 from stream2segment.gui.webapp import get_session
-from stream2segment.gui.webapp.plots import View, jsontimestamp, set_spectra_config
-from stream2segment.utils import evalexpr
+from stream2segment.gui.webapp.plotviews import ViewManager, jsontimestamp  #, set_spectra_config
+# from stream2segment.utils import evalexpr
 # from sqlalchemy.sql.expression import and_
-from stream2segment.io.db.queries import query4gui
+from stream2segment.io.db.queries import query4gui, count as query_count
+from itertools import chain, cycle, izip
 
 
 NPTS_WIDE = 900
 NPTS_SHORT = 900
 # FIXME: automatic retrieve by means of Segment class relationships?
-METADATA = [("", Segment), ("event", Event), ("channel", Channel),
-            ("station", Station), ("datacenter", DataCenter)]
 
 
-SETTINGS = {
-    'spectra': {'arrivalTimeShift': 0, 'signalWindow': [5, 95]}
-    }
-
-
-def get_init_data(orderby, withdataonly):
-    classes = get_classes()
-    metadata = create_metadata_list(True if classes else None)
-    conditions = {}
-    if withdataonly:
-        conditions['has_data'] = True
-    return {'segment_ids': get_segment_ids(conditions, orderby=orderby),
+def get_segments(conditions, orderby, metadata, classes):
+    classes = get_classes() if classes else []
+    metadata = get_metadata() if metadata else []
+    qry = query4gui(get_session(), conditions=conditions, orderby=orderby)
+    return {'segment_ids': [seg[0] for seg in qry],
             'classes': classes,
             'metadata': metadata}
 
 
-def create_metadata_list(has_classes):
+def get_metadata(seg_id=None):
+    '''Returns a list of tuples (column, column_type) if segment is None or
+    (column, column_value) if segment is not None. In the first case, `column_type` is the
+    string representation of the column python type (str, datetime,...), in the latter,
+    it is the value of `segment` for that column'''
+    session = get_session()
+    if seg_id is not None:
+        segment = session.query(Segment).filter(Segment.id == seg_id).first()  # FIXME: handle when not found!
+        if not segment:
+            return []
+
+    METADATA = [("", Segment), ("event", Event), ("channel", Channel),
+                ("station", Station), ("datacenter", DataCenter), ('run', Run)]
+
+    def type2str(python_type):
+        '''returns the str representation of a python type'''
+        return python_type.__name__
+
     ret = []
     exclude = set([Station.inventory_xml.key, Segment.data.key])
     for prefix, model in METADATA:
-        colz = colnames(model, fkey=False)
-        for c in colz:
-            if c in exclude:
+        colnamez = colnames(model, fkey=False)
+        for colname in colnamez:
+            if colname in exclude:
                 continue
-            column = getattr(model, c)
+            column = getattr(model, colname)
             try:
-                typename = type2str(column.type.python_type)
+                if segment is not None:
+                    if model is not Segment:
+                        value = getattr(getattr(segment, prefix), colname)
+                    else:
+                        value = getattr(segment, colname)
+                    try:
+                        value = value.isoformat()
+                    except AttributeError:
+                        if value is None:
+                            value = 'null'
+                        else:
+                            value = str(value)
+                else:
+                    value = type2str(column.type.python_type)
             except:
                 continue
-            ret.append([("%s." % prefix) + c if prefix else c, typename])
+            ret.append([("%s." % prefix) + colname if prefix else colname, value])
 
-    if has_classes:
-        ret.insert(0, ['classes.id', type2str(Class.id.type.python_type) +  # @UndefinedVariable
-                       ". To match labeled/unlabeled segments only, "
-                       "type 'any' or 'none', respectively"])
+    ret.insert(0, ['has_data', type2str(bool)])
+    if query_count(session, Class.id) > 0:
+        ret.insert(0, ['classes.id', type2str(Class.id.type.python_type)  # @UndefinedVariable
+                       ])
+        ret.insert(0, ['classes', type2str(str) +  # @UndefinedVariable
+                       ": type either 'any' or 'none' (match segments with at least one class "
+                       "set, or no class set, respectively)"])
 
-    return ret
-
-
-def type2str(python_type):
-    return python_type.__name__
-
-
-def get_segment_ids(conditions=None, orderby=None):
-    qry = query4gui(get_session(), conditions=conditions, orderby=orderby)
-    return [seg[0] for seg in qry]
-
-
-def get_classes():
-    session = get_session()
-    clazzes = session.query(Class).all()
-    ret = []
-    colz = list(colnames(Class))
-    for c in clazzes:
-        row = {}
-        for col in colz:
-            row[col] = getattr(c, col)
-        row['count'] = session.query(ClassLabelling).\
-            filter(ClassLabelling.class_id == c.id).count()
-        ret.append(row)
     return ret
 
 
@@ -95,54 +96,80 @@ def toggle_class_id(segment_id, class_id):
             session.delete(elm)
     else:
         sca = ClassLabelling(class_id=class_id, segment_id=segment_id, is_hand_labelled=True)
-        session. add(sca)
+        session.add(sca)
 
     commit(session)
 
     # re-query the database to be sure:
-    segm = session.query(Segment).filter(Segment.id == segment_id).first()
     return {'classes': get_classes(),
-            'segment_class_ids': [] if not segm else [c.id for c in segm.classes]}
+            'segment_class_ids': get_classes(segment_id)}
 
 
-def get_segment_data(seg_id, filtered, zooms, indices, metadata_keys=None):
+def set_classes(config):
+    classes = config.get('class_labels', [])
+    if not classes:
+        return
     session = get_session()
-    segment = session.query(Segment).filter(Segment.id == seg_id).first()
+    # do not add already added classes:
+    clazzes = {c.label: c for c in session.query(Class)}
+    for label, description in classes.iteritems():
+        if label in clazzes and clazzes[label].description != description:
+            cla = clazzes[label]
+            cla.description = description  # update
+        elif label not in clazzes:
+            cla = Class(label=label, description=description)
+        session.add(cla)
+    session.commit()
+    h = 9
+
+
+def get_classes(seg_id=None):
+    '''Write doc!! what does this return???'''
+    session = get_session()
+    if seg_id is not None:
+        segment = session.query(Segment).filter(Segment.id == seg_id).first()
+        return [] if not segment else [c.id for c in segment.classes]
+    clazzes = session.query(Class).all()
+    ret = []
+    colz = list(colnames(Class))
+    for c in clazzes:
+        row = {}
+        for col in colz:
+            row[col] = getattr(c, col)
+        row['count'] = session.query(ClassLabelling).\
+            filter(ClassLabelling.class_id == c.id).count()  # FIX COUNT AS FUNC COUNT
+        ret.append(row)
+    return ret
+
+
+def get_segment_data(seg_id, plotmanager, plot_indices, all_components, filtered, zooms,
+                     metadata=False, classes=False):
+    session = get_session()
+    # segment = session.query(Segment).filter(Segment.id == seg_id).first()
     plots = []
+    if not zooms:
+        zooms = []
     spectra_wdws = []
-    if indices:
-        view = View.get(segment, filtered)
-        plots = [view[i] for i in indices]
-        if set(indices).intersection([0, 1]):
-            spectra_wdws = [sorted([jsontimestamp(x[0]), jsontimestamp(x[0]) + 1000*x[1]])
-                            for x in view.get_spectra_windows()]
+    if plot_indices:
+        zooms = chain(zooms, cycle([None]))  # set zooms to None if length is not enough
+        get_plots_func = plotmanager.getfplots if filtered else plotmanager.getplots
+        plots = get_plots_func(session, seg_id, all_components, *plot_indices)
+#         if set(indices).intersection([0, 1]):  # if I am trying to update either spectra or
+#             # base trace, also send spectra time windows:
+#             spectra_wdws = [sorted([jsontimestamp(x[0]), jsontimestamp(x[0]) + 1000*x[1]])
+#                             for x in plotmanager.get_spectra_windows(session, seg_id)]
 
-#     ret = [Plot.fromsegment(seg, zooms[0], NPTS_WIDE, filtered, copy=True)]
-# 
-#     for i, seg_ in enumerate(itercomponents(seg, session), 1):
-#         if i > 2:
-#             break
-#         ret.append(Plot.fromsegment(seg_, zooms[i], NPTS_WIDE, False, False))
-# 
-#     try:
-#         trace = Traces.get(seg, filtered, raise_on_warning=True)
-#         cumtrace = cumsum(trace)
-#         ret.append(Plot.fromtrace_spectra(trace, zooms[3], NPTS_SHORT, seg.arrival_time,
-#                                           cumulative=cumtrace))
-#         ret.append(Plot.fromtrace(cumtrace, zooms[4], NPTS_SHORT,
-#                                   title=trace.get_id() + " - Cumulative"))
-#     except Exception as exc:  # @UnusedVariable
-#         ret.append(Plot())
-#         ret.append(Plot())
-
-    return {'plotData': [r.tojson(zooms[i], NPTS_WIDE) for i, r in enumerate(plots)],
-            'spectra_windows': spectra_wdws,
-            'metadata': get_columns(segment, metadata_keys) if metadata_keys else {}}
+    return {'plots': [p.tojson(z, NPTS_WIDE) for p, z in izip(plots, zooms)],
+            # 'spectra_windows': spectra_wdws,
+            # 'conf': plotmanager.config,
+            'metadata': [] if not metadata else get_metadata(seg_id),
+            'classes': [] if not classes else get_classes(seg_id)}  # get_columns(segment, metadata_keys) if metadata_keys else []}
+#             'metadata': get_columns(segment, metadata_keys) if metadata_keys else {}}
 
 
-def config_spectra(dic):
-    ret = {'arrival_time_shift': evalexpr._eval(dic['arrival_time_shift']),
-           'signal_window': evalexpr._eval(dic['signal_window'])
-           }
-    set_spectra_config(**ret)
-    return True
+# def config_spectra(dic):
+#     ret = {'arrival_time_shift': evalexpr._eval(dic['arrival_time_shift']),
+#            'signal_window': evalexpr._eval(dic['signal_window'])
+#            }
+#     set_spectra_config(**ret)
+#     return True

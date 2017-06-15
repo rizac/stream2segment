@@ -1,14 +1,3 @@
-# set to True or False if station inventories should be passed in the processing function
-# If you don't need inventories (usually useful for removing the instrumental response from the Stream object)
-# set to False, as this will speed up the processing loop
-# If missing (e.g., by deleting the line below), it defaults to False
-inventory: True
-
-# set to True or False if station inventories should be saved when they need to be downloaded
-# If missing (e.g., by deleting the line below), it defaults to False. This parameter has effect only if inventory above is True
-# Saving inventories might speed up further processing but increases db size
-save_downloaded_inventory: False
-
 # The next parameter, segment_select, needs some explanation:
 # It is a dict-like parameter which controls which segments should be processed:
 # if given, the selection is done on the database side *before* starting
@@ -98,118 +87,59 @@ save_downloaded_inventory: False
 # By default, avoid processing null/empty-data segments:
 segment_select:
   has_data: 'true'
+  
+# order segments by: specify a list of attributes as for segment_select, except 'classes' and 'classes.id'
+# which are not supported here. Additionally, you can append a + or - to specify order ascending (the default when
+# missing) or descending
+segment_orderby:
+  - event.time-  # this will sort segment according to the event time, descending (- at end)
+  - segment.event_distance_deg  # for segments with the given event.time, this will sort them ascending (no symbol defaults to +: ascending)
+
+# set to True or False if station inventories should be passed in the processing function
+# If you don't need inventories (usually useful for removing the instrumental response from the Stream object)
+# set to False, as this will speed up the processing loop
+# If missing (e.g., by deleting the line below), it defaults to False
+inventory: True
+
+# set to True or False if station inventories should be saved when they need to be downloaded
+# If missing (e.g., by deleting the line below), it defaults to False. This parameter has effect only if inventory above is True
+# Saving inventories might speed up further processing but increases db size
+save_downloaded_inventory: False
 
 
-# custom parameters. You can define whatever you want here as needed in the processing python file
-arrival_time_delay: 0
-amp_ratio_threshold: 0.8
-bandpass_freq_max: 20  # the max frequency, in Hz
-bandpass_max_nyquist_ratio: 0.9  # the amount of freq_max to be taken. low-pass corner = max_nyquist_ratio * freq_max (defined above)
-bandpass_corners: 2  # the corners
-# the window length (in seconds). There will be two spectra, one calculated on
-# AT-window_length (noisy signal), the other on AT+window_length ('normal' signal):
-snr_window_length: 60  # snr_fixedwindow_in_sec
-remove_response_water_level: 60
-remove_response_output: 'ACC'  # or 'VEL', 'DISP'
-taper_max_percentage: 0.05  # the taper percentage used when tapering (applied on any tapered object)
-freqs_interp:
- - 0.1
- - 0.106365
- - 0.113136
- - 0.120337
- - 0.127997
- - 0.136145
- - 0.144811
- - 0.154028
- - 0.163833
- - 0.174261
- - 0.185354
- - 0.197152
- - 0.209701
- - 0.22305
- - 0.237248
- - 0.252349
- - 0.268412
- - 0.285497
- - 0.30367
- - 0.323
- - 0.34356
- - 0.365429
- - 0.388689
- - 0.413431
- - 0.439747
- - 0.467739
- - 0.497512
- - 0.52918
- - 0.562864
- - 0.598692
- - 0.636801
- - 0.677336
- - 0.72045
- - 0.766309
- - 0.815088
- - 0.866971
- - 0.922156
- - 0.980855
- - 1.04329
- - 1.1097
- - 1.18033
- - 1.25547
- - 1.33538
- - 1.42038
- - 1.5108
- - 1.60696
- - 1.70925
- - 1.81805
- - 1.93378
- - 2.05687
- - 2.18779
- - 2.32705
- - 2.47518
- - 2.63273
- - 2.80031
- - 2.97856
- - 3.16816
- - 3.36982
- - 3.58432
- - 3.81248
- - 4.05516
- - 4.31328
- - 4.58784
- - 4.87987
- - 5.19049
- - 5.52088
- - 5.8723
- - 6.24609
- - 6.64368
- - 7.06657
- - 7.51638
- - 7.99483
- - 8.50372
- - 9.04501
- - 9.62076
- - 10.2332
- - 10.8845
- - 11.5774
- - 12.3143
- - 13.0982
- - 13.9319
- - 14.8187
- - 15.762
- - 16.7653
- - 17.8324
- - 18.9675
- - 20.1749
- - 21.4591
- - 22.825
- - 24.2779
- - 25.8233
- - 27.467
- - 29.2154
- - 31.075
- - 33.0531
- - 35.157
- - 37.3949
- - 39.7752
- - 42.307
- - 45.
+# settings for spectra and filter. You can change / delete their values but you should also
+# re-implement the spectra function defined in the python file:
+spectra:
+  arrival_time_shift: 0  # programmatically shifts the arrival time for every segment (in seconds). Tune if you find arrival times should be corrected after visual inspection
+  signal_window: [0.1, 0.9]  # either a number (in seconds) or interval relative to the % of the cumulative
+  taper_max_percentage: 0.05
+  taper_type: 'hann'
+  smoothing_wlen_ratio: 0.05
+  # type: 'amp'  # if 'pow', then power spectra are computed, otherwise any other value defaults to amplitude spectra
+
+###############################################################################
+# Classes (label: description) for manual annotation in case of supervised classification problem
+# The labels below will first be added to the db and then will show up in the GUI where one or
+# more classes can be assigned to a given segment
+# this parameter is optional, if missing no class labels will show in the GUI, unless already
+# set by a previous config
+# we leave here below an example of it: uncomment the block (the first two characters of each row)
+# and provide your own labels if needed 
+###############################################################################
+# class_labels:
+#   Discarded: "Segment which does not fall in any other cathegory (e.g., unknown artifacts, bad formats etcetera)"
+#   Unknown: "Segment which is either: unlabeled (not annotated) or unclassified"
+#   Ok: "Segment with no artifact"
+#   LowS2N: "Segment has a low signal-to-noise ratio"
+#   Aftershock: "Segment with non overlapping multi-events recorded (aftershock)"
+#   MultiEvent: "Segment with overlapping multi-events recorded (no aftershock)"
+#   BadCoda: "Segment with a bad coda (bad decay)"
+  
+# custom paremeters below. You can change / delete their values but you should also
+# re-implement the spectra function defined in the python file:
+filter_settings:
+  remove_response_water_level: 60
+  remove_response_output: 'ACC'
+  bandpass_freq_max: 20  # the max frequency, in Hz:
+  bandpass_max_nyquist_ratio: 0.9
+  bandpass_corners: 2

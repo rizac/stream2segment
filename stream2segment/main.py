@@ -156,7 +156,7 @@ def get_template_config_path(filepath):
 
 
 def create_template(outpath):
-    pyfile, configfile =  'caz', 'wat'  #  FIXME: FIX THIS
+    pyfile, configfile = 'caz', 'wat'  #  FIXME: FIX THIS
     shutil.copy2(pyfile, outpath)
     outconfigpath = get_template_config_path(outpath)
     shutil.copy2(configfile, outconfigpath)
@@ -165,9 +165,9 @@ def create_template(outpath):
 
 # main functionalities:
 
-def visualize(dburl):
+def visualize(dburl, pyfile, configfile):
     from stream2segment.gui import main as main_gui
-    main_gui.run_in_browser(dburl)
+    main_gui.run_in_browser(dburl, pyfile, configfile)
     return 0
 
 
@@ -368,15 +368,16 @@ def p(pyfile, configfile, outfile, dburl):
 
 
 @main.command(short_help='Visualize downloaded waveform data segments in a browser')
-@click.option('-d', '--dburl', callback=click_stuff.set_dburl, is_eager=True)
+@click.argument('pyfile')
 @click.option('-c', '--configfile', type=click.Path(exists=True, file_okay=True, dir_okay=False,
                                                     writable=False,
                                                     readable=True))
-def v(dburl, configgile):
+@click.option('-d', '--dburl', callback=click_stuff.set_dburl, is_eager=True)
+def v(pyfile, configfile, dburl):
     """Visualize downloaded waveform data segments in a browser.
     Options are listed below. When missing, they default to the values provided in the
     config file `config.yaml`"""
-    visualize(dburl)
+    visualize(dburl, pyfile, configfile)
 
 
 @main.command(short_help='Create a data availability html file showing downloaded data '
