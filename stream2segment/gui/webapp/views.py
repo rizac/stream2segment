@@ -5,9 +5,9 @@ Created on Jun 20, 2016
 '''
 from flask import render_template, request, jsonify, Blueprint, current_app
 # from stream2segment.gui.webapp.plots import user_defined_plots, View
-from stream2segment.gui.webapp import core
+from stream2segment.gui.webapp import core, get_session
 from stream2segment.utils import secure_dburl
-from stream2segment.gui.webapp.core import set_classes
+# from stream2segment.gui.webapp.core import set_classes
 # from stream2segment.gui.webapp.plotviews import PlotManager
 
 # http://flask.pocoo.org/docs/0.12/patterns/appfactories/#basic-factories:
@@ -17,21 +17,21 @@ main_page = Blueprint('main_page', __name__, template_folder='templates')
 @main_page.route("/")
 def main():
     config = current_app.config['CONFIG.YAML']
-    set_classes(config)
+    core.set_classes(get_session(current_app), config)
     ud_plotnames = current_app.config['PLOTMANAGER'].userdefined_plotnames
-    keys = ['spectra', 'segment_select', 'segment_orderby']
+    keys = ['sn_windows', 'segment_select', 'segment_orderby']
     settings = {k: config[k] for k in keys}
     return render_template('index.html', title=secure_dburl(current_app.config["DATABASE"]),
                            settings=settings,
-                           userDefinedPlots=ud_plotnames)
+                           userDefinedPlotNames=ud_plotnames)
 
 
 @main_page.route("/get_segments", methods=['POST'])
 def init():
     data = request.get_json()
-    dic = core.get_segments(data.get('segment_select', None),
+    dic = core.get_segments(get_session(current_app), data.get('segment_select', None),
                             data.get('segment_orderby', None),
-                            data.get('metadata', True),
+                            data.get('metadata', False),
                             data.get('classes', False))
     return jsonify(dic)
 
@@ -47,13 +47,15 @@ def get_segment_data():
     all_components = data.get('all_components', False)
     metadata = data.get('metadata', False)
     classes = data.get('classes', False)
+    warnings = data.get('warnings', False)
 #     conf = data.get('config', {})
     plotmanager = current_app.config['PLOTMANAGER']
 #     if conf:
 #         current_app.config['CONFIG.YAML'].update(conf)  # updates also plotmanager
     # NOTE: seg_id is a unicode string, but the query to the db works as well
-    return jsonify(core.get_segment_data(seg_id, plotmanager, plot_indices, all_components,
-                                         filtered, zooms, metadata, classes))
+    return jsonify(core.get_segment_data(get_session(current_app), seg_id, plotmanager,
+                                         plot_indices, all_components,
+                                         filtered, zooms, metadata, classes, warnings))
 
 
 # @main_page.route("/get_segment_plots", methods=['POST'])
@@ -78,7 +80,8 @@ def get_segment_data():
 @main_page.route("/toggle_class_id", methods=['POST'])
 def toggle_class_id():
     json_req = request.get_json()
-    return jsonify(core.toggle_class_id(json_req['segment_id'], json_req['class_id']))
+    return jsonify(core.toggle_class_id(get_session(current_app),
+                                        json_req['segment_id'], json_req['class_id']))
 
 
 # @main_page.route("/config_spectra", methods=['POST'])

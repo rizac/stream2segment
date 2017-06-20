@@ -1,4 +1,4 @@
-#@PydevCodeAnalysisIgnore
+# @PydevCodeAnalysisIgnore
 '''
 Created on Jul 15, 2016
 
@@ -34,24 +34,34 @@ from obspy.io.stationtxt.core import all_components
 from mock.mock import patch
 from stream2segment.gui.webapp import create_app, get_session
 import json
+import tempfile
+import shutil
 
 class Test(unittest.TestCase):
 
     def setUp(self):
         self.addCleanup(Test.cleanup, self)
-        url = os.getenv("DB_URL", "sqlite:///:memory:")
+        url = os.getenv("DB_URL", None)
+        
+        # test webgui needs a FILE in sqlite!!!! So:
+        if url is None:
+            self.tmp_dir = tempfile.mkdtemp()
+            self.tmpfile = os.path.join(self.tmp_dir, "tmp.sqlite")
+            url = "sqlite:///" + self.tmpfile
+        
+        self.url = url
         # an Engine, which the Session will use for connection
         # resources
         # some_engine = create_engine('postgresql://scott:tiger@localhost/')
-        self.engine = create_engine(url)
-        Base.metadata.drop_all(self.engine)
-        Base.metadata.create_all(self.engine)
-
-        # create a configured "Session" class
-        Session = sessionmaker(bind=self.engine)
+        
+#         Base.metadata.drop_all(self.engine)
+#         Base.metadata.create_all(self.engine)
+# 
+#         # create a configured "Session" class
+#         Session = sessionmaker(bind=self.engine)
         # create a Session
         # self.session = Session()
-        self.initdb()
+        
         self.pymodule = load_source(os.path.join(os.path.dirname(__file__), '..', '..',
                                                  'stream2segment',
                                                   'resources', 'templates',
@@ -61,30 +71,47 @@ class Test(unittest.TestCase):
                                                   'resources', 'templates',
                                                'gui.yaml'))
         
-        self._app = create_app(url, self.pymodule, self.config)
+        self.app = create_app(url, self.pymodule, self.config)
         
+        self.initdb()
+        
+        with self.app.app_context():
+            self.session.query(Segment).count()
         # app.config.from_object('webapp.config.Testing')
         # db.init_app(app)
-        self.app = self._app.test_client()
+        # self.app = self._app.test_client()
 
     @property
     def session(self):
-        return get_session()
+        return get_session(self.app)
 
     @staticmethod
     def cleanup(me):
-        if me.engine:
-#             if me.session:
-#                 try:
-#                     me.session.rollback()
-#                     me.session.close()
-#                 except:
-#                     pass
+        try:
+            with me.app.app_context():
+                Base.metadata.drop_all(me.session.bind.engine)
+        except Exception as _:
+            pass
+        
+#         if getattr(me, 'url', None):
+# #             if me.session:
+# #                 try:
+# #                     me.session.rollback()
+# #                     me.session.close()
+# #                 except:
+# #                     pass
+#             try:
+#                 Base.metadata.drop_all(create_engine(me.url))
+#             except:
+#                 pass
+        
+        if getattr(me, 'tmp_dir', None):
             try:
-                Base.metadata.drop_all(me.engine)
-            except:
+                shutil.rmtree(me.tmp_dir)  # delete directory
+            except Exception as exc:
                 pass
-
+            
+            assert not os.path.exists(me.tmpfile)
 #     def tearDown(self):
 #         try:
 #             self.session.flush()
@@ -104,133 +131,138 @@ class Test(unittest.TestCase):
         return str(self.engine.url).startswith("postgresql://")
     
     def initdb(self):
-        # create a configured "Session" class
-        Session = sessionmaker(bind=self.engine)
-        # create a Session
-        session = Session()
-        
-        dc= DataCenter(station_url="345fbgfnyhtgrefs", dataselect_url='edfawrefdc')
-        session.add(dc)
-
-        utcnow = datetime.utcnow()
-
-        run = Run(run_time=utcnow)
-        session.add(run)
-        
-        ws = WebService(url='webserviceurl')
-        session.add(ws)
-        session.commit()
+        with self.app.app_context():
+            # create a configured "Session" class
+            # Session = sessionmaker(bind=self.engine)
+            # create a Session
+            # session = Session()
             
-        id = 'firstevent'
-        e1 = Event(eventid='event1', webservice_id=ws.id, time=utcnow, latitude=89.5, longitude=6,
-                         depth_km=7.1, magnitude=56)
-        e2 = Event(eventid='event2', webservice_id=ws.id, time=utcnow + timedelta(seconds=5),
-                  latitude=89.5, longitude=6, depth_km=7.1, magnitude=56)
-        
-        session.add_all([e1, e2])
-        
-        session.commit()  # refresh datacenter id (alo flush works)
-
-        d = datetime.utcnow()
-        
-        s = Station(network='network', station='station', datacenter_id=dc.id, latitude=90,
-                    longitude=-45,
-                    start_time=d)
-        session.add(s)
-        
-        channels = [
-            Channel(location= '01', channel='HHE', sample_rate=6),
-            Channel(location= '01', channel='HHN', sample_rate=6),
-            Channel(location= '01', channel='HHZ', sample_rate=6),
-            Channel(location= '01', channel='HHW', sample_rate=6),
+            session = self.session
             
-            Channel(location= '02', channel='HHE', sample_rate=6),
-            Channel(location= '02', channel='HHN', sample_rate=6),
-            Channel(location= '02', channel='HHZ', sample_rate=6),
+            dc = DataCenter(station_url="345fbgfnyhtgrefs", dataselect_url='edfawrefdc')
+            session.add(dc)
+    
+            utcnow = datetime.utcnow()
+    
+            run = Run(run_time=utcnow)
+            session.add(run)
             
-            Channel(location= '03', channel='HHE', sample_rate=6),
-            Channel(location= '03', channel='HHN', sample_rate=6),
+            ws = WebService(url='webserviceurl')
+            session.add(ws)
+            session.commit()
+                
+            id = 'firstevent'
+            e1 = Event(eventid='event1', webservice_id=ws.id, time=utcnow, latitude=89.5, longitude=6,
+                             depth_km=7.1, magnitude=56)
+            e2 = Event(eventid='event2', webservice_id=ws.id, time=utcnow + timedelta(seconds=5),
+                      latitude=89.5, longitude=6, depth_km=7.1, magnitude=56)
             
-            Channel(location= '04', channel='HHZ', sample_rate=6),
+            session.add_all([e1, e2])
             
-            Channel(location= '05', channel='HHE', sample_rate=6),
-            Channel(location= '05gap_merged', channel='HHN', sample_rate=6),
-            Channel(location= '05err', channel='HHZ', sample_rate=6),
-            Channel(location= '05gap_unmerged', channel='HHZ', sample_rate=6)
-            ]
-        
-        s.channels.extend(channels)
-        session.commit()
-        
-        fixed_args = dict(datacenter_id = dc.id,
-                     run_id = run.id,
-                     )
-        
-        folder = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
-        with open(os.path.join(folder, "GE.FLT1..HH?.mseed"), 'rb') as opn:
-            data_gaps_unmerged = opn.read()  # unmerged cause we have three traces of different channels
-        with open(os.path.join(folder, "IA.BAKI..BHZ.D.2016.004.head"), 'rb') as opn:
-            data_gaps_merged = opn.read()
-        
-        
-        obspy_trace = read(BytesIO(data_gaps_unmerged))[0]
-        # write data_ok is actually bytes data of 3 traces, write just the first one, we have
-        # as it is it would be considered a trace with gaps, wwe have
-        # another trace with gaps
-        b = BytesIO()
-        obspy_trace.write(b, format='MSEED')
-        data_ok = b.getvalue()
-        data_err = data_ok[:5]  # whatever slice should be ok
-             
-        for ev, c in product([e1, e2], channels):
-            val = int(c.location[:2])
-            mseed = data_gaps_merged if "gap_merged" in c.location else \
-                data_err if "err" in c.location else data_gaps_unmerged if 'gap_unmerged' in c.location else data_ok
-            seg = Segment(start_time = ev.time+timedelta(seconds=val),
-                          arrival_time = ev.time+timedelta(seconds=2*val),
-                          end_time = ev.time+timedelta(seconds=5*val),
-                          data = mseed,
-                          seed_identifier = obspy_trace.get_id() if mseed == data_ok else None,
-                          event_distance_deg = val,
-                          event_id=ev.id,
-                          **fixed_args)
-            c.segments.append(seg)
-        
-        session.commit()
-        
-        session.close()
-        
-        # set inventory
-        with open(os.path.join(folder, "GE.FLT1.xml"), 'rb') as opn:
-            self.inventory = loads_inv(opn.read())
+            session.commit()  # refresh datacenter id (alo flush works)
+    
+            d = datetime.utcnow()
+            
+            s = Station(network='network', station='station', datacenter_id=dc.id, latitude=90,
+                        longitude=-45,
+                        start_time=d)
+            session.add(s)
+            
+            channels = [
+                Channel(location='01', channel='HHE', sample_rate=6),
+                Channel(location='01', channel='HHN', sample_rate=6),
+                Channel(location='01', channel='HHZ', sample_rate=6),
+                Channel(location='01', channel='HHW', sample_rate=6),
+                
+                Channel(location='02', channel='HHE', sample_rate=6),
+                Channel(location='02', channel='HHN', sample_rate=6),
+                Channel(location='02', channel='HHZ', sample_rate=6),
+                
+                Channel(location='03', channel='HHE', sample_rate=6),
+                Channel(location='03', channel='HHN', sample_rate=6),
+                
+                Channel(location='04', channel='HHZ', sample_rate=6),
+                
+                Channel(location='05', channel='HHE', sample_rate=6),
+                Channel(location='05gap_merged', channel='HHN', sample_rate=6),
+                Channel(location='05err', channel='HHZ', sample_rate=6),
+                Channel(location='05gap_unmerged', channel='HHZ', sample_rate=6)
+                ]
+            
+            s.channels.extend(channels)
+            session.commit()
+            
+            fixed_args = dict(datacenter_id=dc.id,
+                         run_id=run.id,
+                         )
+            
+            folder = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+            with open(os.path.join(folder, "GE.FLT1..HH?.mseed"), 'rb') as opn:
+                data_gaps_unmerged = opn.read()  # unmerged cause we have three traces of different channels
+            with open(os.path.join(folder, "IA.BAKI..BHZ.D.2016.004.head"), 'rb') as opn:
+                data_gaps_merged = opn.read()
+            
+            
+            obspy_trace = read(BytesIO(data_gaps_unmerged))[0]
+            # write data_ok is actually bytes data of 3 traces, write just the first one, we have
+            # as it is it would be considered a trace with gaps, wwe have
+            # another trace with gaps
+            b = BytesIO()
+            obspy_trace.write(b, format='MSEED')
+            data_ok = b.getvalue()
+            data_err = data_ok[:5]  # whatever slice should be ok
+                 
+            for ev, c in product([e1, e2], channels):
+                val = int(c.location[:2])
+                mseed = data_gaps_merged if "gap_merged" in c.location else \
+                    data_err if "err" in c.location else data_gaps_unmerged if 'gap_unmerged' in c.location else data_ok
+                seg = Segment(start_time=ev.time + timedelta(seconds=val),
+                              arrival_time=ev.time + timedelta(seconds=2 * val),
+                              end_time=ev.time + timedelta(seconds=5 * val),
+                              data=mseed,
+                              seed_identifier=obspy_trace.get_id() if mseed == data_ok else None,
+                              event_distance_deg=val,
+                              event_id=ev.id,
+                              **fixed_args)
+                c.segments.append(seg)
+            
+            session.commit()
+            
+            session.close()
+            
+            # set inventory
+            with open(os.path.join(folder, "GE.FLT1.xml"), 'rb') as opn:
+                self.inventory = loads_inv(opn.read())
     
     def test_root(self):
-        with self._app.test_request_context():
+        with self.app.test_request_context():
+            app = self.app.test_client()
             # test first with classes:
             # WHY THIS DOES NOT WORK??!!!
             # the config set on the aopp IS NOT self.config!! why??!!
-            #self.config['class_labels'] = {'wtf': 'wtfd'}
+            # self.config['class_labels'] = {'wtf': 'wtfd'}
             # this on the other hand works:
-            self._app.config['CONFIG.YAML']['class_labels'] = {'wtf': 'wtfd'}
+            self.app.config['CONFIG.YAML']['class_labels'] = {'wtf': 'wtfd'}
             clz = self.session.query(Class).count()
             assert clz == 0
-            rv = self.app.get('/')
-            expected_str = """var __SETTINGS = {"segment_orderby": ["event.time-", "segment.event_distance_deg"], "segment_select": {"has_data": "true"}, "spectra": {"arrival_time_shift": 0, "signal_window": [0.1, 0.9]}};"""
+            rv = app.get('/')
+            expected_str = """var __SETTINGS = {"segment_orderby": ["event.time-", "segment.event_distance_deg"], "segment_select": {"has_data": "true"}, "sn_windows": {"arrival_time_shift": 0, "signal_window": [0.1, 0.9]}};"""
             assert expected_str in rv.data
-            expected_str = """<div ng-show='plots[2].visible' data-plotindex=2 class='plot'></div>
-                        
-                        <div ng-show='plots[3].visible' data-plotindex=3 class='plot'></div>"""
+            expected_str = """<div ng-show='plots[2].visible' data-plotindex=2 class='plot'></div>"""
+            assert expected_str in rv.data
+            expected_str = """<div ng-show='plots[3].visible' data-plotindex=3 class='plot'></div>"""
+            assert expected_str in rv.data
             clz = self.session.query(Class).all()
             assert len(clz) == 1 and clz[0].label == 'wtf' and clz[0].description == 'wtfd'
             
             # change description:
-            self._app.config['CONFIG.YAML']['class_labels'] = {'wtf': 'abc'}
-            rv = self.app.get('/')
-            expected_str = """var __SETTINGS = {"segment_orderby": ["event.time-", "segment.event_distance_deg"], "segment_select": {"has_data": "true"}, "spectra": {"arrival_time_shift": 0, "signal_window": [0.1, 0.9]}};"""
-            assert expected_str in rv.data
-            expected_str = """<div ng-show='plots[2].visible' data-plotindex=2 class='plot'></div>
-                        
-                        <div ng-show='plots[3].visible' data-plotindex=3 class='plot'></div>"""
+            self.app.config['CONFIG.YAML']['class_labels'] = {'wtf': 'abc'}
+            rv = app.get('/')
+#             expected_str = """var __SETTINGS = {"segment_orderby": ["event.time-", "segment.event_distance_deg"], "segment_select": {"has_data": "true"}, "spectra": {"arrival_time_shift": 0, "signal_window": [0.1, 0.9]}};"""
+#             assert expected_str in rv.data
+#             expected_str = """<div ng-show='plots[2].visible' data-plotindex=2 class='plot'></div>
+#                         
+#                         <div ng-show='plots[3].visible' data-plotindex=3 class='plot'></div>"""
             clz = self.session.query(Class).all()
             assert len(clz) == 1 and clz[0].label == 'wtf' and clz[0].description == 'abc'
             
@@ -240,29 +272,33 @@ class Test(unittest.TestCase):
             assert clz == 0
             
             # delete entry 'class_labels' and test when not provided
-            del self._app.config['CONFIG.YAML']['class_labels'] 
-            rv = self.app.get('/')
-            expected_str = """var __SETTINGS = {"segment_orderby": ["event.time-", "segment.event_distance_deg"], "segment_select": {"has_data": "true"}, "spectra": {"arrival_time_shift": 0, "signal_window": [0.1, 0.9]}};"""
-            assert expected_str in rv.data
-            expected_str = """<div ng-show='plots[2].visible' data-plotindex=2 class='plot'></div>
-                        
-                        <div ng-show='plots[3].visible' data-plotindex=3 class='plot'></div>"""
+            del self.app.config['CONFIG.YAML']['class_labels'] 
+            rv = app.get('/')
+#             expected_str = """var __SETTINGS = {"segment_orderby": ["event.time-", "segment.event_distance_deg"], "segment_select": {"has_data": "true"}, "spectra": {"arrival_time_shift": 0, "signal_window": [0.1, 0.9]}};"""
+#             assert expected_str in rv.data
+#             expected_str = """<div ng-show='plots[2].visible' data-plotindex=2 class='plot'></div>
+#                         
+#                         <div ng-show='plots[3].visible' data-plotindex=3 class='plot'></div>"""
             clz = self.session.query(Class).count()
             # assert nothing has changed (same as previous assert):
             assert clz == 0
 
     def test_get_segs(self):
-        rv = self.app.post("/get_segments", data=json.dumps(dict(segment_select={'has_data':'true'},
-                                           segment_orderby=None, metadata=True, classes=True)),
-                           headers={'Content-Type': 'application/json'})
-        #    rv = self.app.get("/get_segments")
-        data = json.loads(rv.data)
-        assert len(data['segment_ids']) == 28
-        assert any(x[0] == 'has_data' for x in data['metadata'])
-        assert not data['classes']
+        with self.app.app_context():
+            app = self.app.test_client()
+            # test your app context code
+            rv = app.post("/get_segments", data=json.dumps(dict(segment_select={'has_data':'true'},
+                                               segment_orderby=None, metadata=True, classes=True)),
+                               headers={'Content-Type': 'application/json'})
+            #    rv = app.get("/get_segments")
+            data = json.loads(rv.data)
+            assert len(data['segment_ids']) == 28
+            assert any(x[0] == 'has_data' for x in data['metadata'])
+            assert not data['classes']
     
     def test_toggle_class_id(self):
-        with self._app.test_request_context():
+        with self.app.test_request_context():
+            app = self.app.test_client()
             segid = 1
             segment = self.session.query(Segment).filter(Segment.id == segid).first()
             c = Class(label='label')
@@ -270,7 +306,7 @@ class Test(unittest.TestCase):
             self.session.commit()
             cid = c.id
             assert len(segment.classes.all()) == 0
-            rv = self.app.post("/toggle_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid}),
+            rv = app.post("/toggle_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid}),
                                    headers={'Content-Type': 'application/json'})
             data = json.loads(rv.data)
             
@@ -278,46 +314,49 @@ class Test(unittest.TestCase):
             assert segment.classes.all()[0].id == cid
             
             # toggle again:
-            rv = self.app.post("/toggle_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid}),
+            rv = app.post("/toggle_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid}),
                                    headers={'Content-Type': 'application/json'})
             assert len(segment.classes.all()) == 0
             
             # toggle again and run test_get_seg with a class set
-            rv = self.app.post("/toggle_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid}),
+            rv = app.post("/toggle_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid}),
                                    headers={'Content-Type': 'application/json'})
             assert len(segment.classes.all()) == 1
-            self._tst_get_seg()
+            self._tst_get_seg(app)
     
     def test_get_seg(self):
-        with self._app.test_request_context():
-            self._tst_get_seg()
+        with self.app.test_request_context():
+            app = self.app.test_client()
+            self._tst_get_seg(app)
     
-    def _tst_get_seg(self):
+    def _tst_get_seg(self, app):
         # does pytest.mark.parametrize work with unittest?
         # seems not. So:
         has_labellings = self.session.query(ClassLabelling).count() > 0
-        for _ in product([[0,1,2], [], [0]], [True, False], [True, False], [True, False], [True, False]):
-            plot_indices, filtered, metadata, classes, all_components = _
+        for _ in product([[0, 1, 2], [], [0]], [True, False], [True, False], [True, False], [True, False], [True, False]):
+            plot_indices, filtered, metadata, classes, all_components, warnings = _
         
-            d = dict(seg_id = 1,
-                     filtered = filtered,
+            d = dict(seg_id=1,
+                     filtered=filtered,
                      # zooms = data['zooms']
-                     plot_indices = plot_indices,  # data['plotIndices']
-                     metadata = metadata,
+                     plot_indices=plot_indices,  # data['plotIndices']
+                     metadata=metadata,
                      classes=classes,
-                     all_components = all_components)
-                     #conf = data.get('config', {})
-                     #plotmanager = current_app.config['PLOTMANAGER']
+                     all_components=all_components,
+                     warnings=warnings)
+                     # conf = data.get('config', {})
+                     # plotmanager = current_app.config['PLOTMANAGER']
     #         if conf:
     #             current_app.config['CONFIG.YAML'].update(conf)
                 
-            rv = self.app.post("/get_segment", data=json.dumps(d),
+            rv = app.post("/get_segment", data=json.dumps(d),
                                headers={'Content-Type': 'application/json'})
-            #    rv = self.app.get("/get_segments")
+            #    rv = app.get("/get_segments")
             data = json.loads(rv.data)
             assert len(data['plots']) == len(d['plot_indices'])
             assert bool(len(data['metadata'])) == metadata
             assert bool(len(data['classes'])) == (classes and has_labellings)
+            assert len(data['warnings']) == 0 or warnings  # we might have 0 warnings even if we asked for them
             if 0 in plot_indices:
                 traces_in_first_plot = len(data['plots'][plot_indices.index(0)][1])
                 assert (traces_in_first_plot == 1 and not all_components) or traces_in_first_plot >= 1
@@ -329,46 +368,48 @@ class Test(unittest.TestCase):
         metadata = False
         classes = False
         
-        with self._app.test_request_context():
-            d = dict(seg_id = 1,
-                     filtered = False,
+        with self.app.test_request_context():
+            app = self.app.test_client()
+            d = dict(seg_id=1,
+                     filtered=False,
                      # zooms = data['zooms']
-                     plot_indices = plot_indices,  # data['plotIndices']
-                     metadata = metadata,
+                     plot_indices=plot_indices,  # data['plotIndices']
+                     metadata=metadata,
                      classes=classes,
-                     all_components = all_components)
-            rv = self.app.post("/get_segment", data=json.dumps(d),
+                     all_components=all_components)
+            rv = app.post("/get_segment", data=json.dumps(d),
                                headers={'Content-Type': 'application/json'})
             
             
         # Now we exited the session, we try to load the filtered traces which make use
         # of session.event. we should get anyway an error cause we didn't load any inventory
-        with self._app.test_request_context():
-            d = dict(seg_id = 1,
-                     filtered = True,
+        with self.app.test_request_context():
+            app = self.app.test_client()
+            d = dict(seg_id=1,
+                     filtered=True,
                      # zooms = data['zooms']
-                     plot_indices = plot_indices,  # data['plotIndices']
-                     metadata = metadata,
+                     plot_indices=plot_indices,  # data['plotIndices']
+                     metadata=metadata,
                      classes=classes,
-                     all_components = all_components)
-            rv = self.app.post("/get_segment", data=json.dumps(d),
+                     all_components=all_components)
+            rv = app.post("/get_segment", data=json.dumps(d),
                                headers={'Content-Type': 'application/json'})
         
         # assert we have exceptions:
         # FIXME: check why we have to access _app for global vars and not app (see setup method)
-        pm = self._app.config['PLOTMANAGER']
-        filtered_views = pm._fviews
-        for view in filtered_views.itervalues():
-            data = view.data
+        pm = self.app.config['PLOTMANAGER']
+        filtered_plotcaches = pm._fplots
+        for plotscache in filtered_plotcaches.itervalues():
+            data = plotscache.data
             for d in data.itervalues():
-                _, plots, _2 = d
+                _, plots = d
                 for p in plots:
-                    if p is None: # not calculated, skip
+                    if p is None:  # not calculated, skip
                         continue
-                    assert "No matching response information found" in p.warning
+                    assert "No matching response information found" in p.message
                     
         # now reset the filtered views:
-        pm._fviews = {}
+        pm._fplots = {}
         # set an inventory matching the segments we have:
         # set inventory
         folder = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
@@ -380,30 +421,31 @@ class Test(unittest.TestCase):
         newdic = {k: inventory for k in pm.segid2inv}
         pm.segid2inv = newdic
         # and now test again
-        with self._app.test_request_context():
-            d = dict(seg_id = 1,
-                     filtered = True,
+        with self.app.test_request_context():
+            app = self.app.test_client()
+            d = dict(seg_id=1,
+                     filtered=True,
                      # zooms = data['zooms']
-                     plot_indices = plot_indices,  # data['plotIndices']
-                     metadata = metadata,
+                     plot_indices=plot_indices,  # data['plotIndices']
+                     metadata=metadata,
                      classes=classes,
-                     all_components = all_components)
-            rv = self.app.post("/get_segment", data=json.dumps(d),
+                     all_components=all_components)
+            rv = app.post("/get_segment", data=json.dumps(d),
                                headers={'Content-Type': 'application/json'})
         
         # assert we do NOT have exceptions:
         # FIXME: check why we have to access _app for global vars and not app (see setup method)
-        pm = self._app.config['PLOTMANAGER']
-        filtered_views = pm._fviews
-        for view in filtered_views.itervalues():
-            data = view.data
+        pm = self.app.config['PLOTMANAGER']
+        filtered_plotcaches = pm._fplots
+        for plotscache in filtered_plotcaches.itervalues():
+            data = plotscache.data
             for d in data.itervalues():
-                _, plots, _2 = d
+                _, plots = d
                 for p in plots:
-                    if p is None: # not calculated, skip
+                    if p is None:  # not calculated, skip
                         continue
-                    assert "" == p.warning
+                    assert "" == p.message
         
 if __name__ == "__main__":
-    #import sys;sys.argv = ['', 'Test.testName']
+    # import sys;sys.argv = ['', 'Test.testName']
     unittest.main()

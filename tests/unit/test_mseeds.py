@@ -12,10 +12,10 @@ import argparse
 import numpy as np
 from stream2segment.analysis import fft as orig_fft
 from stream2segment.analysis import snr as orig_snr
-from stream2segment.analysis import pow_spec as orig_powspec
+from stream2segment.analysis import powspec as orig_powspec
 
 
-from stream2segment.analysis.mseeds import remove_response, fft, snr , bandpass
+from stream2segment.analysis.mseeds import remove_response, fft, snr , bandpass, dfreq
 # from stream2segment.io.utils import loads, dumps
 # from stream2segment.analysis.mseeds import _IO_FORMAT_FFT, _IO_FORMAT_STREAM, _IO_FORMAT_TIME,\
 #     _IO_FORMAT_TRACE
@@ -36,19 +36,15 @@ from itertools import count
 @mock.patch('stream2segment.analysis.mseeds._fft', side_effect=lambda *a, **k: orig_fft(*a, **k))
 def test_fft(mock_mseed_fft, arr, arr_len_after_trim, fft_npts):
     t = Trace(np.array(arr))
-    f = fft(t)
+    df, f = fft(t)
     assert len(mock_mseed_fft.call_args[0][0]) == arr_len_after_trim
     assert len(f) == fft_npts
-    # assure we preserved the original stats
-    # Doing f.stats == t.stats does not work cause in the stats obspy put also other stuff
-    # (e.g., the history of the processing done). Use s.stats.default which has the 
-    # relevant properties (in particular delta and npts, for calculating the delta freq
-    assert f.stats.defaults == t.stats.defaults
+    assert df == dfreq(t.data, t.stats.delta)
     g = 9
 
 
 @mock.patch('stream2segment.analysis.mseeds._snr', side_effect=lambda *a, **k: orig_snr(*a, **k))
-@mock.patch('stream2segment.analysis.pow_spec', side_effect=lambda *a, **k: orig_powspec(*a, **k))
+@mock.patch('stream2segment.analysis.powspec', side_effect=lambda *a, **k: orig_powspec(*a, **k))
 def test_snr(mock_powspec, mock_analysis_snr):
     trace = get_data()['mseed'][0]
     res = snr(trace, trace, fmin=10, fmax=100.34)

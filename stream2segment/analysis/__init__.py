@@ -15,17 +15,17 @@ def fft(signal):
     return np.fft.rfft(signal)
 
 
-def pow_spec(signal, signal_is_fft=False):
+def powspec(signal, signal_is_fft=False):
     """Returns the power spectrum of a REAL signal. If `signal_is_fft=False`,
     for computing the frequency delta, see `dfreq` (providing the signal delta_t, in seconds)
     :param signal: a signal (numeric array)
     :param signal_is_fft: if true, the signal is already an fft of some signal. Otherwise
     (the default), fft(signal) will be applied first
     """
-    return np.square(amp_spec(signal, signal_is_fft))
+    return np.square(ampspec(signal, signal_is_fft))
 
 
-def amp_spec(signal, signal_is_fft=False):
+def ampspec(signal, signal_is_fft=False):
     """Returns the amplitude spectrum of a REAL signal. If `signal_is_fft=False`,
     for computing the frequency delta, see `dfreq` (providing the signal delta_t, in seconds)
     :param signal: a signal (numeric array)
@@ -44,39 +44,37 @@ def dfreq(time_signal, delta_t):
     return 1.0 / (len(time_signal) * delta_t)
 
 
-def freqs(signal, delta, signal_is_timeseries=False, f0=0):
-    """return the numpy array of the frequencies of a real fft for the given signal.
-    if `signal_is_timeseries=False` (the default), simply returns:
-    ```
-        [f0, f0 + delta, ..., f0 + (i-1) * delta, ..., f0 + (len(signal)-1) * delta]
-    ```
-    otherwise,
-    ```
-        [f0, f0 + deltaF, ..., f0 + (i-1) * deltaF, ..., f0 + (N-1) * deltaF]
-    ```
-    where:
+def freqs(signal, delta):
+    """return the numpy array of the frequencies of a real fft for the given signal:
     ```
         deltaF = dfreq(signal, delta)
-        N = floor(1 + len(signal) / 2.0)
+        L = floor(1 + len(signal) / 2.0)
+        return [0, deltaF, ..., (i-1) * deltaF, ..., (L-1) * deltaF]
     ```
-    :param signal: numpy array or numeric list, denoting either the time-series
-    (`signal_is_timeseries=True`) or a frequency domain signal (fft, power spectrum, etcetera)
-    :param delta (float): the signal sample rate (in seconds) if `signal_is_timeseries=True`, or the
-    delta frequency (in Hz)
-    :param f0: the starting frequency (number, defaults to 0): the value of the first point in the
+    Note that if `signal` is an integer, then it is considered as the length of the frequency array
+    to be returned and `delta` as the already computed `deltaF`. Thus this function
+    is a "trivial" numpy `linspace` alias:
+    ```
+        L = signal
+        deltaF = delta
+        return [0, deltaF, ..., (i-1) * deltaF, ..., (L-1) * deltaF]
+    ```
+    :param signal: numpy array or numeric list, denoting the time-series
+    on which the fft should (or has) been applied. If integer, then it is the length of the
     returned array
-    :param signal_is_timeseries: boolean (default False). If False, `signal` is already a frequency
-    domain array, and thus function basically calls `np.linspace`. Otherwise, allocates an
-    array of `floor(1 + len(signal) / 2.0)` points (as required from a real fft applied on
-    `signal`), converts `delta` as sample rate to the relative `delta` on the frequency domain
-    and calls `np.linspace` on that array with the computed new delta
+    :param delta (float): the signal sampling period (in seconds) if `signal`
+    is an array, or the delta frequency (in Hz) if `signal` is an integer
     :return: a new array representing the linearly spaced values of the frequencies. The length
-    of the returned array is `len(signal)` if `signal_is_timeseries=False` (the default), else
-    `floor(1 + len(signal) / 2.0)`. The first array value will be in any case `f0`
+    of the returned array is `len(signal)` if `signal` is an integer, else
+    `floor(1 + len(signal) / 2.0)`. The first array value will be in any case 0
     """
-    leng = floor(1 + len(signal) / 2.0) if signal_is_timeseries else len(signal)
-    delta_f = dfreq(signal, delta) if signal_is_timeseries else delta
-    return np.linspace(f0, f0 + (delta_f * leng), leng, endpoint=False)
+    try:
+        leng = floor(1 + len(signal) / 2.0)
+        delta_f = dfreq(signal, delta)
+    except TypeError:
+        leng = signal
+        delta_f = delta
+    return np.linspace(0, (delta_f * leng), leng, endpoint=False)
 
 
 def snr(signal, noise, signals_form='', fmin=None, fmax=None, delta_signal=1.,
@@ -114,15 +112,15 @@ def snr(signal, noise, signals_form='', fmin=None, fmax=None, delta_signal=1.,
         signal = np.square(signal)
         noise = np.square(noise)
     elif signals_form.lower() == 'fft' or signals_form.lower() == 'dft':
-        signal = pow_spec(signal, signal_is_fft=True)
-        noise = pow_spec(noise, signal_is_fft=True)
+        signal = powspec(signal, signal_is_fft=True)
+        noise = powspec(noise, signal_is_fft=True)
     elif signals_form.lower() != 'pow':
         # convert also deltas to frequencies
         delta_signal = dfreq(signal, delta_signal)
         delta_noise = dfreq(noise, delta_noise)
         # compute power spectra:
-        signal = pow_spec(signal, signal_is_fft=False)
-        noise = pow_spec(noise, signal_is_fft=False)
+        signal = powspec(signal, signal_is_fft=False)
+        noise = powspec(noise, signal_is_fft=False)
 
     # take slices if required:
     signal = trim(signal, delta_signal, fmin, fmax, nearest_sample)
@@ -170,7 +168,7 @@ def trim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
 
 def argtrim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
     """returns the indices of signal such as `signal[i0:i1]` is the slice of signal
-    between (nd including) minx and maxx
+    between (and including) minx and maxx
     """
     if minx is None and maxx is None:
         return (None, None)

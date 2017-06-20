@@ -12,7 +12,7 @@ from obspy.core.stream import read as o_read
 from io import BytesIO
 import os
 from stream2segment.analysis.mseeds import fft
-from stream2segment.analysis import amp_spec, triangsmooth, snr, dfreq, freqs, pow_spec
+from stream2segment.analysis import ampspec, triangsmooth, snr, dfreq, freqs, powspec
 from itertools import izip
 import pytest
 from mock.mock import patch, Mock
@@ -59,8 +59,8 @@ def test_snr(mock_np_true_divide):
         assert snr(signal, noise, signals_form=sf, fmin=fmin, fmax=None, delta_signal=delta_f, delta_noise=delta_f, in_db=False) == 1
     # now same case as above, but with signals given as time series:
     res = snr(signal, noise, signals_form='', fmin=fmin, fmax=None, delta_signal=delta_t, delta_noise=delta_t, in_db=False)
-    sspec = pow_spec(signal,False)[1:]
-    nspec = pow_spec(noise,False)[1:]
+    sspec = powspec(signal,False)[1:]
+    nspec = powspec(noise,False)[1:]
     assert (np.sum(sspec) > np.sum(nspec) and res > 1) or (np.sum(sspec) < np.sum(nspec) and res < 1) or \
         (np.sum(sspec) == np.sum(nspec) and res ==1)
     
@@ -76,33 +76,33 @@ def test_snr(mock_np_true_divide):
     delta_f = dfreq(signal, delta_t)
     for sf in ('', 'fft', 'dft', 'amp', 'pow'):
         delta = delta_t if not sf else delta_f
-        expected_leng_s = len(freqs(signal, delta_t, signal_is_timeseries=not sf))
-        expected_leng_n = len(freqs(noise, delta_t, signal_is_timeseries=not sf))
+        expected_leng_s = len(signal if sf else freqs(signal, delta_t))
+        expected_leng_n = len(noise if sf else freqs(noise, delta_t))
         mock_np_true_divide.reset_mock()
         assert snr(signal, noise, signals_form=sf, fmin=delta_f, fmax=None, delta_signal=delta, delta_noise=delta, in_db=False) == 1
-        # assert when normalizing we called a slice of signal and noise with the first element removed due
+        # assert when normalizing we worked on a slice of signal and noise with the first element removed due
         # to the choice of delta_f and delta
         signal_call = mock_np_true_divide.call_args_list[0][0]
         noise_call = mock_np_true_divide.call_args_list[1][0]
-        assert signal_call[1] ==expected_leng_s-1  # fmin removes first frequency
-        assert noise_call[1] == expected_leng_n-1  # fmin removes first frequency
-    
+
+        assert noise_call[1] == expected_leng_n - 1  # fmin removes first frequency
+
     # test fmin set but negative (same as missing)
     delta_t = 0.01
     delta_f = dfreq(signal, delta_t)
     for sf in ('', 'fft', 'dft', 'amp', 'pow'):
         delta = delta_t if not sf else delta_f
-        expected_leng_s = len(freqs(signal, delta_t, signal_is_timeseries=not sf))
-        expected_leng_n = len(freqs(noise, delta_t, signal_is_timeseries=not sf))
+        expected_leng_s = len(signal if sf else freqs(signal, delta_t))
+        expected_leng_n = len(noise if sf else freqs(noise, delta_t))
         mock_np_true_divide.reset_mock()
         assert snr(signal, noise, signals_form=sf, fmin=-delta_f, fmax=None, delta_signal=delta, delta_noise=delta, in_db=False) == 1
         # assert when normalizing we called a slice of signal and noise with the first element removed due
         # to the choice of delta_f and delta
         signal_call = mock_np_true_divide.call_args_list[0][0]
         noise_call = mock_np_true_divide.call_args_list[1][0]
-        assert signal_call[1] ==expected_leng_s  # fmin does not remove first frequency
+        assert signal_call[1] == expected_leng_s  # fmin does not remove first frequency
         assert noise_call[1] == expected_leng_n  # fmin does not remove first frequency
-        
+
     # test fmax set:
     signal = np.array([0,1,2,3,4,5,6])
     noise = np.array([0,1,2,3,4,5,6])
@@ -110,8 +110,8 @@ def test_snr(mock_np_true_divide):
     delta_f = dfreq(signal, delta_t)
     for sf in ('', 'fft', 'dft', 'amp', 'pow'):
         delta = delta_t if not sf else delta_f
-        expected_leng_s = len(freqs(signal, delta_t, signal_is_timeseries=not sf))
-        expected_leng_n = len(freqs(noise, delta_t, signal_is_timeseries=not sf))
+        expected_leng_s = len(signal if sf else freqs(signal, delta_t))
+        expected_leng_n = len(noise if sf else freqs(noise, delta_t))
         mock_np_true_divide.reset_mock()
         # we need to change expected val. If signal is time series, we run the fft and thus we have a
         # first non-zero point. Otherwise the first point (the only one we take according to fmax)
@@ -132,8 +132,8 @@ def test_snr(mock_np_true_divide):
     delta_f = dfreq(signal, delta_t)
     for sf in ('', 'fft', 'dft', 'amp', 'pow'):
         delta = delta_t if not sf else delta_f
-        expected_leng_s = len(freqs(signal, delta_t, signal_is_timeseries=not sf))
-        expected_leng_n = len(freqs(noise, delta_t, signal_is_timeseries=not sf))
+        expected_leng_s = len(signal if sf else freqs(signal, delta_t))
+        expected_leng_n = len(noise if sf else freqs(noise, delta_t))
         mock_np_true_divide.reset_mock()
         assert np.isnan(snr(signal, noise, signals_form=sf, fmin=None, fmax=-delta_f, delta_signal=delta, delta_noise=delta, in_db=False)).all()
         # assert we did not call true_divide as empty arrays are skipped:
@@ -143,52 +143,52 @@ def test_snr(mock_np_true_divide):
         assert signal_call == []
         assert noise_call == []
 
-@pytest.mark.parametrize('matlab_data',
-                      [
-                       ([[3.7352e+06,3.7352e+06,1.9811e+06,1.9811e+06],
-                         [1.104e+06,1.104e+06,1.5286e+06,1.5345e+06],
-                         [1.088e+06,1.088e+06,1.3399e+06,1.2977e+06],
-                         [1.0695e+06,1.0695e+06,1.1382e+06,1.0249e+06],
-                         [7.1923e+05,7.1923e+05,1.016e+06,8.8141e+05],
-                         [1.2757e+06,1.2757e+06,9.2363e+05,7.8554e+05],
-                         [1.2596e+05,1.2596e+05,8.6884e+05,7.3936e+05],
-                         [9.4364e+05,9.4364e+05,7.9957e+05,6.668e+05],
-                         [5.8868e+05,5.8868e+05,7.4655e+05,6.4268e+05],
-                         [4.4942e+05,4.4942e+05,6.9982e+05,5.9822e+05],
-                         [6.768e+05,6.768e+05,6.9982e+05,5.5776e+05],
-                         [4.0295e+05,4.0295e+05,6.9982e+05,5.1575e+05],
-                         [5.1843e+05,5.1843e+05,6.9982e+05,4.8452e+05],
-                         [6.2502e+05,6.2502e+05,6.9982e+05,4.5061e+05],
-                         [4.6077e+05,4.6077e+05,6.9982e+05,4.5061e+05],
-                         [1.4937e+05,1.4937e+05,6.9982e+05,4.5196e+05],
-                         [5.366e+05,5.366e+05,6.9982e+05,4.5196e+05],
-                         [1.4942e+05,1.4942e+05,6.9982e+05,4.2709e+05],
-                         [2.4361e+05,2.4361e+05,6.9982e+05,4.2709e+05],
-                         [3.5926e+05,3.5926e+05,6.9982e+05,4.0363e+05]])
-                       ],
-                    )
-def tst_triangsmooth(matlab_data):
-    # data columns are: input_data,smooth0.01,smooth0.99,smooth0.50
-    data = [0]
-    win_ratios = [0.01, 0.99, 0.5]
-    dict = {wr:[] for wr in win_ratios}
-    for d in matlab_data:
-        data.append(d[0])
-        for i, wr in enumerate(win_ratios):
-            dict[wr].append(d[i+1])
-    
-    for alpha in win_ratios:
-        smooth = triangsmooth(np.array(data), winlen_ratio=alpha)
-        try:
-            dfreq=0.1
-            _ = smooth_M2_old((np.arange(len(smooth)+1)*dfreq)[1:], np.array(data), 2*len(smooth), dfreq, alpha)
-        except:
-            pass
-        s1 = smooth
-        s2 = dict[alpha]
-        s3 = _
-        h = 9
-        assert np.allclose(smooth[1:], dict[alpha], rtol=1e-05, atol=1e-08, equal_nan=True)
+# @pytest.mark.parametrize('matlab_data',
+#                       [
+#                        ([[3.7352e+06,3.7352e+06,1.9811e+06,1.9811e+06],
+#                          [1.104e+06,1.104e+06,1.5286e+06,1.5345e+06],
+#                          [1.088e+06,1.088e+06,1.3399e+06,1.2977e+06],
+#                          [1.0695e+06,1.0695e+06,1.1382e+06,1.0249e+06],
+#                          [7.1923e+05,7.1923e+05,1.016e+06,8.8141e+05],
+#                          [1.2757e+06,1.2757e+06,9.2363e+05,7.8554e+05],
+#                          [1.2596e+05,1.2596e+05,8.6884e+05,7.3936e+05],
+#                          [9.4364e+05,9.4364e+05,7.9957e+05,6.668e+05],
+#                          [5.8868e+05,5.8868e+05,7.4655e+05,6.4268e+05],
+#                          [4.4942e+05,4.4942e+05,6.9982e+05,5.9822e+05],
+#                          [6.768e+05,6.768e+05,6.9982e+05,5.5776e+05],
+#                          [4.0295e+05,4.0295e+05,6.9982e+05,5.1575e+05],
+#                          [5.1843e+05,5.1843e+05,6.9982e+05,4.8452e+05],
+#                          [6.2502e+05,6.2502e+05,6.9982e+05,4.5061e+05],
+#                          [4.6077e+05,4.6077e+05,6.9982e+05,4.5061e+05],
+#                          [1.4937e+05,1.4937e+05,6.9982e+05,4.5196e+05],
+#                          [5.366e+05,5.366e+05,6.9982e+05,4.5196e+05],
+#                          [1.4942e+05,1.4942e+05,6.9982e+05,4.2709e+05],
+#                          [2.4361e+05,2.4361e+05,6.9982e+05,4.2709e+05],
+#                          [3.5926e+05,3.5926e+05,6.9982e+05,4.0363e+05]])
+#                        ],
+#                     )
+# def tst_triangsmooth(matlab_data):
+#     # data columns are: input_data,smooth0.01,smooth0.99,smooth0.50
+#     data = [0]
+#     win_ratios = [0.01, 0.99, 0.5]
+#     dict = {wr:[] for wr in win_ratios}
+#     for d in matlab_data:
+#         data.append(d[0])
+#         for i, wr in enumerate(win_ratios):
+#             dict[wr].append(d[i+1])
+#     
+#     for alpha in win_ratios:
+#         smooth = triangsmooth(np.array(data), winlen_ratio=alpha)
+#         try:
+#             dfreq=0.1
+#             _ = smooth_M2_old((np.arange(len(smooth)+1)*dfreq)[1:], np.array(data), 2*len(smooth), dfreq, alpha)
+#         except:
+#             pass
+#         s1 = smooth
+#         s2 = dict[alpha]
+#         s3 = _
+#         h = 9
+#         assert np.allclose(smooth[1:], dict[alpha], rtol=1e-05, atol=1e-08, equal_nan=True)
 
 
 def test_triangsmooth():

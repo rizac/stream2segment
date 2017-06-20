@@ -12,8 +12,8 @@ import numpy as np
 #     import pickle  # @UnusedImport
 from obspy.core import Stream, Trace, UTCDateTime  # , Stats
 from obspy import read_inventory
-from stream2segment.analysis import fft as _fft, maxabs as _maxabs,\
-    snr as _snr, cumsum as _cumsum, dfreq
+from stream2segment.analysis import fft as _fft, ampspec as _ampspec, powspec as _powspec,\
+    maxabs as _maxabs, snr as _snr, cumsum as _cumsum, dfreq, freqs
 
 
 def stream_compliant(func):
@@ -211,7 +211,7 @@ def cumtimes(cum_trace, *percentages):
     Called P = len(percentages), returns a list of `len(percentages)` `obspy.UTCTimeStamp`s
     increasing items
     :param cum_trace: the input obspy.core.Trace (cumulative)
-    :param: percentages: the precentages to be calculated, e.g. 0.05, 0.95 (5% and 95%)
+    :param percentages: the precentages to be calculated, e.g. 0.05, 0.95 (5% and 95%)
     :return: a list of length P = len(percentages) denoting the the obspy.UTCTimeStamp(s) where
     the given percentages occur
     """
@@ -237,63 +237,65 @@ def cumtimes(cum_trace, *percentages):
 
 
 @stream_compliant
-def fft(trace, fixed_time=None, window_in_sec=None, taper_max_percentage=0.05, taper_type='hann'):
+def fft(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',
+        return_freqs=False):
     """
-    Returns a trace T resulting from applying the fft on `trace`. The resulting trace
-    has **complex** values and thus can only be saved with `trace.write(..., format='PICKLE')`
-    The `T.stats` attribute is copied from `trace`, thus referencing the source
-    trace. It has an aditional attribute 'df' which returns the delta frequency of the
-    computed trace (f0=0 by default)
+    Computes the fft of the given trace returning the relative numpy array `fft` as the second
+    element the tuple
+    ```(df, fft)```
+    if `return_freqs=False` (df is the delta-frequency, as float), or
+    ```(freqs, fft)```
+    if `return_freqs=True` (`freqs` is linear space of frequencies, starting from 0, in Hz).
+    This methods optionally trims the given trace, tapers it and then applies the fft
     :param trace: the input obspy.core.Trace
-    :param fixed_time: the fixed time where to set the start (if `window_in_sec` > 0) or end
-    (if `window_in_sec` < 0) of the trace slice on which to apply the fft. If None, it defaults
-    to the start of each trace. If not None, it can be any valid argument to `UTCDateTime`
-    (including python `datetime`)
-    :type fixed_time: an `obspy.UTCDateTime` object or any object that can be passed as argument
-    to the latter (e.g., a numeric timestamp)
-    :param window_in_sec: the window, in sec, of the trace slice where to apply the fft. If None,
-    it defaults to the amount of time from `fixed_time` till the end of each trace
-    :type window_in_sec: numeric
-    :return: an obspy.Trace with *complex* values in trace.data
+    :param starttime: the start time for trim, or None (=> starttime = trace start time)
+    :param endtime: the end time for trim, or None (=> endtime = trace end time)
+    :type taper_max_percentage: if non positive, no taper is applied on the (trimmed) trace before
+    computing the fft. Otherwise, is a number between 0 and 1 to be passed to `trace.taper`
+    :param taper_type: string, defaults to 'hann'. Ignored if no tapering is required
+    (`taper_max_percentage<=0`)
+    :param return_freqs: if False (the default) the first item of the returned tuple will be
+    the delta frequency, otherwise the array of frequencies
+    :return: a tuple where the second element if the numpy array of the fft values, and the first
+    item is either the delta frequency (`return_freqs=False`) or the numpy array of the
+    frequencies of the fft (`return_freqs=True`)
     """
-    fixed_time = utcdatetime(fixed_time)
+    if starttime is not None or endtime is not None or taper_max_percentage > 0:
+        trace = trace.copy()
+    starttime, endtime = utcdatetime(starttime), utcdatetime(endtime)
 
-    tra = trace.copy()
-    starttime, endtime = get_tbounds(tra, fixed_time, window_in_sec)
-
-    trim_tra = tra.trim(starttime=starttime, endtime=endtime, pad=True, fill_value=0)
+    if starttime is not None or endtime is not None:
+        trace.trim(starttime=starttime, endtime=endtime, pad=True, fill_value=0)
     if taper_max_percentage > 0:
-        trim_tra.taper(max_percentage=0.05, type=taper_type)
-    dft = _fft(trim_tra.data)
-    # remember: now we have a numpy array of complex numbers
-    # build a Trace object with complex values and stats referring to the **original** trace
-    # then we can use trace.write(format='pickle') to save the trace and hopefully have a robust
-    # way to retrieve it back via obspy.read. Implementing subclasses of Trace is less robust
-    # cause we need maintainance if we change to the sub-classes in the future, this way we
-    # completely delegate obpsy.
-    t = Trace(data=dft, header=trim_tra.stats)  # stats are preserved. The only stats changed is
-    # when we set the data attribute on a trace (not via the constructor, like we just did)
-
-    # this gives an hint on the format to be saved to
-    # note that tt.stats.processing is a list of ALL processing applied on a given Trace,
-    # so we have also the history of the stuff done (only for Trace class methods, but should be
-    # enough)
-    t.stats._format = 'PICKLE'  # pylint:disable=protected-access
-
-    # compute df NOW. Using dfreq LATER is unfeasible cause we LOST the trim_tra num points
-    # thus df would be messed up
-    t.stats.df = dfreq(trim_tra.data, trim_tra.stats.delta)
-
-    # t.stats.mseed.encoding = ?  # FXIME: see obspy encodings (float64? float32?)
-    # if given, suppress warnings when saving (raised if data has unsupported
-    # encoding, e.g. is complex).From obspy doc: The ``reclen``, ``encoding``, ``byteorder`` and
-    # ``sequence_count``
-    # keyword arguments can be set in the ``stats.mseed`` of
-    # each :class:`~obspy.core.trace.Trace` as well as ``kwargs`` of this
-    # function. If both are given the ``kwargs`` will be used.
-    return t
+        trace.taper(max_percentage=0.05, type=taper_type)
+    dft = _fft(trace.data)
+    if return_freqs:
+        return freqs(trace.data, trace.stats.delta), dft
+    else:
+        return dfreq(trace.data, trace.stats.delta), dft
 
 
+@stream_compliant
+def ampspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',
+            return_freqs=False):
+    """Computes the amplitude spectrum of the given trace.
+    See `fft`, the only difference is that the second element of the returned tuple is the
+    amplitude spectrum"""
+    _, dft = fft(trace, starttime, endtime, taper_max_percentage, taper_type, return_freqs)
+    return _, _ampspec(dft, signal_is_fft=True)
+
+
+@stream_compliant
+def powspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',
+            return_freqs=False):
+    """Computes the power spectrum of the given trace.
+    See `fft`, the only difference is that the second element of the returned tuple is the
+    power spectrum"""
+    _, dft = fft(trace, starttime, endtime, taper_max_percentage, taper_type, return_freqs)
+    return _, _powspec(dft, signal_is_fft=True)
+
+
+@stream_compliant
 def get_tbounds(trace, fixed_time=None, window_in_sec=None):
     """Returns the bounds (start_time, end_time) of a given trace, fixed time and a window
     starting (if positive) or ending (if negative) at `fixed_time`
@@ -322,6 +324,7 @@ def get_tbounds(trace, fixed_time=None, window_in_sec=None):
     return starttime, endtime
 
 
+@stream_compliant
 def snr(trace, noisy_trace, fmin=None, fmax=None, nearest_sample=False, in_db=False):
     """Wrapper around `analysis.snr` for trace or streams
     :param trace: a given `obspy` Trace denoting the trace of the signal

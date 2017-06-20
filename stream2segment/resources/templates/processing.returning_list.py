@@ -91,12 +91,12 @@ from collections import OrderedDict
 # strem2segment functions for processing mseeds. This is just a list of possible functions
 # to show how to import them:
 from stream2segment.analysis.mseeds import remove_response, amp_ratio, bandpass, cumsum,\
-    cumtimes, fft, maxabs, simulate_wa, snr, utcdatetime
+    cumtimes, fft, maxabs, simulate_wa, snr, utcdatetime, ampspec, get_tbounds
 # when working with times, use obspy UTCDateTime:
 from obspy.core.utcdatetime import UTCDateTime
 # stream2segment function for processing numpy arrays (such as stream.traces[0])
 # If you need to to use them, import them:
-from stream2segment.analysis import amp_spec, freqs
+# from stream2segment.analysis import ampspec as _ampspec, freqs
 
 
 def main(seg, stream, inventory, config):
@@ -267,12 +267,12 @@ def main(seg, stream, inventory, config):
     t_PGA, PGA = maxabs(trace_rem_resp, a_time, t95)
 
     # calculates amplitudes at the frequency bins given in the config file:
-    fft_rem_resp = fft(trace_rem_resp, a_time, config['snr_window_length'],
-                       taper_max_percentage=config['taper_max_percentage'])
-    ampspec = amp_spec(fft_rem_resp.data, True)
-    ampspec_freqs = freqs(ampspec, fft_rem_resp.stats.df)
+    starttime, endtime = get_tbounds(trace_rem_resp, a_time, config['snr_window_length'])
+    amp_spec_freqs, amp_spec = ampspec(trace_rem_resp, starttime, endtime,
+                                       taper_max_percentage=config['taper_max_percentage'],
+                                       return_freqs=True)
     required_freqs = config['freqs_interp']
-    required_amplitudes = np.interp(required_freqs, ampspec_freqs, ampspec)
+    required_amplitudes = np.interp(required_freqs, amp_spec_freqs, amp_spec)
 
     # convert cum_times to float for saving
     cum_times_float = [float(t) for t in cum_times]

@@ -8,12 +8,12 @@ import numpy as np
 # strem2segment functions for processing mseeds
 # If you need to use them, import them like this:
 from stream2segment.analysis.mseeds import remove_response, amp_ratio, bandpass, cumsum,\
-    cumtimes, fft, maxabs, simulate_wa, snr
+    cumtimes, fft, maxabs, simulate_wa, snr, get_tbounds
 # when working with times, use obspy UTCDateTime:
 from obspy.core.utcdatetime import UTCDateTime
 # stream2segment function for processing numpy arrays (such as stream.traces[0])
 # If you need to to use them, import them:
-from stream2segment.analysis import amp_spec, freqs
+from stream2segment.analysis import ampspec, freqs
 
 
 def main(seg, config):
@@ -57,11 +57,14 @@ def main(seg, config):
     # t_PGA, PGA = maxabs(trace_rem_resp, a_time, t95)  # if remove_response_output == 'ACC'
     # t_PGV, PGV = maxabs(trace_rem_resp, a_time, t95)  # if remove_response_output = 'VEL'
 
-    fft_rem_resp = fft(trace_rem_resp, a_time, config['snr_window_length'],
-                       taper_max_percentage=config['taper_max_percentage'])
-    aspec = amp_spec(fft_rem_resp.data, True)
+    starttime, endtime = get_tbounds(trace_rem_resp, a_time, config['snr_window_length'])
+    amp_spec_freqs, amp_spec = ampspec(trace_rem_resp, starttime, endtime,
+                                       taper_max_percentage=config['taper_max_percentage'],
+                                       return_freqs=True)
+    required_freqs = config['freqs_interp']
+    ret = np.interp(required_freqs, amp_spec_freqs, amp_spec)
 
-    return np.interp(config['freqs_interp'], freqs(aspec, fft_rem_resp.stats.df), aspec)
+    return ret
 
 
 def mag2freq(magnitude):

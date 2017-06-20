@@ -16,7 +16,7 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
     for (var i = 0; i < document.styleSheets.length; i++) {
         var sheet = document.styleSheets[i];
         if (sheet['href'] && sheet['href'].indexOf("bootstrap.min.css") >= 0) {
-        	console.log(sheet['href']);
+        	//console.log(sheet['href']);
             cssFound = true;
             break;
         }
@@ -61,7 +61,7 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 									<button class='btn btn-default' ng-click="setNextSegment()" >&rarr;</button>
 								</div>
 								<div class="checkbox">
-									<label><input type="checkbox" ng-model="showAllComponents" ng-change="toggleAllComponentView()"> Filter</label>
+									<label><input type="checkbox" ng-model="showAllComponents" ng-change="toggleAllComponentView()"> Show all components</label>
 								
 								</div>
 							</div>
@@ -110,24 +110,17 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 							</div>
 							
 							<label class="checkbox">Arrival time shift:</label>
-							<input class="checkbox" type="text" ng-model="spectraSettings.arrival_time_shift" ng-change="spectraSettings._changed=true">
+							<input class="checkbox" type="text" ng-model="snWindows.arrival_time_shift" ng-change="snWindows._changed=true">
 							
 							<label class="checkbox">Signal window:</label>
-							<input class="checkbox" type="text" ng-model="spectraSettings.signal_window" ng-change="spectraSettings._changed=true">
+							<input class="checkbox" type="text" ng-model="snWindows.signal_window" ng-change="snWindows._changed=true">
 		  					
-							<button class='btn btn-default btn-block' ng-disabled="!spectraSettings._changed" ng-click="configSpectra()">Refresh</button>
+							<button class='btn btn-default btn-block' ng-disabled="!snWindows._changed" ng-click="configSpectra()">Refresh</button>
 							
 							<div class="divider"></div>
 
 							<div class="radio">Bottom plot</div>
-
-							<!-- <div class="radio">	
-								<label><input type="radio" ng-change="bottomPlotChanged()" ng-model="bottomPlotId" value="3">components</label>
-							</div>
-							<div class="radio">
-							  	<label><input type="radio" ng-change="bottomPlotChanged()" ng-model="bottomPlotId" value="4">cumulative</label>
-							</div> -->
-							{% endraw %}{% for name in userDefinedPlots %}
+							{% endraw %}{% for name in userDefinedPlotNames %}
 							<div class="radio">
 								<label><input type="radio" ng-change="bottomPlotChanged()" ng-model="bottomPlotId" value="{{ loop.index0 + 2}}">{{ name }}</label>
 							</div>
@@ -144,26 +137,24 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 				</div>
 			</div>
 			<div class="center h-container panel-center" style='position:relative'>
-			
-				<!-- plotly (as of feb 2017) does NOT work with flex layout. TOO BAD.
-				
-			  <!--  NOTE: IMPORTANT!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+				<!-- plotly (as of feb 2017) does NOT work with flex layout. TOO BAD. -->
+				<!--
+					***********************
+					NOTE: IMPORTANT READ ME
+					***********************
 			  		(see plotlyconfig.js in case, verything is there)
-    			  - data-plot makes the div plottable
-				  - data-plotindex refers to the index on the server. If you edit any of those, edit also the other
-				    (see webapp.plots.py). Note that index=0: current trace, index=1: spectra, so indices start from 2 to correctly
-				    point to the server plot
-				  - ID SET AUTOMATICALLY AS "plot" + getAttribute('data-plotindex)
-				   -->
+    			    - data-plot makes the div plottable (i.e., associates a plotly object on it)
+				    - data-plotindex refers to the index on the server.
+				      Note that index=0: current trace, index=1: spectra, so indices start from 2 to correctly
+				      point to the server plot
+				    - ID of these divs will be set AUTOMATICALLY AS "plot" + getAttribute('data-plotindex)
+				 -->
 				 <div class='tl'>
 					 <div data-plotindex=0 class='plot' data-plot='time-series'></div>
 				 </div>
 				 <div class="bl">
-					<!-- <div ng-show='plots[2].visible' data-plotindex=2 class='plot plot-other-component' data-plot='time-series'></div>
-					<div ng-show='plots[3].visible' data-plotindex=3 class='plot plot-other-component' data-plot='time-series'></div>
-					<div ng-show='plots[4].visible' data-plotindex=4 class='plot' data-plot='time-series'></div> -->
-					{% endraw %}{% for name in userDefinedPlots %}
-					<div ng-show='plots[{{loop.index + 2}}].visible' data-plotindex={{ loop.index0 + 2 }} class='plot'></div>
+					{% endraw %}{% for name in userDefinedPlotNames %}
+					<div ng-show='plots[{{loop.index0 + 2}}].visible'  data-plot='time-series' data-plotindex={{ loop.index0 + 2 }} class='plot'></div>
 					{% endfor %}{% raw %}
 				</div>
 				<div  class="tr">
@@ -236,13 +227,12 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 		<a href="#" class="close" data-dismiss="alert" aria-label="close" onclick="return false;"
 			ng-click="selection.showForm=!selection.showForm">&times;</a>
 		<div class="center">
-			<label style='margin-top:1em'><input type=checkbox ng-model="selection.withDataOnly"/>waveform data is available (non-empty)</label>
 			<table style='width:100%'>
-				<tr ng-repeat="(idx, values) in metadata">
+				<tr ng-repeat="values in metadata">
 					<td>{{ values[0] }}</td>
 					<td style='width:100%'><input style='width:100%' type=text
-					ng-model="selection.data[values[0]]"
-					placeholder="({{ values[1] }})"/></td>
+						ng-model="values[2]"
+						placeholder="({{ values[1] }})"/></td>
 				</tr>
 			</table>
 		</div>

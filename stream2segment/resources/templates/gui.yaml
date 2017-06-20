@@ -93,7 +93,7 @@ segment_select:
 # missing) or descending
 segment_orderby:
   - event.time-  # this will sort segment according to the event time, descending (- at end)
-  - segment.event_distance_deg  # for segments with the given event.time, this will sort them ascending (no symbol defaults to +: ascending)
+  - event_distance_deg  # for segments with the given event.time, this will sort them ascending (no symbol defaults to +: ascending)
 
 # set to True or False if station inventories should be passed in the processing function
 # If you don't need inventories (usually useful for removing the instrumental response from the Stream object)
@@ -106,16 +106,19 @@ inventory: True
 # Saving inventories might speed up further processing but increases db size
 save_downloaded_inventory: False
 
-
 # settings for spectra and filter. You can change / delete their values but you should also
 # re-implement the spectra function defined in the python file:
-spectra:
+sn_windows:
   arrival_time_shift: 0  # programmatically shifts the arrival time for every segment (in seconds). Tune if you find arrival times should be corrected after visual inspection
   signal_window: [0.1, 0.9]  # either a number (in seconds) or interval relative to the % of the cumulative
-  taper_max_percentage: 0.05
-  taper_type: 'hann'
-  smoothing_wlen_ratio: 0.05
-  # type: 'amp'  # if 'pow', then power spectra are computed, otherwise any other value defaults to amplitude spectra
+
+# settings for sn (signal-to-noise) spectra
+sn_spectra:
+  taper:
+    max_percentage: 0.05
+    type: 'hann'
+  smoothing_wlen_ratio: 0.05  # 0 for no smoothing
+  type: 'amp'  # if 'pow', then power spectra are computed, otherwise any other value defaults to amplitude spectra
 
 ###############################################################################
 # Classes (label: description) for manual annotation in case of supervised classification problem
@@ -123,17 +126,17 @@ spectra:
 # more classes can be assigned to a given segment
 # this parameter is optional, if missing no class labels will show in the GUI, unless already
 # set by a previous config
-# we leave here below an example of it: uncomment the block (the first two characters of each row)
+# we leave here below an example of it: uncomment the block from ''class_labels' on, 
 # and provide your own labels if needed 
 ###############################################################################
-# class_labels:
-#   Discarded: "Segment which does not fall in any other cathegory (e.g., unknown artifacts, bad formats etcetera)"
-#   Unknown: "Segment which is either: unlabeled (not annotated) or unclassified"
-#   Ok: "Segment with no artifact"
-#   LowS2N: "Segment has a low signal-to-noise ratio"
-#   Aftershock: "Segment with non overlapping multi-events recorded (aftershock)"
-#   MultiEvent: "Segment with overlapping multi-events recorded (no aftershock)"
-#   BadCoda: "Segment with a bad coda (bad decay)"
+#class_labels:
+#  Discarded: "Segment which does not fall in any other cathegory (e.g., unknown artifacts, bad formats etcetera)"
+#  Unknown: "Segment which is either: unlabeled (not annotated) or unclassified"
+#  Ok: "Segment with no artifact"
+#  LowS2N: "Segment has a low signal-to-noise ratio"
+#  Aftershock: "Segment with non overlapping multi-events recorded (aftershock)"
+#  MultiEvent: "Segment with overlapping multi-events recorded (no aftershock)"
+#  BadCoda: "Segment with a bad coda (bad decay)"
   
 # custom paremeters below. You can change / delete their values but you should also
 # re-implement the spectra function defined in the python file:

@@ -190,7 +190,7 @@ class Test(unittest.TestCase):
     def test_view_other_comps(self):
         m = PlotManager(self.pymodule, self.config)
         
-        prevlen = len(m._views)
+        prevlen = len(m._plots)
         components_count = {} # group_id -> num expected components
         # where group_id is the tuple (event_id, channel.location)
         for s in self.session.query(Segment): 
@@ -209,15 +209,15 @@ class Test(unittest.TestCase):
             
             idxs = [0]
             all_components = True
-            # s_id_was_in_views = s.id in m._views
-            plots = m.getplots(self.session, s.id, True, *idxs)
+            # s_id_was_in_views = s.id in m._plots
+            plots = m.getplots(self.session, s.id, idxs, True)
             # assert returned plot has the correct time-series:
             assert len(plots[0].data) == expected_components_count
             # asssert the returned value match the input:
             assert len(plots) == len(idxs)
-            assert not m._fviews  # assert no filtering calculated
+            assert not m._fplots  # assert no filtering calculated
             # assert we did not calculate other components (all_components=False)
-            viewmanager = m._views[s.id]
+            viewmanager = m._plots[s.id]
             calculated_plots=0
             for sid in viewmanager.data:
                 calculated_plots += sum(plot is not None for plot in viewmanager.data[sid][1])
@@ -226,7 +226,7 @@ class Test(unittest.TestCase):
     def test_view_inv_err(self):
         m = PlotManager(self.pymodule, self.config)
         
-        prevlen = len(m._views)
+        prevlen = len(m._plots)
         components_count = {} # group_id -> num expected components
         # where group_id is the tuple (event_id, channel.location)
         for s in self.session.query(Segment): 
@@ -245,74 +245,67 @@ class Test(unittest.TestCase):
             
             idxs = []
             all_components = False
-            # s_id_was_in_views = s.id in m._views
-            plots = m.getplots(self.session, s.id, False, *idxs)
+            # s_id_was_in_views = s.id in m._plots
+            plots = m.getplots(self.session, s.id, idxs, False)
             # asssert the returned value match the input:
             assert len(plots) == len(idxs)
-            assert not m._fviews  # assert no filtering calculated
+            assert not m._fplots  # assert no filtering calculated
             # assert we did not calculate other components (all_components=False)
-            viewmanager = m._views[s.id]
-            calculated_plots = sum(plot is not None for plot in viewmanager.data[s.id][1])
+            plotscache = m._plots[s.id]
+            calculated_plots = sum(plot is not None for plot in plotscache.data[s.id][1])
             assert calculated_plots == len(plots)
 
-            # assert we associated the viewmanager to expected_components_count keys:
-            assert sum(viewmanager is vm for vm in  m._views.itervalues()) == expected_components_count
+            # assert we associated the plotscache to expected_components_count keys:
+            assert sum(plotscache is vm for vm in  m._plots.itervalues()) == expected_components_count
             # assert we have the inventory for the segment:
             # FIXME: test that we don't have it if we set inventory=False in the config
             assert s.id in  m.segid2inv
             
             idxs = [0, 1]
-            plots = m.getplots(self.session, s.id, False, *idxs)
+            plots = m.getplots(self.session, s.id, idxs, False)
             # asssert the returned value match the input:
             assert len(plots) == len(idxs)
-            assert not m._fviews  # assert no filtering calculated
+            assert not m._fplots  # assert no filtering calculated
             # assert we did not calculate other components (all_components=False)
-            viewmanager = m._views[s.id]
-            calculated_plots = sum(plot is not None for plot in viewmanager.data[s.id][1])
+            plotscache = m._plots[s.id]
+            calculated_plots = sum(plot is not None for plot in plotscache.data[s.id][1])
             assert calculated_plots == len(plots)
 
-            # assert we associated the viewmanager to expected_components_count keys:
-            assert sum(viewmanager is vm for vm in  m._views.itervalues()) == expected_components_count
+            # assert we associated the plotscache to expected_components_count keys:
+            assert sum(plotscache is vm for vm in  m._plots.itervalues()) == expected_components_count
             # assert we have the inventory for the segment:
             # FIXME: test that we don't have it if we set inventory=False in the config
             assert s.id in  m.segid2inv
 
             # calculate all indices
             idxs = range(len(m.functions))
-            plots = m.getplots(self.session, s.id, False, *idxs)
-            calculated_plots = sum(plot is not None for plot in viewmanager.data[s.id][1])
+            plots = m.getplots(self.session, s.id, idxs, False)
+            calculated_plots = sum(plot is not None for plot in plotscache.data[s.id][1])
             
-            custom_plots = plots[1:]
-            plots = plots[:1]
+#             custom_plots = plots[1:]
+#             plots = plots[:1]
+            
+            warnings = m.get_warnings(s.id)
+            # we have inventory errors in any case:
+            assert any('Inventory N/A' in _ for _ in warnings)
             if 'err' in s.channel.location:
-                assert all('Unknown format' in p.warning for p in custom_plots)
-                assert all('Unknown format' in p.warning for p in plots)
-                # mseed errors do not check for inventory errors, thus:
-                assert all('\n' not in p.warning for p in custom_plots)
-                assert all('\n' not in p.warning for p in plots)
+                assert any('sn-windows N/A: No well-formatted stream found' in _ for _ in warnings)
             elif 'gap_merged'  in s.channel.location:
-                assert all('Gaps/overlaps (merged)' in p.warning for p in custom_plots)
-                assert all('Gaps/overlaps (merged)' in p.warning for p in plots)
-                assert all('\n' in p.warning for p in custom_plots)
-                assert all('Inventory error' in p.warning for p in custom_plots)
-                assert all('Inventory error' in p.warning for p in plots)
+                # gaps merged is not anymore merged by default, so this equals the if below
+                # gaps merged is not anymore merged by default, so check we should heve these warnings:
+                assert any('gaps/overlaps' in _.lower() for _ in warnings)
+                # also, the stream has more traces, so we cannot calculate sn windows:
+                assert any('sn-windows N/A: No single-trace stream found' in _ for _ in warnings)
             elif 'gap_unmerged'  in s.channel.location:
-                assert all('Gaps/overlaps (unmergeable)' in p.warning for p in custom_plots)
-                assert all('Gaps/overlaps (unmergeable)' in p.warning for p in plots)
-                # mseed errors (unmergeable gaps are treated as errors)
-                # do not check for inventory errors, thus:
-                assert all('\n' not in p.warning for p in custom_plots)
-                assert all('\n' not in p.warning for p in plots)
+                # gaps unmerged is not anymore merged by default, so this equals the if above
+                assert any('gaps/overlaps' in _.lower() for _ in warnings)
+                # also, the stream has more traces, so we cannot calculate sn windows:
+                assert any('sn-windows N/A: No single-trace stream found' in _ for _ in warnings)
+                   
             else:
                 # for segments ok, we should have only a warning concerning the inventory:
-                assert all('\n' not in p.warning for p in custom_plots)
-                try:
-                    assert all('Inventory error' in p.warning for p in custom_plots)
-                except:
-                    print "------------------"
-                    print [p.warning for p in custom_plots]
-                    print "------------------"
-                assert all('Inventory error' in p.warning for p in plots)
+                assert len(warnings) == 1
+                
             
     @patch('stream2segment.gui.webapp.plotviews.get_inventory')
     @patch('stream2segment.gui.webapp.plotviews.exec_function')
@@ -322,7 +315,7 @@ class Test(unittest.TestCase):
         
         m = PlotManager(self.pymodule, self.config)
         
-        prevlen = len(m._views)
+        prevlen = len(m._plots)
         components_count = {} # group_id -> num expected components
         # where group_id is the tuple (event_id, channel.location)
         for s in self.session.query(Segment): 
@@ -335,46 +328,52 @@ class Test(unittest.TestCase):
                 
                 components_count[group_id] = other_comps_count
 
+
+        def assert_warnings(plotsmanager, segment):
+            '''asserts the correct warnings for the given segment. Called after plots are
+            calculated and after filtered plots to assure the warnings are the same'''
+            warnings = plotsmanager.get_warnings(segment.id)
+            # we have inventory errors in any case:
+            assert not any('Inventory N/A' in _ for _ in warnings)
+            if 'err' in s.channel.location:
+                assert any('sn-windows N/A: No well-formatted stream found' in _ for _ in warnings)
+            elif 'gap_merged'  in s.channel.location:
+                # gaps merged is not anymore merged by default, so this equals the if below
+                # gaps merged is not anymore merged by default, so check we should heve these warnings:
+                assert any('gaps/overlaps' in _.lower() for _ in warnings)
+                # also, the stream has more traces, so we cannot calculate sn windows:
+                assert any('sn-windows N/A: No single-trace stream found' in _ for _ in warnings)
+            elif 'gap_unmerged'  in s.channel.location:
+                # gaps unmerged is not anymore merged by default, so this equals the if above
+                assert any('gaps/overlaps' in _.lower() for _ in warnings)
+                # also, the stream has more traces, so we cannot calculate sn windows:
+                assert any('sn-windows N/A: No single-trace stream found' in _ for _ in warnings)
+                   
+            else:
+                # for segments ok, we should have only a warning concerning the inventory:
+                assert len(warnings) == 0
+            
         numplots = len(m.functions)
         for s in self.session.query(Segment):
             expected_components_count = components_count[(s.event_id, s.channel.location)]
              
             all_components = True
             idxs = range(numplots)
-            plots = m.getplots(self.session, s.id, all_components, *idxs)
+            plots = m.getplots(self.session, s.id, idxs, all_components)
             assert len(plots) == len(idxs)
             # as long as idxs[0] == 0 and 0 refers to the 'main' trace plot, we can do like this:
             custom_plots = plots[1:]
             plots = plots[:1]
             
-            assert not m._fviews  # no filtering calculated
-             
-            if 'err' in s.channel.location:
-                assert all('Unknown format' in p.warning for p in custom_plots)
-                assert all('Unknown format' in p.warning for p in plots)
-                # assert no other warning:
-                assert all('\n' not in p.warning for p in custom_plots)
-            elif 'gap_merged'  in s.channel.location:
-                assert all('Gaps/overlaps (merged)' in p.warning for p in custom_plots)
-                assert all('Gaps/overlaps (merged)' in p.warning for p in plots)
-                # assert no other warning:
-                assert all('\n' not in p.warning for p in custom_plots)
-            elif 'gap_unmerged'  in s.channel.location:
-                assert all('Gaps/overlaps (unmergeable)' in p.warning for p in custom_plots)
-                assert all('Gaps/overlaps (unmergeable)' in p.warning for p in plots)
-                # assert no other warning:
-                assert all('\n' not in p.warning for p in custom_plots)
-            else:
-                # for segments ok, we should have no warnings:
-                assert all('' in p.warning for p in custom_plots)
-                assert all('' in p.warning for p in plots)
+            assert not m._fplots  # no filtering calculated
+            assert_warnings(m, s)
         
         assert mock_get_inv.call_count == 1
         # assert we called exec_function the correct number of times
         assert mock_exec_func.call_count == self.session.query(Segment).count()*numplots
         # and assure all plots are non-none:
-        for v in m._views.itervalues():
-            for t, plots, _ in v.data.itervalues():
+        for v in m._plots.itervalues():
+            for t, plots in v.data.itervalues():
                 assert all(plot is not None for plot in plots)
         
         mock_exec_func.reset_mock()
@@ -382,37 +381,18 @@ class Test(unittest.TestCase):
         for s in self.session.query(Segment):
             idxs = range(numplots)  # range(len(viewmanager.customfunctions))
             expected_components_count = components_count[(s.event_id, s.channel.location)]
-            plots = m.getfplots(self.session, s.id, True, *idxs)
+            plots = m.getfplots(self.session, s.id, idxs, True)
             assert len(plots) == len(idxs)
             # as long as idxs[0] == 0 and 0 refers to the 'main' trace plot, we can do like this:
-            custom_plots = plots[1:]
-            plots = plots[:1]
-            if 'err' in s.channel.location:
-                assert all('Unknown format' in p.warning for p in custom_plots)
-                assert all('Unknown format' in p.warning for p in plots)
-                # assert no other warning:
-                assert all('\n' not in p.warning for p in custom_plots)
-            elif 'gap_merged'  in s.channel.location:
-                assert all('No matching response information found' in p.warning for p in custom_plots)
-                assert all('No matching response information found' in p.warning for p in plots)
-                # assert no other warning:
-                assert all('\n' not in p.warning for p in custom_plots)
-            elif 'gap_unmerged'  in s.channel.location:
-                assert all('Gaps/overlaps (unmergeable)' in p.warning for p in custom_plots)
-                assert all('Gaps/overlaps (unmergeable)' in p.warning for p in plots)
-                # assert no other warning:
-                assert all('\n' not in p.warning for p in custom_plots)
-            else:
-                # for segments ok, we should have no warnings:
-                assert all('' in p.warning for p in custom_plots)
-                assert all('' in p.warning for p in plots)
-        
+            
+            assert_warnings(m, s)
+
         assert mock_get_inv.call_count == 0  # already called
         # assert we called exec_function the correct number of times
         assert mock_exec_func.call_count == self.session.query(Segment).count()*numplots
         # and assure all plots are non-none:
-        for v in m._fviews.itervalues():
-            for t, plots, _ in v.data.itervalues():
+        for v in m._fplots.itervalues():
+            for s, plots in v.data.itervalues():
                 assert all(plot is not None for plot in plots)
         
 if __name__ == "__main__":

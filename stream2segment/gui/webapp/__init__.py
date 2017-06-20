@@ -18,15 +18,15 @@ from stream2segment.gui.webapp.plotviews import PlotManager
 # this has to come AFTER app ABOVE
 # from stream2segment.gui.webapp import views  # nopep8
 
-_app = None
+# _app = None
 
 
-def get_session():
+def get_session(app):
     """Opens a new database connection if there is none yet for the
     current application context.
     """
     if not hasattr(g, 'session'):
-        g.session = s2s_get_session(_app.config['DATABASE'])
+        g.session = s2s_get_session(app.config['DATABASE'])
     return g.session
 
 
@@ -36,41 +36,41 @@ def create_app(dbpath, pymodule=None, configdict=None):
         the config passed to Flask `app.config.from_pyfile`. For Flask config, please provide
         a valid object in `config_object`
     """
-    global _app
-    if _app is None:
-        # http://flask.pocoo.org/docs/0.12/patterns/appfactories/#basic-factories
-        app = Flask(__name__)
-        app.config['DATABASE'] = dbpath
-        app.config['PLOTMANAGER'] = PlotManager(pymodule, configdict)
-        app.config['CONFIG.YAML'] = configdict
-        app.config['CONFIG.KEYS'] = ['spectra', 'segment_select', 'segment_orderby']
-    #     if config_py_file is None:
-    #         config_py_file = os.path.join(os.path.dirname(__file__), "guiconfig.py")
-    #     # app.config.from_pyfile(config_py_file)
-    #     modl = load_source(config_py_file)
-    #     for k in dir(modl):
-    #         if k == "filter":
-    #             set_filter_config(**getattr(modl, k))
-    #         elif k == "spectra":
-    #             set_spectra_config(**getattr(modl, k))
+#     global _app
+#     if _app is None:
 
-    #     if config_object is not None:
-    #         app.config.from_object(config_object)
+    # http://flask.pocoo.org/docs/0.12/patterns/appfactories/#basic-factories
+    app = Flask(__name__)
+    app.config['DATABASE'] = dbpath
+    app.config['PLOTMANAGER'] = PlotManager(pymodule, configdict)
+    app.config['CONFIG.YAML'] = configdict
+    app.config['CONFIG.KEYS'] = ['spectra', 'segment_select', 'segment_orderby']
+#     if config_py_file is None:
+#         config_py_file = os.path.join(os.path.dirname(__file__), "guiconfig.py")
+#     # app.config.from_pyfile(config_py_file)
+#     modl = load_source(config_py_file)
+#     for k in dir(modl):
+#         if k == "filter":
+#             set_filter_config(**getattr(modl, k))
+#         elif k == "spectra":
+#             set_spectra_config(**getattr(modl, k))
 
-    #     from stream2segment.io.db.models import Base
-    #    db = SQLAlchemy(app, metadata=Base.metadata)
+#     if config_object is not None:
+#         app.config.from_object(config_object)
 
-        from stream2segment.gui.webapp.views import main_page
-        app.register_blueprint(main_page)
+#     from stream2segment.io.db.models import Base
+#    db = SQLAlchemy(app, metadata=Base.metadata)
 
-        @app.teardown_appcontext
-        def close_db(error):
-            """Closes the database again at the end of the request."""
-            if hasattr(g, 'session'):
-                g.session.close()
+    from stream2segment.gui.webapp.views import main_page
+    app.register_blueprint(main_page)
 
-        _app = app
-    return _app
+    @app.teardown_appcontext
+    def close_db(error):
+        """Closes the database again at the end of the request."""
+        if hasattr(g, 'session'):
+            g.session.close()
+
+    return app
 
 # class CustomJSONEncoder(JSONEncoder):
 #     """Encoder which encodes datetime's and utcdatetime's UTCDateTime's"""

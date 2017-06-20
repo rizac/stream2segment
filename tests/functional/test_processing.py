@@ -37,6 +37,8 @@ class DB():
         # Base.metadata.drop_all(cls.engine)
         Base.metadata.create_all(self.engine)  # @UndefinedVariable
         # create a configured "Session" class
+
+    def create(self):
         Session = sessionmaker(bind=self.engine)
         # create a Session
         self.session = Session()
@@ -159,10 +161,17 @@ class Test(unittest.TestCase):
     file = None
 
     @staticmethod
-    def cleanup(db, *patchers):
-        db.close()
+    def cleanup(self):
+        db = getattr(self, 'db', None)
+        if db:
+            db.close()
+
+        patchers = [getattr(self, 'patcher', None),
+                    getattr(self, 'patcher1', None),
+                    getattr(self, 'patcher2', None),]
         for patcher in patchers:
-            patcher.stop()
+            if patcher:
+                patcher.stop()
 
     @property
     def is_sqlite(self):
@@ -173,6 +182,10 @@ class Test(unittest.TestCase):
         return str(self.db.engine.url).startswith("postgresql://")
 
     def setUp(self):
+        
+        #add cleanup (in case tearDown is not called due to exceptions):
+        self.addCleanup(Test.cleanup, self)
+
         # remove file if not removed:
         #Test.cleanup(None, self.file)
 
@@ -180,6 +193,7 @@ class Test(unittest.TestCase):
         self.inventory=True
 
         self.db = DB()
+        self.db.create()
         self.session = self.db.session
         self.dburi = self.db.dburi
 
@@ -200,9 +214,7 @@ class Test(unittest.TestCase):
         
         
 
-        #add cleanup (in case tearDown is not called due to exceptions):
-        self.addCleanup(Test.cleanup, self.db, self.patcher, self.patcher1, self.patcher2)
-
+        
 
 #     @staticmethod
 #     def _get_seg_times():
