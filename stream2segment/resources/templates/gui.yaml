@@ -106,8 +106,17 @@ inventory: True
 # Saving inventories might speed up further processing but increases db size
 save_downloaded_inventory: False
 
-# settings for spectra and filter. You can change / delete their values but you should also
-# re-implement the spectra function defined in the python file:
+# Define the windows for the sn-spectra (signal-noise spectra)
+# Arrival time shift: shifts programmatically the calculated arrival time of
+# each segment by the specified amount of time (in seconds). Negative values are allowed.
+# The arrival time sets the end of the noise window, whose
+# length (duration) is always set equal to the signal window (see below)
+# Signal window: specifies the signal window. It can be a number, specifying the
+# window duration, in seconds starting from the arrival time, or a 2-element array
+# specifying the window time start and end, relative to the cumulative. A value of [0.05, 0.95] for
+# instance sets the signal window from the time the cumulative reaches 5% of its maximum, until
+# the time it reaches 95% of its maximum. Note that in this case the noise window and the
+# signal window might overlap.
 sn_windows:
   arrival_time_shift: 0  # programmatically shifts the arrival time for every segment (in seconds). Tune if you find arrival times should be corrected after visual inspection
   signal_window: [0.1, 0.9]  # either a number (in seconds) or interval relative to the % of the cumulative

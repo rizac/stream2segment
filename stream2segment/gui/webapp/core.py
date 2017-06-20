@@ -15,6 +15,8 @@ from stream2segment.io.db.queries import query4gui, count as query_count
 from itertools import chain, cycle, izip
 from stream2segment.gui.webapp.plotviews import jsontimestamp
 from datetime import datetime
+from stream2segment.io.db import sqlevalexpr
+import re
 
 
 NPTS_WIDE = 900
@@ -56,7 +58,7 @@ def get_metadata(session, seg_id=None):
         return python_type.__name__
 
     ret = []
-    exclude = set([Station.inventory_xml.key, Segment.data.key])
+    exclude = set([Station.inventory_xml.key, Segment.data.key, Run.log.key, Run.config.key])
     for prefix, model in METADATA:
         colnamez = colnames(model, fkey=False)
         for colname in colnamez:
@@ -130,7 +132,6 @@ def set_classes(session, config):
             cla = Class(label=label, description=description)
         session.add(cla)
     session.commit()
-    h = 9
 
 
 def get_classes(session, seg_id=None):
@@ -157,6 +158,16 @@ def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components,
     plots = []
     zooms_ = parse_zooms(zooms)
     sn_windows = []
+    if sn_wdws:
+        if sn_wdws['signal_window']:
+            try:
+                sn_wdws = {'signal_window': parse_array(sn_wdws['signal_window'], float),
+                           'arrival_time_shift': float(sn_wdws['arrival_time_shift'])}
+            except Exception:
+                pass
+        # set_sn_windows(self, session, a_time_shift, signal_window):
+        plotmanager.update_config(sn_windows=sn_wdws)
+
     if plot_indices:
         get_plots_func = plotmanager.getfplots if filtered else plotmanager.getplots
         plots = get_plots_func(session, seg_id, plot_indices, all_components)
@@ -177,6 +188,22 @@ def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components,
             'metadata': [] if not metadata else get_metadata(session, seg_id),
             'classes': [] if not classes else get_classes(session, seg_id)}  # get_columns(segment, metadata_keys) if metadata_keys else []}
 #             'metadata': get_columns(segment, metadata_keys) if metadata_keys else {}}
+
+
+def parse_array(str_array, parsefunc=None, try_return_scalar=True):
+    '''splits str_array into elements, and apply func on each element
+    :param str_array: a valid string array, with or without square brackets. Leading and
+    trailing spaces will be ignored (str split is applied twice if the string has square
+    brackets). The separation characters are the comma surrounded by zero or more spaces, or
+    a one or more spaces. E.g. "  [1 ,3  ]", "[1,3]", 
+    '''
+    d = str_array.strip()
+    if d[0] == '[' and d[-1] == ']':
+        d = d[1:-1].strip()
+    _ = re.split("(?:\\s*,\\s*|\\s+)", d)
+    if parsefunc is not None:
+        _ = map(parsefunc, _)
+    return _[0] if try_return_scalar and len(_) == 1 else _
 
 
 def parse_zooms(zooms):

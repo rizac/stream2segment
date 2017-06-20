@@ -276,10 +276,20 @@ def parsevals(pythontype, expr_value):
     elif pythontype == int:
         return [None if x in _NONES else int(x) for x in vals]
     elif pythontype == bool:
-        return [None if x in _NONES else bool(x) for x in vals]
+        # bool requires a user defined function for parsing javascript/python strings (see below)
+        return [None if x in _NONES else _bool(x) for x in vals]
     elif pythontype == datetime:
         return np.array(vals, dtype="datetime64[us]").tolist()  # works with None's
     elif pythontype == str:
         return [None if x in _NONES else str(x) for x in vals]
 
     raise ValueError('Unsupported python type %s' % pythontype)
+
+
+def _bool(val):
+    '''parses javascript booleans true false and returns a python boolean'''
+    if val in ('false', 'False', 'FALSE'):
+        return False
+    elif val in ('true', 'True', 'TRUE'):
+        return True
+    return bool(val)

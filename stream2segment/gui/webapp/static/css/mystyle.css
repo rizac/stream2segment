@@ -20,13 +20,21 @@ div.main > div.center > div.left{
 }
 
 div.main > div.center > div.center{
-	margin-left: 14em;
 	height:100%;
+}
+
+/* controlling the width of the left panel (modify both with the same value:*/
+div.main > div.center > div.center{
+	margin-left: 12.5em;
+}
+div.main > div.center > div.left{
+	width: 12.5em;
 }
 
 /* inputs are too long... */
 div.main > div.center > div.left input{
-	max-width: 8.5em;
+	/* max-width: 8.5em; */
+	width: 100%;
 }
 
 
@@ -59,7 +67,7 @@ div.flex.h-container > div.center, div.flex.v-container div.center{
 	position:absolute;
 	width:50%;
 	height:50%;
-	/*border: 1px solid #ddd;*/
+	/*this makes the panel nicer as plotly div does not extend the full width:*/
 	background-color: white;
 }
 
@@ -100,9 +108,14 @@ div.plot-other-component{
 	height: 50%;
 }
 
+.pnl-heading{
+	margin-top: 20px;
+    font-weight: bold;
+}
 
 div.metadata{
-	margin: 0px !important;
+	margin-right: 10px !important;
+	margin-bottom: 10px !important;
 }
 
 div.metadata table td{
@@ -127,8 +140,19 @@ div.metadata > div.panel-body{
 /* left panel */
 div.left.v-container.panel-left{
 	height:100%;
-	border: 1px solid #000;
-	background-color: lightslategray;
+	border: 1px solid #ddd;
+	border-radius: 5px;
+	/* background-color: #304150;
+	color: lightgray; */
+	padding: 5px;
+	border-top-right-radius: 0px;
+	border-bottom-right-radius: 0px;
+}
+
+/* center panel*/
+div.main > div.center > div.center{
+	position: relative;
+	border: 1px solid #ddd;
 }
 
 .arrow-up, .arrow-down{
@@ -151,9 +175,6 @@ div.left.v-container.panel-left{
 
 /* override bootstrap */
 label {
-    /* display: inline-block;
-    max-width: 100%;
-     */
     margin-bottom: 2px;
     font-weight: normal !important;
 }

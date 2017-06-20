@@ -196,7 +196,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	$scope.toggleAllComponentView = function(){
 		//$scope.showAllComponents = !$scope.showAllComponents; THIS IS HANDLED BY ANGULAR!
 		// update plots:
-		$scope.refreshView([index]);
+		$scope.refreshView([0]);
 	}
 	
 	/** THIS FUNCTION GETS THE CURRENT PLOTS. Puts the data in $scope.segData.plotData **/
@@ -211,6 +211,14 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		var zooms = $scope.getAndClearZooms();
 		var param = {seg_id: $scope.segIds[index], filtered: $scope.showFiltered, zooms:zooms,
 				plot_indices: indices, all_components: $scope.showAllComponents};
+		// if we changed the results of the sn-windows send data. Note that we might
+		// be here if we toggled e.g., the filter checkbox or the 'allComponents' checkbox
+		// this might be fixed if it's not what we want
+		if ($scope.snWindows._changed){
+			param.sn_windows = {arrival_time_shift: $scope.snWindows.arrival_time_shift,
+					signal_window:$scope.snWindows.signal_window};
+			$scope.snWindows._changed = false;
+		}
 		$scope.loading = true;
 		// initialize if undefined (as it is the first time we download plots)
 		if (!$scope.segData.plotData){
@@ -407,13 +415,9 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		return status
 	}
 	
-	$scope.configSpectra = function(){
-		var param = $scope.spectraSettings;
-		$http.post("/config_spectra", param, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
-			$scope.spectraSettings._changed = false;
-			// update plots:
-	        $scope.refreshView([0, 1]); // refresh current segment and spectra only
-	    });
+	$scope.setSnWindows = function(){
+		$scope.refreshView([0, 1]);// simply update plots, the changed flags will be set therein:
+	         // refresh current segment and spectra only
 	};
 	// init our app:
 	$scope.init();

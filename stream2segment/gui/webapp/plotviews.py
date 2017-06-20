@@ -87,16 +87,16 @@ def exec_function(func, segment, stream, inventory, config,
     '''
     title = plot_title(stream, segment, func)  # "%s - %s" % (main_plot.title, name)
     try:
-        assertnoexc(stream)  # will raise if trace instanceof exception
-        assertnoexc(inventory)  # same for inventories. Note that None does not raise
+        try:
+            assertnoexc(stream)  # will raise if trace instanceof exception
+        except Exception as exc:
+            raise Exception("Stream N/A: %s" % str(exc))
+        try:
+            assertnoexc(inventory)  # same for inventories. Note that None does not raise
+        except Exception as exc:
+            raise Exception("Inventory N/A: %s" % str(exc))
         # None is used when we do not request inventory. If we do, then we assume one wants
         # to use it
-
-#         try:  # for inventories, append to existing warning on exception:
-#             assertnoexc(inventory)
-#         except Exception as exc:
-#             warning = "%s%s%s" % (warning, "\n" if warning else "",
-#                                   "Inventory error: %s" % str(exc))
 
         funcres = func(segment, stream, inventory, config)
         if not convert_return_value_to_plot:
@@ -167,7 +167,7 @@ def _get_spectra_windows(config, a_time, trace):
         nsy, sig = [a_time - (t1-t0), a_time], [t0, t1]
     except TypeError:  # not a tuple/list? then it's a scalar:
         shift = config['sn_windows']['signal_window']
-        nsy, sig = [a_time, a_time-shift], [a_time, a_time+shift]
+        nsy, sig = [a_time-shift, a_time], [a_time, a_time+shift]
     return sig, nsy
 
 
@@ -220,10 +220,8 @@ class PlotsCache(object):
         :param functions: functions which must return a `Plot` (or an Plot-convertible object).
         **the first item MUST be `_getme` by default**
         """
-        # super(View, self).__init__((None for _ in functions))
-        # append default custom functions. Use self cause they avoid copying the trace,
-        # and in case of fft they need to access object attributes
         self.functions = functions
+        # data is a dict pf {seg_id: [stream, [plot1,...,plotN]], where N = len(functions)
         self.data = {segid: [s,  [None] * len(self.functions)] for
                      s, segid in izip(streams, seg_ids)}
         # signal windows data: use a dict to keep copy by ref for filtered PlotsCache
@@ -244,14 +242,13 @@ class PlotsCache(object):
 
     def invalidate(self):
         '''invalidates all the plots (setting them to None) except the main trace plot'''
-        self._sn_wdws['s_wdws'] = None
+        self._sn_wdws['s_wdws'] = {sid: None for sid in self.data}
         index_of_traceplot = 0  # the index of the function returning the
         # trace plot (main plot returning the trace as it is)
         for segid in self.data:
-            self.sn_spectra_windows[segid] = None
             plots = self.data[segid][1]
             for i in xrange(len(plots)):
-                if i == index_of_traceplot:
+                if i == index_of_traceplot:  # the trace plot stays the same, it does not use conig
                     continue
                 plots[i] = None
 
@@ -267,12 +264,13 @@ class PlotsCache(object):
             if isinstance(s, Exception):
                 raise s
             elif len(s) != 1:
-                raise Exception("No single-trace stream")
-            sn_wdws = _get_spectra_windows(config, self._sn_wdws['arrival_time'], s[0])
-        except KeyError as kerr:
-            sn_wdws = Exception("key not found: '" + str(kerr) + "' (check config)")
+                raise Exception("%d traces in stream" % len(s))
+            try:
+                sn_wdws = _get_spectra_windows(config, self._sn_wdws['arrival_time'], s[0])
+            except KeyError as kerr:
+                raise Exception("'%s' not found (check config)" % str(kerr))
         except Exception as exc:
-            sn_wdws = exc
+            sn_wdws = Exception("SN-windows N/A: %s" % str(exc))
         self._sn_wdws['s_wdws'][seg_id] = sn_wdws
         return self.get_sn_windows(seg_id, config)  # now should return a value, or raise
 
@@ -328,17 +326,6 @@ class PlotsCache(object):
             ret.append(plot)
         return ret
 
-#     def _exec_function(self, func, stream, segment, inv, config, convert_to_plot=True):
-#         seg_id = segment.id
-#         if self.sn_spectra_windows[seg_id] is None:
-#             self.sn_spectra_windows[seg_id] = _get_spectra_windows(config, segment.arrival_time,
-#                                                                    stream)
-#         # execute:
-#         return exec_function(func, stream, segment, inv, config,
-#                              self.sn_spectra_windows[seg_id][0],
-#                              self.sn_spectra_windows[seg_id][1],
-#                              convert_to_plot)
-
 
 class PlotManager(object):
     """
@@ -354,13 +341,14 @@ class PlotManager(object):
         # if they are defined in the config, they will be overridden below
         # meanwhile they raise, and as lambda function cannot raise, we make use of our
         # 'assertnoexc' function which is used in execfunction and comes handy here:
-        self.filterfunc = lambda *a, **v: assertnoexc(Exception("No `_filter` function set"))
-        sn_spectrumfunc = lambda *a, **v: assertnoexc(Exception("No `_sn_spectrum` function set"))  # @IgnorePep8
+        self.filterfunc = lambda *a, **v: assertnoexc(Exception("No '_filter' function set"))
+        sn_spectrumfunc = lambda *a, **v: assertnoexc(Exception("No '_sn_spectrum' function set"))  # @IgnorePep8
         for f in iterfuncs(pymodule):
             if f.__name__ == '_filter':
                 self.filterfunc = f
             elif f.__name__ == '_sn_spectrum':
                 _sn_spectrumfunc = f
+
                 def sn_spectrumfunc(segment, stream, inv, conf):
                     # hack to recognize if we have the filtered or unfiltered stream:
                     filtered = False
@@ -373,7 +361,7 @@ class PlotManager(object):
                     x0_sig, df_sig, sig = _sn_spectrumfunc(segment, Stream(traces), inv, conf)
                     traces = [t.copy().trim(n_wdw[0], n_wdw[1]) for t in stream]
                     x0_noi, df_noi, noi = _sn_spectrumfunc(segment, Stream(traces), inv, conf)
-                    p = Plot(title='s/n spectra').add(x0_sig, df_sig, sig, 'Signal').\
+                    p = Plot(title='S/N spectra').add(x0_sig, df_sig, sig, 'Signal').\
                         add(x0_noi, df_noi, noi, 'Noise')
                     return p
             elif f.__name__.startswith('_'):
@@ -391,6 +379,16 @@ class PlotManager(object):
     @property
     def userdefined_plotnames(self):
         return [x.__name__ for x in self.functions[self._def_func_count:]]
+
+    @property
+    def get_filterfunc_doc(self):
+        try:
+            ret = self.filterfunc.__doc__
+            if not ret.strip():
+                ret = "No filter function doc found: check GUI python file"
+        except Exception as exc:
+            ret = "Error getting filter function doc:\n%s" % str(exc)
+        return ret
 
     def getplots(self, session, seg_id, plot_indices, all_components=False):
         """Returns the plots representing the trace of the segment `seg_id` (more precisely,
@@ -526,27 +524,20 @@ class PlotManager(object):
         if isinstance(inv, Exception):
             ww.append("Inventory N/A: %s" % str(inv))
             inv = None
-
-#         try:
-#             self.get_sn_windows(seg_id)
-#         except Exception as exc:
-#             ww.append('sn-windows N/A: %s' % str(exc))
         return ww
 
     def get_sn_windows(self, seg_id, filtered):
-        try:
-            plots_cache = self._plots if not filtered else self._fplots
-            return plots_cache[seg_id].get_sn_windows(seg_id, self.config)
-        except KeyError as _:
-            raise Exception("sn-windows N/A: segment id '%s' not found" % str(seg_id))
-        except Exception as exc:
-            raise Exception('sn-windows N/A: %s' % str(exc))
+        '''returns the sn windows [noise_start, noise_end], [signal_start, signal_end]
+        All tuple elements are `UTCDateTime`s
+        Raises on error'''
+        plots_cache = self._plots if not filtered else self._fplots
+        return plots_cache[seg_id].get_sn_windows(seg_id, self.config)
 
-    def set_sn_windows(self, session, a_time_shift, signal_window):
-        # set values in the config
-        # set the values in the viewmanager
-        self.config['arrival_time_shift'] = a_time_shift
-        self.config['signal_window'] = signal_window
+    def update_config(self, **values):
+        '''updates the current config and invalidates all plotcahce's, so that a query to
+        their plots forces a recalculation (except for the main stream plot,
+        currently at index 0)'''
+        self.config.update(**values)
         for v in self._plots.itervalues():
             v.invalidate()
         for v in self._fplots.itervalues():
@@ -577,7 +568,7 @@ class Plot(object):
     def add(self, x0=None, dx=None, y=None, label=None):
         """Adds a new series (scatter line) to this plot. This method optimizes
         the data transfer and the line will be handled by the frontend plot library"""
-        verr = ValueError("Cannot paint plot with mixed x-domains (e.g., times and frequencies)")
+        verr = ValueError("mixed x-domain types (e.g., times and numeric)")
         if isinstance(x0, datetime) or isinstance(x0, UTCDateTime) or isinstance(dx, timedelta):
             x0 = x0 if isinstance(x0, UTCDateTime) else UTCDateTime(x0)
             if isinstance(dx, timedelta):
@@ -586,6 +577,7 @@ class Plot(object):
             dx = 1000 * dx
             if self.is_timeseries is False and self.data:
                 raise verr
+            self.is_timeseries = True
         else:
             if self.is_timeseries is True:
                 raise verr
@@ -625,6 +617,10 @@ class Plot(object):
     @staticmethod
     def get_slice(x0, dx, y, xbounds, npts):
         start, end = Plot.unpack_bounds(xbounds)
+        if (start is not None and start >= x0 + dx * (len(y) - 1)) or \
+                (end is not None and end <= x0):  # out of bounds
+            return x0, dx, []
+
         idx0 = None if start is None else max(0,
                                               int(np.ceil(np.true_divide(start-x0, dx))))
         idx1 = None if end is None else min(len(y),
@@ -735,77 +731,3 @@ def downsample(array, npts):
         downsamples[-1] = arr_slice.max()
 
     return downsamples, newdxratio
-
-
-# def _spectra(spectrum_func, trace, segment, inventory, config, warning, postmanager):
-#     '''function returning the spectra (noise, signal) of a trace in the form of a Plot object'''
-#     # warning = ""
-#     noisy_wdw_args, signal_wdw_args = get_spectra_windows(config, segment.arrival_time, trace)
-# 
-#     noise_trace = trace.copy().trim(starttime=noisy_wdw_args[0], endtime=noisy_wdw_args[1],
-#                                     pad=True, fill_value=0)
-#     signal_trace = trace.copy().trim(starttime=signal_wdw_args[0], endtime=signal_wdw_args[1],
-#                                      pad=True, fill_value=0)
-# 
-#     noise_trace
-#     noise_trace.trim()
-#     plot1 = exec_function(spectrum_func, signal_trace, segment, inventory, config, warning,
-#                           check_return_value=False)
-#     plot2 = exec_function(spectrum_func, noise_trace, segment, inventory, config, warning,
-#                           check_return_value=False)
-# 
-#     plot1.title = 'Signal'
-#     plot2.title = 'Noise'
-#     merged = plot1.merge(plot2)
-#     merged.title = plot_title(trace, segment, "spectra")
-#     return merged
-
-#     try:
-#     fft_noise = fft(trace, *noisy_wdw)
-#     fft_signal = fft(trace, *signal_wdw)
-# 
-#     df = fft_signal.stats.df
-#     f0 = 0
-# 
-#     if config.get('spectra', {}).get('type', 'amp') == 'pow':
-#         func = powspec
-#     else:
-#         func = ampspec
-#     # note below: ampspec(array, True) (or powspec, it's the same) simply returns the
-#     # abs(array) which apparently works also if array is an obspy Trace. To avoid problems pass
-#     # the data value
-#     spec_noise, spec_signal = func(fft_noise.data, True), func(fft_signal.data, True)
-# 
-#     if postprocess_func is not None:
-#         f0noise, dfnoise, spec_noise = postprocess_func(f0, df, spec_noise)
-#         f0signal, dfsignal, spec_signal = postprocess_func(f0, df, spec_signal)
-#     else:
-#         f0noise, dfnoise, f0signal, dfsignal = f0, df, f0, df
-# 
-#     return Plot(plot_title(trace, segment, "spectra"), warning=warning).\
-#         add(f0noise, dfnoise, spec_noise, "Noise").\
-#         add(f0signal, dfsignal, spec_signal, "Signal")
-
-
-# def get_spectra_windows(config, a_time, trace):
-#     '''Returns the spectra windows from a given arguments. Used by `_spectra`
-#     :return the tuple (start, end), (start, end) where all arguments are `UTCDateTime`s
-#     and the first tuple refers to the noisy window, the latter to the signal window
-#     '''
-#     try:
-#         a_time = UTCDateTime(a_time) + config['spectra']['arrival_time_shift']
-#         # Note above: UTCDateTime +float considers the latter in seconds
-#         # we need UTcDateTime cause the spectra function we implemented accepts that object type
-#         try:
-#             cum0, cum1 = config['spectra']['signal_window']
-#             t0, t1 = cumtimes(cumsum(trace), cum0, cum1)
-#             nsy, sig = [a_time, t0 - t1], [t0, t1 - t0]
-#         except TypeError:
-#             shift = config['spectra']['signal_window']
-#             nsy, sig = [a_time, -shift], [a_time, shift]
-#         return nsy, sig
-#     except Exception as err:
-#         raise ValueError("%s (check config)" % str(err))
-
-
-

@@ -8,7 +8,16 @@ from stream2segment.analysis import triangsmooth
 
 
 def _filter(segment, stream, inventory, config):
-    """Filters the given trace"""
+    """Filters the signal and removes the instrumental response
+    The filter algorithm has the following steps:
+     1. Sets the max frequency to 0.9 of the nyquist freauency (sampling rate /2)
+    (slightly less than nyquist seems to avoid artifacts)
+    2. Offset removal (substract the mean from the signal)
+    3. Tapering
+    4. Pad data with zeros at the END in order to accomodate the filter transient
+    5. Apply bandpass filter, where the lower frequency is set according to the magnitude
+    6. Remove padded elements
+    7. Remove the instrumental response"""
     # stream is the `obspy.core.Stream` object returned by reading the segment data attribute.
     # If stream has more than one trace, most likely the segment has gaps. It is up to the user
     # to handle the case: you can call `stream.merge`, perform your own processing,

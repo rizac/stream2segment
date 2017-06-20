@@ -49,9 +49,9 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 		<div class="center h-container">
 			<div class="left v-container panel-left">
 				<div class="top">
-					<div class="panel panel-default">
-						<div class="panel-heading">Segments</div>
-						<div class="panel-body">
+					<div class="pnl">
+						<div class="pnl-heading">Segments</div>
+						<div class="pnl-body">
 							<div class="checkbox">
 								<div class="checkbox">
 									Current: {{ segIdx + 1 }} of {{ segIds.length }}
@@ -60,44 +60,34 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 									<button class='btn btn-default' ng-click="setPreviousSegment()">&larr;</button>
 									<button class='btn btn-default' ng-click="setNextSegment()" >&rarr;</button>
 								</div>
-								<div class="checkbox">
-									<label><input type="checkbox" ng-model="showAllComponents" ng-change="toggleAllComponentView()"> Show all components</label>
-								
-								</div>
 							</div>
 							<button class='btn btn-default btn-block' ng-click="selection.showForm=true">Select</button>
 	  					</div>
 					</div>
-					<div class="panel panel-default">
-						<div class="panel-heading">Plots</div>
-						<div class="panel-body">				
+					<div class="pnl">
+						<div class="pnl-heading">Plots</div>
+						<div class="pnl-body">		
 							<div class="checkbox">
 								<label><input type="checkbox" ng-model="showFiltered" ng-change="toggleFilter()"> Filter</label>
 								<div class="tooltip_">?
 									<span class="tooltiptext">
-										Filters the signal and removes the instrumental response
-										<p>The filter algorithm has the following steps:
-									    <p> 1. Sets the max frequency to 0.9 of the nyquist freauency (sampling rate /2)
-    									(slightly less than nyquist seems to avoid artifacts)
-    									<p>2. Offset removal (substract the mean from the signal)
-										<p>3. Tapering
-								    	<p>4. Pad data with zeros at the END in order to accomodate the filter transient
-    									<p>5. Apply bandpass filter, where the lower frequency is set according to the magnitude
-									    <p>6. Remove padded elements
-									    <p>7. Remove the instrumental response
+										{% endraw %}{{ filterfunc_doc|safe }}{% raw %}
 									</span>
 								</div>
 		  					</div>
-		  					
 		  					<div class="divider"></div>
-
-							<div id="spectra" class="radio">Spectra
+		  					<div class="checkbox">
+									<label><input type="checkbox" ng-model="showAllComponents" ng-change="toggleAllComponentView()"> Show all components</label>
+								
+								</div>
+		  					<div class="divider"></div>
+							<div id="spectra" class="radio">S/N Windows
 								<div class="tooltip_">?
 									<span class="tooltiptext">
 										Define the windows for the spectra
 										<p>Arrival time shift: shifts programmatically the calculated arrival time of
 										each segment by the specified amount of time (in seconds). Negative values are allowed.
-										The arrival time sets the <i>end</i> of the noise window, whose
+										The arrival time sets the <b>end</b> of the noise window, whose
 										length (duration) is always set equal to the signal window (see below)
 										<p>Signal window: specifies the signal window. It can be a number, specifying the
 										window duration, in seconds starting from the arrival time, or a 2-element array
@@ -115,11 +105,11 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 							<label class="checkbox">Signal window:</label>
 							<input class="checkbox" type="text" ng-model="snWindows.signal_window" ng-change="snWindows._changed=true">
 		  					
-							<button class='btn btn-default btn-block' ng-disabled="!snWindows._changed" ng-click="configSpectra()">Refresh</button>
+							<button class='btn btn-default btn-block' ng-disabled="!snWindows._changed" ng-click="setSnWindows()">Refresh</button>
 							
 							<div class="divider"></div>
 
-							<div class="radio">Bottom plot</div>
+							<div class="radio">Custom plots</div>
 							{% endraw %}{% for name in userDefinedPlotNames %}
 							<div class="radio">
 								<label><input type="radio" ng-change="bottomPlotChanged()" ng-model="bottomPlotId" value="{{ loop.index0 + 2}}">{{ name }}</label>
@@ -136,7 +126,7 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 				<div class=bottom>
 				</div>
 			</div>
-			<div class="center h-container panel-center" style='position:relative'>
+			<div class="center h-container panel-center">
 				<!-- plotly (as of feb 2017) does NOT work with flex layout. TOO BAD. -->
 				<!--
 					***********************
@@ -165,7 +155,19 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 						<div class="panel-heading top">Segment Metadata</div>
 						<div class="panel-body center">
 						
-							<div>
+							<div ng-show="segData.warnings">
+								<div class="divider"></div>
+								<div ng-click="toggleDivVisibility('warnings')">
+									warnings <div ng-class="isDivVisible('warnings') ? 'arrow-up' : 'arrow-down'"></div>
+								</div>
+								<div ng-show="isDivVisible('warnings')" class="panel-body">
+									<div ng-repeat="w in segData.warnings" class="alert alert-info">
+										{{ w }}
+									</div>
+								</div>
+							</div>
+
+							<div ng-show="classes">
 								<div class="divider"></div>
 								<div ng-click="toggleDivVisibility('classes')">
 									classes <div ng-class="isDivVisible('classes') ? 'arrow-up' : 'arrow-down'"></div>

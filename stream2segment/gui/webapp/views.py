@@ -21,9 +21,11 @@ def main():
     ud_plotnames = current_app.config['PLOTMANAGER'].userdefined_plotnames
     keys = ['sn_windows', 'segment_select', 'segment_orderby']
     settings = {k: config[k] for k in keys}
+    filterfunc_doc = current_app.config['PLOTMANAGER'].get_filterfunc_doc.replace("\n", "<p>")
     return render_template('index.html', title=secure_dburl(current_app.config["DATABASE"]),
                            settings=settings,
-                           userDefinedPlotNames=ud_plotnames)
+                           userDefinedPlotNames=ud_plotnames,
+                           filterfunc_doc=filterfunc_doc)
 
 
 @main_page.route("/get_segments", methods=['POST'])
@@ -48,14 +50,15 @@ def get_segment_data():
     metadata = data.get('metadata', False)
     classes = data.get('classes', False)
     warnings = data.get('warnings', False)
-#     conf = data.get('config', {})
+    sn_windows = data.get('sn_windows', {})
     plotmanager = current_app.config['PLOTMANAGER']
 #     if conf:
 #         current_app.config['CONFIG.YAML'].update(conf)  # updates also plotmanager
     # NOTE: seg_id is a unicode string, but the query to the db works as well
     return jsonify(core.get_segment_data(get_session(current_app), seg_id, plotmanager,
                                          plot_indices, all_components,
-                                         filtered, zooms, metadata, classes, warnings))
+                                         filtered, zooms, metadata, classes, warnings,
+                                         sn_windows))
 
 
 # @main_page.route("/get_segment_plots", methods=['POST'])
