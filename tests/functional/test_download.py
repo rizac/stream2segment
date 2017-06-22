@@ -385,10 +385,6 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     
     def get_events_df(self, url_read_side_effect, *a, **v):
         self.setup_urlopen(self._evt_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
-#         if not eventws_url:
-#             ptch = patch('stream2segment.download.main.yaml_load', return_value={'': {'event': 'http:event1'}})
-#             eventws_url = get_eventws_url(self.session, "")
-#             ptch.stop()
         return get_events_df(*a, **v)
         
 

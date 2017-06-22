@@ -355,7 +355,7 @@ class Test(unittest.TestCase):
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             pyfile, conffile = self.get_processing_files()
             result = runner.invoke(main, ['p', '--dburl', self.dburi,
-                                   pyfile, conffile, file.name])
+                                   '-p', pyfile, '-c', conffile, file.name])
 
             if result.exception:
                 import traceback
@@ -414,7 +414,7 @@ class Test(unittest.TestCase):
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             pyfile, conffile = self.get_processing_files()
             result = runner.invoke(main, ['p', '--dburl', self.dburi,
-                                   pyfile, conffile, file.name])
+                                   '-p', pyfile, '-c', conffile, file.name])
 
             if result.exception:
                 import traceback
@@ -471,8 +471,8 @@ class Test(unittest.TestCase):
             pyfile, conffile = self.get_processing_files()
             
             result = runner.invoke(main, ['p', '--dburl', self.dburi,
-                                   pyfile,
-                                   conffile,
+                                   '-p', pyfile,
+                                   '-c', conffile,
                                    file.name])
 
             if result.exception:
@@ -530,8 +530,8 @@ class Test(unittest.TestCase):
             pyfile, conffile = self.get_processing_files()
             
             result = runner.invoke(main, ['p', '--dburl', self.dburi,
-                                   pyfile,
-                                   conffile,
+                                   '-p', pyfile,
+                                   '-c', conffile,
                                    file.name])
 
             if result.exception:
@@ -574,8 +574,8 @@ class Test(unittest.TestCase):
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             pyfile, conffile = self.get_processing_files(True)
             result = runner.invoke(main, ['p', '--dburl', self.dburi,
-                                   pyfile,
-                                   conffile,
+                                   '-p', pyfile,
+                                   '-c', conffile,
                                    file.name])
 
             if result.exception:
@@ -606,8 +606,8 @@ class Test(unittest.TestCase):
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             # pyfile, conffile = Test.get_processing_files()
             result = runner.invoke(main, ['p', '--dburl', self.dburi,
-                                   Test.get_file("processing_test_freqs2csv_dict.py"),
-                                   Test.get_file('processing.config.yaml'),
+                                   '-p', Test.get_file("processing_test_freqs2csv_dict.py"),
+                                   '-c', Test.get_file('processing.config.yaml'),
                                    file.name])
 
             # the file above are bad implementation (old one)

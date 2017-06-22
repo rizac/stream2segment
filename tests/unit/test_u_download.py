@@ -42,7 +42,7 @@ from obspy.taup.helper_classes import TauModelError
 import sys
 # from stream2segment.main import logger as main_logger
 from sqlalchemy.sql.expression import func
-from stream2segment.utils import get_session, mseedlite3, yaml_load
+from stream2segment.utils import get_session, mseedlite3
 from stream2segment.io.db.pd_sql_utils import dbquery2df, insertdf_napkeys, updatedf
 from logging import StreamHandler
 import logging
@@ -53,7 +53,7 @@ from test.test_userdict import d1
 from stream2segment.utils.mseedlite3 import MSeedError, unpack
 import threading
 from stream2segment.utils.url import read_async
-from stream2segment.utils.resources import get_templates_fpath
+from stream2segment.utils.resources import get_templates_fpath, yaml_load
 
 
 # when debugging, I want the full dataframe with to_string(), not truncated

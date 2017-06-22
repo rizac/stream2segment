@@ -28,7 +28,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	};
 	
 	$scope.bottomPlotId = 2;
-	$scope.showFiltered = true;
+	$scope.showPreProcessed = true;
 	$scope.showAllComponents = false;
 	$scope.classes = [];
 
@@ -118,7 +118,6 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		$scope.loading = true;
 		$http.post("/get_segment", param, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
 			var metadata = response.data.metadata || [];
-			$scope.segData.classIds = []
 			// create segMetadata and set it to $scope.segData.metadata
 			// the variable has to be parsed in order to order keys and values according to
 			// our choice:
@@ -127,22 +126,17 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			metadata.forEach(function(elm, index){
 				var key = elm[0];
 				var val = elm[1];
-				if (key == 'classes.id'){
-					// do not show classes in metadata panel but in a dedicated slot. Thus
-					// remove 'classes' and set it to segData.classIds
-					$scope.segData.classIds = val;
-				}else{
-					var elms = key.split(".");
-					if (elms.length == 1){
-						elms = ["segment", elms[0]];
-					}
-					if (!(elms[0] in segMetadata)){
-						segMetadata[elms[0]] = {};
-					}
-					segMetadata[elms[0]][elms[1]] = val;
+				var elms = key.split(".");
+				if (elms.length == 1){
+					elms = ["segment", elms[0]];
 				}
+				if (!(elms[0] in segMetadata)){
+					segMetadata[elms[0]] = {};
+				}
+				segMetadata[elms[0]][elms[1]] = val;
 			});
 			$scope.segData.metadata = segMetadata;
+			$scope.segData.classIds = response.data.classes;  // array of class ids
 			$scope.segData.warnings = response.data.warnings;  // FIXME: need to set it up!
 			// update plots:
 	        $scope.refreshView();
@@ -188,8 +182,8 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		$scope.refreshView();
 	};
 	
-	$scope.toggleFilter = function(){
-		//$scope.showFiltered = !$scope.showFiltered; THIS IS HANDLED BY ANGULAR!
+	$scope.togglePreProcess = function(){
+		//$scope.showPreProcessed = !$scope.showPreProcessed; THIS IS HANDLED BY ANGULAR!
 		$scope.refreshView();
 	};
 	
@@ -209,10 +203,10 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			var indices = $scope.getVisiblePlotIndices();
 		}
 		var zooms = $scope.getAndClearZooms();
-		var param = {seg_id: $scope.segIds[index], filtered: $scope.showFiltered, zooms:zooms,
+		var param = {seg_id: $scope.segIds[index], pre_processed: $scope.showPreProcessed, zooms:zooms,
 				plot_indices: indices, all_components: $scope.showAllComponents};
 		// if we changed the results of the sn-windows send data. Note that we might
-		// be here if we toggled e.g., the filter checkbox or the 'allComponents' checkbox
+		// be here if we toggled e.g., the per-process checkbox or the 'allComponents' checkbox
 		// this might be fixed if it's not what we want
 		if ($scope.snWindows._changed){
 			param.sn_windows = {arrival_time_shift: $scope.snWindows.arrival_time_shift,
@@ -308,7 +302,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 					div.layout.annotations[0].text = title;
 				}
 				if (div.layout.xaxis){
-					div.layout.xaxis.title = warnings;
+					div.layout.xaxis.title = warnings;  // to control the color font of the warning, see plotlyconfig.js 'titlefont'
 				}
 				if (i==0){ // spectra windows
 					// https://plot.ly/javascript/shapes/#vertical-and-horizontal-lines-positioned-relative-to-the-axes

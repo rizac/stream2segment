@@ -4,13 +4,16 @@ Created on Jun 20, 2016
 @author: riccardo
 '''
 from __future__ import print_function
-from stream2segment.gui.webapp import create_app
+
 import sys
+from os.path import realpath, abspath
 import random
 import threading
 import webbrowser
-from stream2segment.utils import load_source, yaml_load
-from os.path import realpath, abspath
+
+from stream2segment.utils import load_source
+from stream2segment.utils.resources import yaml_load
+from stream2segment.gui.webapp import create_app
 
 
 # from stream2segment.io.db import ClassAnnotator

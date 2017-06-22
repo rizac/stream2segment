@@ -4,7 +4,6 @@ html, body, div.main{
 }
 
 body{
-	padding: 8px;
 	font-family: "Lucida Sans Unicode", Arial, Helvetica, "Trebuchet MS", Verdana, sans-serif;
 	background-color: #f5f5f5;
 }
@@ -23,14 +22,6 @@ div.main > div.center > div.center{
 	height:100%;
 }
 
-/* controlling the width of the left panel (modify both with the same value:*/
-div.main > div.center > div.center{
-	margin-left: 12.5em;
-}
-div.main > div.center > div.left{
-	width: 12.5em;
-}
-
 /* inputs are too long... */
 div.main > div.center > div.left input{
 	/* max-width: 8.5em; */
@@ -38,7 +29,8 @@ div.main > div.center > div.left input{
 }
 
 
-/* keep flex for metadata panel and in case, in the future ... */
+/* plotly does not work with flex (too bad!). keep flex for metadata panel and in case, in the future
+Use the flex class in combination with h-container, v-container, left, top center, right or bottom */
 
 div.flex.h-container, div.flex.v-container{
 	display: flex;
@@ -61,61 +53,93 @@ div.flex.h-container > div.center, div.flex.v-container div.center{
 	flex: 1 1 auto;
 }
 
+/* DIMENSIONS */
+
+body{
+	padding: .5vw .5vh;
+}
+
+/* controlling the width of the left panel (modify both with the same value:*/
+div.main > div.center > div.center{
+	margin-left: 13vw;
+}
+div.main > div.center > div.left{
+	width: 13vw;
+}
+
 /* panels for plots */
 
 .tr, .tl, .br, .bl{
 	position:absolute;
-	width:50%;
-	height:50%;
-	/*this makes the panel nicer as plotly div does not extend the full width:*/
-	background-color: white;
+	width:42.5vw;
+	height:48.5vh;
 }
 
 .tr, .tl{
-	top: 0;
+	top: 0vh;
 }
 
 .br, .bl{
-	bottom: 0;
+	bottom: 0vh;
 }
 
 .tl, .bl{
-	left: 0;
+	left: 0.5vw;
 }
 
 .tr, .br{
-	right: 0;
+	right: 0vw;
+}
+
+#select-form{
+	position:fixed;
+	top:10vh;
+	width: 45.5vw;
+	left:12.5vw;
 }
 
 /* metadata panel visually better if detached from right plot: REMOVED*/
 /* .br{
 	padding-left:12px; 
 } */
-
+div.plot-wrapper{
+	position:absolute;
+	top:10px;
+	bottom:10px;
+	right:10px;
+	left:10px;
+}
 div.plot{
+	position: absolute;
 	margin:0;
 	padding:0;
-	top:0;
-	bottom:0;
-	right:0;
-	left:0;
-	height: 100%;
-	width: 100%;
+	top:0px;
+	bottom:0px;
+	right:0px;
+	left:0px;
+	/* height: 100%;
+	width: 100%; */
 	/* border: 1px solid rgba(0,0,0,.05); */
 }
 
-div.plot-other-component{
+/* div.plot-other-component{
 	height: 50%;
 }
 
 .pnl-heading{
 	margin-top: 20px;
     font-weight: bold;
+} */
+
+.tr, .tl, .bl{
+	/*this makes the panel nicer as plotly div does not extend the full width:*/
+	background-color: white;
+	border: 1px solid #ddd;
 }
 
 div.metadata{
-	margin-right: 10px !important;
-	margin-bottom: 10px !important;
+	/* override bootstrap */
+	margin-bottom: 0px !important;
 }
 
 div.metadata table td{
@@ -141,18 +165,21 @@ div.metadata > div.panel-body{
 div.left.v-container.panel-left{
 	height:100%;
 	border: 1px solid #ddd;
-	border-radius: 5px;
-	/* background-color: #304150;
-	color: lightgray; */
 	padding: 5px;
-	border-top-right-radius: 0px;
-	border-bottom-right-radius: 0px;
 }
 
 /* center panel*/
 div.main > div.center > div.center{
 	position: relative;
-	border: 1px solid #ddd;
+	/* border: 1px solid #ddd; */
+}
+
+.tr, .tl, .bl, div.left.v-container.panel-left, div.panel{
+	border-radius: 10px !important;
+}
+div.panel > .panel-heading{
+	border-top-left-radius: 10px !important;
+	border-top-right-radius: 10px !important;
 }
 
 .arrow-up, .arrow-down{
@@ -172,6 +199,30 @@ div.main > div.center > div.center{
 	border-top: 6px solid black;
 }
 
+/* PANEL LEFT AND SUBCOMPONENTS */
+
+.panel:last-child{
+	margin-bottom:0;
+}
+
+.left .bottom .alert {
+    margin-bottom: 0;
+}
+
+.left .panel{
+	background-color: transparent !important;
+}
+/* .panel-body .inline-element {
+    position: relative;
+    display: block;
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
+
+.panel-body .inline-element:last-child{
+    margin-bottom: 0px;
+} */
+
 
 /* override bootstrap */
 label {
@@ -179,17 +230,11 @@ label {
     font-weight: normal !important;
 }
 
-.popup-center{
-	position:fixed;
-	top:10vh;
-	width: 50vw;
-	left:25vw;
-}
-
 .popup > div.center{
 	overflow:auto;
 	height: 70vh;
 	margin-bottom: 16px;
+	margin-top: 16px;
 }
 
 
@@ -234,6 +279,8 @@ label {
 .tooltip_ .tooltiptext {
     visibility: hidden;
     
+    font-family: inherit;
+    font-size: inherit;
     background-color: #555;
     color: #fff;
     text-align: center;
@@ -247,7 +294,7 @@ label {
     opacity: 0;
     transition: opacity 1.5s;
 
-    width: 30em;
+    min-width: 30em;
     max-height: 50vh;
     left: 125%;
     

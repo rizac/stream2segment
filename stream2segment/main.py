@@ -17,15 +17,17 @@
 from __future__ import print_function  # , unicode_literals
 import logging
 import sys
-from StringIO import StringIO
+# from StringIO import StringIO
 import datetime as dt
-import yaml
 import os
-import click
-from click.exceptions import BadParameter
 from contextlib import contextmanager
-import csv
+# import csv
 import shutil
+
+import yaml
+import click
+from click.exceptions import BadParameter, ClickException, MissingParameter
+
 from stream2segment.utils.log import configlog4download, configlog4processing,\
     elapsedtime2logger_when_finished, configlog4stdout
 from stream2segment.download.utils import run_instance
@@ -34,9 +36,10 @@ from stream2segment.io.db.models import Segment, Run
 # from stream2segment.io.db.pd_sql_utils import commit
 from stream2segment.process.main import run as run_process, to_csv
 from stream2segment.download.main import run as run_download
-from stream2segment.utils import tounicode, yaml_load, get_session, strptime, yaml_load_doc,\
+from stream2segment.utils import tounicode, get_session, strptime,\
     indent, secure_dburl
-from stream2segment.utils.resources import get_templates_fpath
+from stream2segment.utils.resources import get_templates_fpath, yaml_load, yaml_load_doc,\
+    get_templates_fpaths
 
 
 # set root logger if we are executing this module as script, otherwise as module name following
@@ -63,10 +66,32 @@ class click_stuff(object):
             raise BadParameter(str(exc))
         # return string
 
+    _external_file_suffix = """To set up a directory with all necessary files run the program with
+the 't' option first ('t --help' for help): the files are ready-to-use as program arguments, but
+can be customized editing them and following the help instructions implemented therein"""
+
+    @staticmethod
+    def get_config_help():
+        return ("The path to the configuration file in yaml format "
+                "(https://learn.getgrav.org/advanced/yaml). "
+                "%s" % click_stuff._external_file_suffix)
+
+    @staticmethod
+    def get_v_pyfile_help():
+        return ("The path to the python file "
+                "where to implement the plots for the GUI. %s" % click_stuff._external_file_suffix)
+
+    @staticmethod
+    def get_p_pyfile_help():
+        return ("The path to the python file where to implement the processing function. "
+                "The function will be then automatically called iteratively on each segment to "
+                "create the csv file. %s" % click_stuff._external_file_suffix)
+
     @staticmethod
     def set_help_from_download_yaml(ctx, param, value):
         """
-        Attach this function as `callback` argument to an Option (`click.Option`), and it will set
+        When attaching this function as `callback` argument to an Option (`click.Option`),
+        it will set
         an automatic help for all Options of the same command, which do not have an `help`
         specified and are found in the default config file for downloading
         (currently `download.yaml`).
@@ -111,15 +136,7 @@ class click_stuff(object):
                 key = None
         return ret
 
-    @staticmethod
-    def set_dburl(ctx, param, value):
-        """
-        For all non-download options, returns the database path by reading it from
-        `value`, if the latter is a file, or returning `value` otherwise (assuming in this
-        case it is already a db path). Sets also the help for the option
-        """
-
-        param.help = """Database path where to fetch the segments.
+    dburl_opt_help = """Database path where to fetch the segments.
 It can be specified also as a yaml file path with the variable 'dburl' defined therein
 (for instance, the config file previously used for downloading the data).
 In any case, the db url must denote an sql database (currently supported are sqlite or postresql).
@@ -132,9 +149,20 @@ dialect+driver://username:password@host:port/database
 (e.g.: 'postgresql://smith:Hw_6,9@hh21.uni-northpole.org/stream2segment_db')
 (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)"""
 
+    @staticmethod
+    def check_dburl(ctx, param, value):
+        """
+        For all non-download click Options, returns the database path from 'value':
+        'value' can be a file (in that case is assumed to be a yaml file with the
+        'dburl' key in it) or the database path otherwise
+        """
         if value and os.path.isfile(value):
-            value = yaml_load(get_templates_fpath("download.yaml"))['dburl']
-
+            try:
+                value = yaml_load(get_templates_fpath("download.yaml"))['dburl']
+            except Exception:
+                raise BadParameter("'dburl' not found in '%s'" % value)
+        if not value:
+            raise MissingParameter("dburl")
         return value
 # other utility functions:
 
@@ -149,37 +177,7 @@ def get_def_timerange():
     return startt, endt
 
 
-def get_template_config_path(filepath):
-    root, _ = os.path.splitext(filepath)
-    outconfigpath = root + ".config.yaml"
-    return outconfigpath
-
-
-def create_template(outpath):
-    pyfile, configfile = 'caz', 'wat'  #  FIXME: FIX THIS
-    shutil.copy2(pyfile, outpath)
-    outconfigpath = get_template_config_path(outpath)
-    shutil.copy2(configfile, outconfigpath)
-    return outpath, outconfigpath
-
-
 # main functionalities:
-
-def visualize(dburl, pyfile, configfile):
-    from stream2segment.gui import main as main_gui
-    main_gui.run_in_browser(dburl, pyfile, configfile)
-    return 0
-
-
-def data_aval(dburl, outfile, max_gap_ovlap_ratio=0.5):
-    from stream2segment.gui.da_report.main import create_da_html
-    # errors are printed to terminal:
-    configlog4stdout(logger)
-    with closing(dburl) as session:
-        create_da_html(session, outfile, max_gap_ovlap_ratio, True)
-    if os.path.isfile(outfile):
-        import webbrowser
-        webbrowser.open_new_tab('file://' + os.path.realpath(outfile))
 
 
 def download(isterminal=False, **yaml_dict):
@@ -208,8 +206,6 @@ def download(isterminal=False, **yaml_dict):
             print("Log messages will be written to table '%s' (column '%s')" %
                   (Run.__tablename__, Run.log.key))
             print("and to '%s'" % str(fileout))
-            # print("(check the file in case of unexpected errors")
-            # print("such as Memory overflow which might prevent the database column to be written)")
 
         with elapsedtime2logger_when_finished(logger):
             run_download(session=session, run_id=run_inst.id, isterminal=isterminal, **yaml_dict)
@@ -219,7 +215,7 @@ def download(isterminal=False, **yaml_dict):
     return 0
 
 
-def process(dburl, pysourcefile, configsourcefile, outcsvfile, isterminal=False):
+def process(dburl, pyfile, configfile, outcsvfile, isterminal=False):
     """
         Process the segment saved in the db and saves the results into a csv file
         :param processing: a dict as load from the config
@@ -231,9 +227,46 @@ def process(dburl, pysourcefile, configsourcefile, outcsvfile, isterminal=False)
 
         configlog4processing(logger, outcsvfile, isterminal)
         with elapsedtime2logger_when_finished(logger):
-            to_csv(outcsvfile, session, pysourcefile, configsourcefile, isterminal)
+            to_csv(outcsvfile, session, pyfile, configfile, isterminal)
 
     return 0
+
+
+def visualize(dburl, pyfile, configfile):
+    from stream2segment.gui import main as main_gui
+    main_gui.run_in_browser(dburl, pyfile, configfile)
+    return 0
+
+
+def data_aval(dburl, outfile, max_gap_ovlap_ratio=0.5):
+    from stream2segment.gui.da_report.main import create_da_html
+    # errors are printed to terminal:
+    configlog4stdout(logger)
+    with closing(dburl) as session:
+        create_da_html(session, outfile, max_gap_ovlap_ratio, True)
+    if os.path.isfile(outfile):
+        import webbrowser
+        webbrowser.open_new_tab('file://' + os.path.realpath(outfile))
+
+
+def create_templates(outpath, prompt=True, *filenames):
+    # get the template files. Use all files except those with more than one dot
+    # This might be better implemented
+    template_files = get_templates_fpaths(*filenames)
+    if prompt:
+        existing_files = [t for t in template_files if os.path.isfile(t)]
+        if existing_files:
+            msg = ("The following file(s) "
+                   "already exist on '%s':\n%s"
+                   "\n\nOverwrite?") % (outpath, "\n".join([os.path.basename(_)
+                                                          for _ in existing_files]))
+            if not click.confirm(msg):
+                return []
+    copied_files = []
+    for tfile in template_files:
+        shutil.copy2(tfile, outpath)
+        copied_files.append(os.path.join(outpath, os.path.basename(tfile)))
+    return copied_files
 
 
 @contextmanager
@@ -295,8 +328,7 @@ def main():
 
 @main.command(short_help='Efficiently download waveform data segments')
 @click.option("-c", "--configfile",
-              help=("The path to the configuration file. For creating a default config file, "
-                    "run the program with the 't' option first ('t --help' for help)"),
+              help=click_stuff.get_config_help(),
               type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
                               readable=True), is_eager=True,
               callback=click_stuff.set_help_from_download_yaml)
@@ -353,14 +385,19 @@ def d(configfile, dburl, start, end, service, wtimespan, min_sample_rate, retry_
 
 
 @main.command(short_help='Process downloaded waveform data segments')
-@click.argument('pyfile')
-@click.argument('configfile')
+@click.option('-d', '--dburl', callback=click_stuff.check_dburl, help=click_stuff.dburl_opt_help)
+@click.option("-c", "--configfile",
+              help=click_stuff.get_config_help(),
+              type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
+                              readable=True))
+@click.option("-p", "--pyfile",
+              help=click_stuff.get_v_pyfile_help(),
+              type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
+                              readable=True))
 @click.argument('outfile')
-@click.option('-d', '--dburl', callback=click_stuff.set_dburl, is_eager=True)
-def p(pyfile, configfile, outfile, dburl):
+def p(dburl, configfile, pyfile, outfile):
     """Process downloaded waveform data segments via a custom python file and a configuration
-    file. The argument --dburl (or -d) can be specified also as the config file path used for
-    downloading data. In that case it will default to the 'dburl' variable defined therein"""
+    file"""
     try:
         process(dburl, pyfile, configfile, outfile, isterminal=True)
     except KeyboardInterrupt:  # this except avoids printing traceback
@@ -368,50 +405,57 @@ def p(pyfile, configfile, outfile, dburl):
 
 
 @main.command(short_help='Visualize downloaded waveform data segments in a browser')
-@click.argument('pyfile')
-@click.option('-c', '--configfile', type=click.Path(exists=True, file_okay=True, dir_okay=False,
-                                                    writable=False,
-                                                    readable=True))
-@click.option('-d', '--dburl', callback=click_stuff.set_dburl, is_eager=True)
-def v(pyfile, configfile, dburl):
-    """Visualize downloaded waveform data segments in a browser.
-    Options are listed below. When missing, they default to the values provided in the
-    config file `config.yaml`"""
+@click.option('-d', '--dburl', callback=click_stuff.check_dburl, help=click_stuff.dburl_opt_help)
+@click.option("-c", "--configfile",
+              help=click_stuff.get_config_help(),
+              type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
+                              readable=True))
+@click.option("-p", "--pyfile",
+              help=click_stuff.get_v_pyfile_help(),
+              type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
+                              readable=True))
+def v(dburl, configfile, pyfile):
+    """Visualize downloaded waveform data segments in a browser"""
     visualize(dburl, pyfile, configfile)
 
 
-@main.command(short_help='Create a data availability html file showing downloaded data '
-                         'quality on a map')
-@click.option('-d', '--dburl', callback=click_stuff.set_dburl, is_eager=True)
-@click.option('-m', '--max_gap_ovlap_ratio', help="""Sets the maximum gap/overlap ratio.
-Mark segments has 'corrupted' because of gaps/overlaps if they exceed this threshold.
-Defaults to 0.5 (half of the segment sampling frequency)""", default=0.5)
-@click.argument('outfile')
-def a(dburl, max_gap_ovlap_ratio, outfile):
-    """Creates a data availability html file, where the user can interactively inspect the
-    quality of the waveform data downloaded"""
-    data_aval(dburl, outfile, max_gap_ovlap_ratio)
+# @main.command(short_help='Create a data availability html file showing downloaded data '
+#                          'quality on a map')
+# @click.option('-d', '--dburl', callback=click_stuff.set_dburl, is_eager=True)
+# @click.option('-m', '--max_gap_ovlap_ratio', help="""Sets the maximum gap/overlap ratio.
+# Mark segments has 'corrupted' because of gaps/overlaps if they exceed this threshold.
+# Defaults to 0.5 (half of the segment sampling frequency)""", default=0.5)
+# @click.argument('outfile')
+# def a(dburl, max_gap_ovlap_ratio, outfile):
+#     """Creates a data availability html file, where the user can interactively inspect the
+#     quality of the waveform data downloaded"""
+#     data_aval(dburl, outfile, max_gap_ovlap_ratio)
 
 
-@main.command(short_help='Creates template/config files in a specified directory')
-@click.argument('outfile')
-def t(outfile):
-    """Creates template/config files which can be inspected and edited for launching download and
-    processing.
-    A config file in the same path is also created with the same name and suffix 'config.yaml'.
-    If either file already exists, the program will ask for confirmation
+@main.command(short_help='Create template/config files in a specified directory')
+@click.argument('outdir')
+def t(outdir):
+    """Creates template/config files which can be inspected and edited for launching download,
+    processing and visualization.
     """
+    helpdict = {'download.py': 'download configuration file (-c option)',
+                'gui.py': 'visualization python file (-p option)',
+                'gui.yaml': 'visualization configuration file (-c option)',
+                'processing.py': 'processing python file (-p option)',
+                'processing.yaml': 'processing configuration file (-c option)'}
     try:
-        outconfigfile = get_template_config_path(outfile)
-        msgs = ["'%s' already exists" % outfile if os.path.isfile(outfile) else "",
-                "'%s' already exists" % outconfigfile if os.path.isfile(outconfigfile) else ""]
-        msgs = [m for m in msgs if m]  # remove empty strings
-        if not msgs or click.confirm("%s.\nOverwrite?" % "\n".join(msgs)):
-            out1, out2 = create_template(outfile)
-            sys.stdout.write("template processing python file written to '%s'\n" % out1)
-            sys.stdout.write("template config yaml file written to '%s'\n" % out2)
+        copied_files = create_templates(outdir, True, *helpdict)
+        if not copied_files:
+            print("No file copied")
+        else:
+            print("%d files copied in '%s':" % (len(copied_files), outdir))
+            for fcopied in copied_files:
+                bname = os.path.basename(fcopied)
+                print("%s: %s" % (bname, helpdict.get(bname, "")))
+            sys.exit(0)
     except Exception as exc:
-        sys.stderr.write("%s\n" % str(exc))
+        print("%s\n" % str(exc))
+    sys.exit(1)
 
 
 if __name__ == '__main__':

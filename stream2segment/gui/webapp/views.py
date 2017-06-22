@@ -7,6 +7,7 @@ from flask import render_template, request, jsonify, Blueprint, current_app
 # from stream2segment.gui.webapp.plots import user_defined_plots, View
 from stream2segment.gui.webapp import core, get_session
 from stream2segment.utils import secure_dburl
+from stream2segment.gui.webapp.core import get_doc
 # from stream2segment.gui.webapp.core import set_classes
 # from stream2segment.gui.webapp.plotviews import PlotManager
 
@@ -18,14 +19,20 @@ main_page = Blueprint('main_page', __name__, template_folder='templates')
 def main():
     config = current_app.config['CONFIG.YAML']
     core.set_classes(get_session(current_app), config)
-    ud_plotnames = current_app.config['PLOTMANAGER'].userdefined_plotnames
+    plotmanager = current_app.config['PLOTMANAGER']
+    ud_plotnames = plotmanager.userdefined_plotnames
     keys = ['sn_windows', 'segment_select', 'segment_orderby']
     settings = {k: config[k] for k in keys}
-    filterfunc_doc = current_app.config['PLOTMANAGER'].get_filterfunc_doc.replace("\n", "<p>")
+    preprocessfunc_doc = get_doc('preprocessfunc', plotmanager)
+    sn_windows_doc = get_doc('sn_windows', plotmanager)
+    segment_select_doc = get_doc('segment_select', plotmanager)
+    # filterfunc_doc = current_app.config['PLOTMANAGER'].get_filterfunc_doc.replace("\n", "<p>")
     return render_template('index.html', title=secure_dburl(current_app.config["DATABASE"]),
                            settings=settings,
                            userDefinedPlotNames=ud_plotnames,
-                           filterfunc_doc=filterfunc_doc)
+                           preprocessfunc_doc=preprocessfunc_doc,
+                           sn_windows_doc=sn_windows_doc,
+                           segment_select_doc=segment_select_doc)
 
 
 @main_page.route("/get_segments", methods=['POST'])
@@ -44,7 +51,7 @@ def get_segment_data():
     data = request.get_json()
     seg_id = data['seg_id']  # this must be present
     plot_indices = data.get('plot_indices', [])
-    filtered = data.get('filtered', False)
+    preprocessed = data.get('pre_processed', False)
     zooms = data.get('zooms', None)
     all_components = data.get('all_components', False)
     metadata = data.get('metadata', False)
@@ -57,7 +64,7 @@ def get_segment_data():
     # NOTE: seg_id is a unicode string, but the query to the db works as well
     return jsonify(core.get_segment_data(get_session(current_app), seg_id, plotmanager,
                                          plot_indices, all_components,
-                                         filtered, zooms, metadata, classes, warnings,
+                                         preprocessed, zooms, metadata, classes, warnings,
                                          sn_windows))
 
 

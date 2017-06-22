@@ -47,13 +47,13 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 	
 		</div>
 		<div class="center h-container">
-			<div class="left v-container panel-left">
-				<div class="top">
-					<div class="pnl">
-						<div class="pnl-heading">Segments</div>
-						<div class="pnl-body">
+			<div class="left flex v-container panel-left">
+				<div class="center">
+					<div class="panel">
+						<div class="panel-heading">Segments</div>
+						<div class="panel-body">
 							<div class="checkbox">
-								<div class="checkbox">
+								<div>
 									Current: {{ segIdx + 1 }} of {{ segIds.length }}
 								</div>	
 								<div class="checkbox">
@@ -64,47 +64,34 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 							<button class='btn btn-default btn-block' ng-click="selection.showForm=true">Select</button>
 	  					</div>
 					</div>
-					<div class="pnl">
-						<div class="pnl-heading">Plots</div>
-						<div class="pnl-body">		
+					<div class="panel">
+						<div class="panel-heading">Plots</div>
+						<div class="panel-body">		
 							<div class="checkbox">
-								<label><input type="checkbox" ng-model="showFiltered" ng-change="toggleFilter()"> Filter</label>
+								<label><input type="checkbox" ng-model="showPreProcessed" ng-change="togglePreProcess()"> Pre-process</label>
 								<div class="tooltip_">?
-									<span class="tooltiptext">
-										{% endraw %}{{ filterfunc_doc|safe }}{% raw %}
-									</span>
+									<pre class="tooltiptext">{% endraw %}{{ preprocessfunc_doc }}{% raw %}</pre>
 								</div>
 		  					</div>
 		  					<div class="divider"></div>
 		  					<div class="checkbox">
-									<label><input type="checkbox" ng-model="showAllComponents" ng-change="toggleAllComponentView()"> Show all components</label>
-								
-								</div>
+								<label><input type="checkbox" ng-model="showAllComponents" ng-change="toggleAllComponentView()"> Show all components</label>
+							</div>
 		  					<div class="divider"></div>
 							<div id="spectra" class="radio">S/N Windows
 								<div class="tooltip_">?
-									<span class="tooltiptext">
-										Define the windows for the spectra
-										<p>Arrival time shift: shifts programmatically the calculated arrival time of
-										each segment by the specified amount of time (in seconds). Negative values are allowed.
-										The arrival time sets the <b>end</b> of the noise window, whose
-										length (duration) is always set equal to the signal window (see below)
-										<p>Signal window: specifies the signal window. It can be a number, specifying the
-										window duration, in seconds starting from the arrival time, or a 2-element array
-										specifying the window time start and end, relative to the cumulative. A value of [0.05, 0.95] for
-										instance sets the signal window from the time the cumulative reaches 5% of its maximum, until
-										the time it reaches 95% of its maximum. Note that in this case the noise window and the
-										signal window might overlap.
-									</span>
+									<pre class="tooltiptext">{% endraw %}{{ sn_windows_doc }}{% raw %}</pre>
 								</div>
 							</div>
 							
-							<label class="checkbox">Arrival time shift:</label>
-							<input class="checkbox" type="text" ng-model="snWindows.arrival_time_shift" ng-change="snWindows._changed=true">
-							
-							<label class="checkbox">Signal window:</label>
-							<input class="checkbox" type="text" ng-model="snWindows.signal_window" ng-change="snWindows._changed=true">
-		  					
+							<div class="checkbox">
+								<label class="checkbox">Arrival time shift:
+									<input class="checkbox" type="text" ng-model="snWindows.arrival_time_shift" ng-change="snWindows._changed=true">
+								</label>
+								<label class="checkbox">Signal window:
+									<input class="checkbox" type="text" ng-model="snWindows.signal_window" ng-change="snWindows._changed=true">
+			  					</label>
+		  					</div>
 							<button class='btn btn-default btn-block' ng-disabled="!snWindows._changed" ng-click="setSnWindows()">Refresh</button>
 							
 							<div class="divider"></div>
@@ -118,12 +105,10 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 	  					</div>
 	  				</div>
 	  			</div>
-				<div class="center">
-					<div ng-show=loading class="alert alert-info">
+				<div class="bottom">
+					<div ng-show="loading" class="alert alert-info">
   						<strong>Loading...</strong>
 					</div>				
-				</div>
-				<div class=bottom>
 				</div>
 			</div>
 			<div class="center h-container panel-center">
@@ -132,7 +117,7 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 					***********************
 					NOTE: IMPORTANT READ ME
 					***********************
-			  		(see plotlyconfig.js in case, verything is there)
+			  		(see plotlyconfig.js in case, everything is there)
     			    - data-plot makes the div plottable (i.e., associates a plotly object on it)
 				    - data-plotindex refers to the index on the server.
 				      Note that index=0: current trace, index=1: spectra, so indices start from 2 to correctly
@@ -140,34 +125,28 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 				    - ID of these divs will be set AUTOMATICALLY AS "plot" + getAttribute('data-plotindex)
 				 -->
 				 <div class='tl'>
-					 <div data-plotindex=0 class='plot' data-plot='time-series'></div>
+				 	<div class='plot-wrapper'>
+						<div data-plotindex=0 class='plot' data-plot='time-series'></div>
+						<button>Toggle Fuchsia</button>
+				 	</div>
 				 </div>
 				 <div class="bl">
 					{% endraw %}{% for name in userDefinedPlotNames %}
-					<div ng-show='plots[{{loop.index0 + 2}}].visible'  data-plot='time-series' data-plotindex={{ loop.index0 + 2 }} class='plot'></div>
+					<div class='plot-wrapper' ng-show='plots[{{loop.index0 + 2}}].visible'>
+						<div data-plot='time-series' data-plotindex={{ loop.index0 + 2 }} class='plot'></div>
+					</div>
 					{% endfor %}{% raw %}
 				</div>
 				<div  class="tr">
-					<div data-plotindex=1 class='plot' data-plot='freq-series'></div>
+					<div class='plot-wrapper'>
+						<div data-plotindex=1 class='plot' data-plot='freq-series'></div>
+					</div>
 				</div>
 				<div class="br flex h-container">
 					<div class="metadata panel panel-default center flex v-container">
 						<div class="panel-heading top">Segment Metadata</div>
 						<div class="panel-body center">
-						
-							<div ng-show="segData.warnings">
-								<div class="divider"></div>
-								<div ng-click="toggleDivVisibility('warnings')">
-									warnings <div ng-class="isDivVisible('warnings') ? 'arrow-up' : 'arrow-down'"></div>
-								</div>
-								<div ng-show="isDivVisible('warnings')" class="panel-body">
-									<div ng-repeat="w in segData.warnings" class="alert alert-info">
-										{{ w }}
-									</div>
-								</div>
-							</div>
-
-							<div ng-show="classes">
+							<div ng-show="classes.length">
 								<div class="divider"></div>
 								<div ng-click="toggleDivVisibility('classes')">
 									classes <div ng-class="isDivVisible('classes') ? 'arrow-up' : 'arrow-down'"></div>
@@ -185,7 +164,6 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 									</div>
 								</div>
 							</div>
-		
 							<div ng-repeat="(key, vals) in segData.metadata">
 								<div class="divider"></div>
 								<div ng-click="toggleDivVisibility(key)">
@@ -206,9 +184,10 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 		</div>
 	</div>
 	<!-- SELECTION FORM (move at the end so that it does not display long time, it's annoying otherwise) -->
-	<div ng-show="selection.showForm" class="popup popup-center alert">
+	<div id="select-form" ng-show="selection.showForm" class="popup alert">
 		Select segments where: <div class="tooltip_">?
-									<span class="tooltiptext">
+		<pre class="tooltiptext">{% endraw %}{{ segment_select_doc }}{% raw %}</pre>
+									<!-- <span class="tooltiptext">
 										Here you can select which segments to show. Each non-empty field will
 										denote a select condition which can be in any of the following formats:
 										<p>1. A space-separated list of values: select those values. Example:
@@ -224,12 +203,13 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 										<p>
 										Note: if more than one field is given (non-empty), segment matching <i>all</i> conditions 
 										will be selected
-									</span>
+									</span> -->
 								</div>
 		<a href="#" class="close" data-dismiss="alert" aria-label="close" onclick="return false;"
 			ng-click="selection.showForm=!selection.showForm">&times;</a>
 		<div class="center">
 			<table style='width:100%'>
+				<tr><th>Key</th><th>Value (expression)</th></tr>
 				<tr ng-repeat="values in metadata">
 					<td>{{ values[0] }}</td>
 					<td style='width:100%'><input style='width:100%' type=text

@@ -261,7 +261,7 @@ class Station(Base):
 
     @hybrid_property
     def has_inventory(self):
-        return bool(self.data)
+        return bool(self.inventory_xml)
 
     @has_inventory.expression
     def has_inventory(cls):  # @NoSelf

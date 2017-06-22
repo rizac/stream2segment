@@ -70,4 +70,4 @@ def query4inventorydownload(session):
 
 
 def count(session, model_or_column):
-    return session.query(func.count(model_or_column)).scalar() 
+    return session.query(func.count(model_or_column)).scalar()

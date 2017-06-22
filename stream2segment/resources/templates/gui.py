@@ -1,5 +1,57 @@
 """
-Config file for the GUI. Please follow the instructions for customizing it
+Python file for the GUI. In this file the user can implement the plots shown on the GUI by
+means of pure python functions. Please read before proceeding.
+
+The GUI shows data plots and metadata for each downloaded segment. The goal of the GUI is:
+ - visual inspection after processing
+ - experimental features implementation (e.g., visual validation pre-processing)
+ - supervised machine learning annotation
+
+The GUI *always* shows three plots:
+    1. the plot of the selected segment data, and
+    2. the plot of its s/n spectra (signal and noise spectra): the noise time window and the signal
+    time window on which the two spectra are applied are settable by the user in the `config.yaml`
+    file and from within the GUI
+    3. Any custom plot defined here. If more than one plot is defined, a radio button will
+    allow the user to select which custom plot to show
+
+Note that for a given segment a pre-process can be defined which applies to the given segment
+and all relative plots: in that case, a checkbox will switch from the "raw" data plots to the
+"pre-processed" data plots.
+
+Any function defined here which does *not* start with the underscore will denote a plot shown
+on the GUI. The function signature (inputs and outputs) is:
+```
+    def my_func(segment, stream, inventory, config):
+        ... code here ...
+```
+I.e., it must take four arguments: a segment, representing the underlying database row,
+the `obspy.Stream` object representing the waveform data,
+an `obspy.core.inventory.inventory.Inventory` representing the station inventory
+and a configuration dict (resulting from the $CONFIG file):
+(`inventory` might be None if "inventory" is missing or False in the config file, or an
+exception was raised during download).
+
+The function name will be the name of the custom plot displayed on the GUI. Two reserved names:
+'_pre-process' and '_sn_spectrum' denote functions for the pre-processing and the spectrum to be
+applied on the noisy and signal segment windows. The '_pre_process' function must return an
+obspy Trace. Any other function must return:
+      - An obspy.Stream: the plot will display all traces of the Stream: a data series (line) for
+        each trace
+      - An obspy Trace: the plot will display the given trace as a data series (line)
+      - A numpy array (or numeric list): If the given stream has a single trace,
+        the array will be converted to a Trace with
+        starting time equal to the trace starting time, and same sampling period (if the stream has
+        more than one trace, the plot will be empty. A message will show that the program is unable
+        to infer starting time and sampling period)
+      - A 3-element tuple: (x0, dx, values), where x0 is a number, UTCDateTime or datetime denoting
+        the x of the first point, dx is a number or timedelta denoting the sampling period, and
+        values is a numpy array / list of numeric values (y axis)
+      - A dict of Traces, numpy arrays or 3-elements tuples: this will display multiple data-series
+        in the same plot, and each dict key will be the label of the given data-series. If display
+        order must match insertion order, use `OrderedDict`
+
+The documentation of the function will be shown in the GUI, if present
 """
 import numpy as np
 from obspy.core import Trace, Stream, UTCDateTime
@@ -7,10 +59,11 @@ from stream2segment.analysis.mseeds import bandpass, cumsum, cumtimes, powspec, 
 from stream2segment.analysis import triangsmooth
 
 
-def _filter(segment, stream, inventory, config):
-    """Filters the signal and removes the instrumental response
+def _pre_process(segment, stream, inventory, config):
+    """Applies a pre-process on the given segment waveform by
+    filtering the signal and removing the instrumental response
     The filter algorithm has the following steps:
-     1. Sets the max frequency to 0.9 of the nyquist freauency (sampling rate /2)
+    1. Sets the max frequency to 0.9 of the nyquist freauency (sampling rate /2)
     (slightly less than nyquist seems to avoid artifacts)
     2. Offset removal (substract the mean from the signal)
     3. Tapering

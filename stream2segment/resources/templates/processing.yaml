@@ -1,37 +1,7 @@
-# set to True or False if station inventories should be passed in the processing function
-# If you don't need inventories (usually useful for removing the instrumental response from the Stream object)
-# set to False, as this will speed up the processing loop
-# If missing (e.g., by deleting the line below), it defaults to False
-inventory: True
-
-# set to True or False if station inventories should be saved when they need to be downloaded
-# If missing (e.g., by deleting the line below), it defaults to False. This parameter has effect only if inventory above is True
-# Saving inventories might speed up further processing but increases db size
-save_downloaded_inventory: False
-
-# The next parameter, segment_select, needs some explanation:
-# It is a dict-like parameter which controls which segments should be processed:
-# if given, the selection is done on the database side *before* starting
-# the processing and thus is much more efficient than doing the check for each segment
-# inside the user-defined process function.
-# The dict keys are properties of the currently processed segment (e.g., event.magnitude)
-# The dict values are string expression which will be evaluated according to
-# the relative key type (e.g., "==1", "[1, 4.5]" which means interval with endpoints,
-# "(1,4.5)" which means interval without endpoints, ">=6", or a simple list of values: "1 3 4.5 7")
-# Keys and relative types are listed below. 
-# As an example: to select for processing only segments whose id is in a specified list of
-# ids (say 1 4 5 67 89 342), with downloaded waveform data
-# (non empty), whose event magnitude is greater in [4.5, 5.56] (endpoints included), and whose station start_time is not greater
-# than 1st january 2016:
-#
-# segment_select:
-#   has_data: true
-#   id: "1 4 5 67 89 342"
-#   event.latitude: "[4.5, 5.6]"
-#   station.start_time: "<= 2016-01-01T00:00:00"
-#
+# This is the list of key and values used for the segment_select property. Scroll down
+# at the end of the table for info on how to use them
+# 
 # ----------------------------------------------------
-#
 # Key                               Type
 # =================================  =================
 #    has_data                        bool
@@ -76,6 +46,7 @@ save_downloaded_inventory: False
 #    station.site_name               str
 #    station.start_time              datetime.datetime
 #    station.end_time                datetime.datetime
+#    station.has_inventory           bool
 #    
 #    datacenter.id                   int
 #    datacenter.station_query_url    str
@@ -89,15 +60,46 @@ save_downloaded_inventory: False
 #    
 #    classes                         str either 'any' (segment which have at least one class assigned) or 'none' (segments with no class assigned)
 #    classes.id                      int
+#    
+#    (these last two properties are available only if class labels are given)
+# =================================  =================
+
+# Here you can select which segments to work on, discarding non-matching segments.
+# For a given key, type a select condition given in any of the following string expressions:
+# 1. A list of space-separated values: select segment matching those values only (sql 'in' operator)
+# 2. A value preceeded by any of the symbols: = >= > < <= !=
+# 3. A tuple or list (same syntax as python) of two values: select segments whose value is in between (sql 'between' operator)
+#    Note that tuples (opening and closing round brackets) denote the open interval (no endpoint included), whereas
+#    lists  (opening and closing square brackets) denote the closed interval (endpoints included). You can mix them, e,g: (4,5]
 #
-# Finally, here the parameter. Each value must be a string (i.e., quoted with " or ')
-# each string will be then splitted using shell-like syntax. In the (rare) cases where spaces
-# should not seaprate chunks, they should be quoted again: for instance, select segments where
-# its event 'author' is either 'Will Smith' or 'Ross' write:
-#    event.author: "'Will Smith' Ross"
-# By default, avoid processing null/empty-data segments:
+# Example: to select and work on segments whose id is in a specified list of
+# ids (e.g., 1 4 5 67 89 342), with downloaded waveform data
+# (non empty data), whose event magnitude is in [4.5, 5.56] (endpoints included), whose station start_time is not greater
+# than 1st january 2016, and whose channel sensor description is 'GURALP CMG-40T-30S'
+#
+# segment_select:
+#   has_data: true
+#   id: "1 4 5 67 89 342"
+#   event.latitude: "[4.5, 5.6]"
+#   station.start_time: "<= 2016-01-01T00:00:00"
+#   channel.sensor_description: "'GURALP CMG-40T-30S'"
 segment_select:
-  has_data: 'true'
+  has_data: "true"  # remember to quote (either with " or '): expressions needs to be string (from the GUI, quotes are not needed)
+                    # Note that string values with spaces needs to be quoted twice. In the example above "'GURALP CMG-40T-30S'"
+                    # matches 'GURALP CMG-40T-30S',
+                    # whereas "GURALP CMG-40T-30S" matches "GURALP" or "CMG-40T-30S" but not the whole string. This is needed only with
+                    # STRING VALUES WITH spaces. In any other case, provide only quotes around the whole expression
+
+# set to True or False if station inventories should be passed in the processing function
+# If you don't need inventories (usually useful for removing the instrumental response from the Stream object)
+# set to False, as this will speed up the processing loop
+# If missing (e.g., by deleting the line below), it defaults to False
+inventory: True
+
+# set to True or False if station inventories should be saved when they need to be downloaded
+# If missing (e.g., by deleting the line below), it defaults to False. This parameter has effect only if inventory above is True
+# Saving inventories might speed up further processing but increases db size
+save_downloaded_inventory: False
 
 
 # custom parameters. You can define whatever you want here as needed in the processing python file

@@ -17,16 +17,16 @@
 
 var plots = (function(){
 	var tSeriesLayout = { //https://plot.ly/javascript/axes/
-			margin:{'l':50, 't':35, 'b':70, 'r':18},
+			margin:{'l':52, 't':36, 'b':60, 'r':15},
 			pad: 0,
-//			autosize: false,
-//			margin:{'l':60, 't':100, 'b':80, 'r':5},
+			autosize: true,
 			xaxis: {
 				autorange: true,
 				tickangle: 0,
 				type: 'date',
-				titlefont: {
-				      color: '#df2200'
+				titlefont: {  // THIS SETS THE WARNING ERRORS FONT!! (AS OF JULY 2017)
+				      color: '#df2200',
+				      size: 10
 				},
 				linecolor: '#ddd',
 				linewidth: 1,
@@ -42,15 +42,15 @@ var plots = (function(){
 			annotations: [{
 			    xref: 'paper',
 			    yref: 'paper',
-			    x: 0.01,
+			    x: 0,  // 0.01,
 			    xanchor: 'left',
-			    y: .98,
+			    y: 1.01, //.98,
 			    yanchor: 'bottom',
 			    text: '',
 			    showarrow: false,
 			    bordercolor: '#ddd', // '#c7c7c7',
 			    borderwidth: 1,
-			    borderpad: 5,
+			    borderpad: 7,
 			    bgcolor: '#f5f5f5', //  'rgba(31, 119, 180, .1)',  // = '#1f77b4',
 			    // opacity: 0.1,
 			    font: {

@@ -28,6 +28,7 @@ from sqlalchemy.sql.expression import desc
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from sqlalchemy.orm.query import aliased
 class Test(unittest.TestCase):
         
 
@@ -236,6 +237,9 @@ class Test(unittest.TestCase):
 
         # what happens if we supply more than one join? we issue a warning, but the query is ok
         # (so the following does not raise)
+        # the warning is at sqlalchemy.orm.query.py:2105:
+        # 'SAWarning: Pathed join target Segment.channel has already been joined to; skipping
+        # "been joined to; skipping" % prop)'
         res1 = exprquery(sess.query(Segment).join(Segment.channel).\
                          filter(Channel.id>0), {'channel.id': '!=null'}).all()
         
@@ -334,9 +338,9 @@ class Test(unittest.TestCase):
         res2 = sess.query(Segment.id).filter(Segment.has_data == True).all()
         res1 = exprquery(sess.query(Segment.id), {'has_data': 'true'}).all()
         assert res1 == res2 and res1 == res3
-        # now test the opposite query and assert result sets habe no intersection
+        # now test the opposite query and assert result sets have no intersection
         res1 = exprquery(sess.query(Segment.id), {'has_data': 'false'}).all()
-        assert not(set((_[0] for _ in res1)) - set((_[0] for _ in res2)))
+        assert not(set((_[0] for _ in res1)) & set((_[0] for _ in res2)))
         
     def test_eval_expr(self):
         from stream2segment.io.db.models import Segment, Event, Station, Channel

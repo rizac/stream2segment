@@ -18,7 +18,8 @@ import traceback
 # from sqlalchemy.orm import load_only
 import csv
 from obspy.core.stream import read
-from stream2segment.utils import yaml_load, get_progressbar, load_source, secure_dburl
+from stream2segment.utils import get_progressbar, load_source, secure_dburl
+from stream2segment.utils.resources import yaml_load
 from stream2segment.io.db.models import Segment  # , Station
 from stream2segment.download.utils import get_inventory
 from stream2segment.io.db.queries import getquery4process

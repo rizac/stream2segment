@@ -33,10 +33,10 @@ from stream2segment.io.db.pd_sql_utils import dfrowiter, mergeupdate,\
 from stream2segment.download.utils import empty, urljoin, response2df, normalize_fdsn_dframe,\
     get_search_radius, UrlStats, stats2str,\
     get_events_list, locations2degrees, get_arrival_time, get_url_mseed_errorcodes, get_taumodel
-from stream2segment.utils import strconvert, get_progressbar, yaml_load
+from stream2segment.utils import strconvert, get_progressbar
 from stream2segment.utils.mseedlite3 import MSeedError, unpack as mseedunpack
 from stream2segment.utils.msgs import MSG
-from stream2segment.utils.resources import get_ws_fpath
+from stream2segment.utils.resources import get_ws_fpath, yaml_load
 from stream2segment.io.utils import dumps_inv
 import psutil
 import os

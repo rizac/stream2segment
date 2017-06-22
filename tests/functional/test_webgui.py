@@ -28,7 +28,8 @@ import time
 from itertools import izip, product
 from stream2segment.io.db.queries import getallcomponents
 from obspy.core.stream import read
-from stream2segment.utils import load_source, yaml_load
+from stream2segment.utils import load_source
+from stream2segment.utils.resources import yaml_load
 from stream2segment.gui.webapp.plotviews import PlotManager, exec_function
 from obspy.io.stationtxt.core import all_components
 from mock.mock import patch
@@ -40,6 +41,8 @@ import shutil
 class Test(unittest.TestCase):
 
     def setUp(self):
+        Test.cleanup(self) # for safety, clear db
+
         self.addCleanup(Test.cleanup, self)
         url = os.getenv("DB_URL", None)
         
@@ -245,14 +248,22 @@ class Test(unittest.TestCase):
             self.app.config['CONFIG.YAML']['class_labels'] = {'wtf': 'wtfd'}
             clz = self.session.query(Class).count()
             assert clz == 0
+            
+            
+            
             rv = app.get('/')
-            expected_str = """var __SETTINGS = {"segment_orderby": ["event.time-", "segment.event_distance_deg"], "segment_select": {"has_data": "true"}, "sn_windows": {"arrival_time_shift": 0, "signal_window": [0.1, 0.9]}};"""
-            assert expected_str in rv.data
-            expected_str = """<div ng-show='plots[2].visible' data-plotindex=2 class='plot'></div>"""
-            assert expected_str in rv.data
-            expected_str = """<div ng-show='plots[3].visible' data-plotindex=3 class='plot'></div>"""
-            assert expected_str in rv.data
             clz = self.session.query(Class).all()
+
+            # assert global js vars in the script tag of the main page are injected from jinja rendering:
+            expected_str = """var __SETTINGS = {"segment_orderby": ["event.time-", "event_distance_deg"], "segment_select": {"has_data": "true"}, "sn_windows": {"arrival_time_shift": 0, "signal_window": [0.1, 0.9]}};"""
+            assert expected_str in rv.data
+
+            # assert we wrote the divs for the custom plots (currently 2, at index 3 and 4, respectively):
+            expected_str = ["""<div class='plot-wrapper' ng-show='plots[{0:d}].visible'>""",
+                            """<div data-plot='time-series' data-plotindex={0:d} class='plot'></div>"""]
+            for plotindex in [2,3]:
+                for e in expected_str:
+                    assert e.format(plotindex) in rv.data
             assert len(clz) == 1 and clz[0].label == 'wtf' and clz[0].description == 'wtfd'
             
             # change description:
@@ -398,7 +409,7 @@ class Test(unittest.TestCase):
         # assert we have exceptions:
         # FIXME: check why we have to access _app for global vars and not app (see setup method)
         pm = self.app.config['PLOTMANAGER']
-        filtered_plotcaches = pm._fplots
+        filtered_plotcaches = pm._pplots
         for plotscache in filtered_plotcaches.itervalues():
             data = plotscache.data
             for d in data.itervalues():
@@ -409,7 +420,7 @@ class Test(unittest.TestCase):
                     assert "No matching response information found" in p.message
                     
         # now reset the filtered views:
-        pm._fplots = {}
+        pm._pplots = {}
         # set an inventory matching the segments we have:
         # set inventory
         folder = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
@@ -436,7 +447,7 @@ class Test(unittest.TestCase):
         # assert we do NOT have exceptions:
         # FIXME: check why we have to access _app for global vars and not app (see setup method)
         pm = self.app.config['PLOTMANAGER']
-        filtered_plotcaches = pm._fplots
+        filtered_plotcaches = pm._pplots
         for plotscache in filtered_plotcaches.itervalues():
             data = plotscache.data
             for d in data.itervalues():

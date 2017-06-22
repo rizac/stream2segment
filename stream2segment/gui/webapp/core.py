@@ -3,6 +3,12 @@ Created on Jul 31, 2016
 
 @author: riccardo
 '''
+import re
+from datetime import datetime
+from itertools import chain, cycle, izip
+
+from sqlalchemy import func
+
 from stream2segment.io.db.pd_sql_utils import colnames, commit
 from stream2segment.io.db.models import Segment, Class, Station, Channel, DataCenter, Event,\
     ClassLabelling, Run
@@ -12,11 +18,9 @@ from stream2segment.io.db.models import Segment, Class, Station, Channel, DataCe
 # from stream2segment.utils import evalexpr
 # from sqlalchemy.sql.expression import and_
 from stream2segment.io.db.queries import query4gui, count as query_count
-from itertools import chain, cycle, izip
 from stream2segment.gui.webapp.plotviews import jsontimestamp
-from datetime import datetime
 from stream2segment.io.db import sqlevalexpr
-import re
+from stream2segment.utils.resources import yaml_load_doc, get_templates_fpath
 
 
 NPTS_WIDE = 900
@@ -59,8 +63,20 @@ def get_metadata(session, seg_id=None):
 
     ret = []
     exclude = set([Station.inventory_xml.key, Segment.data.key, Run.log.key, Run.config.key])
+    include = {}
+    if segment is None:
+        # Set included attrs for search. Note that hybrid attrs (and probably columns) are hashable
+        # so it is safe to use them as keys
+        # Actually we would not need dicts, as the python type is inferred by sql-alchemy
+        # for hybrid attributes also, but removing dict items is faster than for list (see loop
+        # below)
+        include = {Segment.has_data: bool, Station.has_inventory: bool}
     for prefix, model in METADATA:
-        colnamez = colnames(model, fkey=False)
+        colnamez = list(colnames(model, fkey=False))
+        for i in include.keys():
+            if i.class_ is model:
+                colnamez.append(i.key)
+                del include[i]
         for colname in colnamez:
             if colname in exclude:
                 continue
@@ -80,21 +96,24 @@ def get_metadata(session, seg_id=None):
                             value = str(value)
                 else:
                     value = type2str(column.type.python_type)
-            except:
+            except Exception as _:
                 continue
             ret.append([("%s." % prefix) + colname if prefix else colname, value])
 
-    if segment is not None:
-        ret.insert(0, ['classes.id', [c.id for c in segment.classes]  # @UndefinedVariable
-                       ])
-    else:
-        ret.insert(0, ['has_data', type2str(bool)])
+#     if segment is not None:
+#         ret.insert(0, ['classes.id', [c.id for c in segment.classes]  # @UndefinedVariable
+#                        ])
+#     else:
+    if segment is None:  # add fields for selecting. These fields do not need to be set
+        # if a segment is provided (e.g., classes for a segment is returned if requested via
+        # a separate response key, and has_data does not need to be shown in the infos for a
+        # segment)
         if query_count(session, Class.id) > 0:
             ret.insert(0, ['classes.id', type2str(Class.id.type.python_type)  # @UndefinedVariable
                            ])
             ret.insert(0, ['classes', type2str(str) +  # @UndefinedVariable
-                           ": type either 'any' or 'none' (match segments with at least one class "
-                           "set, or no class set, respectively)"])
+                           ": type either any: segments with at least one class, "
+                           "or none: segments with no class"])
 
     return ret
 
@@ -135,7 +154,10 @@ def set_classes(session, config):
 
 
 def get_classes(session, seg_id=None):
-    '''Write doc!! what does this return???'''
+    '''If seg_id is not None, returns a list of the segment class ids.
+    Otherwise, a list of dicts where each dict is a db row in the form
+    {table_column: row_value}. The dict will have also a "count" attribute
+    denoting how many segments have that class set'''
     if seg_id is not None:
         segment = session.query(Segment).filter(Segment.id == seg_id).first()
         return [] if not segment else [c.id for c in segment.classes]
@@ -152,7 +174,7 @@ def get_classes(session, seg_id=None):
     return ret
 
 
-def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components, filtered, zooms,
+def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components, preprocessed, zooms,
                      metadata=False, classes=False, warnings=False, sn_wdws=False):
     # segment = session.query(Segment).filter(Segment.id == seg_id).first()
     plots = []
@@ -169,22 +191,18 @@ def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components,
         plotmanager.update_config(sn_windows=sn_wdws)
 
     if plot_indices:
-        get_plots_func = plotmanager.getfplots if filtered else plotmanager.getplots
+        get_plots_func = plotmanager.getpplots if preprocessed else plotmanager.getplots
         plots = get_plots_func(session, seg_id, plot_indices, all_components)
         try:
             # return always sn_windows, as we already calculated them
             sn_windows = [sorted([jsontimestamp(x[0]), jsontimestamp(x[1])])
-                          for x in plotmanager.get_sn_windows(seg_id, filtered)]
+                          for x in plotmanager.get_sn_windows(seg_id, preprocessed)]
         except Exception:
             sn_windows = []
-#         if set(indices).intersection([0, 1]):  # if I am trying to update either spectra or
-#             # base trace, also send spectra time windows:
-#             spectra_wdws = [sorted([jsontimestamp(x[0]), jsontimestamp(x[0]) + 1000*x[1]])
-#                             for x in plotmanager.get_spectra_windows(session, seg_id)]
 
     return {'plots': [p.tojson(z, NPTS_WIDE) for p, z in izip(plots, zooms_)],
             'sn_windows': sn_windows,
-            'warnings': [] if not warnings else plotmanager.get_warnings(seg_id),
+            'warnings': [] if not warnings else plotmanager.get_warnings(seg_id, preprocessed),
             'metadata': [] if not metadata else get_metadata(session, seg_id),
             'classes': [] if not classes else get_classes(session, seg_id)}  # get_columns(segment, metadata_keys) if metadata_keys else []}
 #             'metadata': get_columns(segment, metadata_keys) if metadata_keys else {}}
@@ -197,6 +215,15 @@ def parse_array(str_array, parsefunc=None, try_return_scalar=True):
     brackets). The separation characters are the comma surrounded by zero or more spaces, or
     a one or more spaces. E.g. "  [1 ,3  ]", "[1,3]", 
     '''
+    # browsers when typing a number parse it to numeric, when string send the string
+    # don't know if it's json specification, the browser (chrome), or some settings in the html
+    # I forgot to set. However, if parsefunc is not None, try parse the str_array immediately
+    # If it succeeds, then return
+    if parsefunc is not None and try_return_scalar:
+        try:
+            return parsefunc(str_array)
+        except Exception:
+            pass
     d = str_array.strip()
     if d[0] == '[' and d[-1] == ']':
         d = d[1:-1].strip()
@@ -231,9 +258,22 @@ def parse_zooms(zooms):
                     z[i] = None  # fixme: how to handle???
     return chain(zooms, cycle([None]))  # set zooms to None if length is not enough
 
-# def config_spectra(dic):
-#     ret = {'arrival_time_shift': evalexpr._eval(dic['arrival_time_shift']),
-#            'signal_window': evalexpr._eval(dic['signal_window'])
-#            }
-#     set_spectra_config(**ret)
-#     return True
+
+def get_doc(key, plotmanager):
+    '''returns the doc from the given key:
+    :param plotmanager: the plotmanager. Used if key is 'preprocessfunc' (see below)
+    :param key: 'preprocessfunc' (the doc will be the python doc implemented from the user)
+    'sn_windows' (the doc will be parsed by the gui.yaml file implemented in resources folder),
+    'segment_select' (the doc for the segment selection popup div)
+    '''
+    if key == 'preprocessfunc':
+        ret = plotmanager.get_preprocessfunc_doc
+    elif key == 'sn_windows':
+        ret = yaml_load_doc(get_templates_fpath("gui.yaml"), "sn_windows")
+    elif key == 'segment_select':
+        ret = yaml_load_doc(get_templates_fpath("gui.yaml"), "segment_select")
+
+    if not ret:
+        ret = "error: documentation N/A"
+    return ret.strip()
+    # return re.sub("\\s*\n\\s*", "\n", ret.strip())
