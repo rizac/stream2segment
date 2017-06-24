@@ -205,12 +205,16 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		var zooms = $scope.getAndClearZooms();
 		var param = {seg_id: $scope.segIds[index], pre_processed: $scope.showPreProcessed, zooms:zooms,
 				plot_indices: indices, all_components: $scope.showAllComponents};
-		// if we changed the results of the sn-windows send data. Note that we might
+		// if we changed the results of the sn-windows then send data. Note that we might
 		// be here if we toggled e.g., the per-process checkbox or the 'allComponents' checkbox
 		// this might be fixed if it's not what we want
+		// NOTE: The value in $scope.snWindows are by default float and array. As soon as
+		// we modify it in the form control, angular sends the string we input in the control
+		// So to be consistent pass always string with toString(): the server knows we need to
+		// parse them back (server side)
 		if ($scope.snWindows._changed){
-			param.sn_windows = {arrival_time_shift: $scope.snWindows.arrival_time_shift,
-					signal_window:$scope.snWindows.signal_window};
+			param.sn_windows = {arrival_time_shift: $scope.snWindows.arrival_time_shift.toString(),
+					signal_window:$scope.snWindows.signal_window.toString()};
 			$scope.snWindows._changed = false;
 		}
 		$scope.loading = true;
@@ -233,12 +237,34 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	// this function is used for getting the zooms and clearing them:
 	$scope.getAndClearZooms = function(){
 		return $scope.plots.map(function(elm){
-			zoom = [elm.zoom[0], elm.zoom[1]];
+			zoom = [$scope.convertAxisValue(elm.zoom[0], elm.div, 'xaxis'),
+			        $scope.convertAxisValue(elm.zoom[1], elm.div, 'xaxis')];
 			//set zoom to zero, otherwise these value are persistent and affect further plots:
 			elm.zoom = [null, null];
 			return zoom;
 		});
 	};
+	
+	$scope.convertAxisValue = function(value, div, axis){
+		//given an xaxis value of a plotly div 'div',
+		//parses value returning a timestamp if the div layout if of type date
+		//or 10**value if div layout type is log
+		//in any other case, returns value
+		// value: a value as returned by a zoom event listener. Plotly returns the log of the value
+		//if axis type is log, or a STRING denoting the date-time if the type is 'date'
+		// div: the plotly div
+		// axis: either 'xaxis' or 'yaxis'
+		if (!value || !div.layout || !div.layout[axis]){
+			return value;
+		}
+		var type = div.layout[axis].type;
+		if(type=='date'){
+			return new Date(value).getTime();  //returns the time-stamp
+		}else if(type=='log'){
+			return Math.pow(10, value);
+		}
+		return value;
+	}
 	
 	// this function returns the currently visible plot indices
 	$scope.getVisiblePlotIndices = function(){

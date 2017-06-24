@@ -176,9 +176,39 @@ def get_classes(session, seg_id=None):
 
 def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components, preprocessed, zooms,
                      metadata=False, classes=False, warnings=False, sn_wdws=False):
+    """Returns the segment data, depending on the arguments
+    :param session: a flask sql-alchemy session object
+    :param seg_id: integer denoting the segment id
+    :param plotmanager: a PlotManager object, storing all plots data and sn/windows data
+    :param plot_indices: a list of plots to be calculated from the given `plotmanager` (which caches
+    its plot for performance speed)
+    :param all_components: boolean, whether or not the `plotmanager` should give all components for
+    the main plot (plot representing the given segment's data, whose plot index is currently 0).
+    Ignored if 0 is not in `plot_indices`
+    :param preprocessed: boolean, whether or not the `plotmanager` should calculate the plots on
+    the pre-processing function defined in the config (if any), or on the raw obspy Stream
+    :param zooms: a list of **all plots** defined in the plotmanager, or None.
+    Each element is either None, or a tuple of [xmin, xmax] values (xmin and xmax can be both None,
+    to conform python slicing behaviour). Thus, the length of `zooms` most likely differs from
+    that of `plot_indices`. the zooms of interest are, roughly speaking,
+    [zooms[i] for i in plot_indices] (if zoom is not None)
+    :param metadata: boolean, whether or not to return a list of the segment metadata. The list
+    is a list of tuples ('column', value). A list is used to preserve order for client-side
+    javascript parsing
+    :param classes: boolean, whether to return the integers classes ids (if any) of the given
+    segment
+    :param warnings: boolean, whether to return the given warnings for the given segment. the
+    warnings include: segment with gaps, inventory error (if inventory is required according to
+    the config), and sn windows calculation error (e.g., bad values given from the config or the
+    gui). The warnings is a list of (currently) at most 3 string elements
+    :param sn_wdws: boolean, whether to returns the sn windows calculated according to the
+    config values. The returned list is a 2-element list, where each element is in turn a
+    2-element numeric list: [noise_window_start, noise_window_end],
+    [signal_window_start, signal_window_end]
+    """
     # segment = session.query(Segment).filter(Segment.id == seg_id).first()
     plots = []
-    zooms_ = parse_zooms(zooms)
+    zooms_ = parse_zooms(zooms, plot_indices)
     sn_windows = []
     if sn_wdws:
         if sn_wdws['signal_window']:
@@ -213,12 +243,10 @@ def parse_array(str_array, parsefunc=None, try_return_scalar=True):
     :param str_array: a valid string array, with or without square brackets. Leading and
     trailing spaces will be ignored (str split is applied twice if the string has square
     brackets). The separation characters are the comma surrounded by zero or more spaces, or
-    a one or more spaces. E.g. "  [1 ,3  ]", "[1,3]", 
+    a one or more spaces. E.g. "  [1 ,3  ]", "[1,3]"
     '''
-    # browsers when typing a number parse it to numeric, when string send the string
-    # don't know if it's json specification, the browser (chrome), or some settings in the html
-    # I forgot to set. However, if parsefunc is not None, try parse the str_array immediately
-    # If it succeeds, then return
+    # str_array should always be a string... just in case it's already a parsable value
+    # (e.g., parsefunc = float and str-array = 5.6), then try to parse it first:
     if parsefunc is not None and try_return_scalar:
         try:
             return parsefunc(str_array)
@@ -233,7 +261,7 @@ def parse_array(str_array, parsefunc=None, try_return_scalar=True):
     return _[0] if try_return_scalar and len(_) == 1 else _
 
 
-def parse_zooms(zooms):
+def parse_zooms(zooms, plot_indices):
     '''parses the zoom received from the frontend. Basically, if any zoom is a string,
     tries to parse it to datetime
     :param zooms: a list of 2-element tuples, or None's. The elements of the tuple can be number,
@@ -241,22 +269,29 @@ def parse_zooms(zooms):
     :return: an iterator over zooms. Uses itertools cycle so that this method can be safely used
     with izip never estinguishing it
     '''
-    if not zooms:
-        zooms = []
-    for z in zooms:
-        if z is None:
-            continue
-        for i in xrange(len(z)):
-            if z[i] is not None:
-                try:
-                    try:
-                        z[i] = float(z[i])
-                    except ValueError:
-                        str_ = (z[i][:-1] if z[i][-1] == 'Z' else z[i]).replace('T', ' ')
-                        z[i] = jsontimestamp(datetime.strptime(str_, '%Y-%m-%d %H:%M:%S.%f'))
-                except:
-                    z[i] = None  # fixme: how to handle???
-    return chain(zooms, cycle([None]))  # set zooms to None if length is not enough
+    if not zooms or not plot_indices:
+        zooms = cycle([None, None])  # to be safe in iterations
+    _zooms = []
+    for plot_index in plot_indices:
+        try:
+            z = zooms[plot_index]
+#             for i in xrange(len(z)):
+#                 if z[i] is not None:
+#                     try:
+#                         try:
+#                             z[i] = float(z[i])
+#                             if plot_index == 1:
+#                                 # sn spectra are log scaled and plotly returns the scaled values
+#                                 z[i] = 10 ** z[i]
+#                         except ValueError:
+#                             str_ = (z[i][:-1] if z[i][-1] == 'Z' else z[i]).replace('T', ' ')
+#                             z[i] = jsontimestamp(datetime.strptime(str_, '%Y-%m-%d %H:%M:%S.%f'))
+#                     except:
+#                         z[i] = None  # fixme: how to handle???
+        except (IndexError, TypeError):
+            z = [None, None]
+        _zooms.append(z)
+    return _zooms  # set zooms to None if length is not enough
 
 
 def get_doc(key, plotmanager):

@@ -23,10 +23,9 @@ div.main > div.center > div.center{
 }
 
 /* inputs are too long... */
-div.main > div.center > div.left input{
-	/* max-width: 8.5em; */
+/* div.main > div.center > div.left input{
 	width: 100%;
-}
+} */
 
 
 /* plotly does not work with flex (too bad!). keep flex for metadata panel and in case, in the future
@@ -71,7 +70,7 @@ div.main > div.center > div.left{
 
 .tr, .tl, .br, .bl{
 	position:absolute;
-	width:42.5vw;
+	width:42.7vw;
 	height:48.5vh;
 }
 
@@ -135,6 +134,7 @@ div.plot{
 	/*this makes the panel nicer as plotly div does not extend the full width:*/
 	background-color: white;
 	border: 1px solid #ddd;
+	resize: both;
 }
 
 div.metadata{
@@ -165,7 +165,7 @@ div.metadata > div.panel-body{
 div.left.v-container.panel-left{
 	height:100%;
 	border: 1px solid #ddd;
-	padding: 5px;
+	padding: 10px;
 }
 
 /* center panel*/
@@ -226,9 +226,54 @@ div.panel > .panel-heading{
 
 /* override bootstrap */
 label {
-    margin-bottom: 2px;
+    /* margin-bottom: 2px; */
     font-weight: normal !important;
 }
+
+
+/* left panel aligns and positions. Bootstrap does not help in this case
+(it's almost the same amount of code for re-styling what we do not like)*/
+.panel-left .inline{
+    margin-top: 10px;
+    margin-bottom: 10px;	
+}
+.panel-left .inline:last-child{
+	margin-bottom:0 !important;
+}
+.panel-left .inline:first-child{
+	margin-top:0 !important;
+}
+
+.disp-table{
+	display: table;
+	width: 100%;
+}
+.disp-trow{
+	display: table-row;
+}
+.disp-tcell{
+	display: table-cell;
+	vertical-align: middle;
+}
+
+.footnote{
+	font-size: small;
+	color: #919191;
+}
+
+.sel-prev-next button{
+	width: 50%;
+}
+.sel-prev-next button:first-child{
+	margin-right: 6px;
+}
+
+/* make the padding of the select next-previous buttons and the textfields of the sn-window sub
+panel "look" the same*/
+/* .sel-seg .disp-tcell:not(:first-child), .sn-wdw .disp-tcell:not(:first-child){
+	padding-left: 6px !important;
+} */
+
 
 .popup > div.center{
 	overflow:auto;

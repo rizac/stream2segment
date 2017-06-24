@@ -49,61 +49,55 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 		<div class="center h-container">
 			<div class="left flex v-container panel-left">
 				<div class="center">
-					<div class="panel">
-						<div class="panel-heading">Segments</div>
-						<div class="panel-body">
-							<div class="checkbox">
-								<div>
-									Current: {{ segIdx + 1 }} of {{ segIds.length }}
-								</div>	
-								<div class="checkbox">
-									<button class='btn btn-default' ng-click="setPreviousSegment()">&larr;</button>
-									<button class='btn btn-default' ng-click="setNextSegment()" >&rarr;</button>
-								</div>
-							</div>
-							<button class='btn btn-default btn-block' ng-click="selection.showForm=true">Select</button>
-	  					</div>
+					<!-- use checkbox class for all same level divs (bootstraps controls margins top and bottom intelligently -->
+					<h4 class="inline">Segment {{ segIdx + 1 }} of {{ segIds.length }}</h4>
+					<!-- <div class="inline footnote">(current: {{ segIdx + 1 }} of {{ segIds.length }})</div> -->
+					<div class="inline sel-prev-next flex h-container">
+						<button class='btn btn-default center' ng-click="setPreviousSegment()">&larr;</button>
+						<button class='btn btn-default center' ng-click="setNextSegment()" >&rarr;</button>
 					</div>
-					<div class="panel">
-						<div class="panel-heading">Plots</div>
-						<div class="panel-body">		
-							<div class="checkbox">
-								<label><input type="checkbox" ng-model="showPreProcessed" ng-change="togglePreProcess()"> Pre-process</label>
-								<div class="tooltip_">?
-									<pre class="tooltiptext">{% endraw %}{{ preprocessfunc_doc }}{% raw %}</pre>
-								</div>
-		  					</div>
-		  					<div class="divider"></div>
-		  					<div class="checkbox">
-								<label><input type="checkbox" ng-model="showAllComponents" ng-change="toggleAllComponentView()"> Show all components</label>
-							</div>
-		  					<div class="divider"></div>
-							<div id="spectra" class="radio">S/N Windows
-								<div class="tooltip_">?
-									<pre class="tooltiptext">{% endraw %}{{ sn_windows_doc }}{% raw %}</pre>
-								</div>
-							</div>
-							
-							<div class="checkbox">
-								<label class="checkbox">Arrival time shift:
-									<input class="checkbox" type="text" ng-model="snWindows.arrival_time_shift" ng-change="snWindows._changed=true">
-								</label>
-								<label class="checkbox">Signal window:
-									<input class="checkbox" type="text" ng-model="snWindows.signal_window" ng-change="snWindows._changed=true">
-			  					</label>
-		  					</div>
-							<button class='btn btn-default btn-block' ng-disabled="!snWindows._changed" ng-click="setSnWindows()">Refresh</button>
-							
-							<div class="divider"></div>
-
-							<div class="radio">Custom plots</div>
-							{% endraw %}{% for name in userDefinedPlotNames %}
-							<div class="radio">
-								<label><input type="radio" ng-change="bottomPlotChanged()" ng-model="bottomPlotId" value="{{ loop.index0 + 2}}">{{ name }}</label>
-							</div>
-							{% endfor %}{% raw %}
+					<div class="inline">
+						<button class='btn btn-default btn-block' ng-click="selection.showForm=true">Select</button>
+					</div>
+					<div class="divider"></div>			
+					<h4 class="inline">Plots</h4>		
+					<div class="inline">
+						<label><input type="checkbox" ng-model="showPreProcessed" ng-change="togglePreProcess()"> Pre-process</label>
+						<div class="tooltip_">?
+							<pre class="tooltiptext">{% endraw %}{{ preprocessfunc_doc }}{% raw %}</pre>
+						</div>
+  					</div>
+  					<div class="inline">
+						<label><input type="checkbox" ng-model="showAllComponents" ng-change="toggleAllComponentView()"> Show all components</label>
+					</div>
+ 					<div id="spectra" class="inline">S/N Windows
+						<div class="tooltip_">?
+							<pre class="tooltiptext">{% endraw %}{{ sn_windows_doc }}{% raw %}</pre>
+						</div>
+					</div>
+					<div class="inline disp-table sn-wdw">
+						<div class="disp-trow">
+							<div class="disp-tcell">Arrival time shift:</div>
+							<input type="text" class='disp-tcell form-control' ng-model="snWindows.arrival_time_shift" ng-change="snWindows._changed=true">
+						</div>
+						<div class="disp-trow">
+							<div class="disp-tcell">Signal window:</div>
+							<input type="text" class='disp-tcell form-control' ng-model="snWindows.signal_window" ng-change="snWindows._changed=true">
 	  					</div>
-	  				</div>
+	  					<div class="disp-trow">
+	  						<div class="disp-tcell"></div>
+	  						<button class='btn btn-default btn-block disp-tcell' ng-disabled="!snWindows._changed" ng-click="setSnWindows()">Refresh</button>
+						</div>
+					</div>
+					<div class="inline"> <!-- use checkbox class for all same level divs (bootstraps controls margins top and bottom intelligently -->
+						<div>Custom plots</div>
+						{% endraw %}{% for name in userDefinedPlotNames %}
+						<div class="radio">
+							<label><input type="radio" ng-change="bottomPlotChanged()" ng-model="bottomPlotId" value="{{ loop.index0 + 2}}">{{ name }}</label>
+							<span ng-show="bottomPlotId == {{ loop.index0 + 2}}" style='float:right'>&rarr;</span>
+						</div>
+						{% endfor %}{% raw %}
+					</div>
 	  			</div>
 				<div class="bottom">
 					<div ng-show="loading" class="alert alert-info">

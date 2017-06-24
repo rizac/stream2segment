@@ -285,9 +285,8 @@ def triangsmooth(array, winlen_ratio):
 
 
 def maxabs(signal):
-    """
-        Returns the maximum of the absolute values of the signal, i.e. the tuple:
-            (index_of_max, max)
+    """Returns the index of the maximum of the absolute values of the signal and the
+        maximum, i.e. the tuple: (index_of_max, max)
     """
     idx = np.nanargmax(np.abs(signal))
     return idx, signal[idx]
