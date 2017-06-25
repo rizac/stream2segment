@@ -261,6 +261,15 @@ class PlotsCache(object):
                 plots[i] = None
 
     def get_sn_windows(self, seg_id, config):
+        '''Returns the sn_windows for the stream of the given segment identified by its id
+        `seg_id` as the tuple
+        ```
+        ['noise_start], [noise_end], [signal_start, signal_end]
+        ```
+        all elements are `obspy` `UTCDateTime`s
+        raises `Exception` if the stream has more than one trace, or the
+        config values are not properly set
+        '''
         sn_wdws = self.data[seg_id][2]
         if isinstance(sn_wdws, Exception):
             raise sn_wdws
@@ -493,12 +502,6 @@ class PlotManager(object):
                 stream = d[0]
                 if isinstance(stream, Exception):
                     raise stream
-#                 if self.preprocessfunc is None:
-#                     raise Exception("No '_preprocess' function set")
-#                 try:
-#                     s_wdw, n_wdw = fpcache.get_sn_windows(segid, self.config)
-#                 except Exception:
-#                     s_wdw, n_wdw = None, None
                 ret = self.preprocessfunc(segments[segid], stream,
                                           self.segid2inv[segid], self.config)  # , s_wdw, n_wdw)
                 if isinstance(ret, Trace):
@@ -538,7 +541,7 @@ class PlotManager(object):
 
         stream, _, _ = pltcache.data[seg_id]
         if not isinstance(stream, Exception) and len(stream) != 1:
-            ww.append("%d traces (possible gaps/overlaps)" % len(stream))
+            ww.append("%d traces (probably gaps/overlaps)" % len(stream))
 
         inv = self.segid2inv.get(seg_id, None)
         if isinstance(inv, Exception):
@@ -553,9 +556,18 @@ class PlotManager(object):
         return ww
 
     def get_sn_windows(self, seg_id, preprocessed):
-        '''returns the sn windows [noise_start, noise_end], [signal_start, signal_end]
-        All tuple elements are `UTCDateTime`s
-        Raises on error'''
+        '''Returns the sn_windows for the stream of the given segment identified by its id
+        `seg_id` as the tuple
+        ```
+        ['noise_start], [noise_end], [signal_start, signal_end]
+        ```
+        all elements are `obspy` `UTCDateTime`s
+        raises `Exception` if the stream has more than one trace, or the
+        config values are not properly set
+
+        :param preprocessed: whether or not to return the sn-window on the pre-processed
+        plotscache, if a `_pre_process` function is defined
+        '''
         plots_cache = self._plots if not preprocessed else self._pplots
         return plots_cache[seg_id].get_sn_windows(seg_id, self.config)
 
@@ -584,6 +596,27 @@ def getsegs(session, seg_id, all_components=True, load_only_ids=True, as_dict=Fa
 
 class Plot(object):
     """A plot is a class representing a Plot on the GUI"""
+
+#     colors = cycle(["#1f77b4",
+#                     "#aec7e8",
+#                     "#ff710e",
+#                     "#ffbb78",
+#                     "#2ca02c",
+#                     "#98df8a",
+#                     "#d62728",
+#                     "#ff9896",
+#                     "#9467bd",
+#                     "#c5b0d5",
+#                     "#8c564b",
+#                     "#c49c94",
+#                     "#e377c2",
+#                     "#f7b6d2",
+#                     "#7f7f7f",
+#                     "#c7c7c7",
+#                     "#bcbd22",
+#                     "#dbdb8d",
+#                     "#17becf",
+#                     "#9edae5"])
 
     def __init__(self, title=None, message=None):
         self.title = title or ''
@@ -614,9 +647,6 @@ class Plot(object):
         return self.add(trace.stats.starttime,
                         trace.stats.delta, trace.data,
                         trace.get_id() if label is None else label)
-#         return self.add(jsontimestamp(trace.stats.starttime),
-#                         1000 * trace.stats.delta, trace.data,
-#                         trace.get_id() if label is None else label)
 
     def merge(self, *plots):
         ret = Plot(title=self.title, message=self.message)

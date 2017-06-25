@@ -34,13 +34,17 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 
 	$scope.loading=true;
 
-	$scope.PLOTCONFIGS = {
-			otherComponentsColor: '#dddddd',
-			// spectra: red the first (noise) green the second
-			// https://github.com/plotly/plotly.js/blob/master/src/components/color/attributes.js
-			snColors: ['#2ca02c', '#d62728'], // signal, noise
-			arrivalTimeLineColor: '#777777'
-	};
+	$scope.snColors = ['#2ca02c', '#d62728']  // signal, noise
+	// if more than two lines are present, it's undefined and handled by plotly (not tested)
+	$scope.snColors.arrivalTimeLine = '#777777';  // arrival time line
+
+//	$scope.PLOTCONFIGS = {
+//		otherComponentsColor: '#dddddd',
+//		// spectra: red the first (noise) green the second
+//		// https://github.com/plotly/plotly.js/blob/master/src/components/color/attributes.js
+//		snColors: ['#2ca02c', '#d62728'], // signal, noise
+//		arrivalTimeLineColor: '#777777'
+//	};
 	
 	$scope.err = function(response){
 		var msg = (response.data || 'Request failed');
@@ -292,10 +296,10 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			var warnings = plotData[2] || "";
 			var xrange = plotData[3] || null;
 			//http://stackoverflow.com/questions/40673490/how-to-get-plotly-js-default-colors-list
-			var colors = Plotly.d3.scale.category20();
+			// var colors = Plotly.d3.scale.category20();  // removed for the moment
 			var data = [];
 			for (var j=0; j<elements.length; j++){
-				var color = colors[j % colors.length];
+				//var color = colors(j % colors.length);  // removed for the moment
 				var line = elements[j];
 				var elmData = {
 					x0: line[0],
@@ -308,12 +312,10 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		            	  width: 1
 		            }
 				};
-				// customize colors. Maybe in the future moved to some config (but there should be a way to customize single
+				// customize sn-colors. Maybe in the future moved to some config (but there should be a way to customize single
 				//elemtns of the plot, not difficult but quite long to implement), for the moment hard coded:
-				if (i ==2 || i == 3){ // components in gray
-					elmData.line.color = $scope.PLOTCONFIGS.otherComponentsColor;
-				}else if (i == 1){
-					elmData.line.color = $scope.PLOTCONFIGS.snColors[j];
+				if (i == 1){
+					elmData.line.color = $scope.snColors[j];
 				}
 				// push data:
 				data.push(elmData);
@@ -340,7 +342,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 							    y0: 0,
 							    x1: elm[1],
 							    y1: 1,
-							    fillcolor: $scope.PLOTCONFIGS.snColors[idx],
+							    fillcolor: $scope.snColors[idx],
 							    opacity: 0.1,
 							    line: {
 							        width: 0
@@ -364,7 +366,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 						    line: {
 						        width: 1,
 						        dash: 'dot',
-						        color: $scope.PLOTCONFIGS.arrivalTimeLineColor
+						        color: $scope.snColors.arrivalTimeLine
 						    }
 						});
 					}

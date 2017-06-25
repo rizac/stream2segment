@@ -150,7 +150,7 @@ sn_spectra:
 #  Aftershock: "Segment with non overlapping multi-events recorded (aftershock)"
 #  MultiEvent: "Segment with overlapping multi-events recorded (no aftershock)"
 #  BadCoda: "Segment with a bad coda (bad decay)"
-  
+
 # custom paremeters below. You can change / delete their values but you should also
 # re-implement the spectra function defined in the python file:
 filter_settings:
