@@ -252,15 +252,33 @@ def data_aval(dburl, outfile, max_gap_ovlap_ratio=0.5):
 def create_templates(outpath, prompt=True, *filenames):
     # get the template files. Use all files except those with more than one dot
     # This might be better implemented
+    if not os.path.isdir(outpath):
+        os.makedirs(outpath)
+        if not os.path.isdir(outpath):
+            raise Exception("Unable to create '%s'" % outpath)
     template_files = get_templates_fpaths(*filenames)
     if prompt:
-        existing_files = [t for t in template_files if os.path.isfile(t)]
+        existing_files = [t for t in template_files
+                          if os.path.isfile(os.path.join(outpath, os.path.basename(t)))]
+        non_existing_files = [t for t in template_files if t not in existing_files]
         if existing_files:
+            suffix = ("Type:\n1: overwrite all files\n2: write only non-existing\n"
+                      "0 or any other value: do nothing (exit)")
             msg = ("The following file(s) "
                    "already exist on '%s':\n%s"
-                   "\n\nOverwrite?") % (outpath, "\n".join([os.path.basename(_)
-                                                           for _ in existing_files]))
-            if not click.confirm(msg):
+                   "\n\n%s") % (outpath, "\n".join([os.path.basename(_)
+                                                    for _ in existing_files]), suffix)
+            val = click.prompt(msg)
+            try:
+                val = int(val)
+                if val == 2:
+                    if not len(non_existing_files):
+                        raise ValueError()
+                    else:
+                        template_files = non_existing_files
+                elif val != 1:
+                    raise ValueError()
+            except ValueError:
                 return []
     copied_files = []
     for tfile in template_files:
@@ -439,23 +457,25 @@ def t(outdir):
     """Creates template/config files which can be inspected and edited for launching download,
     processing and visualization.
     """
-    helpdict = {'download.py': 'download configuration file (-c option)',
+    helpdict = {'download.yaml': 'download configuration file (-c option)',
                 'gui.py': 'visualization python file (-p option)',
                 'gui.yaml': 'visualization configuration file (-c option)',
                 'processing.py': 'processing python file (-p option)',
                 'processing.yaml': 'processing configuration file (-c option)'}
     try:
         copied_files = create_templates(outdir, True, *helpdict)
+        print('')
         if not copied_files:
             print("No file copied")
         else:
-            print("%d files copied in '%s':" % (len(copied_files), outdir))
+            print("%d file(s) copied in '%s':" % (len(copied_files), outdir))
             for fcopied in copied_files:
                 bname = os.path.basename(fcopied)
                 print("%s: %s" % (bname, helpdict.get(bname, "")))
             sys.exit(0)
     except Exception as exc:
-        print("%s\n" % str(exc))
+        print('')
+        print("error: %s" % str(exc))
     sys.exit(1)
 
 

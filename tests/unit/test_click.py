@@ -13,6 +13,8 @@ import yaml
 from contextlib import contextmanager
 import os
 from datetime import datetime, timedelta
+import tempfile
+import shutil
 
 
 class Test(unittest.TestCase):
@@ -202,8 +204,6 @@ def test_click_template(mock_create_templates, mock_isfile, mock_copy2):
     # FIXME: check how to mock os.path.isfile properly. This doesnot work:
     # assert mock_isfile.call_count == 5
     assert result.exit_code == 0
-    
-# data-aval needs to be tested!
 
     # assert help works:
     mock_create_templates.reset_mock()
@@ -213,6 +213,29 @@ def test_click_template(mock_create_templates, mock_isfile, mock_copy2):
     assert not mock_create_templates.called
     assert result.exit_code == 0
 
+
+def test_click_template_realcopy():
+    '''test a real example of copying files to a tempdir that will be removed'''
+    runner = CliRunner()
+
+# data-aval needs to be tested!
+    dir_ = tempfile.gettempdir()
+    try:
+        result = runner.invoke(main, ['t', dir_])
+        filez = os.listdir(dir_)
+        assert "download.yaml" in filez
+        assert "processing.yaml" in filez
+        assert "gui.yaml" in filez
+        assert "processing.py" in filez
+        assert "gui.py" in filez
+    finally:
+        shutil.rmtree(dir_)
+        assert not os.path.isdir(dir_)
+
+    # assert help works:
+    assert result.exit_code == 0
+
+# THIS HAS TO BE IMPLEMENTED (if we set the datareport html in place)
 @patch("stream2segment.main.data_aval", return_value=0)
 def tst_click_dataaval(mock_da):
     runner = CliRunner()
