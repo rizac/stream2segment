@@ -6,31 +6,13 @@ html, body, div.main{
 body{
 	font-family: "Lucida Sans Unicode", Arial, Helvetica, "Trebuchet MS", Verdana, sans-serif;
 	background-color: #f5f5f5;
+	padding: .5vw .5vh;
 }
 
-/* flex doesn't work with plotly (as of march 2017). So: */
-
-div.main > div.center{
-	height: 100%;
-}
-
-div.main > div.center > div.left{
-	float: left;
-}
-
-div.main > div.center > div.center{
-	height:100%;
-}
-
-/* inputs are too long... */
-/* div.main > div.center > div.left input{
-	width: 100%;
-} */
-
-
-/* plotly does not work with flex (too bad!). keep flex for metadata panel and in case, in the future
-Use the flex class in combination with h-container, v-container, left, top center, right or bottom */
-
+/* flex layout stuff (great invention!). NOTE: as of march 2017, plotly does not work with flex (too bad!)
+Rule: to create a flex containers, add the classes 'flex h-container' or 'flex v-container'
+the container items therein, add the classes 'center', 'left' 'right' 'top' or 'bottom'
+ */
 div.flex.h-container, div.flex.v-container{
 	display: flex;
 }
@@ -43,30 +25,86 @@ div.flex.v-container{
 	flex-direction: column;
 }
 
-div.flex.h-container > div.left, div.flex.h-container > div.right,
-div.flex.v-container > div.top, div.flex.v-container > div.bottom{
+div.flex.h-container > .left, div.flex.h-container > .right,
+div.flex.v-container > .top, div.flex.v-container > .bottom{
 	flex: 0 1 auto;
 }
 
-div.flex.h-container > div.center, div.flex.v-container div.center{
+div.flex.h-container > .center, div.flex.v-container .center{
 	flex: 1 1 auto;
 }
 
-/* DIMENSIONS */
 
-body{
-	padding: .5vw .5vh;
+/* Main divs layout (left panel -with controls buttons etcetera - and center panel - with plots + metadata)
+Remember: flex doesn't work with plotly (as of march 2017)
+*/
+
+div.main > div.center{ /*div center contains div#controls-left-panel and div#plots-center-panel */
+	height: 100%;
 }
 
-/* controlling the width of the left panel (modify both with the same value:*/
-div.main > div.center > div.center{
-	margin-left: 13vw;
-}
-div.main > div.center > div.left{
-	width: 13vw;
+#controls-left-panel{
+	height:100%;
+	float: left;
+	width: 13vw; /*needs to be same value as margin-left of #plots-center-panel (see above)*/
 }
 
-/* panels for plots */
+#plots-center-panel{
+	height:100%;
+	margin-left: 13vw; /*needs to be same value as width of #controls-left-panel (see above)*/
+}
+
+
+/* #controls-left-panel: layout of sub-components and look and feel */
+
+#controls-left-panel{
+	border: 1px solid #ddd;
+	padding: 10px;
+}
+
+#controls-left-panel .bottom .alert {
+    margin-bottom: 0;
+}
+
+#controls-left-panel  .inline{
+    margin-top: 10px;
+    margin-bottom: 10px;	
+}
+#controls-left-panel .inline:last-child{
+	margin-bottom:0 !important;
+}
+#controls-left-panel .inline:first-child{
+	margin-top:0 !important;
+}
+
+#controls-left-panel .sel-prev-next button:first-child{
+	margin-right: 6px;
+}
+
+#controls-left-panel .sn-wdw-controls .flex.h-container{
+	align-items: baseline;
+}
+
+#controls-left-panel .sn-wdw-controls >div:not(:first-child){
+	margin-top: 6px;
+}
+
+#controls-left-panel .sn-wdw-controls label{
+	text-align:right;
+	margin-right: 6px;
+}
+
+#controls-left-panel .sn-wdw-controls input.form-control{
+	width:5.5em;
+}
+
+
+/*  #plots-center-panel: layout of sub-components (positions and margins/paddings) */
+
+#plots-center-panel{ /*first make center div position is relative in order to make the following divs absolute
+	and referring to this div*/
+	position: relative;
+}
 
 .tr, .tl, .br, .bl{
 	position:absolute;
@@ -90,25 +128,23 @@ div.main > div.center > div.left{
 	right: 0vw;
 }
 
-#select-form{
+#select-form{ /*add select form dimensions here cause, when visible, they should fit more or less the width of the left-side plots,
+	leaving room for seeing the current segment metadata panel while choosing what to select*/
 	position:fixed;
 	top:10vh;
 	width: 45.5vw;
 	left:12.5vw;
 }
 
-/* metadata panel visually better if detached from right plot: REMOVED*/
-/* .br{
-	padding-left:12px; 
-} */
-div.plot-wrapper{
+div.plot-wrapper{ /*child of .tr, .tb, ... defined above*/
 	position:absolute;
 	top:10px;
 	bottom:10px;
 	right:10px;
 	left:10px;
 }
-div.plot{
+
+div.plot{ /*child of plot-wrapper defined above*/
 	position: absolute;
 	margin:0;
 	padding:0;
@@ -116,19 +152,21 @@ div.plot{
 	bottom:0px;
 	right:0px;
 	left:0px;
-	/* height: 100%;
-	width: 100%; */
-	/* border: 1px solid rgba(0,0,0,.05); */
 }
 
-/* div.plot-other-component{
-	height: 50%;
+
+/* border radia, harmonize for all divs involved */
+
+.tr, .tl, .bl, #controls-left-panel, div.panel{
+	border-radius: 10px !important;
+}
+div.panel > .panel-heading{ 
+	border-top-left-radius: 10px !important;
+	border-top-right-radius: 10px !important;
 }
 
-.pnl-heading{
-	margin-top: 20px;
-    font-weight: bold;
-} */
+
+/* plot divs: look and feel */
 
 .tr, .tl, .bl{
 	/*this makes the panel nicer as plotly div does not extend the full width:*/
@@ -136,6 +174,9 @@ div.plot{
 	border: 1px solid #ddd;
 	resize: both;
 }
+
+
+/* metadata panel (right bottom) */
 
 div.metadata{
 	/* override bootstrap */
@@ -161,26 +202,7 @@ div.metadata > div.panel-body{
 }
 
 
-/* left panel */
-div.left.v-container.panel-left{
-	height:100%;
-	border: 1px solid #ddd;
-	padding: 10px;
-}
-
-/* center panel*/
-div.main > div.center > div.center{
-	position: relative;
-	/* border: 1px solid #ddd; */
-}
-
-.tr, .tl, .bl, div.left.v-container.panel-left, div.panel{
-	border-radius: 10px !important;
-}
-div.panel > .panel-heading{
-	border-top-left-radius: 10px !important;
-	border-top-right-radius: 10px !important;
-}
+/* arrows (using css tricks): */
 
 .arrow-up, .arrow-down{
 	margin-top:5px;
@@ -199,96 +221,28 @@ div.panel > .panel-heading{
 	border-top: 6px solid black;
 }
 
-/* PANEL LEFT AND SUBCOMPONENTS */
-
-.panel:last-child{
-	margin-bottom:0;
-}
-
-.left .bottom .alert {
-    margin-bottom: 0;
-}
-
-.left .panel{
-	background-color: transparent !important;
-}
-/* .panel-body .inline-element {
-    position: relative;
-    display: block;
-    margin-top: 10px;
-    margin-bottom: 10px;
-}
-
-.panel-body .inline-element:last-child{
-    margin-bottom: 0px;
-} */
-
 
 /* override bootstrap */
+
 label {
-    /* margin-bottom: 2px; */
     font-weight: normal !important;
 }
 
-
-/* left panel aligns and positions. Bootstrap does not help in this case
-(it's almost the same amount of code for re-styling what we do not like)*/
-.panel-left .inline{
-    margin-top: 10px;
-    margin-bottom: 10px;	
-}
-.panel-left .inline:last-child{
-	margin-bottom:0 !important;
-}
-.panel-left .inline:first-child{
-	margin-top:0 !important;
+.divider { /* in bootstrap .divider works only inside a dropdown-menu: make it general (copied and pasted from bootstrap) */
+    height: 1px;
+    margin: 9px 0;
+    overflow: hidden;
+    background-color: #e5e5e5;
 }
 
-.disp-table{
-	display: table;
-	width: 100%;
-}
-.disp-trow{
-	display: table-row;
-}
-.disp-tcell{
-	display: table-cell;
-	vertical-align: middle;
-}
 
-.footnote{
-	font-size: small;
-	color: #919191;
-}
-
-.sel-prev-next button{
-	width: 50%;
-}
-.sel-prev-next button:first-child{
-	margin-right: 6px;
-}
-
-/* make the padding of the select next-previous buttons and the textfields of the sn-window sub
-panel "look" the same*/
-/* .sel-seg .disp-tcell:not(:first-child), .sn-wdw .disp-tcell:not(:first-child){
-	padding-left: 6px !important;
-} */
-
+/* popups (info, docs etcetera)*/
 
 .popup > div.center{
 	overflow:auto;
 	height: 70vh;
 	margin-bottom: 16px;
 	margin-top: 16px;
-}
-
-
-/* copied from bootstrap, where divider works only inside a dropdown-menu */
-.divider {
-    height: 1px;
-    margin: 9px 0;
-    overflow: hidden;
-    background-color: #e5e5e5;
 }
 
 .popup{
@@ -303,7 +257,9 @@ panel "look" the same*/
     box-shadow: 0 6px 12px rgba(0,0,0,.175);
 }
 
+
 /* help stuff (including tooltips) */
+
 .tooltip_{
 	position: relative;
     box-sizing: content-box;
@@ -323,7 +279,6 @@ panel "look" the same*/
 
 .tooltip_ .tooltiptext {
     visibility: hidden;
-    
     font-family: inherit;
     font-size: inherit;
     background-color: #555;
@@ -333,17 +288,12 @@ panel "look" the same*/
     padding: 10px;
     position: absolute;
     z-index: 10;
-    /* bottom: 125%;
-    left: 50%;
-    margin-left: -60px; */
     opacity: 0;
     transition: opacity 1.5s;
-
     min-width: 30em;
     max-height: 50vh;
     left: 125%;
-    
-    /* margin-top: -25vh; */
+ 
 }
 
 .tooltip_ .tooltiptext .border{
@@ -359,61 +309,3 @@ panel "look" the same*/
     visibility: visible;
     opacity: 1;
 }
-
-/*
-.progress-bar {
-    background-color: #1a1a1a;
-    height: 25px;
-    padding: 5px;
-    width: 350px;
-    margin: 50px 0;         
-    border-radius: 5px;
-    box-shadow: 0 1px 5px #000 inset, 0 1px 0 #444;           
-}
-
-.progress-bar span {
-    display: inline-block;
-    height: 100%;
-    border-radius: 3px;
-    box-shadow: 0 1px 0 rgba(255, 255, 255, .5) inset;
-    transition: width .4s ease-in-out;    
-}
-*/
-
-
-/* experimental */
-/*
-div.container{
-	position:relative;
-	height: 100%;
-	box-sizing:border-box;
-	height:100%;
-}
-
-.panel-h {
-    margin-bottom: 0px;
-    border-color: #ddd !important;
-    margin-right: 20px;
-    background-color: #fff;
-    border: 1px solid transparent;
-    border-radius: 4px;
-    -webkit-box-shadow: 0 1px 1px rgba(0,0,0,.05);
-    box-shadow: 0 1px 1px rgba(0,0,0,.05);
-    display: flex;
-    flex-direction: row;
-}
-
-.panel-h .panel-heading{
-	border-bottom: initial;
-	border-right: 1px solid transparent;
-	flex: 0 1 auto;
-	border-top-left-radius: 3px;
-    border-top-right-radius: initial;
-    border-bottom-left-radius: 3px;
-}
-
-.panel-h .panel-body{
-	flex: 1 1 auto;
-}
-*/
-

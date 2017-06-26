@@ -43,15 +43,12 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 {% raw %}
 <body ng-app="myApp" ng-controller="myController">
 	<div class="main v-container">
-		<div class=top>
-	
-		</div>
+		<div class=top></div> <!-- not used, maybe in the future for a top toolbar ... -->
 		<div class="center h-container">
-			<div class="left flex v-container panel-left">
+			<div id='controls-left-panel' class="left flex v-container">
 				<div class="center">
 					<!-- use checkbox class for all same level divs (bootstraps controls margins top and bottom intelligently -->
 					<h4 class="inline">Segment {{ segIdx + 1 }} of {{ segIds.length }}</h4>
-					<!-- <div class="inline footnote">(current: {{ segIdx + 1 }} of {{ segIds.length }})</div> -->
 					<div class="inline sel-prev-next flex h-container">
 						<button class='btn btn-default center' ng-click="setPreviousSegment()">&larr;</button>
 						<button class='btn btn-default center' ng-click="setNextSegment()" >&rarr;</button>
@@ -70,23 +67,22 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
   					<div class="inline">
 						<label><input type="checkbox" ng-model="showAllComponents" ng-change="toggleAllComponentView()"> Show all components</label>
 					</div>
- 					<div id="spectra" class="inline">S/N Windows
+ 					<div class="inline">S/N Windows
 						<div class="tooltip_">?
 							<pre class="tooltiptext">{% endraw %}{{ sn_windows_doc }}{% raw %}</pre>
 						</div>
 					</div>
-					<div class="inline disp-table sn-wdw">
-						<div class="disp-trow">
-							<div class="disp-tcell">Arrival time shift:</div>
-							<input type="text" class='disp-tcell form-control' ng-model="snWindows.arrival_time_shift" ng-change="snWindows._changed=true">
+					<div class="inline sn-wdw-controls">
+						<div class="flex h-container">
+							<label class="center">Arrival time shift:</label>
+							<input type="text" class='form-control right' ng-model="snWindows.arrival_time_shift" ng-change="snWindows._changed=true">
 						</div>
-						<div class="disp-trow">
-							<div class="disp-tcell">Signal window:</div>
-							<input type="text" class='disp-tcell form-control' ng-model="snWindows.signal_window" ng-change="snWindows._changed=true">
+						<div class="flex h-container">
+							<label class="center">Signal window:</label>
+							<input type="text" class='form-control right' ng-model="snWindows.signal_window" ng-change="snWindows._changed=true">
 	  					</div>
-	  					<div class="disp-trow">
-	  						<div class="disp-tcell"></div>
-	  						<button class='btn btn-default btn-block disp-tcell' ng-disabled="!snWindows._changed" ng-click="setSnWindows()">Refresh</button>
+	  					<div class="">
+	  						<button class='btn btn-default btn-block' ng-disabled="!snWindows._changed" ng-click="setSnWindows()">Refresh</button>
 						</div>
 					</div>
 					<div class="inline"> <!-- use checkbox class for all same level divs (bootstraps controls margins top and bottom intelligently -->
@@ -105,7 +101,7 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 					</div>				
 				</div>
 			</div>
-			<div class="center h-container panel-center">
+			<div id='plots-center-panel' class="center h-container">
 				<!-- plotly (as of feb 2017) does NOT work with flex layout. TOO BAD. -->
 				<!--
 					***********************

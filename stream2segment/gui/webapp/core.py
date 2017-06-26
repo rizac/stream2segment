@@ -144,12 +144,14 @@ def set_classes(session, config):
     # do not add already added classes:
     clazzes = {c.label: c for c in session.query(Class)}
     for label, description in classes.iteritems():
+        cla = None
         if label in clazzes and clazzes[label].description != description:
             cla = clazzes[label]
             cla.description = description  # update
         elif label not in clazzes:
             cla = Class(label=label, description=description)
-        session.add(cla)
+        if cla is not None:
+            session.add(cla)
     session.commit()
 
 
