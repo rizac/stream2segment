@@ -259,7 +259,7 @@ def create_templates(outpath, prompt=True, *filenames):
             msg = ("The following file(s) "
                    "already exist on '%s':\n%s"
                    "\n\nOverwrite?") % (outpath, "\n".join([os.path.basename(_)
-                                                          for _ in existing_files]))
+                                                           for _ in existing_files]))
             if not click.confirm(msg):
                 return []
     copied_files = []
@@ -344,10 +344,11 @@ def main():
 @click.option('-r4', '--retry_4xx', is_flag=True, default=None)
 @click.option('-r5', '--retry_5xx', is_flag=True, default=None)
 @click.option('-i', '--inventory', is_flag=True, default=None)
+@click.option('-e', '--eventws')
 @click.argument('eventws_query_args', nargs=-1, type=click.UNPROCESSED,
                 callback=click_stuff.proc_eventws_args)
 def d(configfile, dburl, start, end, service, wtimespan, min_sample_rate, retry_no_code,
-      retry_url_errors, retry_mseed_errors, retry_4xx, retry_5xx, inventory,
+      retry_url_errors, retry_mseed_errors, retry_4xx, retry_5xx, inventory, eventws,
       eventws_query_args):
     """Efficiently download waveform data segments and relative events, stations and channels
     metadata (plus additional class labels, if needed)

@@ -109,15 +109,15 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
         raise QuitDownload(exc)
 
 
-def get_eventws_url(session, service):
-    """Returns the event web service url from a given service name (string),
-    currently either "eida" or "iris"
-    """
-    dic = yaml_load(get_ws_fpath())
-    try:
-        return dic['seismicportal' if service == 'eida' else service]['event']
-    except (IndexError, KeyError):
-        raise ValueError("Service '%s'\\'s web service not found" % service)
+# def get_eventws_url(session, service):
+#     """Returns the event web service url from a given service name (string),
+#     currently either "eida" or "iris"
+#     """
+#     dic = yaml_load(get_ws_fpath())
+#     try:
+#         return dic['seismicportal' if service == 'eida' else service]['event']
+#     except (IndexError, KeyError):
+#         raise ValueError("Service '%s'\\'s web service not found" % service)
 
 
 # def add_classes(session, class_labels, db_bufsize):
@@ -1168,7 +1168,7 @@ def print_stats(stats_dict, datacenters_df):
                  "(Nothing to show)"))
 
 
-def run(session, run_id, start, end, service, eventws_query_args,
+def run(session, run_id, eventws, start, end, service, eventws_query_args,
         search_radius,
         channels, min_sample_rate, inventory, traveltime_phases,
         wtimespan, retry_no_code, retry_url_errors, retry_mseed_errors, retry_4xx, retry_5xx,
@@ -1200,9 +1200,9 @@ def run(session, run_id, start, end, service, eventws_query_args,
     # cause otherwise is unclear why the program stop so quickly
     logger.info("")
     logger.info("STEP %s: Requesting events", next(stepiter))
-    eventws_url = get_eventws_url(session, service)
+    # eventws_url = get_eventws_url(session, service)
     try:
-        events_df = get_events_df(session, eventws_url, dbbufsize, start=startiso, end=endiso,
+        events_df = get_events_df(session, eventws, dbbufsize, start=startiso, end=endiso,
                                   **eventws_query_args)
     except QuitDownload as dexc:
         return dexc.log()

@@ -1,9 +1,0 @@
-# config file for the web services to use. Each key is the service name, each sub-key is the service
-# type mapped to the relative url. Each key must AT LEAST have the "event" sub-key, the other keys
-# not used for the moment
-seismicportal:
-  event: 'http://seismicportal.eu/fdsnws/event/1/query'
-iris: 
-  event: 'http://service.iris.edu/fdsnws/event/1/query'
-  station: 'http://service.iris.edu/fdsnws/station/1/query'
-  dataselect: 'http://service.iris.edu/fdsnws/dataselect/1/query'

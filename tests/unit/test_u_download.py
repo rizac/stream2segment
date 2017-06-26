@@ -26,7 +26,7 @@ from click.testing import CliRunner
 import pandas as pd
 from stream2segment.download.main import get_events_df, get_datacenters_df, logger as query_logger, \
 get_channels_df, merge_events_stations, set_saved_arrivaltimes, get_arrivaltimes,\
-    prepare_for_download, download_save_segments, _strcat, get_eventws_url,\
+    prepare_for_download, download_save_segments, _strcat,\
     QuitDownload
 # ,\
 #     get_fdsn_channels_df, save_stations_and_channels, get_dists_and_times, set_saved_dist_and_times,\
@@ -393,15 +393,15 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 # ===========================
 
     
-    @patch('stream2segment.download.main.yaml_load', return_value={'service1': {'event': 'http:event1'}, 'service2': {'event': 'http:event2', 'station': 'http:station2'}})
-    def test_get_eventws_url(self, mock_yaml_load):
-        with pytest.raises(ValueError):
-            url = get_eventws_url(self.session, "eida")
-        
-        url = get_eventws_url(self.session, "service1")
-        assert url == 'http:event1'
-        url = get_eventws_url(self.session, "service2")
-        assert url == 'http:event2'
+#     @patch('stream2segment.download.main.yaml_load', return_value={'service1': {'event': 'http:event1'}, 'service2': {'event': 'http:event2', 'station': 'http:station2'}})
+#     def test_get_eventws_url(self, mock_yaml_load):
+#         with pytest.raises(ValueError):
+#             url = get_eventws_url(self.session, "eida")
+#         
+#         url = get_eventws_url(self.session, "service1")
+#         assert url == 'http:event1'
+#         url = get_eventws_url(self.session, "service2")
+#         assert url == 'http:event2'
 
     def get_events_df(self, url_read_side_effect, *a, **v):
         self.setup_urlopen(self._evt_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)

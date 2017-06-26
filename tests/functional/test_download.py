@@ -27,7 +27,7 @@ from click.testing import CliRunner
 import pandas as pd
 from stream2segment.download.main import get_events_df, get_datacenters_df, \
 get_channels_df, merge_events_stations, set_saved_arrivaltimes, get_arrivaltimes,\
-    prepare_for_download, download_save_segments, _strcat, get_eventws_url, save_inventories
+    prepare_for_download, download_save_segments, _strcat, save_inventories
 # ,\
 #     get_fdsn_channels_df, save_stations_and_channels, get_dists_and_times, set_saved_dist_and_times,\
 #     download_segments, drop_already_downloaded, set_download_urls, save_segments

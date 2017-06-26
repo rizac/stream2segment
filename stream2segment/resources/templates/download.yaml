@@ -56,10 +56,8 @@ start: 2006-01-01T00:00:00
 # Optional: missing value defaults to today at midnight
 end: 2016-12-25T00:00:00
 
-# the service to use. Currently implemented are "eida" and "iris". Missing values default to
-# 'eida'. This argument will automatically set internally event, station and dataselect web
-# service urls to use for downloading data
-service: 'eida'
+# the event web service (url)
+eventws: 'http://seismicportal.eu/fdsnws/event/1/query'
 
 # a dict of fdns ws arguments for the eventws query. All values are permitted except 'format', 'start' 
 # and 'end' (the latter are taken from the values of the relative config parameters specified above)
@@ -71,6 +69,10 @@ eventws_query_args:
   maxlon: 17.0
   mindepth: 1
   maxdepth: 50
+
+# data-select service to use. Currently implemented are "eida" and "iris". Missing values will
+# get all datacenters from the given routing service (see 'routing_service_url' in advanced_settings)
+service: 'eida'
 
 # stations will be downloaded with level='channel'. Set here which channels to download. For info see e.g.:
 # https://ds.iris.edu/ds/nodes/dmc/tools/data_channels/#???
