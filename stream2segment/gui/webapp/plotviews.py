@@ -201,6 +201,10 @@ def plot_title(trace, segment, func_or_funcname):
         if not id:
             id_ = ".".join([segment.station.network, segment.station.station,
                            segment.channel.location, segment.channel.channel])
+
+    if func_or_funcname == _get_me:  # main function, return just the id
+        return str(id_)
+
     try:
         funcname = func_or_funcname.__name__
     except AttributeError:

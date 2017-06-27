@@ -17,24 +17,27 @@ from obspy.io.mseed.core import InternalMSEEDReadingError
 import warnings
 from collections import defaultdict
 from obspy.core.stream import read
-from stream2segment.process.utils import dcname, segstr
+# from stream2segment.process.utils import dcname, segstr
 import json
 import concurrent.futures
 from urlparse import urlparse
 from sqlalchemy.orm import load_only
 from datetime import datetime
-from stream2segment.io.db.pd_sql_utils import withdata
+# from stream2segment.io.db.pd_sql_utils import withdata
 from itertools import chain
 
 warnings.filterwarnings("ignore")
 
 
 def segquery(session):
-    qry = session.query(Segment.channel_id, Segment.start_time,
-                        Segment.end_time, Segment.id, Segment.data, Channel.sample_rate,
-                        DataCenter.station_url).join(Segment.datacenter, Segment.channel)
+#     qry = session.query(Segment.channel_id, Segment.start_time,
+#                         Segment.end_time, Segment.id, Segment.data, Channel.sample_rate,
+#                         DataCenter.station_url).join(Segment.datacenter, Segment.channel)
 
-    qry = session.query(Segment).options(load_only(Segment.id))
+    # qry = session.query(Segment).options(load_only(Segment.id))
+    
+    qry = session.query(Segment.id)
+    
     # FIXME: remove!!
 #     'event.latitude': "[47, 56]"
 #   'event.longitude': "[5, 16]"
@@ -74,22 +77,7 @@ def process_segment(segment, max_gap_ovlap_ratio):
             else:
                 mseed = read(StringIO(data))
                 if len(mseed) > 1:  # do this check before cause get_gaps
-                    warn = 'More than one trace (potential gaps/overlaps)'
-#                     # might take more time
-#                     gaps = segment.max_gap_ovlap_ratio >= mac_gap_ovlap_ratio
-#                     # From the docs: The returned list contains one item in the
-#                     # following form for each gap/overlap:
-#                     # [network, station, location, channel, starttime of the gap,
-#                     # end time of the gap, duration of the gap,
-#                     # number of missing samples]
-#                     if gaps:
-#                         if any(g[-1] < 0 for g in gaps):
-#                             warn = 'More than one trace'
-#                         else:
-#                             warn = 'Has gaps'
-#                     else:
-#                         # this should never happen, for safety:
-#                         warn = 'No gaps but num. of traces > 1'
+                    warn = '%d traces in stream (possible gaps/overlaps)'
                 else:
                     # surely only one trace:
                     trace = mseed[0]
@@ -152,7 +140,8 @@ def create_da_html(sess, outfile, max_gap_ovlap_ratio=0.5, isterminal=False):
     unexpected_errs = 0
 
     with get_progressbar(isterminal, length=seg_query.count()) as pbar:
-        for seg in seg_query:
+        for seg_id in seg_query:
+            seg = sess.query(Segment).filter(Segment.id==seg_id).first()
             pbar.update(1)
             try:
                 warn, err, sta_id, dc_name, seg_info_list = process_segment(seg,
@@ -215,3 +204,10 @@ def render(tpl_path, args_dict):
     path, filename = os.path.split(tpl_path)
     return jinja2.Environment(loader=jinja2.FileSystemLoader(path or './')).\
         get_template(filename).render(args_dict)
+
+
+if __name__ == "__main__":
+    sess = get_session("postgresql://rizac:EkR06e@rs5.gfz-potsdam.de/s2s_new", False)
+    create_da_html(sess, "/Users/riccardo/work/gfz/data/s2s/meeting_edf/da_aval.html",
+                   max_gap_ovlap_ratio=0.5, isterminal=True)
+    
