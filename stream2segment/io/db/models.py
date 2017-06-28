@@ -402,6 +402,12 @@ class Segment(Base):
         else:
             return any_(Class.id.isin_(ids))
 
+    @hybrid_property
+    def strid(self):
+        return self.seed_identifier or \
+            ".".join([self.station.network, self.station.station,
+                      self.channel.location, self.channel.channel])
+
     event = relationship("Event", backref=backref("segments", lazy="dynamic"))
     channel = relationship("Channel", backref=backref("segments", lazy="dynamic"))
     datacenter = relationship("DataCenter", backref=backref("segments", lazy="dynamic"))

@@ -284,12 +284,12 @@ def triangsmooth(array, winlen_ratio):
 #     return ret[n - 1:] / n
 
 
-def maxabs(signal):
-    """Returns the index of the maximum of the absolute values of the signal and the
-        maximum, i.e. the tuple: (index_of_max, max)
-    """
-    idx = np.nanargmax(np.abs(signal))
-    return idx, signal[idx]
+# def maxabs(signal):
+#     """Returns the index of the maximum of the absolute values of the signal and the
+#         maximum, i.e. the tuple: (index_of_max, max)
+#     """
+#     idx = np.nanargmax(np.abs(signal))
+#     return idx, signal[idx]
 
 
 # def interp(npts_or_new_x_array, oldxarray, signal):

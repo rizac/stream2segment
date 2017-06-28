@@ -15,7 +15,8 @@ from stream2segment.analysis import snr as orig_snr
 from stream2segment.analysis import powspec as orig_powspec
 
 
-from stream2segment.analysis.mseeds import remove_response, fft, snr , bandpass, dfreq
+from stream2segment.analysis.mseeds import remove_response, fft, snr , bandpass, dfreq, maxabs,\
+    timeof
 # from stream2segment.io.utils import loads, dumps
 # from stream2segment.analysis.mseeds import _IO_FORMAT_FFT, _IO_FORMAT_STREAM, _IO_FORMAT_TIME,\
 #     _IO_FORMAT_TRACE
@@ -153,3 +154,23 @@ def test_get_trace_with_gaps(_data):  # WTF am I testing here? obspy?? FIXME: re
     arr = stream.get_gaps()
     assert len(arr) > 0
 
+
+def testmaxabs():
+    mseed = get_data()['mseed']
+    _ = maxabs(mseed)
+    t, g = _[0]
+    t1, g1 = maxabs(mseed[0])
+    assert t== t1 and g == g1
+    
+    assert np.max(np.abs(mseed[0].data)) == g
+    idx =  np.argmax(np.abs(mseed[0].data))
+    
+    assert timeof(mseed[0], idx) == t
+    
+    # assert by slicing times of max are different:
+    td = 2*mseed[0].stats.delta
+    assert maxabs(mseed[0], None, t-td)[0] < t < maxabs(mseed[0], t+td, None)[0]
+    
+    assert np.isnan(maxabs(mseed[0], None, mseed[0].stats.starttime-td))
+    
+    

@@ -13,7 +13,7 @@ import numpy as np
 from obspy.core import Stream, Trace, UTCDateTime  # , Stats
 from obspy import read_inventory
 from stream2segment.analysis import fft as _fft, ampspec as _ampspec, powspec as _powspec,\
-    maxabs as _maxabs, snr as _snr, cumsum as _cumsum, dfreq, freqs
+    snr as _snr, cumsum as _cumsum, dfreq, freqs
 
 
 def stream_compliant(func):
@@ -56,7 +56,6 @@ def stream_compliant(func):
         else:
             return func(obj, *args, **kwargs)
     return func_wrapper
-
 
 # def itertrace(trace_or_stream):
 #     """Iterator over the argument. If the latter is a Stream, returns it. If it is a trace
@@ -112,22 +111,32 @@ def bandpass(trace, freq_min, freq_max, max_nyquist_ratio=0.9,
 @stream_compliant
 def maxabs(trace, starttime=None, endtime=None):
     """
-        Returns the maxima of the absolute values of the trace or stream object passed as first
-        argument. The returned value is the tuple:
-            (time, val)
-        if trace is an obspy.Trace, or the list:
-            [(time1, va1), ... (timeN, valN)]
-        if trace is an obspy.Stream
-        All times are UTCDateTime objects
+        Returns the trace point
+        ```(time, value)```
+        where `value = max(abs(trace.data))`
+        and time (`UTCDateTime`) is the time occurrence of `value`
         :param trace: the input obspy.core.Trace
-        :param starttime: an obspy UTCDateTime object (or integer, denoting a timestamp) denoting
-        the start time of the trace, or None to default to the trace start
-        :param endtime: an obspy UTCDateTime object (or integer, denoting a timestamp) denoting
-        the start time of the trace, or None to default to the trace end
+        :param starttime: an obspy UTCDateTime object (or any value
+        `UTCDateTime` accepts, e.g. integer / `datetime` object) denoting
+        the start time (None or missing defaults to the trace end): the maximum of the trace `abs`
+        will be searched *from* this time. This argument, if provided, does not affect the
+        returned `time` which will be always relative to the trace passed as argument
+        :param endtime: an obspy UTCDateTime object (or any value
+        `UTCDateTime` accepts, e.g. integer / `datetime` object) denoting
+        the end time (None or missing defaults to the trace end): the maximum of the trace `abs`
+        will be searched *until* this time
+        :return: the tuple (time, value) where `value = max(abs(trace.data))`, and time is
+        the value occurrence (`UTCDateTime`)
     """
-    tra = trace.slice(starttime, endtime)
-    idx, val = _maxabs(tra.data)
-    time = timeof(tra, idx)
+    original_stime = None if starttime is None else trace.stats.starttime
+    if starttime is not None or endtime is not None:
+        trace = trace.slice(starttime, endtime)
+    if trace.stats.npts < 1:
+        return np.nan
+    idx = np.nanargmax(np.abs(trace.data))
+    val = trace.data[idx]
+    tdelta = 0 if original_stime is None else trace.stats.starttime - original_stime
+    time = timeof(trace, idx) + tdelta
     return (time, val)
 
 
@@ -152,30 +161,30 @@ def remove_response(trace, inventory_or_inventory_path, output='ACC', water_leve
     return trace
 
 
-PAZ_WA = {'sensitivity': 2800, 'zeros': [0j], 'gain': 1,
-          'poles': [-6.2832 - 4.7124j, -6.2832 + 4.7124j]}
-
-
-@stream_compliant
-def simulate_wa(trace, inventory_or_inventory_path=None, water_level=60):
-    """
-        Simulates a syntetic wood anderson recording by returning a new Stream (or Trace) object
-        (according to the argument)
-        :param trace: the input obspy.core.Trace
-        :param inventory: either an inventory object, or an (absolute) path to a specified inventory
-        xml file. IMPORTANT: IF NOT SUPPLIED (OR NONE) THE FUNCTION ASSUMES THAT THE RESPONSE HAS
-        BEEN ALREADY REMOVED (WITH OUTPUT='DISP') FROM THE INPUT TRACE (OR STREAM) SUPPLIED AS FIRST
-        ARGUMENT
-        :param water_level: ignored if `inventory_or_inventory_path` is None or missing, is the
-        water level argument to be passed to remove_response
-    """
-    if inventory_or_inventory_path is not None:
-        trace = remove_response(trace, inventory_or_inventory_path, 'DISP', water_level=water_level)
-    else:
-        trace = trace.copy()
-
-    trace.simulate(paz_remove=None, paz_simulate=PAZ_WA)
-    return trace
+# PAZ_WA = {'sensitivity': 2800, 'zeros': [0j], 'gain': 1,
+#           'poles': [-6.2832 - 4.7124j, -6.2832 + 4.7124j]}
+# 
+# 
+# @stream_compliant
+# def simulate_wa(trace, inventory_or_inventory_path=None, water_level=60):
+#     """
+#         Simulates a syntetic wood anderson recording by returning a new Stream (or Trace) object
+#         (according to the argument)
+#         :param trace: the input obspy.core.Trace
+#         :param inventory: either an inventory object, or an (absolute) path to a specified inventory
+#         xml file. IMPORTANT: IF NOT SUPPLIED (OR NONE) THE FUNCTION ASSUMES THAT THE RESPONSE HAS
+#         BEEN ALREADY REMOVED (WITH OUTPUT='DISP') FROM THE INPUT TRACE (OR STREAM) SUPPLIED AS FIRST
+#         ARGUMENT
+#         :param water_level: ignored if `inventory_or_inventory_path` is None or missing, is the
+#         water level argument to be passed to remove_response
+#     """
+#     if inventory_or_inventory_path is not None:
+#         trace = remove_response(trace, inventory_or_inventory_path, 'DISP', water_level=water_level)
+#     else:
+#         trace = trace.copy()
+# 
+#     trace.simulate(paz_remove=None, paz_simulate=PAZ_WA)
+#     return trace
 
 
 # def get_gaps(trace_or_stream):

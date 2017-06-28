@@ -218,10 +218,16 @@ def test_click_template_realcopy():
     '''test a real example of copying files to a tempdir that will be removed'''
     runner = CliRunner()
 
-# data-aval needs to be tested!
+    # apparently, gettempdir is used for all namedtemporaryfiles
+    # in tests, so dir_below MUST NOT be deleted!!!!!
     dir_ = tempfile.gettempdir()
+    # but we need a way to delete the files we just created cause otherwise next
+    # tests run will hang (as it prompts!)
+    mydir = os.path.join(dir_, datetime.utcnow().isoformat())
+    
+    filez = set(os.listdir(dir_))
     try:
-        result = runner.invoke(main, ['t', dir_])
+        result = runner.invoke(main, ['t', mydir])
         filez = os.listdir(dir_)
         assert "download.yaml" in filez
         assert "processing.yaml" in filez
@@ -229,8 +235,9 @@ def test_click_template_realcopy():
         assert "processing.py" in filez
         assert "gui.py" in filez
     finally:
-        shutil.rmtree(dir_)
-        assert not os.path.isdir(dir_)
+        shutil.rmtree(mydir)
+        assert not os.path.isdir(mydir)
+
 
     # assert help works:
     assert result.exit_code == 0

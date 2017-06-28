@@ -46,7 +46,7 @@ from stream2segment.utils import get_session, mseedlite3
 from stream2segment.io.db.pd_sql_utils import dbquery2df, insertdf_napkeys, updatedf
 from logging import StreamHandler
 import logging
-from _io import BytesIO
+from io import BytesIO
 import urllib2
 from stream2segment.download.utils import get_url_mseed_errorcodes
 from test.test_userdict import d1

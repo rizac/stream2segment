@@ -20,7 +20,7 @@ from stream2segment.analysis.mseeds import remove_response #, loads as s2s_loads
 from obspy.core.inventory import read_inventory
 from obspy.core import read as obspy_read
 from obspy.core import Trace, Stream
-from StringIO import StringIO
+# from StringIO import StringIO
 from obspy.io.stationxml.core import _read_stationxml
 from obspy.core.trace import Trace
 from itertools import count

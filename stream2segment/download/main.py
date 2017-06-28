@@ -9,6 +9,7 @@
    :License:
        To be decided!
 """
+import os
 import logging
 import re
 from collections import defaultdict
@@ -22,6 +23,7 @@ import concurrent.futures
 import numpy as np
 import pandas as pd
 from sqlalchemy import or_, and_
+import psutil
 # from sqlalchemy.exc import SQLAlchemyError
 # from obspy.taup.tau import TauPyModel
 # from obspy.taup.helper_classes import TauModelError, SlownessModelError
@@ -36,10 +38,9 @@ from stream2segment.download.utils import empty, urljoin, response2df, normalize
 from stream2segment.utils import strconvert, get_progressbar
 from stream2segment.utils.mseedlite3 import MSeedError, unpack as mseedunpack
 from stream2segment.utils.msgs import MSG
-from stream2segment.utils.resources import get_ws_fpath, yaml_load
+# from stream2segment.utils.resources import get_ws_fpath, yaml_load
 from stream2segment.io.utils import dumps_inv
-import psutil
-import os
+
 from stream2segment.io.db.queries import query4inventorydownload
 
 logger = logging.getLogger(__name__)

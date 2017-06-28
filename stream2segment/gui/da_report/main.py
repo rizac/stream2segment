@@ -12,11 +12,11 @@ from stream2segment.utils import get_session, get_progressbar
 from stream2segment.io.db.models import Channel, Segment, Station, DataCenter, Event
 # from stream2segment.io.utils import loads
 from click import progressbar
-from obspy.io.mseed.core import InternalMSEEDReadingError
+# from obspy.io.mseed.core import InternalMSEEDReadingError
 
 import warnings
 from collections import defaultdict
-from obspy.core.stream import read
+# from obspy.core.stream import read
 # from stream2segment.process.utils import dcname, segstr
 import json
 import concurrent.futures
@@ -25,8 +25,13 @@ from sqlalchemy.orm import load_only
 from datetime import datetime
 # from stream2segment.io.db.pd_sql_utils import withdata
 from itertools import chain
+from stream2segment.io.db.pd_sql_utils import dbquery2df
+
+from sqlalchemy.sql.expression import func
+from stream2segment.download.utils import get_url_mseed_errorcodes
 
 warnings.filterwarnings("ignore")
+
 
 
 def segquery(session):
@@ -36,67 +41,100 @@ def segquery(session):
 
     # qry = session.query(Segment).options(load_only(Segment.id))
     
-    qry = session.query(Segment.id)
+    qry = session.query(Segment.id, Segment.has_data)
     
     # FIXME: remove!!
 #     'event.latitude': "[47, 56]"
 #   'event.longitude': "[5, 16]"
 #   'event.time': "(1998-01-01T00:00:00, 2017-04-10T00:00:00)"
-    qry = qry.join(Segment.event).filter((Event.latitude >=47) & (Event.latitude <=56) &
-                                   (Event.longitude >=5) & (Event.longitude <=16) &
-                                   (Event.time > datetime(1998,1,1)) &
-                                   (Event.time < datetime(2017,4,1)))
+    qry = qry.join(Segment.event).filter((Event.latitude >= 48) & (Event.latitude <= 55) &
+                                         (Event.longitude >= 7) & (Event.longitude <= 15) &
+                                         (Event.time > datetime(1998, 1, 1)) &
+                                         (Event.time < datetime(2017, 4, 1)))
 
     return qry
 
 
-def process_segment(segment, max_gap_ovlap_ratio):
+def process_segment(segment, has_data, max_gap_ovlap_ratio):
     """Returns stats for the given segment"""
 #     seg_ch_id, seg_stime, seg_etime, seg_id, data, channel_sample_rate, datacenter_station_url =\
 #         segqueryargs
 
-    data = segment.data
+    # data = segment.data
     warn, err = None, None
-    if not data:
-        code = segment.download_status_code
-        if code >= 400 and code < 500:
-            warn = "4xx: client error"
-        elif code >= 500:
-            warn = "5xx: server error"
-        elif code != 204:
-            if code is None:
-                warn = "Null code: unknown error"
-            else:
-                warn = "No data, response code != 204"
+    ds_code = segment.download_status_code
+    URLERR_CODE, MSEEDERR_CODE = get_url_mseed_errorcodes()
+    if ds_code == URLERR_CODE:
+        warn = 'Generic Url error (e.g., no connection)'
+    elif ds_code == MSEEDERR_CODE:
+        err = 'Malformed miniSEED'
+    elif ds_code >= 400 and ds_code < 500:
+        warn = "4xx: client error"
+    elif ds_code >= 500:
+        warn = "5xx: server error"
+    elif ds_code is None:
+        warn = "Unknown error (response code N/A)"
+    elif not has_data:
+        if ds_code != 204:
+            err = "No data, response code != 204"
         else:
-            warn = "204: No data"
-    else:
-        try:
-            if segment.max_gap_ovlap_ratio >= max_gap_ovlap_ratio:
-                warn = 'Max gap/overlap duration >= %f sampling period' % max_gap_ovlap_ratio
-            else:
-                mseed = read(StringIO(data))
-                if len(mseed) > 1:  # do this check before cause get_gaps
-                    warn = '%d traces in stream (possible gaps/overlaps)'
-                else:
-                    # surely only one trace:
-                    trace = mseed[0]
-                    if trace.stats.endtime <= trace.stats.starttime:
-                        warn = 'endtime <= starttime'
-                    else:
-                        channel_sample_rate = segment.channel.sample_rate
-                        srate_real = trace.stats.sampling_rate
-                        srate_nominal = channel_sample_rate
-                        if srate_real != srate_nominal:
-                            warn = 'sample rate != channel sample rate'
+            warn = '204: No data'
+    elif has_data:
+        if segment.max_gap_ovlap_ratio >= max_gap_ovlap_ratio:
+            warn = 'possible gaps/overlaps (max_gap_ovlap_ratio>=%f)' % max_gap_ovlap_ratio
+        else:
+            channel_sample_rate = segment.channel.sample_rate
+            srate_real = segment.sample_rate
+            if srate_real != channel_sample_rate:
+                warn = 'sample rate != channel sample rate'
 
-        except Exception as exc:
-            # some semgnet might raise a obspy.io.mseed.core.InternalMSEEDReadingError
-            # however, catch a broad exception cause we will anyway print it and handle it
-            warn = None
-            err = exc.__class__.__name__ + ": " + str(exc)
+#     elif code != 204:
+#             if code is None:
+#                 warn = "Null code: unknown error"
+#             else:
+#                 warn = "No data, response code != 204"
+#         else:
+#             warn = "204: No data"    
 
-    net, sta, loc, cha = segment.channel_id.split(".")
+#     if not data:
+#         if code >= 400 and code < 500:
+#             warn = "4xx: client error"
+#         elif code >= 500:
+#             warn = "5xx: server error"
+#         elif code != 204:
+#             if code is None:
+#                 warn = "Null code: unknown error"
+#             else:
+#                 warn = "No data, response code != 204"
+#         else:
+#             warn = "204: No data"
+#     else:
+#         try:
+#             if segment.max_gap_ovlap_ratio >= max_gap_ovlap_ratio:
+#                 warn = 'Max gap/overlap duration >= %f sampling period' % max_gap_ovlap_ratio
+#             else:
+#                 mseed = read(StringIO(data))
+#                 if len(mseed) > 1:  # do this check before cause get_gaps
+#                     warn = '%d traces in stream (possible gaps/overlaps)'
+#                 else:
+#                     # surely only one trace:
+#                     trace = mseed[0]
+#                     if trace.stats.endtime <= trace.stats.starttime:
+#                         warn = 'endtime <= starttime'
+#                     else:
+#                         channel_sample_rate = segment.channel.sample_rate
+#                         srate_real = trace.stats.sampling_rate
+#                         srate_nominal = channel_sample_rate
+#                         if srate_real != srate_nominal:
+#                             warn = 'sample rate != channel sample rate'
+# 
+#         except Exception as exc:
+#             # some semgnet might raise a obspy.io.mseed.core.InternalMSEEDReadingError
+#             # however, catch a broad exception cause we will anyway print it and handle it
+#             warn = None
+#             err = exc.__class__.__name__ + ": " + str(exc)
+
+    net, sta, loc, cha = segment.strid.split(".")
     seg_info_list = []
     if warn or err:
         # optimize data, as we might write a lot to the html. Do not repeat network and station
@@ -122,11 +160,26 @@ def create_da_html(sess, outfile, max_gap_ovlap_ratio=0.5, isterminal=False):
     errors = defaultdict(lambda: defaultdict(list))
     warnings = defaultdict(lambda: defaultdict(list))
     # stats is a dict of channel (or station ids) mapped to a list [good, total]
-    stats_df = pd.DataFrame(columns=['id', 'lat', 'lon'],
-                            data=sess.query(Station.id, Station.latitude, Station.longitude).all())
-    stats_df.set_index('id', inplace=True)
+    stats_df = dbquery2df(sess.query(Station.network, Station.station,
+                                     Station.latitude, Station.longitude).distinct())
+
+    # drop duplicates in network.station. FIXME: think about how to handle this!
+    # should e identify a station by its id (unique net+sta+start+time)? then
+    # change the generated json!!
+    stats_df.drop_duplicates(subset=[Station.network.key, Station.station.key], inplace=True)
+
+    stats_df.set_index(stats_df[Station.network.key].str.cat(stats_df[Station.station.key],
+                                                             sep='.', na_rep=''), inplace=True)
     # http://stackoverflow.com/questions/10457584/redefining-the-index-in-a-pandas-dataframe-object
     stats_df.index.name = None
+    # remove the two string cols we just merged into the index:
+    stats_df.drop(labels=[Station.network.key, Station.station.key], axis=1, inplace=True)
+
+#     stats_df = pd.DataFrame(columns=['id', 'lat', 'lon'],
+#                             data=sess.query(Station.id, Station.latitude, Station.longitude).all())
+#    stats_df.set_index('id', inplace=True)
+#    # http://stackoverflow.com/questions/10457584/redefining-the-index-in-a-pandas-dataframe-object
+#    stats_df.index.name = None
     stats_df['total'] = 0
     stats_df['dcen'] = -1
 
@@ -139,12 +192,19 @@ def create_da_html(sess, outfile, max_gap_ovlap_ratio=0.5, isterminal=False):
 
     unexpected_errs = 0
 
+#     _i_ = 0  # FIXME: REMOVE
+
     with get_progressbar(isterminal, length=seg_query.count()) as pbar:
-        for seg_id in seg_query:
-            seg = sess.query(Segment).filter(Segment.id==seg_id).first()
+        for seg_id, has_data in seg_query:
+
+#             if _i_ > 1000:   # FIXME: REMOVE
+#                 break   # FIXME: REMOVE
+#             _i_ += 1   # FIXME: REMOVE
+
+            seg = sess.query(Segment).filter(Segment.id == seg_id).first()
             pbar.update(1)
             try:
-                warn, err, sta_id, dc_name, seg_info_list = process_segment(seg,
+                warn, err, sta_id, dc_name, seg_info_list = process_segment(seg, has_data,
                                                                             max_gap_ovlap_ratio)
                 stats_df.loc[sta_id, 'total'] += 1
                 if dc_name not in dc2idx:
@@ -182,16 +242,20 @@ def create_da_html(sess, outfile, max_gap_ovlap_ratio=0.5, isterminal=False):
     for dc, idx in dc2idx.iteritems():
         dcen_array[idx] = str(dc)  # if k is unicode and this is py2, avoid u'whatever' in html
 
+    # allocate captions as string once now:
+    lat, lon = Station.latitude.key, Station.longitude.key
+
     text = render(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                   "da_report.html"), {'stations': stats_df.to_json(orient='split'),
                                       'datacenters': dcen_array,
                                       'warnerrs_labels': stats_df.columns.values.tolist()[4:],
-                                      'warnings': json.dumps(warnings),
-                                      'errors': json.dumps(errors),
-                                      'minlat': stats_df['lat'].min(),
-                                      'minlon': stats_df['lon'].min(),
-                                      'maxlat': stats_df['lat'].max(),
-                                      'maxlon': stats_df['lon'].max()})
+                                      # save bytes in json dumps (no useless whitespaces):
+                                      'warnings': json.dumps(warnings, separators=(',', ':')),
+                                      'errors': json.dumps(errors, separators=(',', ':')),
+                                      'minlat': stats_df[lat].min(),
+                                      'minlon': stats_df[lon].min(),
+                                      'maxlat': stats_df[lat].max(),
+                                      'maxlon': stats_df[lon].max()})
 
     with open(outfile, 'w') as opn:
         opn.write(text)

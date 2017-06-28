@@ -5,7 +5,7 @@ Created on Apr 9, 2017
 '''
 import os
 from obspy.core.stream import read, Stream
-from cStringIO import StringIO
+# from cStringIO import StringIO
 from math import log
 from collections import defaultdict
 from stream2segment.utils.mseedlite3 import unpack, _FIXHEAD_LEN, MSeedError
@@ -13,7 +13,7 @@ import pytest
 import numpy as np
 from obspy.core.trace import Trace
 from obspy.io.mseed.core import _read_mseed
-from _io import BytesIO
+from io import BytesIO
 
 
 
@@ -33,7 +33,7 @@ def mock_response_inbytes(with_gaps=False):
 def get_stream(bytez):
     # global _sd
     #if _sd is None:
-    return read(StringIO(bytez))
+    return read(BytesIO(bytez))
 #     _sd = {x.get_id(): x for x in stream}
 #     return _sd
 
@@ -87,7 +87,7 @@ def haserr(dataread):
 
 def test_standard():
     bytez = mock_response_inbytes()
-    g= _read_mseed(BytesIO(bytez))
+    # g= get_stream(bytez)  # _read_mseed(BytesIO(bytez))
     # get our dicts of trace_id: trace_bytes
     dic = unpack(bytez)
     assert not haserr(dic)

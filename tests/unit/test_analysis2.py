@@ -16,6 +16,8 @@ from stream2segment.analysis import ampspec, triangsmooth, snr, dfreq, freqs, po
 from itertools import izip
 import pytest
 from mock.mock import patch, Mock
+from datetime import datetime
+from obspy.core.utcdatetime import UTCDateTime
 
 class Test(unittest.TestCase):
 
