@@ -475,7 +475,7 @@ def get_channels_df(session, datacenters_df, post_data, channels, min_sample_rat
             raise QuitDownload("No channel found in database according to given parameters")
     else:
         ret = []
-
+        no_datacenters = []
         iterable = ((id_, Request(url, data='format=text\nlevel=channel\n'+post_data_str))
                     for url, id_, post_data_str in
                     izip(datacenters_df[DataCenter.station_url.key],
@@ -489,6 +489,7 @@ def get_channels_df(session, datacenters_df, post_data, channels, min_sample_rat
                 bar.update(1)
                 dcen_id = obj[0]
                 if exc:
+                    no_datacenters.append(dcen_id)
                     logger.warning(MSG("", "unable to perform request", exc, url))
                 else:
                     try:
@@ -499,6 +500,16 @@ def get_channels_df(session, datacenters_df, post_data, channels, min_sample_rat
                     if not empty(df):
                         df[Station.datacenter_id.key] = dcen_id
                         ret.append(df)
+
+        if no_datacenters:  # if some datacenter does not return station, warn with INFO
+            logger.info(MSG("",
+                            ("WARNING: unable to fetch stations from %d data center(s), "
+                             "the relative channels and segment will not be available"),
+                            "this might be due to connection errors, timeout, ...", ""), len(no_datacenters))
+            logger.info("The data centers involved are (showing 'dataselect' url):")
+            logger.info(datacenters_df.loc[datacenters_df[DataCenter.id.key].
+                                           isin(no_datacenters)][DataCenter.dataselect_url.key].
+                        to_string(index=False))
 
         if ret:  # pd.concat complains for empty list
             channels_df = pd.concat(ret, axis=0, ignore_index=True, copy=False)

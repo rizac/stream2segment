@@ -53,13 +53,16 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
     """
     try:
         ret = b''
-        # set default for timeout:
+        # set default for timeout: timeout in urlopen defaults to socket._GLOBAL_DEFAULT_TIMEOUT
+        # so we unfortunately either pass it or skip it. As we allow for non-negative numbers
+        # normalize it fiorst to None. If None, don't pass it to urlopen
         if timeout is None or timeout <= 0:
-            timeout = socket._GLOBAL_DEFAULT_TIMEOUT  # copied from urllib2 source code
+            timeout = None
         # urlib2 does not support with statement in py2. See:
         # http://stackoverflow.com/questions/3880750/closing-files-properly-opened-with-urllib2-urlopen
         # https://docs.python.org/2.7/library/contextlib.html#contextlib.closing
-        with closing(urllib2.urlopen(url, timeout=timeout, **kwargs)) as conn:
+        with closing(urllib2.urlopen(url, **kwargs) if timeout is None else
+                     urllib2.urlopen(url, timeout=timeout, **kwargs)) as conn:
             if blocksize < 0:  # https://docs.python.org/2.4/lib/bltin-file-objects.html
                 ret = conn.read()
             else:

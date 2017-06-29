@@ -150,12 +150,12 @@ advanced_settings:
  # (https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor)
  max_thread_workers: 0
  # max time to wait (in seconds) while downloading stations (`urllib2.urlopen` timeout argument)
- s_timeout: 5
+ s_timeout: 120
  # If the flag to download station inventories is on (true), max time to wait (in seconds) while downloading
  #station inventories (`urllib2.urlopen` timeout argument)
- i_timeout: 15
+ i_timeout: 60
  # max time to wait (in seconds) while downloading waveform data (`urllib2.urlopen` timeout argument)
- w_timeout: 10
+ w_timeout: 60
  # the buffer size used when writing items (stations, segments, events, ...) to database.
  # Increasing this number to speed up db IO operations. Keep in mind that if any item in the buffer
  # cannot be inserted or updated (e.g., integrity errors), all subsequent buffer items will also be discarded.
