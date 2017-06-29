@@ -68,14 +68,14 @@ def test_utils_url_read(mock_urlopen):  # mock_ul_urlopen, mock_ul_request, mock
     val = 'url'
     blockSize = 1024*1024
     assert urlread(val, blockSize)[0] == val
-    mock_urlopen.assert_called_with(val, timeout=DEFAULT_TIMEOUT)
+    mock_urlopen.assert_called_with(val)  # , timeout=DEFAULT_TIMEOUT)
     assert mockread.call_count == 2
     mockread.assert_called_with(blockSize)
 
     mock_urlopen.side_effect = lambda url, **kw: mybytesio(url, **kw)
     defBlockSize = -1
     assert urlread(val, arg_to_read=56)[0] == val
-    mock_urlopen.assert_called_with(val, arg_to_read=56, timeout=DEFAULT_TIMEOUT)
+    mock_urlopen.assert_called_with(val, arg_to_read=56)  #, timeout=DEFAULT_TIMEOUT)
     assert mockread.call_count == 1  # because blocksize is -1
 
     mock_urlopen.side_effect = lambda url, **kw: mybytesio(URLError('wat?'))
