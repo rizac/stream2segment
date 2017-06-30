@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 from stream2segment.analysis import cumsum, argtrim
 from scipy.signal import hilbert
-from stream2segment.analysis.mseeds import remove_response #, loads as s2s_loads, dumps
+# from stream2segment.analysis.mseeds import remove_response #, loads as s2s_loads, dumps
 # from stream2segment.io.utils import loads, dumps
 
 
@@ -26,9 +26,12 @@ from obspy.core.trace import Trace
 from itertools import count
 # from stream2segment.analysis import fft as orig_fft
 
-
-def test_argtrim():
-    y = [1,2,3,4]
+@pytest.mark.parametrize('y',
+                          [([-11, 1, 3.3, 4]),
+                           (np.array([-11, 1, 3.3, 4])),
+                           ])
+def test_argtrim(y):
+    #y = [1,2,3,4]
     delta = 0.01
     # signal_x is just used for checking:
     signal_x = np.linspace(0, delta*len(y), num=len(y), endpoint=False)
@@ -50,6 +53,38 @@ def test_argtrim():
     xmax = signal_x[0] + (signal_x[0]+signal_x[1]) / 1.5
     assert np.array_equal(y[slice(*argtrim(y, delta, None, xmax, nearest_sample=False))], y[:1])
     assert np.array_equal(y[slice(*argtrim(y, delta, None, xmax, nearest_sample=True))], y[:2])
+    
+    # test out of bound x
+    xmin = signal_x[0] - 1
+    assert np.array_equal(y[slice(*argtrim(y, delta, xmin, None, nearest_sample=False))], y)
+    assert np.array_equal(y[slice(*argtrim(y, delta, xmin, None, nearest_sample=True))], y)
+    xmin = signal_x[-1] + 1
+    assert np.array_equal(y[slice(*argtrim(y, delta, xmin, None, nearest_sample=False))], [])
+    assert np.array_equal(y[slice(*argtrim(y, delta, xmin, None, nearest_sample=True))], [])
+    
+    
+    # test out of bound x
+    xmax = signal_x[0] - 1
+    assert np.array_equal(y[slice(*argtrim(y, delta, None, xmax, nearest_sample=False))], [])
+    assert np.array_equal(y[slice(*argtrim(y, delta, None, xmax, nearest_sample=True))], [])
+    xmax = signal_x[-1] + 1
+    assert np.array_equal(y[slice(*argtrim(y, delta, None, xmax, nearest_sample=False))], y)
+    assert np.array_equal(y[slice(*argtrim(y, delta, None, xmax, nearest_sample=True))], y)
+    
+    
+    # test out of bound x
+    xmin = signal_x[0] - 1
+    xmax = signal_x[-1] + 1
+    assert np.array_equal(y[slice(*argtrim(y, delta, xmin, xmax, nearest_sample=False))], y)
+    assert np.array_equal(y[slice(*argtrim(y, delta, xmin, xmax, nearest_sample=True))], y)
+    
+    # out of bounds inversed:
+    xmax = signal_x[0] - 1
+    xmin = signal_x[-1] + 1
+    assert np.array_equal(y[slice(*argtrim(y, delta, xmin, xmax, nearest_sample=False))], [])
+    assert np.array_equal(y[slice(*argtrim(y, delta, xmin, xmax, nearest_sample=True))], [])
+    
+    
     
 # from scipy.y import hilbert
 # @pytest.mark.parametrize('arr, expected_result, ',

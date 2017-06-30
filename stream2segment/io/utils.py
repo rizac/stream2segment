@@ -109,6 +109,14 @@ def decompress(bytestr):
 
 
 def loads_inv(bytestr):
+    '''Returns the inventory object given an input bytes sequence representing an inventory (xml)
+    from, e.g., downloaded data
+    :param bytestr: the sequence of bytes. It can be compressed with any of the function
+    defined here. The method will first try to de-compress data. Then, the de-compressed data
+    (if de-compression does not fail) or the data passed as argument will be passed to obspy
+    `read_inventory`
+    :return: an `class: obspy.core.inventory.inventory.Inventory` object
+    '''
     try:
         bytestr = decompress(bytestr)
     except(IOError, zipfile.BadZipfile, zlib.error) as _:
@@ -117,6 +125,18 @@ def loads_inv(bytestr):
 
 
 def dumps_inv(bytestr, compression='gzip', compresslevel=9):
+    '''Compresses the bytes sequence representing an inventory (xml) with the given
+    compression algorithm
+    :param bytestr: the sequence of bytes
+    :param compression: string, either ['bz2', 'zlib', 'gzip', 'zip'. Default:
+    'gip'], The compression library to use.
+    If None or empty string, no compression is applied, and `bytestr` is returned as it is
+    :param compresslevel: integer (9 by default). Ignored if `compression` is None or
+    or 'zip' (the latter does not accept this argument), this parameter
+    controls the level of compression; 1 is fastest and
+    produces the least compression, and 9 is slowest and produces the most compression
+    :return: a new bytes sequence the same type of `bytestr`, compressed with the given algorithm
+    '''
     return compress(bytestr, compression, compresslevel)
 
 

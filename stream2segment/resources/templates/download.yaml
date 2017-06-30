@@ -161,6 +161,6 @@ advanced_settings:
  # cannot be inserted or updated (e.g., integrity errors), all subsequent buffer items will also be discarded.
  # If you want to be sure that only items that cannot be inserted/updated are discarded,
  # set it to 1, although for massive downloads it might cost hours of download more
- db_buf_size: 15
+ db_buf_size: 20
 
 

@@ -90,7 +90,7 @@ from collections import OrderedDict
 
 # strem2segment functions for processing mseeds. This is just a list of possible functions
 # to show how to import them:
-from stream2segment.analysis.mseeds import remove_response, amp_ratio, bandpass, cumsum,\
+from stream2segment.analysis.mseeds import ampratio, bandpass, cumsum,\
     cumtimes, fft, maxabs, snr, utcdatetime, ampspec, get_tbounds
 # when working with times, use obspy UTCDateTime:
 from obspy.core.utcdatetime import UTCDateTime
@@ -238,8 +238,8 @@ def main(seg, stream, inventory, config):
     trace = stream[0]
 
     # discard saturated signals (according to the threshold set in the config file):
-    ampratio = amp_ratio(trace)
-    if ampratio >= config['amp_ratio_threshold']:
+    aratio = ampratio(trace)
+    if aratio >= config['amp_ratio_threshold']:
         raise ValueError('possibly saturated (amp. ratio exceeds)')
 
     # convert to UTCDateTime for operations later:
@@ -253,8 +253,9 @@ def main(seg, stream, inventory, config):
                      corners=config['bandpass_corners'])
 
     # remove response
-    trace_rem_resp = remove_response(trace, inventory, output=config['remove_response_output'],
-                                     water_level=config['remove_response_water_level'])
+    trace_rem_resp = trace.copy().remove_response(inventory,
+                                                  output=config['remove_response_output'],
+                                                  water_level=config['remove_response_water_level'])
 
     # calculate cumulative:
     cum_trace = cumsum(trace_rem_resp)

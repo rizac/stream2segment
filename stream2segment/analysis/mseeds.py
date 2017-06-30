@@ -11,37 +11,36 @@ import numpy as np
 # except ImportError:
 #     import pickle  # @UnusedImport
 from obspy.core import Stream, Trace, UTCDateTime  # , Stats
-from obspy import read_inventory
+# from obspy import read_inventory
 from stream2segment.analysis import fft as _fft, ampspec as _ampspec, powspec as _powspec,\
     snr as _snr, cumsum as _cumsum, dfreq, freqs
 
 
 def stream_compliant(func):
-    """
-        Returns a function wrapping (and calling internally) `func` which makes the latter
-        stream/trace-compliant: in other words, allows `func` to accept either an
-        `obspy.Trace` or an `obspy.Stream` objects.
-        As a function decorator:
-        ```
-            \@stream_compliant
-            def func(trace,...)
-        ```
-        Then `func` can be called with either a Trace or a Stream as first argument.
-        If Trace, then func behaves as implemented; If Stream, then func is applied to any of its
-        Traces, and a Stream wrapping each result is returned (*if any result is not a Trace,
-        a list is returned instead of a Stream*).
+    """Returns a function wrapping (and calling internally) `func` which makes the latter
+    stream/trace-compliant: in other words, allows `func` to accept either an
+    `obspy.Trace` or an `obspy.Stream` objects.
+    As a function decorator:
+    ```
+        \@stream_compliant
+        def func(trace,...)
+    ```
+    Then `func` can be called with either a Trace or a Stream as first argument.
+    If Trace, then func behaves as implemented; If Stream, then func is applied to any of its
+    Traces, and a Stream wrapping each result is returned (*if any result is not a Trace,
+    a list is returned instead of a Stream*).
 
-        :param func: any function with the only constraint of having an `obspy.Trace` as first
-        argument. The function can then be called with a Stream instead of that trace
+    :param func: any function with the only constraint of having an `obspy.Trace` as first
+    argument. The function can then be called with a Stream instead of that trace
 
-        Rationale: A Trace is the obspy core object representing a time-series. Therefore, in
-        principle all processing functions, like those defined here, should work on traces.
-        However, obspy provides also Stream objects (basically, collections of Traces)
-        *which represent the miniSEED file stored on disk* (writing e.g. a Trace T
-        to disk and reading it back returns a Stream object with a single Trace: T).
-        Therefore it would be nice to implement here all functions to accept Traces or Streams,
-        implementing only the Trace processing because the Stream one is just a loop over its
-        Traces.
+    Rationale: A Trace is the obspy core object representing a time-series. Therefore, in
+    principle all processing functions, like those defined here, should work on traces.
+    However, obspy provides also Stream objects (basically, collections of Traces)
+    *which represent the miniSEED file stored on disk* (writing e.g. a Trace T
+    to disk and reading it back returns a Stream object with a single Trace: T).
+    Therefore it would be nice to implement here all functions to accept Traces or Streams,
+    implementing only the Trace processing because the Stream one is just a loop over its
+    Traces.
     """
     def func_wrapper(obj, *args, **kwargs):
         if isinstance(obj, Stream):
@@ -56,11 +55,6 @@ def stream_compliant(func):
         else:
             return func(obj, *args, **kwargs)
     return func_wrapper
-
-# def itertrace(trace_or_stream):
-#     """Iterator over the argument. If the latter is a Stream, returns it. If it is a trace
-#     returns the argument wrapped into a list"""
-#     return trace_or_stream if isinstance(trace_or_stream, Stream) else [trace_or_stream]
 
 
 def bandpass(trace, freq_min, freq_max, max_nyquist_ratio=0.9,
@@ -110,23 +104,22 @@ def bandpass(trace, freq_min, freq_max, max_nyquist_ratio=0.9,
 
 @stream_compliant
 def maxabs(trace, starttime=None, endtime=None):
-    """
-        Returns the trace point
-        ```(time, value)```
-        where `value = max(abs(trace.data))`
-        and time (`UTCDateTime`) is the time occurrence of `value`
-        :param trace: the input obspy.core.Trace
-        :param starttime: an obspy UTCDateTime object (or any value
-        `UTCDateTime` accepts, e.g. integer / `datetime` object) denoting
-        the start time (None or missing defaults to the trace end): the maximum of the trace `abs`
-        will be searched *from* this time. This argument, if provided, does not affect the
-        returned `time` which will be always relative to the trace passed as argument
-        :param endtime: an obspy UTCDateTime object (or any value
-        `UTCDateTime` accepts, e.g. integer / `datetime` object) denoting
-        the end time (None or missing defaults to the trace end): the maximum of the trace `abs`
-        will be searched *until* this time
-        :return: the tuple (time, value) where `value = max(abs(trace.data))`, and time is
-        the value occurrence (`UTCDateTime`)
+    """Returns the trace point
+    ```(time, value)```
+    where `value = max(abs(trace.data))`
+    and time (`UTCDateTime`) is the time occurrence of `value`
+    :param trace: the input obspy.core.Trace
+    :param starttime: an obspy UTCDateTime object (or any value
+    `UTCDateTime` accepts, e.g. integer / `datetime` object) denoting
+    the start time (None or missing defaults to the trace end): the maximum of the trace `abs`
+    will be searched *from* this time. This argument, if provided, does not affect the
+    returned `time` which will be always relative to the trace passed as argument
+    :param endtime: an obspy UTCDateTime object (or any value
+    `UTCDateTime` accepts, e.g. integer / `datetime` object) denoting
+    the end time (None or missing defaults to the trace end): the maximum of the trace `abs`
+    will be searched *until* this time
+    :return: the tuple (time, value) where `value = max(abs(trace.data))`, and time is
+    the value occurrence (`UTCDateTime`)
     """
     original_stime = None if starttime is None else trace.stats.starttime
     if starttime is not None or endtime is not None:
@@ -141,72 +134,8 @@ def maxabs(trace, starttime=None, endtime=None):
 
 
 @stream_compliant
-def remove_response(trace, inventory_or_inventory_path, output='ACC', water_level=60):
-    """
-        Removes the response from the trace (or stream) passed as first argument. Calls
-        obspy.Stream.remove_response (or obspy.Trace.remove_response, depending on the first
-        argument) without pre-filtering. THEREFORE, IF THE SIGNAL HAS TO BE FILTERED ONE SHOULD
-        PERFORM THE FILTER PRIOR TO THIS FUNCTION, OR CALL obspy.Stream.remove_response
-        (obspy.Trace.remove_response) which offer more fine parameter tuning
-        :param trace: the input obspy.core.Trace
-        :param inventory: either an inventory object, or an (absolute) path to a specified
-        inventory xml file
-    """
-    trace = trace.copy()
-    inventory = read_inventory(inventory_or_inventory_path) \
-        if isinstance(inventory_or_inventory_path, basestring) else inventory_or_inventory_path
-
-    trace.remove_response(inventory=inventory, output=output, water_level=water_level)
-
-    return trace
-
-
-# PAZ_WA = {'sensitivity': 2800, 'zeros': [0j], 'gain': 1,
-#           'poles': [-6.2832 - 4.7124j, -6.2832 + 4.7124j]}
-# 
-# 
-# @stream_compliant
-# def simulate_wa(trace, inventory_or_inventory_path=None, water_level=60):
-#     """
-#         Simulates a syntetic wood anderson recording by returning a new Stream (or Trace) object
-#         (according to the argument)
-#         :param trace: the input obspy.core.Trace
-#         :param inventory: either an inventory object, or an (absolute) path to a specified inventory
-#         xml file. IMPORTANT: IF NOT SUPPLIED (OR NONE) THE FUNCTION ASSUMES THAT THE RESPONSE HAS
-#         BEEN ALREADY REMOVED (WITH OUTPUT='DISP') FROM THE INPUT TRACE (OR STREAM) SUPPLIED AS FIRST
-#         ARGUMENT
-#         :param water_level: ignored if `inventory_or_inventory_path` is None or missing, is the
-#         water level argument to be passed to remove_response
-#     """
-#     if inventory_or_inventory_path is not None:
-#         trace = remove_response(trace, inventory_or_inventory_path, 'DISP', water_level=water_level)
-#     else:
-#         trace = trace.copy()
-# 
-#     trace.simulate(paz_remove=None, paz_simulate=PAZ_WA)
-#     return trace
-
-
-# def get_gaps(trace_or_stream):
-#     """
-#         Returns a list of gaps for the current argument. The list elements have the form:
-#             [network, station, location, channel, starttime of the gap, end time of the gap,
-#              duration of the gap, number of missing samples]
-#         :param trace_or_stream: a Trace, or a Stream (note: due to the fact that obspy get_gaps is
-#         Stream only, if this argument is a trace this function returns an empty list)
-#         :return: a list of gaps
-#         :rtype: list of lists
-#     """
-#     try:
-#         return trace_or_stream.get_gaps()
-#     except AttributeError:  # is a Trace
-#         return []
-
-
-@stream_compliant
 def cumsum(trace):
-    """
-    Returns the cumulative function, normalized between 0 and 1 of the argument
+    """Returns the cumulative function, normalized between 0 and 1 of the argument
     :param trace: the input obspy.core.Trace
     :return: an obspy trace or stream (depending on the argument)
     """
@@ -235,21 +164,10 @@ def cumtimes(cum_trace, *percentages):
     return val
 
 
-# @stream_compliant
-# def env(trace):
-#     """
-#     Returns the envelope (using scipy hilbert transform) of the argument
-#     :param trace: the input obspy.core.Trace
-#     :return: an obspy trace or stream (depending on the argument)
-#     """
-#     return Trace(_env(trace.data), header=trace.stats.copy())
-
-
 @stream_compliant
 def fft(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',
         return_freqs=False):
-    """
-    Computes the fft of the given trace returning the relative numpy array `fft` as the second
+    """Computes the fft of the given trace returning the relative numpy array `fft` as the second
     element the tuple
     ```(df, fft)```
     if `return_freqs=False` (df is the delta-frequency, as float), or
@@ -345,7 +263,7 @@ def snr(trace, noisy_trace, fmin=None, fmax=None, nearest_sample=False, in_db=Fa
 
 
 @stream_compliant
-def amp_ratio(trace, threshold=2**23):
+def ampratio(trace, threshold=2**23):
     """Returns a list of numeric values (if the argument is a stream) or a single
     numeric value (if the argument is a single trace) representing the amplitude ratio given by:
         np.nanmax(np.abs(trace.data)) / threshold
@@ -356,129 +274,6 @@ def amp_ratio(trace, threshold=2**23):
     return np.true_divide(np.nanmax(np.abs(trace.data)), threshold)
 
 
-# @stream_compliant
-# def timearray(trace, npts=None):
-#     """
-#         Returns the x values of the given trace according to each trace stats
-#         if npts is not None, returns a linear space of equally sampled x from
-#         tra.starttime and tra.endtime. Otherwise, npts equals the trace number of points
-#     """
-#     num = len(trace.data) if npts is None else npts  # we don't trust tra.stats.npts
-#     return np.linspace(trace.stats.starttime.timestamp, trace.stats.endtime.timestamp, num=num,
-#                        endpoint=True)
-
-
-# def interpolate(trace_or_stream, npts_or_new_x_array, align_if_stream=True,
-#                 return_x_array=False):
-#     """Returns a trace or stream interpolated with the given number of points. This method
-#     differs from obspy.Trace.interpolate in that it offers a probably faster but less fine-tuned
-#     way to (linearly) interpolate a Trace or a Stream (and in this case optionally align its Traces
-#     on the same time range, if needed). This method is intended to optimize visualizations
-#     of the data, rather than performing calculation on it
-#     :param trace: the input obspy.core.Trace
-#     :param npts_or_new_x_array: the new number of points (if python integer) or the new x array
-#         where to interpolate the trace(s) (as UTCDateTime.timestamp's)
-#     :param align_if_stream: Ignored if the first argument is a Trace object. Otherwise, if True,
-#     data will be "aligned" with the timestamp of the first trace:
-#     all the traces (if more than one) will have the same start and end time, and the same number
-#     of points. This argument is always True if npts_or_new_x_array is an array of timestamps
-#     :param return_new_x_array: if True (false by default) a tuple (newtimes, new_trace_or_stream) is
-#     returned. Otherwise, only new_trace_or_stream is returned. The name return_new_x_array is more
-#     general as, if FTraces are passed, then the units of the array are frequencies (in Hz)
-#     """
-#     newxarray = None
-#     try:
-#         len(npts_or_new_x_array)  # is npts_or_new_x_array an array?
-#         newxarray = npts_or_new_x_array
-#         align_if_stream = True
-#     except TypeError:  # npts_or_new_x_array is scalar (not array)
-#         npts = npts_or_new_x_array
-# 
-#     ret = []
-#     oldxarrays = {}
-#     itr = itertrace(trace_or_stream)
-#     for tra in itr:
-#         if newxarray is None or not align_if_stream:
-#             newxarray = timearray(tra, npts)
-# 
-#         # get old x array. If we have an x array of times already calculated for a previous
-#         # trace with same start, delta and number of points, use that (improving performances):
-#         key = (tra.stats.starttime.timestamp, tra.stats.delta, len(tra.data))
-#         oldxarray = oldxarrays.get(key, None)
-#         if oldxarray is None:
-#             oldxarray = timearray(tra)
-#             oldxarrays[key] = oldxarray
-# 
-#         data = np.interp(newxarray, oldxarray, tra.data)
-#         header = tra.stats.copy()
-#         header.npts = len(data)
-#         header.delta = newxarray[1] - newxarray[0]
-#         header.starttime = UTCDateTime(newxarray[0])
-# 
-#         ret.append(Trace(data=data, header=header))
-# 
-#     ret = Stream(ret) if isinstance(itr, Stream) else ret[0]
-#     return (newxarray, ret) if return_x_array else ret
-
-
-# @stream_compliant
-# def get_multievent(cum_trace, tmin, tmax,
-#                    threshold_inside_tmin_tmax_percent,
-#                    threshold_inside_tmin_tmax_sec, threshold_after_tmax_percent):
-#     """
-#         Returns the tuple (or a list of tuples, if the first argument is a stream) of the
-#         values (score, UTCDateTime of arrival)
-#         where scores is: 0: no double event, 1: double event inside tmin_tmax,
-#             2: double event after tmax, 3: both double event previously defined are detected
-#         If score is 2 or 3, the second argument is the UTCDateTime denoting the occurrence of the
-#         first sample triggering the double event after tmax
-#         :param trace: the input obspy.core.Trace
-#     """
-#     tmin = utcdatetime(tmin)
-#     tmax = utcdatetime(tmax)
-# 
-#     double_event_after_tmax_time = None
-#     d_order = 2
-# 
-#     # split traces between tmin and tmax and after tmax
-#     traces = [cum_trace.slice(tmin, tmax), cum_trace.slice(tmax, None)]
-# 
-#     # calculate second derivative and normalize:
-#     derivs = []
-#     max_ = None
-#     for ttt in traces:
-#         sec_der = np.diff(ttt.data, n=d_order)
-#         _, mmm = _maxabs(sec_der)
-#         max_ = np.nanmax([max_, mmm])  # get max (global) for normalization (see below):
-#         derivs.append(sec_der)
-# 
-#     # normalize second derivatives:
-#     for der in derivs:
-#         der /= max_
-# 
-#     result = 0
-# 
-#     # case A: see if after tmax we exceed a threshold
-#     indices = np.where(derivs[1] >= threshold_after_tmax_percent)[0]
-# 
-#     if len(indices):
-#         result = 2
-#         double_event_after_tmax_time = timeof(traces[1], indices[0])
-# 
-#     # case B: see if inside tmin tmax we exceed a threshold, and in case check the duration
-#     indices = np.where(derivs[0] >= threshold_inside_tmin_tmax_percent)[0]
-#     if len(indices) >= 2:
-#         idx0 = indices[0]
-#         idx1 = indices[-1]
-# 
-#         deltatime = (idx1 - idx0) * cum_trace.stats.delta
-# 
-#         if deltatime >= threshold_inside_tmin_tmax_sec:
-#             result += 1
-# 
-#     return (result, double_event_after_tmax_time)
-
-
 def timeof(trace, index):
     """Returns a UTCDateTime object corresponding to the given index of the given trace
     the index does not need to be inside the trace indices, the method will return the time
@@ -487,6 +282,16 @@ def timeof(trace, index):
 
 
 def utcdatetime(time, return_if_none=None):
+    '''Convenience function to normalize any datetime object into UTCDateTime:
+    converts `time` into obspy UTCDateTime, by returning `time` if already UTCDateTime or
+    `UTCDateTime(time)` otherwise. If `time` is None, returns None by default (so that the returned
+    value can be safely used when slicing/trimming such as, e.g. `trace.trim`), or any
+    value supplied to the optional argument `return_if_none`
+    :param time: a float, `datetime.datetime` object, or UtcDateTime. None is permitted and will
+    return `return_if_none` (see below)
+    :param return_if_none: None by default (when missing), indicates the value to return if
+    `time` is None
+    '''
     if not isinstance(time, UTCDateTime):
         time = return_if_none if time is None else UTCDateTime(time)
     return time

@@ -4,17 +4,6 @@ from math import floor, ceil, isnan
 from scipy.signal import hilbert
 
 
-def fft(signal):
-    """Returns the fft of a REAL signal. For computing the frequency delta, see `dfreq` (providing
-    the signal delta_t, in seconds)
-    :param signal: a signal (numeric array)
-    :param dt: the delta t (distance from two points of the equally sampled signal)
-    :param return_abs: if true, np.abs is applied to the returned fft, thus converting it to
-        power spectrum
-    """
-    return np.fft.rfft(signal)
-
-
 def powspec(signal, signal_is_fft=False):
     """Returns the power spectrum of a REAL signal. If `signal_is_fft=False`,
     for computing the frequency delta, see `dfreq` (providing the signal delta_t, in seconds)
@@ -33,6 +22,17 @@ def ampspec(signal, signal_is_fft=False):
     (the default), fft(signal) will be applied first
     """
     return np.abs(fft(signal) if not signal_is_fft else signal)
+
+
+def fft(signal):
+    """Returns the fft of a REAL signal. For computing the frequency delta, see `dfreq` (providing
+    the signal delta_t, in seconds)
+    :param signal: a signal (numeric array)
+    :param dt: the delta t (distance from two points of the equally sampled signal)
+    :param return_abs: if true, np.abs is applied to the returned fft, thus converting it to
+        power spectrum
+    """
+    return np.fft.rfft(signal)
 
 
 def dfreq(time_signal, delta_t):
@@ -168,7 +168,8 @@ def trim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
 
 def argtrim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
     """returns the indices of signal such as `signal[i0:i1]` is the slice of signal
-    between (and including) minx and maxx
+    between (and including) minx and maxx. The returned 2-element tuple might contain `None`s
+    (valid python slice argument to indicate: no bounds)
     """
     if minx is None and maxx is None:
         return (None, None)
@@ -230,7 +231,7 @@ def triangsmooth(array, winlen_ratio):
     npts[:max_idx+1] = np.round(np.arange(max_idx+1) * winlen_ratio)  # .astype(int)
     if int(np.round(max_idx*winlen_ratio)) < 2:
         # winlen_ratio not big enough, window lengths are at most 1, return array immediately
-        # note that max window length == 1 (1 point left, one right) is also trivial as we sould
+        # note that max window length == 1 (1 point left, one right) is also trivial as we should
         # multiply by zero the left and right point
         return smoothed_array
     npts[max_idx+1:] = np.arange(spec_len-1-(max_idx+1), -1, -1)
@@ -261,44 +262,3 @@ def triangsmooth(array, winlen_ratio):
         tri_wdw = tri_wdw[:-2]
 
     return smoothed_array
-
-
-# def env(signal):
-#     analytic_signal = hilbert(signal)
-#     amplitude_envelope = np.abs(analytic_signal)
-#     return amplitude_envelope
-
-
-# def linspace(start, delta, npts):
-#     """
-#         Return evenly spaced numbers over a specified interval. Calls:
-#             numpy.linspace(start, start + delta * npts, npts, endpoint=False)
-#     """
-#     return np.linspace(start, start + delta * npts, num=npts, endpoint=False)
-
-
-# def moving_average(np_array, n=3):
-#     """Implements the moving average filter. NOT USED. FIXME: REMOVE!"""
-#     ret = np.cumsum(np_array, dtype=float)
-#     ret[n:] = ret[n:] - ret[:-n]
-#     return ret[n - 1:] / n
-
-
-# def maxabs(signal):
-#     """Returns the index of the maximum of the absolute values of the signal and the
-#         maximum, i.e. the tuple: (index_of_max, max)
-#     """
-#     idx = np.nanargmax(np.abs(signal))
-#     return idx, signal[idx]
-
-
-# def interp(npts_or_new_x_array, oldxarray, signal):
-#     try:
-#         len(npts_or_new_x_array)  # is npts_or_new_x_array an array?
-#         newxarray = npts_or_new_x_array
-#     except TypeError:  # npts_or_new_x_array is scalar (not array)
-#         newxarray = np.linspace(oldxarray[0], oldxarray[-1], npts_or_new_x_array, endpoint=True)
-# 
-#     newsignal = np.interp(newxarray, oldxarray, signal)
-# 
-#     return newxarray, newsignal

@@ -15,7 +15,7 @@ from stream2segment.analysis import snr as orig_snr
 from stream2segment.analysis import powspec as orig_powspec
 
 
-from stream2segment.analysis.mseeds import remove_response, fft, snr , bandpass, dfreq, maxabs,\
+from stream2segment.analysis.mseeds import fft, snr , bandpass, dfreq, maxabs,\
     timeof
 # from stream2segment.io.utils import loads, dumps
 # from stream2segment.analysis.mseeds import _IO_FORMAT_FFT, _IO_FORMAT_STREAM, _IO_FORMAT_TIME,\
@@ -117,31 +117,32 @@ def _data():
            'data_path': folder, 
            'inventory_path': inv_path}
     for inv_output in ['ACC', 'VEL', 'DISP']:
-        mseed2 = remove_response(mseed, inv_obj, output=inv_output)
-        ret['mseed_'+inv_output] = mseed2
+        # mseed_c = mseed.copy()
+        # mseed2 = remove_response(mseed, inv_obj, output=inv_output)
+        ret['mseed_'+inv_output] = mseed.copy().remove_response(inv_obj, output=inv_output)
     return ret
 
 
-@pytest.mark.parametrize('inv_output',
-                          ['ACC', 'VEL', 'DISP'])
-def test_remove_response_with_inv_path(_data, inv_output):
-    mseed = get_data()['mseed']
-    mseed2 = get_data()['mseed_'+inv_output]
-    assert isinstance(mseed, Stream) == isinstance(mseed2, Stream)
-    assert len(mseed.traces) == len(mseed2.traces)
-    assert (mseed[0].data != mseed2[0].data).any()
-    assert max(mseed[0].data) > max(mseed2[0].data)
-
-
-def test_remove_response_with_inv_object(_data):
-    mseed = get_data()['mseed']
-#     inv_obj = _data['inventory']
-    for inv_output in ['ACC', 'VEL', 'DISP']:
-        mseed2 = get_data()['mseed_' + inv_output]
-        assert isinstance(mseed, Stream) == isinstance(mseed2, Stream)
-        assert len(mseed.traces) == len(mseed2.traces)
-        assert (mseed[0].data != mseed2[0].data).any()
-        assert max(mseed[0].data) > max(mseed2[0].data)
+# @pytest.mark.parametrize('inv_output',
+#                           ['ACC', 'VEL', 'DISP'])
+# def test_remove_response_with_inv_path(_data, inv_output):
+#     mseed = get_data()['mseed']
+#     mseed2 = get_data()['mseed_'+inv_output]
+#     assert isinstance(mseed, Stream) == isinstance(mseed2, Stream)
+#     assert len(mseed.traces) == len(mseed2.traces)
+#     assert (mseed[0].data != mseed2[0].data).any()
+#     assert max(mseed[0].data) > max(mseed2[0].data)
+# 
+# 
+# def test_remove_response_with_inv_object(_data):
+#     mseed = get_data()['mseed']
+# #     inv_obj = _data['inventory']
+#     for inv_output in ['ACC', 'VEL', 'DISP']:
+#         mseed2 = get_data()['mseed_' + inv_output]
+#         assert isinstance(mseed, Stream) == isinstance(mseed2, Stream)
+#         assert len(mseed.traces) == len(mseed2.traces)
+#         assert (mseed[0].data != mseed2[0].data).any()
+#         assert max(mseed[0].data) > max(mseed2[0].data)
 
 
 def get_stream_with_gaps(_data):

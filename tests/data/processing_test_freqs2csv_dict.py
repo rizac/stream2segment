@@ -7,7 +7,7 @@ Created on Feb 2, 2017
 import numpy as np
 # strem2segment functions for processing mseeds
 # If you need to use them, import them like this:
-from stream2segment.analysis.mseeds import remove_response, amp_ratio, bandpass, cumsum,\
+from stream2segment.analysis.mseeds import ampratio, bandpass, cumsum,\
     cumtimes, fft, maxabs, snr, get_tbounds
 # when working with times, use obspy UTCDateTime:
 from obspy.core.utcdatetime import UTCDateTime
@@ -30,8 +30,8 @@ def main(seg, config):
     # so we can write them to database more easily
     trace = stream[0]
 
-    ampratio = amp_ratio(trace)
-    if ampratio >= config['amp_ratio_threshold']:
+    aratio = ampratio(trace)
+    if aratio >= config['amp_ratio_threshold']:
         raise ValueError('possibly saturated (amp. ratio exceeds)')
 
     # convert to UTCDateTime for operations later:
@@ -44,8 +44,9 @@ def main(seg, config):
                      corners=config['bandpass_corners'])
 
     inventory = seg.inventory()
-    trace_rem_resp = remove_response(trace, inventory, output=config['remove_response_output'],
-                                     water_level=config['remove_response_water_level'])
+    trace_rem_resp = trace.copy().remove_response(inventory,
+                                                  output=config['remove_response_output'],
+                                                  water_level=config['remove_response_water_level'])
 
     # to calculate cumulative:
     # mseed_cum = cumsum(trace_rem_resp)
