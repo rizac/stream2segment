@@ -10,6 +10,8 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 <script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.5.6/angular.min.js"></script>
 <script>window.angular || document.write('<script src="static/js/angular.1.5.6.min.js"><\/script>')</script>
 
+<!-- load bootstrap css (with fallback, see
+	https://stackoverflow.com/questions/14141532/how-to-load-local-copy-of-bootstrap-css-when-the-cdn-server-is-down -->
 <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" rel="stylesheet" media="screen">
 <script type="text/javascript">
     var cssFound = false;
@@ -21,7 +23,7 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
             break;
         }
     }
-    if (cssFound){
+    if (!cssFound){
     	local_bootstrap = document.createElement('link');
         local_bootstrap.setAttribute("rel", "stylesheet");
         local_bootstrap.setAttribute("type", "text/css");
