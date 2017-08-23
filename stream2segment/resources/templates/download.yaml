@@ -97,10 +97,10 @@ channels:
 #                   |
 #                   ---------+-------+------------
 #                         minmag   maxmag
-# NOTE:
-# if maxradius == minradius=R, this is equivalent to a constant function returning always R regardless of the magnitude
-# otherwise (maxradius != minradius), if minmag == maxmag = M, this function returns minradius for all magnitudes < M,
-#     maxradius for all magnitudes > M, and (minradius+maxradius)/2 for all magnitudes == M
+# Edge cases:
+# - if minmag_radius == maxmag_radius = R, this is equivalent to a constant function returning always R regardless of the magnitude
+# - if minmag_radius != maxmag_radius and minmag == maxmag = M, this function returns minmag_radius for all magnitudes < M,
+#     maxmag_radius for all magnitudes > M, and (minmag_radius + maxmag_radius) / 2 for all magnitudes == M
 search_radius:
  minmag: 6 # min magnitude
  maxmag: 7 # max magnitude
