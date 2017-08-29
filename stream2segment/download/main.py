@@ -950,7 +950,9 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
     """
     # define columns (sql-alchemy model attrs) and their string names (pandas col names) once:
     SEG_CHAID = Segment.channel_id
-    SEG_CHAID_COL = SEG_CHAID.key
+    SEG_CHAID_NAME = SEG_CHAID.key
+    SEG_EVTID = Segment.event_id
+    SEG_EVTID_NAME = SEG_EVTID.key
     SEG_DCID_COL = Segment.datacenter_id
     SEG_DCID_NAME = SEG_DCID_COL.key
     DC_ID_COL = DataCenter.id
@@ -1004,38 +1006,48 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                            [SEG_ID_NAME, Segment.channel_id.key, Segment.start_time.key,
                             Segment.end_time.key, Segment.datacenter_id.key])
 
-    seg_groups = segments_df.groupby([SEG_DCID_NAME, SEG_STIME_NAME, SEG_ETIME_NAME], sort=False)
+    # define the groupsby columns
+    # remember that segments_df has columns:
+    # ['channel_id', 'datacenter_id', 'event_distance_deg', 'event_id', 'arrival_time',
+    #  'start_time', 'end_time', 'id']
+    # first try to download per-datacenter and time bounds. On 413, load each
+    # segment separately (thus use SEG_DCID_NAME, SEG_STIME_NAME, SEG_ETIME_NAME, SEG_CHAID_NAME
+    # (and SEG_EVTID_NAME for safety?)
+    groupsby = [
+                [SEG_DCID_NAME, SEG_STIME_NAME, SEG_ETIME_NAME],
+                [SEG_DCID_NAME, SEG_STIME_NAME, SEG_ETIME_NAME, SEG_CHAID_NAME],
+                ]
 
     # we assume it's the terminal, thus allocate the current process to track
     # memory overflows
     with get_progressbar(show_progress, length=len(segments_df)) as bar:
-        # seg group is an iterable of 2 element tuples. The first element is the tuple of keys[:idx]
-        # values, and the second element is the dataframe
-        itr = read_async(seg_groups,
-                         urlkey=lambda obj: get_seg_request(obj[1], datcen_id2url[obj[0][0]],
-                                                            chaid2mseedid_dict),
-                         raise_http_err=False,
-                         max_workers=max_thread_workers,
-                         timeout=timeout, blocksize=download_blocksize)
+        skipped_dataframes = []  # store dataframes with a 413 error and retry later
+        for group_ in groupsby:
+            if segments_df.empty:  # for safety (if this is the second loop or greater)
+                break
+            islast = group_ == groupsby[-1]
+            seg_groups = segments_df.groupby(group_, sort=False)
+            # seg group is an iterable of 2 element tuples. The first element is the tuple
+            # of keys[:idx] values, and the second element is the dataframe
+            itr = read_async(seg_groups,
+                             urlkey=lambda obj: get_seg_request(obj[1], datcen_id2url[obj[0][0]],
+                                                                chaid2mseedid_dict),
+                             raise_http_err=False,
+                             max_workers=max_thread_workers,
+                             timeout=timeout, blocksize=download_blocksize)
 
-        while itr is not None:
-            retries = []
             for df, result, exc, request in itr:
-                _ = df[0]  # not used. NOTE that the type of this var changes according to
-                # whether we are retriying from a  previous 413 http code or not
+                _ = df[0]  # not used
                 df = df[1]  # copy data so that we do not have refs to the old dataframe
                 # and hopefully the gc works better
                 url = request.get_host()
                 data, code, msg = result if not exc else (None, None, None)
-                if code == 413 and len(df) > 1:
-                    for i, postdatarow in enumerate(request.data.split("\n")):
-                        retries.append((Request(url=request.get_full_url(), data=postdatarow),
-                                        pd.DataFrame(df.iloc[i]).T))
+                if code == 413 and len(df) > 1 and not islast:
+                    skipped_dataframes.append(df)
                     continue
-                # We do not copy the dataframe to avoid unecessary memory overflow,
-                # but we have to set is_copy to avoid SettingWithCopyWarning
-                # df = df.copy()
-                df.is_copy = False
+                # Seems that copy(), although allocates a new small memory chunk,
+                # helps gc better managing total memory (which might be an issue):
+                df = df.copy()
                 # init columns with default values:
                 for col in SEG_COLNAMES:
                     df[col] = segvals[col]
@@ -1058,20 +1070,6 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                             df.loc[:, SEG_DSC_NAME] = code
                         else:
                             try:
-#                                 resdict = mseedunpack(data)
-#                                 oks = 0
-#                                 values = []
-#                                 for key, (data, s_rate, max_gap_ratio, err) in resdict.iteritems():
-#                                     if err is not None:
-#                                         values.append((None, None, None, None, MSEEDERR_CODE))
-#                                         stats[url][err] += 1
-#                                     else:
-#                                         values.append((data, s_rate, max_gap_ratio, key, code))
-#                                         oks += 1
-#                                 df.loc[resdict.keys(), [SEG_DATA_NAME, SEG_SRATE_NAME, SEG_MGR_NAME,
-#                                                         SEG_SEEDID_NAME, SEG_DSC_NAME]] = values
-#                                 stats[url]["%d: %s" % (code, msg)] += oks
-
                                 resdict = mseedunpack(data)
                                 oks = 0
                                 # iterate over df rows and assign the relative data
@@ -1079,7 +1077,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                                 # loc for setting the data, but this would mean using column
                                 # indexes and we have column labels. A conversion is possible but
                                 # would make the code  hard to understand (even more ;))
-                                for idxval, chaid in izip(df.index.values, df[SEG_CHAID_COL]):
+                                for idxval, chaid in izip(df.index.values, df[SEG_CHAID_NAME]):
                                     mseedid = chaid2mseedid_dict.get(chaid, None)
                                     if mseedid is None:
                                         continue
@@ -1128,14 +1126,13 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                 bar.update(len(df))
                 # del df  # remove ref to df (helps gc when done in DbMAnager??)
 
-            if retries:
-                itr = read_async(retries,
-                                 urlkey=lambda obj: obj[0],
-                                 raise_http_err=False,
-                                 max_workers=max_thread_workers,
-                                 timeout=timeout, blocksize=download_blocksize)
+            if skipped_dataframes:
+                segments_df = pd.concat(skipped_dataframes, axis=0, ignore_index=True, copy=True,
+                                        verify_integrity=False)
+                skipped_dataframes = []
             else:
-                break
+                # break the next loop, if any
+                segments_df = pd.DataFrame()
 
     segmanager.close()  # flush remaining stuff to insert / update, if any
     return stats
