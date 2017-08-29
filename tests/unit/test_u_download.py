@@ -26,8 +26,8 @@ from click.testing import CliRunner
 import pandas as pd
 from stream2segment.download.main import get_events_df, get_datacenters_df, logger as query_logger, \
 get_channels_df, merge_events_stations, set_saved_arrivaltimes, get_arrivaltimes,\
-    prepare_for_download, download_save_segments, _strcat,\
-    QuitDownload
+    prepare_for_download, download_save_segments,\
+    QuitDownload, chaid2mseedid_dict
 # ,\
 #     get_fdsn_channels_df, save_stations_and_channels, get_dists_and_times, set_saved_dist_and_times,\
 #     download_segments, drop_already_downloaded, set_download_urls, save_segments
@@ -1848,6 +1848,13 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 # 11  4  90.0  90.0  2 2009-01-01 NaT  n2  s       c2 
 # 12  4  90.0  90.0  2 2009-01-01 NaT  n2  s       c3
 
+        assert all(_ in channels_df.columns for _ in [Station.network.key, Station.station.key,
+                                                      Channel.location.key, Channel.channel.key])
+        chaid2mseedid = chaid2mseedid_dict(channels_df)
+        # check that we removed the columns:
+        assert not any(_ in channels_df.columns for _ in [Station.network.key, Station.station.key,
+                                                      Channel.location.key, Channel.channel.key])
+        
         # take all segments:
         # use minmag and maxmag
         df = merge_events_stations(events_df, channels_df, minmag=10, maxmag=10,
@@ -1935,6 +1942,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                               '', self._seg_data_gaps, self._seg_data_gaps, URLError("++urlerror++"), 500, 413]
         # Let's go:
         ztatz = self.download_save_segments(urlread_sideeffect, self.session, segments_df, datacenters_df, 
+                                            chaid2mseedid,
                                             self.run.id, 1,2,3, db_bufsize=self.db_buf_size)
         # get columns from db which we are interested on to check
         cols = [Segment.id, Segment.channel_id, Segment.datacenter_id,
@@ -2040,6 +2048,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_insertdf_napkeys.reset_mock()
         # Let's go:
         ztatz = self.download_save_segments(urlread_sideeffect, self.session, segments_df, datacenters_df,
+                                            chaid2mseedid,
                                             self.run.id, 1,2,3, db_bufsize=self.db_buf_size)
         # get columns from db which we are interested on to check
         cols = [Segment.download_status_code, Segment.channel_id]

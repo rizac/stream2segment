@@ -228,7 +228,7 @@ def test_click_template_realcopy():
     filez = set(os.listdir(dir_))
     try:
         result = runner.invoke(main, ['t', mydir])
-        filez = os.listdir(dir_)
+        filez = os.listdir(mydir)
         assert "download.yaml" in filez
         assert "processing.yaml" in filez
         assert "gui.yaml" in filez

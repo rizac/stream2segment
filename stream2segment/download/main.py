@@ -12,7 +12,7 @@
 import os
 import logging
 import re
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 from datetime import timedelta, datetime
 from urlparse import urlparse
 import gc
@@ -455,8 +455,9 @@ def get_channels_df(session, datacenters_df, post_data, channels, min_sample_rat
     STA_STA = Station.station
     CHA_LOC = Channel.location
     CHA_CHA = Channel.channel
+    # the columns for the channels dataframe that will be returned
     COLS_DB = [CHA_ID, CHA_STAID, STA_LAT, STA_LON, STA_DCID, STA_STIME, STA_ETIME,
-               STA_NET, STA_STA, CHA_LOC, CHA_CHA]
+               STA_NET, STA_STA, CHA_LOC, CHA_CHA]  # <- will be removed after creating a dict
     COLS_DF = [c.key for c in COLS_DB]
 
     ret_df = empty()
@@ -576,6 +577,38 @@ def save_stations_and_channels(session, channels_df, db_bufsize):
                            session, CHA_COLS_DB, CHA_ID_DB, db_bufsize,
                            cols_to_print_on_err=CHA_COLS_DF)
     return channels_df
+
+
+def chaid2mseedid_dict(channels_df, drop_mseedid_columns=True):
+    '''returns a dict of the form {channel_id: mseed_id} from channels_df, where mseed_id is
+    a string of the form ```[network].[station].[location].[channel]```
+    :param channels_df: the result of `get_channels_df`
+    :param drop_mseedid_columns: boolean (default: True), removes all columns related to the mseed
+    id from `channels_df`. This might save up a lor of memory when cimputing the
+    segments resulting from each event -> stations binding (according to the search radius)
+    Remember that pandas strings are not optimized for memory as they are python objects
+    (https://www.dataquest.io/blog/pandas-big-data/)
+    '''
+    CHA_ID = Channel.id.key
+    STA_NET = Station.network.key
+    STA_STA = Station.station.key
+    CHA_LOC = Channel.location.key
+    CHA_CHA = Channel.channel.key
+    n = channels_df[STA_NET].str.cat
+    s = channels_df[STA_STA].str.cat
+    l = channels_df[CHA_LOC].str.cat
+    c = channels_df[CHA_CHA]
+    _mseedids = n(s(l(c, sep='.', na_rep=''), sep='.', na_rep=''), sep='.', na_rep='')
+    if drop_mseedid_columns:
+        # remove string columns, we do not need it anymore and
+        # will save a lot of memory for subsequent operations
+        channels_df.drop([STA_NET, STA_STA, CHA_LOC, CHA_CHA], axis=1, inplace=True)
+    # we could return
+    # pd.DataFrame(index=channels_df[CHA_ID], {'mseed_id': _mseedids})
+    # but the latter does NOT consume less memory (strings are python string in pandas)
+    # and the search for an mseed_id given a loc[channel_id] is slightly slower than python dicts
+    # as the returned element is intended for searching, then return a dict:
+    return {chaid: mseedid for chaid, mseedid in izip(channels_df[CHA_ID], _mseedids)}
 
 
 def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius, maxmag_radius):
@@ -835,7 +868,10 @@ def prepare_for_download(session, segments_df, retry_no_code, retry_url_errors,
     segments_df = mergeupdate(segments_df, db_seg_df, [SEG_CHID, SEG_STIME, SEG_ETIME],
                               [SEG_ID, SEG_RETRY])
 
-    oldlen, segments_df = len(segments_df), segments_df[segments_df[SEG_RETRY]]  # FIXME: copy???
+    oldlen = len(segments_df)
+    # do a copy to avoid SettingWithCopyWarning. Moreover, copy should re-allocate contiguous
+    # arrays which might be faster (and less memory consuming after unused memory is released)
+    segments_df = segments_df[segments_df[SEG_RETRY]].copy()
     if oldlen != len(segments_df):
         reason = ", ".join("%s=%s" % (k, str(v)) for k, v in locals().iteritems()
                            if k.startswith("retry_"))
@@ -849,43 +885,63 @@ def prepare_for_download(session, segments_df, retry_no_code, retry_url_errors,
     # for safety, remove dupes (we should not have them, however...). FIXME: # add msg???
     # segments_df = segments_df.drop_duplicates(subset=[SEG_CHID, SEG_STIME, SEG_ETIME])
 
-    # set index with post data line (string)
-    segments_df = segments_df.set_index(_strcat(segments_df))
-    segments_df.index.name = None  # just for better str display...
-    # keep relevant data only. inplace should help memory management
-    STA_NET = Station.network.key
-    STA_STA = Station.station.key
-    CHA_LOC = Channel.location.key
-    CHA_CHA = Channel.channel.key
-    segments_df.drop([STA_NET, STA_STA, CHA_LOC, CHA_CHA, SEG_RETRY], axis=1, inplace=True)
+    # COMMENTED OUT: WE DO NOT NEED TO REMOVE THESE COLUMNS AS THEY ARE NOT ANYMORE
+    # PART OF THE DATAFRAME. FIXME: remove these lines after tests!
+    # --------------------------------------------------------------
+#     # set index with post data line (string)
+#     segments_df = segments_df.set_index(_strcat(segments_df))
+#     segments_df.index.name = None  # just for better str display...
+#     # keep relevant data only. inplace should help memory management
+#     STA_NET = Station.network.key
+#     STA_STA = Station.station.key
+#     CHA_LOC = Channel.location.key
+#     CHA_CHA = Channel.channel.key
+#     segments_df.drop([STA_NET, STA_STA, CHA_LOC, CHA_CHA, SEG_RETRY], axis=1, inplace=True)
+
+    segments_df.drop([SEG_RETRY], axis=1, inplace=True)
     return segments_df
 
 
-def _strcat(segments_df):
-    STA_NET = Station.network.key
-    STA_STA = Station.station.key
-    CHA_LOC = Channel.location.key
-    CHA_CHA = Channel.channel.key
-    n = segments_df[STA_NET].str.cat
-    s = segments_df[STA_STA].str.cat
-    l = segments_df[CHA_LOC].str.cat
-    c = segments_df[CHA_CHA]
-    return n(s(l(c, sep='.', na_rep=''), sep='.', na_rep=''), sep='.', na_rep='')
+# def _strcat(segments_df):
+#     STA_NET = Station.network.key
+#     STA_STA = Station.station.key
+#     CHA_LOC = Channel.location.key
+#     CHA_CHA = Channel.channel.key
+#     n = segments_df[STA_NET].str.cat
+#     s = segments_df[STA_STA].str.cat
+#     l = segments_df[CHA_LOC].str.cat
+#     c = segments_df[CHA_CHA]
+#     return n(s(l(c, sep='.', na_rep=''), sep='.', na_rep=''), sep='.', na_rep='')
 
 
-def _get_seg_request(segments_df, datacenter_url):
+# def _get_seg_request(segments_df, datacenter_url):
+#     """returns a Request object from the given segments_df"""
+#     SEG_STIME = Segment.start_time.key
+#     SEG_ETIME = Segment.end_time.key
+#     stime = segments_df[SEG_STIME].iloc[0].isoformat()
+#     etime = segments_df[SEG_ETIME].iloc[0].isoformat()
+#     frmt_str = "{} {} {} {} %s %s" % (stime, etime)
+#     post_data = "\n".join(frmt_str.format(*("--" if not _ else _ for _ in k.split(".")))
+#                           for k in segments_df.index)
+#     return Request(url=datacenter_url, data=post_data)
+
+
+def get_seg_request(segments_df, datacenter_url, chaid2mseedid_dict):
     """returns a Request object from the given segments_df"""
     SEG_STIME = Segment.start_time.key
     SEG_ETIME = Segment.end_time.key
+    CHA_ID = Segment.channel_id.key
+
     stime = segments_df[SEG_STIME].iloc[0].isoformat()
     etime = segments_df[SEG_ETIME].iloc[0].isoformat()
-    frmt_str = "{} {} {} {} %s %s" % (stime, etime)
-    post_data = "\n".join(frmt_str.format(*("--" if not _ else _ for _ in k.split(".")))
-                          for k in segments_df.index)
+
+    post_data = "\n".join("{} {} {}".format(*(chaid2mseedid_dict[chaid].replace("..", ".--.").
+                                              replace(".", " "), stime, etime))
+                          for chaid in segments_df[CHA_ID] if chaid in chaid2mseedid_dict)
     return Request(url=datacenter_url, data=post_data)
 
 
-def download_save_segments(session, segments_df, datacenters_df, run_id,
+def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_dict, run_id,
                            max_thread_workers, timeout, download_blocksize, db_bufsize,
                            show_progress=False):
 
@@ -893,6 +949,8 @@ def download_save_segments(session, segments_df, datacenters_df, run_id,
         :param segments_df: the dataframe resulting from `prepare_for_download`
     """
     # define columns (sql-alchemy model attrs) and their string names (pandas col names) once:
+    SEG_CHAID = Segment.channel_id
+    SEG_CHAID_COL = SEG_CHAID.key
     SEG_DCID_COL = Segment.datacenter_id
     SEG_DCID_NAME = SEG_DCID_COL.key
     DC_ID_COL = DataCenter.id
@@ -921,6 +979,20 @@ def download_save_segments(session, segments_df, datacenters_df, run_id,
     SEG_SRATE_NAME = SEG_SRATE_COL.key
     SEG_RUNID_NAME = SEG_RUNID_COL.key
 
+    # set once the dict of column names mapped to their default values.
+    # Set nan to let pandas understand it's numeric. None I don't know how it is converted
+    # (should be checked) but it's for string types
+    # for numpy types, see
+    # https://docs.scipy.org/doc/numpy/reference/arrays.dtypes.html#specifying-and-constructing-data-types
+    # Use OrderedDict to preserve order (see comments below)
+    segvals = OrderedDict([(SEG_DATA_NAME, None), (SEG_SRATE_NAME, np.nan),
+                           (SEG_MGR_NAME, np.nan), (SEG_SEEDID_NAME, None),
+                           (SEG_DSC_NAME, np.nan)])
+    # Define separate keys cause we will use it elsewhere:
+    # Note that the order of these keys must match `mseed_unpack` returned data
+    # (this is why we used OrderedDict above)
+    SEG_COLNAMES = segvals.keys()
+    # define default error codes:
     URLERR_CODE, MSEEDERR_CODE = get_url_mseed_errorcodes()
 
     stats = defaultdict(lambda: UrlStats())
@@ -940,7 +1012,8 @@ def download_save_segments(session, segments_df, datacenters_df, run_id,
         # seg group is an iterable of 2 element tuples. The first element is the tuple of keys[:idx]
         # values, and the second element is the dataframe
         itr = read_async(seg_groups,
-                         urlkey=lambda obj: _get_seg_request(obj[1], datcen_id2url[obj[0][0]]),
+                         urlkey=lambda obj: get_seg_request(obj[1], datcen_id2url[obj[0][0]],
+                                                            chaid2mseedid_dict),
                          raise_http_err=False,
                          max_workers=max_thread_workers,
                          timeout=timeout, blocksize=download_blocksize)
@@ -959,15 +1032,18 @@ def download_save_segments(session, segments_df, datacenters_df, run_id,
                         retries.append((Request(url=request.get_full_url(), data=postdatarow),
                                         pd.DataFrame(df.iloc[i]).T))
                     continue
-                # now copy, we are about to write the df:
-                # for numpy types, see
-                # https://docs.scipy.org/doc/numpy/reference/arrays.dtypes.html#specifying-and-constructing-data-types
-                df = df.copy()
-                df[SEG_DATA_NAME] = None
-                df[SEG_MGR_NAME] = float('nan')
-                df[SEG_SRATE_NAME] = float('nan')
-                df[SEG_SEEDID_NAME] = None
-                df[SEG_DSC_NAME] = float('nan')
+                # We do not copy the dataframe to avoid unecessary memory overflow,
+                # but we have to set is_copy to avoid SettingWithCopyWarning
+                # df = df.copy()
+                df.is_copy = False
+                # init columns with default values:
+                for col in SEG_COLNAMES:
+                    df[col] = segvals[col]
+                    # Note that we could use
+                    # df.insert(len(df.columns), col, segvals[col])
+                    # to preserve order, if needed. A starting discussion on adding new column:
+                    # https://stackoverflow.com/questions/12555323/adding-new-column-to-existing-dataframe-in-python-pandas
+                # init run id column with our run_id:
                 df[SEG_RUNID_NAME] = run_id
                 if exc:
                     code = URLERR_CODE
@@ -982,19 +1058,60 @@ def download_save_segments(session, segments_df, datacenters_df, run_id,
                             df.loc[:, SEG_DSC_NAME] = code
                         else:
                             try:
+#                                 resdict = mseedunpack(data)
+#                                 oks = 0
+#                                 values = []
+#                                 for key, (data, s_rate, max_gap_ratio, err) in resdict.iteritems():
+#                                     if err is not None:
+#                                         values.append((None, None, None, None, MSEEDERR_CODE))
+#                                         stats[url][err] += 1
+#                                     else:
+#                                         values.append((data, s_rate, max_gap_ratio, key, code))
+#                                         oks += 1
+#                                 df.loc[resdict.keys(), [SEG_DATA_NAME, SEG_SRATE_NAME, SEG_MGR_NAME,
+#                                                         SEG_SEEDID_NAME, SEG_DSC_NAME]] = values
+#                                 stats[url]["%d: %s" % (code, msg)] += oks
+
                                 resdict = mseedunpack(data)
                                 oks = 0
-                                values = []
-                                for key, (data, s_rate, max_gap_ratio, err) in resdict.iteritems():
+                                # iterate over df rows and assign the relative data
+                                # Note that we could use iloc which is SLIGHTLY faster than
+                                # loc for setting the data, but this would mean using column
+                                # indexes and we have column labels. A conversion is possible but
+                                # would make the code  hard to understand (even more ;))
+                                for idxval, chaid in izip(df.index.values, df[SEG_CHAID_COL]):
+                                    mseedid = chaid2mseedid_dict.get(chaid, None)
+                                    if mseedid is None:
+                                        continue
+                                    # get result:
+                                    res = resdict.get(mseedid, None)
+                                    if res is None:
+                                        continue
+                                    data, s_rate, max_gap_ratio, err = res
                                     if err is not None:
-                                        values.append((None, None, None, None, MSEEDERR_CODE))
+                                        # set only the code field.
+                                        # Use set_value as it's faster for single elements
+                                        df.set_value(idxval, SEG_DSC_NAME, MSEEDERR_CODE)
                                         stats[url][err] += 1
                                     else:
-                                        values.append((data, s_rate, max_gap_ratio, key, code))
+                                        # This raises a UnicodeDecodeError:
+                                        # df.loc[idxval, SEG_COLNAMES] = (data, s_rate,
+                                        #                                 max_gap_ratio,
+                                        #                                 mseedid, code)
+                                        # The problem (bug?) is in pandas.core.indexing.py
+                                        # on line 517: np.array((data, s_rate, max_gap_ratio,
+                                        #                                  mseedid, code))
+                                        # (numpy coerces to unicode if one of the values is unicode,
+                                        #  and thus fails for the `data` field?)
+                                        # Anyway, we set first an empty string (which can be
+                                        # decoded) and then use set_value only for the `data` field
+                                        # set_value should be relatively fast
+                                        df.loc[idxval, SEG_COLNAMES] = (b'', s_rate, max_gap_ratio,
+                                                                        mseedid, code)
+                                        df.set_value(idxval, SEG_DATA_NAME, data)
                                         oks += 1
-                                df.loc[resdict.keys(), [SEG_DATA_NAME, SEG_SRATE_NAME, SEG_MGR_NAME,
-                                                        SEG_SEEDID_NAME, SEG_DSC_NAME]] = values
                                 stats[url]["%d: %s" % (code, msg)] += oks
+
                             except MSeedError as mseedexc:
                                 code = MSEEDERR_CODE
                                 exc = mseedexc
@@ -1244,6 +1361,11 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
     except QuitDownload as dexc:
         return dexc.log()
 
+    # get channel id to mseed id dict and purge channels_df
+    # the dict will be used to download the segments later, but we use it now to drop
+    # unnecessary columns and save space (and time)
+    chaid2mseedid = chaid2mseedid_dict(channels_df, drop_mseedid_columns=True)
+
     logger.info("")
     logger.info(("STEP %s: Selecting stations within search radius from %d events"), next(stepiter),
                 len(events_df))
@@ -1285,7 +1407,8 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
             logger.info("STEP %s: Downloading %d segments and saving to db", next(stepiter),
                         len(segments_df))
 
-        d_stats = download_save_segments(session, segments_df, datacenters_df, run_id,
+        d_stats = download_save_segments(session, segments_df, datacenters_df,
+                                         chaid2mseedid, run_id,
                                          advanced_settings['max_thread_workers'],
                                          advanced_settings['w_timeout'],
                                          advanced_settings['download_blocksize'],
