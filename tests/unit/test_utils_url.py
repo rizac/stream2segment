@@ -190,7 +190,7 @@ class Test(unittest.TestCase):
         with pytest.raises(MemoryError) as excinfo:
             self.read_async(urls, max_memoru_consumption=mmc)
         assert self.progress == 6
-        assert "too much memory used: %.2f%% > %.2f%%" % (mmc+1, mmc) in str(excinfo.value)
+        assert "Memory overflow: %.2f%% (used) > %.2f%% (threshold)" % (mmc+1, mmc) in str(excinfo.value)
     
 #     def test_cancelled1(self):
 #         """Tests cancelled, when url returns without errors"""

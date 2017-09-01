@@ -11,6 +11,7 @@ import httplib
 import socket
 import concurrent.futures
 import multiprocessing
+from multiprocessing.pool import ThreadPool
 import psutil
 import os
 # import time
@@ -106,48 +107,47 @@ def _mem_percent(process=None):
 
 def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
                decode=None, raise_http_err=True, timeout=None, max_mem_consumption=90,
+               unordered=True,
                **kwargs):  # pylint:disable=too-many-arguments
     """
-        Wrapper around `concurrent.futures.ThreadPoolExecutor` for downloading asynchronously
-        data from urls in `iterable`. Each download is executed on a separate *worker thread*,
-        calling `ondone` *on the main thread* for each `url`, as soon as it has been read.
-        This function **blocks and returns when all urls are read**, can cancel
-        yet-to-be-processed *worker threads* (see `ondone` below), and supports Ctrl+C if executed
-        via command line. In the following we will simply refer to `urlread` to indicate the
-        `urllib2.urlopen.read` function.
-        :param iterable: an iterable of objects representing the urls addresses to be read
-        (either strings or `urllib2.Request` objects). If not
-        strings nor Request objects, the `urlkey` argument should be specified as a function
-        accepting an element of iterable and returning a valid url string or Request object from it
-        :param ondone: a function *executed on the main thread* after `urlread` has completed.
-        It is called with the following arguments:
+        Wrapper around `multiprocessing.pool.ThreadPool()` for downloading
+        data from urls in `iterable` asynchronously (i.e., most likely faster).
+        Each download is executed on a separate *worker thread*, yielding the result of each
+        `url` read.
+
+        Yields the tuple
         ```
-            def ondone(obj, result, exc, url)
+            obj, result, exc, url
         ```
         where:
 
           - `obj` is the element of `iterable` which originated the `urlread` call
-          - `result` is the result of `urlread`, if not None is the tuple
-          ```(data, status_code, message)```
-          where `data` is the data read (as bytes or string if `decode != None`), `status_code` is
-          the integer denoting the status code (e.g. 200), and `messsage` the string denoting the
-          status message (e.g., 'OK'). `data` can be None, e.g., when `raise_http_err=True`
-          (see below)
+          - `result` is the result of `urlread`, it is None or the tuple
+            ```(data, status_code, message)```
+             where:
+             * `data` is the data read (as bytes or string if `decode != None`). It can be None,
+                e.g., when `raise_http_err=True` and an http-like exception has been raised
+             * `status_code` is the integer denoting the status code (e.g. 200), and
+             * `messsage` the string denoting the status message (e.g., 'OK').
           - exc is the exception raised by `urlread`, if any. **Either `result` or `exc` are None,
-          bit not both**. Note that exc is one of the following URL-related exceptions:
+          bit not both**. Note that `exc` is one of the following URL-related exceptions:
           ```urllib2.URLError, httplib.HTTPException, socket.error```
           Any other exception is raised and will stop the download
-          - url: the original url (either string or Request object)
+          - url: the original url (either string or Request object). If `iterable` is an iterable
+          of `Request` objects or strings, then `url` is equal to `obj`
 
-        Note that if t`raise_http_err=False` then `urllib2.HTTPError` are treated as 'normal'
+        Note that if `raise_http_err=False` then `urllib2.HTTPError` are treated as 'normal'
         response and will return a tuple where `data=None` and `status_code` is most likely greater
         or equal to 400
 
-        if `ondone` returns True, then the download will stop. To know more, read the
-        `killing threads / handling exceptions` section below
+        Finally, this function can cleanly cancel yet-to-be-processed *worker threads* via Ctrl+C
+        if executed from the command line. In the following we will simply refer to `urlread`
+        to indicate the `urllib2.urlopen.read` function.
 
-        :param cancel: a boolean (default False) telling if the returned value of `ondone`
-        should be checked to cancel remaining downloads
+        :param iterable: an iterable of objects representing the urls addresses to be read
+        (either strings or `urllib2.Request` objects). If the elements of `iterable` are neither
+        strings nor Request objects, the `urlkey` argument (see below) must be specified to
+        return valid url strings or Request objects
         :param urlkey: a function of one argument or None (the default) that is used to extract
         an url (string) or Request object from each `iterable` element. When None, it returns the
         argument, i.e. assumes that `iterable` is an iterable of valid url addresses or Request
@@ -155,9 +155,8 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
         :param max_workers: integer or None (the default) denoting the max workers of the
         `ThreadPoolExecutor`. When None, the theads allocated are relative to the machine cpu
         :param blocksize: integer defaulting to 1024*1024 specifying, when connecting to one of
-        the given urls, how many bytes have to be read at each call of `urlopen.read` function
-        (less if the `urlopen.read` hits EOF before obtaining size bytes). If the size argument is
-        negative or omitted, read all data until EOF is reached
+        the given urls, the mximum number of bytes to be read at each call of `urlopen.read`.
+        If the size argument is negative or omitted, read all data until EOF is reached
         :param decode: string or None (default: None) optional argument specifying if the content
         of the url must be decoded. None means: return the byte string as it was read. Otherwise,
         use this argument for string content (not bytes) by supplying a decoding, such as
@@ -170,18 +169,101 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
         :param timeout: timeout parameter specifies a timeout in seconds for blocking operations
         like the connection attempt (if not specified, None or non-positive, the global default
         timeout setting will be used). This actually only works for HTTP, HTTPS and FTP connections.
+        :param max_mem_consumption: integer in ]0 100], default: 90. For big downloads with a log
+        of elements in `iterable`, this function might kill the python program: Set the maximum
+        memory percentage (90% by default): if the programs overcomes that percentage, it returns
+        and raises a `MemoryError`: This lets the caller handle the case (e.g., closing db
+        connection, saving what has been downloaded etcetera) without loosing data
+        :param unordered: boolean (default False): tells whether the download results are yielded
+        in the same order they are input in `iterable`, i.e. if the i-th download is relative
+        to the i-th element of iterable. Theoretically, False (the default) might execute faster,
+        the drawback being that the results are not guaranteed to be returned in the same order
+        as `iterable`. (Although with `ThreadPool`s we could not
+        assess it clearly. Maybe it holds `ProcessPool`s, maybe is due to chunksize)
         :param kwargs: optional keyword arguments passed to `urllib2.urlopen` function (except
         the `timeout` argument, see above). NOT TESTED. For info see
         https://docs.python.org/2/library/urllib2.html#urllib2.urlopen
 
+        Notes:
+        ======
+
+        ThreadPool vs ThreadPoolExecutor
+        --------------------------------
+
+        This function changed from using `concurrent.futures.ThreadPoolExecutor` into
+        the "old" `multiprocessing.pool.ThreadPool`: the latter consumes in most cases
+        less memory (about 30% less), especially if `iterable` is not a list in memory but
+        a python iterable (`concurrent.futures.ThreadPoolExecutor` allocates `set`s of
+        `Future`s object, whereas `multiprocessing.pool.ThreadPool` seems just to execute
+        each element in iterable)
+
         killing threads / handling exceptions
-        =====================================
+        -------------------------------------
 
         this function handles any kind of unexpected exception (particularly relevant in case of
         e.g., `KeyboardInterrupt`) or the case when `ondone` returns True, by canceling all worker
         threads before raising. As ThreadPoolExecutor returns (or raises) after all worker
         threads have finished, an internal boolean flag makes all remaining worker threads quit as
         soon as possible, making the function return (or raise) much more quickly
+    """
+    if not (max_mem_consumption > 0 and max_mem_consumption < 100):
+        max_mem_consumption = -1
+
+    process = psutil.Process(os.getpid()) if max_mem_consumption != -1 else None
+
+    # flag for CTRL-C or cancelled tasks
+    kill = False
+
+    # function called from within urlread to check if go on or not
+    def urlwrapper(obj):
+        if kill:
+            return None
+        url = urlkey(obj) if urlkey is not None else obj
+        try:
+            return obj, \
+                urlread(url, blocksize, decode, True, raise_http_err, timeout, **kwargs), None, url
+        except URLException as urlexc:
+            return obj, None, urlexc.exc, url
+
+    tpool = ThreadPool(max_workers)
+    imap = tpool.imap_unordered if unordered else tpool.imap  # (func, iterable, chunksize)
+    # note above: chunksize argument for threads (not processes)
+    # seems to slow down download. Omit the argument and leave chunksize=1 (default)
+
+    try:
+        # this try is for the keyboard interrupt, which will be caught inside the
+        # as_completed below
+        for result_tuple in imap(urlwrapper, iterable):
+            if process is not None:
+                mem_percent = _mem_percent(process)
+                if mem_percent > max_mem_consumption:
+                    raise MemoryError("Memory overflow: %.2f%% (used) > %.2f%% (threshold)" %
+                                      (mem_percent, max_mem_consumption))
+
+            if kill:
+                continue  # (for safety: should never happen as long as kill=True in 'except' below)
+            yield result_tuple
+    except:
+        # According to this post:
+        # http://stackoverflow.com/questions/29177490/how-do-you-kill-futures-once-they-have-started,
+        # after a KeyboardInterrupt this method does not return until all
+        # working threads have finished. Thus, we implement the urlreader._kill flag
+        # which makes them exit immediately, and hopefully this function will return within
+        # seconds at most. We catch  a bare except cause we want the same to apply to all
+        # other exceptions which we might raise (see few line above)
+        kill = True  # pylint:disable=protected-access
+        # the time here before executing 'raise' below is the time taken to finish all threads.
+        # Without the line above, it might be a lot (minutes, hours), now it is much shorter
+        # (in the order of few seconds max) and the command below can be executed quickly:
+        raise
+
+
+def read_async_tpe(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
+                   decode=None, raise_http_err=True, timeout=None, max_mem_consumption=90,
+                   **kwargs):  # pylint:disable=too-many-arguments
+    """
+        Same as read_async but uses ThreadPoolExecutor. Note that the latter is more memory
+        consuming
     """
     if not (max_mem_consumption > 0 and max_mem_consumption < 100):
         max_mem_consumption = -1
@@ -224,7 +306,7 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
             for future in concurrent.futures.as_completed(future_to_obj):
                 mem_percent = _mem_percent(process)
                 if mem_percent > max_mem_consumption:
-                    raise MemoryError("too much memory used: %.2f%% > %.2f%%" %
+                    raise MemoryError("Memory overflow: %.2f%% (used) > %.2f%% (threshold)" %
                                       (mem_percent, max_mem_consumption))
 
                 if kill:
@@ -244,205 +326,6 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
             # Without the line above, it might be a lot (minutes, hours), now it is much shorter
             # (in the order of few seconds max) and the command below can be executed quickly:
             raise
-
-# def read_async(iterable, ondone, cancel=False,
-#                urlkey=lambda obj: obj,
-#                max_workers=None, blocksize=1024*1024,
-#                decode=None, **kwargs):  # pylint:disable=too-many-arguments
-#     """
-#         Wrapper around `concurrent.futures.ThreadPoolExecutor` for downloading asynchronously
-#         data from urls in `iterable`. Each download is executed on a separate *worker thread*,
-#         calling `ondone` *on the main thread* for each `url`, as soon as it has been read.
-#         This function **blocks and returns when all urls are read**, can cancel
-#         yet-to-be-processed *worker threads* (see `ondone` below), and supports Ctrl+C if executed
-#         via command line. In the following we will simply refer to `urlread` to indicate the
-#         `urllib2.urlopen.read` function.
-#         :param iterable: an iterable of objects representing the urls addresses to be read. If not
-#         strings representing url addresses, the `urlkey` argument should be specified in order to
-#         extract a valid url string from each element of iterable
-#         :param ondone: a function *executed on the main thread* after `urlread` has completed.
-#         It is called with the following arguments:
-#         ```
-#             def ondone(obj, result, exc, cancelled)
-#         ```
-#         where:
-# 
-#           - `obj` is the element of `iterable` which originated the `urlread` call. If the source
-#           url is needed, either you keep a track of `urlkey` or, even better, you should store it
-#           in each `obj` before calling this method and specify `urlkey` accordingly
-#           - `result` is the data read by `urlread`, as bytes or string (depending on the `decode`
-#           argument). If None, either `urlread` did not downloaded succesfully, or the relative
-#           *worker thread* was cancelled
-#           - exc is the exception raised by `urlread`, if any. If None, then the download completed
-#           succesfully ot the relative *worker thread* was cancelled. Note that exc is one of
-#           the following URL-related exceptions:
-#           ```urllib2.HTTPError, urllib2.URLError, httplib.HTTPException, socket.error```
-#           Any other exception is raised and will stop the download
-#           - cancelled: a boolean flag telling if the *worker thread* executing the download
-#           has been cancelled. This happens only if `cancel=True` and the user returned a custom
-#           function from a previous call to `ondone`, as explained below
-# 
-#         Returning a value from ondone
-#         -----------------------------
-#         `ondone` might raise any kind of exception. In this case, as well as when `urlread`
-#         raises a non-url exception, or the user hits a CTRL-C key (if this function is run from
-#         terminal), this function will return as fast as possible (no further call to `ondone` or
-#         `oncanc` will be made) by means of an internal flag, and the exception will be raised.
-#         If the user wants to cancel only a part of all
-#         remaining worker threads, while still being notified where they are cancelled (thus,
-#         keeping this function alive, then `cancel` should be set as True and `oncanc` should
-#         return a function L of one argument that will be called with all not-yet
-#         processed remaining objects of `iterable`. For any object such that `L(obj) =True`,
-#         then the relative *worker thread* will be cancelled and `oncanc(obj)` will be
-#         called. Note that returning `lambda obj: True` cancels *all* remaining downloads but,
-#         contrary to an exception raised, `ondone(obj, None, None, True)` will be called for all
-#         remaining objects
-# 
-#         :param cancel: a boolean (default False) telling if the returned value of `ondone`
-#         should be checked to cancel remaining downloads
-#         :param urlkey: a function of one argument or None (the default) that is used to extract
-#         an url (string) from each `iterable` element. When None, it returns the argument,
-#         i.e. assumes that `iterable` is an iterable of valid url addresses.
-#         :param max_workers: integer or None (the default) denoting the max workers of the
-#         `ThreadPoolExecutor`. When None, the htread allocated are relative to the machine cpu
-#         :param blocksize: integer defaulting to 1024*1024 specifying, when connecting to one of
-#         the given urls, how many bytes have to be read at each call of `urlopen.read` function
-#         (less if the `urlopen.read` hits EOF before obtaining size bytes). If the size argument is
-#         negative or omitted, read all data until EOF is reached
-#         :param decode: string or None (default: None) optional argument specifying if the content
-#         of the url must be decoded. None means: return the byte string as it was read. Otherwise,
-#         use this argument for string content (not bytes) by supplying a decoding, such as
-#         e.g. 'utf8'
-#         :param kwargs: optional keyword arguments passed to `urllib2.urlopen` function.
-#         NOT TESTED. However, you can provide e.g. `timeout=60`.
-#         See https://docs.python.org/2/library/urllib2.html#urllib2.urlopen
-# 
-#         Note that this function handles any kind of exception by canceling all worker
-#         threads before raising. Without this feature, any exception
-#         (e.g., `KeyboardInterrupt`, or any exception not caught, i.e. non url-related exceptions)
-#         would be raised after a potentially huge amount of time, as all worker threads must be
-#         finished before this function returns. By setting an internal flag, when an exception
-#         should be raised all remaining worker threads quit as soon as possible, making the
-#         function return much more quickly before raising the relative exception
-# 
-#         :Example:
-# 
-#         ```
-#         iterable = [{'url': 'blabla', ...}, ...]  # list of objects strings
-# 
-#         data = []
-#         urlerrors = []
-# 
-#         def ondone(obj, res, exc, cancelled):
-#             # this executed on the main thread, so it is safe append to datas and errors
-#             # (however, due to the GIL only one python thread at a time is allowed to be run)
-#             if exc is not None:
-#                 # url-like exceptions
-#                 urlerrors.append(exc)
-#             elif res is not None:
-#                 data.append(res)
-#             else:
-#                 # unexpected exception: stops all remaining threads and raise
-#                 raise exc
-# 
-#         # read all urls. This will raise an unexpected exception, if any
-#         urls_read_async(urls, ondone, urlkey=lambda obj: obj['url'], timeout=60)
-# 
-#         # now you can manipulate datas and errors. This line is executed once **all** urls have been
-#         # visited (if the Ctrl+C keyboard has been pressed on the terminal, a flag terminates
-#         # quickly all remaining threads)
-# 
-#         # Now we want to stop at the first url error, but we want to execute ondone for all
-#         # objects (like e.g., displaying progress)
-#         def ondone(obj, exc, res, cancelled):
-#             if cancelled:
-#                 # execute yoir code here, or return
-#             elif exc is not None:
-#                 # url-like exceptions
-#                 urlerrors.append(exc)
-#                 # cancel all remaining threads
-#                 return lambda obj: True
-#             else:
-#                 # data surely not None
-#                 data.append(res)
-# 
-#         # read all urls
-#         urls_read_async(urls, ondone, cancel=True, urlkey=lambda obj: obj['url'])
-#         ```
-#     """
-#     # working futures which cannot be cancelled set their url here so that maybe
-#     # the urlread returns faster
-#     cancelled_urls = set()
-#     # flag for CTRL-C
-#     kill = False
-# 
-#     # function called from within urlread to check if go on or not
-#     def urlwrapper(*a, **kw):
-#         if kill:
-#             return None
-#         return urlread(*a, **kw)
-# 
-#     # set for futures that should be cancelled but they couldnt in order to know how to
-#     # process them when finished (they might NOT raise CancelledError)
-#     cancelled_futures = set()
-# 
-#     # we experienced some problems if max_workers is None. The doc states that it is the number
-#     # of processors on the machine, multiplied by 5, assuming that ThreadPoolExecutor is often
-#     # used to overlap I/O instead of CPU work and the number of workers should be higher than the
-#     # number of workers for ProcessPoolExecutor. But the source code seems not to set this value
-#     # at all!! (at least in python2, probably in pyhton 3 is fine). So let's do it manually:
-#     if max_workers is None:
-#         max_workers = 5 * multiprocessing.cpu_count()
-# 
-#     # We can use a with statement to ensure threads are cleaned up promptly
-#     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-#         try:
-#             # Start the load operations and mark each future with its iterable item and URL
-#             future_to_obj = {}
-#             for obj in iterable:
-#                 url = urlkey(obj)
-#                 future_to_obj[executor.submit(urlwrapper, url, blocksize, decode, True,
-#                                               **kwargs)] = (obj, url)
-#             for future in concurrent.futures.as_completed(future_to_obj):
-#                 # this is executed in the main thread (thus is thread safe):
-#                 if kill:  # pylint:disable=protected-access
-#                     continue
-#                 ret = None
-#                 obj, url = future_to_obj.pop(future)
-#                 if future in cancelled_futures:
-#                     ondone(obj, None, None, True)
-#                     continue
-#                 try:
-#                     data = future.result()
-#                 except concurrent.futures.CancelledError:
-#                     ondone(obj, None, None, True)
-#                 except URLException as urlexc:
-#                     ret = ondone(obj, None, urlexc.exc, False)
-#                 else:
-#                     ret = ondone(obj, data, None, False)
-# 
-#                 if hasattr(ret, "__call__"):
-#                     for future in future_to_obj:
-#                         if future not in cancelled_futures and ret(future_to_obj[future][0]):
-#                             future.cancel()
-#                             if not future.cancelled():
-#                                 # this might be let url return faster if stuck in a loop:
-#                                 cancelled_urls.add(future_to_obj[future][1])
-#                                 cancelled_futures.add(future)  # will be handled later
-# 
-#         except:
-#             # According to this post:
-#             # http://stackoverflow.com/questions/29177490/how-do-you-kill-futures-once-they-have-started,
-#             # after a KeyboardInterrupt this method does not return until all
-#             # working threads have finished. Thus, we implement the urlreader._kill flag
-#             # which makes them exit immediately, and hopefully this function will return within
-#             # seconds at most. We catch  a bare except cause we want the same to apply to all
-#             # other exceptions which we might raise (see few line above)
-#             kill = True  # pylint:disable=protected-access
-#             # the time here before executing 'raise' below is the time taken to finish all threads.
-#             # Without the line above, it might be a lot (minutes, hours), now it is much shorter
-#             # (in the order of few seconds max) and the command below can be executed quickly:
-#             raise
 
 
 def _ismainthread():

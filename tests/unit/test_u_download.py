@@ -1210,7 +1210,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
-                                                       100, 'a', 'b', -1, self.db_buf_size
+                                                       100, None, None, -1, self.db_buf_size
                                                )
          
         # we should have called mock_urlopen_in_async times the datacenters
@@ -1232,7 +1232,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
                                                        datacenters_df,
                                                        None,
                                                        channels,
-                                                       100, 'a', 'b', -1, self.db_buf_size
+                                                       100, None, None, -1, self.db_buf_size
                                                )
 
         assert len(cha_df2) == len(cha_df)
@@ -1251,7 +1251,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
                                                            datacenters_df,
                                                            ['x', None],
                                                            channels,
-                                                           100, 'a', 'b', -1, self.db_buf_size
+                                                           100, None, None, -1, self.db_buf_size
                                                    )
         assert 'discarding response data' in self.log_msg()
 
@@ -1261,7 +1261,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
                                                            datacenters_df,
                                                            [None, 'x'],
                                                            channels,
-                                                           100, 'a', 'b', -1, self.db_buf_size
+                                                           100, None, None, -1, self.db_buf_size
                                                    )
         assert 'urlerror_wat' in self.log_msg()
 
@@ -1271,7 +1271,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
                                                            datacenters_df,
                                                            [None, 'x'],
                                                            channels,
-                                                           100, 'a', 'b', -1, self.db_buf_size
+                                                           100, None, None, -1, self.db_buf_size
                                                    )
         assert 'timeout' in self.log_msg()
         
@@ -1282,7 +1282,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
                                                            datacenters_df,
                                                            [None, 'x'],
                                                            channels,
-                                                           100, 'a', 'b', -1, self.db_buf_size
+                                                           100, None, None, -1, self.db_buf_size
                                                    )
         
         assert len(cha_df2) == 6
@@ -1293,7 +1293,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
-                                                       10, 'a', 'b', -1, self.db_buf_size
+                                                       10, None, None, -1, self.db_buf_size
                                                )
         assert len(cha_df3) == len(cha_df)
         
@@ -1310,7 +1310,7 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
-                                                       100, 'a', 'b', -1, self.db_buf_size
+                                                       100, None, None, -1, self.db_buf_size
                                                )
 
         assert len(cha_df) == 1
@@ -1321,7 +1321,7 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
-                                                       10, 'a', 'b', -1, self.db_buf_size
+                                                       10, None, None, -1, self.db_buf_size
                                                )
 
         assert len(cha_df) == 2
@@ -1332,7 +1332,7 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
                                                        datacenters_df,
                                                        postdata,
                                                        ['B??'],
-                                                       10, 'a', 'b', -1, self.db_buf_size
+                                                       10, None, None, -1, self.db_buf_size
                                                )
 
         assert len(cha_df) == 2
@@ -1345,7 +1345,7 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
                                                                datacenters_df,
                                                                None,
                                                                ['B??'],
-                                                               10, 'a', 'b', -1, self.db_buf_size
+                                                               10, None, None, -1, self.db_buf_size
                                                        )
         assert "Getting already-saved stations and channels from db" in self.log_msg()
         
@@ -1355,7 +1355,7 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
                                                                datacenters_df,
                                                                postdata,
                                                                ['B??'],
-                                                               1000000000, 'a', 'b', -1, self.db_buf_size
+                                                               1000000000, None, None, -1, self.db_buf_size
                                                        )
 
         # assert cha_df.empty
@@ -1367,7 +1367,7 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
                                                                datacenters_df,
                                                                postdata,
                                                                ['B??'],
-                                                               10, 'a', 'b', -1, self.db_buf_size
+                                                               10, None, None, -1, self.db_buf_size
                                                        )
 
         
@@ -1411,7 +1411,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
-                                                       10, 'a', 'b', -1, self.db_buf_size
+                                                       10, None, None, -1, self.db_buf_size
                                                )
         
         assert len(channels_df) == 5
@@ -1496,7 +1496,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
-                                                       100, 'a', 'b', -1, self.db_buf_size
+                                                       100, None, None, -1, self.db_buf_size
                                                )
         assert len(channels_df) == 12  # just to be sure. If failing, we might have changed the class default
     # events_df
@@ -1657,7 +1657,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
-                                                       100, 'a', 'b', -1, self.db_buf_size
+                                                       100, None, None, -1, self.db_buf_size
                                                )
         assert len(channels_df) == 12  # just to be sure. If failing, we might have changed the class default
     # events_df
@@ -1823,7 +1823,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                                        datacenters_df,
                                                        postdata,
                                                        channels,
-                                                       10, 'a', 'b', -1, self.db_buf_size
+                                                       10, None, None, -1, self.db_buf_size
                                                )
         assert len(channels_df) == 12  # just to be sure. If failing, we might have changed the class default
     # events_df

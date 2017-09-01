@@ -76,6 +76,8 @@ service: 'eida'
 
 # stations will be downloaded with level='channel'. Set here which channels to download. For info see e.g.:
 # https://ds.iris.edu/ds/nodes/dmc/tools/data_channels/#???
+# We experienced some cases where non-matchin channels (e.g. EHZ) are returned regardless the settings
+# this problem is datacenter dependent and out of control
 channels:
  - "HH?"
  # - 'SH?'

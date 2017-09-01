@@ -1013,6 +1013,13 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
     # first try to download per-datacenter and time bounds. On 413, load each
     # segment separately (thus use SEG_DCID_NAME, SEG_STIME_NAME, SEG_ETIME_NAME, SEG_CHAID_NAME
     # (and SEG_EVTID_NAME for safety?)
+
+    # we should group by (net, sta, loc, stime, etime), meaning that two rows with those values
+    # equal will be given in the same sub-dataframe, and if 413 is found, take 413s erros creating a
+    # new dataframe, and then group segment by segment, i.e.
+    # (net, sta, loc, cha, stime, etime).
+    # Unfortunately, for perf reasons we do not have
+    # the first 4 columns, but we do have channel_id which basically comprises (net, sta, loc, cha)
     groupsby = [
                 [SEG_DCID_NAME, SEG_STIME_NAME, SEG_ETIME_NAME],
                 [SEG_DCID_NAME, SEG_STIME_NAME, SEG_ETIME_NAME, SEG_CHAID_NAME],
@@ -1021,8 +1028,10 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
     # we assume it's the terminal, thus allocate the current process to track
     # memory overflows
     with get_progressbar(show_progress, length=len(segments_df)) as bar:
+
         skipped_dataframes = []  # store dataframes with a 413 error and retry later
         for group_ in groupsby:
+
             if segments_df.empty:  # for safety (if this is the second loop or greater)
                 break
             islast = group_ == groupsby[-1]
@@ -1059,63 +1068,62 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                 df[SEG_RUNID_NAME] = run_id
                 if exc:
                     code = URLERR_CODE
+                elif code >= 400:
+                    exc = "%d: %s" % (code, msg)
+                elif not data:
+                    # if we have empty data set only specific columns:
+                    # (avoid mseed_id as is useless string data on the db, and we can retrieve it
+                    # via station and channel joins in case)
+                    df.loc[:, SEG_DATA_NAME] = b''
+                    df.loc[:, SEG_DSC_NAME] = code
                 else:
-                    if code >= 400:
-                        exc = "%d: %s" % (code, msg)
-                    else:
-                        # init with empty data. We got no errors so
-                        # if we have empty data skip below, and we already have all values set
-                        if not data:
-                            df.loc[:, SEG_DATA_NAME] = b''
-                            df.loc[:, SEG_DSC_NAME] = code
-                        else:
-                            try:
-                                resdict = mseedunpack(data)
-                                oks = 0
-                                # iterate over df rows and assign the relative data
-                                # Note that we could use iloc which is SLIGHTLY faster than
-                                # loc for setting the data, but this would mean using column
-                                # indexes and we have column labels. A conversion is possible but
-                                # would make the code  hard to understand (even more ;))
-                                for idxval, chaid in izip(df.index.values, df[SEG_CHAID_NAME]):
-                                    mseedid = chaid2mseedid_dict.get(chaid, None)
-                                    if mseedid is None:
-                                        continue
-                                    # get result:
-                                    res = resdict.get(mseedid, None)
-                                    if res is None:
-                                        continue
-                                    data, s_rate, max_gap_ratio, err = res
-                                    if err is not None:
-                                        # set only the code field.
-                                        # Use set_value as it's faster for single elements
-                                        df.set_value(idxval, SEG_DSC_NAME, MSEEDERR_CODE)
-                                        stats[url][err] += 1
-                                    else:
-                                        # This raises a UnicodeDecodeError:
-                                        # df.loc[idxval, SEG_COLNAMES] = (data, s_rate,
-                                        #                                 max_gap_ratio,
-                                        #                                 mseedid, code)
-                                        # The problem (bug?) is in pandas.core.indexing.py
-                                        # on line 517: np.array((data, s_rate, max_gap_ratio,
-                                        #                                  mseedid, code))
-                                        # (numpy coerces to unicode if one of the values is unicode,
-                                        #  and thus fails for the `data` field?)
-                                        # Anyway, we set first an empty string (which can be
-                                        # decoded) and then use set_value only for the `data` field
-                                        # set_value should be relatively fast
-                                        df.loc[idxval, SEG_COLNAMES] = (b'', s_rate, max_gap_ratio,
-                                                                        mseedid, code)
-                                        df.set_value(idxval, SEG_DATA_NAME, data)
-                                        oks += 1
-                                stats[url]["%d: %s" % (code, msg)] += oks
+                    try:
+                        resdict = mseedunpack(data)
+                        oks = 0
+                        # iterate over df rows and assign the relative data
+                        # Note that we could use iloc which is SLIGHTLY faster than
+                        # loc for setting the data, but this would mean using column
+                        # indexes and we have column labels. A conversion is possible but
+                        # would make the code  hard to understand (even more ;))
+                        for idxval, chaid in izip(df.index.values, df[SEG_CHAID_NAME]):
+                            mseedid = chaid2mseedid_dict.get(chaid, None)
+                            if mseedid is None:
+                                continue
+                            # get result:
+                            res = resdict.get(mseedid, None)
+                            if res is None:
+                                continue
+                            data, s_rate, max_gap_ratio, err = res
+                            if err is not None:
+                                # set only the code field.
+                                # Use set_value as it's faster for single elements
+                                df.set_value(idxval, SEG_DSC_NAME, MSEEDERR_CODE)
+                                stats[url][err] += 1
+                            else:
+                                # This raises a UnicodeDecodeError:
+                                # df.loc[idxval, SEG_COLNAMES] = (data, s_rate,
+                                #                                 max_gap_ratio,
+                                #                                 mseedid, code)
+                                # The problem (bug?) is in pandas.core.indexing.py
+                                # on line 517: np.array((data, s_rate, max_gap_ratio,
+                                #                                  mseedid, code))
+                                # (numpy coerces to unicode if one of the values is unicode,
+                                #  and thus fails for the `data` field?)
+                                # Anyway, we set first an empty string (which can be
+                                # decoded) and then use set_value only for the `data` field
+                                # set_value should be relatively fast
+                                df.loc[idxval, SEG_COLNAMES] = (b'', s_rate, max_gap_ratio,
+                                                                mseedid, code)
+                                df.set_value(idxval, SEG_DATA_NAME, data)
+                                oks += 1
+                        stats[url]["%d: %s" % (code, msg)] += oks
 
-                            except MSeedError as mseedexc:
-                                code = MSEEDERR_CODE
-                                exc = mseedexc
-                            except Exception as unknown_exc:
-                                code = None
-                                exc = unknown_exc
+                    except MSeedError as mseedexc:
+                        code = MSEEDERR_CODE
+                        exc = mseedexc
+                    except Exception as unknown_exc:
+                        code = None
+                        exc = unknown_exc
 
                 if exc is not None:
                     df.loc[:, SEG_DSC_NAME] = code
@@ -1212,10 +1220,7 @@ class DbManager(object):
         self.update_cols = update_cols
         self.table = id_col.class_
         self.cols_to_print_on_err = cols_to_print_on_err
-#         self.SEG_ID_COL = Segment.id
-#         self.SEG_ID_NAME = self.SEG_ID_COL.key
-#         self.UPD_COLS = [Segment.run_id, Segment.data, Segment.max_gap_ratio, Segment.sample_rate,
-#                          Segment.download_status_code]
+
 
     def add(self, df):
         bufsize = self.bufsize
@@ -1388,6 +1393,8 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
     except QuitDownload as dexc:
         return dexc.log()
 
+    gc.collect()  # help memory management before high demanding task
+
     logger.info("")
     logger.info(("STEP %s: Checking already downloaded segments"), next(stepiter))
     exit_code = 0
@@ -1411,9 +1418,7 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
                                          advanced_settings['download_blocksize'],
                                          dbbufsize,
                                          isterminal)
-        # help gc by deleting the (only) refs to unused dataframes
-        del segments_df
-        gc.collect()  # this should free some memory (maybe...)
+        del segments_df  # help gc?
         logger.info("")
         print_stats(d_stats, datacenters_df)
 
@@ -1428,8 +1433,7 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
             return exit_code
 
     if inventory:
-        gc.collect()  # this should free some memory usage. Do it before segments downloading
-        # so maybe we have better performances
+        gc.collect()  # help memory management before high demanding task
 
         # query station id, network station, datacenter_url
         # for those stations with empty inventory_xml

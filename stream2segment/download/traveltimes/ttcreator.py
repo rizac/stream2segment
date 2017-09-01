@@ -6,7 +6,7 @@ Created on Aug 23, 2017
 from multiprocessing import Pool
 import time
 from datetime import timedelta
-from itertools import izip
+from itertools import izip, count
 
 import numpy as np
 from click.termui import progressbar
@@ -16,12 +16,12 @@ from obspy.taup.tau_model import TauModel
 from stream2segment.download.utils import get_min_travel_time
 
 # global vars
-SD_MAX = 700  # in km
-RD_MAX = 1.2  # in km
+SD_MAX = 700  # in km (inclusive)
+RD_MAX = 0  # in km (inclusive)
 DIST_MAX = 180  # in degrees
-MAX_TIME_ERR_TOL = 0.5  # in seconds
+MAX_TIME_ERR_TOL = 1  # in seconds. CANNOT BE LOWER THAN 0.001 (1 msec)
 # determine the distances step (in degrees). We need to set two variables first:
-PWAVEVELOCITY = 5  # in km/sec
+PWAVEVELOCITY = 5.0  # in km/sec  PLEASE SPECIFY A FLOAT!!
 DEG2KM = 110
 # then calculate the distance step, in degrees, rounded to the third decimal place (min=0.001 deg)
 # this gives the maximum granularity of travel times every 110 meters (not below). Increase to 4
@@ -32,13 +32,26 @@ DIST_STEP = round((PWAVEVELOCITY * MAX_TIME_ERR_TOL) / DEG2KM, 3)
 
 # array retrieved from global vars above:  DO NOT CHANGE VARIABLES BELOW UNLESS
 # STUDY ON DISTRIBUTIONS OF SOURCE DEPTHS, RECEIVER DEPTHS OR DISTANCES SUGGESTS TO CHANGE THEM
-_SOURCE_DEPTHS = np.concatenate((np.arange(0, 700, 1), [SD_MAX]))
-_RECEIVER_DEPTHS = np.concatenate((np.arange(0, 0.006, 0.001), np.arange(.01, .1, .01),
+_SOURCE_DEPTHS = np.concatenate((np.arange(0, SD_MAX, 1), [SD_MAX]))
+_RECEIVER_DEPTHS = np.concatenate((np.arange(0, min(RD_MAX, 0.006), 0.001),
+                                   np.arange(.01, min(RD_MAX, .1), .01),
                                    np.arange(.1, RD_MAX, .1), [RD_MAX]))
-_DISTANCES = np.concatenate((np.arange(0, DIST_MAX, DIST_STEP), [DIST_MAX]))
+_DISTANCES = np.linspace(0, DIST_MAX, num=int(np.ceil(float(DIST_MAX)/DIST_STEP)), endpoint=True)
+
 # the indices used for comparison (calculate only a portion of distances for speed reasons):
 _CMP_DIST_INDICES = np.array([0, 1,
                               int(len(_DISTANCES)/4), int(len(_DISTANCES)/2), len(_DISTANCES)-1])
+
+
+def timemaxdecimaldigits():
+    numdigits = 0
+    _ = MAX_TIME_ERR_TOL
+    while int(_) != _:
+        _ *= 10
+        numdigits += 1
+        if numdigits > 3:
+            raise ValueError("MAX_TIME_ERR_TOL cannot be lower than 0.001 (one millisecond)")
+    return numdigits
 
 
 def min_traveltimes(modelname, source_depth_km, receiver_depth_km, distances_in_deg,
@@ -142,32 +155,35 @@ def itercreator(model,
         ttimes = np.full((len(args), len(cmp_distances_in_degree)), np.nan)
 
         # calculate first and last: if both are the same as the last computed, go on
-        pool = Pool()
-        for idx in [0, len(args)-1]:
-            sd, rd = args[idx]
-            tmp_ttimes = ttimes[idx]
-            for i, d in enumerate(cmp_distances_in_degree):
-                pool.apply_async(min_traveltime, (model, sd, rd, d),
-                                 callback=mp_callback(i, tmp_ttimes))
-        pool.close()
-        pool.join()
+        if len(args) > 1:
+            pool = Pool()
+            for idx in [0, len(args)-1]:
+                sd, rd = args[idx]
+                tmp_ttimes = ttimes[idx]
+                for i, d in enumerate(cmp_distances_in_degree):
+                    pool.apply_async(min_traveltime, (model, sd, rd, d),
+                                     callback=mp_callback(i, tmp_ttimes))
+            pool.close()
+            pool.join()
 
-        if last_saved_traveltimes is not None and \
-                ttequal(last_saved_traveltimes, ttimes[0], max_err) and \
-                ttequal(last_saved_traveltimes, ttimes[-1], max_err):
-            count += len_rds
-            continue
+            if last_saved_traveltimes is not None and \
+                    ttequal(last_saved_traveltimes, ttimes[0], max_err) and \
+                    ttequal(last_saved_traveltimes, ttimes[-1], max_err):
+                count += len_rds
+                continue
 
         # need to calculate all receiver depths:
-        pool = Pool()
-        for idx in xrange(1, len(args)-1):
-            sd, rd = args[idx]
-            tmp_ttimes = ttimes[idx]
-            for i, d in enumerate(cmp_distances_in_degree):
-                pool.apply_async(min_traveltime, (model, sd, rd, d),
-                                 callback=mp_callback(i, tmp_ttimes))
-        pool.close()
-        pool.join()
+        if len(args) != 2:
+            pool = Pool()
+            range2calculate = xrange(len(args)) if len(args) == 1 else xrange(1, len(args)-1)
+            for idx in range2calculate:  # xrange(1, len(args)-1):
+                sd, rd = args[idx]
+                tmp_ttimes = ttimes[idx]
+                for i, d in enumerate(cmp_distances_in_degree):
+                    pool.apply_async(min_traveltime, (model, sd, rd, d),
+                                     callback=mp_callback(i, tmp_ttimes))
+            pool.close()
+            pool.join()
 
         for (sd, rd), current_traveltimes in izip(args, ttimes):
             count += 1
@@ -188,8 +204,8 @@ def get_sdrd_steps(model, maxerr=MAX_TIME_ERR_TOL, isterminal=False):
         print("- The algorithm basically iterates over each source depth and receiver depths pair")
         print("  and saves the associated travel times array (t)")
         print("  when it exceeds %f seconds with the previous computed t" % maxerr)
-        print("- tc below refers to a chunk of each saved t showing the values at distances:")
-        print("  %s" % (_DISTANCES[_CMP_DIST_INDICES].tolist()))
+        print("- tc below refers to a chunk of each saved t showing the values at distances (deg):")
+        print("  %s" % (np.around(_DISTANCES[_CMP_DIST_INDICES], decimals=3).tolist()))
 
         # typical header should be (roughly):
         # "src_depth  rec_depth                     travel times (max err with previous)   done              eta"
@@ -209,7 +225,7 @@ def get_sdrd_steps(model, maxerr=MAX_TIME_ERR_TOL, isterminal=False):
         if isterminal:
             percentdone = int(0.5 + (100.0 * count) / total)
             eta = int(0.5 + (total-count) * (float(time.time() - start) / count))
-            tt_list = np.around(tts, decimals=1).tolist()  # round to 0.1 sec
+            tt_list = np.around(tts, decimals=timemaxdecimaldigits()+1).tolist()  # round to 0.1 sec
             print(frmt % (idx, sd, rd, '%s (%8.3f)' % (tt_list, maxerr), percentdone,
                           str(timedelta(seconds=eta))))
             idx += 1
@@ -253,16 +269,34 @@ def computetts(model, sdrd_array, tts_matrix, isterminal=False):
         def __exit__(self, *a, **kw):
             pass
 
+#     pool = Pool()
+#     with Dummypbar() if not isterminal else progressbar(length=totalpts2compute) as bar:
+#         for sdrd, tts in izip(sdrd_array, tts_matrix):
+#             sd, rd = sdrd
+#             for i in indices:
+#                 pool.apply_async(min_traveltime, (model, sd, rd, _DISTANCES[i]),
+#                                  callback=mp_callback(i, tts, bar if isterminal else None))
+# 
+#         pool.close()
+#         pool.join()
+
+    # try with imap unordered
+    def itrb(model, sdrd_array, indices):
+        for i, sdrd in izip(count(), sdrd_array):
+            sd, rd = sdrd
+            for j in indices:
+                yield (i, j, model, sd, rd, _DISTANCES[i])
+
     pool = Pool()
     with Dummypbar() if not isterminal else progressbar(length=totalpts2compute) as bar:
-        for sdrd, tts in izip(sdrd_array, tts_matrix):
-            sd, rd = sdrd
-            for i in indices:
-                pool.apply_async(min_traveltime, (model, sd, rd, _DISTANCES[i]),
-                                 callback=mp_callback(i, tts, bar if isterminal else None))
+        for result in pool.imap_unordered(_mtt, itrb(model, sdrd_array, indices), chunksize=100):
+            i, j, val = result
+            tts_matrix[i][j] = val
+            bar.update(1)
 
-        pool.close()
-        pool.join()
+
+def _mtt(arg):
+    return arg[0], arg[1], min_traveltime(arg[2], arg[3], arg[4], arg[5])
 
 
 def computeall(modelname, fileout, maxerr=MAX_TIME_ERR_TOL, isterminal=False):
@@ -270,6 +304,7 @@ def computeall(modelname, fileout, maxerr=MAX_TIME_ERR_TOL, isterminal=False):
         print("Computing and saving travel times for model '%s'" % modelname)
     model = taumodel(modelname)
     sdrd_array, tt_matrix = get_sdrd_steps(model, isterminal=True)  # 'iasp91' 'ak135'
+    tt_matrix = tt_matrix.astype(np.float32)
     if isterminal:
         print("")
     kwargs = dict(file=fileout, src_depth_bounds=[0, SD_MAX], rc_depth_bounds=[0, RD_MAX],
@@ -278,8 +313,8 @@ def computeall(modelname, fileout, maxerr=MAX_TIME_ERR_TOL, isterminal=False):
     # save now so in case we can interrupt somehow the computation
     np.savez_compressed(**kwargs)
     # FIXME: UNCOMMENT NEXT TWO LINES WHEN DONE!
-    # computetts(model, sdrd_array, tt_matrix, isterminal=True)
-    # np.savez_compressed(**kwargs)
+    computetts(model, sdrd_array, tt_matrix, isterminal=True)
+    np.savez_compressed(**kwargs)
     if isterminal:
         print("")
         print("Done")
@@ -308,20 +343,20 @@ def computeall(modelname, fileout, maxerr=MAX_TIME_ERR_TOL, isterminal=False):
 
 
 if __name__ == '__main__':
-    plottimes('iasp91', 0, 0.01, np.arange(0, 180, 10), ("P", "pP"))
-#     import os
-#     import sys
-#     argv = sys.argv
-#     if len(sys.argv) != 2:
-#         _ = os.path.basename(sys.argv[0])
-#         print("ERROR: run this script with a given model name, e.g:\n%s ak135\n%s iasp91\n..."
-#               % (_, _))
-#         sys.exit(1)
-#     modelname = sys.argv[1]
-#     fileout = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "resources",
-#                                            "traveltimestables", "%s.npz" % modelname))
-#     if not os.path.isdir(os.path.dirname(fileout)):
-#         print("ERROR: not a directory: %s" % os.path.dirname(fileout))
-#     maxerr = MAX_TIME_ERR_TOL
-#     computeall(modelname, fileout, maxerr, isterminal=True)
-#     sys.exit(0)
+    # plottimes('ak135', 0, 0, np.arange(0, 180, 10))  # , ("P", "pP"))
+    import os
+    import sys
+    argv = sys.argv
+    if len(sys.argv) != 2:
+        _ = os.path.basename(sys.argv[0])
+        print("ERROR: run this script with a given model name, e.g:\n%s ak135\n%s iasp91\n..."
+              % (_, _))
+        sys.exit(1)
+    modelname = sys.argv[1]
+    fileout = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "resources",
+                                           "traveltimestables", "%s.npz" % modelname))
+    if not os.path.isdir(os.path.dirname(fileout)):
+        print("ERROR: not a directory: %s" % os.path.dirname(fileout))
+    maxerr = MAX_TIME_ERR_TOL
+    computeall(modelname, fileout, maxerr, isterminal=True)
+    sys.exit(0)
