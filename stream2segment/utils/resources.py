@@ -40,6 +40,12 @@ def get_templates_dirpath():
     return get_resources_fpath("templates")
 
 
+def get_traveltimestables_dirpath():
+    """Returns the travel time table directory path (located inside the package `resource` folder)
+    """
+    return get_resources_fpath("traveltimestables")
+
+
 def get_templates_fpaths(*filenames):
     """Returns the template file paths with given filename(s) inside the package `templates` of the
     `resource` folder. If filenames is empty (no arguments), returns all files (no dir) in the
@@ -162,3 +168,9 @@ def yaml_load_doc(filepath, varname=None):
                 # in any case, if not comment, reset comments:
                 comments = []
     return ret
+
+
+def getttable_fpath(model):
+    if not isfile(model):
+        model = join(get_traveltimestables_dirpath(), model)
+    return model

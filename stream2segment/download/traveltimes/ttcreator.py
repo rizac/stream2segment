@@ -3,49 +3,34 @@ Created on Aug 23, 2017
 
 @author: riccardo
 '''
+import os
 from multiprocessing import Pool
 import time
 from datetime import timedelta
-from itertools import izip, count
+from itertools import izip, count, product
 
 import numpy as np
 from click.termui import progressbar
 from obspy.taup.helper_classes import SlownessModelError
 from obspy.taup.tau_model import TauModel
+import click
+from click.exceptions import BadParameter
+from click import IntRange
 
 from stream2segment.download.utils import get_min_travel_time
+import sys
 
 # global vars
-SD_MAX = 700  # in km (inclusive)
-RD_MAX = 0  # in km (inclusive)
-DIST_MAX = 180  # in degrees
-MAX_TIME_ERR_TOL = 1  # in seconds. CANNOT BE LOWER THAN 0.001 (1 msec)
-# determine the distances step (in degrees). We need to set two variables first:
-PWAVEVELOCITY = 5.0  # in km/sec  PLEASE SPECIFY A FLOAT!!
-DEG2KM = 110
-# then calculate the distance step, in degrees, rounded to the third decimal place (min=0.001 deg)
-# this gives the maximum granularity of travel times every 110 meters (not below). Increase to 4
-# if you want to go down to 11 meters, and so on
-# space = (DIST_STEP * DEG2KM) / time = MAX_TIME_ERR_TOL = velocity = PWAVEVELOCITY
-DIST_STEP = round((PWAVEVELOCITY * MAX_TIME_ERR_TOL) / DEG2KM, 3)
+DEFAULT_SD_MAX = 700.0  # in km
+DEFAULT_RD_MAX = 0.0  # in km
+DEFAULT_DIST_MAX = 180.0  # in degrees
+DEFAULT_PWAVEVELOCITY = 5.0  # in km/sec  PLEASE SPECIFY A FLOAT!!
+DEFAULT_DEG2KM = 111
 
 
-# array retrieved from global vars above:  DO NOT CHANGE VARIABLES BELOW UNLESS
-# STUDY ON DISTRIBUTIONS OF SOURCE DEPTHS, RECEIVER DEPTHS OR DISTANCES SUGGESTS TO CHANGE THEM
-_SOURCE_DEPTHS = np.concatenate((np.arange(0, SD_MAX, 1), [SD_MAX]))
-_RECEIVER_DEPTHS = np.concatenate((np.arange(0, min(RD_MAX, 0.006), 0.001),
-                                   np.arange(.01, min(RD_MAX, .1), .01),
-                                   np.arange(.1, RD_MAX, .1), [RD_MAX]))
-_DISTANCES = np.linspace(0, DIST_MAX, num=int(np.ceil(float(DIST_MAX)/DIST_STEP)), endpoint=True)
-
-# the indices used for comparison (calculate only a portion of distances for speed reasons):
-_CMP_DIST_INDICES = np.array([0, 1,
-                              int(len(_DISTANCES)/4), int(len(_DISTANCES)/2), len(_DISTANCES)-1])
-
-
-def timemaxdecimaldigits():
+def timemaxdecimaldigits(time_err_tolerance):
     numdigits = 0
-    _ = MAX_TIME_ERR_TOL
+    _ = time_err_tolerance
     while int(_) != _:
         _ *= 10
         numdigits += 1
@@ -58,32 +43,30 @@ def min_traveltimes(modelname, source_depth_km, receiver_depth_km, distances_in_
                     traveltime_phases=("ttp+",)):
     model = taumodel(modelname)
     tts = []
-    ds = []
     for d in distances_in_deg:
-        ds.append(d)
         tts.append(min_traveltime(model, source_depth_km, receiver_depth_km, d,
                                   traveltime_phases))
-    return ds, tts
+    return tts
 
 
-def printtimes(modelname, source_depth_km, receiver_depth_km, all=False):
-    ds, tts = min_traveltimes(modelname, source_depth_km, receiver_depth_km,
-                              _DISTANCES if all else [_CMP_DIST_INDICES])
-    print("distances: %s" % str(np.around(ds, decimals=3).tolist()))
+def printtimes(modelname, source_depth_km, receiver_depth_km, distances_start=0,
+               distances_end=180, distances_step=1):
+    distances = np.linspace(distances_start, distances_step,
+                            1+int(distances_end-distances_start), endpoint=True)
+    tts = min_traveltimes(modelname, source_depth_km, receiver_depth_km, distances)
+    print("distances: %s" % str(np.around(distances, decimals=3).tolist()))
     print("   ttimes: %s" % str(np.around(tts, decimals=3).tolist()))
 
 
-def plottimes(modelname, source_depth_km, receiver_depth_km, distances_in_deg,
-              traveltime_phases=("ttp+",)):
+def plottimes(modelname, source_depth_km, receiver_depth_km, distances_in_deg, phases):
     import matplotlib
     bckend = matplotlib.get_backend()
     matplotlib.use('TkAgg')
     import matplotlib.pyplot as plt
-    ds, tts = min_traveltimes(modelname, source_depth_km, receiver_depth_km, distances_in_deg,
-                              traveltime_phases)
+    tts = min_traveltimes(modelname, source_depth_km, receiver_depth_km, distances_in_deg, phases)
     plt.figure(figsize=(10, 10))
     ax = plt.subplot(111)
-    ax.plot(ds, tts)
+    ax.plot(distances_in_deg, tts)
     plt.show(block=True)
     matplotlib.use(bckend)
 
@@ -100,12 +83,6 @@ def min_traveltime(model, source_depth_in_km, receiver_depth_in_km, distance_in_
                                    receiver_depth_in_km=receiver_depth_in_km, model=model)
     except (ValueError, SlownessModelError):
         return np.nan
-
-
-# def _min_traveltime(model, source_depth_in_km, receiver_depth_in_km, distance_in_degree,
-#                     index, array):
-#     array[index] = min_traveltime(model, source_depth_in_km, receiver_depth_in_km,
-#                                   distance_in_degree)
 
 
 def newarray(basearray):
@@ -127,37 +104,77 @@ def taumodel(model):
         return model
 
 
-def itercreator(model,
-                source_depths_in_km=_SOURCE_DEPTHS,
-                receiver_depths_km=_RECEIVER_DEPTHS,
-                max_abs_err_tol_in_sec=MAX_TIME_ERR_TOL):
-    # set an array of distances whereby we compute if two traveltimes are equal.
-    # The more the points, the more accuracy, but the slower the computation
-    distances_in_degree = np.asarray(_DISTANCES)
-    cmp_distances_in_degree = distances_in_degree[_CMP_DIST_INDICES]
-    source_depths_in_km = np.asarray(source_depths_in_km)
-    receiver_depths_km = np.asarray(receiver_depths_km)
+def _cmp_indices(distances):  # returns the indices used for comparison from the given array arg.
+    return np.unique([0, 1, 5, 10, int(len(distances)/4.0), int(len(distances)/2.0),
+                      int(3*len(distances)/4.0), len(distances)-1])
+
+
+def linspace(endvalue, tt_errtol, pwavevelocity=DEFAULT_PWAVEVELOCITY, deg2km=DEFAULT_DEG2KM,
+             unit='deg'):
+    '''
+    :return: a numpy array of linearly spaced values from 0 to `endvalue` (bounds included),
+            calculating the step according to tt_errtol.
+    '''
+    # Calculate the distance step, in degrees, rounded to the third decimal place (min=0.001 deg)
+    # this gives the maximum granularity of travel times every 110 meters (not below). Increase to 4
+    # if you want to go down to 11 meters, and so on
+    # space = (DIST_STEP * DEG2KM) / time = MAX_TIME_ERR_TOL = velocity = PWAVEVELOCITY
+    dist_step = np.around(float(pwavevelocity * tt_errtol), 3)
+    if unit == 'deg':  # convert to degree (approx)
+        dist_step = np.around(np.true_divide(dist_step, deg2km), 3)
+    # calculate the number of points:
+    numpts = int(np.ceil(float(endvalue)/dist_step))
+    return np.linspace(0, endvalue, numpts, endpoint=True)
+
+
+def itercreator(model, tt_errtol, phases, distances, maxsourcedepth=DEFAULT_SD_MAX,
+                maxreceiverdepth=DEFAULT_RD_MAX,
+                pwavevelocity=DEFAULT_PWAVEVELOCITY, deg2km=DEFAULT_DEG2KM):
+
+    sourcedepths = linspace(maxsourcedepth, tt_errtol, pwavevelocity, deg2km, unit='km')
+    receiverdepths = np.array([0]) if maxreceiverdepth == 0 else \
+        linspace(maxreceiverdepth, tt_errtol, pwavevelocity, deg2km, unit='km')
+    # The arrays above might need a finer step, because we iterate over it to check
+    # when to store arrays. Set receiver depth at least 500mt and source depth
+    # 1 km (assuming maxreceiverdepth and maxsourcedepths are ints, otherwise cast to int)
+    # Note the +1 because we want to use numpy linspace with endpoint=True
+    rd_numpts = max(len(receiverdepths), 1 + int(maxreceiverdepth*2))
+    sd_numpts = max(len(sourcedepths), 1 + int(maxsourcedepth))
+    if sd_numpts > len(sourcedepths):
+        sourcedepths = np.linspace(0, maxsourcedepth, sd_numpts, endpoint=True)
+    if rd_numpts > len(receiverdepths):
+        receiverdepths = np.linspace(0, maxreceiverdepth, rd_numpts, endpoint=True)
+
+    # the indices used for comparison (calculate only a portion of distances for speed reasons)
+    # Be more granular for small distances (FIXME: why?)
+    cmp_indices = _cmp_indices(distances)
+    # and relative distances to be used for calculation:
+    cmp_distances_in_degree = distances[cmp_indices]
 
     # as numpy allclose returns true if the error is <= max_abs_err_tol_in_sec, we want a strict
     # inequality, thus:
-    max_err = abs(max_abs_err_tol_in_sec)
+    max_err = abs(tt_errtol)
     max_err -= max_err * 0.00001
 
     model = taumodel(model)
-    leng = len(source_depths_in_km) * len(receiver_depths_km)
+    leng = len(sourcedepths) * len(receiverdepths)
     last_saved_traveltimes = None
-    len_rds = len(receiver_depths_km)
+    len_rds = len(receiverdepths)
 
     count = 0
-    for sd in source_depths_in_km:  # [:int(len(source_depths_in_km)/10)]:
-        args = [(sd, rd) for rd in receiver_depths_km]
+    for sd in sourcedepths:  # [:int(len(source_depths_in_km)/10)]:
+        args = [(sd, rd) for rd in receiverdepths]
 
+        # ttimes is a matrix of [receiver_depts X distances]
         ttimes = np.full((len(args), len(cmp_distances_in_degree)), np.nan)
 
         # calculate first and last: if both are the same as the last computed, go on
-        if len(args) > 1:
+        # don't do it for first and last iteration, as we need to save them anyway
+        indices2precalculate = []
+        if sd != sourcedepths[0] and sd != sourcedepths[-1]:
+            indices2precalculate = [0] if len(args) == 1 else [0, len(args)-1]
             pool = Pool()
-            for idx in [0, len(args)-1]:
+            for idx in indices2precalculate:
                 sd, rd = args[idx]
                 tmp_ttimes = ttimes[idx]
                 for i, d in enumerate(cmp_distances_in_degree):
@@ -166,16 +183,16 @@ def itercreator(model,
             pool.close()
             pool.join()
 
-            if last_saved_traveltimes is not None and \
-                    ttequal(last_saved_traveltimes, ttimes[0], max_err) and \
-                    ttequal(last_saved_traveltimes, ttimes[-1], max_err):
+            if ttequal(last_saved_traveltimes[0], ttimes[0], max_err) and \
+                ttequal(last_saved_traveltimes[-1], ttimes[-1], max_err) and \
+                    ttequal(ttimes[0], ttimes[-1], max_err):
                 count += len_rds
                 continue
 
         # need to calculate all receiver depths:
-        if len(args) != 2:
+        range2calculate = sorted(list(set(xrange(len(args))) - set(indices2precalculate)))
+        if range2calculate:
             pool = Pool()
-            range2calculate = xrange(len(args)) if len(args) == 1 else xrange(1, len(args)-1)
             for idx in range2calculate:  # xrange(1, len(args)-1):
                 sd, rd = args[idx]
                 tmp_ttimes = ttimes[idx]
@@ -185,31 +202,46 @@ def itercreator(model,
             pool.close()
             pool.join()
 
+        # Note that if we are here we have some (sd, rd) point that exceeds the err tolerance
+        # Since we use scipy.griddata, we need to store the start and end point in order
+        # to make a "cubic" grid, in order to avoid nan's for in bounds points
+        # So we always store the first and last point of this loop, i.e. when
+        # rd in (receiver_depths_km[0], receiver_depths_km[-1])
+        traveltimes_mark = None if last_saved_traveltimes is None else last_saved_traveltimes[0]
         for (sd, rd), current_traveltimes in izip(args, ttimes):
             count += 1
-            if last_saved_traveltimes is None or \
-                    not ttequal(last_saved_traveltimes, current_traveltimes, max_err):
-                real_maxerr = 0 if last_saved_traveltimes is None \
-                    else np.nanmax(np.abs(last_saved_traveltimes - current_traveltimes))
+            if rd in (receiverdepths[0], receiverdepths[-1]) \
+                    or not ttequal(traveltimes_mark, current_traveltimes, max_err):
+                real_maxerr = 0 if traveltimes_mark is None \
+                    else np.nanmax(np.abs(traveltimes_mark - current_traveltimes))
                 yield sd, rd, current_traveltimes, real_maxerr, count, leng
-                last_saved_traveltimes = current_traveltimes
+                traveltimes_mark = current_traveltimes
+
+        last_saved_traveltimes = [ttimes[0], ttimes[-1]]
 
 
-def get_sdrd_steps(model, maxerr=MAX_TIME_ERR_TOL, isterminal=False):
+def get_sdrd_steps(model, tt_errtol, phases, maxsourcedepth=DEFAULT_SD_MAX,
+                   maxreceiverdepth=DEFAULT_RD_MAX, maxdistance=DEFAULT_DIST_MAX,
+                   pwavevelocity=DEFAULT_PWAVEVELOCITY, deg2km=DEFAULT_DEG2KM, isterminal=False):
     start = time.time()
     data = []
-    sd_rd = []
+    sds, rds = [], []
+    # calculate distances array:
+    distances = linspace(maxdistance, tt_errtol, pwavevelocity, deg2km, unit='deg')
+    # get the indices used for comparison in our algorithm
+    cmp_indices = _cmp_indices(distances)
     if isterminal:
         print("Calculating source and receiver depth steps")
         print("- The algorithm basically iterates over each source depth and receiver depths pair")
         print("  and saves the associated travel times array (t)")
-        print("  when it exceeds %f seconds with the previous computed t" % maxerr)
+        print("  when it exceeds %f seconds with the previous computed t" % tt_errtol)
         print("- tc below refers to a chunk of each saved t showing the values at distances (deg):")
-        print("  %s" % (np.around(_DISTANCES[_CMP_DIST_INDICES], decimals=3).tolist()))
+        print("  %s" % (np.around(distances[cmp_indices], decimals=3).tolist()))
 
         # typical header should be (roughly):
-        # "src_depth  rec_depth                     travel times (max err with previous)   done              eta"
-        #        0.0        0.0  [0.0, 21.088, 36.402, 50.154, 146.266, 370.264] (0.000)  0.02%  19:15:33.394541
+        # src_depth  rec_depth    travel times (max err with previous)   done              eta
+        #        0.0        0.0  [0.0, 21.088, 36.402, 50.154] (0.000)  0.02%  19:15:33.394541
+        # ...
 
         frmt = "%4s %9s %9s %60s %5s %16s"
         header = frmt % ('#', 'src_depth', 'rec_depth', 'tc (max err with previous tc)', '%done',
@@ -221,30 +253,34 @@ def get_sdrd_steps(model, maxerr=MAX_TIME_ERR_TOL, isterminal=False):
     # pool = Pool()
     # already_calculated_tt_indices = set(_CMP_DIST_INDICES)
     idx = 1
-    for sd, rd, tts, maxerr, count, total in itercreator(model):  # 'iasp91' 'ak135'
+    for sd, rd, tts, maxerr, count, total in itercreator(model, tt_errtol, phases, distances,
+                                                         maxsourcedepth, maxreceiverdepth,
+                                                         pwavevelocity, deg2km):
         if isterminal:
             percentdone = int(0.5 + (100.0 * count) / total)
             eta = int(0.5 + (total-count) * (float(time.time() - start) / count))
-            tt_list = np.around(tts, decimals=timemaxdecimaldigits()+1).tolist()  # round to 0.1 sec
-            print(frmt % (idx, sd, rd, '%s (%8.3f)' % (tt_list, maxerr), percentdone,
+            # round to 0.1 sec:
+            tt_list = np.around(tts, decimals=timemaxdecimaldigits(tt_errtol)+1).tolist()
+            print(frmt % (idx, np.around(sd, 3),
+                          np.around(rd, 3), '%s (%8.3f)' % (tt_list, maxerr), percentdone,
                           str(timedelta(seconds=eta))))
             idx += 1
 
-        sd_rd.append(sd)
-        sd_rd.append(rd)
+        sds.append(sd)
+        rds.append(rd)
 
         # NOW compute all remaining travel times. Use apply async so that we can go on inspecting
         # new source, receiver pairs
-        complete_tts = newarray(_DISTANCES)
+        complete_tts = newarray(distances)
         data.append(complete_tts)
         # add already calculated:
-        complete_tts[_CMP_DIST_INDICES] = tts
+        complete_tts[cmp_indices] = tts
 
-    return np.reshape(sd_rd, newshape=(len(sd_rd)/2, 2)), \
+    return np.array(sds), np.array(rds), distances, \
         np.reshape(data, newshape=(len(data), len(data[0])))
 
 
-def computetts(model, sdrd_array, tts_matrix, isterminal=False):
+def computetts(model, sourcedepths, receiverdepths, distances, tts_matrix, isterminal=False):
     model = taumodel(model)
     numttpts = tts_matrix.shape[1]
     numtts = tts_matrix.shape[0]
@@ -269,51 +305,44 @@ def computetts(model, sdrd_array, tts_matrix, isterminal=False):
         def __exit__(self, *a, **kw):
             pass
 
-#     pool = Pool()
-#     with Dummypbar() if not isterminal else progressbar(length=totalpts2compute) as bar:
-#         for sdrd, tts in izip(sdrd_array, tts_matrix):
-#             sd, rd = sdrd
-#             for i in indices:
-#                 pool.apply_async(min_traveltime, (model, sd, rd, _DISTANCES[i]),
-#                                  callback=mp_callback(i, tts, bar if isterminal else None))
-# 
-#         pool.close()
-#         pool.join()
-
-    # try with imap unordered
-    def itrb(model, sdrd_array, indices):
-        for i, sdrd in izip(count(), sdrd_array):
-            sd, rd = sdrd
-            for j in indices:
-                yield (i, j, model, sd, rd, _DISTANCES[i])
-
     pool = Pool()
     with Dummypbar() if not isterminal else progressbar(length=totalpts2compute) as bar:
-        for result in pool.imap_unordered(_mtt, itrb(model, sdrd_array, indices), chunksize=100):
-            i, j, val = result
-            tts_matrix[i][j] = val
-            bar.update(1)
+        for sd, rd, tts in izip(sourcedepths, receiverdepths, tts_matrix):
+            for i in indices:
+                pool.apply_async(min_traveltime, (model, sd, rd, distances[i]),
+                                 callback=mp_callback(i, tts, bar if isterminal else None))
+        pool.close()
+        pool.join()
 
 
-def _mtt(arg):
-    return arg[0], arg[1], min_traveltime(arg[2], arg[3], arg[4], arg[5])
+def computeall(fileout, model, tt_errtol, phases, maxsourcedepth=DEFAULT_SD_MAX,
+               maxreceiverdepth=DEFAULT_RD_MAX, maxdistance=DEFAULT_DIST_MAX,
+               pwavevelocity=DEFAULT_PWAVEVELOCITY, deg2km=DEFAULT_DEG2KM, isterminal=True):
+    if not os.path.isdir(os.path.dirname(fileout)):
+        raise OSError("File directory does not exist: '%s'" % str(os.path.dirname(fileout)))
 
-
-def computeall(modelname, fileout, maxerr=MAX_TIME_ERR_TOL, isterminal=False):
+    modelname = model
     if isterminal:
         print("Computing and saving travel times for model '%s'" % modelname)
     model = taumodel(modelname)
-    sdrd_array, tt_matrix = get_sdrd_steps(model, isterminal=True)  # 'iasp91' 'ak135'
+    sd, rd, d, tt_matrix = get_sdrd_steps(model, tt_errtol, phases, maxsourcedepth,
+                                          maxreceiverdepth, maxdistance,
+                                          pwavevelocity, deg2km, isterminal)  # 'iasp91' 'ak135'
     tt_matrix = tt_matrix.astype(np.float32)
     if isterminal:
         print("")
-    kwargs = dict(file=fileout, src_depth_bounds=[0, SD_MAX], rc_depth_bounds=[0, RD_MAX],
-                  distances_bounds=[0, DIST_MAX], distances_step=[DIST_STEP], modelname=modelname,
-                  tt_errtol=maxerr, sdrd_array=sdrd_array, tt_matrix=tt_matrix)
+    kwargs = dict(file=fileout, modelname=modelname, sourcedepth_bounds_km=[0, maxsourcedepth],
+                  receiverdepth_bounds_km=[0, maxreceiverdepth],
+                  distances_bounds_deg=[d[0], d[-1]],
+                  distances_step_deg=d[1]-d[0],
+                  tt_errtol=tt_errtol, distances=d,
+                  pwave_velocity=pwavevelocity, deg2km=deg2km,
+                  sourcedepths=sd, receiverdepths=rd, traveltimes=tt_matrix,
+                  phases=phases)
     # save now so in case we can interrupt somehow the computation
     np.savez_compressed(**kwargs)
     # FIXME: UNCOMMENT NEXT TWO LINES WHEN DONE!
-    computetts(model, sdrd_array, tt_matrix, isterminal=True)
+    computetts(model, sd, rd, d, tt_matrix, isterminal=True)
     np.savez_compressed(**kwargs)
     if isterminal:
         print("")
@@ -337,26 +366,77 @@ def computeall(modelname, fileout, maxerr=MAX_TIME_ERR_TOL, isterminal=False):
         print("(horizontal: time difference between two adjacent points on same row)")
         print("(vertical: time difference between two adjacent points on same column)")
         print("Bounds:")
-        print("Source depths [min, max]: [%.3f, %.3f] km" % (0, SD_MAX))
-        print("Receiver depths [min, max]: [%.3f, %.3f] km" % (0, RD_MAX))
-        print("Distances [min : step: max]: [%.3f: %.3f: %.3f] deg" % (0, DIST_STEP, DIST_MAX))
+        print("Source depths [min, max]: [%.3f, %.3f] km" % (0, maxsourcedepth))
+        print("Receiver depths [min, max]: [%.3f, %.3f] km" % (0, maxreceiverdepth))
+        print("Distances [min : step: max]: [%.3f: %.3f: %.3f] deg" % (0, d[1]-d[0], d[-1]))
+        print("")
+        print("Travel times table written to '%s'" % fileout)
 
+
+def _filepath(fileout, model, phases):
+    if os.path.isdir(fileout):
+        fileout = os.path.join(fileout, model + "_" + "_".join(phases))
+    return fileout
+
+
+@click.command(short_help='Creates via obspy routines travel time table, i.e. a grid of points '
+               'in a 3-D space, where each point is '
+               'associated to pre-computed minima travel times arrays. Stores the '
+               'resulting file as .npz compressed numpy format. The resulting file, opened with '
+               'the dedicated program class, allows to compute approximate travel times in a '
+               '*much* faster way than using obspy routines')
+@click.option('-o', '--output', is_eager=True, required=True,
+              help=('The output file. If directory, the file name will be automatically '
+                    'created inside the directory. Otherwise must denote a valid writable '
+                    'file name. The extension .npz will be added automatically'))
+@click.option("-m", "--model",
+              help="the model name, e.g. iasp91, ak135, ..")
+@click.option('-p', '--phases', multiple=True,  required=True,
+              help=("The phases used, e.g. ttp+, tts+. Can be typed multiple times, e.g."
+                    "-m P -m p"))
+@click.option('-t', '--tt_errtol', type=float, required=True,
+              help=('The error tolerance (in seconds). The algorithm will try to store grid points '
+                    'whose distance is close to this value. Decrease this value to increase '
+                    'precision, increase this value to increase the execution speed of this '
+                    'command'))
+@click.option('-s', '--maxsourcedepth', type=float, default=DEFAULT_SD_MAX,
+              help=('The maximum source depth (in km) used for the grid generation. '
+                    'Optional: defaults to 700 when missing. '
+                    'When loaded, the relative model can calculate travel times for source depths '
+                    'lower or equal to this value'))
+@click.option('-r', '--maxreceiverdepth', type=float, default=DEFAULT_RD_MAX,
+              help=('The maximum source depth (in km) used for the grid generation. '
+                    'Optional: defaults to 0 when missing (assume all receiver depths as zero). '
+                    'When loaded, the relative model can calculate travel times for receiver '
+                    'depths lower or equal to this value'))
+@click.option('-d', '--maxdistance', type=float, default=DEFAULT_DIST_MAX,
+              help=('The maximum distance (in degrees) used for the grid generation. '
+                    'Optional: defaults to 180 when missing. '
+                    'When loaded, the relative model can calculate travel times for receiver '
+                    'depths lower or equal to this value'))
+@click.option('-P', '--pwavevelocity', type=float, default=DEFAULT_PWAVEVELOCITY,
+              help=('The P-wave velocity (in km/sec). Used for the grid generation '
+                    'to assess the step of the distances arrays.'
+                    'Optional: defaults to 5 when missing. '
+                    'As P-wave velocity varies from [6-13] km according to the region of the '
+                    'Earth\'s interior, 5 is the value that assures '
+                    'grid precision for small source depths and avoids having too many '
+                    'redundant data for higher source depths'))
+@click.option('-D', '--deg2km', type=float, default=DEFAULT_DEG2KM,
+              help=('The (approximate) length (in km) of a degree. Used for the grid generation '
+                    'to assess the step of the distances arrays.'
+                    'Optional: defaults to 111 when missing.'))
+def run(output, model, phases, tt_errtol, maxsourcedepth, maxreceiverdepth, maxdistance,
+        pwavevelocity, deg2km):
+    try:
+        output = _filepath(output, model, phases)
+        computeall(output, model, tt_errtol, phases, maxsourcedepth, maxreceiverdepth, maxdistance,
+                   pwavevelocity, deg2km, isterminal=True)
+        sys.exit(0)
+    except Exception as exc:
+        print("ERROR: %s" % str(exc))
+        sys.exit(1)
 
 if __name__ == '__main__':
-    # plottimes('ak135', 0, 0, np.arange(0, 180, 10))  # , ("P", "pP"))
-    import os
-    import sys
-    argv = sys.argv
-    if len(sys.argv) != 2:
-        _ = os.path.basename(sys.argv[0])
-        print("ERROR: run this script with a given model name, e.g:\n%s ak135\n%s iasp91\n..."
-              % (_, _))
-        sys.exit(1)
-    modelname = sys.argv[1]
-    fileout = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "resources",
-                                           "traveltimestables", "%s.npz" % modelname))
-    if not os.path.isdir(os.path.dirname(fileout)):
-        print("ERROR: not a directory: %s" % os.path.dirname(fileout))
-    maxerr = MAX_TIME_ERR_TOL
-    computeall(modelname, fileout, maxerr, isterminal=True)
-    sys.exit(0)
+    run()  # pylint: disable=E1120
+
