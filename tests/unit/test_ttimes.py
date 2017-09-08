@@ -10,7 +10,7 @@ from stream2segment.download.traveltimes.ttloader import TTTable
 from stream2segment.download.utils import get_min_travel_time
 from click.testing import CliRunner
 import os
-from stream2segment.download.traveltimes.ttcreator import _filepath
+from stream2segment.download.traveltimes.ttcreator import _filepath, StepIterator
 
 
 class Test(unittest.TestCase):
@@ -35,15 +35,44 @@ class Test(unittest.TestCase):
         runner = CliRunner()
         with runner.isolated_filesystem():
             mydir = os.getcwd()
-            result = runner.invoke(ttcreator.run)
+            result = runner.invoke(ttcreator.run, catch_exceptions=True)
             assert result.exit_code != 0
 
-            result = runner.invoke(ttcreator.run, ['-o', mydir, '-m', 'iasp91', '-t', 100, '-p',
-                                                   'ttp+'])
+            result = runner.invoke(ttcreator.run, ['-o', mydir, '-m', 'iasp91', '-t', 30, '-p',
+                                                   'ttp+', '-s', 300, '-r', 2],
+                                   catch_exceptions=False)
             assert result.exit_code == 0
             assert os.path.isfile(_filepath(mydir, 'iasp91', ['ttp+']) + ".npz")
             # fixme: we should load the file and assert something...
-            
+
+# THIS TEST RUNS TOO SLOWLY, UNCOMMENT IF YOU WANT BUT IT RUN PROPERLY ONCE
+#             result = runner.invoke(ttcreator.run, ['-o', mydir, '-m', 'iasp91', '-t', 10, '-p',
+#                                                    'ttp+', '-s', 300, '-r', 0],
+#                                    catch_exceptions=False)
+#             assert result.exit_code == 0
+#             assert os.path.isfile(_filepath(mydir, 'iasp91', ['ttp+']) + ".npz")
+#             # fixme: we should load the file and assert something...
+
+    def tst_stepiterator(self):
+        '''test a step iterator which should give me approximately every 100's'''
+        lastnum = -1
+        results = []
+        stepiterator = StepIterator(0, 700.0, 31.5)
+        for val in stepiterator:
+            if int(val / 100.0) > lastnum:  # condition whereby we crossed the 'mark' 
+                if stepiterator.moveback():
+                    continue
+                else:
+                    results.append(val)
+                    lastnum += 1
+        assert len(results) == 8
+
+        # now try an edge case with a single value
+        results = []
+        stepiterator = StepIterator(0, 0, 31.5)
+        for val in stepiterator:
+            results.append(val)
+        assert results == [0]
 
     def tst_err10sec(self):
         ttable = self.ttable_10sec

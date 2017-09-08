@@ -6,7 +6,7 @@ Created on Feb 20, 2017
 @author: riccardo
 '''
 from os import listdir
-from os.path import join, dirname, abspath, normpath, isfile, isabs
+from os.path import join, dirname, abspath, normpath, isfile, isabs, splitext
 import re
 from collections import defaultdict
 import yaml
@@ -40,10 +40,10 @@ def get_templates_dirpath():
     return get_resources_fpath("templates")
 
 
-def get_traveltimestables_dirpath():
+def get_traveltimes_dirpath():
     """Returns the travel time table directory path (located inside the package `resource` folder)
     """
-    return get_resources_fpath("traveltimestables")
+    return get_resources_fpath("traveltimes")
 
 
 def get_templates_fpaths(*filenames):
@@ -170,7 +170,11 @@ def yaml_load_doc(filepath, varname=None):
     return ret
 
 
-def getttable_fpath(model):
-    if not isfile(model):
-        model = join(get_traveltimestables_dirpath(), model)
-    return model
+def getttable_fpath(basename):
+    '''Returns the file for the given traveltimes table
+    :param basename: the file name (with or without extension) located under
+    `get_traveltimestables_dirpath()`
+    '''
+    if not splitext(basename)[1]:
+        basename += ".npz"
+    return join(get_traveltimes_dirpath(), basename)
