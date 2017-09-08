@@ -25,34 +25,22 @@ class TTTable(object):
         # Note that if receiver depths are not set (i.e. all zero) we need to suppress
         # that dimension otherwise we have an internal error in self.min
         # on the algorithm using scipy.griddata
-        self._unique_receiver_depth = np.unique(self._receiverdepths)[0] if \
-            len(np.unique(self._receiverdepths)) == 1 else None
+        self._unique_receiver_depth = True if \
+            len(np.unique(self._receiverdepths)) == 1 else False
         gridpts = []
-        for s, r in izip(self._normalize(self._sourcedepths),
-                         self._normalize(self._receiverdepths)):
+        for s, r in izip(self._km2deg(self._sourcedepths),
+                         self._km2deg(self._receiverdepths)):
             for _ in self._distances:
-                gridpts.append([s, r, _] if self._unique_receiver_depth is None else [s, _])
+                gridpts.append([s, _] if self._unique_receiver_depth else [s, r, _])
         # store in class attributes:
         self._gridpts = np.array(gridpts)
         self._gridvals = self._traveltimes.reshape(1, -1).flatten()
 
-    def _normalize(self, array):
-        return array / 110.0  # normalize to degrees
+    def _km2deg(self, array):
+        return np.true_divide(array, self._deg2km)  # normalize to degrees
 
-    @staticmethod
-    def _normalize_data(source_depths, receiver_depths, distances):
-        # broadcast arrays:
-        source_depths, receiver_depths, distances = \
-            np.broadcast_arrays(source_depths, receiver_depths, distances)
-        # correct source depths and receiver depths
-        source_depths[source_depths < 0] = 0
-        receiver_depths[receiver_depths < 0] = 0
-        # correct distances to be compatible with obpsy traveltimes calculations:
-        distances = distances % 360
-        _mask = distances > 180
-        if _mask.any():  # does this speeds up (allocate mask array once)? FIXME: check
-            distances[_mask] = 360 - distances[_mask]
-        return source_depths, receiver_depths, distances
+    def __call__(self, source_depths, receiver_depths, distances, method='linear'):
+        return self.min(source_depths, receiver_depths, distances, method)
 
     def min(self, source_depths, receiver_depths, distances, method='linear'):
         '''
@@ -73,25 +61,47 @@ class TTTable(object):
         :return: a numpy array of length n denoting the minimum travel time(s) of this model for
         each P
         '''
-        # normalize data:
+        # Handle the case some arguments are scalars and some arrays:
         source_depths, receiver_depths, distances = \
-            self._normalize_data(source_depths, receiver_depths, distances)
-        # create values to interpolate. Note that if receiver depths are mono-dimensional (i.e.
-        # all zero) we create a 2dimensional grid instead of a 3 dimensional grid
-        if self._unique_receiver_depth is None:
-            values = np.hstack((self._normalize(source_depths).reshape(-1, 1),
-                                self._normalize(receiver_depths).reshape(-1, 1),
+            np.broadcast_arrays(source_depths, receiver_depths, distances)
+        # handle the case all arguments scalars. See
+        # https://stackoverflow.com/questions/29318459/python-function-that-handles-scalar-or-arrays
+        allscalars = all(_.ndim == 0 for _ in (source_depths, receiver_depths, distances))
+        if source_depths.ndim == 0:
+            source_depths = source_depths[None]  # Makes x 1D
+        if receiver_depths.ndim == 0:
+            receiver_depths = receiver_depths[None]  # Makes x 1D
+        if distances.ndim == 0:
+            distances = distances[None]  # Makes x 1D
+        # correct source depths and receiver depths
+        source_depths[source_depths < 0] = 0
+        receiver_depths[receiver_depths < 0] = 0
+        # correct distances to be compatible with obpsy traveltimes calculations:
+        distances = distances % 360
+        # set values symmetric to 180 degrees if greater than 180:
+        _mask = distances > 180
+        if _mask.any():  # does this speeds up (allocate mask array once)? FIXME: check
+            distances[_mask] = 360 - distances[_mask]
+        # set source depths to nan if out of bounds. This prevent method = 'nearest'
+        # to return non nan values and be consistent with 'linear' and 'cubic'
+        if self._unique_receiver_depth:
+            # get values without receiver depth dimension:
+            values = np.hstack((self._km2deg(source_depths).reshape(-1, 1),
                                 distances.reshape(-1, 1)))
         else:
-            # if no receiver depths are set (i.e., all zero), we do not have a way to
-            # distinguish from scipy griddata if receiver depths are out of bounds. Do it now:
-            receiver_depths[receiver_depths != self._unique_receiver_depth] = np.nan
-            # get values without receiver depth dimension:
-            values = np.hstack((self._normalize(source_depths).reshape(-1, 1),
+            values = np.hstack((self._km2deg(source_depths).reshape(-1, 1),
+                                self._km2deg(receiver_depths).reshape(-1, 1),
                                 distances.reshape(-1, 1)))
 
-        return griddata(self._gridpts, self._gridvals, values,
-                        method=method, rescale=False, fill_value=np.nan)
+        ret = griddata(self._gridpts, self._gridvals, values,
+                       method=method, rescale=False, fill_value=np.nan)
+
+        # ret is almost likely a float, so we can set now nans for out of boun values
+        # we cannot do it before on any input array cause int arrays do not support nan assignement
+        ret[(source_depths > self._sourcedepth_bounds_km[1]) | \
+            (receiver_depths > self._receiverdepth_bounds_km[1])] = np.nan
+        # return scalar if inputs are scalar, array oitherwise
+        return np.squeeze(ret) if allscalars else ret
 
     def __str__(self, *args, **kwargs):
         maxrows = 6

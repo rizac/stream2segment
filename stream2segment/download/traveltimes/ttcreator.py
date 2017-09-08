@@ -75,7 +75,7 @@ def min_traveltimes(modelname, source_depths, receiver_depths, distances, phases
     for idx, sd, rd in izip(count(), source_depths, receiver_depths):
         tmp_ttimes = ttimes[idx]
         for i, d in enumerate(distances):
-            pool.apply_async(min_traveltime, (str(model), sd, rd, d, phases),
+            pool.apply_async(min_traveltime, (model, sd, rd, d, phases),
                              callback=mp_callback(i, tmp_ttimes, callback))
     pool.close()
     pool.join()

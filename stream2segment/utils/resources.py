@@ -170,7 +170,7 @@ def yaml_load_doc(filepath, varname=None):
     return ret
 
 
-def getttable_fpath(basename):
+def get_ttable_fpath(basename):
     '''Returns the file for the given traveltimes table
     :param basename: the file name (with or without extension) located under
     `get_traveltimestables_dirpath()`
