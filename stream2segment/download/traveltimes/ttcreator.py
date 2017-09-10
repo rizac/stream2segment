@@ -20,8 +20,8 @@ from obspy.geodetics.base import degrees2kilometers
 from obspy.taup.utils import get_phase_names
 from obspy.taup.helper_classes import SlownessModelError
 from obspy.taup.tau_model import TauModel
+from obspy.taup.taup_time import TauPTime
 
-from stream2segment.download.utils import get_min_travel_time
 
 # global vars
 DEFAULT_SD_MAX = 700.0  # in km
@@ -88,10 +88,41 @@ def min_traveltimes(modelname, source_depths, receiver_depths, distances, phases
 
 def min_traveltime(model, source_depth_in_km, receiver_depth_in_km, distance_in_degree, phases):
     try:
-        return get_min_travel_time(source_depth_in_km, distance_in_degree, phases,
-                                   receiver_depth_in_km=receiver_depth_in_km, model=model)
-    except (ValueError, SlownessModelError):
+        # little preamble for optimization:
+        # given a model string, obspy allocates an `obspy.taup.tau.TauPyModel` object
+        # the TauPyModel object has member `model` which is a `obspy.taup.tau_model.TauModel` object
+        # the `TauModel` is used in `TauPyModel.get_travel_times` method, which is the method
+        # we should call: instead, we write it here getting rid of the `TauPyModel` object
+        # A further optimization is that our get_travel_times returns the minimum, thus
+        # avoiding allocating an array of all arrival times, but returning the minimum
+        # but this does not seem to dramatically increase performances, on the other hand is almost
+        # inefficient. The only effective improvement is to pre-allocate
+        # with  `get_taumodel(string)` and pass it here as model
+
+        # allocate TauModel. We might pass a TauModel object or a string:
+        tau_model = taumodel(model)
+
+        tt = TauPTime(tau_model, phases, source_depth_in_km,
+                      distance_in_degree, receiver_depth_in_km)
+        tt.run()
+        if not tt.arrivals:
+            return np.nan
+        return tt.arrivals[0].time
+
+    except SlownessModelError:
         return np.nan
+
+
+def taumodel(model):
+    """Returns a TauModel from string, or the argument in case of TypeError, assuming the
+    latter is already a TauModel
+    """
+    try:
+        return TauModel.from_file(model)
+        # NOTE from_file has an argument cache that we ignore because of a bug (reported)
+        # in obspy 1.0.2 if cache is False!
+    except TypeError:
+        return model  # ok, we assume the argument is already a TaupModel then
 
 
 def ttequal(traveltimes1, traveltimes2, maxerr):
@@ -101,13 +132,6 @@ def ttequal(traveltimes1, traveltimes2, maxerr):
 
 def newarray(basearray):
     return np.full(basearray.shape, np.nan)
-
-
-def taumodel(model):
-    try:
-        return TauModel.from_file(model)
-    except:
-        return model
 
 
 def _cmp_indices(distances):  # returns the indices used for comparison from the given array arg.

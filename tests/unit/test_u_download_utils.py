@@ -13,10 +13,9 @@ from mock import Mock
 from datetime import datetime, timedelta
 from StringIO import StringIO
 import stream2segment
-from stream2segment.download.utils import get_min_travel_time, get_search_radius, UrlStats,\
+from stream2segment.download.utils import get_search_radius, UrlStats,\
     stats2str, locations2degrees as s2sloc2deg
 from obspy.geodetics.base import locations2degrees  as obspyloc2deg
-from stream2segment.download.utils import get_taumodel
 import numpy as np
 import code
 from itertools import count, izip, product
@@ -54,93 +53,7 @@ def tst_perf():
         s2sloc2deg(l1, l2, l3, l4)
     end2 = time.time() - s2
     
-    print "%d loops. Numpy loc2deg: %f, obspy loc2deg: %f" % (N, end, end2)
-
-@patch('stream2segment.download.utils.TauPyModel')
-@patch('stream2segment.download.utils.TauPTime')
-@patch('stream2segment.download.utils.get_taumodel')
-def test_get_travel_times(mock_get_taumodel, mock_taup_t, mock_taup_m): # , mock_tau_model_from_file):
-    
-#     a = get_min_travel_time('d', 'q', ('P',), 'g')
-#     assert a is None
-#     mock_taup.assert_called_once_with('g')
-    
-    model = 'ak135'
-#     
-    from obspy.taup.tau import TauPyModel
-    mock_taup_m.side_effect = lambda *a, **v: TauPyModel(*a, **v)
-    
-    from obspy.taup.taup_time import TauPTime
-    mock_taup_t.side_effect = lambda *a, **v: TauPTime(*a, **v)
-
-    mock_get_taumodel.side_effect = lambda *a, **v: get_taumodel(*a, **v)
-#     def _(model_name, cache):
-#         return TM.from_file(model_name, cache)
-#     mock_tau_model_from_file.side_effect = _
-
-#     TauPTime
-#     abc = Mock()
-#     abc.model.return_value = realtpm.model  # lambda *args, **kw: realtpm.get_travel_times(*args, **kw)
-#      
-#     mock_taup.return_value = abc
-
-    mock_taup_m.reset_mock()
-    mock_taup_t.reset_mock()
-    tt = get_min_travel_time(distance_in_degree=52.474, source_depth_in_km=611.0, 
-                             traveltime_phases=('p', 'P'), model=model)
-    # check for the value (account for round errors):
-    assert tt > 497.525385547 and tt < 497.525385548
-    assert not mock_taup_m.called
-    assert mock_taup_t.called
-    mock_get_taumodel.assert_called_once_with(model)
-    
-    mock_taup_t.reset_mock()
-    mock_get_taumodel.reset_mock()
-    model = TauModel.from_file(model)
-    # now pass a model, assert is the same as passing the string denoting a model
-    assert tt == get_min_travel_time(distance_in_degree=52.474, source_depth_in_km=611.0, 
-                             traveltime_phases=('p', 'P'), model=model)
-
-    assert not mock_taup_m.called
-    assert mock_taup_t.called
-    mock_get_taumodel.assert_called_once_with(model)
-    
-
-def test_get_travel_times_compare_obspy(): # , mock_tau_model_from_file):
-    from obspy.taup.tau import TauPyModel
-    from obspy.taup.taup_time import TauPTime
-    from obspy.taup.tau_model import TauModel
-    
-    distances=[52.474, 0, -11]
-    source_depths=[0, 611.0]
-    traveltime_phases=[['s'], ['p', 'P'], ['ttbasic']] # , ('p', 'P', 'ttall')]
-    models=['ak135']
-    rec_depths = [0, 50]
-    
-    for dist, depth, phases, model, rec_depth in product(distances, source_depths,
-                                              traveltime_phases,
-                                              models, rec_depths):
-        expected = []
-        try:
-#             model_ = TauModel.from_file(model, cache=False)
-            t1 = time.time()
-            tt = get_min_travel_time(depth, dist, phases, rec_depth, model)
-            t1= time.time() - t1
-            expected.append(tt)
-        except ValueError:
-            t1= time.time() - t1
-            pass
-        # obspy relative method:
-        t2 = time.time()
-        tmodel = TauPyModel(model)
-        arrivals = tmodel.get_travel_times(depth, dist, phases, rec_depth)
-        if arrivals:
-            arrivals = [arrivals[0].time]
-        t2= time.time() - t2
-        
-        assert arrivals == expected
-        # print "%.2f %.2f %s" % (t1, t2, "YES" if t1 < t2 else "NO ")
-        
+    print "%d loops. Numpy loc2deg: %f, obspy loc2deg: %f" % (N, end, end2)        
 
 
 @pytest.mark.parametrize('mag, minmag_maxmag_minradius_maxradius, expected_val',

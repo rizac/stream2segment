@@ -235,14 +235,8 @@ class Test(unittest.TestCase):
         
         query_logger.addHandler(self.handler)
         
-        # MOCK ARRIVAL_TIME. REMEMBER: WITH PROCESSPOOLEXECUTOR DO NOT MOCK DIRECTLY THE FUNCTION PASSED
-        # AS AS_COMPLETED, BUT A SUB FUNCTION. THIS IS PROBABLY DUE TO THE FACT THAT MOCKS ARE
-        # NOT PICKABLE (SUB FUNCTIONS APPARENTLY DO NOT SUFFER NON PICKABILITY)
-        
-        self.patcher3 = patch('stream2segment.download.utils.get_min_travel_time')
-        self.mock_min_travel_time = self.patcher3.start()
-        
-        self.patchers = [self.patcher, self.patcher1, self.patcher2, self.patcher3, self.patcher23]
+
+        self.patchers = [self.patcher, self.patcher1, self.patcher2, self.patcher23]
         #self.patcher3 = patch('stream2segment.main.logger')
         #self.mock_main_logger = self.patcher3.start()
         
