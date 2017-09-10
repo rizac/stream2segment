@@ -10,19 +10,14 @@ from itertools import izip, count
 import numpy as np
 import pandas as pd
 from sqlalchemy.orm.session import object_session
-from obspy.taup import TauPyModel
 from obspy.taup.taup_time import TauPTime
-from obspy.geodetics.base import locations2degrees
+from obspy.taup.tau_model import TauModel
 from stream2segment.io.db.models import Event, Station, Run, Channel
 from stream2segment.io.db.pd_sql_utils import harmonize_columns,\
     harmonize_rows, colnames
 from stream2segment.utils.resources import version
 from stream2segment.utils.url import urlread, URLException
 from stream2segment.io.utils import dumps_inv, loads_inv
-from obspy.taup.tau_model import TauModel
-from obspy.taup.seismic_phase import SeismicPhase
-from obspy.taup.utils import get_phase_names
-from obspy.taup.helper_classes import TauModelError
 
 
 def get_events_list(eventws, **args):

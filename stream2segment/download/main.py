@@ -42,6 +42,8 @@ from stream2segment.utils.msgs import MSG
 from stream2segment.io.utils import dumps_inv
 
 from stream2segment.io.db.queries import query4inventorydownload
+from stream2segment.download.traveltimes.ttloader import TTTable
+from stream2segment.utils.resources import get_ttable_fpath
 
 logger = logging.getLogger(__name__)
 
@@ -611,7 +613,8 @@ def chaid2mseedid_dict(channels_df, drop_mseedid_columns=True):
     return {chaid: mseedid for chaid, mseedid in izip(channels_df[CHA_ID], _mseedids)}
 
 
-def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius, maxmag_radius):
+def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius, maxmag_radius,
+                          tttable):
     """
         Merges `events_df` and `channels_df` by returning a new dataframe representing all
         channels within a specific search radius. *Each row of the resturned data frame is
@@ -638,9 +641,12 @@ def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius,
     SEG_EVID = Segment.event_id.key
     SEG_EVDIST = Segment.event_distance_deg.key
     CHA_STAID = Channel.station_id.key
-    OK_TMP_COL = "__i'm.ok!__"  # tmp col for channels to take
+    SEG_ATIME = Segment.arrival_time.key
+    CHA_ID = Channel.id.key
+    SEG_DCID = Segment.datacenter_id.key
+    SEG_CHAID = Segment.channel_id.key
 
-    channels_df = channels_df.rename(columns={Channel.id.key: Segment.channel_id.key})
+    channels_df = channels_df.rename(columns={CHA_ID: SEG_CHAID})
     # get unique stations, rename Channel.id into Segment.channel_id now so we do not bother later
     stations_df = channels_df.drop_duplicates(subset=[CHA_STAID])
     stations_df.is_copy = False
@@ -648,6 +654,8 @@ def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius,
     ret = []
     max_radia = get_search_radius(events_df[EVT_MAG].values, minmag, maxmag,
                                   minmag_radius, maxmag_radius)
+
+    sourcedepths, eventtimes = [], []
 
     for max_radius, evt_dic in izip(max_radia, dfrowiter(events_df, [EVT_ID, EVT_LAT, EVT_LON,
                                                                      EVT_TIME, EVT_DEPTH])):
@@ -660,134 +668,55 @@ def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius,
         if not np.any(condition):
             continue
 
-        stations_df[OK_TMP_COL] = condition
+        # Set (or re-set from second iteration on) as NaN SEG_EVDIST columns. This is important
+        # cause from second loop on we might have some elements not-NaN which should be NaN now
+        channels_df[SEG_EVDIST] = np.nan
+        # set locations2 degrees
         stations_df[SEG_EVDIST] = l2d
-
-        cha_df = mergeupdate(channels_df, stations_df, [CHA_STAID], [OK_TMP_COL, SEG_EVDIST],
+        # Copy distances calculated on stations to their channels
+        # (match along column CHA_STAID shared between the reletive dataframes). Set values only for
+        # channels whose stations are within radius (stations_df[condition]):
+        cha_df = mergeupdate(channels_df, stations_df[condition], [CHA_STAID], [SEG_EVDIST],
                              drop_df_new_duplicates=False)  # dupes already dropped
-        cha_df = cha_df[cha_df[OK_TMP_COL]]
-        cha_df.is_copy = False
-        cha_df[SEG_EVID] = evt_dic[EVT_ID]
-        cha_df[EVT_DEPTH] = evt_dic[EVT_DEPTH]
-        cha_df[EVT_TIME] = evt_dic[EVT_TIME]
-        ret.append(cha_df.drop([STA_STIME, STA_ETIME, STA_LAT, STA_LON, OK_TMP_COL],
-                               axis=1))
+        # drop channels which are not related to station within radius:
+        cha_df = cha_df.dropna(subset=[SEG_EVDIST], inplace=False)
+        cha_df.is_copy = False  # avoid SettingWithCopyWarning...
+        cha_df[SEG_EVID] = evt_dic[EVT_ID]  # ...and add "safely" SEG_EVID values
+        # append to arrays (calculate arrival times in one shot a t the end, it's faster):
+        sourcedepths += [evt_dic[EVT_DEPTH]] * len(cha_df)
+        eventtimes += [np.datetime64(evt_dic[EVT_TIME])] * len(cha_df)
+        # Append only relevant columns:
+        ret.append(cha_df[[SEG_CHAID, SEG_EVID, SEG_DCID, SEG_EVDIST]])
 
-    return pd.concat(ret, axis=0, ignore_index=True, copy=True)
-
-
-def set_saved_arrivaltimes(session, segments_df):
-    """
-        Set on `segments_df` the already calculated arrival times, i.e. the arrival time
-        of saved segments with the same 'event_id' and 'station_id'.
-        Adds a new column 'arrival_time' with NaT values for those rows (segments) where arrival
-        time has not been calculated.
-
-        :param segments_df: pandas DataFrame resulting from `merge_events_stations`
-        :param session: sql-alchemy session asociated to the database
-
-        Note: by comparing with station id and event id, we increase a lot performances
-        (because we might avoid calculating the P-arrival time for many segments)
-        but as drawback we cannot change P-arrival time configuration values
-        for already saved segments. However, by
-        re-calculating the P-arrival time for all segments when changing P-arrival time config
-        we might end in slightly different time-spans for the same segment, which is not what we
-        might want to, as it would save several copies of the - basically same - segment)
-    """
-    # define columns (sql-alchemy model attrs) and their string names (pandas col names) once:
-    SEG_EVID = Segment.event_id
-    CHA_STAID = Channel.station_id
-    SEG_EVDIST = Segment.event_distance_deg
-    SEG_ATIME = Segment.arrival_time
-    cols = [SEG_EVDIST, SEG_ATIME, CHA_STAID, SEG_EVID]
-    query = session.query(*cols).join(Segment.channel).distinct()
-    df_repl = dbquery2df(query)
-    segments_df[SEG_ATIME.key] = pd.NaT  # necessary to coerce values to date later
-    return segments_df if empty(df_repl) else mergeupdate(segments_df, df_repl,
-                                                          [CHA_STAID.key, SEG_EVID.key],
-                                                          [SEG_EVDIST.key, SEG_ATIME.key])
-
-
-def get_arrivaltimes(segments_df, wtimespan, traveltime_phases, tau_model,
-                     mp_max_workers=None,
-                     show_progress=False):
-    """
-        Calculates the arrival times for those rows of `segments_df` wich are NaT
-
-        :param segments_df: pandas DataFrame resulting from `set_saved_arrivaltimes`
-    """
-    # define columns (sql-alchemy model attrs) and their string names (pandas col names) once:
-    SEG_EVID = Segment.event_id.key
-    SEG_EVDIST = Segment.event_distance_deg.key
-    SEG_ATIME = Segment.arrival_time.key
-    SEG_STIME = Segment.start_time.key
-    SEG_ETIME = Segment.end_time.key
-    CHA_STAID = Channel.station_id.key
-    EVT_DEPTH = Event.depth_km.key
-    EVT_TIME = Event.time.key
-
-    ptimes2calculate_df = segments_df[pd.isnull(segments_df[SEG_ATIME])].\
-        drop_duplicates(subset=[SEG_EVID, CHA_STAID])
-    patime_data = {SEG_ATIME: [], CHA_STAID: [], SEG_EVID: []}
-
-    num_to_calculate = len(ptimes2calculate_df)
-
-    # pre-allocate model (improves perfs)
-    model = get_taumodel(tau_model)
-
-    with get_progressbar(show_progress, length=num_to_calculate) as bar:
-        # We can use a with statement to ensure threads are cleaned up promptly
-        with concurrent.futures.ProcessPoolExecutor(max_workers=cpu_count() if not mp_max_workers
-                                                    else mp_max_workers) as executor:
-            future_to_evtid = {}
-            for stadict in dfrowiter(ptimes2calculate_df, [SEG_EVDIST, EVT_DEPTH, EVT_TIME,
-                                                           SEG_EVID, CHA_STAID]):
-                future_to_evtid[executor.submit(get_arrival_time,
-                                                stadict[SEG_EVDIST],
-                                                stadict[EVT_DEPTH],
-                                                stadict[EVT_TIME],
-                                                traveltime_phases,
-                                                0.0,
-                                                model)] = stadict[SEG_EVID], stadict[CHA_STAID]
-
-            for future in concurrent.futures.as_completed(future_to_evtid):
-                bar.update(1)
-                atime = None
-                evt_id, sta_id = future_to_evtid[future]
-                try:
-                    atime = future.result()
-                    # set arrival time only if non-null
-                    patime_data[SEG_ATIME].append(atime)
-                    patime_data[CHA_STAID].append(sta_id)
-                    patime_data[SEG_EVID].append(evt_id)
-                except Exception as exc:
-                    # evt_id = atime = None
-                    logger.warning(MSG("", "discarding segment (event_id: %d, station_id: %d)"
-                                       % (evt_id, sta_id), exc))
-
-    if num_to_calculate == 0:
-        logger.info("All P-arrival times and time ranges already calculated (fetched from db)")
-
-    # assign data to segments:
-    df_repl = pd.DataFrame(data=patime_data)
-    segments_df = mergeupdate(segments_df, df_repl, [SEG_EVID, CHA_STAID], [SEG_ATIME])
-
-    # drop errors in arrival time:
-    oldlen = len(segments_df)
-    segments_df.dropna(subset=[SEG_ATIME, SEG_EVDIST], inplace=True)
-    segdf_len = len(segments_df)
-    if not segdf_len:
-        raise QuitDownload(Exception(MSG("", "No arrival times calculated",
-                                             "internal error: "
-                                             "check config and log for details")))
-    if oldlen > segdf_len:
-        logger.info(MSG("", "%d of %d segments discarded"), oldlen-segdf_len, oldlen)
-    # set start time and end time:
-    td0, td1 = timedelta(minutes=wtimespan[0]), timedelta(minutes=wtimespan[1])
-    segments_df[SEG_STIME] = (segments_df[SEG_ATIME] - td0).dt.round('s')
-    segments_df[SEG_ETIME] = (segments_df[SEG_ATIME] + td1).dt.round('s')
-    # drop unnecessary columns and return:
-    return segments_df.drop([EVT_DEPTH, EVT_TIME, CHA_STAID], axis=1)
+    # create total segments dataframe:
+    # first check we have data:
+    if not ret:
+        raise QuitDownload(Exception(MSG("", "No segments to process",
+                                             "No station within search radia")))
+    # now concat:
+    ret = pd.concat(ret, axis=0, ignore_index=True, copy=True)
+    # compute travel times. Doing it on a single array is much faster
+    sourcedepths = np.array(sourcedepths)
+    distances = ret[SEG_EVDIST].values
+    traveltimes = tttable(sourcedepths, 0, distances)
+    # assign to column:
+    eventtimes = np.array(eventtimes)  # should be of type  '<M8[us]' or whatever datetime dtype
+    # now to compute arrival times: eventtimes + traveltimes does not work (we cannot
+    # sum np.datetime64 and np.float). Convert traveltimes to np.timedelta: we first multiply by
+    # 1000000 to preserve the millisecond resolution and then we write traveltimes.astype("m8[us]")
+    # which means: 8bytes timedelta with microsecond resolution (10^-6)
+    # Side note: that all numpy timedelta constructors (as well as "astype") round to int
+    # argument, at least in numpy13.
+    ret[SEG_ATIME] = eventtimes + (traveltimes*1000000).astype("m8[us]")
+    # drop nat values
+    oldlen = len(ret)
+    ret.dropna(subset=[SEG_ATIME], inplace=True)
+    if oldlen > len(ret):
+        logger.info(MSG("", "%d of %d segments discarded", "Travel times NaN"),
+                    oldlen-len(ret), oldlen)
+        if not len(ret):
+            raise QuitDownload(Exception(MSG("", "No segments to process", "All travel times NaN")))
+    return ret
 
 
 # def create_segments_df(channels_df, evts_stations_df):
@@ -797,7 +726,7 @@ def get_arrivaltimes(segments_df, wtimespan, traveltime_phases, tau_model,
 #     return seg_df
 
 
-def prepare_for_download(session, segments_df, retry_no_code, retry_url_errors,
+def prepare_for_download(session, segments_df, wtimespan, retry_no_code, retry_url_errors,
                          retry_mseed_errors, retry_4xx, retry_5xx):
     """
         Drops the segments which are already present on the database and updates the primary
@@ -809,6 +738,10 @@ def prepare_for_download(session, segments_df, retry_no_code, retry_url_errors,
         :param segments_df: pandas DataFrame resulting from `get_arrivaltimes`
     """
     # define columns (sql-alchemy model attrs) and their string names (pandas col names) once:
+    SEG_EVID_DBCOL = Segment.event_id
+    SEG_EVID = SEG_EVID_DBCOL.key
+    SEG_ATIME_DBCOL = Segment.arrival_time
+    SEG_ATIME = SEG_ATIME_DBCOL.key
     SEG_STIME = Segment.start_time.key
     SEG_ETIME = Segment.end_time.key
     SEG_CHID = Segment.channel_id.key
@@ -836,7 +769,7 @@ def prepare_for_download(session, segments_df, retry_no_code, retry_url_errors,
 
     # query relevant data into data frame:
     db_seg_df = dbquery2df(session.query(SEG_ID_DBCOL, SEG_CHID_DBCOL, SEG_STIME_DBCOL,
-                                         SEG_ETIME_DBCOL, SEG_DSC_DBCOL))
+                                         SEG_ETIME_DBCOL, SEG_DSC_DBCOL, SEG_EVID_DBCOL))
 
     # filter already downloaded:
     mask = None
@@ -860,13 +793,23 @@ def prepare_for_download(session, segments_df, retry_no_code, retry_url_errors,
         mask = False
     db_seg_df[SEG_RETRY] = mask
 
-    # update existing dataframe:
+    # update existing dataframe. If db_seg_df we might NOT set the columns of db_seg_df not
+    # in segments_df. So for safetey set them now:
     segments_df[SEG_ID] = np.nan  # coerce to valid type (should be int, however allow nans)
     segments_df[SEG_RETRY] = True  # coerce to valid type
-    # segments_df[SEG_DSC] = None
-    # segments_df[SEG_RUNID] = run_id
-    segments_df = mergeupdate(segments_df, db_seg_df, [SEG_CHID, SEG_STIME, SEG_ETIME],
-                              [SEG_ID, SEG_RETRY])
+    segments_df[SEG_STIME] = pd.NaT  # coerce to valid type
+    segments_df[SEG_ETIME] = pd.NaT  # coerce to valid type
+    segments_df = mergeupdate(segments_df, db_seg_df, [SEG_CHID, SEG_EVID],
+                              [SEG_ID, SEG_RETRY, SEG_STIME, SEG_ETIME])
+    # Now check time bounds
+    td0, td1 = timedelta(minutes=wtimespan[0]), timedelta(minutes=wtimespan[1])
+    tstart, tend = (segments_df[SEG_ATIME] - td0).dt.round('s'), \
+        (segments_df[SEG_ATIME] + td1).dt.round('s')
+    segments_df[SEG_RETRY] |= pd.notnull(segments_df[SEG_STIME]) & \
+        ((segments_df[SEG_STIME] != tstart) | (segments_df[SEG_ETIME] != tend))
+    # and set them:
+    segments_df[SEG_STIME] = tstart
+    segments_df[SEG_ETIME] = tend
 
     oldlen = len(segments_df)
     # do a copy to avoid SettingWithCopyWarning. Moreover, copy should re-allocate contiguous
@@ -1002,7 +945,8 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
     datcen_id2url = datacenters_df.set_index([DC_ID_NAME])[DC_DSQU_NAME].to_dict()
 
     segmanager = DbManager(session, SEG_ID_COL, [SEG_RUNID_COL, SEG_DATA_COL, SEG_MGR_COL,
-                                                 SEG_SRATE_COL, SEG_DSC_COL], db_bufsize,
+                                                 SEG_SRATE_COL, SEG_DSC_COL, SEG_STIME_COL,
+                                                 SEG_ETIME_COL], db_bufsize,
                            [SEG_ID_NAME, Segment.channel_id.key, Segment.start_time.key,
                             Segment.end_time.key, Segment.datacenter_id.key])
 
@@ -1221,7 +1165,6 @@ class DbManager(object):
         self.table = id_col.class_
         self.cols_to_print_on_err = cols_to_print_on_err
 
-
     def add(self, df):
         bufsize = self.bufsize
         mask = pd.isnull(df[self.id_col.key])
@@ -1301,12 +1244,15 @@ def print_stats(stats_dict, datacenters_df):
 
 def run(session, run_id, eventws, start, end, service, eventws_query_args,
         search_radius,
-        channels, min_sample_rate, inventory, traveltime_phases,
+        channels, min_sample_rate, inventory,
         wtimespan, retry_no_code, retry_url_errors, retry_mseed_errors, retry_4xx, retry_5xx,
+        traveltimes_model,
         advanced_settings, isterminal=False):
     """
         Downloads waveforms related to events to a specific path. FIXME: improve doc
     """
+    tt_table = TTTable(get_ttable_fpath(traveltimes_model))
+
     # set blocksize if zero:
     if advanced_settings['download_blocksize'] <= 0:
         advanced_settings['download_blocksize'] = -1
@@ -1315,7 +1261,7 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
     dbbufsize = min(advanced_settings['db_buf_size'], 1)
 
     process = psutil.Process(os.getpid()) if isterminal else None
-    __steps = 7 + inventory  # bool substraction works: 8 - True == 7
+    __steps = 6 + inventory  # bool substraction works: 8 - True == 7
     stepiter = imap(lambda i: "%d of %d%s" % (i+1, __steps,
                                               "" if process is None else
                                               (" (current memory usage: %.2f%%)" %
@@ -1374,7 +1320,7 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
     try:
         segments_df = merge_events_stations(events_df, channels_df, search_radius['minmag'],
                                             search_radius['maxmag'], search_radius['minmag_radius'],
-                                            search_radius['maxmag_radius'])
+                                            search_radius['maxmag_radius'], tt_table)
     except QuitDownload as dexc:
         return dexc.log()
 
@@ -1383,15 +1329,15 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
     del channels_df
     # session.expunge_all()  # for memory: https://stackoverflow.com/questions/30021923/how-to-delete-a-sqlalchemy-mapped-object-from-memory
 
-    logger.info("")
-    logger.info(("STEP %s: Calculating P-arrival times and time ranges"), next(stepiter))
-    segments_df = set_saved_arrivaltimes(session, segments_df)
-    # rename dataframe to make clear that now we have segments:
-    try:
-        segments_df = get_arrivaltimes(segments_df, wtimespan, traveltime_phases, 'ak135',
-                                       None, isterminal)
-    except QuitDownload as dexc:
-        return dexc.log()
+#     logger.info("")
+#     logger.info(("STEP %s: Calculating P-arrival times and time ranges"), next(stepiter))
+#     segments_df = set_saved_arrivaltimes(session, segments_df)
+#     # rename dataframe to make clear that now we have segments:
+#     try:
+#         segments_df = get_arrivaltimes(segments_df, wtimespan, traveltime_phases, 'ak135',
+#                                        None, isterminal)
+#     except QuitDownload as dexc:
+#         return dexc.log()
 
     gc.collect()  # help memory management before high demanding task
 
@@ -1399,7 +1345,7 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
     logger.info(("STEP %s: Checking already downloaded segments"), next(stepiter))
     exit_code = 0
     try:
-        segments_df = prepare_for_download(session, segments_df, retry_no_code,
+        segments_df = prepare_for_download(session, segments_df, wtimespan, retry_no_code,
                                            retry_url_errors, retry_mseed_errors, retry_4xx,
                                            retry_5xx)
         # download_save_segments raises a QuitDownload if there is no data, remember its
@@ -1453,3 +1399,124 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
                              advanced_settings['download_blocksize'], dbbufsize, isterminal)
 
     return exit_code
+
+
+
+
+
+
+
+
+
+# def set_saved_arrivaltimes(session, segments_df):  # FIXME: REMOVE
+#     """
+#         Set on `segments_df` the already calculated arrival times, i.e. the arrival time
+#         of saved segments with the same 'event_id' and 'station_id'.
+#         Adds a new column 'arrival_time' with NaT values for those rows (segments) where arrival
+#         time has not been calculated.
+# 
+#         :param segments_df: pandas DataFrame resulting from `merge_events_stations`
+#         :param session: sql-alchemy session asociated to the database
+# 
+#         Note: by comparing with station id and event id, we increase a lot performances
+#         (because we might avoid calculating the P-arrival time for many segments)
+#         but as drawback we cannot change P-arrival time configuration values
+#         for already saved segments. However, by
+#         re-calculating the P-arrival time for all segments when changing P-arrival time config
+#         we might end in slightly different time-spans for the same segment, which is not what we
+#         might want to, as it would save several copies of the - basically same - segment)
+#     """
+#     # define columns (sql-alchemy model attrs) and their string names (pandas col names) once:
+#     SEG_EVID = Segment.event_id
+#     CHA_STAID = Channel.station_id
+#     SEG_EVDIST = Segment.event_distance_deg
+#     SEG_ATIME = Segment.arrival_time
+#     cols = [SEG_EVDIST, SEG_ATIME, CHA_STAID, SEG_EVID]
+#     query = session.query(*cols).join(Segment.channel).distinct()
+#     df_repl = dbquery2df(query)
+#     segments_df[SEG_ATIME.key] = pd.NaT  # necessary to coerce values to date later
+#     return segments_df if empty(df_repl) else mergeupdate(segments_df, df_repl,
+#                                                           [CHA_STAID.key, SEG_EVID.key],
+#                                                           [SEG_EVDIST.key, SEG_ATIME.key])
+# 
+# 
+# def get_arrivaltimes(segments_df, wtimespan, traveltime_phases, tau_model,  # FIXME: REMOVE
+#                      mp_max_workers=None,
+#                      show_progress=False):
+#     """
+#         Calculates the arrival times for those rows of `segments_df` wich are NaT
+# 
+#         :param segments_df: pandas DataFrame resulting from `set_saved_arrivaltimes`
+#     """
+#     # define columns (sql-alchemy model attrs) and their string names (pandas col names) once:
+#     SEG_EVID = Segment.event_id.key
+#     SEG_EVDIST = Segment.event_distance_deg.key
+#     SEG_ATIME = Segment.arrival_time.key
+#     SEG_STIME = Segment.start_time.key
+#     SEG_ETIME = Segment.end_time.key
+#     CHA_STAID = Channel.station_id.key
+#     EVT_DEPTH = Event.depth_km.key
+#     EVT_TIME = Event.time.key
+# 
+#     ptimes2calculate_df = segments_df[pd.isnull(segments_df[SEG_ATIME])].\
+#         drop_duplicates(subset=[SEG_EVID, CHA_STAID])
+#     patime_data = {SEG_ATIME: [], CHA_STAID: [], SEG_EVID: []}
+# 
+#     num_to_calculate = len(ptimes2calculate_df)
+# 
+#     # pre-allocate model (improves perfs)
+#     model = get_taumodel(tau_model)
+# 
+#     with get_progressbar(show_progress, length=num_to_calculate) as bar:
+#         # We can use a with statement to ensure threads are cleaned up promptly
+#         with concurrent.futures.ProcessPoolExecutor(max_workers=cpu_count() if not mp_max_workers
+#                                                     else mp_max_workers) as executor:
+#             future_to_evtid = {}
+#             for stadict in dfrowiter(ptimes2calculate_df, [SEG_EVDIST, EVT_DEPTH, EVT_TIME,
+#                                                            SEG_EVID, CHA_STAID]):
+#                 future_to_evtid[executor.submit(get_arrival_time,
+#                                                 stadict[SEG_EVDIST],
+#                                                 stadict[EVT_DEPTH],
+#                                                 stadict[EVT_TIME],
+#                                                 traveltime_phases,
+#                                                 0.0,
+#                                                 model)] = stadict[SEG_EVID], stadict[CHA_STAID]
+# 
+#             for future in concurrent.futures.as_completed(future_to_evtid):
+#                 bar.update(1)
+#                 atime = None
+#                 evt_id, sta_id = future_to_evtid[future]
+#                 try:
+#                     atime = future.result()
+#                     # set arrival time only if non-null
+#                     patime_data[SEG_ATIME].append(atime)
+#                     patime_data[CHA_STAID].append(sta_id)
+#                     patime_data[SEG_EVID].append(evt_id)
+#                 except Exception as exc:
+#                     # evt_id = atime = None
+#                     logger.warning(MSG("", "discarding segment (event_id: %d, station_id: %d)"
+#                                        % (evt_id, sta_id), exc))
+# 
+#     if num_to_calculate == 0:
+#         logger.info("All P-arrival times and time ranges already calculated (fetched from db)")
+# 
+#     # assign data to segments:
+#     df_repl = pd.DataFrame(data=patime_data)
+#     segments_df = mergeupdate(segments_df, df_repl, [SEG_EVID, CHA_STAID], [SEG_ATIME])
+# 
+#     # drop errors in arrival time:
+#     oldlen = len(segments_df)
+#     segments_df.dropna(subset=[SEG_ATIME, SEG_EVDIST], inplace=True)
+#     segdf_len = len(segments_df)
+#     if not segdf_len:
+#         raise QuitDownload(Exception(MSG("", "No arrival times calculated",
+#                                              "internal error: "
+#                                              "check config and log for details")))
+#     if oldlen > segdf_len:
+#         logger.info(MSG("", "%d of %d segments discarded"), oldlen-segdf_len, oldlen)
+#     # set start time and end time:
+#     td0, td1 = timedelta(minutes=wtimespan[0]), timedelta(minutes=wtimespan[1])
+#     segments_df[SEG_STIME] = (segments_df[SEG_ATIME] - td0).dt.round('s')
+#     segments_df[SEG_ETIME] = (segments_df[SEG_ATIME] + td1).dt.round('s')
+#     # drop unnecessary columns and return:
+#     return segments_df.drop([EVT_DEPTH, EVT_TIME, CHA_STAID], axis=1)

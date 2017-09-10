@@ -24,9 +24,9 @@ from stream2segment.main import main, closing
 from click.testing import CliRunner
 # from stream2segment.s2sio.db.pd_sql_utils import df2dbiter, get_col_names
 import pandas as pd
-from stream2segment.download.main import get_events_df, get_datacenters_df, logger as query_logger, \
-get_channels_df, merge_events_stations, set_saved_arrivaltimes, get_arrivaltimes,\
-    prepare_for_download, download_save_segments,\
+from stream2segment.download.main import get_events_df, get_datacenters_df, \
+    logger as query_logger, get_channels_df, merge_events_stations, \
+    prepare_for_download, download_save_segments, \
     QuitDownload, chaid2mseedid_dict
 # ,\
 #     get_fdsn_channels_df, save_stations_and_channels, get_dists_and_times, set_saved_dist_and_times,\
@@ -53,7 +53,8 @@ from test.test_userdict import d1
 from stream2segment.utils.mseedlite3 import MSeedError, unpack
 import threading
 from stream2segment.utils.url import read_async
-from stream2segment.utils.resources import get_templates_fpath, yaml_load
+from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_ttable_fpath
+from stream2segment.download.traveltimes.ttloader import TTTable
 
 
 # when debugging, I want the full dataframe with to_string(), not truncated
@@ -1375,6 +1376,15 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
 
 # FIXME: text save inventories!!!!
 
+    def ttable(self, modelname=None):
+        '''convenience function that loads a ttable from the data folder'''
+        if modelname is None:
+            modelname = 'ak135_tts+_5.npz'
+        fle = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', modelname)
+        if not os.path.splitext(fle)[1]:
+            fle += '.npz'
+        return TTTable(fle)
+
     def test_merge_event_stations(self):
         # get events with lat lon (1,1), (2,2,) ... (n, n)
         urlread_sideeffect = """#EventID | Time | Latitude | Longitude | Depth/km | Author | Catalog | Contributor | ContributorID | MagType | Magnitude | MagAuthor | EventLocationName
@@ -1429,11 +1439,12 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 # 3   4           4       7.0        7.0              2 2009-01-01 2019-01-01
 # 4   5           5       8.0        8.0              2 2019-01-01        NaT
 
+        tt_table = self.ttable()
         # for magnitude <10, max_radius is 0. For magnitude >10, max_radius is 200
         # we have only magnitudes <10, we have two events exactly on a station (=> dist=0)
         # which will be taken (the others dropped out)
         df = merge_events_stations(events_df, channels_df, minmag=10, maxmag=10,
-                                   minmag_radius=0, maxmag_radius=200)
+                                   minmag_radius=0, maxmag_radius=200, tttable=tt_table)
         
         assert len(df) == 2
         
@@ -1442,7 +1453,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # So we might have ALL channels taken BUT: one station start time is in 2019, thus
         # it will not fall into the case above!
         df = merge_events_stations(events_df, channels_df, minmag=1, maxmag=1,
-                                   minmag_radius=100, maxmag_radius=2000)
+                                   minmag_radius=100, maxmag_radius=2000, tttable=tt_table)
         
         assert len(df) == (len(channels_df)-1) *len(events_df)
         # assert channel outside time bounds was in:
@@ -1456,7 +1467,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # threshold (sraidus_minradius=1) for magnitudes <=3 (the first event magnitude)
         # and maxradius very high for the other event (magnitude=4)
         df = merge_events_stations(events_df, channels_df, minmag=3, maxmag=4,
-                                   minmag_radius=1, maxmag_radius=40)
+                                   minmag_radius=1, maxmag_radius=40, tttable=tt_table)
         
         # assert we have only the second event except the first channel which is from the 1st event.
         # The first event is retrievable by its latitude (2)
@@ -1465,184 +1476,47 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert np.array_equal((df[Segment.event_id.key] == evid),
                               [False, True, True, True, True])
         
-
-
-
+        
+        # test arrival times are properly set: Set all event locations to [0,0] as well
+        # as stations locations. This should result in all arrival times equal to event time
+        #
+        _events_df = events_df
+        _channels_df = channels_df
+        events_df = events_df.copy()
+        events_df.loc[:, Event.latitude.key] = 0
+        events_df.loc[:, Event.longitude.key] = 0
+        event_ids = pd.unique(events_df[Event.id.key])
+        # We have two events, set the depth of the first one to zero the other to 60 
+        evtid1, evtid2 = event_ids[0], event_ids[1]
+        evttime1 = events_df[events_df[Event.id.key] == evtid1][Event.time.key].iloc[0]
+        evttime2 = events_df[events_df[Event.id.key] == evtid2][Event.time.key].iloc[0]
+        events_df.loc[events_df[Event.id.key] == evtid1, Event.depth_km.key] = 0
+        events_df.loc[events_df[Event.id.key] == evtid2, Event.depth_km.key] = 60
+         
+        channels_df = channels_df.copy()
+        channels_df.loc[:, Station.latitude.key] = 0
+        channels_df.loc[:, Station.longitude.key] = 0
+        df = merge_events_stations(events_df, channels_df, minmag=3, maxmag=4,
+                                   minmag_radius=1, maxmag_radius=40, tttable=tt_table)
+        # assert for events of depth 0 arrival times are queal to event times
+        assert (df[df[Segment.event_id.key] == evtid1][Segment.arrival_time.key] == evttime1).all()
+        # assert for events of depth > 0 arrival times are GREATER than event times
+        assert (df[df[Segment.event_id.key] == evtid2][Segment.arrival_time.key] > evttime2).all()
+         
+        # now set the first event time out-of bounds:
+        events_df.loc[events_df[Event.id.key] == evtid1, Event.depth_km.key] = 600000
+        df = merge_events_stations(events_df, channels_df, minmag=3, maxmag=4,
+                                   minmag_radius=1, maxmag_radius=40, tttable=tt_table)
+        # assert for events of depth 0 arrival times are queal to event times
+        # as nans are dropped from the returned dataframe, assert we do not have segments with
+        # event_id == evtid1:
+        assert df[df[Segment.event_id.key] == evtid1][Segment.arrival_time.key].empty
+        # still assert for events of depth > 0 arrival times are GREATER than event times
+        assert (df[df[Segment.event_id.key] == evtid2][Segment.arrival_time.key] > evttime2).all()
+        
 
 
 # # =================================================================================================
-# 
-    def get_arrivaltimes(self, mintraveltime_side_effect, *a, **kw) : # , ):
-        
-        # REMEMBER: WITH PROCESSPOOLEXECUTOR DO NOT MOCK DIRECTLY THE FUNCTION PASSED
-        # AS AS_COMPLETED, BUT A SUB FUNCTION. THIS IS PROBABLY DUE TO THE FACT THAT MOCKS ARE
-        # NOT PICKABLE (SUB FUNCTIONS APPARENTLY DO NOT SUFFER NON PICKABILITY)
-        
-        self.mock_min_travel_time.reset_mock()
-        self.mock_min_travel_time.side_effect = self._mintraveltime_sideeffect if mintraveltime_side_effect is None else mintraveltime_side_effect
-        # self.setup_mock_arrival_time(mock_arr_time)
-        return get_arrivaltimes(*a, **kw)
- 
-
-    def test_getset_arrivaltimes(self):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
-        # prepare:
-        urlread_sideeffect = None  # use defaults from class
-        events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", db_bufsize=self.db_buf_size)
-        channels = None
-        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
-                                                           service=None,
-                                                           channels=channels, db_bufsize=self.db_buf_size)                                      
-        channels_df = self.get_channels_df(urlread_sideeffect, self.session,
-                                                       datacenters_df,
-                                                       postdata,
-                                                       channels,
-                                                       100, None, None, -1, self.db_buf_size
-                                               )
-        assert len(channels_df) == 12  # just to be sure. If failing, we might have changed the class default
-    # events_df
-#    id  magnitude  latitude  longitude  depth_km                    time
-# 0  1   3.0        1.0       1.0        60.0     2016-05-08 05:17:11.500
-# 1  2   4.0        90.0      90.0       2.0      2016-05-08 01:45:30.300
-
-    # channels_df:
-#    id  station_id  latitude  longitude  datacenter_id start_time end_time network station location channel
-# 0  1   1           1.0       1.0        1             2003-01-01 NaT       GE      FLT1             HHE   
-# 1  2   1           1.0       1.0        1             2003-01-01 NaT       GE      FLT1             HHN   
-# 2  3   1           1.0       1.0        1             2003-01-01 NaT       GE      FLT1             HHZ   
-# 3  4   2           90.0      90.0       1             2009-01-01 NaT       n1      s                c1    
-# 4  5   2           90.0      90.0       1             2009-01-01 NaT       n1      s                c2    
-# 5  6   2           90.0      90.0       1             2009-01-01 NaT       n1      s                c3    
-# 6   7   3           1.0       1.0        2             2003-01-01 NaT       IA      BAKI             BHE   
-# 7   8   3           1.0       1.0        2             2003-01-01 NaT       IA      BAKI             BHN   
-# 8   9   3           1.0       1.0        2             2003-01-01 NaT       IA      BAKI             BHZ   
-# 9   10  4           90.0      90.0       2             2009-01-01 NaT       n2      s                c1    
-# 10  11  4           90.0      90.0       2             2009-01-01 NaT       n2      s                c2    
-# 11  12  4           90.0      90.0       2             2009-01-01 NaT       n2      s                c3    
-
-        # take all segments:
-        df = merge_events_stations(events_df, channels_df, minmag=10, maxmag=10,
-                                   minmag_radius=100, maxmag_radius=200)
-        
-        h = 9
-
-        # NOW TEST GET ARRIVAL TIMES
-        # FIRST WE HAVE DB EMPTY THUS NO UPADTE SHOULD BE MADE
-        assert Segment.arrival_time.key not in df.columns
-        evts_stations_df = set_saved_arrivaltimes(self.session, df)
-        
-# evts_stations_df:
-#    channel_id  station_id  datacenter_id network station location channel  event_distance_deg  event_id  depth_km                    time               arrival_time
-# 0  1           1           1              GE      FLT1             HHE     500.555             1         60.0     2016-05-08 05:17:11.500 2017-05-10 12:39:13.463745
-# 1  2           1           1              GE      FLT1             HHN     500.555             1         60.0     2016-05-08 05:17:11.500 2017-05-10 12:39:13.463745
-# 2  3           1           1              GE      FLT1             HHZ     500.555             1         60.0     2016-05-08 05:17:11.500 2017-05-10 12:39:13.463745
-# 3  4           2           1              n1      s                c1      89.000              1         60.0     2016-05-08 05:17:11.500 NaT                       
-# 4  5           2           1              n1      s                c2      89.000              1         60.0     2016-05-08 05:17:11.500 NaT                       
-# 5  6           2           1              n1      s                c3      89.0                1         60.0     2016-05-08 05:17:11.500 NaT         
-# 6  7           3           2              IA      BAKI             BHE     0.0                 1         60.0     2016-05-08 05:17:11.500 NaT         
-# 7  8           3           2              IA      BAKI             BHN     0.0                 1         60.0     2016-05-08 05:17:11.500 NaT         
-# 8  9           3           2              IA      BAKI             BHZ     0.0                 1         60.0     2016-05-08 05:17:11.500 NaT         
-# 9  10          4           2              n2      s                c1      89.0                1         60.0     2016-05-08 05:17:11.500 NaT         
-# 10  11          4           2              n2      s                c2      89.0                1         60.0     2016-05-08 05:17:11.500 NaT         
-# 11  12          4           2              n2      s                c3      89.0                1         60.0     2016-05-08 05:17:11.500 NaT         
-# 12  1           1           1              GE      FLT1             HHE     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
-# 13  2           1           1              GE      FLT1             HHN     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
-# 14  3           1           1              GE      FLT1             HHZ     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
-# 15  4           2           1              n1      s                c1      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
-# 16  5           2           1              n1      s                c2      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
-# 17  6           2           1              n1      s                c3      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
-# 18  7           3           2              IA      BAKI             BHE     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
-# 19  8           3           2              IA      BAKI             BHN     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
-# 20  9           3           2              IA      BAKI             BHZ     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
-# 21  10          4           2              n2      s                c1      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
-# 22  11          4           2              n2      s                c2      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
-# 23  12          4           2              n2      s                c3      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
-
-
-
-        assert Segment.arrival_time.key in evts_stations_df.columns and \
-            all(pd.isnull(evts_stations_df[Segment.arrival_time.key]))
-        
-        # now put a segment on the db and see that one arrival time is not null
-        atime = datetime.utcnow()
-        stime = atime - timedelta(minutes=1)
-        etime = atime + timedelta(minutes=3)
-        evdist = 500.555
-        # we will set values on atime and evdist according to
-        # Channel.station-id.key ('station_id')
-        # Segment.event_id.key ('event_id')
-        SID = 1
-        EVID = 1
-        self.session.add(Segment(id = 1, # , default=seg_pkey_default, 
-                         event_id = EVID,
-                         channel_id = 1,  # the channel here must have station id = SID (see above)
-                         datacenter_id = 1,
-                         # seed_identifier = 'abc',
-                         event_distance_deg = evdist,
-                         data = None, # lazy load only upon access
-                         download_status_code = None,
-                         start_time = stime,
-                         arrival_time = atime,
-                         end_time = etime,
-                         sample_rate = 100,
-                         run_id = self.run.id))
-        self.session.commit()
-        
-        evts_stations_df = set_saved_arrivaltimes(self.session, df)
-        filter = (evts_stations_df[Channel.station_id.key] == SID) & \
-            (evts_stations_df[Segment.event_id.key] == EVID)
-        # we changed only ONE item in df:
-        existing_items = 3
-        assert len(evts_stations_df[filter]) == existing_items
-        assert all(evts_stations_df[filter][Segment.arrival_time.key] == atime)
-        assert all(evts_stations_df[filter][Segment.event_distance_deg.key] == evdist)
-        
-        # NOW mock get_dist_and_times
-
-        # test first with a function that returns a TypeError for any segment:
-        def deterministic_mintraveltime_sideeffect(*a, **kw):
-            return datetime.utcnow()  # we should return the TOTAL seconds, NOT a datetime. Thus we should have all errors
-
-        # make a copy of evts_stations_df cause we will modify in place the data frame
-        segments_df =  self.get_arrivaltimes(deterministic_mintraveltime_sideeffect, evts_stations_df.copy(),
-                                                   [1,2], ['P', 'Q'],
-                                                        'ak135', mp_max_workers=1)
-        
-        # all failed, except the one we just set by mocking the db:
-        assert len(segments_df) == existing_items  # these were not recalculated
-        
-        # Test now with a function which raises in some cases
-        # IMPORTANT: WE NEED A DETERMINISTIC WAY TO HANDLE ARRIVAL TIME CALCULATION, 
-        # AS APPARENTLY BEING IN A PROCESSPOOLEXECUTOR LEADS TO UNEXPECTED ORDERS
-        # (CF EG BY RUNNING IN ECLIPSE OR IN TERMINAL). SO:
-        #
-        # WE NEED A DETERMINISTIC WAY TO MOCK THE FUNCTION AS THIS BELOW MIGHT BE EXECUTED IN
-        # UNEXPECTED ORDER (DUE TO MULTIPROCESSING)
-        
-        def deterministic_mintraveltime_sideeffect(*a, **kw):
-            evt_depth_km = a[0]
-            if evt_depth_km == 60:
-                return 1  # seconds
-            raise TauModelError('wat?')
-        
-        expected_length = len(evts_stations_df[(evts_stations_df[Event.depth_km.key]==60) |
-                                               (~pd.isnull(evts_stations_df[Segment.arrival_time.key]))])
-        
-        assert Segment.start_time.key not in evts_stations_df.columns
-        assert Segment.end_time.key not in evts_stations_df.columns
-        assert Event.time.key in evts_stations_df.columns
-        assert Event.depth_km.key in evts_stations_df.columns
-        
-        # make a copy of evts_stations_df cause we will modify in place the data frame
-        segments_df =  self.get_arrivaltimes(deterministic_mintraveltime_sideeffect, evts_stations_df.copy(),
-                                                   [1,2], ['P', 'Q'],
-                                                        'ak135', mp_max_workers=1)
-        
-        # all failed, except the one we just set by mocking the db:
-        assert len(segments_df) == expected_length
-        assert Segment.start_time.key in segments_df.columns
-        assert Segment.end_time.key in segments_df.columns
-
-        # FIXME: we should assert times are correctly calculated with respect to event time
 
 
     def test_prepare_for_download(self):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
@@ -1681,11 +1555,11 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 # 11  12  4           90.0      90.0       2             2009-01-01 NaT       n2      s                c3    
 
         # take all segments:
-        df = merge_events_stations(events_df, channels_df, minmag=10, maxmag=10,
-                                   minmag_radius=100, maxmag_radius=200)
-        evts_stations_df = set_saved_arrivaltimes(self.session, df)
+        segments_df = merge_events_stations(events_df, channels_df, minmag=10, maxmag=10,
+                                   minmag_radius=100, maxmag_radius=200, tttable=self.ttable())
+
         
-# evts_stations_df:
+# segments_df:
 #    channel_id  station_id  datacenter_id network station location channel  event_distance_deg  event_id  depth_km                    time               arrival_time
 # 0  1           1           1              GE      FLT1             HHE     500.555             1         60.0     2016-05-08 05:17:11.500 2017-05-10 12:39:13.463745
 # 1  2           1           1              GE      FLT1             HHN     500.555             1         60.0     2016-05-08 05:17:11.500 2017-05-10 12:39:13.463745
@@ -1716,16 +1590,16 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         
         
         # make a copy of evts_stations_df cause we will modify in place the data frame
-        segments_df =  self.get_arrivaltimes(urlread_sideeffect, evts_stations_df.copy(),
-                                                   [1,2], ['P', 'Q'],
-                                                        'ak135', mp_max_workers=1)
+#         segments_df =  self.get_arrivaltimes(urlread_sideeffect, evts_stations_df.copy(),
+#                                                    [1,2], ['P', 'Q'],
+#                                                         'ak135', mp_max_workers=1)
         
         expected = len(segments_df)  # no segment on db, we should have all segments to download
-        
+        wtimespan = [1,2]
         assert not Segment.id.key in segments_df.columns
         assert not Segment.run_id.key in segments_df.columns
         orig_seg_df = segments_df.copy()
-        segments_df = prepare_for_download(self.session, orig_seg_df,
+        segments_df = prepare_for_download(self.session, orig_seg_df, wtimespan,
                                            retry_no_code=True,
                                            retry_url_errors=True,
                                            retry_mseed_errors=True,
@@ -1790,7 +1664,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # set the num of instances to download anyway. Their number is the not saved ones, i.e.:
         to_download_anyway = len(segments_df) - len(downloadstatuscodes)
         for c in product([True, False], [True, False], [True, False], [True, False], [True, False]):
-            s_df = prepare_for_download(self.session, orig_seg_df,
+            s_df = prepare_for_download(self.session, orig_seg_df, wtimespan,
                                            retry_no_code=c[0],
                                            retry_url_errors=c[1],
                                            retry_mseed_errors=c[2],
@@ -1799,6 +1673,18 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             to_download_in_this_case = sum(c)  # count the True's (bool sum works in python) 
             assert len(s_df) == to_download_anyway +  to_download_in_this_case
 
+        # now change the window time span and see that everything is to be downloaded again:
+        # do it for any retry combinations, as it should ALWAYS return "everything has to be re-downloaded"
+        wtimespan[1] += 5
+        for c in product([True, False], [True, False], [True, False], [True, False], [True, False]):
+            s_df = prepare_for_download(self.session, orig_seg_df, wtimespan,
+                                           retry_no_code=c[0],
+                                           retry_url_errors=c[1],
+                                           retry_mseed_errors=c[2],
+                                           retry_4xx=c[3],
+                                           retry_5xx=c[4])
+            assert len(s_df) == len(orig_seg_df)
+        # this hol
 
     def download_save_segments(self, url_read_side_effect, *a, **kw):
         self.setup_urlopen(self._seg_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
@@ -1857,12 +1743,17 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         
         # take all segments:
         # use minmag and maxmag
-        df = merge_events_stations(events_df, channels_df, minmag=10, maxmag=10,
-                                   minmag_radius=10, maxmag_radius=10)
+        ttable = self.ttable()
+        segments_df = merge_events_stations(events_df, channels_df, minmag=10, maxmag=10,
+                                   minmag_radius=10, maxmag_radius=10, tttable=ttable)
+        
+        assert len(pd.unique(segments_df['arrival_time'])) == 2
         
         h = 9
+    
+    
         
-# df (index not shown):
+# segments_df (index not shown). Note that 
 # cid sid did n   s    l  c    ed   event_id          depth_km                time  <- LAST TWO ARE Event related columns that will be removed after arrival_time calculations
 # 1   1   1   GE  FLT1    HHE  0.0  20160508_0000129  60.0 2016-05-08 05:17:11.500
 # 2   1   1   GE  FLT1    HHN  0.0  20160508_0000129  60.0 2016-05-08 05:17:11.500
@@ -1884,15 +1775,11 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 # n, s, l, c = network, station, location, channel
 # ed = event_distance_deg
 
-        evts_stations_df = set_saved_arrivaltimes(self.session, df)
-                # make a copy of evts_stations_df cause we will modify in place the data frame
-        segments_df =  self.get_arrivaltimes(urlread_sideeffect, evts_stations_df.copy(),
-                                                   [1,2], ['P', 'Q'],
-                                                        'ak135', mp_max_workers=1)
-        
+
+        wtimespan = [1,2]
         expected = len(segments_df)  # no segment on db, we should have all segments to download
         orig_segments_df = segments_df.copy()
-        segments_df = prepare_for_download(self.session, orig_segments_df,
+        segments_df = prepare_for_download(self.session, orig_segments_df, wtimespan,
                                            retry_no_code=True,
                                            retry_url_errors=True,
                                            retry_mseed_errors=True,
@@ -2031,7 +1918,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         
         
         # now mock retry:
-        segments_df = prepare_for_download(self.session, orig_segments_df,
+        segments_df = prepare_for_download(self.session, orig_segments_df, wtimespan,
                                            retry_no_code=True,
                                            retry_url_errors=True,
                                            retry_mseed_errors=True,

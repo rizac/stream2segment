@@ -363,11 +363,12 @@ def main():
 @click.option('-r5', '--retry_5xx', is_flag=True, default=None)
 @click.option('-i', '--inventory', is_flag=True, default=None)
 @click.option('-e', '--eventws')
+@click.option('-t', '--traveltimes_model')
 @click.argument('eventws_query_args', nargs=-1, type=click.UNPROCESSED,
                 callback=click_stuff.proc_eventws_args)
 def d(configfile, dburl, start, end, service, wtimespan, min_sample_rate, retry_no_code,
       retry_url_errors, retry_mseed_errors, retry_4xx, retry_5xx, inventory, eventws,
-      eventws_query_args):
+      traveltimes_model, eventws_query_args):
     """Efficiently download waveform data segments and relative events, stations and channels
     metadata (plus additional class labels, if needed)
     into a specified database for further processing or visual inspection in a

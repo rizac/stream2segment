@@ -26,7 +26,7 @@ from click.testing import CliRunner
 # from stream2segment.s2sio.db.pd_sql_utils import df2dbiter, get_col_names
 import pandas as pd
 from stream2segment.download.main import get_events_df, get_datacenters_df, \
-get_channels_df, merge_events_stations, set_saved_arrivaltimes, get_arrivaltimes,\
+get_channels_df, merge_events_stations, \
     prepare_for_download, download_save_segments, save_inventories
 # ,\
 #     get_fdsn_channels_df, save_stations_and_channels, get_dists_and_times, set_saved_dist_and_times,\
@@ -398,19 +398,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         self.setup_urlopen(self._sta_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
         return get_channels_df(*a, **kw)
 
-# # =================================================================================================
-# 
-    def get_arrivaltimes(self, mintraveltime_side_effect, *a, **kw) : # , ):
-        
-        # REMEMBER: WITH PROCESSPOOLEXECUTOR DO NOT MOCK DIRECTLY THE FUNCTION PASSED
-        # AS AS_COMPLETED, BUT A SUB FUNCTION. THIS IS PROBABLY DUE TO THE FACT THAT MOCKS ARE
-        # NOT PICKABLE (SUB FUNCTIONS APPARENTLY DO NOT SUFFER NON PICKABILITY)
-        
-        self.mock_min_travel_time.reset_mock()
-        self.mock_min_travel_time.side_effect = self._mintraveltime_sideeffect if mintraveltime_side_effect is None else mintraveltime_side_effect
-        # self.setup_mock_arrival_time(mock_arr_time)
-        return get_arrivaltimes(*a, **kw)
- 
+# # ================================================================================================= 
 
     def download_save_segments(self, url_read_side_effect, *a, **kw):
         self.setup_urlopen(self._seg_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
@@ -432,20 +420,18 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     @patch('stream2segment.download.main.get_datacenters_df')
     @patch('stream2segment.download.main.get_channels_df')
     @patch('stream2segment.download.main.save_inventories')
-    @patch('stream2segment.download.main.get_arrivaltimes')
     @patch('stream2segment.download.main.download_save_segments')
     @patch('stream2segment.download.main.mseedunpack')
     @patch('stream2segment.download.main.insertdf_napkeys')
     @patch('stream2segment.download.main.updatedf')
     def test_cmdline_dberr(self, mock_updatedf, mock_insertdf_napkeys, mock_mseed_unpack,
-                     mock_download_save_segments, mock_get_arrivaltimes, mock_save_inventories, mock_get_channels_df,
+                     mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
                     mock_get_datacenters_df, mock_get_events_df, mock_autoinc_db):
         
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
-        mock_get_arrivaltimes.side_effect = lambda *a, **v: self.get_arrivaltimes(None, *a, **v)
         mock_download_save_segments.side_effect = lambda *a, **v: self.download_save_segments(None, *a, **v)
         mock_mseed_unpack.side_effect = lambda *a, **v: unpack(*a, **v)
         mock_insertdf_napkeys.side_effect = lambda *a, **v: insertdf_napkeys(*a, **v)
@@ -524,20 +510,18 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
     @patch('stream2segment.download.main.get_datacenters_df')
     @patch('stream2segment.download.main.get_channels_df')
     @patch('stream2segment.download.main.save_inventories')
-    @patch('stream2segment.download.main.get_arrivaltimes')
     @patch('stream2segment.download.main.download_save_segments')
     @patch('stream2segment.download.main.mseedunpack')
     @patch('stream2segment.download.main.insertdf_napkeys')
     @patch('stream2segment.download.main.updatedf')
     def test_cmdline(self, mock_updatedf, mock_insertdf_napkeys, mock_mseed_unpack,
-                     mock_download_save_segments, mock_get_arrivaltimes, mock_save_inventories, mock_get_channels_df,
+                     mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
                     mock_get_datacenters_df, mock_get_events_df):
         
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
-        mock_get_arrivaltimes.side_effect = lambda *a, **v: self.get_arrivaltimes(None, *a, **v)
         mock_download_save_segments.side_effect = lambda *a, **v: self.download_save_segments(None, *a, **v)
         mock_mseed_unpack.side_effect = lambda *a, **v: unpack(*a, **v)
         mock_insertdf_napkeys.side_effect = lambda *a, **v: insertdf_napkeys(*a, **v)
@@ -704,8 +688,6 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
             return self.get_channels_df(None, *aa, **v) 
         mock_get_channels_df.side_effect = mgdf
         
-        mock_get_arrivaltimes.reset_mock()
-        
         runner = CliRunner()
         result = runner.invoke(main , ['d', '-c', self.configfile,
                                        '--dburl', self.dburi,
@@ -718,7 +700,6 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
             assert False
             return
         
-        assert not mock_get_arrivaltimes.called
         assert str_err in self.log_msg()
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v) 
         
@@ -731,15 +712,12 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         rem = self._sta_urlread_sideeffect
         self._sta_urlread_sideeffect = 500
         
-        mock_get_arrivaltimes.reset_mock()
-        
         runner = CliRunner()
         result = runner.invoke(main , ['d', '-c', self.configfile,
                                        '--dburl', self.dburi,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         
-        assert not mock_get_arrivaltimes.called
         assert str_err in self.log_msg()
         # reset to default:
         self._sta_urlread_sideeffect = rem
