@@ -110,43 +110,6 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
         raise QuitDownload(exc)
 
 
-# def get_eventws_url(session, service):
-#     """Returns the event web service url from a given service name (string),
-#     currently either "eida" or "iris"
-#     """
-#     dic = yaml_load(get_ws_fpath())
-#     try:
-#         return dic['seismicportal' if service == 'eida' else service]['event']
-#     except (IndexError, KeyError):
-#         raise ValueError("Service '%s'\\'s web service not found" % service)
-
-
-# def add_classes(session, class_labels, db_bufsize):
-#     """Inserts the given classes to the relative table
-#     :param class_labels: a dict of class_label mapped to the class description
-#     (e.g. "low_snr": "segment with low signal-to-noise ratio")
-#     """
-#     if class_labels:
-#         cdf = pd.DataFrame(data=[{Class.label.key: k, Class.description.key: v}
-#                            for k, v in class_labels.iteritems()])
-#         dbinsertdf(cdf, session, [Class.label], db_bufsize)
-# 
-# 
-# # FIXME: this method is just called from add_classes above. Worth using?
-# # We might move to dbsyncdf below but then the program would stop if no classes are added
-# # Is what we want? Or maybe move classes to GUI?
-# def dbinsertdf(dataframe, session, matching_columns, buf_size=10, query_first=True,
-#                drop_duplicates=True, return_df=True):
-#     """Calls `insertdf` and writes to the logger before returning the
-#     new dataframe."""
-#     oldlen = len(dataframe)
-#     df, new = insertdf(dataframe, session, matching_columns, buf_size, query_first,
-#                        drop_duplicates, return_df)
-#     discarded = oldlen - len(df)
-#     dblog(matching_columns[0].class_, new, discarded)
-#     return df
-
-
 def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_size=10,
              drop_duplicates=True, return_df=True, cols_to_print_on_err=None):
     """Calls `syncdf` and writes to the logger before returning the
@@ -717,13 +680,6 @@ def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius,
     return ret
 
 
-# def create_segments_df(channels_df, evts_stations_df):
-#     seg_df = channels_df.merge(evts_stations_df, how='left', on=[Channel.station_id.key])
-#     seg_df.drop([Channel.station_id.key], inplace=True)
-#     seg_df.rename(columns={Channel.id.key: Segment.channel_id.key}, inplace=True)
-#     return seg_df
-
-
 def prepare_for_download(session, segments_df, wtimespan, retry_no_code, retry_url_errors,
                          retry_mseed_errors, retry_4xx, retry_5xx):
     """
@@ -822,49 +778,8 @@ def prepare_for_download(session, segments_df, wtimespan, retry_no_code, retry_u
         raise QuitDownload("Nothing to download: all segments already downloaded according to "
                            "the current configuration")
 
-    # DO NOT REMOVE dupes anymore (commented out):
-    # for safety, remove dupes (we should not have them, however...). FIXME: # add msg???
-    # segments_df = segments_df.drop_duplicates(subset=[SEG_CHID, SEG_STIME, SEG_ETIME])
-
-    # COMMENTED OUT: WE DO NOT NEED TO REMOVE THESE COLUMNS AS THEY ARE NOT ANYMORE
-    # PART OF THE DATAFRAME. FIXME: remove these lines after tests!
-    # --------------------------------------------------------------
-#     # set index with post data line (string)
-#     segments_df = segments_df.set_index(_strcat(segments_df))
-#     segments_df.index.name = None  # just for better str display...
-#     # keep relevant data only. inplace should help memory management
-#     STA_NET = Station.network.key
-#     STA_STA = Station.station.key
-#     CHA_LOC = Channel.location.key
-#     CHA_CHA = Channel.channel.key
-#     segments_df.drop([STA_NET, STA_STA, CHA_LOC, CHA_CHA, SEG_RETRY], axis=1, inplace=True)
-
     segments_df.drop([SEG_RETRY], axis=1, inplace=True)
     return segments_df
-
-
-# def _strcat(segments_df):
-#     STA_NET = Station.network.key
-#     STA_STA = Station.station.key
-#     CHA_LOC = Channel.location.key
-#     CHA_CHA = Channel.channel.key
-#     n = segments_df[STA_NET].str.cat
-#     s = segments_df[STA_STA].str.cat
-#     l = segments_df[CHA_LOC].str.cat
-#     c = segments_df[CHA_CHA]
-#     return n(s(l(c, sep='.', na_rep=''), sep='.', na_rep=''), sep='.', na_rep='')
-
-
-# def _get_seg_request(segments_df, datacenter_url):
-#     """returns a Request object from the given segments_df"""
-#     SEG_STIME = Segment.start_time.key
-#     SEG_ETIME = Segment.end_time.key
-#     stime = segments_df[SEG_STIME].iloc[0].isoformat()
-#     etime = segments_df[SEG_ETIME].iloc[0].isoformat()
-#     frmt_str = "{} {} {} {} %s %s" % (stime, etime)
-#     post_data = "\n".join(frmt_str.format(*("--" if not _ else _ for _ in k.split(".")))
-#                           for k in segments_df.index)
-#     return Request(url=datacenter_url, data=post_data)
 
 
 def get_seg_request(segments_df, datacenter_url, chaid2mseedid_dict):
@@ -1326,16 +1241,6 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
     del events_df
     del channels_df
     # session.expunge_all()  # for memory: https://stackoverflow.com/questions/30021923/how-to-delete-a-sqlalchemy-mapped-object-from-memory
-
-#     logger.info("")
-#     logger.info(("STEP %s: Calculating P-arrival times and time ranges"), next(stepiter))
-#     segments_df = set_saved_arrivaltimes(session, segments_df)
-#     # rename dataframe to make clear that now we have segments:
-#     try:
-#         segments_df = get_arrivaltimes(segments_df, wtimespan, traveltime_phases, 'ak135',
-#                                        None, isterminal)
-#     except QuitDownload as dexc:
-#         return dexc.log()
 
     gc.collect()  # help memory management before high demanding task
 
