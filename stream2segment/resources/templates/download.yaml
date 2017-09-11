@@ -118,23 +118,29 @@ min_sample_rate: 60
 # the event location to each station location. A model is internally a set of pre-calculated
 # travel time points. For any new event and a station distance (within the search radius defined
 # before), an interpolated value of the relative travel time will be computed.
-# The value error with respect of the "real" value is negligible (max 0.5 second from experiments)
-# and the calculation speedup is dramatically increased. The model available
+# The value error with respect of the "real" value is negligible (max 0.5 second from experiments
+# with the current default models) 
+# and the calculation speed is dramatically increased. The model available
 # by default, all assuming receiver depth=0 for simplicity, are:
 # ak135_ttp+: ak135 model pre-computed for all ttp+ phases (P wave arrivals)
-# ak135_tts+: ak135 model for all tts+ phases (S wave arrivals)
-# iasp91_ttp+: ak135 model for all ttp+ phases (P wave arrivals)
-# iasp91_tts+: ak135 model for all ttp+ phases (S wave arrivals)
-# A routine is available (ttcreator.py) to calculate
-# your own model given a set of phases, a model name and source/receiver depths. Future rleases
-# will document this option. 
+# ak135_tts+: ak135 model pre-computed for all tts+ phases (S wave arrivals)
+# iasp91_ttp+: iasp91 model pre-computed for all ttp+ phases (P wave arrivals)
+# iasp91_tts+: iasp91 model pre-computed for all tts+ phases (S wave arrivals)
+# A script is available (python ttcreator.py --help) to calculate
+# your own model given a set of phases, a model name and source/receiver depths. Future releases
+# will better document this option. 
 # For info see: https://docs.obspy.org/packages/obspy.taup.html#phase-naming-in-obspy-taup
 traveltimes_model: 'ak135_ttp+'
 
-# Waveform segment time window: specify two positive integers denoting the 
-# minutes to account for before and after the calculated arrival time
+# Waveform segment time window: specify two positive floats denoting the 
+# minutes to account for before and after the calculated arrival time.
+# Note that 3.5 means 3 minutes 30 seconds, so 3 minutes and 1 second should be 3.01666666, but you
+# should never need such a fine resolution. In any case, all segments time windows after computation
+# will be eventually rounded to the closest second: segments already downloaded
+# (according to the tuple (channel_id, event_id)) and with a different time window will be
+# downloaded again regardless of the retry flags
 wtimespan:
- - 1.0 # start time of the waveform segment to download, in minutes *before* the previously calculated arrival time
+ - 1.0 # start time of the waveform segment to download, in minutes *before* the previously calculated arrival time.
  - 3.0 # end time of the waveform segment to download, in minutes *after* the previously calculated arrival time
 
 

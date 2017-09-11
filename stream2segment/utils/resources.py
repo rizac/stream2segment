@@ -158,7 +158,7 @@ def yaml_load_doc(filepath, varname=None):
                     m = reg_yaml_var.match(line)
                     if m and m.groups():
                         var_name = m.groups()[0]
-                        comment = "\n".join(comments)
+                        comment = " ".join(comments)
                         docstring = comment.decode('utf8') if isbytes else comment
                         if varname is None:
                             ret[var_name] = docstring

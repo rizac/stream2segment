@@ -343,6 +343,8 @@ def get_datacenters_df(session, routing_service_url, service, channels, db_bufsi
                         if len(spl) > 3:
                             cha = spl[3].strip()
                             if spl[3] == '*' or channels_re.match(cha):
+                                if cha != '*' and cha[0] != 'H':
+                                    dfg = 9
                                 accept_it = True
 
                     if accept_it:
@@ -725,26 +727,20 @@ def prepare_for_download(session, segments_df, wtimespan, retry_no_code, retry_u
     db_seg_df = dbquery2df(session.query(SEG_ID_DBCOL, SEG_CHID_DBCOL, SEG_STIME_DBCOL,
                                          SEG_ETIME_DBCOL, SEG_DSC_DBCOL, SEG_EVID_DBCOL))
 
-    # filter already downloaded:
-    mask = None
+    # set the boolean array telling whether we need to retry db_seg_df elements (those already
+    # downloaded)
+    mask = False
     if retry_no_code:
-        _mask = pd.isnull(db_seg_df[SEG_DSC])
-        mask = _mask if mask is None else mask | _mask
+        mask |= pd.isnull(db_seg_df[SEG_DSC])
     if retry_url_errors:
-        _mask = db_seg_df[SEG_DSC] == URLERR_CODE
-        mask = _mask if mask is None else mask | _mask
+        mask |= db_seg_df[SEG_DSC] == URLERR_CODE
     if retry_mseed_errors:
-        _mask = db_seg_df[SEG_DSC] == MSEEDERR_CODE
-        mask = _mask if mask is None else mask | _mask
+        mask |= db_seg_df[SEG_DSC] == MSEEDERR_CODE
     if retry_4xx:
-        _mask = db_seg_df[SEG_DSC].between(400, 499.9999, inclusive=True)
-        mask = _mask if mask is None else mask | _mask
+        mask |= db_seg_df[SEG_DSC].between(400, 499.9999, inclusive=True)
     if retry_5xx:
-        _mask = db_seg_df[SEG_DSC].between(500, 599.9999, inclusive=True)
-        mask = _mask if mask is None else mask | _mask
+        mask |= db_seg_df[SEG_DSC].between(500, 599.9999, inclusive=True)
 
-    if mask is None:
-        mask = False
     db_seg_df[SEG_RETRY] = mask
 
     # update existing dataframe. If db_seg_df we might NOT set the columns of db_seg_df not
@@ -755,13 +751,18 @@ def prepare_for_download(session, segments_df, wtimespan, retry_no_code, retry_u
     segments_df[SEG_ETIME] = pd.NaT  # coerce to valid type
     segments_df = mergeupdate(segments_df, db_seg_df, [SEG_CHID, SEG_EVID],
                               [SEG_ID, SEG_RETRY, SEG_STIME, SEG_ETIME])
-    # Now check time bounds
+
+    # Now check time bounds: segments_df[SEG_STIME] and segments_df[SEG_ETIME] are the OLD time
+    # bounds, cause we just set them on segments_df from db_seg_df. Some of them might be NaT,
+    # those not NaT mean the segment has already been downloaded (same (channelid, eventid))
+    # Now, for those non-NaT segments, set retry=True if the OLD time bounds are different
+    # than the new ones (tstart, tend).
     td0, td1 = timedelta(minutes=wtimespan[0]), timedelta(minutes=wtimespan[1])
     tstart, tend = (segments_df[SEG_ATIME] - td0).dt.round('s'), \
         (segments_df[SEG_ATIME] + td1).dt.round('s')
     segments_df[SEG_RETRY] |= pd.notnull(segments_df[SEG_STIME]) & \
         ((segments_df[SEG_STIME] != tstart) | (segments_df[SEG_ETIME] != tend))
-    # and set them:
+    # retry column updated: clear old time bounds and set new ones just calculated:
     segments_df[SEG_STIME] = tstart
     segments_df[SEG_ETIME] = tend
 
@@ -933,10 +934,12 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                     # via station and channel joins in case)
                     df.loc[:, SEG_DATA_NAME] = b''
                     df.loc[:, SEG_DSC_NAME] = code
+                    stats[url]["%d: %s" % (code, msg)] += len(df)
                 else:
                     try:
                         resdict = mseedunpack(data)
                         oks = 0
+                        errors = 0
                         # iterate over df rows and assign the relative data
                         # Note that we could use iloc which is SLIGHTLY faster than
                         # loc for setting the data, but this would mean using column
@@ -956,6 +959,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                                 # Use set_value as it's faster for single elements
                                 df.set_value(idxval, SEG_DSC_NAME, MSEEDERR_CODE)
                                 stats[url][err] += 1
+                                errors += 1
                             else:
                                 # This raises a UnicodeDecodeError:
                                 # df.loc[idxval, SEG_COLNAMES] = (data, s_rate,
@@ -974,7 +978,9 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                                 df.set_value(idxval, SEG_DATA_NAME, data)
                                 oks += 1
                         stats[url]["%d: %s" % (code, msg)] += oks
-
+                        unknowns = len(df) - oks - errors
+                        if unknowns > 0:
+                            stats[url]["Unknown: response ok, miniseed not found"] += unknowns
                     except MSeedError as mseedexc:
                         code = MSEEDERR_CODE
                         exc = mseedexc
@@ -991,15 +997,17 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                 bar.update(len(df))
                 # del df  # remove ref to df (helps gc when done in DbMAnager??)
 
+            segmanager.flush()  # flush remaining stuff to insert / update, if any
+
             if skipped_dataframes:
                 segments_df = pd.concat(skipped_dataframes, axis=0, ignore_index=True, copy=True,
                                         verify_integrity=False)
                 skipped_dataframes = []
+                gc.collect()
             else:
                 # break the next loop, if any
                 segments_df = pd.DataFrame()
 
-    segmanager.close()  # flush remaining stuff to insert / update, if any
     return stats
 
 
@@ -1126,8 +1134,9 @@ class DbManager(object):
         # cleanup:
         self._num2update = 0
         self.updates = []
+        gc.collect()  # this might help garbage collector
 
-    def close(self):
+    def flush(self):
         """flushes remaining stuff to insert/ update, if any, prints to log updates and inserts"""
         if self.inserts:
             self.insert()
@@ -1228,7 +1237,7 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
     chaid2mseedid = chaid2mseedid_dict(channels_df, drop_mseedid_columns=True)
 
     logger.info("")
-    logger.info(("STEP %s: Selecting stations within search radius from %d events"), next(stepiter),
+    logger.info(("STEP %s: Selecting stations within search area from %d events"), next(stepiter),
                 len(events_df))
     try:
         segments_df = merge_events_stations(events_df, channels_df, search_radius['minmag'],
@@ -1245,7 +1254,8 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
     gc.collect()  # help memory management before high demanding task
 
     logger.info("")
-    logger.info(("STEP %s: Checking already downloaded segments"), next(stepiter))
+    logger.info(("STEP %s: %d segments found. Checking already downloaded segments"),
+                next(stepiter), len(segments_df))
     exit_code = 0
     try:
         segments_df = prepare_for_download(session, segments_df, wtimespan, retry_no_code,

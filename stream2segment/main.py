@@ -55,6 +55,8 @@ class click_stuff(object):
     """just a wrapper (to make code more readable) around
     click stuff used for validating/defaults etcetera"""
 
+    TERMINAL_HELP_WIDTH = 80  # control width of help. 80 should be the default (roughly)
+
     @staticmethod
     def valid_date(string):
         """does a check on string to see if it's a valid datetime string.
@@ -176,6 +178,17 @@ def get_def_timerange():
     startt = endt - dt.timedelta(days=1)
     return startt, endt
 
+
+def clickcommand(**kwargs):
+    '''Returns a click.command decorator with the given arguments. If
+    kwargs['context_settings']['max_content_width'] is not set, it will be set to
+    a wider text width (50)'''
+    MAX_CONTENT_WIDTH = 50
+    if 'context_settings' not in kwargs:
+        kwargs['context_settings'] = {}
+    if not 'max_content_width' not in kwargs['context_settings']:
+        kwargs['context_settings']['max_content_width'] = MAX_CONTENT_WIDTH
+    return click.command(**kwargs)
 
 # main functionalities:
 
@@ -344,7 +357,8 @@ def main():
     pass
 
 
-@main.command(short_help='Efficiently download waveform data segments')
+@main.command(short_help='Efficiently download waveform data segments',
+              context_settings=dict(max_content_width=click_stuff.TERMINAL_HELP_WIDTH))
 @click.option("-c", "--configfile",
               help=click_stuff.get_config_help(),
               type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
@@ -354,7 +368,7 @@ def main():
 @click.option('-t0', '--start', type=click_stuff.valid_date)
 @click.option('-t1', '--end', type=click_stuff.valid_date)
 @click.option('-s', '--service')
-@click.option('--wtimespan', nargs=2, type=int)
+@click.option('--wtimespan', nargs=2, type=float)
 @click.option('--min_sample_rate')
 @click.option('-r1', '--retry_url_errors', is_flag=True, default=None)
 @click.option('-r2', '--retry_mseed_errors', is_flag=True, default=None)
@@ -370,8 +384,7 @@ def d(configfile, dburl, start, end, service, wtimespan, min_sample_rate, retry_
       retry_url_errors, retry_mseed_errors, retry_4xx, retry_5xx, inventory, eventws,
       traveltimes_model, eventws_query_args):
     """Efficiently download waveform data segments and relative events, stations and channels
-    metadata (plus additional class labels, if needed)
-    into a specified database for further processing or visual inspection in a
+    metadata into a specified database for further processing or visual inspection in a
     browser. Options are listed below: when not specified, their default
     values are those set in the value of the configfile option.
     [EVENTWS_QUERY_ARGS] is an optional list of space separated arguments to be passed
@@ -404,7 +417,8 @@ def d(configfile, dburl, start, end, service, wtimespan, min_sample_rate, retry_
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@main.command(short_help='Process downloaded waveform data segments')
+@main.command(short_help='Process downloaded waveform data segments',
+              context_settings=dict(max_content_width=click_stuff.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', callback=click_stuff.check_dburl, help=click_stuff.dburl_opt_help)
 @click.option("-c", "--configfile",
               help=click_stuff.get_config_help(),
@@ -424,7 +438,8 @@ def p(dburl, configfile, pyfile, outfile):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@main.command(short_help='Visualize downloaded waveform data segments in a browser')
+@main.command(short_help='Visualize downloaded waveform data segments in a browser',
+              context_settings=dict(max_content_width=click_stuff.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', callback=click_stuff.check_dburl, help=click_stuff.dburl_opt_help)
 @click.option("-c", "--configfile",
               help=click_stuff.get_config_help(),
@@ -452,7 +467,8 @@ def v(dburl, configfile, pyfile):
 #     data_aval(dburl, outfile, max_gap_ovlap_ratio)
 
 
-@main.command(short_help='Create template/config files in a specified directory')
+@main.command(short_help='Create template/config files in a specified directory',
+              context_settings=dict(max_content_width=click_stuff.TERMINAL_HELP_WIDTH))
 @click.argument('outdir')
 def t(outdir):
     """Creates template/config files which can be inspected and edited for launching download,
