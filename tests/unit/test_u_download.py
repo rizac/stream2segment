@@ -17,7 +17,7 @@ from StringIO import StringIO
 
 import unittest, os
 from sqlalchemy.engine import create_engine
-from stream2segment.io.db.models import Base, Event, Class, WebService, DataCenter
+from stream2segment.io.db.models import Base, Event, Class, WebService, DataCenter, fdsn_urls
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from stream2segment.main import main, closing
@@ -55,7 +55,7 @@ import threading
 from stream2segment.utils.url import read_async
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_ttable_fpath
 from stream2segment.download.traveltimes.ttloader import TTTable
-
+from stream2segment.download.utils import urljoin as original_urljoin
 
 # when debugging, I want the full dataframe with to_string(), not truncated
 pd.set_option('display.max_colwidth', -1)
@@ -255,6 +255,7 @@ class Test(unittest.TestCase):
         self._dc_urlread_sideeffect = """http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query
 ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
 UP ARJ * * 2013-08-01T00:00:00 2017-04-25
+
 http://ws.resif.fr/fdsnws/dataselect/1/query
 ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
 
@@ -501,15 +502,35 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # chain
         # assert "request entity too large" in self.log_msg()
 
+    def test_models_fdsn_url(self):
+        for url in ["https://mock/fdsnws/station/1/query", "https://mock/fdsnws/station/1/query?",
+                    "https://mock/fdsnws/station/1/", "https://mock/fdsnws/station/1"]:
+            res = fdsn_urls(url)
+            assert res[0] == "https://mock/fdsnws/station/1/query"
+            assert res[1] == "https://mock/fdsnws/dataselect/1/query"
+        
+        url = "http://www.google.com"
+        assert fdsn_urls(url) is None
+        
+        url = "https://mock/fdsnws/station/1/whatever/query"
+        res = fdsn_urls(url)
+        assert res[0] == "https://mock/fdsnws/station/1/whatever/query"
+        assert res[1] == "https://mock/fdsnws/dataselect/1/whatever/query"
+        
 # =================================================================================================
 
     def get_datacenters_df(self, url_read_side_effect, *a, **v):
         self.setup_urlopen(self._dc_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
         return get_datacenters_df(*a, **v)
     
-
+#     (session, service, routing_service_url, 
+#     channels, starttime=None, endtime=None, 
+#     db_bufsize=None)
+    
     @patch('stream2segment.download.main.urljoin', return_value='a')
-    def test_get_dcs_malformed(self, mock_query):
+    def test_get_dcs_general(self, mock_urljoin):
+        '''test fetching datacenters eida, iris, custom url'''
+        # this is the output when using eida as service:
         urlread_sideeffect = ["""http://ws.resif.fr/fdsnws/station/1/query
 http://geofon.gfz-potsdam.de/fdsnws/station/1/query
 
@@ -517,639 +538,176 @@ http://geofon.gfz-potsdam.de/fdsnws/station/1/query
 
 ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
 UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session,
+        
+        # no fdsn service ("http://myservice")
+        with pytest.raises(QuitDownload):
+            data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, "http://myservice",
                                                        self.routing_service, None, None,
                                                        db_bufsize=self.db_buf_size)
-        assert len(self.session.query(DataCenter).all()) == len(data) == 2
-        mock_query.assert_called_once()  # we might be more fine grained, see code
-        # geofon has actually a post line since 'indentation is bad..' is splittable)
-        assert post_data_list[0] is None and post_data_list[1] is not None and \
-            '\n' in post_data_list[1]
+        assert not mock_urljoin.called # is called only when supplying eida
         
-    @patch('stream2segment.download.main.urljoin', return_value='a')
-    def test_get_dcs2(self, mock_query):
-        urlread_sideeffect = ["""http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query
-ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
-UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25
-http://ws.resif.fr/fdsnws/dataselect/1/query
-
-ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
-"""]
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
-                                                       service=None,
-                                                       channels=['BH?'], db_bufsize=self.db_buf_size)
-        assert len(self.session.query(DataCenter).all()) == len(data) == 2
-        mock_query.assert_called_once()  # we might be more fine grained, see code
-        assert post_data_list[0] is not None and post_data_list[1] is None
-        
-        # now download with a channel matching:
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
-                                                       service=None,
-                                                       channels=['H??'], db_bufsize=self.db_buf_size)
-        assert len(self.session.query(DataCenter).all()) == len(data) == 2
-        assert mock_query.call_count == 2  # we might be more fine grained, see code
-        assert post_data_list[0] is not None and post_data_list[1] is not None
-        # assert we have only one line for each post request:
-        assert all('\n' not in r for r in post_data_list)
-
-
-    @patch('stream2segment.download.main.urljoin', return_value='a')
-    def test_get_dcs_real_data(self, mock_query):
-        urlread_sideeffect = ["""http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query
-ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
-ZW * * * 2004-01-01T00:00:00 2005-12-31T23:59:00
-ZV * * * 2001-01-01T00:00:00 2006-01-01T00:00:00
-ZS * * * 2002-05-01T00:00:00 2005-12-31T00:00:00
-ZR * * * 2000-05-01T00:00:00 2004-05-20T00:00:00
-ZQ * * * 2004-02-03T00:00:00 2005-04-30T00:00:00
-ZP * * * 1999-04-01T00:00:00 2001-11-30T00:00:00
-ZO * * * 2002-01-01T00:00:00 2004-11-17T00:00:00
-ZG * * * 1999-11-01T00:00:00 2000-12-31T00:00:00
-ZF * * * 1997-01-01T00:00:00 1998-12-31T00:00:00
-ZE * * * 2010-03-17T00:00:00 2011-10-22T00:00:00
-ZD * * * 2003-01-01T00:00:00 2004-01-31T00:00:00
-ZC * * * 2001-03-01T00:00:00 2004-12-07T00:00:00
-ZB * * * 1997-01-01T00:00:00 1997-11-21T00:00:00
-ZA * * * 2002-03-01T00:00:00 2004-01-29T00:00:00
-Z6 * * * 2004-03-31T00:00:00 2004-10-31T00:00:00
-Z5 * * * 2005-03-01T00:00:00 2006-12-14T00:00:00
-Z4 * * * 2006-09-01T00:00:00 2008-03-31T00:00:00
-Z3 A034A * * 2015-09-07T00:00:00 2020-07-01T00:00:00
-Z3 A031A * * 2015-09-07T00:00:00 2020-07-01T00:00:00
-Z3 A029A * * 2015-09-07T00:00:00 2020-07-01T00:00:00
-Z3 A028A * * 2015-09-07T00:00:00 2020-07-01T00:00:00
-Z3 A027A * * 2015-09-07T00:00:00 2020-07-01T00:00:00
-Z3 A026A * * 2015-09-07T00:00:00 2020-07-01T00:00:00
-Z3 A025A * * 2015-09-07T00:00:00 2020-07-01T00:00:00
-Z3 A023A * * 2015-09-07T00:00:00 2020-07-01T00:00:00
-Z3 A022A * * 2015-09-07T00:00:00 2020-07-01T00:00:00
-Z3 A015A * * 2015-09-07T00:00:00 2020-07-01T00:00:00
-Z3 * * * 2005-06-05T00:00:00 2007-04-30T00:00:00
-Z2 * * * 2006-05-30T00:00:00 2007-12-31T00:00:00
-YU * * * 1996-01-01T00:00:00 2002-12-31T00:00:00
-Y9 * * * 2007-11-27T00:00:00 2008-05-02T00:00:00
-Y7 * * * 2011-05-16T00:00:00 2012-09-26T00:00:00
-Y4 * * * 2014-09-11T00:00:00 2015-12-31T00:00:00
-XP * * * 1998-07-04T00:00:00 1998-08-11T00:00:00
-XO * * * 1995-08-01T00:00:00 1995-10-12T00:00:00
-XN * * * 2006-05-30T00:00:00 2006-08-31T00:00:00
-XF * * * 1997-07-01T00:00:00 1999-06-30T00:00:00
-XE * * * 1997-08-01T00:00:00 1998-12-17T00:00:00
-XC * * * 1998-01-01T00:00:00 1999-12-31T00:00:00
-X6 * * * 2010-10-27T00:00:00 2017-05-30
-X1 * * * 2013-03-11T00:00:00 2013-11-08T00:00:00
-WM * * * 1980-01-01T00:00:00 2017-05-30
-UP VXJU * * 2012-07-31T00:00:00 2017-05-30
-UP VSTU * * 2012-07-31T00:00:00 2017-05-30
-UP VOR * * 2014-01-15T00:00:00 2017-05-30
-UP VANU * * 2012-07-31T00:00:00 2017-05-30
-UP VAG * * 2014-01-16T00:00:00 2017-05-30
-UP UMAU * * 2012-07-31T00:00:00 2017-05-30
-UP UDD * * 2012-07-31T00:00:00 2017-05-30
-UP TJOU * * 2012-07-31T00:00:00 2017-05-30
-UP SVAU * * 2012-07-31T00:00:00 2017-05-30
-UP SOLU * * 2012-07-31T00:00:00 2017-05-30
-UP SJO * * 2015-02-03T00:00:00 2017-05-30
-UP SALU * * 2012-07-31T00:00:00 2017-05-30
-UP ROTU * * 2012-07-31T00:00:00 2017-05-30
-UP RATU * * 2012-07-31T00:00:00 2017-05-30
-UP PAJU * * 2012-07-31T00:00:00 2017-05-30
-UP OSTU * * 2012-07-31T00:00:00 2017-05-30
-UP OSKU * * 2012-07-31T00:00:00 2017-05-30
-UP ONSU * * 2012-07-31T00:00:00 2017-05-30
-UP ONAU * * 2012-09-26T06:00:00 2017-05-30
-UP ODEU * * 2012-07-31T00:00:00 2017-05-30
-UP NYNU * * 2012-07-31T00:00:00 2017-05-30
-UP NRTU * * 2012-07-31T00:00:00 2017-05-30
-UP NOD * * 2012-07-31T00:00:00 2017-05-30
-UP NIKU * * 2012-07-31T00:00:00 2017-05-30
-UP NASU * * 2012-07-31T00:00:00 2017-05-30
-UP MOS * * 2013-07-31T00:00:00 2017-05-30
-UP MASU * * 2012-07-31T00:00:00 2017-05-30
-UP LUNU * * 2012-07-31T00:00:00 2017-05-30
-UP LNKU * * 2012-07-31T00:00:00 2017-05-30
-UP LILU * * 2014-09-26T00:00:00 2017-05-30
-UP KUA * * 2012-07-31T00:00:00 2017-05-30
-UP KOVU * * 2012-07-31T00:00:00 2017-05-30
-UP KALU * * 2012-07-31T00:00:00 2017-05-30
-UP JOK * * 2013-07-30T00:00:00 2017-05-30
-UP IGGU * * 2012-07-31T00:00:00 2017-05-30
-UP HUSU * * 2012-07-31T00:00:00 2017-05-30
-UP HUDU * * 2012-07-31T00:00:00 2017-05-30
-UP HEMU * * 2012-07-31T00:00:00 2017-05-30
-UP HASU * * 2012-07-31T00:00:00 2017-05-30
-UP HARU * * 2012-07-31T00:00:00 2017-05-30
-UP GRAU * * 2012-07-31T00:00:00 2017-05-30
-UP GOTU * * 2014-10-10T10:10:00 2017-05-30
-UP GNOU * * 2012-07-31T00:00:00 2017-05-30
-UP FORU * * 2012-07-31T00:00:00 2017-05-30
-UP FLYU * * 2012-07-31T00:00:00 2017-05-30
-UP FKPU * * 2012-07-31T00:00:00 2017-05-30
-UP FINU * * 2012-07-31T00:00:00 2017-05-30
-UP FIBU * * 2012-07-31T00:00:00 2017-05-30
-UP FALU * * 2012-07-31T00:00:00 2017-05-30
-UP FABU * * 2012-07-31T00:00:00 2017-05-30
-UP ESKU * * 2012-07-31T00:00:00 2017-05-30
-UP ERTU * * 2012-07-31T00:00:00 2017-05-30
-UP EKSU * * 2012-07-31T00:00:00 2017-05-30
-UP DUNU * * 2012-07-31T00:00:00 2017-05-30
-UP BYXU * * 2012-07-31T00:00:00 2017-05-30
-UP BURU * * 2012-07-31T00:00:00 2017-05-30
-UP BREU * * 2012-04-27T00:00:00 2017-05-30
-UP BORU * * 2012-07-31T00:00:00 2017-05-30
-UP BLEU * * 2012-07-31T00:00:00 2017-05-30
-UP BJUU * * 2012-07-31T00:00:00 2017-05-30
-UP BJO * * 2014-01-15T00:00:00 2017-05-30
-UP BACU * * 2012-08-01T00:00:00 2017-05-30
-UP ASPU * * 2012-07-31T00:00:00 2014-10-20T00:00:00
-UP ASKU * * 2012-07-31T00:00:00 2017-05-30
-UP ARNU * * 2012-07-31T00:00:00 2017-05-30
-UP ARJ * * 2013-08-01T00:00:00 2017-05-30
-TT * * * 1980-01-01T00:00:00 2017-05-30
-SK * * * 1980-01-01T00:00:00 2017-05-30
-SJ * * * 1980-01-01T00:00:00 2017-05-30
-PZ * * * 2006-09-26T00:00:00 2017-05-30
-PM * * * 1980-01-01T00:00:00 2017-05-30
-PL * * * 1980-01-01T00:00:00 2017-05-30
-NU * * * 1980-01-01T00:00:00 2017-05-30
-KP * * * 1980-01-01T00:00:00 2017-05-30
-KC * * * 1980-01-01T00:00:00 2017-05-30
-JS * * * 1980-01-01T00:00:00 2017-05-30
-IS * * * 1980-01-01T00:00:00 2017-05-30
-IQ * * * 1980-01-01T00:00:00 2017-05-30
-IO * * * 1980-01-01T00:00:00 2017-05-30
-HU * * * 1992-01-01T00:00:00 2017-05-30
-HT * * * 1980-01-01T00:00:00 2017-05-30
-HE * * * 1980-01-01T00:00:00 2017-05-30
-GE * * * 1993-01-01T00:00:00 2017-05-30
-FN * * * 1980-01-01T00:00:00 2017-05-30
-EI * * * 1980-01-01T00:00:00 2017-05-30
-EE * * * 1980-01-01T00:00:00 2017-05-30
-DK * * * 1980-01-01T00:00:00 2017-05-30
-CZ * * * 1980-01-01T00:00:00 2017-05-30
-CX * * * 1980-01-01T00:00:00 2017-05-30
-CN * * * 1980-01-01T00:00:00 2017-05-30
-CK * * * 1980-01-01T00:00:00 2017-05-30
-AW * * * 1980-01-01T00:00:00 2017-05-30
-9C * * * 2010-06-29T00:00:00 2011-12-31T00:00:00
-9A * * * 2007-08-15T00:00:00 2008-09-30T00:00:00
-8A * * * 2010-07-05T00:00:00 2012-06-30T00:00:00
-7E * * * 2006-01-13T00:00:00 2008-12-31T00:00:00
-7B * * * 2008-01-01T00:00:00 2010-12-31T00:00:00
-7A * * * 2008-05-07T00:00:00 2008-10-17T00:00:00
-6E * * * 2007-01-01T00:00:00 2011-12-31T00:00:00
-6C * * * 2009-09-07T00:00:00 2010-06-08T00:00:00
-6A * * * 2008-10-16T00:00:00 2009-03-18T00:00:00
-5E * * * 2011-01-01T00:00:00 2013-12-31T00:00:00
-5C * * * 2012-06-10T00:00:00 2014-04-23T00:00:00
-4C KES27 * HNZ 2011-09-15T00:00:00 2012-04-20T23:59:00
-4C KES27 * HNN 2011-09-15T00:00:00 2012-04-20T23:59:00
-4C KES27 * HNE 2011-09-15T00:00:00 2012-04-20T23:59:00
-4C KES20 * HNZ 2011-09-15T00:00:00 2012-04-20T23:59:00
-4C KES20 * HNN 2011-09-15T00:00:00 2012-04-20T23:59:00
-4C KES20 * HNE 2011-09-15T00:00:00 2012-04-20T23:59:00
-4B * * * 2008-10-23T00:00:00 2009-08-07T00:00:00
-4A * * * 2012-11-02T00:00:00 2014-09-17T00:00:00
-3D * * * 2014-01-01T00:00:00 2016-12-31T00:00:00
-2F * * * 2012-07-30T00:00:00 2013-10-09T00:00:00
-2D * * * 2013-08-01T00:00:00 2016-12-30T00:00:00
-2B * * * 2007-01-07T00:00:00 2009-10-27T00:00:00
-1G * * * 2012-01-01T00:00:00 2017-12-31T00:00:00
-1B * * * 2006-04-03T00:00:00 2008-12-31T00:00:00
-
-http://ws.resif.fr/fdsnws/dataselect/1/query
-ZU * * * 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
-ZI * * * 2001-01-01T00:00:00 2005-12-31T23:59:59.999999
-ZH * * * 2003-01-01T00:00:00 2003-12-31T23:59:59.999999
-Z3 A217A * * 2016-08-03T17:30:00 2020-12-31T23:59:59
-Z3 A216A * * 2016-02-17T13:00:00 2020-12-31T23:59:59
-Z3 A215A * * 2015-12-07T16:00:00 2020-12-31T23:59:59
-Z3 A214A * * 2016-07-21T16:00:00 2020-12-31T23:59:59
-Z3 A213A * * 2016-04-01T13:00:00 2020-12-31T23:59:59
-Z3 A212A * * 2016-11-24T13:00:00 2020-12-31T23:59:59
-Z3 A211A * * 2016-05-19T15:00:00 2020-12-31T23:59:59
-Z3 A210A * * 2016-05-19T10:00:00 2020-12-31T23:59:59
-Z3 A209A * * 2016-09-15T19:00:00 2017-01-24T23:59:59
-Z3 A208A * * 2016-09-15T13:30:00 2020-12-31T23:59:59
-Z3 A206A * * 2016-02-17T00:00:00 2020-12-31T23:59:59
-Z3 A205A * * 2016-06-07T00:00:00 2020-12-31T23:59:59
-Z3 A204A * * 2016-06-14T00:00:00 2020-12-31T23:59:59
-Z3 A202A * * 2016-08-26T00:00:00 2020-12-31T23:59:59
-Z3 A201A * * 2016-04-07T00:00:00 2020-12-31T23:59:59
-Z3 A200A * * 2016-08-26T17:00:00 2020-12-31T23:59:59
-Z3 A199A * * 2016-08-26T11:00:00 2020-12-31T23:59:59
-Z3 A196A * * 2017-03-01T16:15:00 2020-12-31T23:59:59
-Z3 A194A * * 2016-08-04T14:38:00 2020-12-31T23:59:59
-Z3 A193A * * 2016-01-27T16:30:00 2020-12-31T23:59:59
-Z3 A192A * * 2016-04-07T15:07:00 2020-12-31T23:59:59
-Z3 A188A * * 2016-06-08T15:30:00 2020-12-31T23:59:59
-Z3 A186B * * 2017-03-01T12:45:00 2020-12-31T23:59:59
-Z3 A186A * * 2016-04-20T16:00:00 2017-01-27T23:59:59
-Z3 A185A * * 2016-03-17T15:30:00 2020-12-31T23:59:59
-Z3 A184A * * 2016-06-09T12:50:00 2020-12-31T23:59:59
-Z3 A183A * * 2017-03-30T13:00:00 2020-12-31T23:59:59
-Z3 A182A * * 2017-02-02T11:00:00 2020-12-31T23:59:59
-Z3 A181A * * 2016-12-12T13:50:00 2020-12-31T23:59:59
-Z3 A180A * * 2016-08-30T16:00:00 2020-12-31T23:59:59
-Z3 A179A * * 2017-02-01T15:55:55 2020-12-31T23:59:59
-Z3 A178A * * 2016-09-09T17:30:00 2020-12-31T23:59:59
-Z3 A177A * * 2016-12-20T11:00:00 2020-12-31T23:59:59
-Z3 A176A * * 2016-10-25T15:50:00 2020-12-31T23:59:59
-Z3 A175A * * 2016-06-13T15:25:00 2020-12-31T23:59:59
-Z3 A174A * * 2016-10-27T09:52:00 2020-12-31T23:59:59
-Z3 A173A * * 2016-06-24T14:00:00 2020-12-31T23:59:59
-Z3 A172A * * 2016-10-21T00:00:00 2020-12-31T23:59:59
-Z3 A171A * * 2016-10-11T17:10:00 2020-12-31T23:59:59
-Z3 A170A * * 2016-12-09T13:00:00 2020-12-31T23:59:59
-Z3 A169A * * 2017-02-17T12:00:00 2020-12-31T23:59:59
-Z3 A168A * * 2016-12-08T16:31:00 2020-12-31T23:59:59
-Z3 A167A * * 2016-10-20T00:00:00 2020-12-31T23:59:59
-Z3 A166A * * 2016-11-24T13:00:00 2020-12-31T23:59:59
-Z3 A165A * * 2017-03-10T12:00:00 2020-12-31T23:59:59
-Z3 A164A * * 2016-06-10T17:00:00 2020-12-31T23:59:59
-Z3 A163A * * 2016-06-14T17:00:00 2020-12-31T23:59:59
-Z3 A161A * * 2017-02-23T13:00:00 2020-12-31T23:59:59
-Z3 A160A * * 2016-08-03T15:00:00 2020-12-31T23:59:59
-Z3 A158A * * 2015-11-23T13:00:00 2020-12-31T23:59:59
-Z3 A157A * * 2016-08-03T19:00:00 2020-12-31T23:59:59
-Z3 A156A * * 2016-11-23T14:48:00 2020-12-31T23:59:59
-YZ * * * 2004-01-01T00:00:00 2004-12-31T23:59:59.999999
-YX * * * 2001-01-01T00:00:00 2002-12-31T23:59:59.999999
-YV * * * 2011-01-01T00:00:00 2016-12-31T23:59:59.999999
-YT * * * 2001-01-01T00:00:00 2001-12-31T23:59:59.999999
-YR * * * 1999-01-01T00:00:00 2002-12-31T23:59:59.999999
-YP * * * 2012-01-01T00:00:00 2013-12-31T23:59:59.999999
-YO * * * 1998-01-01T00:00:00 2000-12-31T23:59:59.999999
-YJ * * * 2015-01-01T00:00:00 2017-12-31T23:59:59.999999
-YI * * * 2008-01-01T00:00:00 2009-12-31T23:59:59.999999
-YB * * * 2000-01-01T00:00:00 2001-12-31T23:59:59.999999
-YA * * * 2009-01-01T00:00:00 2011-12-31T23:59:59.999999
-Y2 * * * 2014-01-01T00:00:00 2014-12-31T23:59:59.999999
-XY * * * 2007-01-01T00:00:00 2009-12-31T23:59:59.999999
-XW * * * 2007-01-01T00:00:00 2008-12-31T23:59:59.999999
-XS * * * 2010-01-01T00:00:00 2011-12-31T23:59:59.999999
-XK * * * 2007-01-01T00:00:00 2009-12-31T23:59:59.999999
-XJ * * * 2009-01-01T00:00:00 2009-12-31T23:59:59.999999
-XG * * * 2014-01-01T00:00:00 2014-12-31T23:59:59.999999
-X7 * * * 2010-01-01T00:00:00 2014-12-31T23:59:59.999999
-RD * * * 2006-01-01T00:00:00 2017-05-30
-RA * * * 1995-01-01T00:00:00 2017-05-30
-ND * * * 2010-01-01T00:00:00 2017-05-30
-MT * * * 2006-01-01T00:00:00 2017-05-30
-FR * * * 1994-01-01T00:00:00 2017-05-30
-CL * * * 2000-01-01T00:00:00 2017-05-30
-7H * * * 2010-01-01T00:00:00 2020-12-31T23:59:59.999999
-7C * * * 2009-01-01T00:00:00 2012-12-31T23:59:59.999999
-4C KES07 * * 2011-09-19T00:00:00 2012-04-18T19:00:00
-4C KES05 * * 2011-09-19T00:00:00 2012-04-18T19:00:00
-4C KES03 * * 2011-09-19T00:00:00 2012-04-18T19:00:00
-4C KES01 * * 2011-09-19T00:00:00 2012-04-18T19:00:00
-4C KEA20 * * 2011-09-19T00:00:00 2012-04-17T12:00:00
-4C KEA19 * * 2011-09-19T00:00:00 2012-04-17T12:00:00
-4C KEA18 * * 2011-09-19T00:00:00 2012-04-17T12:00:00
-4C KEA17 * * 2011-09-19T00:00:00 2012-04-17T12:00:00
-4C KEA16 * * 2011-09-19T00:00:00 2012-04-17T12:00:00
-4C KEA15 * * 2011-09-19T00:00:00 2012-04-17T12:00:00
-4C KEA14 * * 2011-09-19T00:00:00 2012-04-17T12:00:00
-4C KEA13 * * 2011-09-19T00:00:00 2012-04-17T12:00:00
-4C KEA12 * * 2011-09-19T00:00:00 2012-04-17T12:00:00
-4C KEA11 * * 2011-09-19T00:00:00 2012-04-17T12:00:00
-4C KEA10 * * 2011-09-19T00:00:00 2012-04-17T12:00:00
-4C KEA09 * * 2011-09-19T00:00:00 2012-04-17T12:00:00
-4C KEA08 * * 2011-09-19T00:00:00 2012-04-17T12:00:00
-4C KEA07 * * 2011-09-19T00:00:00 2012-04-17T12:00:00
-4C KEA06 * * 2011-09-19T00:00:00 2012-04-17T12:00:00
-4C KEA05 * * 2011-09-19T00:00:00 2012-04-17T12:00:00
-4C KEA04 * * 2011-09-19T00:00:00 2012-04-17T12:00:00
-4C KEA03 * * 2011-09-19T00:00:00 2012-04-17T12:00:00
-4C KEA02 * * 2011-09-19T00:00:00 2012-04-17T12:00:00
-4C KEA01 * * 2011-09-19T00:00:00 2012-01-23T13:05:00
-1A * * * 2009-01-01T00:00:00 2012-12-31T23:59:59.999999
-
-http://www.orfeus-eu.org/fdsnws/dataselect/1/query
-Z3 A339A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A338A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A337A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A336A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A335A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A334A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A333A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A332A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A331A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A270A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A269A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A268A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A267A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A266A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A265A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A264A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A263A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A262A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A261A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A260A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A024A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A021A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A020A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A019A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A018A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A017A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A016A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A014A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A013A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A012A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A011B * * 2016-06-29T16:30:00 2017-05-30
-Z3 A011A * * 2015-01-01T00:00:00 2016-06-29T13:00:00
-Z3 A010A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A009A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A008A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A007A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A006A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A005B * * 2016-05-25T14:00:00 2017-05-30
-Z3 A005A * * 2015-01-01T00:00:00 2016-05-25T00:00:00
-Z3 A004A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A003A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A002A * * 2015-01-01T00:00:00 2017-05-30
-Z3 A001A * * 2015-01-01T00:00:00 2017-05-30
-YF * * * 1980-01-01T00:00:00 2017-05-30
-WC * * * 1980-01-01T00:00:00 2017-05-30
-VI * * * 1980-01-01T00:00:00 2017-05-30
-UP VIKU * * 2010-02-18T00:00:00 2017-05-30
-UP UPP * * 1999-03-19T00:00:00 2017-05-30
-UP STRU * * 2010-02-18T00:00:00 2017-05-30
-UP SJUU * * 2010-02-18T00:00:00 2017-05-30
-UP NRAU * * 2010-02-18T00:00:00 2017-05-30
-UP LANU * * 2004-08-07T00:00:00 2017-05-30
-UP DEL * * 2010-02-18T00:00:00 2017-05-30
-UP AAL * * 2002-07-11T00:00:00 2017-05-30
-TU * * * 1980-01-01T00:00:00 2017-05-30
-SS * * * 1980-01-01T00:00:00 2017-05-30
-SL * * * 1980-01-01T00:00:00 2017-05-30
-OE * * * 1980-01-01T00:00:00 2017-05-30
-NS * * * 1980-01-01T00:00:00 2017-05-30
-NR * * * 1980-01-01T00:00:00 2017-05-30
-NO * * * 1980-01-01T00:00:00 2017-05-30
-NL * * * 1980-01-01T00:00:00 2017-05-30
-NA * * * 1980-01-01T00:00:00 2017-05-30
-LX * * * 1980-01-01T00:00:00 2017-05-30
-LC * * * 1980-01-01T00:00:00 2017-05-30
-IU * * * 1980-01-01T00:00:00 2017-05-30
-IP * * * 1980-01-01T00:00:00 2017-05-30
-II * * * 1980-01-01T00:00:00 2017-05-30
-IB * * * 1980-01-01T00:00:00 2017-05-30
-HF * * * 1980-01-01T00:00:00 2017-05-30
-GO * * * 1980-01-01T00:00:00 2017-05-30
-GB * * * 1980-01-01T00:00:00 2017-05-30
-ES * * * 1980-01-01T00:00:00 2017-05-30
-EB * * * 1980-01-01T00:00:00 2017-05-30
-DZ * * * 1980-01-01T00:00:00 2017-05-30
-CR * * * 1980-01-01T00:00:00 2017-05-30
-CA * * * 1980-01-01T00:00:00 2017-05-30
-BN * * * 1980-01-01T00:00:00 2017-05-30
-BE * * * 1980-01-01T00:00:00 2017-05-30
-AI * * * 1980-01-01T00:00:00 2017-05-30
-AB * * * 1980-01-01T00:00:00 2017-05-30
-
-http://webservices.ingv.it/fdsnws/dataselect/1/query
-Z3 A319A * * 2015-12-11T12:06:34 2017-05-30
-Z3 A318A * * 2015-11-17T10:32:52 2017-05-30
-Z3 A317A * * 2015-12-15T16:00:00 2017-05-30
-Z3 A316A * * 2015-11-03T12:00:30 2017-05-30
-Z3 A313A * * 2015-12-30T14:00:00 2017-05-30
-Z3 A312A * * 2015-12-30T00:00:00 2017-05-30
-Z3 A309A * * 2015-10-28T12:44:33 2017-05-30
-Z3 A308A * * 2015-11-03T11:34:41 2017-05-30
-Z3 A307A * * 2015-11-05T10:41:48 2017-05-30
-Z3 A306A * * 2015-11-04T11:49:48 2017-05-30
-Z3 A305A * * 2015-10-29T13:02:08 2017-05-30
-Z3 A304A * * 2016-02-05T12:00:00 2017-05-30
-Z3 A303A * * 2015-10-26T09:00:00 2017-05-30
-Z3 A302A * * 2015-10-30T09:00:00 2017-05-30
-Z3 A301A * * 2015-10-29T09:00:00 2017-05-30
-Z3 A300A * * 2015-10-28T09:00:00 2017-05-30
-TV * * * 2008-01-01T00:00:00 2017-05-30
-ST * * * 1981-01-01T00:00:00 2017-05-30
-SI * * * 2006-01-01T00:00:00 2017-05-30
-RF * * * 1993-01-01T00:00:00 2017-05-30
-OX * * * 2016-01-01T00:00:00 2017-05-30
-OT * * * 2013-04-01T00:00:00 2017-05-30
-NI * * * 2002-01-01T00:00:00 2017-05-30
-MN * * * 1988-01-01T00:00:00 2017-05-30
-IX * * * 2005-01-01T00:00:00 2017-05-30
-IV * * * 1988-01-01T00:00:00 2017-05-30
-GU * * * 1980-01-01T00:00:00 2017-05-30
-BA * * * 2005-01-01T00:00:00 2017-05-30
-AC * * * 2002-01-01T00:00:00 2017-05-30
-4C KES29 * * 2011-09-18T09:40:00 2012-04-20T13:50:00
-4C KES22 * * 2011-09-17T07:40:00 2012-04-18T09:10:00
-4C KES20 * * 2014-02-04T00:00:00 2014-05-22T00:00:00
-4C KES18 * * 2011-09-17T17:10:00 2012-04-18T13:40:00
-4C KES16 * * 2011-09-17T14:10:00 2012-04-18T14:40:00
-4C KES14 * * 2011-09-18T07:00:00 2012-04-18T15:40:00
-4C KES13 * * 2011-09-17T10:20:00 2012-04-17T14:30:00
-4C KES11 * * 2011-09-17T14:10:00 2012-04-17T13:30:00
-4C KES08 * * 2011-09-17T08:40:00 2012-04-17T09:40:00
-4C KES06 * * 2011-09-16T14:10:00 2012-04-17T09:00:00
-4C KES04 * * 2011-09-16T11:50:00 2012-04-17T08:20:00
-4C KES02 * * 2011-09-16T11:40:00 2012-04-11T23:59:00
-4C KER02 * * 2011-09-17T15:40:00 2012-03-19T02:30:00
-4C KEFOR * * 2014-02-04T00:00:00 2014-05-22T00:00:00
-4C KEB01 * * 2014-02-04T00:00:00 2014-05-22T00:00:00
-4C KEA00 * * 2014-02-04T00:00:00 2014-05-22T00:00:00
-3A * * * 2016-09-19T00:00:00 2016-11-30T23:59:59
-
-http://eida.ethz.ch/fdsnws/dataselect/1/query
-Z3 A291A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A290A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A289A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A288A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A287A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A286A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A285A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A284A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A283B * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A283A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A282A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A281A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A280A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A273A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A272A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A271A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A252A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A251A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A250A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A062A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A061A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A060A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A052A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A051A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-Z3 A050A * * 2015-01-01T00:00:00 2020-07-01T00:00:00
-XT * * * 2014-05-21T00:00:00 2017-05-30
-XH * * * 2011-07-02T00:00:00 2011-08-17T00:00:00
-S * * * 1980-01-01T00:00:00 2017-05-30
-CH * * * 1980-01-01T00:00:00 2017-05-30
-
-http://eida.gein.noa.gr/fdsnws/dataselect/1/query
-X5 * * * 2015-11-18T00:00:00 2016-04-08T00:00:00
-ME * * * 2008-01-01T00:00:00 2017-05-30
-HP * * * 2000-01-01T00:00:00 2017-05-30
-HL * * * 1997-01-01T00:00:00 2017-05-30
-HC * * * 2006-01-01T00:00:00 2017-05-30
-HA * * * 2008-01-01T00:00:00 2017-05-30
-EG * * * 1993-01-01T00:00:00 2017-05-30
-CQ * * * 2013-01-01T00:00:00 2017-05-30
-
-http://eida.bgr.de/fdsnws/dataselect/1/query
-TH * * * 1980-01-01T00:00:00 2017-05-30
-SX * * * 2000-08-02T00:00:00 2017-05-30
-GR * * * 1976-02-17T00:00:00 2017-05-30
-
-http://eida-sc3.infp.ro/fdsnws/dataselect/1/query
-RO * * * 1980-01-01T00:00:00 2017-05-30
-MD * * * 2000-01-01T00:00:00 2017-05-30
-BS * * * 2000-01-01T00:00:00 2017-05-30
-
-http://eida-service.koeri.boun.edu.tr/fdsnws/dataselect/1/query
-KO * * * 1980-01-01T00:00:00 2017-05-30
-
-http://erde.geophysik.uni-muenchen.de/fdsnws/dataselect/1/query
-BW * * * 1980-01-01T00:00:00 2017-05-30
-"""]
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
-                                                       service=None,
-                                                       channels=["HH?", "HN?", "BH?", "HG?", "HL?"],
+        # normal fdsn service ("https://mocked_domain/fdsnws/station/1/query")
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session,
+                                                       "https://mock/fdsnws/station/1/query",
+                                                       self.routing_service, None, None,
                                                        db_bufsize=self.db_buf_size)
-        for i, k in enumerate(data[DataCenter.dataselect_url.key]):
-            if "ingv" in k:
-                assert "KEA00" in post_data_list[i]
-            else:
-                assert "KEA00" not in post_data_list[i]
-                
-        # now re-download (we should have saved to db)
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
-                                                       service=None,
-                                                       channels=["HH?", "HN?", "BH?", "HG?", "HL?"],
+        assert not mock_urljoin.called # is called only when supplying eida
+        assert len(self.session.query(DataCenter).all()) == len(data) == 1
+        assert self.session.query(DataCenter).first().node_organization_name == None
+
+        # iris:
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, "iris",
+                                                       self.routing_service, None, None,
                                                        db_bufsize=self.db_buf_size)
-        for i, k in enumerate(data[DataCenter.dataselect_url.key]):
-            if "ingv" in k:
-                assert "KEA00" in post_data_list[i]
-            else:
-                assert "KEA00" not in post_data_list[i]
+        assert not mock_urljoin.called # is called only when supplying eida
+        assert len(self.session.query(DataCenter).all()) == 2  # we had one already (added above)
+        assert len(data) == 1
+        assert len(self.session.query(DataCenter).filter(DataCenter.node_organization_name == 'iris').all()) == 1
         
-
-
-    @patch('stream2segment.download.main.get_dc_filterfunc')
-    def test_get_dcs_service(self, mock_dc_filter):
-        
-        def func(service):
-            if service == 'geofon':
-                return lambda x: "geofon" in x
-            elif service == 'resif':
-                return lambda x: "resif" in x
-            elif service == 'iris':
-                return lambda x: "iris.edu" in x
-            elif service == 'eida':
-                return lambda x: "iris.edu" not in x
-            return lambda x: True
-        
-        urlread_sideeffect = ["""http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query
-ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
-UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25
-
-http://ws.resif.fr/fdsnws/dataselect/1/query
-
-ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
-
-http://ws.iris.edu.org/fdsnws/dataselect/1/query
-
-A * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
-B * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
-C * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
-"""]
-        mock_dc_filter.side_effect = func
-
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
-                                                       service='', channels=['BH?'], db_bufsize=self.db_buf_size)
-        assert len(self.session.query(DataCenter).all()) == len(data) == 3
-        assert post_data_list[0] is not None and all(post_data_list[i] is None for i in [1,2])
-        
-        self.session.query(DataCenter).delete()
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
-                                                       service="geofon", channels=None, db_bufsize=self.db_buf_size)
-        assert len(self.session.query(DataCenter).all()) == len(data) == 1
-        assert post_data_list[0] is not None
-        
-        self.session.query(DataCenter).delete()
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
-                                                       service="resif", channels=None, db_bufsize=self.db_buf_size)
-        assert len(self.session.query(DataCenter).all()) == len(data) == 1
-        assert post_data_list[0] is not None
-        
-        self.session.query(DataCenter).delete()
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
-                                                       service="iris", channels=None, db_bufsize=self.db_buf_size)
-        assert len(self.session.query(DataCenter).all()) == len(data) == 1
-        assert post_data_list[0] is not None
-        
-        self.session.query(DataCenter).delete()
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
-                                                       service="eida", channels=None, db_bufsize=self.db_buf_size)
-        assert len(self.session.query(DataCenter).all()) == len(data) == 2
-        assert len(post_data_list) == 2 and all(p is not None for p in post_data_list) and len(post_data_list[0].split("\n")) ==2
-        
-        self.session.query(DataCenter).delete()
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
-                                                       service="eida", channels=['BH?'], db_bufsize=self.db_buf_size)
-        assert len(self.session.query(DataCenter).all()) == len(data) == 2
-        assert len(post_data_list) == 2
-        assert len(post_data_list[0].split("\n")) == 2
-        assert post_data_list[1] is None
-        
-        # test that if the routing service changes the station
-        
-        
-    @patch('stream2segment.download.main.urljoin', return_value='a')
-    def test_get_dcs3(self, mock_query):
-        urlread_sideeffect = [500, """http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query
-ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
-UP ARJ * * 2013-08-01T00:00:00 2017-04-25
-http://ws.resif.fr/fdsnws/dataselect/1/query
-ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
-
-""", 501]
-        
-        with pytest.raises(QuitDownload):
-            data, post_data_list = self.get_datacenters_df(urlread_sideeffect[0], self.session, self.routing_service,
-                                                       service=None, channels=['BH?'], db_bufsize=self.db_buf_size)
-        assert len(self.session.query(DataCenter).all()) == 0
-        mock_query.assert_called_once()  # we might be more fine grained, see code
-        
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[1], self.session, self.routing_service,
-                                                       service=None, channels=['BH?'], db_bufsize=self.db_buf_size)
-        assert len(self.session.query(DataCenter).all()) == len(data) == 2
-        mock_query.call_count == 2  # we might be more fine grained, see code
-        assert post_data_list[0] is not None and post_data_list[1] is None
-        
-        # this raises again a server error, but we have datacenters in cahce:
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[2], self.session, self.routing_service,
-                                                       service=None, channels=['BH?'], db_bufsize=self.db_buf_size)
-        assert len(self.session.query(DataCenter).all()) == len(data) == 2
-        mock_query.call_count == 3  # we might be more fine grained, see code
-        assert post_data_list is None
-        
+        # eida:
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, "eida",
+                                                       self.routing_service, None, None,
+                                                       db_bufsize=self.db_buf_size)
+        assert mock_urljoin.called # is called only when supplying eida
+        assert len(self.session.query(DataCenter).all()) == 3 # we had two already written, 1 written now
+        assert len(data) == 1
+        assert len(self.session.query(DataCenter).filter(DataCenter.node_organization_name == 'eida').all()) == 1
+        # assert we wrote just resif (the first one, the other one are malformed):
+        assert self.session.query(DataCenter).filter(DataCenter.node_organization_name == 'eida').first().station_url == \
+            "http://ws.resif.fr/fdsnws/station/1/query"
     
-    @patch('stream2segment.download.main.urljoin', return_value='a')
-    def test_get_dcs_postdata_all_nones(self, mock_query):
-        urlread_sideeffect = ["""http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query
-http://ws.resif.fr/fdsnws/dataselect/1/query
-"""]
+        # now re-launch and assert we did not write anything to the db cause we already did:
+        dcslen = len(self.session.query(DataCenter).all())
+        self.get_datacenters_df(urlread_sideeffect, self.session,
+                                                       "https://mock/fdsnws/station/1/query",
+                                                       self.routing_service, None, None,
+                                                       db_bufsize=self.db_buf_size)
+        assert dcslen == len(self.session.query(DataCenter).all())
         
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[0], self.session, self.routing_service,
-                                                       service=None, channels=['BH?'], db_bufsize=self.db_buf_size)
-        assert all(x is None for x in post_data_list)
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, "iris",
+                                                       self.routing_service, None, None,
+                                                       db_bufsize=self.db_buf_size)
+        assert dcslen == len(self.session.query(DataCenter).all())
         
-        data, post_data_list = self.get_datacenters_df(urlread_sideeffect[0], self.session, self.routing_service,
-                                                       service=None, channels=None, db_bufsize=self.db_buf_size)
-        assert all(x is None for x in post_data_list)
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, "eida",
+                                                       self.routing_service, None, None,
+                                                       db_bufsize=self.db_buf_size)
+        assert dcslen == len(self.session.query(DataCenter).all())
+        
+
+    # @patch('stream2segment.download.main.urljoin', return_value='a')
+    def test_get_dcs_postdata(self):  # , mock_urljoin):
+        '''test fetching datacenters eida, iris, custom url'''
+        # this is the output when using eida as service:
+        urlread_sideeffect = ["""http://ws.resif.fr/fdsnws/station/1/query
+http://geofon.gfz-potsdam.de/fdsnws/station/1/query
+
+http://geofon.gfz-potsdam.de/fdsnws/station/1/query
+ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
+UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
+        
+        d0 = datetime.utcnow()
+        d1 = d0 + timedelta(minutes=1.1)
+
+        for channels, starttime, endtime in product([['HH?'], ['HH?', 'BH?'], None], [None, d0],
+                                                    [None, d1]):
+            # normal fdsn service ("https://mocked_domain/fdsnws/station/1/query")
+            data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session,
+                                                           "https://mock/fdsnws/station/1/query",
+                                                           self.routing_service,
+                                                           channels, starttime, endtime,
+                                                           db_bufsize=self.db_buf_size)
+            assert len(post_data_list) == 1
+            assert post_data_list[-1] ==  '* * * %s %s %s' % \
+                (",".join(channels) if channels else "*", starttime.isoformat() if starttime else "*",
+                 endtime.isoformat() if endtime else "*")
+            
+            # iris:
+            data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, "iris",
+                                                       self.routing_service,
+                                                       channels, starttime, endtime,
+                                                       db_bufsize=self.db_buf_size)
+            assert len(post_data_list) == 1
+            assert post_data_list[-1] ==  '* * * %s %s %s' % \
+                (",".join(channels) if channels else "*", starttime.isoformat() if starttime else "*",
+                 endtime.isoformat() if endtime else "*")
+            
+            # eida:
+            
+            data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, "eida",
+                                                   self.routing_service,
+                                                   channels, starttime, endtime,
+                                                   db_bufsize=self.db_buf_size)
+            assert len(post_data_list) == 2
+            # post data returned are always the same. See string above
+            assert post_data_list[0] == 'http://geofon.gfz-potsdam.de/fdsnws/station/1/query'
+            assert post_data_list[1] == 'ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00\nUP ARJ * BHW 2013-08-01T00:00:00 2017-04-25'
+            
+            #assert postdata == '* * * *'
+    
+        # @patch('stream2segment.download.main.urljoin', return_value='a')
+    def test_get_dcs_routingerror(self):  # , mock_urljoin):
+        '''test fetching datacenters eida, iris, custom url'''
+        # this is the output when using eida as service:
+        urlread_sideeffect = [URLError('wat?')]
+        
+        starttime = datetime.utcnow()
+        endtime = starttime + timedelta(minutes=1.1)
+        channels = ['HH?', 'BH?']
+        
+        # normal fdsn service ("https://mocked_domain/fdsnws/station/1/query")
+        # test that is ok because routing errors are not concerned here
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session,
+                                                       "https://mock/fdsnws/station/1/query",
+                                                       self.routing_service,
+                                                       channels, starttime, endtime,
+                                                       db_bufsize=self.db_buf_size)
+        assert not self.mock_urlopen.called
+
+        # iris:
+        # test that is ok because routing errors are not concerned here
+        data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, "iris",
+                                                   self.routing_service,
+                                                   channels, starttime, endtime,
+                                                   db_bufsize=self.db_buf_size)
+        assert not self.mock_urlopen.called
+        
+        # eida:
+        with pytest.raises(QuitDownload):
+            data, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, "eida",
+                                                   self.routing_service,
+                                                   channels, starttime, endtime,
+                                                   db_bufsize=self.db_buf_size)
+        assert self.mock_urlopen.called
+        
+        # now let's write something to db
+        urlread_sideeffect = ["""http://ws.resif.fr/fdsnws/station/1/query
+http://geofon.gfz-potsdam.de/fdsnws/station/1/query
+
+http://geofon.gfz-potsdam.de/fdsnws/station/1/query
+ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
+UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
+        df, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, "eida",
+                                                   self.routing_service,
+                                                   channels, starttime, endtime,
+                                                   db_bufsize=self.db_buf_size)
+        
+        dcs = sorted([_[0] for _ in self.session.query(DataCenter.id).filter(DataCenter.node_organization_name == 'eida').all()])
+        assert self.mock_urlopen.called
+        assert len(dcs) == len(df)
+        
+        # and it should not raise anymore, but return the db stuff: pass None as service to check  that it
+        # defaults to 'eida'
+        urlread_sideeffect = [URLError('wat?')]
+        df, post_data_list = self.get_datacenters_df(urlread_sideeffect, self.session, None,  # == "eida",
+                                                   self.routing_service,
+                                                   channels, starttime, endtime,
+                                                   db_bufsize=self.db_buf_size)
+        assert all(not post for post in post_data_list)
+        dcs2 = sorted([_[0] for _ in self.session.query(DataCenter.id).filter(DataCenter.node_organization_name == 'eida').all()])
+        assert dcs == dcs2
+        assert self.mock_urlopen.called
+        assert sorted(df[DataCenter.id.key].tolist()) == dcs
 
 # =================================================================================================
 
@@ -1158,6 +716,9 @@ http://ws.resif.fr/fdsnws/dataselect/1/query
     def get_channels_df(self, url_read_side_effect, *a, **kw):
         self.setup_urlopen(self._sta_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
         return get_channels_df(*a, **kw)
+    # get_channels_df(session, datacenters_df, post_data, channels, starttime, endtime, min_sample_rate, 
+#     max_thread_workers, timeout, blocksize, db_bufsize, 
+#     show_progress=False):
      
     def test_get_channels_df(self):
         urlread_sideeffect = """1|2|3|4|5|6|7|8|9|10|11|12|13
@@ -1172,13 +733,12 @@ http://ws.resif.fr/fdsnws/dataselect/1/query
         urlread_sideeffect = """http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query
 ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
 UP ARJ * * 2013-08-01T00:00:00 2017-04-25
+
 http://ws.resif.fr/fdsnws/dataselect/1/query
 ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
-
 """
         channels = None
-        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
-                                                           service=None,
+        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, None, self.routing_service,
                                                            channels=channels, db_bufsize=self.db_buf_size)
         
         # url read for channels: Note: first response data raises, second has an error and
@@ -1204,7 +764,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         cha_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        postdata,
-                                                       channels,
+                                                       channels, None, None,
                                                        100, None, None, -1, self.db_buf_size
                                                )
          
@@ -1213,6 +773,25 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
  
         assert len(self.session.query(Station.id).all()) == 4
         assert len(self.session.query(Channel.id).all()) == 6
+        
+        # we should have built the request object according to url dise effect defined BEFORE
+        # self.get_datacenters_df:
+        # """http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query
+        # ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
+        # UP ARJ * * 2013-08-01T00:00:00 2017-04-25
+        # 
+        # http://ws.resif.fr/fdsnws/dataselect/1/query
+        # ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
+        # """
+        assert self.mock_urlopen.call_args_list[0][0][0].data == """format=text
+level=channel
+ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
+UP ARJ * * 2013-08-01T00:00:00 2017-04-25"""
+        assert self.mock_urlopen.call_args_list[1][0][0].data == """format=text
+level=channel
+ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999"""
+        assert self.mock_urlopen.call_args_list[0][0][0].get_full_url() == "http://geofon.gfz-potsdam.de/fdsnws/station/1/query"
+        assert self.mock_urlopen.call_args_list[1][0][0].get_full_url() == "http://ws.resif.fr/fdsnws/station/1/query"
         
         # assert all good channels and stations have the id of the second datacenter
         id = datacenters_df.iloc[1].id
@@ -1225,47 +804,45 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         # and test that by querying the database we get the same data (the one we just saved)
         cha_df2 = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
-                                                       None,
-                                                       channels,
+                                                       [None] * len(postdata),
+                                                       channels, None, None,
                                                        100, None, None, -1, self.db_buf_size
                                                )
 
         assert len(cha_df2) == len(cha_df)
         assert sorted(list(cha_df.columns)) == sorted(list(cha_df2.columns))
         
-        # now mock a datacenter null postdata in the second item
+        # now mock a datacenter null (or empty) postdata in the second datacenter
         # (<==> no data in eida routing service under a specific datacenter)
         # and test that by querying the database we get the data we just saved.
-        # NB: the line below raises cause the first datacenter has no channels to use
-        # (response data malformed), therefore,
-        # since the second datacenter is discarded, we won't have any data due to 
-        # client server error. This is a download error that must raise
-        # (in the main download program flow, it will be caught inside download.main.run.py)
-        with pytest.raises(QuitDownload):
-            cha_df2 = self.get_channels_df(urlread_sideeffect, self.session,
+        # as when postdata is falsy we query the database and
+        # we have only channels of the 2nd datacenter
+        cha_df3 = self.get_channels_df(urlread_sideeffect, self.session,
                                                            datacenters_df,
                                                            ['x', None],
-                                                           channels,
+                                                           channels, None, None,
                                                            100, None, None, -1, self.db_buf_size
                                                    )
+        assert cha_df3.equals(cha_df2)
         assert 'discarding response data' in self.log_msg()
 
-        # now test the opposite, but note that urlreadside effect should return now an urlerror and a socket error:
+        # now test the opposite, but note that urlread side effect should return now an urlerror and a socket error:
         with pytest.raises(QuitDownload):
             cha_df2 = self.get_channels_df(URLError('urlerror_wat'), self.session,
                                                            datacenters_df,
                                                            [None, 'x'],
-                                                           channels,
+                                                           channels, None, None,
                                                            100, None, None, -1, self.db_buf_size
                                                    )
         assert 'urlerror_wat' in self.log_msg()
+        assert 'WARNING: unable to fetch stations from 1 data center(s)' in self.log_msg()
 
         # now test again, we should ahve a socket timeout
         with pytest.raises(QuitDownload):
             cha_df2 = self.get_channels_df(socket.timeout(), self.session,
                                                            datacenters_df,
                                                            [None, 'x'],
-                                                           channels,
+                                                           channels, None, None,
                                                            100, None, None, -1, self.db_buf_size
                                                    )
         assert 'timeout' in self.log_msg()
@@ -1276,7 +853,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
                                        self.session,
                                                            datacenters_df,
                                                            [None, 'x'],
-                                                           channels,
+                                                           channels, None, None,
                                                            100, None, None, -1, self.db_buf_size
                                                    )
         
@@ -1287,7 +864,7 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         cha_df3 = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        postdata,
-                                                       channels,
+                                                       channels, None, None,
                                                        10, None, None, -1, self.db_buf_size
                                                )
         assert len(cha_df3) == len(cha_df)
@@ -1295,16 +872,17 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         # now change this:
         
         urlread_sideeffect  = ["""#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
-A|B||HHZ|39.0211|22.336|622.0|0.0|0.0|-90.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|50.0|2008-02-12T00:00:00|
+A|B||HBE|39.0211|22.336|622.0|0.0|0.0|-90.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|50.0|2008-02-12T00:00:00|2010-02-12T00:00:00
 """, 
 """#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
 E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2019-01-01T00:00:00|
 """,  URLError('wat'), socket.timeout()]
-                                      
+        
+        # test high sample rate, we should get only one channel:
         cha_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        postdata,
-                                                       channels,
+                                                       channels, None, None,
                                                        100, None, None, -1, self.db_buf_size
                                                )
 
@@ -1315,60 +893,131 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
         cha_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        postdata,
-                                                       channels,
+                                                       channels, None, None,
                                                        10, None, None, -1, self.db_buf_size
                                                )
 
         assert len(cha_df) == 2
         
-        # now change channels=['B??'], we should have no effect as the arg has effect
-        # when postdata is None (=query to the db)
+        # now change channels=['B??'], we should have the same result as before as
+        # the `channel` argument has effect when postdata is None (=query to the db)
         cha_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        postdata,
-                                                       ['B??'],
+                                                       ['B??'], None, None,
                                                        10, None, None, -1, self.db_buf_size
                                                )
 
         assert len(cha_df) == 2
         
-        # now change channels=['B??'], we should have an effect (QuitDownload) as the arg has effect
-        # because postdata is now None (=query to the db)
-        # QuitDownload is an exception raised in download module to say we cannot continue
-        with pytest.raises(QuitDownload):
-            cha_df = self.get_channels_df(urlread_sideeffect, self.session,
-                                                               datacenters_df,
-                                                               None,
-                                                               ['B??'],
-                                                               10, None, None, -1, self.db_buf_size
-                                                       )
-        assert "Getting already-saved stations and channels from db" in self.log_msg()
-        
-        # same as above (no channels found) but use a very high sample rate:
+        # same as above but use a very high sample rate:
         with pytest.raises(QuitDownload):
             cha_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                                datacenters_df,
                                                                postdata,
-                                                               ['B??'],
+                                                               ['B??'], None, None,
                                                                1000000000, None, None, -1, self.db_buf_size
                                                        )
 
-        # assert cha_df.empty
         assert "discarding %d channels (sample rate < 1000000000 Hz)" % len(cha_df) in self.log_msg()
         
-        # this on the other hand must raise cause we get no data from the server
+        
+
+        # still channels=['B??'], but postdata is None, which means get_channels_df
+        # queries the db. Since there
+        # are no 'B??' channels saved (see urlread_sideeffect return value above)
+        # which means a QuitDownload is raised
         with pytest.raises(QuitDownload):
+            cha_df = self.get_channels_df(urlread_sideeffect, self.session,
+                                                               datacenters_df,
+                                                               [None] * len(datacenters_df),
+                                                               ['B??'], None, None,
+                                                               10, None, None, -1, self.db_buf_size
+                                                       )
+        assert ("Fetching stations and channels from "
+                "db for %d data-center(s)") % len(datacenters_df) in self.log_msg()
+        
+           
+        # Test the case where all responses are empty: raise quit download
+        with pytest.raises(QuitDownload) as qerr:
             cha_df = self.get_channels_df("", self.session,
                                                                datacenters_df,
                                                                postdata,
-                                                               ['B??'],
+                                                               ['B??'], None, None,
                                                                10, None, None, -1, self.db_buf_size
                                                        )
 
+        assert ("No channel found (Request error or empty response in all station queries, "
+                "no data in cache (database). Check config and log for details)") == str(qerr.value)
+                
+        # same as above if all responses are errors
+        with pytest.raises(QuitDownload) as qerr:
+            cha_df = self.get_channels_df([500], self.session,
+                                                               datacenters_df,
+                                                               postdata,
+                                                               ['B??'], None, None,
+                                                               10, None, None, -1, self.db_buf_size
+                                                       )
         
+        # test channels and startime + entimes provided when querying the db (postdata None)
+        # by iussuing the command:
+        # dbquery2df(self.session.query(Channel.id, Channel.channel, Station.start_time,
+        #                               Station.end_time, Channel.sample_rate).join(Station))
+        # we found the following channels on the db:
+        #
+        # id  channel start_time  end_time             sample_rate
+        # 1   HHE     2008-02-12  None                 100.0      
+        # 2   HHZ     2008-02-12  None                 100.0      
+        # 3   HHE     2009-01-01  None                 100.0      
+        # 4   HHZ     2009-01-01  None                 100.0      
+        # 5   HHZ     2009-01-01  2019-01-01 00:00:00  100.0      
+        # 6   HHZ     2019-01-01  None                 100.0      
+        # 7   HHZ     2019-01-01  None                 100.0      
+        # 8   HBE     2008-02-12  2010-02-12 00:00:00  50.0     
         
+        # Now according to the table above set a list of arguments:
+        # Each key is: channel, starttime, edntime, mapped to the expected channel count
+        args = {(('?B?',), None, None): 1,
+                (('HB?',), datetime(2009,1,1), None): 1,
+                #(('HB?',), datetime(2019,1,1), None): 0,
+                #(('HB?',), None, datetime(2001,1,1)): 0,
+                (None, datetime(2008,1,1), None): 8,
+                (None, datetime(2012,1,1), None): 7,
+                # (None, None, datetime(2001,1,1)): 0,
+                (None, None, datetime(2010,1,1)): 6,
+                (None, datetime(2010,1,1), datetime(2010,2,1)): 6,
+                (None, datetime(2010,1,1), datetime(2030,2,1)): 8,
+                }
+        # test when we query the database (postdata is None) with different channels and datetime(s)
+        for (cha, stime, etime), expected_length in args.iteritems():
+            cha_df = self.get_channels_df(urlread_sideeffect, self.session,
+                                                               datacenters_df,
+                                                               [None] * len(datacenters_df),
+                                                               cha, stime, etime,
+                                                               10, None, None, -1, self.db_buf_size
+                                                       )
+            if len(cha_df) != expected_length:  # this if just is for debug purposes in eclipse
+                sdf = 9
+            assert len(cha_df) == expected_length
+        # now test the cases where we have zero channels. These are treated separately from the case
+        # above cause 0 channels raises QuitDownload:
+        args = {
+                (('HB?',), datetime(2019,1,1), None): 0,
+                (('HB?',), None, datetime(2001,1,1)): 0,
+                (None, None, datetime(2001,1,1)): 0, 
+                }
+        # test when we query the database (postdata is None) with different channels and datetime(s)
+        for (cha, stime, etime), expected_length in args.iteritems():
+            with pytest.raises(QuitDownload):
+                cha_df = self.get_channels_df(urlread_sideeffect, self.session,
+                                                               datacenters_df,
+                                                               [None] * len(datacenters_df),
+                                                               cha, stime, etime,
+                                                               10, None, None, -1, self.db_buf_size
+                                                       )
+            
 
-# FIXME: text save inventories!!!!
+# FIXME: test save inventories!!!!
 
     def ttable(self, modelname=None):
         '''convenience function that loads a ttable from the data folder'''
@@ -1387,16 +1036,10 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
 """
         events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", db_bufsize=self.db_buf_size)
 
-        # this urlread_sideeffect is actually to be considered for deciding which datacenters to store,
-        # their post data is not specified as it
-        # would be ineffective as it is overridden by the urlread_sideeffect
-        # specified below for the channels
-        urlread_sideeffect = """http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query
-http://ws.resif.fr/fdsnws/dataselect/1/query
-"""
+
         channels = None
-        datacenters_df, postdata = self.get_datacenters_df(None, self.session, self.routing_service,
-                                                           service=None, channels=channels, db_bufsize=self.db_buf_size)
+        datacenters_df, postdata = self.get_datacenters_df(None, self.session, None, self.routing_service,
+                                                           channels=channels, db_bufsize=self.db_buf_size)
 
         # url read for channels: Note: first response data raises, second has an error and
         #that error is skipped (other channels are added), and last two channels are from two
@@ -1414,7 +1057,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         channels_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        postdata,
-                                                       channels,
+                                                       channels, None, None,
                                                        10, None, None, -1, self.db_buf_size
                                                )
         
@@ -1518,13 +1161,12 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         urlread_sideeffect = None  # use defaults from class
         events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", db_bufsize=self.db_buf_size)
         channels = None
-        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
-                                                           service=None,
+        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, None, self.routing_service,
                                                            channels=channels, db_bufsize=self.db_buf_size)                                      
         channels_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        postdata,
-                                                       channels,
+                                                       channels, None, None,
                                                        100, None, None, -1, self.db_buf_size
                                                )
         assert len(channels_df) == 12  # just to be sure. If failing, we might have changed the class default
@@ -1696,13 +1338,13 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         urlread_sideeffect = None  # use defaults from class
         events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", db_bufsize=self.db_buf_size)
         channels = None
-        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, self.routing_service,
-                                                           self.service,
+        datacenters_df, postdata = self.get_datacenters_df(urlread_sideeffect, self.session, self.service,
+                                                           self.routing_service,
                                                            channels, db_bufsize=self.db_buf_size)                                      
         channels_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        postdata,
-                                                       channels,
+                                                       channels, None, None,
                                                        10, None, None, -1, self.db_buf_size
                                                )
         assert len(channels_df) == 12  # just to be sure. If failing, we might have changed the class default

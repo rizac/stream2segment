@@ -26,8 +26,8 @@ import psutil
 # from obspy.taup.tau import TauPyModel
 # from obspy.taup.helper_classes import TauModelError, SlownessModelError
 from stream2segment.utils.url import urlread, read_async as original_read_async, URLException
-from stream2segment.io.db.models import Event, DataCenter, Segment, Station,\
-    dc_get_other_service_url, Channel, WebService
+from stream2segment.io.db.models import Event, DataCenter, Segment, Station, Channel, \
+    WebService, fdsn_urls
 from stream2segment.io.db.pd_sql_utils import dfrowiter, mergeupdate,\
     dbquery2df, syncdf, insertdf_napkeys, updatedf
 from stream2segment.download.utils import empty, urljoin, response2df, normalize_fdsn_dframe,\
@@ -49,31 +49,41 @@ logger = logging.getLogger(__name__)
 class QuitDownload(Exception):
     """
     This is an exception that should be raised from each function of this module, when their OUTPUT
-    is empty and thus would prevent the continuation of the program.
-    Any function here THUS EXPECTS THEIR DATAFRAME INPUT TO BE NON-EMPTY.
+    dataframe is empty and thus would prevent the continuation of the program.
+    **Any function here THUS EXPECTS THEIR DATAFRAME INPUT TO BE NON-EMPTY.**
 
-    There are two causes for that:
-    - no data because of a download error (no data fetched)
-    - no data because of current settings (e.g., no channels with given sample rate, all segments
-    already downloaded with current retry settings, etcetera)
-    In both cases, the program should exit. Thus we implement an Exception to be able to try-catch
-    when we cannot continue. But:
-     - In the first case the program should `log.error` the message and return nonzero
-     - In the second case the program should `log.info` the message and return zero
-    Note that with the current settings defined in stream2segment/main, log.info and log.error both
-    print to stdout (only `log.warning` and `log.debug` do not).
+    There are two causes for having empty data(frame). In both cases, the program should exit,
+    but the behavior should be different:
 
-    So the usage from within each method is to raise a QuitDownload any time they would return
-    empty data, i.e. empty DataFrame or None.
-    The usage from within `run` is to try.. catch each method, and in case of QuitDownload
-    simply write a method that prints to log (info or error according to the constructor) and
-    returns the right program exit code:
+    - There is no data because of a download error (no data fetched):
+      the program should `log.error` the message and return nonzero. Then, from the function
+      that raises the exception write:
+
+      ```raise QuitDownload(Exception(...))```
+
+    - There is no data because of current settings (e.g., no channels with sample rate >=
+      config sample rate, all segments already downloaded with current retry settings):
+      the program should `log.info` the message and return zero. Then, from the function
+      that raises the exception write:
+
+      ```raise QuitDownload(string_message)```
+
+    Note that in both cases the string messages need most likely to be built with the `MSG`
+    function for harmonizing the message outputs.
+    (Note also that with the current settings defined in stream2segment/main,
+    `log.info` and `log.error` both print also to `stdout`, `log.warning` and `log.debug` do not).
+
+    From within `run` (the caller function) one should `try.. catch` a function raising
+    a `QuitDownload` and call `QuitDownload.log()` which handles the log and returns the
+    exit code depending on how the `QuitDownload` was built:
     ```
-        exit_code = exc.log()
-    ```
-    or if you want to return:
-    ```
-        return exc.log()
+        try:
+            ... function raising QuitDownload ...
+        catch QuitDownload as dexc:
+            exit_code = dexc.log()  # print to log
+            # now we can handle exit code. E.g., if we want to exit:
+            if exit_code != 0:
+                return exit_code
     ```
     """
     def __init__(self, exc_or_msg):
@@ -113,14 +123,14 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
 def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_size=10,
              drop_duplicates=True, return_df=True, cols_to_print_on_err=None):
     """Calls `syncdf` and writes to the logger before returning the
-    new dataframe. Raises `QuitDownload` if the returned dataframe is empty (no items saved)"""
+    new dataframe. Raises `QuitDownload` if the returned dataframe is empty (no row saved)"""
     oldlen = len(dataframe)
     df, new = syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_size,
                      drop_duplicates, return_df, onerr=handledbexc(cols_to_print_on_err))
     table = autoincrement_pkey_col.class_
     if empty(df):
         raise QuitDownload(Exception(MSG("",
-                                         "No item saved to table '%s'" % table.__tablename__,
+                                         "No row saved to table '%s'" % table.__tablename__,
                                          "unknown error, check database connection")))
     discarded = oldlen - len(df)
     dblog(table, new, discarded)
@@ -159,7 +169,7 @@ def dblog(table, inserted, not_inserted, updated=-1, not_updated=-1):
     terminal"""
 
     def item(num):
-        return "item" if num == 1 else "items"
+        return "row" if num == 1 else "rows"
     _header = "Db table '%s' summary"
     _errmsg = "sql error (e.g., null constr., unique constr.)"
     _noerrmsg = "no sql errors"
@@ -172,7 +182,7 @@ def dblog(table, inserted, not_inserted, updated=-1, not_updated=-1):
             msgs = ["%d new %s inserted", _noerrmsg]
             args = [inserted, item(inserted)]
     else:
-        msgs = ["no new item to insert", ""]
+        msgs = ["no new %s to insert" % item(1), ""]
         args = []
 
     logger.info(MSG(_header, msgs[0], msgs[1]), table.__tablename__, *args)
@@ -188,7 +198,7 @@ def dblog(table, inserted, not_inserted, updated=-1, not_updated=-1):
             msgs = ["%d %s updated", _noerrmsg]
             args = [updated, item(updated)]
     else:
-        msgs = ["no item to update", ""]
+        msgs = ["no %s to update" % item(1), ""]
         args = []
 
     logger.info(MSG(_header, msgs[0], msgs[1]), table.__tablename__, *args)
@@ -260,48 +270,78 @@ def response2normalizeddf(url, raw_data, dbmodel_key):
     oldlen, dframe = len(dframe), normalize_fdsn_dframe(dframe, dbmodel_key)
     # stations_df surely not empty:
     if oldlen > len(dframe):
-        logger.warning(MSG(dbmodel_key + "s", "%d item(s) discarded",
+        logger.warning(MSG(dbmodel_key + "s", "%d row(s) discarded",
                            "malformed server response data, e.g. NaN's", url),
                        oldlen - len(dframe))
     return dframe
 
 
-def get_dc_filterfunc(service):
-    """returns a function for filtering datacenters based on service.
-    Returns a function that accepts an url (datacenter or station url) and returns a boolean
-    indicating whether or not that url matches the given service.
-    :param service: string (case insensitive) denoting the service: "iris" returns True for
-    iris nodes, any other string returns True for EIDA nodes"""
-    if service:
-        service = service.lower()
-        if service == 'iris':
-            return lambda x: "service.iris.edu" in x
-        elif service in ('eida', 'seismicportal'):
-            return lambda x: "service.iris.edu" not in x
-
-    return lambda x: True
-
-
-def get_datacenters_df(session, routing_service_url, service, channels, db_bufsize, **query_args):
-    """Queries 'http://geofon.gfz-potsdam.de/eidaws/routing/1/query' for all datacenters
-    available
-    :param query_args: any key value pair for the url. Note that 'service' and 'format' will
-    be overiidden in the code with values of 'station' and 'format', repsecively
-    :param channels: the channels to query. Can be None (=all channels) or a list of FDSN channels
-    format (e.g. `['HH?', BHZ']`)
-    :return: the tuple datacenters_df, post_requests where the latter is a list of strings
-    (same length as `datacenters_df`) usable for requesting station or channels to the
-    given data center (via e.g. `urllib2.Request(datacenter_url, data=post_request)`). Some
-    elements of `post_requests` might be None. If `post_requests` is None, then the RS encountered
-    a problem and we have some channels saved. If we do not have channels saved, an exception
-    is raised. In this latter case, the caller is responsible of displaying messages to the
-    logger, which is used in this function only for all those messages which should not stop
-    the program
+def get_datacenters_df(session, service, routing_service_url,
+                       channels, starttime=None, endtime=None,
+                       db_bufsize=None):
+    """Returns a 2 elements tuple: the dataframe of the datacenter matching `service`
+    and the
+    relative postdata (in the same order as the dataframe rows) as a list of strings.
+    The elements of the strings might be falsy (empty strings or None),
+    a function processing the output of this function should consider invalid datacenters with
+    falsy post data and e.g. query the database instead
+    :param service: the string denoting the dataselect *or* station url in fdsn format, or
+    'eida', or 'iris'. In case of 'eida', `routing_service_url` must denote an url for the
+    edia routing service. If falsy (e.g., empty string ot None), `service` defaults to 'eida'
     """
-    # remember: re.macth must be exact match
-    channels_re = None if not channels else \
-        re.compile("|".join("^%s$" % strconvert.wild2re(c) for c in channels))
+    DC_SURL_COL = DataCenter.station_url
+    DC_DURL_COL = DataCenter.dataselect_url
+    DC_SURL_NAME = DC_SURL_COL.key
+    DC_DURL_NAME = DC_DURL_COL.key
+    DC_ID_COL = DataCenter.id
+    DC_ORG_COL = DataCenter.node_organization_name
+    DC_ORG_NAME = DC_ORG_COL.key
 
+    postdata = ["* * * %s %s %s" % (",".join(channels) if channels else "*",
+                                    "*" if not starttime else starttime.isoformat(),
+                                    "*" if not endtime else endtime.isoformat())]
+    if not service:
+        service = 'eida'
+
+    if service.lower() == 'iris':
+        IRIS_NETLOC = 'https://service.iris.edu'
+        dc_df = pd.DataFrame(data={DC_DURL_NAME: '%s/fdsnws/dataselect/1/query' % IRIS_NETLOC,
+                                   DC_SURL_NAME: '%s/fdsnws/station/1/query' % IRIS_NETLOC,
+                                   DC_ORG_NAME: 'iris'}, index=[0])
+    elif service.lower() != 'eida':
+        fdsn_normalized = fdsn_urls(service)
+        if fdsn_normalized:
+            station_ws = fdsn_normalized[0]
+            dataselect_ws = fdsn_normalized[1]
+            dc_df = pd.DataFrame(data={DC_DURL_NAME: station_ws,
+                                       DC_SURL_NAME: dataselect_ws,
+                                       DC_ORG_NAME: None}, index=[0])
+        else:
+            raise QuitDownload(Exception(MSG("", "Unable to use datacenter",
+                                             "Url does not seem to be a valid fdsn url", service)))
+    else:
+        dc_df, postdata = get_eida_datacenters_df(session, routing_service_url, channels,
+                                                  starttime, endtime)
+
+    if postdata:  # not eida, or eda succesfully queried
+        dc_df = dbsyncdf(dc_df, session, [DC_SURL_COL], DataCenter.id,
+                         buf_size=len(dc_df) if db_bufsize is None else db_bufsize)
+    else:  # routing service error, we fetched from db, normalize postdata, no need to write to db
+        postdata = [''] * len(dc_df)
+
+    return dc_df, postdata
+
+
+def get_eida_datacenters_df(session, routing_service_url, channels, starttime=None, endtime=None):
+    """Same as `get_eida_datacenters_df`, but returns eida nodes (data-centers)
+    """
+    DC_SURL_COL = DataCenter.station_url
+    DC_DURL_COL = DataCenter.dataselect_url
+    DC_SURL_NAME = DC_SURL_COL.key
+    DC_DURL_NAME = DC_DURL_COL.key
+    DC_ID_COL = DataCenter.id
+    DC_ORG_COL = DataCenter.node_organization_name
+    DC_ORG_NAME = DC_ORG_COL.key
     # define columns (sql-alchemy model attrs) and their string names (pandas col names) once:
     DC_SURL_COL = DataCenter.station_url
     DC_DURL_COL = DataCenter.dataselect_url
@@ -310,87 +350,56 @@ def get_datacenters_df(session, routing_service_url, service, channels, db_bufsi
     DC_ID_COL = DataCenter.id
 
     # do not return only new datacenters, return all of them
-    query_args['service'] = 'dataselect'
-    query_args['format'] = 'post'
+    query_args = {'service': 'dataselect', 'format': 'post'}
+    if channels:
+        query_args['channel'] = ",".join(channels)
+    if starttime:
+        query_args['start'] = starttime.isoformat()
+    if endtime:
+        query_args['end'] = endtime.isoformat()
+
     url = urljoin(routing_service_url, **query_args)
-
-    accept_dc = get_dc_filterfunc(service)
-    dc_df = dbquery2df(session.query(DC_ID_COL, DC_SURL_COL, DC_DURL_COL)).reset_index(drop=True)
-    # filter by service:
-    dc_df = dc_df[dc_df.apply(lambda x: accept_dc(x[DC_DURL_NAME]), axis=1)]
-
-    # add list for post data, to be populated in the loop below
-    dc_postdata = [None] * len(dc_df)
+    dc_df = None
+    dc_postdata = []
 
     try:
         dc_result, status, msg = urlread(url, decode='utf8', raise_http_err=True)
+        dc_split = dc_result.strip().split("\n\n")
 
-        current_dc_url = None
-        dc_data_buf = []
+        for dcstr in dc_split:
+            idx = dcstr.find("\n")
+            if idx > -1:
+                url, postdata = dcstr[:idx].strip(), dcstr[idx:].strip()
+                urls = fdsn_urls(url)
+                if urls:
+                    dc_postdata.append(postdata)
+                    dcdict = {DC_SURL_NAME: urls[0], DC_DURL_NAME: urls[1], DC_ORG_NAME: 'eida'}
+                    if dc_df is None:
+                        dc_df = pd.DataFrame(dcdict, index=[0])
+                    else:
+                        dc_df = dc_df.append(dcdict, ignore_index=True)
 
-        dc_split = dc_result.split("\n")
-        lastline = len(dc_split) - 1
-        for i, line in enumerate(dc_split):
-            is_dc_line = False
-
-            if line:
-                is_dc_line = line[:7] == "http://"
-
-                if not is_dc_line:
-                    accept_it = channels_re is None
-                    if not accept_it:
-                        spl = line.split(' ')
-                        if len(spl) > 3:
-                            cha = spl[3].strip()
-                            if spl[3] == '*' or channels_re.match(cha):
-                                if cha != '*' and cha[0] != 'H':
-                                    dfg = 9
-                                accept_it = True
-
-                    if accept_it:
-                        dc_data_buf.append(line)
-
-            if (i == lastline or is_dc_line) and current_dc_url is not None:
-                # get index of given dataselect url:
-                if accept_dc(current_dc_url):
-                    indices = dc_df.index[(dc_df[DC_DURL_NAME] == current_dc_url)].values
-                    idx = indices[0] if len(indices) else None
-
-                    # index not found? add the item:
-                    if idx is None:
-                        idx = len(dc_df)
-                        current_dc_station_url = dc_get_other_service_url(current_dc_url)
-                        dc_df = dc_df.append([{DC_DURL_NAME: current_dc_url,
-                                               DC_SURL_NAME: current_dc_station_url}],
-                                             ignore_index=True)  # this re-index the dataframe
-                        dc_postdata.append(None)
-
-                    if dc_data_buf:
-                        dc_postdata[idx] = "\n".join(dc_data_buf)
-
-                dc_data_buf = []
-
-            if is_dc_line:
-                current_dc_url = line
-
-        dc_df = dbsyncdf(dc_df, session, [DC_SURL_COL], DataCenter.id, db_bufsize)
         return dc_df, dc_postdata
 
     except URLException as urlexc:
+        dc_df = dbquery2df(session.query(DC_ID_COL, DC_SURL_COL, DC_DURL_COL).
+                           filter(DC_ORG_COL == 'eida')).reset_index(drop=True)
         if empty(dc_df):
-            msg = MSG("", "routing service error, no data-center saved in database",
+            msg = MSG("", "eida routing service error, no eida data-center saved in database",
                       urlexc.exc, url)
             raise QuitDownload(Exception(msg))
         else:
             msg = MSG("",
-                      "routing service error, trying to work with %d already saved data-centers",
+                      "eida routing service error, trying to work "
+                      "with %d already saved data-centers",
                       urlexc.exc, url)
             logger.warning(msg, len(dc_df))
             logger.info(msg, len(dc_df))
             return dc_df, None
 
 
-def get_channels_df(session, datacenters_df, post_data, channels, min_sample_rate,
+def get_channels_df(session, datacenters_df, post_data, channels, starttime, endtime,
+                    min_sample_rate,
                     max_thread_workers, timeout, blocksize, db_bufsize,
                     show_progress=False):
     """Returns a dataframe representing a query to the eida services (or the internal db
@@ -425,84 +434,125 @@ def get_channels_df(session, datacenters_df, post_data, channels, min_sample_rat
                STA_NET, STA_STA, CHA_LOC, CHA_CHA]  # <- will be removed after creating a dict
     COLS_DF = [c.key for c in COLS_DB]
 
-    ret_df = empty()
+    _mask = np.array([True if _ else False for _ in post_data])
+    post_data_iter = (p for p in post_data if p)
+    dc_df_fromweb = datacenters_df[_mask]
+    dc_df_fromdb = datacenters_df[~_mask]
 
-    if post_data is None:
-        logger.info("Getting already-saved stations and channels from db")
-        expr1 = or_(*[Channel.channel.like(strconvert.wild2sql(cha)) for cha in channels]) \
-            if channels else None
-        expr2 = Channel.sample_rate >= min_sample_rate if min_sample_rate > 0 else None
-        expr = expr1 if expr2 is None else expr2 if expr1 is None else and_(expr1, expr2)
-        qry = session.query(*COLS_DB).join(Channel.station)
-        if expr is not None:
-            qry = qry.filter(expr)
-        ret_df = dbquery2df(qry)
-        if empty(ret_df):
-            raise QuitDownload("No channel found in database according to given parameters")
-    else:
-        ret = []
-        no_datacenters = []
-        iterable = ((id_, Request(url, data='format=text\nlevel=channel\n'+post_data_str))
-                    for url, id_, post_data_str in
-                    izip(datacenters_df[DataCenter.station_url.key],
-                         datacenters_df[DataCenter.id.key], post_data) if post_data_str)
+    ret = []
+    url_failed_dc_ids = []
+    iterable = ((id_, Request(url, data='format=text\nlevel=channel\n'+post_data_str))
+                for url, id_, post_data_str in izip(dc_df_fromweb[DataCenter.station_url.key],
+                                                    dc_df_fromweb[DataCenter.id.key],
+                                                    post_data_iter))
 
-        with get_progressbar(show_progress, length=len(datacenters_df)) as bar:
-            for obj, result, exc, url in read_async(iterable, urlkey=lambda obj: obj[-1],
-                                                    blocksize=blocksize,
-                                                    max_workers=max_thread_workers,
-                                                    decode='utf8', timeout=timeout):
-                bar.update(1)
-                dcen_id = obj[0]
-                if exc:
-                    no_datacenters.append(dcen_id)
-                    logger.warning(MSG("", "unable to perform request", exc, url))
-                else:
-                    try:
-                        df = response2normalizeddf(url, result[0], "channel")
-                    except ValueError as exc:
-                        logger.warning(MSG("", "discarding response data", exc, url))
-                        df = empty()
-                    if not empty(df):
-                        df[Station.datacenter_id.key] = dcen_id
-                        ret.append(df)
-
-        if no_datacenters:  # if some datacenter does not return station, warn with INFO
-            logger.info(MSG("",
-                            ("WARNING: unable to fetch stations from %d data center(s), "
-                             "the relative channels and segment will not be available"),
-                            "this might be due to connection errors, timeout, ...", ""), len(no_datacenters))
-            logger.info("The data centers involved are (showing 'dataselect' url):")
-            logger.info(datacenters_df.loc[datacenters_df[DataCenter.id.key].
-                                           isin(no_datacenters)][DataCenter.dataselect_url.key].
-                        to_string(index=False))
-
-        if ret:  # pd.concat complains for empty list
-            channels_df = pd.concat(ret, axis=0, ignore_index=True, copy=False)
-
-            # remove unmatching sample rates:
-            if min_sample_rate > 0:
-                srate_col = Channel.sample_rate.key
-                oldlen, channels_df = len(channels_df), \
-                    channels_df[channels_df[srate_col] >= min_sample_rate]
-                discarded_sr = oldlen - len(channels_df)
-                if discarded_sr:
-                    logger.warning(MSG("", "discarding %d channels",
-                                       "sample rate < %s Hz" % str(min_sample_rate)),
-                                   discarded_sr)
-
-            if not empty(channels_df):
-                # logger.info("Saving channels (%d) and relative stations", len(channels_df))
-                channels_df = save_stations_and_channels(session, channels_df, db_bufsize)
-                ret_df = channels_df[COLS_DF].copy()
+    with get_progressbar(show_progress, length=len(dc_df_fromweb)) as bar:
+        for obj, result, exc, url in read_async(iterable, urlkey=lambda obj: obj[-1],
+                                                blocksize=blocksize,
+                                                max_workers=max_thread_workers,
+                                                decode='utf8', timeout=timeout):
+            bar.update(1)
+            dcen_id = obj[0]
+            if exc:
+                url_failed_dc_ids.append(dcen_id)
+                logger.warning(MSG("", "unable to perform request", exc, url))
             else:
-                raise QuitDownload("No channel found with sample rate >= %f" % min_sample_rate)
-        else:
-            raise QuitDownload(Exception(MSG("", "No channel found",
-                                             "server / client errors in server responses: "
-                                             "check config and log for details")))
+                try:
+                    df = response2normalizeddf(url, result[0], "channel")
+                except ValueError as exc:
+                    logger.warning(MSG("", "discarding response data", exc, url))
+                    df = empty()
+                if not empty(df):
+                    df[Station.datacenter_id.key] = dcen_id
+                    ret.append(df)
 
-    return ret_df
+    if url_failed_dc_ids:  # if some datacenter does not return station, warn with INFO
+        failed_dcs = datacenters_df.loc[datacenters_df[DataCenter.id.key].isin(url_failed_dc_ids)]
+        if dc_df_fromdb.empty:
+            dc_df_fromdb = failed_dcs
+        else:
+            dc_df_fromdb.append(failed_dcs)
+        logger.info(MSG("",
+                        ("WARNING: unable to fetch stations from %d data center(s), "
+                         "the relative channels and segment will not be available"),
+                        "this might be due to connection errors (e.g., timeout)", ""),
+                    len(url_failed_dc_ids))
+        logger.info("The data centers involved are (showing 'dataselect' url):")
+        logger.info(failed_dcs[DataCenter.dataselect_url.key].to_string(index=False))
+
+    # build two dataframes which we will concatenate afterwards
+    web_cha_df = pd.DataFrame() if not ret else pd.concat(ret, axis=0, ignore_index=True,
+                                                          copy=False)
+    db_cha_df = pd.DataFrame()
+
+    if not dc_df_fromdb.empty:
+        logger.info("Fetching stations and channels from "
+                    "db for %d data-center(s)" % len(dc_df_fromdb))
+        db_cha_df = get_channels_df_from_db(session, dc_df_fromdb, channels, starttime, endtime,
+                                            min_sample_rate, db_bufsize)
+        if db_cha_df.empty and web_cha_df.empty:
+            raise QuitDownload("No channel found in database according to given parameters")
+
+    if not web_cha_df.empty:  # pd.concat complains for empty list
+        # remove unmatching sample rates:
+        if min_sample_rate > 0:
+            srate_col = Channel.sample_rate.key
+            oldlen, web_cha_df = len(web_cha_df), \
+                web_cha_df[web_cha_df[srate_col] >= min_sample_rate]
+            discarded_sr = oldlen - len(web_cha_df)
+            if discarded_sr:
+                logger.warning(MSG("", "discarding %d channels",
+                                   "sample rate < %s Hz" % str(min_sample_rate)),
+                               discarded_sr)
+            if web_cha_df.empty and db_cha_df.empty:
+                raise QuitDownload("No channel found with sample rate >= %f" % min_sample_rate)
+
+        try:
+            # this raises QuitDownload if we cannot save any element:
+            web_cha_df = save_stations_and_channels(session, web_cha_df, db_bufsize)
+        except QuitDownload as qexc:
+            if db_cha_df.empty:
+                raise
+            else:
+                logger.warning(qexc)
+
+    if web_cha_df.empty and db_cha_df.empty:
+        # ok, now let's see if we have remaining datacenters to be fetched from the db
+        raise QuitDownload(Exception(MSG("", "No channel found",
+                                     ("Request error or empty response in all station "
+                                      "queries, no data in cache (database). "
+                                      "Check config and log for details"))))
+
+    return (web_cha_df if db_cha_df.empty else db_cha_df if web_cha_df.empty else
+            pd.concat(web_cha_df, db_cha_df))[COLS_DF].copy()
+
+
+def get_channels_df_from_db(session, datacenters_df, channels, starttime, endtime, min_sample_rate,
+                            db_bufsize):
+    CHA_ID = Channel.id
+    CHA_STAID = Channel.station_id
+    STA_LAT = Station.latitude
+    STA_LON = Station.longitude
+    STA_STIME = Station.start_time
+    STA_ETIME = Station.end_time
+    STA_DCID = Station.datacenter_id
+    STA_NET = Station.network
+    STA_STA = Station.station
+    CHA_LOC = Channel.location
+    CHA_CHA = Channel.channel
+    # the columns for the channels dataframe that will be returned
+    COLS_DB = [CHA_ID, CHA_STAID, STA_LAT, STA_LON, STA_DCID, STA_STIME, STA_ETIME,
+               STA_NET, STA_STA, CHA_LOC, CHA_CHA]  # <- will be removed after creating a dict
+    # _be means "binary expression" (sql alchemy object reflecting a sql clause)
+    cha_be = or_(*[Channel.channel.like(strconvert.wild2sql(cha)) for cha in channels]) \
+        if channels else True
+    srate_be = Channel.sample_rate >= min_sample_rate if min_sample_rate > 0 else True
+    dc_be = Station.datacenter_id.in_(datacenters_df[DataCenter.id.key])
+    stime_be = ~((Station.end_time!=None) & (Station.end_time <= starttime)) if starttime else True  # @IgnorePep8
+    etime_be = ~((Station.start_time!=None) & (Station.start_time >= endtime)) if endtime else True  # @IgnorePep8
+    qry = session.query(*COLS_DB).join(Channel.station).filter(and_(dc_be, srate_be, cha_be,
+                                                                    stime_be, etime_be))
+    return dbquery2df(qry)
 
 
 def save_stations_and_channels(session, channels_df, db_bufsize):
@@ -1064,7 +1114,7 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
                  "discarded: %d (empty response)\n"
                  "not downloaded: %d (client/server errors)") %
                 (downloaded, empty, errors))
-    dbmanager.close()
+    dbmanager.flush()
 
 
 class DbManager(object):
@@ -1211,9 +1261,9 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
     logger.info("STEP %s: Requesting data-centers", next(stepiter))
     try:
         datacenters_df, postdata = get_datacenters_df(session,
+                                                      service,
                                                       advanced_settings['routing_service_url'],
-                                                      service, channels, dbbufsize,
-                                                      start=startiso, end=endiso)
+                                                      channels, start, end, dbbufsize)
     except QuitDownload as dexc:
         return dexc.log()
 
@@ -1222,7 +1272,7 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
                 len(datacenters_df),
                 'data-center' if len(datacenters_df) == 1 else 'data-centers')
     try:
-        channels_df = get_channels_df(session, datacenters_df, postdata, channels,
+        channels_df = get_channels_df(session, datacenters_df, postdata, channels, start, end,
                                       min_sample_rate,
                                       advanced_settings['max_thread_workers'],
                                       advanced_settings['s_timeout'],
@@ -1296,7 +1346,7 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
 
         # query station id, network station, datacenter_url
         # for those stations with empty inventory_xml
-        # AND at least one segment non emtpy/null
+        # AND at least one segment non empty/null
         # Download inventories for those stations only
         sta_df = dbquery2df(query4inventorydownload(session))
         # stations = session.query(Station).filter(~withdata(Station.inventory_xml)).all()

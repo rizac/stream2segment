@@ -71,9 +71,22 @@ class Test(unittest.TestCase):
         sess.add(run)
         sess.commit()
         
-        dcen = DataCenter(station_url="x/station/abc")
+        dcen = DataCenter(station_url="x/station/abc")  # invalid fdsn name
+        with pytest.raises(IntegrityError):
+            sess.add(dcen)
+            sess.commit()
+        sess.rollback()
+        
+        # https://service.iris.edu/fdsnws/station/1/
+        
+        dcen = DataCenter(station_url="x/station/fdsnws/station/1/")  # this is save (fdsn)
         sess.add(dcen)
         sess.commit()
+        
+        dcen = DataCenter(station_url="x/station/abc", dataselect_url="x/station/abc")  # this is safe (both provided):
+        sess.add(dcen)
+        sess.commit()
+        
         
         ws = WebService(url='abc')
         sess.add(ws)

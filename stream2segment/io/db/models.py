@@ -26,6 +26,7 @@ from sqlalchemy.orm.mapper import validates
 # from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.inspection import inspect
 from sqlalchemy.ext.hybrid import hybrid_property, hybrid_method
+import re
 
 _Base = declarative_base()
 
@@ -187,6 +188,7 @@ class DataCenter(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)  # pylint:disable=invalid-name
     station_url = Column(String, nullable=False)  # if you change attr, see BELOW!
     dataselect_url = Column(String, nullable=False)  # , default=dc_datasel_default, onupdate=dc_datasel_default)
+    node_organization_name = Column(String, nullable=True)
 
     # segments = relationship("Segment", backref="data_centers")
     # stations = relationship("Station", backref="data_centers")
@@ -225,21 +227,43 @@ def receive_before_update(mapper, connection, target):
     """listen for the 'before_update' event. For info on validation see:
      https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf
     """
-    if target.station_url is not None and target.dataselect_url is None:
-        target.dataselect_url = dc_get_other_service_url(target.station_url)
-    elif target.dataselect_url is not None and target.station_url is None:
-        target.station_url = dc_get_other_service_url(target.dataselect_url)
+    if (target.station_url is None) != (target.dataselect_url is None):
+        normalizedfdsn = fdsn_urls(target.station_url if target.dataselect_url is None else
+                                   target.dataselect_url)
+        if normalizedfdsn:
+            target.station_url = normalizedfdsn[0]
+            target.dataselect_url = normalizedfdsn[1]
 
 
-def dc_get_other_service_url(url):
-    """Returns the dataselect service if url denotes a datacenter station service url,
-    otherwise the station service. If dc_url has nor "/station/" neither "/dataselect/" in its
-    string, a ValueError is raised"""
-    if '/station/' in url:
-        return url.replace("/station/", "/dataselect/")
-    elif '/dataselect/' in url:
-        return url.replace("/dataselect/", "/station/")
-    raise ValueError("url does not contain neither '/dataselect/' nor '/station/'")
+# def dc_get_other_service_url(url):
+#     """Returns the dataselect service if url denotes a datacenter station service url,
+#     otherwise the station service. If dc_url has nor "/station/" neither "/dataselect/" in its
+#     string, a ValueError is raised"""
+#     if '/station/' in url:
+#         return url.replace("/station/", "/dataselect/")
+#     elif '/dataselect/' in url:
+#         return url.replace("/dataselect/", "/station/")
+#     raise ValueError("url does not contain neither '/dataselect/' nor '/station/'")
+
+
+def fdsn_urls(url):
+    '''Returns the strings tuple (station_url, dataselect_url) by parsing url as a fdsn url
+    (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf). Returns None if url
+    is not parsable as fdsn url.
+    ''' 
+    services = ['station', 'dataselect']
+    _ = re.match("^(.*/fdsnws)/(?P<service>.*?)/(?P<majorversion>.*?)(|/.*)$", url)
+    if _:
+        try:
+            if _.group('service') in services:
+                remaining = _.group(4)
+                if not remaining or remaining == '/' or remaining == '/query?':
+                    remaining = "/query"
+                return "%s/%s/%s%s" % (_.group(1), services[0], _.group(3), remaining), \
+                    "%s/%s/%s%s" % (_.group(1), services[1], _.group(3), remaining)
+        except IndexError:
+            pass
+    return None
 
 
 class Station(Base):

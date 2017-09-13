@@ -621,3 +621,13 @@ def get_url_mseed_errorcodes():
 #                            'max_colwidth', 50, 'expand_frame_repr', False):
 #         return str(dframe)
 
+
+def isoformat(obj, ifnone='raise'):
+    if obj is None and ifnone != 'raise':
+        return ifnone
+    try:
+        return obj.isoformat()
+    except AttributeError:
+        if type(obj) == str:
+            return obj
+        raise

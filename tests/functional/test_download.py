@@ -260,6 +260,7 @@ class Test(unittest.TestCase):
         self._dc_urlread_sideeffect = """http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query
 ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
 UP ARJ * * 2013-08-01T00:00:00 2017-04-25
+
 http://ws.resif.fr/fdsnws/dataselect/1/query
 ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
 
@@ -649,9 +650,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         str_err = "routing service error, trying to work with 2 already saved data-centers"
         assert str_err not in self.log_msg()
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(500, *a, **v) 
-        
         mock_download_save_segments.reset_mock()
-        
         runner = CliRunner()
         result = runner.invoke(main , ['d', '-c', self.configfile,
                                        '--dburl', self.dburi,
@@ -666,6 +665,8 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         
         assert not mock_download_save_segments.called
         assert str_err in self.log_msg()
+        str_1 = "Fetching stations and channels from db for %d data-center(s)" % self.session.query(DataCenter).count()
+        assert str_1 in self.log_msg()
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
         
 
@@ -674,11 +675,10 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         # TO BE DISPLAYED, THEN CHANGE THE STRING BELOW:
         str_err = "No channel found with sample rate"
         assert str_err not in self.log_msg()
-        
         # assert str_err not in self.log_msg()
         def mgdf(*a, **v):
             aa = list(a)
-            aa[4] = 100000  # change min sample rate to a huge number
+            aa[6] = 100000  # change min sample rate to a huge number
             return self.get_channels_df(None, *aa, **v) 
         mock_get_channels_df.side_effect = mgdf
         
@@ -693,26 +693,26 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
             print result.output
             assert False
             return
-        
         assert str_err in self.log_msg()
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v) 
         
         
-        # now we should raise cause this case of "no channels" differs from the above
-        # check log message for that
-        str_err = "No channel found ("
-        assert str_err not in self.log_msg()
-
+        # now we mock urlread for stations: it always raises 500 error 500
+        # thus the program should query the database as station urlread raises
+        # and we cannot get any station from the web
+        str_2 = "Nothing to download: all segments already downloaded according to the current configuration"
+        idx = self.log_msg().find(str_2)
+        assert idx > -1
         rem = self._sta_urlread_sideeffect
         self._sta_urlread_sideeffect = 500
-        
         runner = CliRunner()
         result = runner.invoke(main , ['d', '-c', self.configfile,
                                        '--dburl', self.dburi,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
+        # assert we wrote again str_2:
+        assert self.log_msg().rfind(str_2) > idx
         
-        assert str_err in self.log_msg()
         # reset to default:
         self._sta_urlread_sideeffect = rem
         
@@ -722,12 +722,9 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         # we should not have inventories saved:
         stainvs = self.session.query(Station).filter(Station.has_inventory).all()
         assert len(stainvs) == 0
-        
-    
         # calculate the expected stations:
         expected_invs_to_download_ids = [x[0] for x in self.session.query(Station.id).filter((~Station.has_inventory) &
                    (Station.segments.any(Segment.has_data))).all()]
-        
         # test that we have data, but also errors
         num_expected_inventories_to_download = len(expected_invs_to_download_ids)
         assert num_expected_inventories_to_download == 2  # just in order to set the value below
@@ -745,7 +742,6 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
             print result.output
             assert False
             return
-        
         stainvs = self.session.query(Station).filter(Station.has_inventory).all()
         assert len(stainvs) == 1
         assert "Unable to save inventory" in self.log_msg()
@@ -772,7 +768,6 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
             print result.output
             assert False
             return
-        
         stainvs = self.session.query(Station).filter(Station.has_inventory).all()
         # assert we still have one station (the one we saved before):
         assert len(stainvs) == num_downloaded_inventories_first_try
@@ -781,7 +776,6 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         
         # now mock url returning always data (the default: it returns self._get_inv():
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
-        
         runner = CliRunner()
         result = runner.invoke(main , ['d', '-c', self.configfile,
                                        '--dburl', self.dburi,

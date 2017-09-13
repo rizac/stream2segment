@@ -149,7 +149,7 @@ wtimespan:
 ######################################################################################################
 
 advanced_settings:
- # the routing service used to fetch the datacenter(s) and relative network/stations
+ # the routing service used to fetch the eida nodes and relative network/stations
  routing_service_url: "http://rz-vm258.gfz-potsdam.de/eidaws/routing/1/query"
  # size of each block of data requested when downloading data (in bytes) until no data is available.
  # If 0 or negative, all data will be read in a single call (if 0, it will be converted to -1).

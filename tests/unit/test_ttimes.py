@@ -77,7 +77,7 @@ class Test(unittest.TestCase):
             assert os.path.isfile(_filepath(mydir, 'ak135', [phase]) + ".npz")
             # fixme: we should load the file and assert something...
 
-    def tst_stepiterator(self):
+    def test_stepiterator(self):
         '''test a step iterator which should give me approximately every 100's'''
         lastnum = -1
         results = []
@@ -99,7 +99,7 @@ class Test(unittest.TestCase):
         assert results == [0]
 
 
-    def tst_ttable(self):
+    def test_ttable(self):
         for ttable in self.ttables:
             # create a point where we expect to be the maximum error: in the middle of the
             # first 4 points (0,0), (0, half_hstep),
