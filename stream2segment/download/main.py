@@ -993,7 +993,6 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                 segments_df = pd.concat(skipped_dataframes, axis=0, ignore_index=True, copy=True,
                                         verify_integrity=False)
                 skipped_dataframes = []
-                gc.collect()
             else:
                 # break the next loop, if any
                 segments_df = pd.DataFrame()
@@ -1124,7 +1123,6 @@ class DbManager(object):
         # cleanup:
         self._num2update = 0
         self.updates = []
-        gc.collect()  # this might help garbage collector
 
     def flush(self):
         """flushes remaining stuff to insert/ update, if any, prints to log updates and inserts"""
@@ -1241,8 +1239,6 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
     del channels_df
     # session.expunge_all()  # for memory: https://stackoverflow.com/questions/30021923/how-to-delete-a-sqlalchemy-mapped-object-from-memory
 
-    gc.collect()  # help memory management before high demanding task
-
     logger.info("")
     logger.info(("STEP %s: %d segments found. Checking already downloaded segments"),
                 next(stepiter), len(segments_df))
@@ -1282,8 +1278,6 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
             return exit_code
 
     if inventory:
-        gc.collect()  # help memory management before high demanding task
-
         # query station id, network station, datacenter_url
         # for those stations with empty inventory_xml
         # AND at least one segment non empty/null
