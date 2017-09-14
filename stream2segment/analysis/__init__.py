@@ -149,7 +149,7 @@ def snr(signal, noise, signals_form='', fmin=None, fmax=None, delta_signal=1.,
 
 
 def trim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
-    """Trims the equally-spaced signal, padding with zeros if necessary. General function that works
+    """Trims the equally-spaced signal. General function that works
     like obspy.Trace.trim for any kind of array
     :param signal: numpy numeric array denoting the values to trim
     :param deltax: the delta between two points of signal on the x axis. The unit must be
@@ -221,7 +221,7 @@ def triangsmooth(array, winlen_ratio):
     :return: numpy array of smoothed values"""
     # this function has been converted from matlab code. The code has been vectorized as much as
     # possible, and several redundant math expression related to normalizations (e.g., divide and
-    # later re-multiply) have been optimized (especially in the while loop below), for performance
+    # later re-multiply) have been optimized (especially in the while loop below) for performance
     # reasons
     smoothed_array = np.array(array, copy=True, dtype=float)
     spec_len = len(array)

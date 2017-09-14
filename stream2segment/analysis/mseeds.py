@@ -1,4 +1,6 @@
 '''
+Utility functions for analyzing and processing miniSeed (`obspy.core.Stream` objects)
+
 Created on Jun 20, 2016
 
 @author: riccardo
