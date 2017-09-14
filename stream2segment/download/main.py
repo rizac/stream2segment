@@ -289,13 +289,11 @@ def get_datacenters_df(session, service, routing_service_url,
     'eida', or 'iris'. In case of 'eida', `routing_service_url` must denote an url for the
     edia routing service. If falsy (e.g., empty string ot None), `service` defaults to 'eida'
     """
-    DC_SURL_COL = DataCenter.station_url
-    DC_DURL_COL = DataCenter.dataselect_url
-    DC_SURL_NAME = DC_SURL_COL.key
-    DC_DURL_NAME = DC_DURL_COL.key
-    DC_ID_COL = DataCenter.id
-    DC_ORG_COL = DataCenter.node_organization_name
-    DC_ORG_NAME = DC_ORG_COL.key
+    # For convenience and readability, define once the mapped column names representing the
+    # dataframe columns that we need:
+    DC_SURL = DataCenter.station_url.key
+    DC_DURL = DataCenter.dataselect_url.key
+    DC_ORG = DataCenter.node_organization_name.key
 
     postdata = ["* * * %s %s %s" % (",".join(channels) if channels else "*",
                                     "*" if not starttime else starttime.isoformat(),
@@ -305,17 +303,17 @@ def get_datacenters_df(session, service, routing_service_url,
 
     if service.lower() == 'iris':
         IRIS_NETLOC = 'https://service.iris.edu'
-        dc_df = pd.DataFrame(data={DC_DURL_NAME: '%s/fdsnws/dataselect/1/query' % IRIS_NETLOC,
-                                   DC_SURL_NAME: '%s/fdsnws/station/1/query' % IRIS_NETLOC,
-                                   DC_ORG_NAME: 'iris'}, index=[0])
+        dc_df = pd.DataFrame(data={DC_DURL: '%s/fdsnws/dataselect/1/query' % IRIS_NETLOC,
+                                   DC_SURL: '%s/fdsnws/station/1/query' % IRIS_NETLOC,
+                                   DC_ORG: 'iris'}, index=[0])
     elif service.lower() != 'eida':
         fdsn_normalized = fdsn_urls(service)
         if fdsn_normalized:
             station_ws = fdsn_normalized[0]
             dataselect_ws = fdsn_normalized[1]
-            dc_df = pd.DataFrame(data={DC_DURL_NAME: station_ws,
-                                       DC_SURL_NAME: dataselect_ws,
-                                       DC_ORG_NAME: None}, index=[0])
+            dc_df = pd.DataFrame(data={DC_DURL: dataselect_ws,
+                                       DC_SURL: station_ws,
+                                       DC_ORG: None}, index=[0])
         else:
             raise QuitDownload(Exception(MSG("", "Unable to use datacenter",
                                              "Url does not seem to be a valid fdsn url", service)))
@@ -324,7 +322,7 @@ def get_datacenters_df(session, service, routing_service_url,
                                                   starttime, endtime)
 
     if postdata:  # not eida, or eda succesfully queried
-        dc_df = dbsyncdf(dc_df, session, [DC_SURL_COL], DataCenter.id,
+        dc_df = dbsyncdf(dc_df, session, [DataCenter.station_url], DataCenter.id,
                          buf_size=len(dc_df) if db_bufsize is None else db_bufsize)
     else:  # routing service error, we fetched from db, normalize postdata, no need to write to db
         postdata = [''] * len(dc_df)
@@ -335,19 +333,11 @@ def get_datacenters_df(session, service, routing_service_url,
 def get_eida_datacenters_df(session, routing_service_url, channels, starttime=None, endtime=None):
     """Same as `get_eida_datacenters_df`, but returns eida nodes (data-centers)
     """
-    DC_SURL_COL = DataCenter.station_url
-    DC_DURL_COL = DataCenter.dataselect_url
-    DC_SURL_NAME = DC_SURL_COL.key
-    DC_DURL_NAME = DC_DURL_COL.key
-    DC_ID_COL = DataCenter.id
-    DC_ORG_COL = DataCenter.node_organization_name
-    DC_ORG_NAME = DC_ORG_COL.key
-    # define columns (sql-alchemy model attrs) and their string names (pandas col names) once:
-    DC_SURL_COL = DataCenter.station_url
-    DC_DURL_COL = DataCenter.dataselect_url
-    DC_SURL_NAME = DC_SURL_COL.key
-    DC_DURL_NAME = DC_DURL_COL.key
-    DC_ID_COL = DataCenter.id
+    # For convenience and readability, define once the mapped column names representing the
+    # dataframe columns that we need:
+    DC_SURL = DataCenter.station_url.key
+    DC_DURL = DataCenter.dataselect_url.key
+    DC_ORG = DataCenter.node_organization_name.key
 
     # do not return only new datacenters, return all of them
     query_args = {'service': 'dataselect', 'format': 'post'}
@@ -373,7 +363,7 @@ def get_eida_datacenters_df(session, routing_service_url, channels, starttime=No
                 urls = fdsn_urls(url)
                 if urls:
                     dc_postdata.append(postdata)
-                    dcdict = {DC_SURL_NAME: urls[0], DC_DURL_NAME: urls[1], DC_ORG_NAME: 'eida'}
+                    dcdict = {DC_SURL: urls[0], DC_DURL: urls[1], DC_ORG: 'eida'}
                     if dc_df is None:
                         dc_df = pd.DataFrame(dcdict, index=[0])
                     else:
@@ -382,8 +372,10 @@ def get_eida_datacenters_df(session, routing_service_url, channels, starttime=No
         return dc_df, dc_postdata
 
     except URLException as urlexc:
-        dc_df = dbquery2df(session.query(DC_ID_COL, DC_SURL_COL, DC_DURL_COL).
-                           filter(DC_ORG_COL == 'eida')).reset_index(drop=True)
+        dc_df = dbquery2df(session.query(DataCenter.id, DataCenter.station_url,
+                                         DataCenter.dataselect_url).
+                           filter(DataCenter.node_organization_name == 'eida')).\
+                                reset_index(drop=True)
         if empty(dc_df):
             msg = MSG("", "eida routing service error, no eida data-center saved in database",
                       urlexc.exc, url)
@@ -417,23 +409,6 @@ def get_channels_df(session, datacenters_df, post_data, channels, starttime, end
     :param min_sample_rate: minimum sampling rate, set to negative value for no-filtering
     (all channels)
     """
-    # define columns (sql-alchemy model attrs) and their string names (pandas col names) once:
-    CHA_ID = Channel.id
-    CHA_STAID = Channel.station_id
-    STA_LAT = Station.latitude
-    STA_LON = Station.longitude
-    STA_STIME = Station.start_time
-    STA_ETIME = Station.end_time
-    STA_DCID = Station.datacenter_id
-    STA_NET = Station.network
-    STA_STA = Station.station
-    CHA_LOC = Channel.location
-    CHA_CHA = Channel.channel
-    # the columns for the channels dataframe that will be returned
-    COLS_DB = [CHA_ID, CHA_STAID, STA_LAT, STA_LON, STA_DCID, STA_STIME, STA_ETIME,
-               STA_NET, STA_STA, CHA_LOC, CHA_CHA]  # <- will be removed after creating a dict
-    COLS_DF = [c.key for c in COLS_DB]
-
     _mask = np.array([True if _ else False for _ in post_data])
     post_data_iter = (p for p in post_data if p)
     dc_df_fromweb = datacenters_df[_mask]
@@ -523,26 +498,17 @@ def get_channels_df(session, datacenters_df, post_data, channels, starttime, end
                                       "queries, no data in cache (database). "
                                       "Check config and log for details"))))
 
+    # the columns for the channels dataframe that will be returned
+    colnames = [c.key for c in [Channel.id, Channel.station_id, Station.latitude,
+                                Station.longitude, Station.datacenter_id, Station.start_time,
+                                Station.end_time, Station.network, Station.station,
+                                Channel.location, Channel.channel]]
     return (web_cha_df if db_cha_df.empty else db_cha_df if web_cha_df.empty else
-            pd.concat(web_cha_df, db_cha_df))[COLS_DF].copy()
+            pd.concat(web_cha_df, db_cha_df))[colnames].copy()
 
 
 def get_channels_df_from_db(session, datacenters_df, channels, starttime, endtime, min_sample_rate,
                             db_bufsize):
-    CHA_ID = Channel.id
-    CHA_STAID = Channel.station_id
-    STA_LAT = Station.latitude
-    STA_LON = Station.longitude
-    STA_STIME = Station.start_time
-    STA_ETIME = Station.end_time
-    STA_DCID = Station.datacenter_id
-    STA_NET = Station.network
-    STA_STA = Station.station
-    CHA_LOC = Channel.location
-    CHA_CHA = Channel.channel
-    # the columns for the channels dataframe that will be returned
-    COLS_DB = [CHA_ID, CHA_STAID, STA_LAT, STA_LON, STA_DCID, STA_STIME, STA_ETIME,
-               STA_NET, STA_STA, CHA_LOC, CHA_CHA]  # <- will be removed after creating a dict
     # _be means "binary expression" (sql alchemy object reflecting a sql clause)
     cha_be = or_(*[Channel.channel.like(strconvert.wild2sql(cha)) for cha in channels]) \
         if channels else True
@@ -550,7 +516,10 @@ def get_channels_df_from_db(session, datacenters_df, channels, starttime, endtim
     dc_be = Station.datacenter_id.in_(datacenters_df[DataCenter.id.key])
     stime_be = ~((Station.end_time!=None) & (Station.end_time <= starttime)) if starttime else True  # @IgnorePep8
     etime_be = ~((Station.start_time!=None) & (Station.start_time >= endtime)) if endtime else True  # @IgnorePep8
-    qry = session.query(*COLS_DB).join(Channel.station).filter(and_(dc_be, srate_be, cha_be,
+    sa_cols = [Channel.id, Channel.station_id, Station.latitude, Station.longitude,
+               Station.start_time, Station.end_time, Station.datacenter_id, Station.network,
+               Station.station, Channel.location, Channel.channel]
+    qry = session.query(*sa_cols).join(Channel.station).filter(and_(dc_be, srate_be, cha_be,
                                                                     stime_be, etime_be))
     return dbquery2df(qry)
 
@@ -564,33 +533,24 @@ def save_stations_and_channels(session, channels_df, db_bufsize):
         :param channels_df: pandas DataFrame resulting from `get_channels_df`
     """
     # define columns (sql-alchemy model attrs) and their string names (pandas col names) once:
-    STA_COLS_DB = [Station.network, Station.station, Station.start_time]
-    STA_COLS_DF = [c.key for c in STA_COLS_DB]
-    STA_ID_DB = Station.id
-    STA_ID_DF = STA_ID_DB.key
-    CHA_COLS_DB = [Channel.station_id, Channel.location, Channel.channel]
-    CHA_COLS_DF = [c.key for c in [Channel.station_id, Station.network, Station.station,
-                                   Channel.location, Channel.channel, Station.start_time,
-                                   Station.datacenter_id]]
-    CHA_ID_DB = Channel.id
-    CHA_STAID_DF = Channel.station_id.key
-
-    # Important: we do not need to allocate the pkey columns like:
-    # channels_df[STA_ID_DF] = None
-    # Because dbsync('sync'...) and
-    # mergeupdate do that for us, also with the correct dtype (the line above allocates a
-    # dtype=object  by default)
-
+    sta_cols = [Station.network, Station.station, Station.start_time]
+    sta_colnames = [c.key for c in sta_cols]
+    cha_cols = [Channel.station_id, Channel.location, Channel.channel]
+    cha_colnames = [c.key for c in [Channel.station_id, Station.network, Station.station,
+                                    Channel.location, Channel.channel, Station.start_time,
+                                    Station.datacenter_id]]
+    chastaid_colname = Channel.station_id.key
+    staid_colname = Station.id.key
     # remember: dbsyncdf raises a QuitDownload, so no need to check for empty(dataframe)
     # attempt to write only unique stations. Purge stations now otherwise we get misleading
     # error message: "xxx stations discarded"
-    stas_df = dbsyncdf(channels_df.drop_duplicates(subset=STA_COLS_DF).copy(), session, STA_COLS_DB,
-                       STA_ID_DB, db_bufsize, cols_to_print_on_err=STA_COLS_DF)
-    channels_df = mergeupdate(channels_df, stas_df, STA_COLS_DF, [STA_ID_DF])
+    stas_df = dbsyncdf(channels_df.drop_duplicates(subset=sta_colnames).copy(), session, sta_cols,
+                       Station.id, db_bufsize, cols_to_print_on_err=sta_colnames)
+    channels_df = mergeupdate(channels_df, stas_df, sta_colnames, [staid_colname])
     # add channels to db:
-    channels_df = dbsyncdf(channels_df.rename(columns={STA_ID_DF: CHA_STAID_DF}),
-                           session, CHA_COLS_DB, CHA_ID_DB, db_bufsize,
-                           cols_to_print_on_err=CHA_COLS_DF)
+    channels_df = dbsyncdf(channels_df.rename(columns={staid_colname: chastaid_colname}),
+                           session, cha_cols, Channel.id, db_bufsize,
+                           cols_to_print_on_err=cha_colnames)
     return channels_df
 
 
@@ -604,11 +564,14 @@ def chaid2mseedid_dict(channels_df, drop_mseedid_columns=True):
     Remember that pandas strings are not optimized for memory as they are python objects
     (https://www.dataquest.io/blog/pandas-big-data/)
     '''
+    # For convenience and readability, define once the mapped column names representing the
+    # dataframe columns that we need:
     CHA_ID = Channel.id.key
     STA_NET = Station.network.key
     STA_STA = Station.station.key
     CHA_LOC = Channel.location.key
     CHA_CHA = Channel.channel.key
+
     n = channels_df[STA_NET].str.cat
     s = channels_df[STA_STA].str.cat
     l = channels_df[CHA_LOC].str.cat
@@ -640,22 +603,23 @@ def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius,
         :param channels_df: pandas DataFrame resulting from `get_channels_df`
         :param events_df: pandas DataFrame resulting from `get_events_df`
     """
-    # define columns (sql-alchemy model attrs) and their string names (pandas col names) once:
-    STA_LAT = Station.latitude.key
-    STA_LON = Station.longitude.key
+    # For convenience and readability, define once the mapped column names representing the
+    # dataframe columns that we need:
+    EVT_ID = Event.id.key
+    EVT_MAG = Event.magnitude.key
     EVT_LAT = Event.latitude.key
     EVT_LON = Event.longitude.key
     EVT_TIME = Event.time.key
-    STA_STIME = Station.start_time.key
     EVT_DEPTH = Event.depth_km.key
+    STA_LAT = Station.latitude.key
+    STA_LON = Station.longitude.key
+    STA_STIME = Station.start_time.key
     STA_ETIME = Station.end_time.key
-    EVT_MAG = Event.magnitude.key
-    EVT_ID = Event.id.key
+    CHA_ID = Channel.id.key
+    CHA_STAID = Channel.station_id.key
     SEG_EVID = Segment.event_id.key
     SEG_EVDIST = Segment.event_distance_deg.key
-    CHA_STAID = Channel.station_id.key
     SEG_ATIME = Segment.arrival_time.key
-    CHA_ID = Channel.id.key
     SEG_DCID = Segment.datacenter_id.key
     SEG_CHAID = Segment.channel_id.key
 
@@ -743,25 +707,16 @@ def prepare_for_download(session, segments_df, wtimespan, retry_no_code, retry_u
         :param session: the sql-alchemy session bound to an existing database
         :param segments_df: pandas DataFrame resulting from `get_arrivaltimes`
     """
-    # define columns (sql-alchemy model attrs) and their string names (pandas col names) once:
-    SEG_EVID_DBCOL = Segment.event_id
-    SEG_EVID = SEG_EVID_DBCOL.key
-    SEG_ATIME_DBCOL = Segment.arrival_time
-    SEG_ATIME = SEG_ATIME_DBCOL.key
+    # For convenience and readability, define once the mapped column names representing the
+    # dataframe columns that we need:
+    SEG_EVID = Segment.event_id.key
+    SEG_ATIME = Segment.arrival_time.key
     SEG_STIME = Segment.start_time.key
     SEG_ETIME = Segment.end_time.key
     SEG_CHID = Segment.channel_id.key
     SEG_ID = Segment.id.key
     SEG_DSC = Segment.download_status_code.key
     SEG_RETRY = "__do.download__"
-    SEG_SEEDID = Segment.seed_identifier
-    SEG_ID_DBCOL = Segment.id
-    SEG_STIME_DBCOL = Segment.start_time
-    SEG_ETIME_DBCOL = Segment.end_time
-    SEG_CHID_DBCOL = Segment.channel_id
-    SEG_DSC_DBCOL = Segment.download_status_code
-    SEG_DCID_COL = Segment.datacenter_id
-    SEG_DCID_NAME = SEG_DCID_COL.key
 
     URLERR_CODE, MSEEDERR_CODE = get_url_mseed_errorcodes()
     # we might use dbsync('sync', ...) which sets pkeys and updates non-existing, but then we
@@ -774,8 +729,9 @@ def prepare_for_download(session, segments_df, wtimespan, retry_no_code, retry_u
     # segments have to be re-downloaded, if any
 
     # query relevant data into data frame:
-    db_seg_df = dbquery2df(session.query(SEG_ID_DBCOL, SEG_CHID_DBCOL, SEG_STIME_DBCOL,
-                                         SEG_ETIME_DBCOL, SEG_DSC_DBCOL, SEG_EVID_DBCOL))
+    db_seg_df = dbquery2df(session.query(Segment.id, Segment.channel_id, Segment.start_time,
+                                         Segment.end_time, Segment.download_status_code,
+                                         Segment.event_id))
 
     # set the boolean array telling whether we need to retry db_seg_df elements (those already
     # downloaded)
@@ -835,6 +791,8 @@ def prepare_for_download(session, segments_df, wtimespan, retry_no_code, retry_u
 
 def get_seg_request(segments_df, datacenter_url, chaid2mseedid_dict):
     """returns a Request object from the given segments_df"""
+    # For convenience and readability, define once the mapped column names representing the
+    # dataframe columns that we need:
     SEG_STIME = Segment.start_time.key
     SEG_ETIME = Segment.end_time.key
     CHA_ID = Segment.channel_id.key
@@ -855,38 +813,21 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
     """Downloads and saves the segments. segments_df MUST not be empty (this is not checked for)
         :param segments_df: the dataframe resulting from `prepare_for_download`
     """
-    # define columns (sql-alchemy model attrs) and their string names (pandas col names) once:
-    SEG_CHAID = Segment.channel_id
-    SEG_CHAID_NAME = SEG_CHAID.key
-    SEG_EVTID = Segment.event_id
-    SEG_EVTID_NAME = SEG_EVTID.key
-    SEG_DCID_COL = Segment.datacenter_id
-    SEG_DCID_NAME = SEG_DCID_COL.key
-    DC_ID_COL = DataCenter.id
-    DC_ID_NAME = DC_ID_COL.key
-    DC_DSQU_COL = DataCenter.dataselect_url
-    DC_DSQU_NAME = DC_DSQU_COL.key
-    SEG_ID_COL = Segment.id
-    SEG_ID_NAME = SEG_ID_COL.key
-    SEG_STIME_COL = Segment.start_time
-    SEG_ETIME_COL = Segment.end_time
-    SEG_STIME_NAME = SEG_STIME_COL.key
-    SEG_ETIME_NAME = SEG_ETIME_COL.key
-    # CHA_CHA_COL = Channel.channel
-    # CHA_CHA_NAME = CHA_CHA_COL.key
-    SEG_DATA_COL = Segment.data
-    SEG_DSC_COL = Segment.download_status_code
-    SEG_SEEDID_COL = Segment.seed_identifier
-    SEG_MGR_COL = Segment.max_gap_ovlap_ratio
-    SEG_SRATE_COL = Segment.sample_rate
-    SEG_RUNID_COL = Segment.run_id
-
-    SEG_DATA_NAME = SEG_DATA_COL.key
-    SEG_DSC_NAME = SEG_DSC_COL.key
-    SEG_SEEDID_NAME = SEG_SEEDID_COL.key
-    SEG_MGR_NAME = SEG_MGR_COL.key
-    SEG_SRATE_NAME = SEG_SRATE_COL.key
-    SEG_RUNID_NAME = SEG_RUNID_COL.key
+    # For convenience and readability, define once the mapped column names representing the
+    # dataframe columns that we need:
+    SEG_CHAID = Segment.channel_id.key
+    SEG_DCID = Segment.datacenter_id.key
+    DC_ID = DataCenter.id.key
+    DC_DSURL = DataCenter.dataselect_url.key
+    SEG_ID = Segment.id.key
+    SEG_STIME = Segment.start_time.key
+    SEG_ETIME = Segment.end_time.key
+    SEG_DATA = Segment.data.key
+    SEG_DSCODE = Segment.download_status_code.key
+    SEG_SEEDID = Segment.seed_identifier.key
+    SEG_MGAP = Segment.max_gap_ovlap_ratio.key
+    SEG_SRATE = Segment.sample_rate.key
+    SEG_RUNID = Segment.run_id.key
 
     # set once the dict of column names mapped to their default values.
     # Set nan to let pandas understand it's numeric. None I don't know how it is converted
@@ -894,9 +835,8 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
     # for numpy types, see
     # https://docs.scipy.org/doc/numpy/reference/arrays.dtypes.html#specifying-and-constructing-data-types
     # Use OrderedDict to preserve order (see comments below)
-    segvals = OrderedDict([(SEG_DATA_NAME, None), (SEG_SRATE_NAME, np.nan),
-                           (SEG_MGR_NAME, np.nan), (SEG_SEEDID_NAME, None),
-                           (SEG_DSC_NAME, np.nan)])
+    segvals = OrderedDict([(SEG_DATA, None), (SEG_SRATE, np.nan), (SEG_MGAP, np.nan),
+                           (SEG_SEEDID, None), (SEG_DSCODE, np.nan)])
     # Define separate keys cause we will use it elsewhere:
     # Note that the order of these keys must match `mseed_unpack` returned data
     # (this is why we used OrderedDict above)
@@ -906,13 +846,13 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
 
     stats = defaultdict(lambda: UrlStats())
 
-    datcen_id2url = datacenters_df.set_index([DC_ID_NAME])[DC_DSQU_NAME].to_dict()
+    datcen_id2url = datacenters_df.set_index([DC_ID])[DC_DSURL].to_dict()
 
-    segmanager = DbManager(session, SEG_ID_COL, [SEG_RUNID_COL, SEG_DATA_COL, SEG_MGR_COL,
-                                                 SEG_SRATE_COL, SEG_DSC_COL, SEG_STIME_COL,
-                                                 SEG_ETIME_COL], db_bufsize,
-                           [SEG_ID_NAME, Segment.channel_id.key, Segment.start_time.key,
-                            Segment.end_time.key, Segment.datacenter_id.key])
+    cols2update = [Segment.run_id, Segment.data, Segment.sample_rate, Segment.max_gap_ovlap_ratio,
+                   Segment.seed_identifier, Segment.download_status_code,
+                   Segment.start_time, Segment.arrival_time, Segment.end_time]
+    segmanager = DbManager(session, Segment.id, cols2update,
+                           db_bufsize, [SEG_ID, SEG_CHAID, SEG_STIME, SEG_ETIME, SEG_DCID])
 
     # define the groupsby columns
     # remember that segments_df has columns:
@@ -929,8 +869,8 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
     # Unfortunately, for perf reasons we do not have
     # the first 4 columns, but we do have channel_id which basically comprises (net, sta, loc, cha)
     groupsby = [
-                [SEG_DCID_NAME, SEG_STIME_NAME, SEG_ETIME_NAME],
-                [SEG_DCID_NAME, SEG_STIME_NAME, SEG_ETIME_NAME, SEG_CHAID_NAME],
+                [SEG_DCID, SEG_STIME, SEG_ETIME],
+                [SEG_DCID, SEG_STIME, SEG_ETIME, SEG_CHAID],
                 ]
 
     # we assume it's the terminal, thus allocate the current process to track
@@ -973,7 +913,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                     # to preserve order, if needed. A starting discussion on adding new column:
                     # https://stackoverflow.com/questions/12555323/adding-new-column-to-existing-dataframe-in-python-pandas
                 # init run id column with our run_id:
-                df[SEG_RUNID_NAME] = run_id
+                df[SEG_RUNID] = run_id
                 if exc:
                     code = URLERR_CODE
                 elif code >= 400:
@@ -982,8 +922,8 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                     # if we have empty data set only specific columns:
                     # (avoid mseed_id as is useless string data on the db, and we can retrieve it
                     # via station and channel joins in case)
-                    df.loc[:, SEG_DATA_NAME] = b''
-                    df.loc[:, SEG_DSC_NAME] = code
+                    df.loc[:, SEG_DATA] = b''
+                    df.loc[:, SEG_DSCODE] = code
                     stats[url]["%d: %s" % (code, msg)] += len(df)
                 else:
                     try:
@@ -995,7 +935,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                         # loc for setting the data, but this would mean using column
                         # indexes and we have column labels. A conversion is possible but
                         # would make the code  hard to understand (even more ;))
-                        for idxval, chaid in izip(df.index.values, df[SEG_CHAID_NAME]):
+                        for idxval, chaid in izip(df.index.values, df[SEG_CHAID]):
                             mseedid = chaid2mseedid_dict.get(chaid, None)
                             if mseedid is None:
                                 continue
@@ -1007,7 +947,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                             if err is not None:
                                 # set only the code field.
                                 # Use set_value as it's faster for single elements
-                                df.set_value(idxval, SEG_DSC_NAME, MSEEDERR_CODE)
+                                df.set_value(idxval, SEG_DSCODE, MSEEDERR_CODE)
                                 stats[url][err] += 1
                                 errors += 1
                             else:
@@ -1025,12 +965,13 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                                 # set_value should be relatively fast
                                 df.loc[idxval, SEG_COLNAMES] = (b'', s_rate, max_gap_ratio,
                                                                 mseedid, code)
-                                df.set_value(idxval, SEG_DATA_NAME, data)
+                                df.set_value(idxval, SEG_DATA, data)
                                 oks += 1
                         stats[url]["%d: %s" % (code, msg)] += oks
                         unknowns = len(df) - oks - errors
                         if unknowns > 0:
-                            stats[url]["Unknown: response ok, miniseed not found"] += unknowns
+                            stats[url]["Unknown: response code %d, but expected segment data"
+                                       "not found. No download code assigned" % code] += unknowns
                     except MSeedError as mseedexc:
                         code = MSEEDERR_CODE
                         exc = mseedexc
@@ -1039,13 +980,12 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                         exc = unknown_exc
 
                 if exc is not None:
-                    df.loc[:, SEG_DSC_NAME] = code
+                    df.loc[:, SEG_DSCODE] = code
                     stats[url][exc] += len(df)
                     logger.warning(MSG("", "Unable to get waveform data", exc, request))
 
                 segmanager.add(df)
                 bar.update(len(df))
-                # del df  # remove ref to df (helps gc when done in DbMAnager??)
 
             segmanager.flush()  # flush remaining stuff to insert / update, if any
 

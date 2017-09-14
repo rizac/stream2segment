@@ -9,8 +9,6 @@ import threading
 import urllib2
 import httplib
 import socket
-import concurrent.futures
-import multiprocessing
 from multiprocessing.pool import ThreadPool
 import psutil
 import os
@@ -256,76 +254,6 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
         # Without the line above, it might be a lot (minutes, hours), now it is much shorter
         # (in the order of few seconds max) and the command below can be executed quickly:
         raise
-
-
-def read_async_tpe(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
-                   decode=None, raise_http_err=True, timeout=None, max_mem_consumption=90,
-                   **kwargs):  # pylint:disable=too-many-arguments
-    """
-        Same as read_async but uses ThreadPoolExecutor. Note that the latter is more memory
-        consuming
-    """
-    if not (max_mem_consumption > 0 and max_mem_consumption < 100):
-        max_mem_consumption = -1
-
-    process = psutil.Process(os.getpid()) if max_mem_consumption != -1 else None
-
-    # flag for CTRL-C or cancelled tasks
-    kill = False
-
-    # function called from within urlread to check if go on or not
-    def urlwrapper(obj, urlkey, blocksize, decode, raise_http_err, timeout, **kw):
-        if kill:
-            return None
-        url = urlkey(obj)
-        try:
-            return obj, \
-                urlread(url, blocksize, decode, True, raise_http_err, timeout, **kw), None, url
-        except URLException as urlexc:
-            return obj, None, urlexc.exc, url
-
-    if urlkey is None:
-        urlkey = lambda obj: obj  # @IgnorePep8
-
-    # we experienced some problems if max_workers is None. The doc states that it is the number
-    # of processors on the machine, multiplied by 5, assuming that ThreadPoolExecutor is often
-    # used to overlap I/O instead of CPU work and the number of workers should be higher than the
-    # number of workers for ProcessPoolExecutor. But the source code seems not to set this value
-    # at all!! (at least in python2, probably in pyhton 3 is fine). So let's do it manually:
-    if max_workers is None:
-        max_workers = 5 * multiprocessing.cpu_count()
-
-    # We can use a with statement to ensure threads are cleaned up promptly
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Start the load operations and mark each future with its iterable item and URL
-        future_to_obj = (executor.submit(urlwrapper, obj, urlkey, blocksize, decode,
-                                         raise_http_err, timeout, **kwargs) for obj in iterable)
-        try:
-            # this try is for the keyboard interrupt, which will be caught inside the
-            # as_completed below
-            for future in concurrent.futures.as_completed(future_to_obj):
-                mem_percent = _mem_percent(process)
-                if mem_percent > max_mem_consumption:
-                    raise MemoryError("Memory overflow: %.2f%% (used) > %.2f%% (threshold)" %
-                                      (mem_percent, max_mem_consumption))
-
-                if kill:
-                    continue
-                # this is executed in the main thread (thus is thread safe):
-                yield future.result()
-        except:
-            # According to this post:
-            # http://stackoverflow.com/questions/29177490/how-do-you-kill-futures-once-they-have-started,
-            # after a KeyboardInterrupt this method does not return until all
-            # working threads have finished. Thus, we implement the urlreader._kill flag
-            # which makes them exit immediately, and hopefully this function will return within
-            # seconds at most. We catch  a bare except cause we want the same to apply to all
-            # other exceptions which we might raise (see few line above)
-            kill = True  # pylint:disable=protected-access
-            # the time here before executing 'raise' below is the time taken to finish all threads.
-            # Without the line above, it might be a lot (minutes, hours), now it is much shorter
-            # (in the order of few seconds max) and the command below can be executed quickly:
-            raise
 
 
 def _ismainthread():

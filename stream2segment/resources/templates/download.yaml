@@ -151,19 +151,20 @@ wtimespan:
 advanced_settings:
  # the routing service used to fetch the eida nodes and relative network/stations
  routing_service_url: "http://rz-vm258.gfz-potsdam.de/eidaws/routing/1/query"
- # size of each block of data requested when downloading data (in bytes) until no data is available.
+ # size (in bytes) of each block of data requested when downloading until no data is available.
+ # This setting holds for any kind of data downloaded (event, waveform or station metadata)
  # If 0 or negative, all data will be read in a single call (if 0, it will be converted to -1).
  download_blocksize: 1048576  # = 1024*1024
  # how many parallel threads to start when downloading (one thread per download)
  # If 0 or negative, is automatically set according to the machine CPU
  # (https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor)
  max_thread_workers: 0
- # max time to wait (in seconds) while downloading stations (`urllib2.urlopen` timeout argument)
+ # max time to wait (in seconds) for a single request while downloading stations+channel metadata (`urllib2.urlopen` timeout argument)
  s_timeout: 120
- # If the flag to download station inventories is on (true), max time to wait (in seconds) while downloading
- #station inventories (`urllib2.urlopen` timeout argument)
+ # If the flag to download station inventories is on (true), max time to wait (in seconds) for a single request
+ # while downloading an inventory in xml format (`urllib2.urlopen` timeout argument)
  i_timeout: 60
- # max time to wait (in seconds) while downloading waveform data (`urllib2.urlopen` timeout argument)
+ # max time to wait (in seconds) for a single request while downloading waveform data (`urllib2.urlopen` timeout argument)
  w_timeout: 60
  # the buffer size used when writing items (stations, segments, events, ...) to database.
  # Increasing this number to speed up db IO operations. Keep in mind that if any item in the buffer

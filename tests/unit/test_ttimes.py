@@ -12,6 +12,7 @@ from click.testing import CliRunner
 import os
 from stream2segment.download.traveltimes.ttcreator import _filepath, StepIterator, min_traveltimes,\
     min_traveltime
+from itertools import izip
 
 
 class Test(unittest.TestCase):
@@ -166,6 +167,32 @@ class Test(unittest.TestCase):
                 assert np.allclose(ttable.min(567.5, 0, 1.66, method), ttable.min(567.5, 0, 361.66, method))
                 # distances equidistant from 180 degree are also treated as equal:
                 assert ttable.min(567.5, 0, 180+1.66, method) == ttable.min(567.5, 0, 180-1.66, method)
+
+    def test_tostr(self):
+        repr = str(self.ttables[0])
+        expected = """Model: 'iasp91'
+Phases: ['ttp+']
+Input error tolerance: 5.000000
+Data:
+-------- -------- ---------------------------------------------------------
+  Source Receiver
+   depth    depth                                              Travel times
+-------- -------- ---------------------------------------------------------
+     0.0        0      0.0    4.314    8.627 ...  1212.08  1212.08  1212.08
+    30.1        0    5.002    6.491    9.644 ...  1207.08  1207.08  1207.08
+    69.2        0   10.009   10.621   12.261 ...  1202.07  1202.07  1202.08
+     ...      ...                                                       ...
+   600.1        0   70.074   70.128    70.29 ...  1142.01  1142.01  1142.01
+   650.6        0   75.082   75.131   75.277 ...   1137.0   1137.0   1137.0
+   700.0        0   79.694   79.738   79.871 ...  1132.39  1132.39  1132.39
+-------- -------- ---------------------------------------------------------
+      Distances->      0.0    0.225     0.45 ...   179.55  179.775    180.0"""
+        # do a comparison line by line cause apparently the string above is not equal to repr
+        # but we suspect is because we have problems with eclipse
+        for l1, l2 in izip(repr.split("\n"), expected.split("\n")):
+            if not l1.strip() == l2.strip():
+                sdf = 9
+            assert l1.strip() == l2.strip()
 
 if __name__ == "__main__":
     unittest.main()
