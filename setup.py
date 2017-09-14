@@ -35,15 +35,15 @@ setup(
     # https://packaging.python.org/en/latest/single_source_version.html
     version=version,
 
-    description='A python project to download seismic waveforms related to events',
+    description='A python project to download, process and visualize event-based seismic waveforms',
     long_description=long_description,
 
     # The project's main homepage.
     url='https://github.com/rizac/stream2segment',
 
     # Author details
-    author='section2.6',
-    author_email='',  # FIXME: what to provide?
+    author='riccardo zaccarelli',
+    author_email='rizac@gfz-potsdam.de',  # FIXME: what to provide?
 
     # Choose your license
     license='GNU',
@@ -61,7 +61,7 @@ setup(
         'Topic :: Scientific/Engineering',
 
         # Pick your license as you wish (should match "license" above)
-        'License :: OSI Approved :: MIT License',
+        'License :: OSI Approved :: GNU License',
 
 
         # Specify the Python versions you support here. In particular, ensure

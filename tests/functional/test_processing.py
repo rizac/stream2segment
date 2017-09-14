@@ -54,11 +54,19 @@ class DB():
         self.session.commit()
         self.ws = ws
         # setup an event:
-        e = models.Event(id=1, webservice_id=ws.id, eventid='abc', latitude=8, longitude=9, magnitude=5, depth_km=4,
+        e1 = models.Event(id=1, webservice_id=ws.id, eventid='abc1', latitude=8, longitude=9, magnitude=5, depth_km=4,
                          time=datetime.utcnow())
-        self.session.add(e)
+        e2 = models.Event(id=2, webservice_id=ws.id, eventid='abc2', latitude=8, longitude=9, magnitude=5, depth_km=4,
+                         time=datetime.utcnow())
+        e3 = models.Event(id=3, webservice_id=ws.id, eventid='abc3', latitude=8, longitude=9, magnitude=5, depth_km=4,
+                         time=datetime.utcnow())
+        e4 = models.Event(id=4, webservice_id=ws.id, eventid='abc4', latitude=8, longitude=9, magnitude=5, depth_km=4,
+                         time=datetime.utcnow())
+        e5 = models.Event(id=5, webservice_id=ws.id, eventid='abc5', latitude=8, longitude=9, magnitude=5, depth_km=4,
+                         time=datetime.utcnow())
+        self.session.add_all([e1,e2,e3,e4,e5])
         self.session.commit()
-        self.evt = e
+        self.evt1, self.evt2, self.evt3, self.evt4, self.evt5 = e1, e2, e3, e4, e5
 
         d = models.DataCenter(station_url='asd', dataselect_url='sdft')
         self.session.add(d)
@@ -103,28 +111,28 @@ class DB():
 
         # build three segments with data:
         # "normal" segment
-        sg1 = models.Segment(channel_id=c_ok.id, datacenter_id=d.id, event_id=e.id, run_id=r.id,
+        sg1 = models.Segment(channel_id=c_ok.id, datacenter_id=d.id, event_id=e1.id, run_id=r.id,
                              event_distance_deg=35, **data)
 
         # this segment should have inventory returning an exception (see url_read above)
-        sg2 = models.Segment(channel_id=c_err.id, datacenter_id=d.id, event_id=e.id, run_id=r.id,
+        sg2 = models.Segment(channel_id=c_err.id, datacenter_id=d.id, event_id=e2.id, run_id=r.id,
                              event_distance_deg=45, **data)
         # segment with gaps
         data = Test.read_stream_raw('IA.BAKI..BHZ.D.2016.004.head')
-        sg3 = models.Segment(channel_id=c_ok.id, datacenter_id=d.id, event_id=e.id, run_id=r.id,
+        sg3 = models.Segment(channel_id=c_ok.id, datacenter_id=d.id, event_id=e3.id, run_id=r.id,
                              event_distance_deg=55, **data)
 
         # build two segments without data:
         # empty segment
         data['data'] = b''
         data['start_time'] += timedelta(seconds=1)  # avoid unique constraint
-        sg4 = models.Segment(channel_id=c_none.id, datacenter_id=d.id, event_id=e.id, run_id=r.id,
+        sg4 = models.Segment(channel_id=c_none.id, datacenter_id=d.id, event_id=e4.id, run_id=r.id,
                              event_distance_deg=45, **data)
 
         # null segment
         data['data'] = None
         data['start_time'] += timedelta(seconds=2)  # avoid unique constraint
-        sg5 = models.Segment(channel_id=c_none.id, datacenter_id=d.id, event_id=e.id, run_id=r.id,
+        sg5 = models.Segment(channel_id=c_none.id, datacenter_id=d.id, event_id=e5.id, run_id=r.id,
                              event_distance_deg=45, **data)
 
 

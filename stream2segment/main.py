@@ -17,11 +17,9 @@
 from __future__ import print_function  # , unicode_literals
 import logging
 import sys
-# from StringIO import StringIO
 import datetime as dt
 import os
 from contextlib import contextmanager
-# import csv
 import shutil
 
 import yaml
@@ -31,9 +29,7 @@ from click.exceptions import BadParameter, ClickException, MissingParameter
 from stream2segment.utils.log import configlog4download, configlog4processing,\
     elapsedtime2logger_when_finished, configlog4stdout
 from stream2segment.download.utils import run_instance
-# from stream2segment.utils.resources import get_proc_template_files
 from stream2segment.io.db.models import Segment, Run
-# from stream2segment.io.db.pd_sql_utils import commit
 from stream2segment.process.main import run as run_process, to_csv
 from stream2segment.download.main import run as run_download
 from stream2segment.utils import tounicode, get_session, strptime,\
@@ -251,15 +247,15 @@ def visualize(dburl, pyfile, configfile):
     return 0
 
 
-def data_aval(dburl, outfile, max_gap_ovlap_ratio=0.5):
-    from stream2segment.gui.da_report.main import create_da_html
-    # errors are printed to terminal:
-    configlog4stdout(logger)
-    with closing(dburl) as session:
-        create_da_html(session, outfile, max_gap_ovlap_ratio, True)
-    if os.path.isfile(outfile):
-        import webbrowser
-        webbrowser.open_new_tab('file://' + os.path.realpath(outfile))
+# def data_aval(dburl, outfile, max_gap_ovlap_ratio=0.5):
+#     from stream2segment.gui.da_report.main import create_da_html
+#     # errors are printed to terminal:
+#     configlog4stdout(logger)
+#     with closing(dburl) as session:
+#         create_da_html(session, outfile, max_gap_ovlap_ratio, True)
+#     if os.path.isfile(outfile):
+#         import webbrowser
+#         webbrowser.open_new_tab('file://' + os.path.realpath(outfile))
 
 
 def create_templates(outpath, prompt=True, *filenames):

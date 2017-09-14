@@ -3,7 +3,9 @@ Created on Jul 15, 2016
 
 @author: riccardo
 '''
-import datetime
+import re
+import sqlite3  # @IgnorePep8
+
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, backref, deferred
 from sqlalchemy import (
@@ -22,16 +24,14 @@ from sqlalchemy import (
     UniqueConstraint,
     event)
 from sqlalchemy.sql.expression import func, text
-from sqlalchemy.orm.mapper import validates
+# from sqlalchemy.orm.mapper import validates
 # from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.inspection import inspect
 from sqlalchemy.ext.hybrid import hybrid_property, hybrid_method
-import re
 
 _Base = declarative_base()
 
 from sqlalchemy.engine import Engine  # @IgnorePep8
-import sqlite3  # @IgnorePep8
 
 
 def withdata(model_column):
@@ -124,10 +124,6 @@ class Run(Base):
     # segments_skipped = Column(Integer)
     config = deferred(Column(String))
     program_version = Column(String)
-
-
-# def dc_datasel_default(context):
-#     return context.current_parameters['station_url'].replace("/station", "/dataselect")
 
 
 class Event(Base):
@@ -235,17 +231,6 @@ def receive_before_update(mapper, connection, target):
             target.dataselect_url = normalizedfdsn[1]
 
 
-# def dc_get_other_service_url(url):
-#     """Returns the dataselect service if url denotes a datacenter station service url,
-#     otherwise the station service. If dc_url has nor "/station/" neither "/dataselect/" in its
-#     string, a ValueError is raised"""
-#     if '/station/' in url:
-#         return url.replace("/station/", "/dataselect/")
-#     elif '/dataselect/' in url:
-#         return url.replace("/dataselect/", "/station/")
-#     raise ValueError("url does not contain neither '/dataselect/' nor '/station/'")
-
-
 def fdsn_urls(url):
     '''Returns the strings tuple (station_url, dataselect_url) by parsing url as a fdsn url
     (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf). Returns None if url
@@ -295,43 +280,7 @@ class Station(Base):
                       UniqueConstraint('network', 'station', 'start_time', name='net_sta_stime_uc'),
                      )
 
-    # http://stackoverflow.com/questions/33708219/how-to-handle-sqlalchemy-onupdate-when-current-context-is-empty
-    # we prefer over event.listen_for cause the function is inside the class (clearer)
-#     @validates('network', 'station', 'start_time')
-#     def update_id(self, key, value):
-#         vals = (value, self.station, self.start_time) if key == 'network' else \
-#             (self.network, value, self.start_time) if key == 'station' else \
-#             (self.network, self.station, value)
-#         id_ = get_station_id(*vals)
-#         if id_ is not None:
-#             self.id = id_
-#         return value
-
     datacenter = relationship("DataCenter", backref=backref("stations", lazy="dynamic"))
-
-
-# def get_station_id(network, station, starttime):
-#     pack = [network, station, starttime]
-#     if any(i is not None for i in pack):
-#         return None
-#     stime = starttime.isoformat() if hasattr(starttime, 'isoformat') else starttime
-#     pack[-1] = stime[:-9] if stime.endswith("T00:00:00") else stime
-#     return ".".join(pack)
-
-# @event.listens_for(Station.network, 'set')
-# def update_id_from_network(target, value, oldvalue, initiator):
-#     if target.station:
-#         target.id = value + "." + target.station
-# 
-# 
-# @event.listens_for(Station.station, 'set')
-# def update_id_from_station(target, value, oldvalue, initiator):
-#     target.id = target
-
-
-# def cha_pkey_default(context):
-#     return context.current_parameters['station_id'] + "." + \
-#         context.current_parameters['location'] + "." + context.current_parameters['channel']
 
 
 class Channel(Base):
@@ -357,17 +306,6 @@ class Channel(Base):
                                        name='net_sta_loc_cha_uc'),
                      )
 
-    # http://stackoverflow.com/questions/33708219/how-to-handle-sqlalchemy-onupdate-when-current-context-is-empty
-    # we prefer over event.listen_for cause the function is inside the class (clearer)
-#     @validates('station_id', 'location', 'channel')
-#     def update_id(self, key, value):
-#         vals = (value, self.location, self.channel) if key == 'station_id' else \
-#                 (self.station_id, value, self.channel) if key == 'location' else \
-#                 (self.station_id, self.location, value)
-#         if all(i is not None for i in vals):
-#             self.id = "%s.%s.%s" % vals
-#         return value
-#
     station = relationship("Station", backref=backref("channels", lazy="dynamic"))
 
 
@@ -458,6 +396,8 @@ class Segment(Base):
     __table_args__ = (
                       UniqueConstraint('channel_id', 'start_time', 'end_time',
                                        name='chaid_stime_etime_uc'),
+                      UniqueConstraint('channel_id', 'event_id',
+                                       name='chaid_evtid_uc'),
                      )
 
 

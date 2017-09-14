@@ -197,36 +197,32 @@ from stream2segment.main import create_templates as orig_ct
 @patch("stream2segment.main.create_templates", side_effect = lambda outdir, prompt, *files: orig_ct(outdir, False, *files))
 def test_click_template(mock_create_templates, mock_isfile, mock_copy2):
     mock_isfile.side_effect = lambda *a, **v: True
-    runner = CliRunner()
-    # a REALLY STUPID TEST. WE SHOULD ASSERT MORE STUFF.
-    # btw: how to check click prompt?? is there a way?
-    result = runner.invoke(main, ['t', 'abc'])
-    # FIXME: check how to mock os.path.isfile properly. This doesnot work:
-    # assert mock_isfile.call_count == 5
-    assert result.exit_code == 0
 
-    # assert help works:
-    mock_create_templates.reset_mock()
-    mock_isfile.reset_mock()
-    mock_copy2.reset_mock()
-    result = runner.invoke(main, ['t', '--help'])
-    assert not mock_create_templates.called
-    assert result.exit_code == 0
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # a REALLY STUPID TEST. WE SHOULD ASSERT MORE STUFF.
+        # btw: how to check click prompt?? is there a way?
+        result = runner.invoke(main, ['t', 'abc'])
+        # FIXME: check how to mock os.path.isfile properly. This doesnot work:
+        # assert mock_isfile.call_count == 5
+        assert result.exit_code == 0
+
+        # assert help works:
+        mock_create_templates.reset_mock()
+        mock_isfile.reset_mock()
+        mock_copy2.reset_mock()
+        result = runner.invoke(main, ['t', '--help'])
+        assert not mock_create_templates.called
+        assert result.exit_code == 0
 
 
 def test_click_template_realcopy():
     '''test a real example of copying files to a tempdir that will be removed'''
     runner = CliRunner()
 
-    # apparently, gettempdir is used for all namedtemporaryfiles
-    # in tests, so dir_below MUST NOT be deleted!!!!!
-    dir_ = tempfile.gettempdir()
-    # but we need a way to delete the files we just created cause otherwise next
-    # tests run will hang (as it prompts!)
-    mydir = os.path.join(dir_, datetime.utcnow().isoformat())
-    
-    filez = set(os.listdir(dir_))
-    try:
+    runner = CliRunner()
+    with runner.isolated_filesystem() as mydir:
         result = runner.invoke(main, ['t', mydir])
         filez = os.listdir(mydir)
         assert "download.yaml" in filez
@@ -234,9 +230,6 @@ def test_click_template_realcopy():
         assert "gui.yaml" in filez
         assert "processing.py" in filez
         assert "gui.py" in filez
-    finally:
-        shutil.rmtree(mydir)
-        assert not os.path.isdir(mydir)
 
 
     # assert help works:

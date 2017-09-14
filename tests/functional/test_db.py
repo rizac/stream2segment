@@ -488,6 +488,16 @@ class Test(unittest.TestCase):
         e = Event(eventid=id, webservice_id=ws.id, time=utcnow, latitude=89.5, longitude=6,
                          depth_km=7.1, magnitude=56)
         self.session.add(e)
+        e2 = Event(eventid=id+'5', webservice_id=ws.id, time=utcnow, latitude=49.5, longitude=6,
+                         depth_km=7.1, magnitude=56)
+        self.session.add(e2)
+        e3 = Event(eventid=id+'5_', webservice_id=ws.id, time=utcnow, latitude=49.5, longitude=67,
+                         depth_km=7.1, magnitude=56)
+        self.session.add(e3)
+        e4 = Event(eventid=id+'5_werger', webservice_id=ws.id, time=utcnow, latitude=49.5, longitude=67.6,
+                         depth_km=7.1, magnitude=56)
+        self.session.add(e4)
+        
         
         self.session.commit()  # refresh datacenter id (alo flush works)
 
@@ -599,10 +609,13 @@ class Test(unittest.TestCase):
         # make it unique
         seg__1.id=None
         seg__1.end_time += timedelta(seconds=1)
+        seg__1.event_id = e2.id
+
         seg__2 = COPY(seg)
         # make it unique
         seg__2.id=None
         seg__2.end_time += timedelta(seconds=2)
+        seg__2.event_id = e3.id
         
         self.session.add_all([seg__1, seg__2])
         self.session.commit()
@@ -666,6 +679,7 @@ class Test(unittest.TestCase):
         seg_ = COPY(seg)
         seg_.id = None  # autoincremented
         seg_.end_time += timedelta(seconds=1) # safe unique constraints
+        seg.event_id = e4.id
         self.session.add(seg_)
         self.session.commit()
         assert len(self.session.query(Segment).all()) == len(s1)+1
