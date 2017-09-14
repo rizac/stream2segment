@@ -341,13 +341,7 @@ def dbquery2df(query):
     :param columns: a list of ORM instance columns
     :param query_filter: optional filter to be apoplied to the query, defaults to None (no filter)
     """
-    colnames = []
-    for c in query.column_descriptions:
-#            ctype = type(c['expr'])
-#         if ctype != InstrumentedAttribute:
-#             raise ValueError("the query needs to be built with columns only, %s found" %
-#                              str(ctype))
-            colnames.append(c['name'])
+    colnames = [c['name'] for c in query.column_descriptions]
     return pd.DataFrame(columns=colnames, data=query.all())
 
 
@@ -530,7 +524,6 @@ def insertdf(dataframe, session, matching_columns, buf_size=10, query_first=True
     existing = 0
     not_inserted = 0
     indices_discarded = []
-    # _tup2idx = {}  # dict to be allocated only if existing_keys is set
 
     for i, rowdict in enumerate(dfrowiter(dataframe, shared_cnames)):
         if existing_keys:
@@ -539,9 +532,6 @@ def insertdf(dataframe, session, matching_columns, buf_size=10, query_first=True
                 # _tup2idx[rowtup] = i
                 buf[i] = rowdict
             else:
-#                 if return_df:
-#                     indices.append(i)
-#                 else:
                 existing += 1
         else:
             buf[i] = rowdict
@@ -550,20 +540,6 @@ def insertdf(dataframe, session, matching_columns, buf_size=10, query_first=True
             try:
                 session.connection().execute(table_model.__table__.insert(), buf.values())
                 session.commit()
-#             except IntegrityError as _:
-#                 session.rollback()
-#                 # if we had an integrity error, it might be that buf had dupes
-#                 # in this case, some rows might be added: FIXME: DOES NOT TO SEEM TRUE FROM THE
-#                 # TESTS. IS THE CODE BELOW STILL VALID??!!! Anyway, to be sure we issue a
-#                 # query to know which elements have been added
-#                 if not existing_keys:  # we don't have the set of existing keys, calculate now
-#                     # the tuples of inserted elements
-#                     _tup2idx = {tuple(dic[col] for col in matching_colnames): index
-#                                 for index, dic in buf.iteritems()}
-#                 exist_tups = _existing_insts(_tup2idx.keys(), session, matching_columns)
-#                 buf = {_tup2idx[k]: buf[_tup2idx[k]] for k in exist_tups}
-#                 _tup2idx = {}
-
             except SQLAlchemyError as _:
                 session.rollback()
                 if onerr is not None:
@@ -573,12 +549,6 @@ def insertdf(dataframe, session, matching_columns, buf_size=10, query_first=True
                     indices_discarded.extend(buf.iterkeys())
 
             buf.clear()
-
-#             if buf:
-#                 new += len(buf)
-#                 if return_df:
-#                     indices.extend(buf.iterkeys())
-#                 buf.clear()
 
     new = len(dataframe) - not_inserted - existing
     if not return_df:
@@ -645,19 +615,6 @@ def updatedf(dataframe, session, where_col, update_columns, buf_size=10, return_
             try:
                 session.connection().execute(stmt, buf.values())
                 session.commit()
-#             except IntegrityError as _:
-#                 session.rollback()
-#                 # if we had an integrity error, it might be that buf had dupes
-#                 # in this case, some rows might be added. FIXME: DOES NOT TO SEEM TRUE FROM THE
-#                 # TESTS. IS THE CODE BELOW STILL VALID??!!! Anyway, to be sure we issue a
-#                 # query to know which elements have been added
-#                 _tup2idx = {}
-#                 for i, dic in buf.iteritems():
-#                     dic[where_col.key] = dic.pop(where_col_bindname)  # replace back bindname
-#                     _tup2idx[tuple(dic[k] for k in shared_cnames)] = i
-#                 exist_tups = _existing_insts(_tup2idx.keys(), session, shared_columns)
-#                 buf = {_tup2idx[k]: buf[_tup2idx[k]] for k in exist_tups}
-
             except SQLAlchemyError as _:
                 session.rollback()
                 if onerr is not None:
@@ -667,12 +624,6 @@ def updatedf(dataframe, session, where_col, update_columns, buf_size=10, return_
                     indices_discarded.extend(buf.iterkeys())
 
             buf.clear()
-
-#             if buf:
-#                 updated += len(buf)
-#                 if return_df:
-#                     indices.extend(buf.iterkeys())
-#                 buf.clear()
 
     if not return_df:
         first_ret_arg = last + 1 - not_updated
@@ -798,37 +749,3 @@ def mergeupdate(df_old, df_new, matching_columns, set_columns, drop_df_new_dupli
         df_old[col] = ser
 
     return df_old
-
-
-# def flush(session, on_exc=None):
-#     """Flushes the given section. In case of Exception (IntegrityError), rolls back the session
-#     and returns False. Otherwise True is returned
-#     :param on_exc: a callable (function) which will be called with the given exception as first
-#     argument
-#     :return: True on success, False otherwise
-#     """
-#     try:
-#         session.flush()
-#         return True
-#     except SQLAlchemyError as _:
-#         session.rollback()
-#         if hasattr(on_exc, "__call__"):  # on_exc=None returns False
-#             on_exc(_)
-#         return False
-
-
-def commit(session, on_exc=None):
-    """Commits the given section. In case of Exception (IntegrityError), rolls back the session
-    and returns False. Otherwise True is returned
-    :param on_exc: a callable (function) which will be called with the given exception as first
-    argument.
-    :return: True on success, False otherwise
-    """
-    try:
-        session.commit()
-        return True
-    except SQLAlchemyError as _:
-        session.rollback()
-        if hasattr(on_exc, "__call__"):  # on_exc=None returns False
-            on_exc(_)
-        return False

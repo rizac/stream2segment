@@ -28,7 +28,8 @@ from click.exceptions import BadParameter, ClickException, MissingParameter
 
 from stream2segment.utils.log import configlog4download, configlog4processing,\
     elapsedtime2logger_when_finished, configlog4stdout
-from stream2segment.download.utils import run_instance
+# from stream2segment.download.utils import run_instance
+from stream2segment.utils.resources import version
 from stream2segment.io.db.models import Segment, Run
 from stream2segment.process.main import run as run_process, to_csv
 from stream2segment.download.main import run as run_download
@@ -198,8 +199,17 @@ def download(isterminal=False, **yaml_dict):
     with closing(dburl) as session:
         # print local vars: use safe_dump to avoid python types. See:
         # http://stackoverflow.com/questions/1950306/pyyaml-dumping-without-tags
-        run_inst = run_instance(session, config=tounicode(yaml.safe_dump(yaml_dict,
-                                                                         default_flow_style=False)))
+        run_inst = Run(config=tounicode(yaml.safe_dump(yaml_dict, default_flow_style=False)),
+                       # log by default shows error. If everything works fine, we replace
+                       # the content later
+                       log=('Content N/A: this is probably due to an unexpected'
+                             'and uncontrollable interruption of the download process '
+                             '(e.g., memory error)'), program_version=version())
+
+        session.add(run_inst)
+        session.commit()
+        run_id = run_inst.id
+        session.close()  # frees memory?
 
         if isterminal:
             print("Arguments:")
@@ -209,17 +219,19 @@ def download(isterminal=False, **yaml_dict):
             yaml_safe = dict(yaml_dict, dburl=secure_dburl(yaml_dict.pop('dburl')))
             print(indent(yaml.safe_dump(yaml_safe, default_flow_style=False), 2))
 
-        fileout = configlog4download(logger, session, run_inst, isterminal)
+        loghandler = configlog4download(logger, session, run_id, isterminal)
 
         if isterminal:
-            print("Log messages will be written to table '%s' (column '%s')" %
-                  (Run.__tablename__, Run.log.key))
-            print("and to '%s'" % str(fileout))
+            print("Log messages will be temporarily written to '%s'" % str(loghandler.baseFilename))
+            print("In case of unexpected interruption of the program from external causes "
+                  "(e.g., memory overflow) the file acts as a backup for all stored log messages")
+            print("In any other case the file will be deleted before exiting and its content will "
+                  "be written to the table '%s' (column '%s')" % (Run.__tablename__, Run.log.key))
 
         with elapsedtime2logger_when_finished(logger):
-            run_download(session=session, run_id=run_inst.id, isterminal=isterminal, **yaml_dict)
-            logger.info("%d total error(s), %d total warning(s)", run_inst.errors,
-                        run_inst.warnings)
+            run_download(session=session, run_id=run_id, isterminal=isterminal, **yaml_dict)
+            logger.info("%d total error(s), %d total warning(s)", loghandler.errors,
+                        loghandler.warnings)
 
     return 0
 

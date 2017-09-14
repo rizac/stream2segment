@@ -235,8 +235,9 @@ class Test(unittest.TestCase):
         self.patcher29 = patch('stream2segment.main.configlog4download')
         self.mock_config4download = self.patcher29.start()
         def c4d(logger, *a, **v):
-            configlog4download(logger, *a, **v)
+            ret = configlog4download(logger, *a, **v)
             logger.addHandler(self.handler)
+            return ret
         self.mock_config4download.side_effect = c4d
              
         

@@ -53,20 +53,20 @@ def get_events_list(eventws, **args):
     return arr
 
 
-def run_instance(session=None, **args):
-    """Same as models.Run() but sets the "version" field column (unless specified in `args`).
-    It also add it to the session
-    if the argument session is not None.
-    We might want to implement it as attribute default in io.models but that requires importing
-    other stuff inthere and we do not want it for the moment
-    """
-    if 'program_version' not in args:
-        args['program_version'] = version()
-    run_row = Run(**args)
-    if session is not None:
-        session.add(run_row)
-        session.commit()
-    return run_row
+# def run_instance(session=None, **args):
+#     """Same as models.Run() but sets the "version" field column (unless specified in `args`).
+#     It also add it to the session
+#     if the argument session is not None.
+#     We might want to implement it as attribute default in io.models but that requires importing
+#     other stuff inthere and we do not want it for the moment
+#     """
+#     if 'program_version' not in args:
+#         args['program_version'] = version()
+#     run_row = Run(**args)
+#     if session is not None:
+#         session.add(run_row)
+#         session.commit()
+#     return run_row
 
 
 def get_search_radius(mag, minmag, maxmag, minmag_radius, maxmag_radius):

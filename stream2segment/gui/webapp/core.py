@@ -4,28 +4,22 @@ Created on Jul 31, 2016
 @author: riccardo
 '''
 import re
-from datetime import datetime
-from itertools import chain, cycle, izip
+from itertools import cycle, izip
 
-from sqlalchemy import func
+# from sqlalchemy import func
+from sqlalchemy.exc import SQLAlchemyError
 
-from stream2segment.io.db.pd_sql_utils import colnames, commit
+from stream2segment.io.db.pd_sql_utils import colnames
 from stream2segment.io.db.models import Segment, Class, Station, Channel, DataCenter, Event,\
     ClassLabelling, Run
-# from stream2segment.io.db.sqlevalexpr import query, get_columns
-# from stream2segment.gui.webapp import get_session
-# from stream2segment.gui.webapp.plotviews import PlotsCache, jsontimestamp  #, set_spectra_config
-# from stream2segment.utils import evalexpr
-# from sqlalchemy.sql.expression import and_
 from stream2segment.io.db.queries import query4gui, count as query_count
 from stream2segment.gui.webapp.plotviews import jsontimestamp
-from stream2segment.io.db import sqlevalexpr
+# from stream2segment.io.db import sqlevalexpr
 from stream2segment.utils.resources import yaml_load_doc, get_templates_fpath
 
 
-NPTS_WIDE = 900
-NPTS_SHORT = 900
-# FIXME: automatic retrieve by means of Segment class relationships?
+NPTS_WIDE = 900  # FIXME: automatic retrieve by means of Segment class relationships?
+NPTS_SHORT = 900  # FIXME: see above
 
 
 def get_segments(session, conditions, orderby, metadata, classes):
@@ -48,7 +42,7 @@ def get_metadata(session, seg_id=None):
     string representation of the column python type (str, datetime,...), in the latter,
     it is the value of `segment` for that column'''
     if seg_id is not None:
-        segment = session.query(Segment).filter(Segment.id == seg_id).first()  # FIXME: handle when not found!
+        segment = session.query(Segment).filter(Segment.id == seg_id).first()
         if not segment:
             return []
     else:
@@ -100,10 +94,6 @@ def get_metadata(session, seg_id=None):
                 continue
             ret.append([("%s." % prefix) + colname if prefix else colname, value])
 
-#     if segment is not None:
-#         ret.insert(0, ['classes.id', [c.id for c in segment.classes]  # @UndefinedVariable
-#                        ])
-#     else:
     if segment is None:  # add fields for selecting. These fields do not need to be set
         # if a segment is provided (e.g., classes for a segment is returned if requested via
         # a separate response key, and has_data does not need to be shown in the infos for a
@@ -130,7 +120,10 @@ def toggle_class_id(session, segment_id, class_id):
         sca = ClassLabelling(class_id=class_id, segment_id=segment_id, is_hand_labelled=True)
         session.add(sca)
 
-    commit(session)
+    try:
+        session.commit()
+    except SQLAlchemyError as _:
+        session.rollback()
 
     # re-query the database to be sure:
     return {'classes': get_classes(session),
@@ -176,8 +169,8 @@ def get_classes(session, seg_id=None):
     return ret
 
 
-def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components, preprocessed, zooms,
-                     metadata=False, classes=False, warnings=False, sn_wdws=False):
+def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components, preprocessed,
+                     zooms, metadata=False, classes=False, warnings=False, sn_wdws=False):
     """Returns the segment data, depending on the arguments
     :param session: a flask sql-alchemy session object
     :param seg_id: integer denoting the segment id
@@ -236,8 +229,7 @@ def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components,
             'sn_windows': sn_windows,
             'warnings': [] if not warnings else plotmanager.get_warnings(seg_id, preprocessed),
             'metadata': [] if not metadata else get_metadata(session, seg_id),
-            'classes': [] if not classes else get_classes(session, seg_id)}  # get_columns(segment, metadata_keys) if metadata_keys else []}
-#             'metadata': get_columns(segment, metadata_keys) if metadata_keys else {}}
+            'classes': [] if not classes else get_classes(session, seg_id)}
 
 
 def parse_array(str_array, parsefunc=None, try_return_scalar=True):
@@ -277,19 +269,6 @@ def parse_zooms(zooms, plot_indices):
     for plot_index in plot_indices:
         try:
             z = zooms[plot_index]
-#             for i in xrange(len(z)):
-#                 if z[i] is not None:
-#                     try:
-#                         try:
-#                             z[i] = float(z[i])
-#                             if plot_index == 1:
-#                                 # sn spectra are log scaled and plotly returns the scaled values
-#                                 z[i] = 10 ** z[i]
-#                         except ValueError:
-#                             str_ = (z[i][:-1] if z[i][-1] == 'Z' else z[i]).replace('T', ' ')
-#                             z[i] = jsontimestamp(datetime.strptime(str_, '%Y-%m-%d %H:%M:%S.%f'))
-#                     except:
-#                         z[i] = None  # fixme: how to handle???
         except (IndexError, TypeError):
             z = [None, None]
         _zooms.append(z)
@@ -313,4 +292,3 @@ def get_doc(key, plotmanager):
     if not ret:
         ret = "error: documentation N/A"
     return ret.strip()
-    # return re.sub("\\s*\n\\s*", "\n", ret.strip())

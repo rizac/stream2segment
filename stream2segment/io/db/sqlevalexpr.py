@@ -55,7 +55,7 @@ def exprquery(sa_query, conditions, orderby=None, distinct=None):
     #return all parents id's who have children:
     exprquery(sess.query(Parent.id), {'children', 'any'})
 
-    #return all parents who have non-minor children:
+    #return all parents who have adult children:
     exprquery(sess.query(Parent), {'children.age', '>=18'})
 
     #return all parents born before 1980 who have children not minor:

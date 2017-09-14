@@ -590,7 +590,7 @@ def chaid2mseedid_dict(channels_df, drop_mseedid_columns=True):
 
 
 def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius, maxmag_radius,
-                          tttable):
+                          tttable, show_progress=False):
     """
         Merges `events_df` and `channels_df` by returning a new dataframe representing all
         channels within a specific search radius. *Each row of the resturned data frame is
@@ -634,36 +634,38 @@ def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius,
 
     sourcedepths, eventtimes = [], []
 
-    for max_radius, evt_dic in izip(max_radia, dfrowiter(events_df, [EVT_ID, EVT_LAT, EVT_LON,
-                                                                     EVT_TIME, EVT_DEPTH])):
-        l2d = locations2degrees(stations_df[STA_LAT], stations_df[STA_LON],
-                                evt_dic[EVT_LAT], evt_dic[EVT_LON])
-        condition = (l2d <= max_radius) & (stations_df[STA_STIME] <= evt_dic[EVT_TIME]) & \
-                    (pd.isnull(stations_df[STA_ETIME]) |
-                     (stations_df[STA_ETIME] >= evt_dic[EVT_TIME] + timedelta(days=1)))
+    with get_progressbar(show_progress, length=len(max_radia)) as bar:
+        for max_radius, evt_dic in izip(max_radia, dfrowiter(events_df, [EVT_ID, EVT_LAT, EVT_LON,
+                                                                         EVT_TIME, EVT_DEPTH])):
+            l2d = locations2degrees(stations_df[STA_LAT], stations_df[STA_LON],
+                                    evt_dic[EVT_LAT], evt_dic[EVT_LON])
+            condition = (l2d <= max_radius) & (stations_df[STA_STIME] <= evt_dic[EVT_TIME]) & \
+                        (pd.isnull(stations_df[STA_ETIME]) |
+                         (stations_df[STA_ETIME] >= evt_dic[EVT_TIME] + timedelta(days=1)))
 
-        if not np.any(condition):
-            continue
+            bar.update(1)
+            if not np.any(condition):
+                continue
 
-        # Set (or re-set from second iteration on) as NaN SEG_EVDIST columns. This is important
-        # cause from second loop on we might have some elements not-NaN which should be NaN now
-        channels_df[SEG_EVDIST] = np.nan
-        # set locations2 degrees
-        stations_df[SEG_EVDIST] = l2d
-        # Copy distances calculated on stations to their channels
-        # (match along column CHA_STAID shared between the reletive dataframes). Set values only for
-        # channels whose stations are within radius (stations_df[condition]):
-        cha_df = mergeupdate(channels_df, stations_df[condition], [CHA_STAID], [SEG_EVDIST],
-                             drop_df_new_duplicates=False)  # dupes already dropped
-        # drop channels which are not related to station within radius:
-        cha_df = cha_df.dropna(subset=[SEG_EVDIST], inplace=False)
-        cha_df.is_copy = False  # avoid SettingWithCopyWarning...
-        cha_df[SEG_EVID] = evt_dic[EVT_ID]  # ...and add "safely" SEG_EVID values
-        # append to arrays (calculate arrival times in one shot a t the end, it's faster):
-        sourcedepths += [evt_dic[EVT_DEPTH]] * len(cha_df)
-        eventtimes += [np.datetime64(evt_dic[EVT_TIME])] * len(cha_df)
-        # Append only relevant columns:
-        ret.append(cha_df[[SEG_CHAID, SEG_EVID, SEG_DCID, SEG_EVDIST]])
+            # Set (or re-set from second iteration on) as NaN SEG_EVDIST columns. This is important
+            # cause from second loop on we might have some elements not-NaN which should be NaN now
+            channels_df[SEG_EVDIST] = np.nan
+            # set locations2 degrees
+            stations_df[SEG_EVDIST] = l2d
+            # Copy distances calculated on stations to their channels
+            # (match along column CHA_STAID shared between the reletive dataframes). Set values only for
+            # channels whose stations are within radius (stations_df[condition]):
+            cha_df = mergeupdate(channels_df, stations_df[condition], [CHA_STAID], [SEG_EVDIST],
+                                 drop_df_new_duplicates=False)  # dupes already dropped
+            # drop channels which are not related to station within radius:
+            cha_df = cha_df.dropna(subset=[SEG_EVDIST], inplace=False)
+            cha_df.is_copy = False  # avoid SettingWithCopyWarning...
+            cha_df[SEG_EVID] = evt_dic[EVT_ID]  # ...and add "safely" SEG_EVID values
+            # append to arrays (calculate arrival times in one shot a t the end, it's faster):
+            sourcedepths += [evt_dic[EVT_DEPTH]] * len(cha_df)
+            eventtimes += [np.datetime64(evt_dic[EVT_TIME])] * len(cha_df)
+            # Append only relevant columns:
+            ret.append(cha_df[[SEG_CHAID, SEG_EVID, SEG_DCID, SEG_EVDIST]])
 
     # create total segments dataframe:
     # first check we have data:
@@ -1174,7 +1176,7 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
     __steps = 6 + inventory  # bool substraction works: 8 - True == 7
     stepiter = imap(lambda i: "%d of %d%s" % (i+1, __steps,
                                               "" if process is None else
-                                              (" (current memory usage: %.2f%%)" %
+                                              (" (%.2f%% memory used)" %
                                                process.memory_percent())), xrange(__steps))
 
     # write the class labels:
@@ -1230,7 +1232,7 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
     try:
         segments_df = merge_events_stations(events_df, channels_df, search_radius['minmag'],
                                             search_radius['maxmag'], search_radius['minmag_radius'],
-                                            search_radius['maxmag_radius'], tt_table)
+                                            search_radius['maxmag_radius'], tt_table, isterminal)
     except QuitDownload as dexc:
         return dexc.log()
 
@@ -1247,6 +1249,7 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
         segments_df = prepare_for_download(session, segments_df, wtimespan, retry_no_code,
                                            retry_url_errors, retry_mseed_errors, retry_4xx,
                                            retry_5xx)
+        session.close()  # frees memory?
         # download_save_segments raises a QuitDownload if there is no data, remember its
         # exitcode
         logger.info("")
@@ -1264,6 +1267,7 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
                                          dbbufsize,
                                          isterminal)
         del segments_df  # help gc?
+        session.close()  # frees memory?
         logger.info("")
         print_stats(d_stats, datacenters_df)
 
