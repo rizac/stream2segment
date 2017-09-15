@@ -3,6 +3,9 @@ Created on May 12, 2017
 
 @author: riccardo
 '''
+from __future__ import division
+from builtins import range
+from past.utils import old_div
 import unittest
 import numpy as np
 from numpy.fft import rfft
@@ -13,7 +16,7 @@ from io import BytesIO
 import os
 from stream2segment.analysis.mseeds import fft
 from stream2segment.analysis import ampspec, triangsmooth, snr, dfreq, freqs, powspec
-from itertools import izip
+
 import pytest
 from mock.mock import patch, Mock
 from datetime import datetime
@@ -56,7 +59,7 @@ def test_snr(mock_np_true_divide):
     # assert the snr is one if we take particular frequencies:
     delta_t = 0.01
     delta_f = dfreq(signal, delta_t)
-    fmin = delta_f+delta_f/100.0  # just enough to remove first sample
+    fmin = delta_f+old_div(delta_f,100.0)  # just enough to remove first sample
     for sf in ('fft', 'dft', 'amp', 'pow'):
         assert snr(signal, noise, signals_form=sf, fmin=fmin, fmax=None, delta_signal=delta_f, delta_noise=delta_f, in_db=False) == 1
     # now same case as above, but with signals given as time series:
@@ -217,11 +220,11 @@ def test_triangsmooth():
     # test a smooth function. take a parabola
     win_ratio = 0.04
     smooth = triangsmooth(np.array(data), winlen_ratio=win_ratio)
-    assert all([smooth[i]<=max(data[i-1:i+2]) and smooth[i]>=min(data[i-1:i+2]) for i in xrange(1, len(data)-1)])
+    assert all([smooth[i]<=max(data[i-1:i+2]) and smooth[i]>=min(data[i-1:i+2]) for i in range(1, len(data)-1)])
     assert np.allclose(smooth, triangsmooth0(np.array(data), win_ratio), rtol=1e-05, atol=1e-08, equal_nan=True)
 
 
-    data = [x**2 for x in xrange(115)]
+    data = [x**2 for x in range(115)]
     smooth = triangsmooth(np.array(data), winlen_ratio=win_ratio)
     assert np.allclose(smooth, data, rtol=1e-03, atol=1e-08, equal_nan=True)
     assert np.allclose(smooth, triangsmooth0(np.array(data), win_ratio), rtol=1e-05, atol=1e-08, equal_nan=True)
@@ -257,7 +260,7 @@ def triangsmooth0(spectrum, alpha):
         tri = (1 - np.abs(np.true_divide(np.arange(2*n + 1) - n, n)))
         idxs = np.argwhere(npts == n)
         spec_slices = spectrum[idxs-n + np.arange(2*n+1)]
-        spectrum_[idxs] = np.sum(tri * spec_slices, axis=1)/np.sum(tri)
+        spectrum_[idxs.flatten()] = old_div(np.sum(tri * spec_slices, axis=1),np.sum(tri))
 
     return spectrum_
 

@@ -4,6 +4,8 @@ Created on Jul 15, 2016
 
 @author: riccardo
 '''
+from builtins import str
+from builtins import range
 import pytest, os
 import unittest
 import numpy as np
@@ -561,13 +563,13 @@ class Test(unittest.TestCase):
         N = 100
         t = time.time()
         # THIS IS FASTER:
-        for i in xrange(N):
+        for i in range(N):
             _ = ".".join((seg.station.network, seg.station.station, seg.channel.location, seg.channel.channel))
         el1 = time.time() - t
         
         # THIS IS SLOWER:
         t = time.time()
-        for i in xrange(N):
+        for i in range(N):
             tup = self.session.query(Station.network, Station.station, Channel.location, Channel.channel).select_from(Segment).join(Channel,Station).filter(Segment.id==seg.id).first()
             _ = ".".join(tup)
         el2 = time.time() - t
@@ -603,7 +605,7 @@ class Test(unittest.TestCase):
             mapper = inspect(cls)
             # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper.mapped_table
             table = mapper.mapped_table
-            return cls(**{c: getattr(self, c) for c in mapper.columns.keys()})
+            return cls(**{c: getattr(self, c) for c in list(mapper.columns.keys())})
 
         seg__1 = COPY(seg)
         # make it unique

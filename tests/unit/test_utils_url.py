@@ -4,21 +4,25 @@ Created on Nov 18, 2016
 
 @author: riccardo
 '''
+from future import standard_library
+standard_library.install_aliases()
+from builtins import str
+from builtins import next
 import unittest
 
 
 import concurrent.futures
 import time
 import threading
-import urllib2
-import httplib
+import urllib.request, urllib.error, urllib.parse
+import http.client
 import mock
 # from stream2segment import async
 from stream2segment.utils.url import _ismainthread, read_async
 from mock import patch
 from itertools import product, cycle
 import pytest
-from urllib2 import URLError
+from urllib.error import URLError
 from time import sleep
 from subprocess import call
 
@@ -124,7 +128,7 @@ class Test(unittest.TestCase):
     def test_urlerrors(self):
         """Tests onerror. WE mock urllib2urlopen.read to raise an excpected Exception"""
         
-        self.config_urlopen([urllib2.URLError("")])
+        self.config_urlopen([urllib.error.URLError("")])
         
         # self.urls has a valid url (which should execute onsuccess) and an invalid one
         # which should execute onerror)
@@ -163,7 +167,7 @@ class Test(unittest.TestCase):
         assert self.progress == 0
         
         # same regardless of urllib2 returned value:
-        self.config_urlopen([urllib2.URLError("")], sleep_time=None)
+        self.config_urlopen([urllib.error.URLError("")], sleep_time=None)
         # self.urls has a valid url (which should execute onsuccess) and an invalid one
         # which should execute onerror)
         with pytest.raises(KeyboardInterrupt):

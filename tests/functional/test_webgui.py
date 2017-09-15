@@ -4,6 +4,7 @@ Created on Jul 15, 2016
 
 @author: riccardo
 '''
+from builtins import str
 import pytest, os
 import unittest
 import numpy as np
@@ -25,7 +26,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm.session import object_session
 from sqlalchemy.sql.expression import func, bindparam, and_
 import time
-from itertools import izip, product
+from itertools import product
 from stream2segment.io.db.queries import getallcomponents
 from obspy.core.stream import read
 from stream2segment.utils import load_source
@@ -256,14 +257,16 @@ class Test(unittest.TestCase):
 
             # assert global js vars in the script tag of the main page are injected from jinja rendering:
             expected_str = """var __SETTINGS = {"segment_orderby": ["event.time-", "event_distance_deg"], "segment_select": {"has_data": "true"}, "sn_windows": {"arrival_time_shift": 0, "signal_window": [0.1, 0.9]}};"""
-            assert expected_str in rv.data
+            # https://github.com/pallets/flask/issues/716 is bytes in python3. Fix for both 2 and 3:
+            response_data = rv.data.decode('utf-8')
+            assert expected_str in response_data
 
             # assert we wrote the divs for the custom plots (currently 2, at index 3 and 4, respectively):
             expected_str = ["""<div class='plot-wrapper' ng-show='plots[{0:d}].visible'>""",
                             """<div data-plot='time-series' data-plotindex={0:d} class='plot'></div>"""]
             for plotindex in [2,3]:
                 for e in expected_str:
-                    assert e.format(plotindex) in rv.data
+                    assert e.format(plotindex) in response_data
             assert len(clz) == 1 and clz[0].label == 'wtf' and clz[0].description == 'wtfd'
             
             # change description:
@@ -410,9 +413,9 @@ class Test(unittest.TestCase):
         # FIXME: check why we have to access _app for global vars and not app (see setup method)
         pm = self.app.config['PLOTMANAGER']
         filtered_plotcaches = pm._pplots
-        for plotscache in filtered_plotcaches.itervalues():
+        for plotscache in filtered_plotcaches.values():
             data = plotscache.data
-            for d in data.itervalues():
+            for d in data.values():
                 _, plots = d
                 for p in plots:
                     if p is None:  # not calculated, skip
@@ -448,9 +451,9 @@ class Test(unittest.TestCase):
         # FIXME: check why we have to access _app for global vars and not app (see setup method)
         pm = self.app.config['PLOTMANAGER']
         filtered_plotcaches = pm._pplots
-        for plotscache in filtered_plotcaches.itervalues():
+        for plotscache in filtered_plotcaches.values():
             data = plotscache.data
-            for d in data.itervalues():
+            for d in data.values():
                 _, plots = d
                 for p in plots:
                     if p is None:  # not calculated, skip

@@ -6,6 +6,7 @@ Created on Mar 6, 2017
 
 @author: riccardo
 '''
+from builtins import str
 import shlex
 import numpy as np
 from datetime import datetime
@@ -99,7 +100,7 @@ def exprquery(sa_query, conditions, orderby=None, distinct=None):
     relations = inspect(model).relationships
 
     if conditions:
-        for attname, expression in conditions.iteritems():
+        for attname, expression in conditions.items():
             if not expression:  # discard falsy expressions (empty strings, None's)
                 continue
             relationship, column = _get_rel_and_column(model, attname, relations)

@@ -9,15 +9,24 @@
    :License:
        To be decided!
 """
+from future import standard_library
+import sys
+standard_library.install_aliases()
+from builtins import map
+from builtins import next
+from builtins import zip
+from builtins import str
+from builtins import range
+from builtins import object
 import os
 import logging
 import re
 from collections import defaultdict, OrderedDict
 from datetime import timedelta, datetime
-from urlparse import urlparse
+from urllib.parse import urlparse
 import gc
-from itertools import izip, imap  # , cycle
-from urllib2 import Request
+  # , cycle
+from urllib.request import Request
 import numpy as np
 import pandas as pd
 from sqlalchemy import or_, and_
@@ -417,7 +426,7 @@ def get_channels_df(session, datacenters_df, post_data, channels, starttime, end
     ret = []
     url_failed_dc_ids = []
     iterable = ((id_, Request(url, data='format=text\nlevel=channel\n'+post_data_str))
-                for url, id_, post_data_str in izip(dc_df_fromweb[DataCenter.station_url.key],
+                for url, id_, post_data_str in zip(dc_df_fromweb[DataCenter.station_url.key],
                                                     dc_df_fromweb[DataCenter.id.key],
                                                     post_data_iter))
 
@@ -513,7 +522,9 @@ def get_channels_df_from_db(session, datacenters_df, channels, starttime, endtim
     cha_be = or_(*[Channel.channel.like(strconvert.wild2sql(cha)) for cha in channels]) \
         if channels else True
     srate_be = Channel.sample_rate >= min_sample_rate if min_sample_rate > 0 else True
-    dc_be = Station.datacenter_id.in_(datacenters_df[DataCenter.id.key])
+    # select only relevant datacenters. Convert tolist() cause python3 complains of numpy ints
+    # (python2 doesn't but tolist() is safe for both):
+    dc_be = Station.datacenter_id.in_(datacenters_df[DataCenter.id.key].tolist())
     stime_be = ~((Station.end_time!=None) & (Station.end_time <= starttime)) if starttime else True  # @IgnorePep8
     etime_be = ~((Station.start_time!=None) & (Station.start_time >= endtime)) if endtime else True  # @IgnorePep8
     sa_cols = [Channel.id, Channel.station_id, Station.latitude, Station.longitude,
@@ -586,7 +597,7 @@ def chaid2mseedid_dict(channels_df, drop_mseedid_columns=True):
     # but the latter does NOT consume less memory (strings are python string in pandas)
     # and the search for an mseed_id given a loc[channel_id] is slightly slower than python dicts
     # as the returned element is intended for searching, then return a dict:
-    return {chaid: mseedid for chaid, mseedid in izip(channels_df[CHA_ID], _mseedids)}
+    return {chaid: mseedid for chaid, mseedid in zip(channels_df[CHA_ID], _mseedids)}
 
 
 def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius, maxmag_radius,
@@ -635,7 +646,7 @@ def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius,
     sourcedepths, eventtimes = [], []
 
     with get_progressbar(show_progress, length=len(max_radia)) as bar:
-        for max_radius, evt_dic in izip(max_radia, dfrowiter(events_df, [EVT_ID, EVT_LAT, EVT_LON,
+        for max_radius, evt_dic in zip(max_radia, dfrowiter(events_df, [EVT_ID, EVT_LAT, EVT_LON,
                                                                          EVT_TIME, EVT_DEPTH])):
             l2d = locations2degrees(stations_df[STA_LAT], stations_df[STA_LON],
                                     evt_dic[EVT_LAT], evt_dic[EVT_LON])
@@ -779,7 +790,7 @@ def prepare_for_download(session, segments_df, wtimespan, retry_no_code, retry_u
     # arrays which might be faster (and less memory consuming after unused memory is released)
     segments_df = segments_df[segments_df[SEG_RETRY]].copy()
     if oldlen != len(segments_df):
-        reason = ", ".join("%s=%s" % (k, str(v)) for k, v in locals().iteritems()
+        reason = ", ".join("%s=%s" % (k, str(v)) for k, v in locals().items()
                            if k.startswith("retry_"))
         logger.info(MSG("", "%d segments discarded", reason), oldlen-len(segments_df))
 
@@ -842,7 +853,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
     # Define separate keys cause we will use it elsewhere:
     # Note that the order of these keys must match `mseed_unpack` returned data
     # (this is why we used OrderedDict above)
-    SEG_COLNAMES = segvals.keys()
+    SEG_COLNAMES = list(segvals.keys())
     # define default error codes:
     URLERR_CODE, MSEEDERR_CODE = get_url_mseed_errorcodes()
 
@@ -875,6 +886,12 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                 [SEG_DCID, SEG_STIME, SEG_ETIME, SEG_CHAID],
                 ]
 
+    if sys.version_info[0] < 3:
+        def get_host(r):
+            return r.get_host()
+    else:
+        def get_host(r):
+            return r.host
     # we assume it's the terminal, thus allocate the current process to track
     # memory overflows
     with get_progressbar(show_progress, length=len(segments_df)) as bar:
@@ -899,7 +916,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                 _ = df[0]  # not used
                 df = df[1]  # copy data so that we do not have refs to the old dataframe
                 # and hopefully the gc works better
-                url = request.get_host()
+                url = get_host(request)
                 data, code, msg = result if not exc else (None, None, None)
                 if code == 413 and len(df) > 1 and not islast:
                     skipped_dataframes.append(df)
@@ -937,7 +954,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                         # loc for setting the data, but this would mean using column
                         # indexes and we have column labels. A conversion is possible but
                         # would make the code  hard to understand (even more ;))
-                        for idxval, chaid in izip(df.index.values, df[SEG_CHAID]):
+                        for idxval, chaid in zip(df.index.values, df[SEG_CHAID]):
                             mseedid = chaid2mseedid_dict.get(chaid, None)
                             if mseedid is None:
                                 continue
@@ -1024,7 +1041,7 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
                           [Station.id.key, Station.network.key, Station.station.key,
                            Station.start_time.key])
     with get_progressbar(show_progress, length=len(stations_df)) as bar:
-        iterable = izip(stations_df[Station.id.key],
+        iterable = zip(stations_df[Station.id.key],
                         stations_df[DataCenter.station_url.key],
                         stations_df[Station.network.key],
                         stations_df[Station.station.key],
@@ -1174,10 +1191,10 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
 
     process = psutil.Process(os.getpid()) if isterminal else None
     __steps = 6 + inventory  # bool substraction works: 8 - True == 7
-    stepiter = imap(lambda i: "%d of %d%s" % (i+1, __steps,
+    stepiter = map(lambda i: "%d of %d%s" % (i+1, __steps,
                                               "" if process is None else
                                               (" (%.2f%% memory used)" %
-                                               process.memory_percent())), xrange(__steps))
+                                               process.memory_percent())), range(__steps))
 
     # write the class labels:
     # add_classes(session, class_labels, dbbufsize)

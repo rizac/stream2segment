@@ -19,6 +19,7 @@ It defines classes_and_methods
 
 # import sys
 # import os
+from builtins import str
 from io import BytesIO
 # from collections import OrderedDict as odict
 import gzip
@@ -86,13 +87,13 @@ def decompress(bytestr):
     """
     # check if the data is compressed. Note: this is a hint! For info see:
     # http://stackoverflow.com/questions/19120676/how-to-detect-type-of-compression-used-on-the-file-if-no-file-extension-is-spe
-    if bytestr.startswith("\x1f\x8b\x08"):  # gzip
+    if bytestr.startswith(b"\x1f\x8b\x08"):  # gzip
         # raises IOError in case
         with gzip.GzipFile(mode='rb', fileobj=BytesIO(bytestr)) as gzip_obj:
             bytestr = gzip_obj.read()
-    elif bytestr.startswith("\x42\x5a\x68"):  # bz2
+    elif bytestr.startswith(b"\x42\x5a\x68"):  # bz2
         bytestr = bz2.decompress(bytestr)  # raises IOError in case
-    elif bytestr.startswith("\x50\x4b\x03\x04"):  # zip
+    elif bytestr.startswith(b"\x50\x4b\x03\x04"):  # zip
         # raises zipfile.BadZipfile in case
         with zipfile.ZipFile(BytesIO(bytestr), 'r') as zip_obj:
             namelist = zip_obj.namelist()
@@ -101,8 +102,10 @@ def decompress(bytestr):
                                  "can only uncompress single archive content" % len(namelist))
             bytestr = zip_obj.read(namelist[0])
     else:
-        byte1 = ord(bytestr[0])
-        byte2 = ord(bytestr[1])
+        barray = bytearray(bytestr[:2])  # make things python 2+ 3 compatible:
+        # https://stackoverflow.com/questions/41843579/typeerror-ord-expected-string-of-length-1-but-int-found
+        byte1 = barray[0]
+        byte2 = barray[1]
         if (byte1 * 256 + byte2) % 31 == 0 and (byte1 & 143) == 8:  # zlib. 143=int('10001111', 2)
             bytestr = zlib.decompress(bytestr)  # raises zlib.error in case
     return bytestr

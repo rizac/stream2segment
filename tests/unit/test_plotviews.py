@@ -4,6 +4,8 @@ Created on Jul 15, 2016
 
 @author: riccardo
 '''
+from builtins import str
+from builtins import range
 import pytest, os
 import unittest
 import numpy as np
@@ -25,7 +27,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm.session import object_session
 from sqlalchemy.sql.expression import func, bindparam, and_
 import time
-from itertools import izip, product
+from itertools import product
 from stream2segment.io.db.queries import getallcomponents
 from obspy.core.stream import read
 from stream2segment.utils import load_source
@@ -257,7 +259,7 @@ class Test(unittest.TestCase):
             assert calculated_plots == len(plots)
 
             # assert we associated the plotscache to expected_components_count keys:
-            assert sum(plotscache is vm for vm in  m._plots.itervalues()) == expected_components_count
+            assert sum(plotscache is vm for vm in  m._plots.values()) == expected_components_count
             # assert we have the inventory for the segment:
             # FIXME: test that we don't have it if we set inventory=False in the config
             assert s.id in  m.segid2inv
@@ -273,13 +275,13 @@ class Test(unittest.TestCase):
             assert calculated_plots == len(plots)
 
             # assert we associated the plotscache to expected_components_count keys:
-            assert sum(plotscache is vm for vm in  m._plots.itervalues()) == expected_components_count
+            assert sum(plotscache is vm for vm in  m._plots.values()) == expected_components_count
             # assert we have the inventory for the segment:
             # FIXME: test that we don't have it if we set inventory=False in the config
             assert s.id in  m.segid2inv
 
             # calculate all indices
-            idxs = range(len(m.functions))
+            idxs = list(range(len(m.functions)))
             plots = m.getplots(self.session, s.id, idxs, False)
             calculated_plots = sum(plot is not None for plot in plotscache.data[s.id][1])
             
@@ -372,7 +374,7 @@ class Test(unittest.TestCase):
             expected_components_count = components_count[(s.event_id, s.channel.location)]
              
             all_components = True
-            idxs = range(numplots)
+            idxs = list(range(numplots))
             plots = m.getplots(self.session, s.id, idxs, all_components)
             assert len(plots) == len(idxs)
             # as long as idxs[0] == 0 and 0 refers to the 'main' trace plot, we can do like this:
@@ -386,14 +388,14 @@ class Test(unittest.TestCase):
         # assert we called exec_function the correct number of times
         assert mock_exec_func.call_count == self.session.query(Segment).count()*numplots
         # and assure all plots are non-none:
-        for plotscache in m._plots.itervalues():
-            for s, plots, sn_warnings in plotscache.data.itervalues():
+        for plotscache in m._plots.values():
+            for s, plots, sn_warnings in plotscache.data.values():
                 assert all(plot is not None for plot in plots)
         
         mock_exec_func.reset_mock()
         mock_get_inv.reset_mock()
         for s in self.session.query(Segment):
-            idxs = range(numplots)  # range(len(viewmanager.customfunctions))
+            idxs = list(range(numplots))  # range(len(viewmanager.customfunctions))
             expected_components_count = components_count[(s.event_id, s.channel.location)]
             plots = m.getpplots(self.session, s.id, idxs, True)
             assert len(plots) == len(idxs)
@@ -405,8 +407,8 @@ class Test(unittest.TestCase):
         # assert we called exec_function the correct number of times
         assert mock_exec_func.call_count == self.session.query(Segment).count()*numplots
         # and assure all plots are non-none:
-        for plotscache in m._pplots.itervalues():
-            for s, plots, sn_warnings in plotscache.data.itervalues():
+        for plotscache in m._pplots.values():
+            for s, plots, sn_warnings in plotscache.data.values():
                 assert all(plot is not None for plot in plots)
         
 if __name__ == "__main__":

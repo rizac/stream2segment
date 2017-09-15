@@ -4,17 +4,21 @@ Created on Feb 4, 2016
 
 @author: riccardo
 '''
+from __future__ import print_function
 # from event2waveform import getWaveforms
 # from utils import date
 # assert sys.path[0] == os.path.realpath(myPath + '/../../')
 
+from future import standard_library
+standard_library.install_aliases()
+from builtins import str
 import re
 import numpy as np
 from mock import patch
 import pytest
 from mock import Mock
 from datetime import datetime, timedelta
-from StringIO import StringIO
+from io import StringIO
 
 import unittest, os
 from sqlalchemy.engine import create_engine
@@ -34,8 +38,8 @@ get_channels_df, merge_events_stations, \
 from obspy.core.stream import Stream, read
 from stream2segment.io.db.models import DataCenter, Segment, Run, Station, Channel, WebService,\
     withdata
-from itertools import cycle, repeat, count, product, izip
-from urllib2 import URLError
+from itertools import cycle, repeat, count, product
+from urllib.error import URLError
 import socket
 from obspy.taup.helper_classes import TauModelError
 # import logging
@@ -48,7 +52,7 @@ from stream2segment.io.db.pd_sql_utils import dbquery2df, insertdf_napkeys, upda
 from logging import StreamHandler
 import logging
 from io import BytesIO
-import urllib2
+import urllib.request, urllib.error, urllib.parse
 from stream2segment.download.utils import get_url_mseed_errorcodes
 from test.test_userdict import d1
 from stream2segment.utils.mseedlite3 import MSeedError, unpack
@@ -177,7 +181,7 @@ class Test(unittest.TestCase):
         self.session = Session()
         self.engine = engine
         
-        self.patcher = patch('stream2segment.utils.url.urllib2.urlopen')
+        self.patcher = patch('stream2segment.utils.url.urllib.request.urlopen')
         self.mock_urlopen = self.patcher.start()
         
         # this mocks get_session to return self.session:
@@ -343,17 +347,18 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # convert returned values to the given urlread return value (tuple data, code, msg)
         # if k is an int, convert to an HTTPError
         retvals = []
-        if type(urlread_side_effect) == str or not hasattr(urlread_side_effect, "__iter__"):
+        # Check if we have an iterable (where strings are considered not iterables):
+        if not hasattr(urlread_side_effect, "__iter__") or isinstance(urlread_side_effect, (bytes, str)):
+            # it’s not an iterable (wheere str/bytes/unicode are considered NOT iterable in both py2 and 3)
             urlread_side_effect = [urlread_side_effect]
-
             
         for k in urlread_side_effect:
             a = Mock()
             if type(k) == int:
-                a.read.side_effect = urllib2.HTTPError('url', int(k),  responses[k][0], None, None)
-            elif type(k) == str:
+                a.read.side_effect = urllib.error.HTTPError('url', int(k),  responses[k][0], None, None)
+            elif type(k) in (bytes, str):
                 def func(k):
-                    b = BytesIO(k)
+                    b = BytesIO(k.encode('utf8') if type(k) == str else k)  # py2to3 compatible
                     def rse(*a, **v):
                         rewind = not a and not v
                         if not rewind:
@@ -462,14 +467,14 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         if result.exception:
-            print "EXCEPTION"
-            print "========="
-            print ""
+            print("EXCEPTION")
+            print("=========")
+            print("")
             import traceback
             traceback.print_exception(*result.exc_info)
-            print result.output
-            print ""
-            print "========="
+            print(result.output)
+            print("")
+            print("=========")
             assert False
             return
         
@@ -537,14 +542,14 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         if result.exception:
-            print "EXCEPTION"
-            print "========="
-            print ""
+            print("EXCEPTION")
+            print("=========")
+            print("")
             import traceback
             traceback.print_exception(*result.exc_info)
-            print result.output
-            print ""
-            print "========="
+            print(result.output)
+            print("")
+            print("=========")
             assert False
             return
         
@@ -638,7 +643,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         if result.exception:
             import traceback
             traceback.print_exception(*result.exc_info)
-            print result.output
+            print(result.output)
             assert False
             return
         
@@ -660,7 +665,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         if result.exception:
             import traceback
             traceback.print_exception(*result.exc_info)
-            print result.output
+            print(result.output)
             assert False
             return
         
@@ -691,7 +696,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         if result.exception:
             import traceback
             traceback.print_exception(*result.exc_info)
-            print result.output
+            print(result.output)
             assert False
             return
         assert str_err in self.log_msg()
@@ -740,7 +745,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         if result.exception:
             import traceback
             traceback.print_exception(*result.exc_info)
-            print result.output
+            print(result.output)
             assert False
             return
         stainvs = self.session.query(Station).filter(Station.has_inventory).all()
@@ -751,7 +756,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         assert len(ix) == num_downloaded_inventories_first_try
         staid, invdata = ix[0][0], ix[0][1]
         expected_invs_to_download_ids.remove(staid)  # remove the saved inventory
-        assert not invdata.startswith('<?xml ') # assert we compressed data  
+        assert not invdata.startswith(b'<?xml ') # assert we compressed data  
         assert mock_save_inventories.called                                                    
         mock_save_inventories.reset_mock
 
@@ -766,7 +771,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         if result.exception:
             import traceback
             traceback.print_exception(*result.exc_info)
-            print result.output
+            print(result.output)
             assert False
             return
         stainvs = self.session.query(Station).filter(Station.has_inventory).all()
@@ -785,7 +790,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         if result.exception:
             import traceback
             traceback.print_exception(*result.exc_info)
-            print result.output
+            print(result.output)
             assert False
             return
         
@@ -803,7 +808,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         if result.exception:
             import traceback
             traceback.print_exception(*result.exc_info)
-            print result.output
+            print(result.output)
             assert False
             return
         
@@ -845,7 +850,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         if result.exception:
             import traceback
             traceback.print_exception(*result.exc_info)
-            print result.output
+            print(result.output)
             assert False
             return
  
@@ -878,8 +883,10 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         # test a type error in the url_segment_side effect
         self.session.query(Segment).delete()
         assert len(self.session.query(Segment).all()) == 0
-        errmsg = '_sre.SRE_Pattern object is not an iterator'
-        assert errmsg not in self.log_msg()
+        errmsg_py2 = '_sre.SRE_Pattern object is not an iterator'  # python2
+        errmsg_py3 = "'_sre.SRE_Pattern' object is not an iterator"  # python3
+        assert errmsg_py2 not in self.log_msg()
+        assert errmsg_py3 not in self.log_msg()
         suse = self._seg_urlread_sideeffect  # remainder (reset later)
         self._seg_urlread_sideeffect = re.compile(".*")  # just return something not number nor string
         runner = CliRunner()
@@ -889,9 +896,9 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         if result.exception:
             assert result.exc_info[0] == TypeError
-            assert errmsg in self.log_msg()
+            assert errmsg_py2 in self.log_msg() or errmsg_py3 in self.log_msg()
         else:
-            print "DID NOT RAISE!!"
+            print("DID NOT RAISE!!")
             assert False
         self._seg_urlread_sideeffect = suse  # restore default
         

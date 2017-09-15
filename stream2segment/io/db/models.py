@@ -3,6 +3,7 @@ Created on Jul 15, 2016
 
 @author: riccardo
 '''
+from builtins import str
 import re
 import sqlite3  # @IgnorePep8
 
@@ -72,7 +73,7 @@ class Base(_Base):
         cls = self.__class__
         ret = [cls.__name__ + ":"]
         insp = inspect(cls)
-        for colname, col in insp.columns.items():
+        for colname, col in list(insp.columns.items()):
             typ = col.type
             typ_str = str(typ)
             try:
@@ -80,7 +81,7 @@ class Base(_Base):
             except Exception as exc:
                 val = "(not shown: %s)" % str(exc)
             ret.append("%s %s: %s" % (colname, typ_str, val))
-        for relationship in insp.relationships.keys():
+        for relationship in list(insp.relationships.keys()):
             ret.append("%s: relationship" % relationship)
         return "\n".join(ret)
 

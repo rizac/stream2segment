@@ -24,9 +24,12 @@ Created on Jul 17, 2016
 @author: riccardo
 '''
 from __future__ import division
+from builtins import map
+from builtins import zip
+from builtins import range
 from datetime import datetime, date
 # from collections import OrderedDict
-from itertools import cycle, izip
+from itertools import cycle
 import numpy as np
 import pandas as pd
 
@@ -40,7 +43,7 @@ from pandas.compat import (lzip, map, zip, raise_with_traceback,
 from pandas.core.common import isnull
 # but we need also pd.isnull so we import it like this for safety:
 # from pandas import isnull as pd_isnull
-from pandas.types.dtypes import DatetimeTZDtype
+from pandas.core.dtypes.dtypes import DatetimeTZDtype
 # sql-alchemy:
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 # from sqlalchemy.sql.elements import BinaryExpression
@@ -94,7 +97,7 @@ def colnames(table, pkey=None, fkey=None, nullable=None):
     # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper.mapped_table
     table = mapper.mapped_table
     fkeys_cols = set((fk.parent for fk in table.foreign_keys)) if fkey in (True, False) else set([])
-    for att_name, column in mapper.columns.items():
+    for att_name, column in list(mapper.columns.items()):
         # the dict-like above is keyed based on the attribute name defined in the mapping,
         # not necessarily the key attribute of the Column itself (column). See
         # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper.columns
@@ -283,7 +286,7 @@ def _insert_data(dataframe):
     data_list = [None] * ncols
     blocks = dataframe._data.blocks
 
-    for i in xrange(len(blocks)):
+    for i in range(len(blocks)):
         b = blocks[i]
         if b.is_datetime:
             # convert to microsecond resolution so this yields
@@ -318,7 +321,7 @@ def dfrowiter(dataframe, columns=None):
     # See _insert_table below). Thus we zip it:
     for row_values in zip(*datalist):
         # we could make a single line statement, but two lines are more readable:
-        row_args_dict = dict(zip(cols, row_values))
+        row_args_dict = dict(list(zip(cols, row_values)))
         yield row_args_dict
 
 
@@ -538,15 +541,15 @@ def insertdf(dataframe, session, matching_columns, buf_size=10, query_first=True
 
         if len(buf) == buf_size or (i == last and buf):
             try:
-                session.connection().execute(table_model.__table__.insert(), buf.values())
+                session.connection().execute(table_model.__table__.insert(), list(buf.values()))
                 session.commit()
             except SQLAlchemyError as _:
                 session.rollback()
                 if onerr is not None:
-                    onerr(dataframe, buf.iterkeys(), _)
+                    onerr(dataframe, iter(buf.keys()), _)
                 not_inserted += len(buf)
                 if return_df:
-                    indices_discarded.extend(buf.iterkeys())
+                    indices_discarded.extend(iter(buf.keys()))
 
             buf.clear()
 
@@ -613,15 +616,15 @@ def updatedf(dataframe, session, where_col, update_columns, buf_size=10, return_
         buf[i] = rowdict
         if len(buf) == buf_size or (i == last and buf):
             try:
-                session.connection().execute(stmt, buf.values())
+                session.connection().execute(stmt, list(buf.values()))
                 session.commit()
             except SQLAlchemyError as _:
                 session.rollback()
                 if onerr is not None:
-                    onerr(dataframe, buf.iterkeys(), _)
+                    onerr(dataframe, iter(buf.keys()), _)
                 not_updated += len(buf)
                 if return_df:
-                    indices_discarded.extend(buf.iterkeys())
+                    indices_discarded.extend(iter(buf.keys()))
 
             buf.clear()
 
@@ -650,7 +653,7 @@ def _existing_insts(tuple_instances, session, columns):
     value of the i-th column of `columns`
     :return: a python set of tuples, sub-set of `set(tuple_instances)`
     """
-    exprs = [and_(*[col == v for col, v in izip(columns, tup)]) for tup in tuple_instances]
+    exprs = [and_(*[col == v for col, v in zip(columns, tup)]) for tup in tuple_instances]
     # 2. Get those elements and add them, if saved to the db
     existing_inst = _dbquery2set(session, columns, or_(*exprs)) if exprs else set()
     return existing_inst & set(tuple_instances)

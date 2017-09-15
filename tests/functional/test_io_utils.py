@@ -3,6 +3,7 @@ Created on Sep 14, 2017
 
 @author: riccardo
 '''
+from builtins import range
 import os
 import unittest
 from stream2segment.io.utils import compress, decompress
@@ -14,7 +15,7 @@ class Test(unittest.TestCase):
 
 
     def setUp(self):
-        self.data = "\x00"+os.urandom(1024*1024)+"\x00"
+        self.data = b"\x00"+os.urandom(1024*1024)+b"\x00"
         pass
 
 
@@ -23,7 +24,7 @@ class Test(unittest.TestCase):
 
 
     def test_compress_decompress(self):
-        for comp, compresslevel in product(['bz2', 'zlib', 'gzip', 'zip'], range(1, 10)):
+        for comp, compresslevel in product(['bz2', 'zlib', 'gzip', 'zip'], list(range(1, 10))):
             compr_ = compress(self.data, comp, compresslevel)
             # assert len(compr_) <= len(self.data)
             dec = decompress(compr_)

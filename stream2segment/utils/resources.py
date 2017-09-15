@@ -106,7 +106,7 @@ def yaml_load(filepath, raw=False, **defaults):
         # we cannot modify a dict while in iteration, thus create a new dict of possibly
         # modified sqlite paths and use later dict.update
         newdict = {}
-        for k, v in ret.iteritems():
+        for k, v in ret.items():
             try:
                 if v.startswith(sqlite_prefix) and ":memory:" not in v:
                     dbpath = v[len(sqlite_prefix):]
@@ -117,7 +117,7 @@ def yaml_load(filepath, raw=False, **defaults):
         if newdict:
             ret.update(newdict)
 
-        for key, val in defaults.iteritems():
+        for key, val in defaults.items():
             if key not in ret:
                 ret[key] = val
     return ret

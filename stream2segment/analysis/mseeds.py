@@ -5,6 +5,8 @@ Created on Jun 20, 2016
 
 @author: riccardo
 '''
+from __future__ import division
+from past.utils import old_div
 import numpy as np
 
 # from scipy.signal import savgol_filter
@@ -79,7 +81,7 @@ def bandpass(trace, freq_min, freq_max, max_nyquist_ratio=0.9,
     sampling_rate = tra.stats.sampling_rate
     # adjust the max_f_max to 0.9 of the nyquist frea (sampling rate /2)
     # slightly less than nyquist (0.9) seems to avoid artifacts
-    max_f_max = max_nyquist_ratio * (sampling_rate / 2.0)
+    max_f_max = max_nyquist_ratio * (old_div(sampling_rate, 2.0))
     freq_max = min(freq_max, max_f_max)
 
     # Start filtering (several pre-steps)
@@ -91,7 +93,7 @@ def bandpass(trace, freq_min, freq_max, max_nyquist_ratio=0.9,
 
     # 3) pad data with zeros at the END in order to filter transient
     # according to Convers and Brady (1992)
-    t_zpad = (1.5*corners)/freq_min
+    t_zpad = old_div((1.5*corners),freq_min)
     endtime_remainder = tra.stats.endtime
     tra.trim(starttime=None, endtime=endtime_remainder+t_zpad, pad=True, fill_value=0)
 

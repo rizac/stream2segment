@@ -50,8 +50,14 @@ Created on Jun 8, 2017
 
 @author: riccardo
 '''
+from __future__ import division
+from builtins import zip
+from builtins import str
+from builtins import range
+from past.utils import old_div
+from builtins import object
 from io import BytesIO
-from itertools import cycle, izip
+from itertools import cycle
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -112,8 +118,8 @@ def exec_function(func, segment, stream, inventory, config,
             elif isinstance(funcres, Stream):
                 itr = [t for t in funcres]
             elif isinstance(funcres, dict):
-                labels = funcres.iterkeys()
-                itr = funcres.itervalues()
+                labels = iter(funcres.keys())
+                itr = iter(funcres.values())
             elif type(funcres) == np.ndarray or type(funcres) == tuple:
                 itr = [funcres]
             else:
@@ -121,7 +127,7 @@ def exec_function(func, segment, stream, inventory, config,
 
             plt = Plot(title, "")
 
-            for label, obj in izip(labels, itr):
+            for label, obj in zip(labels, itr):
                 if isinstance(obj, tuple):
                     if len(obj) != 3:
                         raise ValueError(("Expected tuple (x0, dx, y), "
@@ -239,13 +245,13 @@ class PlotsCache(object):
         # (UtcDatetime), s_wdw_start is the start of the signal window, and so on. The
         # array can be None: as for plots which are None's, it means it must be recalculated
         self.data = {segid: [s,  [None] * len(self.functions), None] for
-                     s, segid in izip(streams, seg_ids)}
+                     s, segid in zip(streams, seg_ids)}
 
     def copy(self):
         '''copies this PlotsCache with empty plots. All other data is shared with this object'''
         streams = []
         seg_ids = []
-        for seg_id, d in self.data.iteritems():
+        for seg_id, d in self.data.items():
             streams.append(d[0])
             seg_ids.append(seg_id)
         ret = PlotsCache(streams, seg_ids, self.functions, self.arrival_time)
@@ -259,7 +265,7 @@ class PlotsCache(object):
         for segid in self.data:
             self.data[segid][2] = None  # will force to recalculate sn-windows on demand
             plots = self.data[segid][1]
-            for i in xrange(len(plots)):
+            for i in range(len(plots)):
                 if i == index_of_traceplot:  # the trace plot stays the same, it does not use conig
                     continue
                 plots[i] = None
@@ -331,7 +337,7 @@ class PlotsCache(object):
             if i == index_of_traceplot and all_components:
                 # get all other components:
                 other_comp_plots = []
-                for segid, _data in self.data.iteritems():
+                for segid, _data in self.data.items():
                     if segid == seg_id:
                         continue
                     _stream, _plots, _ = _data
@@ -498,7 +504,7 @@ class PlotManager(object):
         '''Filters the given plotscache, creating a copy of it and adding to self._pplots'''
         fpcache = plotscahce.copy()
         segments = None
-        for segid, d in fpcache.data.iteritems():
+        for segid, d in fpcache.data.items():
             self._pplots[segid] = fpcache
             if segments is None:
                 segments = getsegs(session, segid, as_dict=True)
@@ -580,9 +586,9 @@ class PlotManager(object):
         their plots forces a recalculation (except for the main stream plot,
         currently at index 0)'''
         self.config.update(**values)
-        for v in self._plots.itervalues():
+        for v in self._plots.values():
             v.invalidate()
-        for v in self._pplots.itervalues():
+        for v in self._pplots.values():
             v.invalidate()
 
 
@@ -766,7 +772,7 @@ def downsample(array, npts):
     # get minima and maxima
     # http://numpy-discussion.10968.n7.nabble.com/reduce-array-by-computing-min-max-every-n-samples-td6919.html
     offset = array.size % npts
-    chunk_size = array.size / npts
+    chunk_size = old_div(array.size, npts)
 
     newdxratio = np.true_divide(chunk_size, 2)
     if newdxratio <= 1:

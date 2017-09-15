@@ -40,7 +40,7 @@ def get_stream(bytez):
 
 def get_s2s_stream(dicread):
     traces = []
-    for v in dicread.itervalues():
+    for v in dicread.values():
         if v[-1] is None:
             traces.extend(get_stream(v[0]).traces)
     return Stream(traces)
@@ -49,7 +49,7 @@ def get_s2s_stream(dicread):
 
 def keys_with_gaps(obspy_dic):
     keys = set()
-    for key, trace in obspy_dic.iteritems():
+    for key, trace in obspy_dic.items():
         if Stream(trace).get_gaps():
             keys.add(key)
     return keys
@@ -79,7 +79,7 @@ def streamequal(stream1, stream2, deep=True):
 
 
 def haserr(dataread):
-    for v in dataread.itervalues():
+    for v in dataread.values():
         if v[-1] is not None:
             return True
     return False
@@ -92,7 +92,7 @@ def test_standard():
     dic = unpack(bytez)
     assert not haserr(dic)
     # assert all max gap ratios are below a certain threshold:
-    assert all(v[-2] < 0.0001 for v in dic.itervalues())
+    assert all(v[-2] < 0.0001 for v in dic.values())
     # get the same dict by calling obspy.read:
     obspy_stream = get_stream(bytez)
     s2s_stream = get_s2s_stream(dic)
@@ -109,7 +109,7 @@ def test_with_gaps():
     # get our dicts of trace_id: trace_bytes
     dic = unpack(bytez)
     assert not haserr(dic)
-    assert any(g[-2] > 1 for g in dic.itervalues())
+    assert any(g[-2] > 1 for g in dic.values())
     # get the same dict by calling obspy.read:
     obspy_stream = get_stream(bytez)
     s2s_stream = get_s2s_stream(dic)
@@ -134,7 +134,7 @@ def test_change_last_byte():
     # get our dicts of trace_id: trace_bytes
     dic = unpack( bytez[:-1] + 'a')
     assert not haserr(dic)
-    assert all(g[-2] < 0.0001 for g in dic.itervalues())
+    assert all(g[-2] < 0.0001 for g in dic.values())
 
     obspy_stream = get_stream(bytez)
     s2s_stream = get_s2s_stream(dic)
@@ -152,7 +152,7 @@ def test_change_header_change_id():
     # erros is not empty but has the trace id 'aa.aaaaa.aa.aaa'. What is that?
     # is the id we created by modyfing the bytes above
     assert haserr(dic)
-    assert all(g[-2] < 0.0001 for g in dic.itervalues())
+    assert all(g[-2] < 0.0001 for g in dic.values())
 
     obspy_stream = get_stream(bytez)
     s2s_stream = get_s2s_stream(dic)
@@ -168,7 +168,7 @@ def test_change_header_keep_id():
     # erros is not empty but has the trace id 'aa.aaaaa.aa.aaa'. What is that?
     # is the id we created by modyfing the bytes above
     assert haserr(dic)
-    assert all(g[-2] < 0.0001 for g in dic.itervalues())
+    assert all(g[-2] < 0.0001 for g in dic.values())
 
     obspy_stream = get_stream(bytez)
     s2s_stream = get_s2s_stream(dic)

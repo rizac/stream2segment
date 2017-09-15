@@ -4,6 +4,7 @@ Created on Jul 15, 2016
 
 @author: riccardo
 '''
+from builtins import str
 import pytest, os
 import unittest
 import numpy as np

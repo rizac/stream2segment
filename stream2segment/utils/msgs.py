@@ -6,6 +6,7 @@ Module handling messages to be displayed throughout the program
 '''
 
 
+from builtins import str
 def MSG(topic=None, action=None, errmsg=None, url=None):
     """Utility function which formats a message in order to have normalized message
     types across the program (e.g., in logging utilities). The argument can contain new

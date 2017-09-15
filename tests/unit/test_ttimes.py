@@ -3,6 +3,12 @@ Created on Sep 4, 2017
 
 @author: riccardo
 '''
+from __future__ import division
+from future import standard_library
+standard_library.install_aliases()
+from builtins import zip
+from builtins import str
+from past.utils import old_div
 import numpy as np
 from os.path import dirname, join, isfile
 import unittest
@@ -12,7 +18,7 @@ from click.testing import CliRunner
 import os
 from stream2segment.download.traveltimes.ttcreator import _filepath, StepIterator, min_traveltimes,\
     min_traveltime
-from itertools import izip
+
 
 
 class Test(unittest.TestCase):
@@ -84,7 +90,7 @@ class Test(unittest.TestCase):
         results = []
         stepiterator = StepIterator(0, 700.0, 31.5)
         for val in stepiterator:
-            if int(val / 100.0) > lastnum:  # condition whereby we crossed the 'mark' 
+            if int(old_div(val, 100.0)) > lastnum:  # condition whereby we crossed the 'mark' 
                 if stepiterator.moveback():
                     continue
                 else:
@@ -106,9 +112,9 @@ class Test(unittest.TestCase):
             # first 4 points (0,0), (0, half_hstep),
             # (half_vstep, 0) and (half_vstep, half_hstep)
             # get the half step (max distance along x axis = columns)
-            half_hstep = ttable._distances[1]/2.0
+            half_hstep = old_div(ttable._distances[1],2.0)
             # get the half step (max distance along y axis = row)
-            half_vstep = ttable._sourcedepths[0] / 2.0
+            half_vstep = old_div(ttable._sourcedepths[0], 2.0)
             # each point is (source_depth_km, receiver_depth_km, distance_deg):
             values = np.vstack(([half_vstep, 0, half_hstep], self._values))
             results_c = ttable.min(values[:, 0], values[:, 1], values[:, 2], method='cubic')
@@ -189,7 +195,7 @@ Data:
       Distances->      0.0    0.225     0.45 ...   179.55  179.775    180.0"""
         # do a comparison line by line cause apparently the string above is not equal to repr
         # but we suspect is because we have problems with eclipse
-        for l1, l2 in izip(repr.split("\n"), expected.split("\n")):
+        for l1, l2 in zip(repr.split("\n"), expected.split("\n")):
             if not l1.strip() == l2.strip():
                 sdf = 9
             assert l1.strip() == l2.strip()

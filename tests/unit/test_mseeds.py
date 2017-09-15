@@ -5,6 +5,8 @@ Created on Feb 23, 2016
 @author: riccardo
 '''
 
+from future import standard_library
+standard_library.install_aliases()
 import mock, os, sys
 import pytest
 import re
@@ -23,7 +25,7 @@ from stream2segment.analysis.mseeds import fft, snr , bandpass, dfreq, maxabs,\
 from obspy.core.inventory import read_inventory
 from obspy.core import read as obspy_read
 from obspy.core import Trace, Stream
-from StringIO import StringIO
+from io import StringIO
 from obspy.io.stationxml.core import _read_stationxml
 from obspy.core.trace import Trace
 from itertools import count

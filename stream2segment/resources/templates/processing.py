@@ -78,6 +78,7 @@ Created on Feb 2, 2017
 @author: riccardo
 '''
 # import numpy for fatser numeric array processing:
+from builtins import zip
 import numpy as np
 # import ordered dict if you want to create a csv with the header columns ordered as you want
 from collections import OrderedDict
@@ -97,7 +98,7 @@ from obspy.core.utcdatetime import UTCDateTime
 # stream2segment function for processing numpy arrays (such as stream.traces[0])
 # If you need to to use them, import them:
 # from stream2segment.analysis import ampspec as _ampspec, freqs
-from itertools import izip
+
 
 
 def main(seg, stream, inventory, config):
@@ -284,8 +285,8 @@ def main(seg, stream, inventory, config):
     # return np.hstack((required_amplitudes, cum_times_float, [float(t_PGA), PGA]))
 
     # Or you can return an ordered dict to save the dict keys as header (1st row) in the csv:
-    return OrderedDict([("%.2fHz" % freq, ampl) for freq, ampl in izip(required_freqs, required_amplitudes)] +
-                       [("%.2f%%" % cum_p, cum_t) for cum_p, cum_t in izip(cum_percentages, cum_times_float)] +
+    return OrderedDict([("%.2fHz" % freq, ampl) for freq, ampl in zip(required_freqs, required_amplitudes)] +
+                       [("%.2f%%" % cum_p, cum_t) for cum_p, cum_t in zip(cum_percentages, cum_times_float)] +
                        [('t_PGA', t_PGA), ('PGA', PGA)]
                        )
 

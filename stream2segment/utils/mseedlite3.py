@@ -14,7 +14,15 @@ any later version.
 
 .. moduleauthor:: Andres Heinloo <andres@gfz-potsdam.de>, GEOFON, GFZ Potsdam
 """
+from __future__ import print_function
+from __future__ import division
 
+from future import standard_library
+standard_library.install_aliases()
+from builtins import bytes
+from builtins import str
+from builtins import object
+from past.utils import old_div
 import datetime
 import struct
 from io import BytesIO
@@ -235,7 +243,7 @@ class Record(object):
             self.samprate_num = 0
             self.samprate_denom = 1
 
-        self.fsamp = float(self.samprate_num) / float(self.samprate_denom)
+        self.fsamp = old_div(float(self.samprate_num), float(self.samprate_denom))
 
         # quick fix to avoid exception from datetime
         if (bt_second > 59):
@@ -441,7 +449,7 @@ class Input(object):
 
 from math import log  # @IgnorePep8
 from collections import defaultdict  # @IgnorePep8
-from cStringIO import StringIO  # @IgnorePep8
+from io import StringIO  # @IgnorePep8
 
 
 class Input2(object):
@@ -502,7 +510,10 @@ class Input2(object):
 
 
 def _get_id(n, s, l, c):
-    return "%s.%s.%s.%s" % (n.strip(), s.strip(), l.strip(), c.strip())
+    '''all arguments should be bytes'''
+    d = 'utf8'  # assure python3 compatibility
+    return "%s.%s.%s.%s" % (n.strip().decode(d), s.strip().decode(d), l.strip().decode(d),
+                            c.strip().decode(d))
 
 
 def unpack(data):
@@ -568,7 +579,7 @@ def unpack(data):
 #         rec.write(value[0], int(log(rec.size)/log(2)))
 
     unpacked_data = {}
-    for id_, value in ret_dic.iteritems():
+    for id_, value in ret_dic.items():
         if value[-1] is not None:
             unpacked_data[id_] = (None, None, None, value[-1])
         else:
@@ -583,7 +594,7 @@ def unpack(data):
                     max_gap_ratio = max(max_gap_ratio,
                                         abs(chunks[i-1].end_time -
                                             record.begin_time).total_seconds() * fsamp)
-                record.write(bytesio, int(log(record.size)/log(2)))
+                record.write(bytesio, int(old_div(log(record.size),log(2))))
             bytez = bytesio.getvalue()
             bytesio.close()
             unpacked_data[id_] = (bytez, value[1], max_gap_ratio, None)

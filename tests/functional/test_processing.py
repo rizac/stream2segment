@@ -3,6 +3,13 @@ Created on Feb 14, 2017
 
 @author: riccardo
 '''
+from __future__ import print_function
+from __future__ import division
+from future import standard_library
+standard_library.install_aliases()
+from builtins import str
+from past.utils import old_div
+from builtins import object
 import unittest
 import os
 import mock, os, sys
@@ -11,7 +18,7 @@ from mock import patch
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm.session import sessionmaker
 from stream2segment.io.db import models
-from urllib2 import URLError
+from urllib.error import URLError
 from click.testing import CliRunner
 from stream2segment.main import main, closing
 import tempfile
@@ -24,10 +31,10 @@ import multiprocessing
 from stream2segment.process.main import load_proc_cfg
 from stream2segment import process
 from obspy.core.stream import read
-import StringIO
+import io
 from stream2segment.utils.resources import get_templates_fpaths
 
-class DB():
+class DB(object):
     def __init__(self):
         self.dburi = os.getenv("DB_URL", "sqlite:///:memory:")
         # an Engine, which the Session will use for connection
@@ -241,7 +248,7 @@ class Test(unittest.TestCase):
         # set arrival time to one third duration
         return dict(
         data = Test.read_data_raw(file_name),
-        arrival_time = (start_time + (end_time - start_time)/3).datetime,
+        arrival_time = (start_time + old_div((end_time - start_time),3)).datetime,
         start_time = start_time.datetime,
         end_time = end_time.datetime,
         )
@@ -249,7 +256,7 @@ class Test(unittest.TestCase):
     @staticmethod
     def read_data_raw(file_name):
         folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
-        with open(os.path.join(folder, file_name)) as opn:
+        with open(os.path.join(folder, file_name), 'rb') as opn:
             return opn.read()
 
     @staticmethod
@@ -368,12 +375,12 @@ class Test(unittest.TestCase):
             if result.exception:
                 import traceback
                 traceback.print_exception(*result.exc_info)
-                print result.output
+                print(result.output)
                 assert False
                 return
 
             # check file has been correctly written:
-            with open(file.name, 'rb') as csvfile:
+            with open(file.name, 'r') as csvfile:
                 spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
                 rowz = 0
                 for row in spamreader:
@@ -427,12 +434,12 @@ class Test(unittest.TestCase):
             if result.exception:
                 import traceback
                 traceback.print_exception(*result.exc_info)
-                print result.output
+                print(result.output)
                 assert False
                 return
 
             # check file has been correctly written:
-            with open(file.name, 'rb') as csvfile:
+            with open(file.name, 'r') as csvfile:
                 spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
                 rowz = 0
                 for row in spamreader:
@@ -486,12 +493,12 @@ class Test(unittest.TestCase):
             if result.exception:
                 import traceback
                 traceback.print_exception(*result.exc_info)
-                print result.output
+                print(result.output)
                 assert False
                 return
 
             # check file has been correctly written, we should have written two files
-            with open(file.name, 'rb') as csvfile:
+            with open(file.name, 'r') as csvfile:
                 spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
                 rowz = 0
                 for row in spamreader:
@@ -545,12 +552,12 @@ class Test(unittest.TestCase):
             if result.exception:
                 import traceback
                 traceback.print_exception(*result.exc_info)
-                print result.output
+                print(result.output)
                 assert False
                 return
 
             # check file has been correctly written, we should have written two files
-            with open(file.name, 'rb') as csvfile:
+            with open(file.name, 'r') as csvfile:
                 spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
                 rowz = 0
                 for row in spamreader:
@@ -589,12 +596,12 @@ class Test(unittest.TestCase):
             if result.exception:
                 import traceback
                 traceback.print_exception(*result.exc_info)
-                print result.output
+                print(result.output)
                 assert False
                 return
 
             # check file has been correctly written:
-            with open(file.name, 'rb') as csvfile:
+            with open(file.name, 'r') as csvfile:
                 spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
                 rowz = 0
                 for row in spamreader:
@@ -620,9 +627,11 @@ class Test(unittest.TestCase):
 
             # the file above are bad implementation (old one)
             # we should not write anything
-            sss = Test.read_and_remove(file.name+".log")
-
-            assert "TypeError: main() takes exactly 2 arguments (4 given)" in sss
+            logtext = Test.read_and_remove(file.name+".log")
+            # messages very from python 2 to 3. If python4 changes again, write it here below the case
+            string2check = "TypeError: main() takes 2 positional arguments but 4 were given" \
+                if sys.version_info[0] > 2 else "TypeError: main() takes exactly 2 arguments (4 given)"
+            assert string2check in logtext
 
 
 if __name__ == "__main__":

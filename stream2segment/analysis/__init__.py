@@ -1,6 +1,8 @@
+from __future__ import division
+
+from math import floor, ceil, isnan
 
 import numpy as np
-from math import floor, ceil, isnan
 from scipy.signal import hilbert
 
 
@@ -41,7 +43,7 @@ def dfreq(time_signal, delta_t):
     signal (time-series)
     :param delta_t: the sample rate of signal (distance in seconds between two points)
     """
-    return 1.0 / (len(time_signal) * delta_t)
+    return np.true_divide(1.0, (len(time_signal) * delta_t))
 
 
 def freqs(signal, delta):
@@ -69,7 +71,7 @@ def freqs(signal, delta):
     `floor(1 + len(signal) / 2.0)`. The first array value will be in any case 0
     """
     try:
-        leng = floor(1 + len(signal) / 2.0)
+        leng = floor(1 + np.true_divide(len(signal), 2.0))
         delta_f = dfreq(signal, delta)
     except TypeError:
         leng = signal
@@ -178,11 +180,13 @@ def argtrim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
     deltax = float(deltax)
 
     if minx is not None:
-        idx = int(round(minx/deltax) if nearest_sample else ceil(minx/deltax))
+        idx = int(round(np.true_divide(minx, deltax))
+                  if nearest_sample else ceil(np.true_divide(minx, deltax)))
         idxmin = min(max(0, idx), len(signal))
 
     if maxx is not None:
-        idx = int(round(maxx/deltax) if nearest_sample else floor(maxx/deltax)) + 1
+        idx = int(round(np.true_divide(maxx, deltax))
+                  if nearest_sample else floor(np.true_divide(maxx, deltax))) + 1
         idxmax = min(max(0, idx), len(signal))
 
     return idxmin, idxmax
@@ -256,7 +260,8 @@ def triangsmooth(array, winlen_ratio):
     while len(wdw) > 1:  # len(wdw)=1: wdw = [0] => np.sum below is no-op => skip it
         n = wdw[-1] + 1
         idxs = np.argwhere(npts == n)
-        smoothed_array[idxs] = np.sum(tri_wdw * array[idxs + wdw], axis=1) / float(n ** 2)
+        smoothed_array[idxs.flatten()] = np.true_divide(np.sum(tri_wdw * array[idxs + wdw], axis=1),
+                                                        n ** 2)
         wdw = wdw[1:-1]
         tri_wdw[n-2:-2] = tri_wdw[n:]  # shift tri_wdw (this seems to be faster than other methods)
         tri_wdw = tri_wdw[:-2]

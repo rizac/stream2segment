@@ -3,6 +3,9 @@ Created on Apr 11, 2017
 
 @author: riccardo
 '''
+from builtins import zip
+from builtins import str
+from builtins import range
 import unittest
 from sqlalchemy.ext.declarative.api import declarative_base
 from sqlalchemy.orm.session import sessionmaker
@@ -13,7 +16,7 @@ from stream2segment.io.db.pd_sql_utils import fetchsetpkeys, insertdf, _get_max,
     mergeupdate, updatedf
 from datetime import datetime
 import numpy as np
-from itertools import izip
+
 from sqlalchemy.sql.expression import bindparam
 import os
 import psutil
@@ -527,7 +530,7 @@ class Test(unittest.TestCase):
         data = 'x' * 5000
         mem_perc1a = process.memory_percent()
         
-        for i in xrange(N):
+        for i in range(N):
             self.session.add(Customer(id=i+1, name=str(i+1), data=data))
         self.session.commit()
         
@@ -543,7 +546,7 @@ class Test(unittest.TestCase):
         
         mem_perc2a = process.memory_percent()
         
-        d2, new = insertdf(pd.DataFrame([{'id': i+1, 'name': str(i+1), 'data':data} for i in xrange(N)]),
+        d2, new = insertdf(pd.DataFrame([{'id': i+1, 'name': str(i+1), 'data':data} for i in range(N)]),
                            self.session, [Customer.name])
 
         mem_perc2b = process.memory_percent()
@@ -558,7 +561,7 @@ class Test(unittest.TestCase):
 
 def array_equal(a1, a2):
     """test array equality by assuming nan == nan. Probably already implemented somewhere in numpy, no time for browsing now"""
-    return len(a1) == len(a2) and all([c ==d or (np.isnan(c) == np.isnan(d)) for c, d in izip(a1, a2)])
+    return len(a1) == len(a2) and all([c ==d or (np.isnan(c) == np.isnan(d)) for c, d in zip(a1, a2)])
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']

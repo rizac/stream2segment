@@ -4,12 +4,16 @@ Created on Dec 12, 2016
 
 @author: riccardo
 '''
+from future import standard_library
+standard_library.install_aliases()
+from builtins import range
+from builtins import object
 import unittest
 from mock import patch
-from StringIO import StringIO
+from io import StringIO
 from stream2segment.utils.url import urlread, URLException
 import pytest
-from urllib2 import URLError, HTTPError
+from urllib.error import URLError, HTTPError
 import socket
 import mock
 from stream2segment.utils import secure_dburl, get_progressbar, Nop
@@ -119,31 +123,31 @@ def test_secure_dburl(input, expected_result):
 def test_progressbar(mock_pbar, mock_nop):
     N = 5
     with get_progressbar(False) as bar:  # no-op
-        for i in xrange(N):
+        for i in range(N):
             bar.update(i)
     assert mock_nop.call_count == 1
     assert mock_pbar.call_count == 0
     
     with get_progressbar(False, length=0) as bar: # no-op
-        for i in xrange(N):
+        for i in range(N):
             bar.update(i)
     assert mock_nop.call_count == 2
     assert mock_pbar.call_count == 0
     
     with get_progressbar(False, length=10) as bar: # normal progressbar
-        for i in xrange(N):
+        for i in range(N):
             bar.update(i)
     assert mock_nop.call_count == 3
     assert mock_pbar.call_count == 0
     
     with get_progressbar(True, length=0) as bar: # normal progressbar
-        for i in xrange(N):
+        for i in range(N):
             bar.update(i)
     assert mock_nop.call_count == 4
     assert mock_pbar.call_count == 0
     
     with get_progressbar(True, length=10) as bar: # normal progressbar
-        for i in xrange(N):
+        for i in range(N):
             bar.update(i)
     assert mock_nop.call_count == 4
     assert mock_pbar.call_count == 1
@@ -152,23 +156,23 @@ def test_progressbar(mock_pbar, mock_nop):
 def test_progressbar_functional():
     N = 5
     with get_progressbar(False) as bar:  # no-op
-        for i in xrange(N):
+        for i in range(N):
             bar.update(i)
     
     with get_progressbar(False, length=0) as bar: # no-op
-        for i in xrange(N):
+        for i in range(N):
             bar.update(i)
     
     with get_progressbar(False, length=10) as bar: # normal progressbar
-        for i in xrange(N):
+        for i in range(N):
             bar.update(i)
     
     with get_progressbar(True, length=0) as bar: # normal progressbar
-        for i in xrange(N):
+        for i in range(N):
             bar.update(i)
     
     with get_progressbar(True, length=10) as bar: # normal progressbar
-        for i in xrange(N):
+        for i in range(N):
             bar.update(i)
 
 # @patch('stream2segment.utils.Request')

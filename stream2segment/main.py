@@ -15,6 +15,8 @@
        To be decided!
 """
 from __future__ import print_function  # , unicode_literals
+from builtins import str
+from builtins import object
 import logging
 import sys
 import datetime as dt
@@ -414,7 +416,7 @@ def d(configfile, dburl, start, end, service, wtimespan, min_sample_rate, retry_
     cfg_dict['end'] = cfg_dict.get('end', end_def)
 
     # override with command line values, if any:
-    for var, val in _.iteritems():
+    for var, val in _.items():
         if val:
             cfg_dict[var] = val
 

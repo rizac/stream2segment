@@ -9,8 +9,10 @@ Additional links:
 https://packaging.python.org/en/latest/distributing.html
 https://github.com/pypa/sampleproject
 """
+from __future__ import print_function
 
 # Always prefer setuptools over distutils
+from builtins import str
 from setuptools import setup, find_packages
 # To use a consistent encoding
 from codecs import open
@@ -133,4 +135,4 @@ setup(
     },
 )
 
-print str(find_packages(exclude=['contrib', 'docs', 'tests', 'htmlcov']))
+print(str(find_packages(exclude=['contrib', 'docs', 'tests', 'htmlcov'])))

@@ -4,10 +4,14 @@ Created on Apr 15, 2017
 @author: riccardo
 '''
 from __future__ import print_function
+from future import standard_library
+standard_library.install_aliases()
+from builtins import map
+from builtins import str
 from contextlib import closing
 import threading
-import urllib2
-import httplib
+import urllib.request, urllib.error, urllib.parse  # @UnresolvedImport
+import http.client
 import socket
 from multiprocessing.pool import ThreadPool
 import psutil
@@ -60,8 +64,8 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
         # urlib2 does not support with statement in py2. See:
         # http://stackoverflow.com/questions/3880750/closing-files-properly-opened-with-urllib2-urlopen
         # https://docs.python.org/2.7/library/contextlib.html#contextlib.closing
-        with closing(urllib2.urlopen(url, **kwargs) if timeout is None else
-                     urllib2.urlopen(url, timeout=timeout, **kwargs)) as conn:
+        with closing(urllib.request.urlopen(url, **kwargs) if timeout is None else
+                     urllib.request.urlopen(url, timeout=timeout, **kwargs)) as conn:
             if blocksize < 0:  # https://docs.python.org/2.4/lib/bltin-file-objects.html
                 ret = conn.read()
             else:
@@ -71,7 +75,7 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
                         break
                     ret += buf
         return ret.decode(decode) if decode else ret, conn.code, conn.msg
-    except urllib2.HTTPError as exc:
+    except urllib.error.HTTPError as exc:
         if not raise_http_err:
             return None, exc.code, exc.msg
         else:
@@ -79,7 +83,7 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
                 raise URLException(exc)
             else:
                 raise exc
-    except (urllib2.URLError, httplib.HTTPException, socket.error) as exc:
+    except (urllib.error.URLError, http.client.HTTPException, socket.error) as exc:
         if wrap_exceptions:
             raise URLException(exc)
         else:
@@ -231,7 +235,7 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
     try:
         # this try is for the keyboard interrupt, which will be caught inside the
         # as_completed below
-        for result_tuple in imap(urlwrapper, iterable):
+        for result_tuple in map(urlwrapper, iterable):
             if process is not None:
                 mem_percent = _mem_percent(process)
                 if mem_percent > max_mem_consumption:

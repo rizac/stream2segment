@@ -4,11 +4,14 @@ Created on Feb 2, 2017
 @author: riccardo
 '''
 from __future__ import print_function
+from future import standard_library
+standard_library.install_aliases()
+from builtins import str
 from io import BytesIO
 import os
 import sys
 import logging
-from cStringIO import StringIO
+from io import StringIO
 from contextlib import contextmanager
 import warnings
 import re
@@ -47,7 +50,7 @@ def redirect(src=sys.stdout, dst=os.devnull):
     # function to yield and return without changing anything:
     try:
         file_desc = src.fileno()
-    except AttributeError:
+    except (AttributeError, OSError) as _:
         yield
         return
 
@@ -230,7 +233,7 @@ def to_csv(outcsvfile, session, pysourcefile, configsourcefile, isterminal):
     CHEAD_FRMT = "_segment_db_%s_"  # try avoiding overridding user defined keys
     csvwriter = [None, None]  # bad hack: in python3, we might use 'nonlocal' @UnusedVariable
 
-    with open(outcsvfile, 'wb', 1) as csvfile:
+    with open(outcsvfile, 'w', 1) as csvfile:
 
         def ondone(segment, result):  # result is surely not None
             if csvwriter[0] is None:  # instanitate writer according to first input
@@ -241,7 +244,7 @@ def to_csv(outcsvfile, session, pysourcefile, configsourcefile, isterminal):
                     # we need to pass a list and not an iterable cause the iterable needs
                     # to be consumed twice (the doc states differently, however...):
                     fieldnames = [(CHEAD_FRMT % c) for c in col_headers]
-                    fieldnames.extend(result.iterkeys())
+                    fieldnames.extend(iter(result.keys()))
                     csvwriter[0] = csv.DictWriter(csvfile, fieldnames=fieldnames, **kwargs)
                     csvwriter[0].writeheader()
                 else:

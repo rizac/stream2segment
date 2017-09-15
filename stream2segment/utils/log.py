@@ -4,6 +4,8 @@ Created on Feb 20, 2017
 
 @author: riccardo
 '''
+from builtins import str
+from builtins import object
 import os
 import tempfile
 import logging

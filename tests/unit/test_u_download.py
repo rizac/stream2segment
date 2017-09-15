@@ -8,12 +8,15 @@ Created on Feb 4, 2016
 # from utils import date
 # assert sys.path[0] == os.path.realpath(myPath + '/../../')
 
+from future import standard_library
+standard_library.install_aliases()
+from builtins import str
 import numpy as np
 from mock import patch
 import pytest
 from mock import Mock
 from datetime import datetime, timedelta
-from StringIO import StringIO
+from io import StringIO
 
 import unittest, os
 from sqlalchemy.engine import create_engine
@@ -33,8 +36,8 @@ from stream2segment.download.main import get_events_df, get_datacenters_df, \
 #     download_segments, drop_already_downloaded, set_download_urls, save_segments
 from obspy.core.stream import Stream, read
 from stream2segment.io.db.models import DataCenter, Segment, Run, Station, Channel, WebService
-from itertools import cycle, repeat, count, product, izip
-from urllib2 import URLError
+from itertools import cycle, repeat, count, product
+from urllib.error import URLError
 import socket
 from obspy.taup.helper_classes import TauModelError
 # import logging
@@ -47,7 +50,7 @@ from stream2segment.io.db.pd_sql_utils import dbquery2df, insertdf_napkeys, upda
 from logging import StreamHandler
 import logging
 from io import BytesIO
-import urllib2
+import urllib.request, urllib.error, urllib.parse
 from stream2segment.download.utils import get_url_mseed_errorcodes
 from test.test_userdict import d1
 from stream2segment.utils.mseedlite3 import MSeedError, unpack
@@ -345,7 +348,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         for k in urlread_side_effect:
             a = Mock()
             if type(k) == int:
-                a.read.side_effect = urllib2.HTTPError('url', int(k),  responses[k][0], None, None)
+                a.read.side_effect = urllib.error.HTTPError('url', int(k),  responses[k][0], None, None)
             elif type(k) == str:
                 def func(k):
                     b = BytesIO(k)
@@ -989,7 +992,7 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
                 (None, datetime(2010,1,1), datetime(2030,2,1)): 8,
                 }
         # test when we query the database (postdata is None) with different channels and datetime(s)
-        for (cha, stime, etime), expected_length in args.iteritems():
+        for (cha, stime, etime), expected_length in args.items():
             cha_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                                datacenters_df,
                                                                [None] * len(datacenters_df),
@@ -1007,7 +1010,7 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
                 (None, None, datetime(2001,1,1)): 0, 
                 }
         # test when we query the database (postdata is None) with different channels and datetime(s)
-        for (cha, stime, etime), expected_length in args.iteritems():
+        for (cha, stime, etime), expected_length in args.items():
             with pytest.raises(QuitDownload):
                 cha_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                                datacenters_df,

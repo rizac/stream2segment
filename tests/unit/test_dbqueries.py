@@ -4,6 +4,8 @@ Created on Jul 15, 2016
 
 @author: riccardo
 '''
+from builtins import zip
+from builtins import str
 import pytest, os
 import unittest
 import numpy as np
@@ -24,7 +26,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm.session import object_session
 from sqlalchemy.sql.expression import func, bindparam
 import time
-from itertools import izip
+
 from stream2segment.io.db.queries import getallcomponents
 
 class Test(unittest.TestCase):
@@ -186,7 +188,7 @@ class Test(unittest.TestCase):
         self.session.commit()
 
 
-        for leng, segment in izip(expected_lengths, segments):
+        for leng, segment in zip(expected_lengths, segments):
             # do query for GUI:
             assert getallcomponents(self.session, segment.id).count() == leng
 

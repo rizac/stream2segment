@@ -3,10 +3,14 @@ Created on Nov 25, 2016
 
 @author: riccardo
 '''
+from __future__ import division
+from builtins import zip
+from builtins import str
+from past.utils import old_div
 import re
 from datetime import timedelta, datetime
 import dateutil
-from itertools import izip, count
+from itertools import count
 
 import numpy as np
 import pandas as pd
@@ -34,7 +38,7 @@ def get_events_list(eventws, **args):
         if code == 413:  # payload too large (formerly: request entity too large)
             start = dateutil.parser.parse(args.get('start', datetime(1970, 1, 1).isoformat()))
             end = dateutil.parser.parse(args.get('end', datetime.utcnow().isoformat()))
-            total_seconds_diff = ((end-start)/2).total_seconds()
+            total_seconds_diff = (old_div((end-start),2)).total_seconds()
             if total_seconds_diff < 1:
                 raise ValueError("%d: %s (maximum recursion reached: time window < 1 sec)" %
                                  (code, msg))
@@ -324,7 +328,7 @@ def urljoin(*urlpath, **query_args):
     """
     # http://stackoverflow.com/questions/1793261/how-to-join-components-of-a-path-when-you-are-constructing-a-url-in-python
     return "{}?{}".format('/'.join(url.strip('/') for url in urlpath),
-                          "&".join("{}={}".format(k, v) for k, v in query_args.iteritems()))
+                          "&".join("{}={}".format(k, v) for k, v in query_args.items()))
 
 
 def get_inventory(station, save_if_downloaded=False, **urlread_kwargs):
@@ -537,9 +541,9 @@ def stats2str(data, fillna=None, transpose=False,
 
     columndetails = []
     if hasattr(lambdacol, "__call__"):
-        new_columns = dframe.columns.map(lambdacol)
+        new_columns = dframe.columns.map(lambdacol).tolist()
         counter = 1
-        for new, old, i in izip(new_columns, dframe.columns, count()):
+        for new, old, i in zip(new_columns, dframe.columns, count()):
             if old != new:
                 columndetails.append("[%d] %s" % (counter, old))
                 new_columns[i] = "%s[%d]" % (new, counter)

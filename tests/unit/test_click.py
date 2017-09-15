@@ -35,7 +35,7 @@ class Test(unittest.TestCase):
 @contextmanager
 def download_setup(filename, **params):
     yamldic = yaml_load(get_templates_fpath(filename))
-    for k, v in params.iteritems():
+    for k, v in params.items():
         if v is None:
             yamldic.pop(k, None)
         else:

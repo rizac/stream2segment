@@ -5,20 +5,24 @@ Created on Feb 4, 2016
 
 @author: riccardo
 '''
+from __future__ import print_function
 
 
+from future import standard_library
+standard_library.install_aliases()
+from builtins import zip
 from mock import patch
 import pytest
 from mock import Mock
 from datetime import datetime, timedelta
-from StringIO import StringIO
+from io import StringIO
 import stream2segment
 from stream2segment.download.utils import get_search_radius, UrlStats,\
     stats2str, locations2degrees as s2sloc2deg
 from obspy.geodetics.base import locations2degrees  as obspyloc2deg
 import numpy as np
 import code
-from itertools import count, izip, product
+from itertools import count, product
 import time
 from obspy.taup.tau_model import TauModel
 
@@ -49,11 +53,11 @@ def tst_perf():
     end = time.time() - s
     
     s2 = time.time()
-    for l1, l2, l3, l4 in izip(lat1, lon1, lat2, lon2):
+    for l1, l2, l3, l4 in zip(lat1, lon1, lat2, lon2):
         s2sloc2deg(l1, l2, l3, l4)
     end2 = time.time() - s2
     
-    print "%d loops. Numpy loc2deg: %f, obspy loc2deg: %f" % (N, end, end2)        
+    print("%d loops. Numpy loc2deg: %f, obspy loc2deg: %f" % (N, end, end2))        
 
 
 @pytest.mark.parametrize('mag, minmag_maxmag_minradius_maxradius, expected_val',
@@ -99,19 +103,19 @@ def test_stats_table():
     assert s['MyExc: e'] == 4
 
     s[MyExc('e', 500)] += 0
-    assert 'MyExc: e [code=500]' in s.keys() and s['MyExc: e [code=500]'] == 0
+    assert 'MyExc: e [code=500]' in list(s.keys()) and s['MyExc: e [code=500]'] == 0
 
     assert len(s) == 3
 
     # add a new myexc in which code is already present in message. Check that key string is
     # correctly formatted
     s[MyExc('e(500)', 500)] += 0
-    assert 'MyExc: e(500)' in s.keys() and s['MyExc: e(500)'] == 0
+    assert 'MyExc: e(500)' in list(s.keys()) and s['MyExc: e(500)'] == 0
     
      # add a new myexc in which code is NOT already present in message. Check that key string is
     # correctly formatted
     s[MyExc('e(5000)', 500)] += 0
-    assert 'MyExc: e(5000) [code=500]' in s.keys() and s['MyExc: e(5000) [code=500]'] == 0
+    assert 'MyExc: e(5000) [code=500]' in list(s.keys()) and s['MyExc: e(5000) [code=500]'] == 0
 
     # now build a stats table
     ret = stats2str(data={'col1': s}, totals_caption='total')  # by def is TOTAL
@@ -218,7 +222,7 @@ def eq(str1, str2):
     # assert splits on each line returns the same lists and if there is an offset
     # (different num spaces) this offset is maintained
     offset = None
-    for i, l1, l2 in izip(count(), ll1, ll2):
+    for i, l1, l2 in zip(count(), ll1, ll2):
         # do NOT check for this:
 #         if len(l1) != len(l2):
 #             return False

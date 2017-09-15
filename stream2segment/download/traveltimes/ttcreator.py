@@ -3,13 +3,21 @@ Created on Aug 23, 2017
 
 @author: riccardo
 '''
+from __future__ import print_function
+from __future__ import division
+from builtins import zip
+from builtins import next
+from builtins import str
+from builtins import range
+from builtins import object
+from past.utils import old_div
 import os
 import sys
 import math
 from multiprocessing import Pool
 import time
 from datetime import timedelta
-from itertools import izip, count
+from itertools import count
 
 import numpy as np
 from click import progressbar, option as clickoption, command as clickcommand
@@ -72,7 +80,7 @@ def min_traveltimes(modelname, source_depths, receiver_depths, distances, phases
         return _
 
     pool = Pool()
-    for idx, sd, rd in izip(count(), source_depths, receiver_depths):
+    for idx, sd, rd in zip(count(), source_depths, receiver_depths):
         tmp_ttimes = ttimes[idx]
         for i, d in enumerate(distances):
             pool.apply_async(min_traveltime, (model, sd, rd, d, phases),
@@ -135,7 +143,7 @@ def newarray(basearray):
 
 
 def _cmp_indices(distances):  # returns the indices used for comparison from the given array arg.
-    return np.unique([0, 1, 5, 10, int(len(distances)/4.0), int(len(distances)/2.0),
+    return np.unique([0, 1, 5, 10, int(old_div(len(distances),4.0)), int(old_div(len(distances),2.0)),
                       int(3*len(distances)/4.0), len(distances)-1])
 
 
@@ -340,10 +348,10 @@ def get_sdrd_steps(model, tt_errtol, phases, maxsourcedepth=DEFAULT_SD_MAX,
     for sd, rd, tts, lasttts in itercreator(model, tt_errtol, phases, distances, depthstep_km,
                                             maxsourcedepth, maxreceiverdepth):
         if isterminal:
-            count = sd/total
+            count = old_div(sd,total)
             percentdone = int(0.5 + (100.0 * count))
             eta = None if count == 0 else \
-                int(0.5 + (total-sd) * (float(time.time() - start) / sd))
+                int(0.5 + (total-sd) * (old_div(float(time.time() - start), sd)))
             maxerr = np.nan if lasttts is None else np.nanmax(abs(tts-lasttts))
             # round to 0.1 sec:
             tt_list = np.around(tts, decimals=timemaxdecimaldigits(tt_errtol)+1).tolist()
@@ -402,7 +410,7 @@ def computetts(model, sourcedepths, receiverdepths, distances, tts_matrix, phase
         pool.close()
         pool.join()
 
-    for r in xrange(numtts):
+    for r in range(numtts):
         tts_matrix[r, _mask] = _tts_matrix[r, :]
 
 

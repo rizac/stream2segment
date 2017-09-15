@@ -4,7 +4,9 @@ Created on Feb 23, 2016
 
 @author: riccardo
 '''
+from __future__ import division
 
+from past.utils import old_div
 import mock, os, sys
 import pytest
 import re
@@ -45,12 +47,12 @@ def test_argtrim(y):
     assert np.array_equal(y[slice(*argtrim(y, delta, None, 5, nearest_sample=True))], y)
     
     # test nearest sample. xmin is in between x[0 and x[1], but closer to x[0]
-    xmin = signal_x[0] + (signal_x[0]+signal_x[1]) / 3.0
+    xmin = signal_x[0] + old_div((signal_x[0]+signal_x[1]), 3.0)
     assert np.array_equal(y[slice(*argtrim(y, delta, xmin, None, nearest_sample=False))], y[1:])
     assert np.array_equal(y[slice(*argtrim(y, delta, xmin, None, nearest_sample=True))], y)
     
     # test nearest sample. xmax is in between x[0 and x[1], but closer to x[1]
-    xmax = signal_x[0] + (signal_x[0]+signal_x[1]) / 1.5
+    xmax = signal_x[0] + old_div((signal_x[0]+signal_x[1]), 1.5)
     assert np.array_equal(y[slice(*argtrim(y, delta, None, xmax, nearest_sample=False))], y[:1])
     assert np.array_equal(y[slice(*argtrim(y, delta, None, xmax, nearest_sample=True))], y[:2])
     
@@ -107,7 +109,7 @@ def test_argtrim(y):
 @pytest.mark.parametrize('arr, normalize, expected_result, ',
                           [([-1, 1], True, [0.5, 1]),
                            ([-1, 1], False, [1, 2]),
-                           ([-2, 3], True, [4.0/(4+9), (4+9.0)/(4+9)]),
+                           ([-2, 3], True, [old_div(4.0,(4+9)), old_div((4+9.0),(4+9))]),
                            ([-2, 3], False, [4, 4+9]),
                            ])
 @mock.patch('stream2segment.analysis.np')

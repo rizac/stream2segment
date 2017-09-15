@@ -3,7 +3,13 @@ Created on Sep 1, 2017
 
 @author: riccardo
 '''
-from itertools import izip
+from __future__ import division
+from builtins import zip
+from builtins import str
+from builtins import range
+from builtins import object
+from past.utils import old_div
+
 
 import numpy as np
 from scipy.interpolate.ndgriddata import griddata
@@ -28,7 +34,7 @@ class TTTable(object):
         self._unique_receiver_depth = True if \
             len(np.unique(self._receiverdepths)) == 1 else False
         gridpts = []
-        for s, r in izip(self._km2deg(self._sourcedepths),
+        for s, r in zip(self._km2deg(self._sourcedepths),
                          self._km2deg(self._receiverdepths)):
             for _ in self._distances:
                 gridpts.append([s, _] if self._unique_receiver_depth else [s, r, _])
@@ -111,11 +117,11 @@ class TTTable(object):
 
         def echorow(array):
             ret = []
-            for i in xrange(maxrows/2):
+            for i in range(old_div(maxrows,2)):
                 ret.append(r_(array[i]))
             if len(array) > maxrows:
                 ret.append("...")
-            for i in xrange(-maxrows/2, 0):
+            for i in range(old_div(-maxrows,2), 0):
                 ret.append(r_(array[i]))
             return " ".join(ret)
 
@@ -127,14 +133,14 @@ class TTTable(object):
                "Input error tolerance: %f" % self._tt_errtol,
                "Data:", hline, _frmt % ("Source", "Receiver", ""),
                _frmt % ("depth", "depth", "Travel times"), hline]
-        for i in xrange(maxrows/2):
+        for i in range(old_div(maxrows,2)):
             s, r = r_(self._sourcedepths[i]), r_(self._receiverdepths[i])
             ret.append(_frmt % (s, r, echorow(self._traveltimes[i])))
 
         if len(self._sourcedepths) > maxrows:
             ret.append(_frmt % ("...", "...", "..."))
 
-        for i in xrange(-maxrows/2, 0):
+        for i in range(old_div(-maxrows,2), 0):
             s, r = r_(self._sourcedepths[i]), r_(self._receiverdepths[i])
             ret.append(_frmt % (s, r, echorow(self._traveltimes[i])))
 

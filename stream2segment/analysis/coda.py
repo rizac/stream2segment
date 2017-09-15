@@ -3,11 +3,14 @@ Created on Jul 25, 2016
 
 @author: jessie mayor
 '''
+from __future__ import division
 
 #!/usr/local/EPD7.3-2/bin/python
 
 # selection automatique de "clean coda"
 
+from builtins import range
+from past.utils import old_div
 from obspy import read
 import numpy as np
 from obspy.signal.filter import bandpass
@@ -37,13 +40,13 @@ def mysmooth(signal, time, fm, cycle, dt):
     # longueur de la fenetre en temps
     window = cycle * 1/float(fm)
     # nombre de points dans la fenetre glissante=duree de la fenetre divise par le pas de tps
-    npts = int(window/dt)
+    npts = int(old_div(window,dt))
     signal_smooth = []
     time_smooth = []
-    for i in range(0, len(signal) - npts/2, npts/2):  # data c'est chaque point du signal
+    for i in range(0, len(signal) - old_div(npts,2), old_div(npts,2)):  # data c'est chaque point du signal
         end_ = i + npts
         signal_smooth.append(np.mean(signal[i:int(end_)]))
-        time_smooth.append(time[i + npts/2])
+        time_smooth.append(time[i + old_div(npts,2)])
     return (signal_smooth, np.array(time_smooth))
 
 
@@ -93,7 +96,7 @@ def analyze_coda(trace, fm=6, cycle=10, noise_level=16, Lw=50, noise_duration=5,
         st_smooth, t_smooth = mysmooth(energy, t, fm, cycle, st.stats.delta)
         imax = st_smooth.index(max(st_smooth))
         new_dt = round(t_smooth[1]-t_smooth[0], 2)
-        sec = int(noise_duration/new_dt)  # on prend 10seconde de debut de signal
+        sec = int(old_div(noise_duration,new_dt))  # on prend 10seconde de debut de signal
         noise = st_smooth[0:sec]  # on prend 5 seconde pour la moyenne de bruit
         # df=st.stats.sampling_rate
         # df = 1/new_dt
@@ -110,15 +113,15 @@ def analyze_coda(trace, fm=6, cycle=10, noise_level=16, Lw=50, noise_duration=5,
         # ##### duree de la coda = du maximum de l'enveloppe ------> ratio signal/bruit<4 #######
         j = 0
         start = imax
-        end_ = start+int(subwdw_length/new_dt)  # on prend 5s de fenetre glissante
+        end_ = start+int(old_div(subwdw_length,new_dt))  # on prend 5s de fenetre glissante
         # rec_window = new_dt/2.  # 50% de recouvrement
-        n_rec = int(subwdw_length_rec/new_dt)  # nombre de pts de recouvrement : on choisit 2.5s
+        n_rec = int(old_div(subwdw_length_rec,new_dt))  # nombre de pts de recouvrement : on choisit 2.5s
         ratio = []
-        while j < len(st_smooth[imax:imax+int(Lw/new_dt)]):
-            ratio.append(np.mean(st_smooth[start:end_]) / np.mean(noisedata))
+        while j < len(st_smooth[imax:imax+int(old_div(Lw,new_dt))]):
+            ratio.append(old_div(np.mean(st_smooth[start:end_]), np.mean(noisedata)))
             j = j+n_rec
             start = start+n_rec
-            end_ = start+int(subwdw_length/new_dt)
+            end_ = start+int(old_div(subwdw_length,new_dt))
         # ou est ce que le signal dans les 80s de fenetre de coda est superieur au niveau de bruit
         indok = np.where(np.array(ratio) > noise_level)[0]
         ret_vals = None
@@ -128,7 +131,7 @@ def analyze_coda(trace, fm=6, cycle=10, noise_level=16, Lw=50, noise_duration=5,
                     and (doublons[0][-1] == len(ratio)-1):
                 # ca veut dire qu'il detecte une coda ou du moins un ratio>4 et
                 # on choisi une longueur de  au moins 20 seconde
-                coda = st_smooth[imax:imax+int(Lw/new_dt)]  # donnee lissee
+                coda = st_smooth[imax:imax+int(old_div(Lw,new_dt))]  # donnee lissee
 
                 # tcoda = t_smooth[imax:imax+int(Lw/new_dt)]
 
@@ -144,11 +147,11 @@ def analyze_coda(trace, fm=6, cycle=10, noise_level=16, Lw=50, noise_duration=5,
                 # rec=2.5
 
                 # nombre de pts dans la fenetre de 5 seconde
-                wdw_npts = int(subwdw_length / new_dt)
+                wdw_npts = int(old_div(subwdw_length, new_dt))
                 # nombre de point pour la fenetre de recouvrement:
-                wdw_rec = int(subwdw_length_rec / new_dt)
+                wdw_rec = int(old_div(subwdw_length_rec, new_dt))
                 # borne maximale a atteindre pour faire des fenetres de 5 seconde:
-                n_max = np.floor(n_pts / wdw_npts)
+                n_max = np.floor(old_div(n_pts, wdw_npts))
                 start = 0
                 end = wdw_npts
 

@@ -3,6 +3,7 @@
     Common utilities for the program
 """
 # from __future__ import print_function  # , unicode_literals
+from builtins import object
 import os
 import yaml
 import re
@@ -10,14 +11,81 @@ import time
 from datetime import datetime, timedelta
 import sys
 from collections import defaultdict
-from itertools import izip
+import inspect
+
 from contextlib import contextmanager
 from sqlalchemy.orm.scoping import scoped_session
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm.session import sessionmaker
 from click import progressbar as click_progressbar
+
 from stream2segment.io.db.models import Base
-import inspect
+
+
+def _getmodulename(pyfilepath):
+    '''returns a most likely unique module name for a python source file loaded as a module'''
+    # We need to supply a model nameFirst let's define a module name. What the name does and why is necessary is not well
+    # documented. However, we cannot supply whatever we want for two reasons following
+    # python import mechanism (tested in python2):
+    # 1. two different `pyfilepath`s must have different `name`s, otherwise when importing the
+    # second file the module of the former is actually returned
+    # 2. Names should contain dots, as otherwise a `RuntimeWarning: Parent module ... not found`
+    # is issued
+    # So, make the name equal to the pathname to avoid as much as possible dupes in names, by replacing
+    # pathseps with underscores:
+    return os.path.abspath(os.path.realpath(pyfilepath)).replace(".", "_").\
+        replace(os.path.sep, "_")  # note: os.path.sep returns '/' on mac, os.pathsep returns ':'
+
+
+# python 2 and 3 compatible code:
+if sys.version_info[0] > 2:  # python 3+ (if py4 will not be compliant we'll fix that when needed)
+    import importlib.util  # @UnresolvedImport
+
+    def load_source(pyfilepath):
+        """Loads a source python file and returns it"""
+        name = _getmodulename(pyfilepath)
+        spec = importlib.util.spec_from_file_location(name, pyfilepath)
+        foo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(foo)
+        return foo
+
+    def is_mod_function(pymodule, func):
+        '''returns True if the python function `func` is a function defined (and not imported) in
+        the python module `pymodule`
+        '''
+        sourcefile = inspect.getsourcefile  # just to make next line fit in max line-width
+        return inspect.isfunction(func) and \
+            os.path.abspath(sourcefile(pymodule)) == os.path.abspath(sourcefile(func))
+
+    # and also make itervalues a function
+    def itervalues(dict_obj):
+        return dict_obj.values()
+else:
+    import imp
+
+    def load_source(pyfilepath):
+        """Loads a source python file and returns it"""
+        name = _getmodulename(pyfilepath)
+        return imp.load_source(name, pyfilepath)
+
+    def is_mod_function(pymodule, func):
+        '''returns True if the python function `func` is a function defined (and not imported) in
+        the python module `pymodule`
+        '''
+        return inspect.isfunction(func) and inspect.getmodule(func) == pymodule
+
+    # and also make itervalues a function
+    def itervalues(dict_obj):
+        return dict_obj.values()
+
+
+def iterfuncs(pymodule):
+    '''Returns an iterator over all functions defined (and not imported)
+    in the given python module `pymodule`
+    '''
+    for func in itervalues(pymodule.__dict__):
+        if is_mod_function(pymodule, func):
+            yield func
 
 
 class strconvert(object):
@@ -53,77 +121,6 @@ class strconvert(object):
         regular expression equivalent ('.*', '.')
         """
         return re.escape(text).replace(r"\%", ".*").replace(r"\_", ".")
-
-
-# def strconvert(string, src='text', dest='regex'):
-#     """
-#     Converts text to regular expression (regex) or sql like constructs. Does not escape `string`,
-#     so string should not have wildcards (special characters) in the `dest` language:
-# 
-#     :param string: the string to convert
-#     :param src: the string identifying the source "language": 'text' (using normal
-#     wildcards '*' and '?'), 'regexp ('.*', '*') or 'sql' ('%', '_')
-# 
-#     Summary table
-#     =============
-# 
-#     wildcard character meaning                         regexp equivalent sql 'like' equivalent
-#     ================== =============================== ================= =====================
-#     *                  matches zero or more characters .*                %
-#     ?                  matches exactly one character   .                 _
-# 
-#     returns a sql "like" expression from a given fdsn channel constraint parameters
-#     (network,    station,    location    and channel) converting wildcards, if any"""
-# 
-#     assert src in ('text', 'regex', 'sql')
-#     assert dest in ('text', 'regex', 'sql')
-#     wildcs = {'text': ['*', '?'], 'regex': ['.*', '.'], 'sql': ['%', '_']}
-#     for char_src, char_dest in izip(wildcs[src], wildcs['dest']):
-#         string = string.replace(char_src, char_dest)
-#     return string
-
-
-def load_source(pyfilepath):
-    """Loads a source python file and returns it"""
-    # First let's define a module name. What the name does and why is necessary is not well
-    # documented. However, we cannot supply whatever we want for two reasons following
-    # python import mechanism (tested in python2):
-    # 1. two different `pyfilepath`s must have different `name`s, otherwise when importing the
-    # second file the module of the former is actually returned
-    # 2. Names should contain dots, as otherwise a `RuntimeWarning: Parent module ... not found`
-    # is issued
-    # So, make the name equal to the pathname to avoid as most dupes in names, by replacing
-    # pathseps with underscores:
-    name = os.path.abspath(os.path.realpath(pyfilepath)).replace(".", "_").\
-        replace(os.path.sep, "_")
-    # note above: os.path.sep returns '/' on mac, os.pathsep returns ':'
-    if sys.version_info[0] == 2:
-        import imp  # @UnresolvedImport
-        return imp.load_source(name, pyfilepath)
-    else:
-        import importlib.util  # @UnresolvedImport
-        spec = importlib.util.spec_from_file_location(name, pyfilepath)
-        foo = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(foo)
-        return foo
-
-
-def is_mod_function(pymodule, func):
-    '''returns True if the python function `func` is a function defined (and not imported) in
-    the python module `pymodule`
-    '''
-    return inspect.isfunction(func) and inspect.getmodule(func) == pymodule
-
-
-def iterfuncs(pymodule):
-    '''Returns an iterator over all functions defined (and not imported)
-    in the given python module `pymodule`
-    '''
-    for func in pymodule.__dict__.itervalues():
-        if is_mod_function(pymodule, func):
-            yield func
-#     return [func.__name__ for func in pymodule.__dict__.itervalues() 
-#             if is_mod_function(pymodule, func)]
 
 
 def tounicode(bytestr, decoding='utf-8'):

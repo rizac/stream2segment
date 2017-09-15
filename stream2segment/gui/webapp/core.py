@@ -3,8 +3,11 @@ Created on Jul 31, 2016
 
 @author: riccardo
 '''
+from builtins import map
+from builtins import zip
+from builtins import str
 import re
-from itertools import cycle, izip
+from itertools import cycle
 
 # from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
@@ -67,7 +70,7 @@ def get_metadata(session, seg_id=None):
         include = {Segment.has_data: bool, Station.has_inventory: bool}
     for prefix, model in METADATA:
         colnamez = list(colnames(model, fkey=False))
-        for i in include.keys():
+        for i in list(include.keys()):
             if i.class_ is model:
                 colnamez.append(i.key)
                 del include[i]
@@ -136,7 +139,7 @@ def set_classes(session, config):
         return
     # do not add already added classes:
     clazzes = {c.label: c for c in session.query(Class)}
-    for label, description in classes.iteritems():
+    for label, description in classes.items():
         cla = None
         if label in clazzes and clazzes[label].description != description:
             cla = clazzes[label]
@@ -225,7 +228,7 @@ def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components,
         except Exception:
             sn_windows = []
 
-    return {'plots': [p.tojson(z, NPTS_WIDE) for p, z in izip(plots, zooms_)],
+    return {'plots': [p.tojson(z, NPTS_WIDE) for p, z in zip(plots, zooms_)],
             'sn_windows': sn_windows,
             'warnings': [] if not warnings else plotmanager.get_warnings(seg_id, preprocessed),
             'metadata': [] if not metadata else get_metadata(session, seg_id),
@@ -251,7 +254,7 @@ def parse_array(str_array, parsefunc=None, try_return_scalar=True):
         d = d[1:-1].strip()
     _ = re.split("(?:\\s*,\\s*|\\s+)", d)
     if parsefunc is not None:
-        _ = map(parsefunc, _)
+        _ = list(map(parsefunc, _))
     return _[0] if try_return_scalar and len(_) == 1 else _
 
 
