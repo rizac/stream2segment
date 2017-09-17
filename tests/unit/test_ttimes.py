@@ -105,7 +105,6 @@ class Test(unittest.TestCase):
             results.append(val)
         assert results == [0]
 
-
     def test_ttable(self):
         for ttable in self.ttables:
             # create a point where we expect to be the maximum error: in the middle of the
@@ -118,25 +117,25 @@ class Test(unittest.TestCase):
             # each point is (source_depth_km, receiver_depth_km, distance_deg):
             values = np.vstack(([half_vstep, 0, half_hstep], self._values))
             results_c = ttable.min(values[:, 0], values[:, 1], values[:, 2], method='cubic')
-    
+
             real_results = []
             for v in values:
-                real_results.append(min_traveltime(str(ttable._modelname),
-                                                   v[0], v[1], v[2], ttable._phases.tolist()))
-    
+                real_results.append(min_traveltime(ttable.model,
+                                                   v[0], v[1], v[2], ttable.phases))
+
             assert np.allclose(results_c, real_results, rtol=0, atol=ttable._tt_errtol,
                                equal_nan=True)
-    
+
             results_l = ttable.min(values[:, 0], values[:, 1], values[:, 2], method='linear')
             results_n = ttable.min(values[:, 0], values[:, 1], values[:, 2], method='nearest')
-    
+
             # for some tts+ models, the linear case might lead to median that are
             # better than the cubic case
-    
+
             err_c = np.abs(results_c-real_results)
             err_l = np.abs(results_l-real_results)
             err_n = np.abs(results_n-real_results)
-    
+
             # for cubic vs nearest, we can simply assert this:
             assert np.nanmean(err_c) < np.nanmean(err_n)
             assert np.nanmedian(err_c) < np.nanmedian(err_n)
@@ -153,7 +152,7 @@ class Test(unittest.TestCase):
 #             assert np.nanmedian(err_c) < np.nanmedian(err_l)
 #             assert np.nanmax(err_c) < np.nanmax(err_l)
 
-    def tt_edge_cases(self):
+    def test_edge_cases(self):
         for ttable in self.ttables:
             for method in ['linear', 'cubic', 'nearest']:
                 # test scalar case. Assert is stupid is just to test no error is thrown

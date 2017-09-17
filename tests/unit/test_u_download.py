@@ -181,7 +181,7 @@ class Test(unittest.TestCase):
         self.engine = engine
         
         
-        self.patcher = patch('stream2segment.utils.url.urllib2.urlopen')
+        self.patcher = patch('stream2segment.utils.url.urllib.request.urlopen')
         self.mock_urlopen = self.patcher.start()
         
         # this mocks get_session to return self.session:
@@ -320,38 +320,23 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         string must be followed by an EMPTY
         STRINGS TO STOP reading otherwise we fall into an infinite loop if the argument
         blocksize of url read is not negative !"""
-#         self.mock_urlopen.reset_mock()
-#         a = Mock()
-#         # convert returned values to the given urlread return value (tuple data, code, msg)
-#         # if k is an int, convert to an HTTPError
-#         retvals = []
-#         for k in urlread_side_effect:
-#             if type(k) == int:
-#                 retvals = (None, k, responses(k))
-#             elif type(k) == str:
-#                 retvals = (k, 200, 'OK')
-#             else:
-#                 retvals = k
-#                 
-#         a.read.side_effect =  cycle(retvals)
-#         self.mock_urlread = a.read
-#         self.mock_urlopen.return_value = a
-#         
+
         self.mock_urlopen.reset_mock()
         # convert returned values to the given urlread return value (tuple data, code, msg)
         # if k is an int, convert to an HTTPError
         retvals = []
-        if type(urlread_side_effect) == str or not hasattr(urlread_side_effect, "__iter__"):
+        # Check if we have an iterable (where strings are considered not iterables):
+        if not hasattr(urlread_side_effect, "__iter__") or isinstance(urlread_side_effect, (bytes, str)):
+            # it’s not an iterable (wheere str/bytes/unicode are considered NOT iterable in both py2 and 3)
             urlread_side_effect = [urlread_side_effect]
-
             
         for k in urlread_side_effect:
             a = Mock()
             if type(k) == int:
                 a.read.side_effect = urllib.error.HTTPError('url', int(k),  responses[k][0], None, None)
-            elif type(k) == str:
+            elif type(k) in (bytes, str):
                 def func(k):
-                    b = BytesIO(k)
+                    b = BytesIO(k.encode('utf8') if type(k) == str else k)  # py2to3 compatible
                     def rse(*a, **v):
                         rewind = not a and not v
                         if not rewind:
@@ -373,7 +358,6 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             retvals.append(a)
 #         
         self.mock_urlopen.side_effect = cycle(retvals)
-#        self.mock_urlopen.side_effect = Cycler(urlread_side_effect)
         
 
 #     def test_add_classes(self):
@@ -1293,7 +1277,19 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                         Channel.location.key, Channel.channel.key]:
                 if col in dic:
                     del dic[col]
+            # convet numpy values to python scalars:
+            # pandas 20+ seems to keep numpy types in to_dict
+            # https://github.com/pandas-dev/pandas/issues/13258
+            # this was not the case in pandas 0.19.2
+            # sql alchemy does not like that        
+            # (Curiosly, our pd2sql methods still work fine (we should check why)
+            #So, quick and dirty:
+            for k in dic.keys():
+                if hasattr(dic[k], "item"):
+                    dic[k] = dic[k].item()
+            # now we can safely add it:
             self.session.add(Segment(**dic))
+
         self.session.commit()
         
         assert len(self.session.query(Segment.id).all()) == len(downloadstatuscodes)
@@ -1480,7 +1476,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         
         
         # change data column otherwise we cannot display db_segments_df. When there is data just print "data"
-        db_segments_df.loc[(~pd.isnull(db_segments_df[Segment.data.key])) & (db_segments_df[Segment.data.key].str.len() > 0), Segment.data.key] = 'data' 
+        db_segments_df.loc[(~pd.isnull(db_segments_df[Segment.data.key])) &
+                           (db_segments_df[Segment.data.key].str.len() > 0), Segment.data.key] = b'data' 
 
         # re-sort db_segments_df to match the segments_df:
         ret = []
@@ -1529,10 +1526,10 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         
         # assert data is consistent
         COL = Segment.data.key
-        assert (db_segments_df.iloc[:3][COL] == 'data').all()
-        assert (db_segments_df.iloc[3:4][COL] == '').all()
+        assert (db_segments_df.iloc[:3][COL] == b'data').all()
+        assert (db_segments_df.iloc[3:4][COL] == b'').all()
         assert pd.isnull(db_segments_df.iloc[4:5][COL]).all()
-        assert (db_segments_df.iloc[5:6][COL] == 'data').all()
+        assert (db_segments_df.iloc[5:6][COL] == b'data').all()
         assert pd.isnull(db_segments_df.iloc[6:][COL]).all()
         
         # assert downdload status code is consistent
@@ -1581,7 +1578,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         db_segments_df = dbquery2df(self.session.query(*cols))
         
         # change data column otherwise we cannot display db_segments_df. When there is data just print "data"
-        # db_segments_df.loc[(~pd.isnull(db_segments_df[Segment.data.key])) & (db_segments_df[Segment.data.key].str.len() > 0), Segment.data.key] = 'data' 
+        # db_segments_df.loc[(~pd.isnull(db_segments_df[Segment.data.key])) & (db_segments_df[Segment.data.key].str.len() > 0), Segment.data.key] = b'data' 
 
         # re-sort db_segments_df to match the segments_df:
         ret = []

@@ -35,7 +35,7 @@ class TTTable(object):
             len(np.unique(self._receiverdepths)) == 1 else False
         gridpts = []
         for s, r in zip(self._km2deg(self._sourcedepths),
-                         self._km2deg(self._receiverdepths)):
+                        self._km2deg(self._receiverdepths)):
             for _ in self._distances:
                 gridpts.append([s, _] if self._unique_receiver_depth else [s, r, _])
         # store in class attributes:
@@ -109,6 +109,15 @@ class TTTable(object):
         # return scalar if inputs are scalar, array oitherwise
         return np.squeeze(ret) if allscalars else ret
 
+    @property
+    def model(self):
+        model = self._modelname.item()
+        return model.decode('utf8') if isinstance(model, bytes) else model
+
+    @property
+    def phases(self):
+        return [p.decode('utf8') if isinstance(p, bytes) else p for p in self._phases]
+
     def __str__(self, *args, **kwargs):
         maxrows = 6
 
@@ -117,11 +126,11 @@ class TTTable(object):
 
         def echorow(array):
             ret = []
-            for i in range(old_div(maxrows,2)):
+            for i in range(old_div(maxrows, 2)):
                 ret.append(r_(array[i]))
             if len(array) > maxrows:
                 ret.append("...")
-            for i in range(old_div(-maxrows,2), 0):
+            for i in range(old_div(-maxrows, 2), 0):
                 ret.append(r_(array[i]))
             return " ".join(ret)
 
@@ -129,7 +138,7 @@ class TTTable(object):
         _frmt = "%{:d}s %{:d}s %{:d}s".format(*collen)
         hline = " ".join(c * "-" for c in collen)
 
-        ret = ["Model: '%s'" % (self._modelname), "Phases: %s" % (self._phases),
+        ret = ["Model: '%s'" % (self.model), "Phases: %s" % (self.phases),
                "Input error tolerance: %f" % self._tt_errtol,
                "Data:", hline, _frmt % ("Source", "Receiver", ""),
                _frmt % ("depth", "depth", "Travel times"), hline]
@@ -140,7 +149,7 @@ class TTTable(object):
         if len(self._sourcedepths) > maxrows:
             ret.append(_frmt % ("...", "...", "..."))
 
-        for i in range(old_div(-maxrows,2), 0):
+        for i in range(old_div(-maxrows, 2), 0):
             s, r = r_(self._sourcedepths[i]), r_(self._receiverdepths[i])
             ret.append(_frmt % (s, r, echorow(self._traveltimes[i])))
 

@@ -527,7 +527,7 @@ class Test(unittest.TestCase):
         """Assert that our kinds bulk update and insert (low level) are less memory consuming"""
         process = psutil.Process(os.getpid())
         N = 1000
-        data = 'x' * 5000
+        data = b'x' * 5000
         mem_perc1a = process.memory_percent()
         
         for i in range(N):

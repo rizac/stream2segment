@@ -320,9 +320,7 @@ def dfrowiter(dataframe, columns=None):
     # code.
     # See _insert_table below). Thus we zip it:
     for row_values in zip(*datalist):
-        # we could make a single line statement, but two lines are more readable:
-        row_args_dict = dict(list(zip(cols, row_values)))
-        yield row_args_dict
+        yield dict(list(zip(cols, row_values)))
 
 
 def _get_max(session, numeric_column):

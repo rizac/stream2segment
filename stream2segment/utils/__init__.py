@@ -262,9 +262,9 @@ def get_progressbar(show, **kw):
     else:
         # some custom setup if missing:
         if 'fill_char' not in kw:
-            kw['fill_char'] = "●"
+            kw['fill_char'] = 'b' # "●"
         if 'empty_char' not in kw:
-            kw['empty_char'] = '○'
+            kw['empty_char'] = 'a' # '○'
         if 'bar_template' not in kw:
             kw['bar_template'] = '%(label)s %(bar)s %(info)s'
         with click_progressbar(**kw) as bar:

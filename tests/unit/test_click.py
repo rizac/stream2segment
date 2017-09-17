@@ -40,7 +40,7 @@ def download_setup(filename, **params):
             yamldic.pop(k, None)
         else:
             yamldic[k] = v
-    with NamedTemporaryFile() as tf:
+    with NamedTemporaryFile('w') as tf:  # supply 'w' as default is 'w+b'
         name = tf.name
         assert os.path.isfile(name)
         yaml.safe_dump(yamldic, tf)

@@ -46,7 +46,7 @@ class Test(unittest.TestCase):
         self.errors = []
         self.cancelled = []
         
-        self.patcher = patch('stream2segment.utils.url.urllib2.urlopen')
+        self.patcher = patch('stream2segment.utils.url.urllib.request.urlopen')
         self.mock_urlopen = self.patcher.start()
         #add cleanup (in case tearDown is not 
         self.addCleanup(Test.cleanup, self.patcher)
@@ -107,7 +107,7 @@ class Test(unittest.TestCase):
     def test_mocking_urlread(self):
         """Tests onsuccess. WE mock urllib2urlopen.read to return user defined strings"""
         
-        data = ['none', '', 'google', '']  # supply an empty string otherwise urllib.read does not stop
+        data = [b'none', b'', b'google', b'']  # supply an empty string otherwise urllib.read does not stop
         self.config_urlopen(data)
 
         # self.urls has a valid url (which should execute onsuccess) and an invalid one
@@ -157,7 +157,7 @@ class Test(unittest.TestCase):
         
         
     def test_general_exception_inside_yield(self):
-        data = ['none', ''] * 10000  # supply an empty string otherwise urllib.read does not stop
+        data = [b'none', b''] * 10000  # supply an empty string otherwise urllib.read does not stop
         self.config_urlopen(data, sleep_time=None)
         
         # self.urls has a valid url (which should execute onsuccess) and an invalid one
@@ -177,7 +177,7 @@ class Test(unittest.TestCase):
     @patch("stream2segment.utils.url._mem_percent")
     def test_exception_max_mem_cons(self, mock_mem_consumption):
         N= 5000
-        data = [''] * N  # supply an empty string otherwise urllib.read does not stop
+        data = [b''] * N  # supply an empty string otherwise urllib.read does not stop
         urls = ["http://sdgfjvkherkdfvsffd"] *N 
         self.config_urlopen(data)
         
@@ -196,59 +196,6 @@ class Test(unittest.TestCase):
         assert self.progress == 6
         assert "Memory overflow: %.2f%% (used) > %.2f%% (threshold)" % (mmc+1, mmc) in str(excinfo.value)
     
-#     def test_cancelled1(self):
-#         """Tests cancelled, when url returns without errors"""
-#         
-#         data = ['none', '', 'google', '']  # supply an empty string otherwise urllib.read does not stop
-#         self.config_urlopen(data)
-# 
-#         self.ondone_return_value = lambda obj: True
-#         # self.urls has a valid url (which should execute onsuccess) and an invalid one
-#         # which should execute onerror)
-#         read_async(self.urls, self.ondone, cancel=True)
-# 
-#         assert len(self.successes) == 1  # or alternatively:
-#         assert self.ondone.call_count == 2
-#         # assert there was a call to ondone with cancel argument (the last) as False,
-#         # and another with cancel argument as true. We do not care about the order
-#         # as with threading is not deterministic
-#         call_args = [a[0] for a in self.ondone.call_args_list]
-#         cancelled_args = [c[-1] for c in call_args]
-#         assert cancelled_args.count(True) == 1  # amazing python feature!!!
-#         assert cancelled_args.count(False) == 1  # amazing python feature!!!
-#         
-#                 
-#         assert len(self.cancelled)==1
-#     
-#     def test_cancelled2(self):
-#         """Tests cancelled, when url returns with errors"""
-#         
-#         data = [URLError(""), 'google', '']  # supply an empty string otherwise urllib.read does not stop
-#         self.config_urlopen(data)
-# 
-#         self.ondone_return_value = lambda obj: True
-#         # self.urls has a valid url (which should execute onsuccess) and an invalid one
-#         # which should execute onerror)
-#         read_async(self.urls, self.ondone, cancel=True)
-# 
-#         assert self.ondone.call_count == 2
-#         call_args = [a[0] for a in self.ondone.call_args_list]
-#         cancelled_args = [c[-1] for c in call_args]
-#         assert len(self.cancelled) == 1
-# 
-#         # now the tricky part: which url has been read first?
-#         # if the one giving errors, then self.errors has one element
-#         # otherwise, not, because the url giving error has been
-#         # cancelled! So:
-#         if not len(self.errors):
-#             assert len(self.successes) == 1
-#         else:
-#             assert len(self.errors) == 1
-#         # assert there was a call to ondone with cancel argument (the last) as False,
-#         # and another with cancel argument as true. This should be True
-#         # regardless of the urlread function execution order
-#         assert cancelled_args.count(True) == 1  # amazing python feature!!!
-#         assert cancelled_args.count(False) == 1  # amazing python feature!!!
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']

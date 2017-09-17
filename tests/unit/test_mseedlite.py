@@ -123,7 +123,7 @@ def test_add_bytes():
     # now change a byte:
     bytez = mock_response_inbytes()
     # this raises 'unexpected end of header':
-    bytez2 = bytez[:100] + 'abc' + bytez[101:]
+    bytez2 = bytez[:100] + b'abc' + bytez[101:]
     with pytest.raises(MSeedError):
         mseed_dic, gaps, errs = unpack(bytez2)
 
@@ -132,7 +132,7 @@ def test_change_last_byte():
     # Let's change one byte at the end (a byte of the data part)
     bytez = mock_response_inbytes()
     # get our dicts of trace_id: trace_bytes
-    dic = unpack( bytez[:-1] + 'a')
+    dic = unpack( bytez[:-1] + b'a')
     assert not haserr(dic)
     assert all(g[-2] < 0.0001 for g in dic.values())
 
@@ -148,11 +148,11 @@ def test_change_header_change_id():
     # Let's change one byte at the end (a byte of the data part), this will
     bytez = mock_response_inbytes()
     # get our dicts of trace_id: trace_bytes
-    dic = unpack('a' * _FIXHEAD_LEN + bytez[_FIXHEAD_LEN:])
+    dic = unpack(b'a' * _FIXHEAD_LEN + bytez[_FIXHEAD_LEN:])
     # erros is not empty but has the trace id 'aa.aaaaa.aa.aaa'. What is that?
     # is the id we created by modyfing the bytes above
     assert haserr(dic)
-    assert all(g[-2] < 0.0001 for g in dic.values())
+    assert all(g[-2] < 0.0001 for g in dic.values() if g[-2] is not None)
 
     obspy_stream = get_stream(bytez)
     s2s_stream = get_s2s_stream(dic)
@@ -168,7 +168,7 @@ def test_change_header_keep_id():
     # erros is not empty but has the trace id 'aa.aaaaa.aa.aaa'. What is that?
     # is the id we created by modyfing the bytes above
     assert haserr(dic)
-    assert all(g[-2] < 0.0001 for g in dic.values())
+    assert all(g[-2] < 0.0001 for g in dic.values() if g[-2] is not None)
 
     obspy_stream = get_stream(bytez)
     s2s_stream = get_s2s_stream(dic)

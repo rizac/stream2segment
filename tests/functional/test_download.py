@@ -326,23 +326,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         string must be followed by an EMPTY
         STRINGS TO STOP reading otherwise we fall into an infinite loop if the argument
         blocksize of url read is not negative !"""
-#         self.mock_urlopen.reset_mock()
-#         a = Mock()
-#         # convert returned values to the given urlread return value (tuple data, code, msg)
-#         # if k is an int, convert to an HTTPError
-#         retvals = []
-#         for k in urlread_side_effect:
-#             if type(k) == int:
-#                 retvals = (None, k, responses(k))
-#             elif type(k) == str:
-#                 retvals = (k, 200, 'OK')
-#             else:
-#                 retvals = k
-#                 
-#         a.read.side_effect =  cycle(retvals)
-#         self.mock_urlread = a.read
-#         self.mock_urlopen.return_value = a
-#         
+
         self.mock_urlopen.reset_mock()
         # convert returned values to the given urlread return value (tuple data, code, msg)
         # if k is an int, convert to an HTTPError

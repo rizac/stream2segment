@@ -36,7 +36,7 @@ class Test(unittest.TestCase):
     def testName(self):
         pass
 
-@patch('stream2segment.utils.url.urllib2.urlopen')
+@patch('stream2segment.utils.url.urllib.request.urlopen')
 def test_utils_url_read(mock_urlopen):  # mock_ul_urlopen, mock_ul_request, mock_ul):
     
 
@@ -69,7 +69,7 @@ def test_utils_url_read(mock_urlopen):  # mock_ul_urlopen, mock_ul_request, mock
     with pytest.raises(TypeError):
         urlread('', "name")
 
-    val = 'url'
+    val = b'url'
     blockSize = 1024*1024
     assert urlread(val, blockSize)[0] == val
     mock_urlopen.assert_called_with(val)  # , timeout=DEFAULT_TIMEOUT)
@@ -116,7 +116,14 @@ def test_utils_url_read(mock_urlopen):  # mock_ul_urlopen, mock_ul_request, mock
                         )
 def test_secure_dburl(input, expected_result):
     assert secure_dburl(input) == expected_result
-    
+
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+### IMPORTANT=======================================================================================
+### THE FOLLOWING TESTS INVOLVING PROGRESSBARS PRINTOUT    
+### WILL FAIL IN PYDEV 5.2.0 and PYTHON 3.6.2 (typical bytes vs string error)
+### RUN FROM TERMINAL
+### IMPORTANT=======================================================================================
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 @patch("stream2segment.utils.Nop", side_effect=lambda *a, **v: Nop(*a, **v))
 @patch("stream2segment.utils.click_progressbar", side_effect=lambda *a, **v: progressbar(*a, **v))
@@ -174,66 +181,6 @@ def test_progressbar_functional():
     with get_progressbar(True, length=10) as bar: # normal progressbar
         for i in range(N):
             bar.update(i)
-
-# @patch('stream2segment.utils.Request')
-# @patch('stream2segment.utils.urlopen')
-# def test_urlread(mock_urlopen, mock_urllib_request):  # mock_ul_urlopen, mock_ul_request, mock_ul):
-#     blockSize = 1024*1024
-# 
-#     mock_urllib_request.side_effect = lambda arx: arx
-# 
-#     def xyz(argss):
-#         return StringIO(argss)
-# 
-#     # mock_ul.urlopen = Mock()
-#     mock_urlopen.side_effect = xyz
-#     # mock_ul.urlopen.return_value = lambda arg: StringIO(arg)
-# 
-#     val = 'url'
-#     assert urlread(val, "name") == val
-#     mock_urllib_request.assert_called_with(val)
-#     mock_urlopen.assert_called_with(val)
-#     # mock_ul.urlopen.read.assert_called_with(blockSize)
-# 
-#     def ioerr(**kwargs):
-#         ret = IOError()
-#         for key, value in kwargs.iteritems():
-#             setattr(ret, key, value)
-#         return ret
-# 
-#     for kwz in [{'reason':'reason'}, {'code': 'code'}, {}]:
-#         def xyz2(**kw):
-#             raise ioerr(**kw)
-# 
-#         mock_urlopen.side_effect = lambda arg: xyz2(**kwz)
-#         assert urlread(val, "name") == ''
-#         mock_urllib_request.assert_called_with(val)
-#         mock_urlopen.assert_called_with(val)
-#         assert not mock_urlopen.read.called
-# 
-#     def xyz3():
-#         raise ValueError()
-#     mock_urlopen.side_effect = lambda arg: xyz3()
-#     assert urlread(val, "name") == ''
-#     mock_urllib_request.assert_called_with(val)
-#     mock_urlopen.assert_called_with(val)
-#     assert not mock_urlopen.read.called
-# 
-#     def xyz4():
-#         raise AttributeError()
-#     mock_urlopen.side_effect = lambda arg: xyz4()
-#     with pytest.raises(AttributeError):
-#         _ = urlread(val, "name")
-# 
-#     def xyz5(argss):
-#         class sio(StringIO):
-#             def read(self, *args, **kw):
-#                 raise IOError('oops')
-#         return sio(argss)
-#     mock_urlopen.side_effect = lambda arg: xyz5(arg)
-#     assert urlread(val, "name") == ''
-#     mock_urllib_request.assert_called_with(val)
-#     mock_urlopen.assert_called_with(val)
 
 
 

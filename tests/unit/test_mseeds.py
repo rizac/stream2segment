@@ -6,11 +6,13 @@ Created on Feb 23, 2016
 '''
 
 from future import standard_library
+
 standard_library.install_aliases()
 import mock, os, sys
 import pytest
 import re
 import argparse
+from io import BytesIO
 import numpy as np
 from stream2segment.analysis import fft as orig_fft
 from stream2segment.analysis import snr as orig_snr
@@ -110,8 +112,8 @@ def _data():
     mseed_path = os.path.join(folder, 'trace_GE.APE.mseed')
     mseed = obspy_read(mseed_path)
     inv_path = os.path.join(folder, 'inventory_GE.APE.xml')
-    s = StringIO()
-    with open(inv_path) as _opn:
+    s = BytesIO()
+    with open(inv_path, 'rb') as _opn:
         s.write(_opn.read())
     s.seek(0)
     inv_obj = read_inventory(s)
