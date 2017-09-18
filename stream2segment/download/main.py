@@ -1,39 +1,24 @@
 # -*- coding: utf-8 -*-
-# from __future__ import print_function
-
-"""module holding the basic functionalities of the download routine
-   :Platform:
-       Mac OSX, Linux
-   :Copyright:
-       Deutsches GFZ Potsdam <XXXXXXX@gfz-potsdam.de>
-   :License:
-       To be decided!
 """
-from future import standard_library
+Core functions and classes for the download routine
+:author: riccardo
+"""
+
+# make the following(s) behave like python3 counterparts if running from python2.7.x
+# (http://python-future.org/imports.html#explicit-imports):
+from builtins import map, next, zip, str, range, object
+
 import sys
-standard_library.install_aliases()
-from builtins import map
-from builtins import next
-from builtins import zip
-from builtins import str
-from builtins import range
-from builtins import object
 import os
 import logging
-import re
 from collections import defaultdict, OrderedDict
 from datetime import timedelta, datetime
-from urllib.parse import urlparse
-import gc
-  # , cycle
-from urllib.request import Request
+
 import numpy as np
 import pandas as pd
 from sqlalchemy import or_, and_
 import psutil
-# from sqlalchemy.exc import SQLAlchemyError
-# from obspy.taup.tau import TauPyModel
-# from obspy.taup.helper_classes import TauModelError, SlownessModelError
+
 from stream2segment.utils.url import urlread, read_async as original_read_async, URLException
 from stream2segment.io.db.models import Event, DataCenter, Segment, Station, Channel, \
     WebService, fdsn_urls
@@ -51,6 +36,14 @@ from stream2segment.io.utils import dumps_inv
 from stream2segment.io.db.queries import query4inventorydownload
 from stream2segment.download.traveltimes.ttloader import TTTable
 from stream2segment.utils.resources import get_ttable_fpath
+
+# make the following(s) behave like python3 counterparts if running from python2.7.x
+# (http://python-future.org/imports.html#aliased-imports):
+from future import standard_library
+standard_library.install_aliases()
+from urllib.parse import urlparse  # @IgnorePep8
+from urllib.request import Request  # @IgnorePep8
+
 
 logger = logging.getLogger(__name__)
 
@@ -149,25 +142,24 @@ def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_s
 def handledbexc(cols_to_print_on_err, update=False):
     """Returns a **function** to be passed to pd_sql_utils functions when inserting/ updating
     the db. Basically, it prints to log"""
-    def hde(dataframe, iterindices, exception):
-        _df = dataframe.loc[list(iterindices)]
-        if not empty(_df):
+    def hde(dataframe, exception):
+        if not empty(dataframe):
             N = 30
             try:
                 errmsg = str(exception.orig)
             except AttributeError:
                 errmsg = str(exception)
-            len_df = len(_df)
+            len_df = len(dataframe)
             msg = MSG("", "%d database rows not %s" % (len_df,
                                                        "updated" if update else "inserted"),
                       errmsg)
             if len_df > N:
                 footer = "\n... (showing first %d rows only)" % N
-                _df = _df.iloc[:N]
+                dataframe = dataframe.iloc[:N]
             else:
                 footer = ""
-            msg = "{}:\n{}{}".format(msg, _df.to_string(columns=cols_to_print_on_err,
-                                                        index=False), footer)
+            msg = "{}:\n{}{}".format(msg, dataframe.to_string(columns=cols_to_print_on_err,
+                                                              index=False), footer)
             logger.warning(msg)
     return hde
 

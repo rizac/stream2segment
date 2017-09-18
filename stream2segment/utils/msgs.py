@@ -1,12 +1,17 @@
 '''
-Created on Nov 30, 2016
+Module handling messages to be displayed throughout the program by normalizing messages
+format
 
-Module handling messages to be displayed throughout the program
-@author: riccardo
+:date: Nov 30, 2016
+:author: riccardo
 '''
 
 
+# make the following(s) behave like python3 counterparts if running from python2.7.x
+# (http://python-future.org/imports.html#explicit-imports):
 from builtins import str
+
+
 def MSG(topic=None, action=None, errmsg=None, url=None):
     """Utility function which formats a message in order to have normalized message
     types across the program (e.g., in logging utilities). The argument can contain new

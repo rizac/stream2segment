@@ -1,11 +1,14 @@
 '''
-Created on Jul 31, 2016
+Core functionalities for the GUI web application
 
-@author: riccardo
+:date: Jul 31, 2016
+:author: riccardo
 '''
-from builtins import map
-from builtins import zip
-from builtins import str
+
+# make the following(s) behave like python3 counterparts if running from python2.7.x
+# (http://python-future.org/imports.html#explicit-imports):
+from builtins import map, zip, str
+
 import re
 from itertools import cycle
 
@@ -40,7 +43,7 @@ def get_segments(session, conditions, orderby, metadata, classes):
 
 
 def get_metadata(session, seg_id=None):
-    '''Returns a list of tuples (column, column_type) if segment is None or
+    '''Returns a list of tuples (column, column_type) if `seg_id` is None or
     (column, column_value) if segment is not None. In the first case, `column_type` is the
     string representation of the column python type (str, datetime,...), in the latter,
     it is the value of `segment` for that column'''
@@ -59,23 +62,21 @@ def get_metadata(session, seg_id=None):
         return python_type.__name__
 
     ret = []
-    exclude = set([Station.inventory_xml.key, Segment.data.key, Run.log.key, Run.config.key])
-    include = {}
-    if segment is None:
-        # Set included attrs for search. Note that hybrid attrs (and probably columns) are hashable
-        # so it is safe to use them as keys
-        # Actually we would not need dicts, as the python type is inferred by sql-alchemy
-        # for hybrid attributes also, but removing dict items is faster than for list (see loop
-        # below)
-        include = {Segment.has_data: bool, Station.has_inventory: bool}
+    # exclude columns with byte data or too long text data which would make no sense to show:
+    excluded_colnames = set([Station.inventory_xml.key, Segment.data.key, Run.log.key,
+                             Run.config.key])
+    # if segment is None, return hybrid attributes, too.
+    # Use a dict of pairs: (model -> list of hybrid attributes to be shown)
+    # The type of the hybrid attribute will be later inferred by sqlalchemy:
+    included_colnames = {} if segment is not None else \
+        {Segment: [Segment.has_data.key],  # @UndefinedVariable
+         Station: [Station.has_inventory.key]}  # @UndefinedVariable
+
     for prefix, model in METADATA:
         colnamez = list(colnames(model, fkey=False))
-        for i in list(include.keys()):
-            if i.class_ is model:
-                colnamez.append(i.key)
-                del include[i]
+        colnamez.extend(included_colnames.get(model, []))
         for colname in colnamez:
-            if colname in exclude:
+            if colname in excluded_colnames:
                 continue
             column = getattr(model, colname)
             try:

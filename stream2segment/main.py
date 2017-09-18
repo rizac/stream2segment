@@ -1,22 +1,15 @@
 # -*- coding: utf-8 -*-
-#!/usr/bin/python
-# event2wav: First draft to download waveforms related to events
-#
-# (c) 2015 Deutsches GFZ Potsdam
-# <XXXXXXX@gfz-potsdam.de>
-#
-# ----------------------------------------------------------------------
 """
-   :Platform:
-       Linux, Mac OSX
-   :Copyright:
-       Deutsches GFZ Potsdam <XXXXXXX@gfz-potsdam.de>
-   :License:
-       To be decided!
+    Main module of the stream2segment package. Entry points and click commands are defined here
+
+   :author: riccardo
 """
-from __future__ import print_function  # , unicode_literals
-from builtins import str
-from builtins import object
+from __future__ import print_function
+
+# make the following(s) behave like python3 counterparts if running from python2.7.x
+# (http://python-future.org/imports.html#explicit-imports):
+from builtins import str, object
+
 import logging
 import sys
 import datetime as dt
@@ -24,6 +17,8 @@ import os
 from contextlib import contextmanager
 import shutil
 
+# iterate over dictionary keys without list allocation in both py 2 and 3:
+from future.utils import viewitems
 import yaml
 import click
 from click.exceptions import BadParameter, ClickException, MissingParameter
@@ -416,7 +411,7 @@ def d(configfile, dburl, start, end, service, wtimespan, min_sample_rate, retry_
     cfg_dict['end'] = cfg_dict.get('end', end_def)
 
     # override with command line values, if any:
-    for var, val in _.items():
+    for var, val in viewitems(_):
         if val:
             cfg_dict[var] = val
 

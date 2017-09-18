@@ -14,25 +14,19 @@ any later version.
 
 .. moduleauthor:: Andres Heinloo <andres@gfz-potsdam.de>, GEOFON, GFZ Potsdam
 """
-from __future__ import print_function
-from __future__ import division
+from __future__ import print_function, division
 
-from future import standard_library
-standard_library.install_aliases()
-from builtins import bytes
-from builtins import str
-from builtins import object
-from past.utils import old_div
+# make the following(s) behave like python3 counterparts if running from python2.7.x
+# (http://python-future.org/imports.html#explicit-imports):
+from builtins import bytes, str, object
+
 import datetime
 import struct
 from io import BytesIO
 
-# No need to do this import here, BytesIO is performing almost the same as cStringIO:
-# import sys
-# if sys.version_info[0] < 3:
-#     from cStringIO import StringIO as BytesIO  # @UnusedImport
-# else:
-#     from io import BytesIO  # @Reimport
+# from future import standard_library
+# standard_library.install_aliases()
+
 
 _FIXHEAD_LEN = 48
 _BLKHEAD_LEN = 4
@@ -243,7 +237,7 @@ class Record(object):
             self.samprate_num = 0
             self.samprate_denom = 1
 
-        self.fsamp = old_div(float(self.samprate_num), float(self.samprate_denom))
+        self.fsamp = float(self.samprate_num) / float(self.samprate_denom)
 
         # quick fix to avoid exception from datetime
         if (bt_second > 59):
@@ -449,7 +443,6 @@ class Input(object):
 
 from math import log  # @IgnorePep8
 from collections import defaultdict  # @IgnorePep8
-from io import StringIO  # @IgnorePep8
 
 
 class Input2(object):
@@ -511,9 +504,8 @@ class Input2(object):
 
 def _get_id(n, s, l, c):
     '''all arguments should be bytes'''
-    d = 'utf8'  # assure python3 compatibility
-    return "%s.%s.%s.%s" % (n.strip().decode(d), s.strip().decode(d), l.strip().decode(d),
-                            c.strip().decode(d))
+    # assure python3 compatibility. Return str in py3 and unicode in py2:
+    return (b"%s.%s.%s.%s" % (n.strip(), s.strip(), l.strip(), c.strip())).decode('utf8')
 
 
 def unpack(data):
@@ -594,7 +586,7 @@ def unpack(data):
                     max_gap_ratio = max(max_gap_ratio,
                                         abs(chunks[i-1].end_time -
                                             record.begin_time).total_seconds() * fsamp)
-                record.write(bytesio, int(old_div(log(record.size),log(2))))
+                record.write(bytesio, int(log(record.size) / log(2)))
             bytez = bytesio.getvalue()
             bytesio.close()
             unpacked_data[id_] = (bytez, value[1], max_gap_ratio, None)

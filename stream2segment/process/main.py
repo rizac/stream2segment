@@ -4,23 +4,25 @@ Created on Feb 2, 2017
 @author: riccardo
 '''
 from __future__ import print_function
-from future import standard_library
-standard_library.install_aliases()
+
+# make the following(s) behave like python3 counterparts if running from python2.7.x
+# (http://python-future.org/imports.html#explicit-imports):
 from builtins import str
-from io import BytesIO
+
+from io import BytesIO, StringIO
 import os
 import sys
 import logging
-from io import StringIO
 from contextlib import contextmanager
 import warnings
 import re
-# from collections import OrderedDict as odict
 import traceback
-# from sqlalchemy import func, distinct
-# from sqlalchemy.orm import load_only
 import csv
+
+# iterating over dictionary keys with the same set-like behaviour on Py2.7 as on Py3:
+from future.utils import viewkeys
 from obspy.core.stream import read
+
 from stream2segment.utils import get_progressbar, load_source, secure_dburl
 from stream2segment.utils.resources import yaml_load
 from stream2segment.io.db.models import Segment  # , Station
@@ -244,7 +246,7 @@ def to_csv(outcsvfile, session, pysourcefile, configsourcefile, isterminal):
                     # we need to pass a list and not an iterable cause the iterable needs
                     # to be consumed twice (the doc states differently, however...):
                     fieldnames = [(CHEAD_FRMT % c) for c in col_headers]
-                    fieldnames.extend(iter(result.keys()))
+                    fieldnames.extend(viewkeys(result))
                     csvwriter[0] = csv.DictWriter(csvfile, fieldnames=fieldnames, **kwargs)
                     csvwriter[0].writeheader()
                 else:

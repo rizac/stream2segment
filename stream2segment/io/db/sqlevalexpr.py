@@ -2,16 +2,24 @@
 Module implementing the functionalities that allow querying an sql database
 via string expression on table columns
 
-Created on Mar 6, 2017
-
-@author: riccardo
+:date: Mar 6, 2017
+:author: riccardo
 '''
+
+# make the following(s) behave like python3 counterparts if running from python2.7.x
+# (http://python-future.org/imports.html#explicit-imports):
 from builtins import str
-import shlex
-import numpy as np
+
 from datetime import datetime
+import shlex
+
+# iterating over dictionary keys with the same set-like behaviour on Py2.7 as on Py3
+from future.utils import viewitems
+
+import numpy as np
 from sqlalchemy import asc, and_, desc, inspect
-from sqlalchemy.exc import InvalidRequestError
+
+# from sqlalchemy.exc import InvalidRequestError
 
 
 def exprquery(sa_query, conditions, orderby=None, distinct=None):
@@ -75,8 +83,8 @@ def exprquery(sa_query, conditions, orderby=None, distinct=None):
     ```
 
     :param query: any sql-alchemy query object
-    :param conditions: a dict of string columns mapped to strings expression, e.g.
-    "column2": "[1, 45]".
+    :param conditions: a dict of string columns mapped to **strings** expression, e.g.
+    "column2": "[1, 45]" or "column1": "true" (not the boolean True)
     A string column is an expression denoting an attribute of the underlying model (retrieved
     as the first ORM model found in `sa_querysa_query.column_descriptions`) and can include
     relationships. Example: if the model tablename is 'mymodel', then a string column 'name'
@@ -100,8 +108,9 @@ def exprquery(sa_query, conditions, orderby=None, distinct=None):
     relations = inspect(model).relationships
 
     if conditions:
-        for attname, expression in conditions.items():
+        for attname, expression in viewitems(conditions):
             if not expression:  # discard falsy expressions (empty strings, None's)
+                # note that expressions MUST be strings
                 continue
             relationship, column = _get_rel_and_column(model, attname, relations)
             if expression.strip() in ('any', 'none'):  # any or none:

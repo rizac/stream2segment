@@ -1,41 +1,22 @@
-#!/usr/local/bin/python2.7
 # encoding: utf-8
-'''
-stream2segment.io.utils -- utilities
+"""
+IO utilities (db to python and viceversa)
 
-stream2segment.io.utils tmp module
+:author: riccardo
+"""
 
-It defines classes_and_methods
-
-@author:     user_name
-
-@copyright:  2016 organization_name. All rights reserved.
-
-@license:    license
-
-@contact:    user_email
-@deffield    updated: Updated
-'''
-
-# import sys
-# import os
+# make the following(s) behave like python3 counterparts if running from python2.7.x
+# (http://python-future.org/imports.html#explicit-imports):
 from builtins import str
+
 from io import BytesIO
-# from collections import OrderedDict as odict
+
 import gzip
 import zipfile
 import zlib
 import bz2
-# try:
-#     import cPickle as pickle
-# except ImportError:
-#     import pickle
-# import pickle  # uncomment for testing
-# import numpy as np
-# from obspy.core import Trace, Stream
-# from obspy.core.stream import read as obspy_read
+
 from obspy.core.inventory.inventory import read_inventory
-# from stream2segment.analysis.mseeds import utcdatetime
 
 
 def compress(bytestr, compression='gzip', compresslevel=9):

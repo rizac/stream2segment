@@ -1,16 +1,18 @@
 '''
-Created on Aug 23, 2017
+Module for creating a Travel times table object, a gird of points where
+the minimum theoretical travel times can be later efficiently calculated by
+using linear, cubic or nearest sample approximation
 
-@author: riccardo
+:date: Aug 23, 2017
+
+:author: riccardo
 '''
-from __future__ import print_function
-from __future__ import division
-from builtins import zip
-from builtins import next
-from builtins import str
-from builtins import range
-from builtins import object
-from past.utils import old_div
+from __future__ import print_function, division
+
+# make the following(s) behave like python3 counterparts if running from python2.7.x
+# (http://python-future.org/imports.html#explicit-imports):
+from builtins import zip, next, str, range, object
+
 import os
 import sys
 import math
@@ -143,8 +145,8 @@ def newarray(basearray):
 
 
 def _cmp_indices(distances):  # returns the indices used for comparison from the given array arg.
-    return np.unique([0, 1, 5, 10, int(old_div(len(distances),4.0)), int(old_div(len(distances),2.0)),
-                      int(3*len(distances)/4.0), len(distances)-1])
+    return np.unique([0, 1, 5, 10, int(len(distances)/4), int(len(distances)/2),
+                      int(3*len(distances)/4), len(distances)-1])
 
 
 def linspace(endvalue, step):
@@ -231,7 +233,7 @@ class StepIterator(object):
             self._raisestop = True
         return self._val
 
-    next = __next__  # Python 2
+    # next = __next__  # Not needed (see from builtins import object)
 
 
 def itercreator(model, tt_errtol, phases, distances, depthstep_km, maxsourcedepth=DEFAULT_SD_MAX,
@@ -343,15 +345,15 @@ def get_sdrd_steps(model, tt_errtol, phases, maxsourcedepth=DEFAULT_SD_MAX,
     # pool = Pool()
     # already_calculated_tt_indices = set(_CMP_DIST_INDICES)
     idx = 1
-    total = float(maxsourcedepth)
+    total = maxsourcedepth
     depthstep_km = getstep(tt_errtol, wavevelocity, deg2km, unit='km')
     for sd, rd, tts, lasttts in itercreator(model, tt_errtol, phases, distances, depthstep_km,
                                             maxsourcedepth, maxreceiverdepth):
         if isterminal:
-            count = old_div(sd,total)
+            count = sd / total
             percentdone = int(0.5 + (100.0 * count))
             eta = None if count == 0 else \
-                int(0.5 + (total-sd) * (old_div(float(time.time() - start), sd)))
+                int(0.5 + (total-sd) * ((time.time() - start) / sd))
             maxerr = np.nan if lasttts is None else np.nanmax(abs(tts-lasttts))
             # round to 0.1 sec:
             tt_list = np.around(tts, decimals=timemaxdecimaldigits(tt_errtol)+1).tolist()

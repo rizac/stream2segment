@@ -1,11 +1,16 @@
 '''
-Created on Jul 15, 2016
+Models for the ORM
 
-@author: riccardo
+:date: Jul 15, 2016
+:author: riccardo
 '''
+
+# make the following(s) behave like python3 counterparts if running from python2.7.x
+# (http://python-future.org/imports.html#explicit-imports):
 from builtins import str
+
 import re
-import sqlite3  # @IgnorePep8
+import sqlite3
 
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, backref, deferred
@@ -73,7 +78,8 @@ class Base(_Base):
         cls = self.__class__
         ret = [cls.__name__ + ":"]
         insp = inspect(cls)
-        for colname, col in list(insp.columns.items()):
+        for colname, col in insp.columns.items():  # Note: returns a list, if perfs are a concern,
+            # we should iterate over the underlying insp.columns._data (but's cumbersome)
             typ = col.type
             typ_str = str(typ)
             try:
@@ -81,7 +87,7 @@ class Base(_Base):
             except Exception as exc:
                 val = "(not shown: %s)" % str(exc)
             ret.append("%s %s: %s" % (colname, typ_str, val))
-        for relationship in list(insp.relationships.keys()):
+        for relationship in insp.relationships.keys():  # see note above on insp.columns.items()
             ret.append("%s: relationship" % relationship)
         return "\n".join(ret)
 

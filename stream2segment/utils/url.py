@@ -1,22 +1,26 @@
 '''
-Created on Apr 15, 2017
+Http requests with multi-threading (async) utilities
 
-@author: riccardo
+:date: Apr 15, 2017
+:author: riccardo
 '''
-from __future__ import print_function
-from future import standard_library
-standard_library.install_aliases()
-from builtins import map
-from builtins import str
+# make the following(s) behave like python3 counterparts if running from python2.7.x
+# (http://python-future.org/imports.html#explicit-imports):
+from builtins import map, str
+
 from contextlib import closing
 import threading
-import urllib.request, urllib.error, urllib.parse  # @UnresolvedImport
 import http.client
 import socket
 from multiprocessing.pool import ThreadPool
 import psutil
 import os
-# import time
+
+# make the following(s) behave like python3 counterparts if running from python2.7.x
+# (http://python-future.org/imports.html#aliased-imports):
+from future import standard_library
+standard_library.install_aliases()
+import urllib.request, urllib.error  # @IgnorePep8
 
 
 def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
@@ -83,7 +87,8 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
                 raise URLException(exc)
             else:
                 raise exc
-    except (urllib.error.URLError, http.client.HTTPException, socket.error) as exc:
+    except (http.client.HTTPException,  # @UndefinedVariable
+            urllib.error.URLError, socket.error) as exc:
         if wrap_exceptions:
             raise URLException(exc)
         else:
@@ -91,7 +96,7 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
 
 
 class URLException(Exception):
-    """Custom exceptions which wraps any url/http related exception:
+    """Custom exception wrapping any url/http related exception:
     `urllib2.HTTPError`, `urllib2.URLError`, `httplib.HTTPException`, `socket.error`
     The original exception is retrievable via the `exc` attribute
     """
@@ -228,14 +233,14 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
             return obj, None, urlexc.exc, url
 
     tpool = ThreadPool(max_workers)
-    imap = tpool.imap_unordered if unordered else tpool.imap  # (func, iterable, chunksize)
+    threadpoolmap = tpool.imap_unordered if unordered else tpool.imap  # (func, iterable, chunksize)
     # note above: chunksize argument for threads (not processes)
     # seems to slow down download. Omit the argument and leave chunksize=1 (default)
 
     try:
         # this try is for the keyboard interrupt, which will be caught inside the
         # as_completed below
-        for result_tuple in map(urlwrapper, iterable):
+        for result_tuple in threadpoolmap(urlwrapper, iterable):
             if process is not None:
                 mem_percent = _mem_percent(process)
                 if mem_percent > max_mem_consumption:

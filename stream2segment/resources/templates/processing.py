@@ -77,28 +77,30 @@ Created on Feb 2, 2017
 
 @author: riccardo
 '''
-# import numpy for fatser numeric array processing:
-from builtins import zip
-import numpy as np
+# make the following(s) behave like python3 counterparts if running from python2.7.x
+# (http://python-future.org/imports.html#explicit-imports):
+from builtins import (ascii, bytes, chr, dict, filter, hex, input,
+                      int, map, next, oct, open, pow, range, round,
+                      str, super, zip)
 # import ordered dict if you want to create a csv with the header columns ordered as you want
+# Example: for each segment the output is two csv columns 'a' and 'b', with values
+# (str, float, whatever) val_a and val_b, respectively. After computing in `main` val_a and val_b,
+# this might NOT preserve the column order 'a' and 'b':
+# return {'a': val_a, 'b': val_b}
+# this on the other hand it does preserve order:
+# return OrderedDict([['a': val_a], ['b', val_b]])
 from collections import OrderedDict
-# Example from above: python dicts do not preserve the keys order (as they where inserted), so
-# returning {'a':7, 'b':56} might write 'b' as first column and 'a' as second in the csv.
-# To set the order you want:
-# dic = OrderedDict()
-# dic['a'] = 7
-# dic['b'] = 56
-
+# import numpy for efficient computation:
+import numpy as np
+# when working with times, use obspy UTCDateTime:
+from obspy.core.utcdatetime import UTCDateTime
 # strem2segment functions for processing mseeds. This is just a list of possible functions
 # to show how to import them:
 from stream2segment.analysis.mseeds import ampratio, bandpass, cumsum,\
     cumtimes, fft, maxabs, snr, utcdatetime, ampspec, get_tbounds
-# when working with times, use obspy UTCDateTime:
-from obspy.core.utcdatetime import UTCDateTime
 # stream2segment function for processing numpy arrays (such as stream.traces[0])
 # If you need to to use them, import them:
 # from stream2segment.analysis import ampspec as _ampspec, freqs
-
 
 
 def main(seg, stream, inventory, config):

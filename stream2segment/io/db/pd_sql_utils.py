@@ -24,12 +24,19 @@ Created on Jul 17, 2016
 @author: riccardo
 '''
 from __future__ import division
-from builtins import map
-from builtins import zip
+
+# make the following(s) behave like python3 counterparts if running from python2.7.x
+# (http://python-future.org/imports.html#explicit-imports):
 from builtins import range
+
+# Returns a list over dictionary values (and keys)
+# with the same list-like behaviour on Py2.7 as on Py3:
+from future.utils import listvalues, iterkeys
+
+
 from datetime import datetime, date
 # from collections import OrderedDict
-from itertools import cycle
+# from itertools import cycle
 import numpy as np
 import pandas as pd
 
@@ -97,10 +104,12 @@ def colnames(table, pkey=None, fkey=None, nullable=None):
     # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper.mapped_table
     table = mapper.mapped_table
     fkeys_cols = set((fk.parent for fk in table.foreign_keys)) if fkey in (True, False) else set([])
-    for att_name, column in list(mapper.columns.items()):
+    for att_name, column in mapper.columns.items():
         # the dict-like above is keyed based on the attribute name defined in the mapping,
         # not necessarily the key attribute of the Column itself (column). See
         # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper.columns
+        # Note also: mapper.columns.items() returns a list, if perfs are a concern,
+        # we should iterate over the underlying mapper.columns._data (but's cumbersome)
         if (pkey is None or pkey == column.primary_key) and \
                 (fkey is None or (column in fkeys_cols) == fkey) and \
                 (nullable is None or nullable == column.nullable):
@@ -320,7 +329,7 @@ def dfrowiter(dataframe, columns=None):
     # code.
     # See _insert_table below). Thus we zip it:
     for row_values in zip(*datalist):
-        yield dict(list(zip(cols, row_values)))
+        yield dict(zip(cols, row_values))
 
 
 def _get_max(session, numeric_column):
@@ -539,15 +548,15 @@ def insertdf(dataframe, session, matching_columns, buf_size=10, query_first=True
 
         if len(buf) == buf_size or (i == last and buf):
             try:
-                session.connection().execute(table_model.__table__.insert(), list(buf.values()))
+                session.connection().execute(table_model.__table__.insert(), listvalues(buf))
                 session.commit()
             except SQLAlchemyError as _:
                 session.rollback()
-                if onerr is not None:
-                    onerr(dataframe, iter(buf.keys()), _)
                 not_inserted += len(buf)
+                if onerr is not None:
+                    onerr(dataframe.loc[iterkeys(buf)], _)
                 if return_df:
-                    indices_discarded.extend(iter(buf.keys()))
+                    indices_discarded.extend(iterkeys(buf))
 
             buf.clear()
 
@@ -614,15 +623,15 @@ def updatedf(dataframe, session, where_col, update_columns, buf_size=10, return_
         buf[i] = rowdict
         if len(buf) == buf_size or (i == last and buf):
             try:
-                session.connection().execute(stmt, list(buf.values()))
+                session.connection().execute(stmt, listvalues(buf))
                 session.commit()
             except SQLAlchemyError as _:
                 session.rollback()
-                if onerr is not None:
-                    onerr(dataframe, iter(buf.keys()), _)
                 not_updated += len(buf)
+                if onerr is not None:
+                    onerr(dataframe.loc[iterkeys(buf)], _)
                 if return_df:
-                    indices_discarded.extend(iter(buf.keys()))
+                    indices_discarded.extend(iterkeys(buf))
 
             buf.clear()
 

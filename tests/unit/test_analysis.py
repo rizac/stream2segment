@@ -117,20 +117,23 @@ def test_cumsum(mock_np, arr, normalize, expected_result):
     mock_np.cumsum = mock.Mock(side_effect = lambda *a, **k: np.cumsum(*a, **k))
     mock_np.square =  mock.Mock(side_effect = lambda *a, **k: np.square(*a, **k))
     mock_np.max =  mock.Mock(side_effect = lambda *a, **k: np.max(*a, **k))
-    mock_np.true_divide =  mock.Mock(side_effect = lambda *a, **k: np.true_divide(*a, **k))
+    # mock_np.true_divide =  mock.Mock(side_effect = lambda *a, **k: np.true_divide(*a, **k))
     mock_np.isnan = mock.Mock(side_effect = lambda *a, **k: np.isnan(*a, **k))
     r = cumsum(arr, normalize=normalize)
     assert len(r) == len(arr)
     assert (r == np.array(expected_result)).all()
     assert mock_np.cumsum.called
     assert mock_np.square.called
-    if normalize:
-        assert mock_np.isnan.called
-        assert mock_np.max.called
-        assert mock_np.true_divide.called
-    else:
-        assert not mock_np.max.called
-        assert not mock_np.true_divide.called
+    
+    assert mock_np.isnan.called == normalize
+    assert mock_np.max.called == normalize
+#     if normalize:
+#         assert mock_np.isnan.called
+#         assert mock_np.max.called
+#         assert mock_np.true_divide.called
+#     else:
+#         assert not mock_np.max.called
+#         assert not mock_np.true_divide.called
 
 
 @mock.patch('stream2segment.analysis.np')
@@ -138,7 +141,7 @@ def test_cumsum_errs(mock_np):
     mock_np.cumsum = mock.Mock(side_effect = lambda *a, **k: np.cumsum(*a, **k))
     mock_np.square =  mock.Mock(side_effect = lambda *a, **k: np.square(*a, **k))
     mock_np.max =  mock.Mock(side_effect = lambda *a, **k: np.max(*a, **k))
-    mock_np.true_divide =  mock.Mock(side_effect = lambda *a, **k: np.true_divide(*a, **k))
+    # mock_np.true_divide =  mock.Mock(side_effect = lambda *a, **k: np.true_divide(*a, **k))
     mock_np.isnan = mock.Mock(side_effect = lambda *a, **k: np.isnan(*a, **k))
     
     arr = [0, 0]
@@ -149,7 +152,7 @@ def test_cumsum_errs(mock_np):
     assert mock_np.square.called
     assert mock_np.isnan.called
     assert mock_np.max.called
-    assert not mock_np.true_divide.called
+    # assert not mock_np.true_divide.called
     
     arr = [1, float('nan')]
     r = cumsum(arr, normalize=True)
@@ -159,4 +162,4 @@ def test_cumsum_errs(mock_np):
     assert mock_np.square.called
     assert mock_np.isnan.called
     assert mock_np.max.called
-    assert not mock_np.true_divide.called
+    # assert not mock_np.true_divide.called

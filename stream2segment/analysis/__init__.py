@@ -1,3 +1,9 @@
+"""
+Math utilities for python scalars or numpy arrays
+
+:author: riccardo Zaccarelli <rizac@gfz-potsdam.de>
+"""
+
 from __future__ import division
 
 from math import floor, ceil, isnan
@@ -43,7 +49,7 @@ def dfreq(time_signal, delta_t):
     signal (time-series)
     :param delta_t: the sample rate of signal (distance in seconds between two points)
     """
-    return np.true_divide(1.0, (len(time_signal) * delta_t))
+    return 1 / (len(time_signal) * delta_t)
 
 
 def freqs(signal, delta):
@@ -71,7 +77,7 @@ def freqs(signal, delta):
     `floor(1 + len(signal) / 2.0)`. The first array value will be in any case 0
     """
     try:
-        leng = floor(1 + np.true_divide(len(signal), 2.0))
+        leng = floor(1 + len(signal) / 2)
         delta_f = dfreq(signal, delta)
     except TypeError:
         leng = signal
@@ -128,18 +134,18 @@ def snr(signal, noise, signals_form='', fmin=None, fmax=None, delta_signal=1.,
     signal = trim(signal, delta_signal, fmin, fmax, nearest_sample)
     noise = trim(noise, delta_noise, fmin, fmax, nearest_sample)
 
-    if not len(signal) or not len(noise):  # avoid warning from np.true_divide
-        # Return numpy number for consistency
+    if not len(signal) or not len(noise):  # avoid potential warnings later
         return np.nan
 
     # normalize by the number of points:
+    # use np.true_divide for testing purposes (mock the latter)
     square1 = np.true_divide(np.sum(signal), len(signal))
     square2 = np.true_divide(np.sum(noise), len(noise))
 
-    if square2 == 0:  # avoid warning from np.true_divide (see above)
+    if square2 == 0:  # avoid potential warnings later
         return np.nan
 
-    ret = np.true_divide(square1, square2)
+    ret = square1 / square2
 
     if in_db:
         # avoid warning from np.log
@@ -177,16 +183,13 @@ def argtrim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
         return (None, None)
 
     idxmin, idxmax = minx, maxx
-    deltax = float(deltax)
 
     if minx is not None:
-        idx = int(round(np.true_divide(minx, deltax))
-                  if nearest_sample else ceil(np.true_divide(minx, deltax)))
+        idx = int(round(minx / deltax) if nearest_sample else ceil(minx / deltax))
         idxmin = min(max(0, idx), len(signal))
 
     if maxx is not None:
-        idx = int(round(np.true_divide(maxx, deltax))
-                  if nearest_sample else floor(np.true_divide(maxx, deltax))) + 1
+        idx = int(round(maxx / deltax) if nearest_sample else floor(maxx / deltax)) + 1
         idxmax = min(max(0, idx), len(signal))
 
     return idxmin, idxmax
@@ -199,9 +202,8 @@ def cumsum(signal, normalize=True):
     if normalize:  # and (ret != 0).any():
         max_ = np.max(ret)
         if not np.isnan(max_) and (max_ != 0):
-            # normalize between 0 and 1. Note true div cause if signal is made of ints we have a
-            # floor division with loss of precision
-            ret = np.true_divide(ret, max_)
+            # normalize between 0 and 1. Note that ret /= max_ might lead to cast problems, so:
+            ret = ret / max_
     return ret
 
 
@@ -260,8 +262,7 @@ def triangsmooth(array, winlen_ratio):
     while len(wdw) > 1:  # len(wdw)=1: wdw = [0] => np.sum below is no-op => skip it
         n = wdw[-1] + 1
         idxs = np.argwhere(npts == n)
-        smoothed_array[idxs.flatten()] = np.true_divide(np.sum(tri_wdw * array[idxs + wdw], axis=1),
-                                                        n ** 2)
+        smoothed_array[idxs.flatten()] = np.sum(tri_wdw * array[idxs + wdw], axis=1) / (n ** 2)
         wdw = wdw[1:-1]
         tri_wdw[n-2:-2] = tri_wdw[n:]  # shift tri_wdw (this seems to be faster than other methods)
         tri_wdw = tri_wdw[:-2]

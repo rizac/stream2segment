@@ -1,12 +1,14 @@
 '''
-Created on Nov 25, 2016
+Utilities for the download package
 
-@author: riccardo
+:date: Nov 25, 2016
+:author: riccardo
 '''
 from __future__ import division
-from builtins import zip
-from builtins import str
-from past.utils import old_div
+# make the following(s) behave like python3 counterparts if running from python2.7.x
+# (http://python-future.org/imports.html#explicit-imports):
+from builtins import zip, str
+
 import re
 from datetime import timedelta, datetime
 import dateutil
@@ -16,10 +18,9 @@ import numpy as np
 import pandas as pd
 from sqlalchemy.orm.session import object_session
 
-from stream2segment.io.db.models import Event, Station, Run, Channel
+from stream2segment.io.db.models import Event, Station, Channel
 from stream2segment.io.db.pd_sql_utils import harmonize_columns,\
     harmonize_rows, colnames
-from stream2segment.utils.resources import version
 from stream2segment.utils.url import urlread, URLException
 from stream2segment.io.utils import dumps_inv, loads_inv
 
@@ -38,7 +39,7 @@ def get_events_list(eventws, **args):
         if code == 413:  # payload too large (formerly: request entity too large)
             start = dateutil.parser.parse(args.get('start', datetime(1970, 1, 1).isoformat()))
             end = dateutil.parser.parse(args.get('end', datetime.utcnow().isoformat()))
-            total_seconds_diff = (old_div((end-start),2)).total_seconds()
+            total_seconds_diff = ((end-start) / 2).total_seconds()
             if total_seconds_diff < 1:
                 raise ValueError("%d: %s (maximum recursion reached: time window < 1 sec)" %
                                  (code, msg))
@@ -620,18 +621,3 @@ def locations2degrees(lat1, lon1, lat2, lon2):
 def get_url_mseed_errorcodes():
     """returns the error codes for general url exceptions and mseed errors, respectively"""
     return (-1, -2)
-#     with pd.option_context('display.max_rows', len(dframe),
-#                            'display.max_columns', len(dframe.columns),
-#                            'max_colwidth', 50, 'expand_frame_repr', False):
-#         return str(dframe)
-
-
-def isoformat(obj, ifnone='raise'):
-    if obj is None and ifnone != 'raise':
-        return ifnone
-    try:
-        return obj.isoformat()
-    except AttributeError:
-        if type(obj) == str:
-            return obj
-        raise

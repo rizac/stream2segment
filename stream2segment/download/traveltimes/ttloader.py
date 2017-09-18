@@ -1,15 +1,17 @@
 '''
-Created on Sep 1, 2017
+Module holding the TTTable class, a class ehich loads compressed numpy data previously
+created via the `:ref:ttcreator` module and that allows the calculation of the
+minimum theoretical travel times by means of a pre-computed grid of points
+using linear, cubic or nearest sample approximation
 
-@author: riccardo
+:date: Sep 1, 2017
+:author: riccardo
 '''
 from __future__ import division
-from builtins import zip
-from builtins import str
-from builtins import range
-from builtins import object
-from past.utils import old_div
 
+# make the following(s) behave like python3 counterparts if running from python2.7.x
+# (http://python-future.org/imports.html#explicit-imports):
+from builtins import zip, str, range, object
 
 import numpy as np
 from scipy.interpolate.ndgriddata import griddata
@@ -104,7 +106,7 @@ class TTTable(object):
 
         # ret is almost likely a float, so we can set now nans for out of boun values
         # we cannot do it before on any input array cause int arrays do not support nan assignement
-        ret[(source_depths > self._sourcedepth_bounds_km[1]) | \
+        ret[(source_depths > self._sourcedepth_bounds_km[1]) |
             (receiver_depths > self._receiverdepth_bounds_km[1])] = np.nan
         # return scalar if inputs are scalar, array oitherwise
         return np.squeeze(ret) if allscalars else ret
@@ -126,11 +128,11 @@ class TTTable(object):
 
         def echorow(array):
             ret = []
-            for i in range(old_div(maxrows, 2)):
+            for i in range(int(maxrows / 2)):
                 ret.append(r_(array[i]))
             if len(array) > maxrows:
                 ret.append("...")
-            for i in range(old_div(-maxrows, 2), 0):
+            for i in range(int(-maxrows / 2), 0):
                 ret.append(r_(array[i]))
             return " ".join(ret)
 
@@ -142,14 +144,14 @@ class TTTable(object):
                "Input error tolerance: %f" % self._tt_errtol,
                "Data:", hline, _frmt % ("Source", "Receiver", ""),
                _frmt % ("depth", "depth", "Travel times"), hline]
-        for i in range(old_div(maxrows,2)):
+        for i in range(int(maxrows / 2)):
             s, r = r_(self._sourcedepths[i]), r_(self._receiverdepths[i])
             ret.append(_frmt % (s, r, echorow(self._traveltimes[i])))
 
         if len(self._sourcedepths) > maxrows:
             ret.append(_frmt % ("...", "...", "..."))
 
-        for i in range(old_div(-maxrows, 2), 0):
+        for i in range(int(-maxrows / 2), 0):
             s, r = r_(self._sourcedepths[i]), r_(self._receiverdepths[i])
             ret.append(_frmt % (s, r, echorow(self._traveltimes[i])))
 

@@ -88,20 +88,15 @@ def test_snr(mock_np_true_divide):
         mock_np_true_divide.reset_mock()
         assert snr(signal, noise, signals_form=sf, fmin=delta_f, fmax=None, delta_signal=delta,
                    delta_noise=delta, in_db=False) == 1
-        # we called np.true_divide 6 times:
-        # 1 for calculating dfreq for noise (if sf.lower() != 'pow')
-        # 1 for calculating dfreq for signal (if sf.lower() != 'pow')
-        # 1 for trimming noise signal (not 2 cause fmax is None)
-        # 1 for trimming signal (not 2 cause fmax is None)
+        # we called np.true_divide 2 times
         # 1 for normalizing noise
         # 1 for normalizing signal
-        # 1 for the final sn ratio
         # thus
-        assert len(mock_np_true_divide.call_args_list) == 7 if not sf.lower() else 5
+        assert len(mock_np_true_divide.call_args_list) == 2
         # assert that when normalizing the second arg (number of points) is the expected fft number of points
         # minus 1 cause we set fmin=delta_f (ignore first freq bin)
-        assert mock_np_true_divide.call_args_list[-3][0][1] == expected_leng_s - 1  # signal
-        assert mock_np_true_divide.call_args_list[-2][0][1] == expected_leng_n - 1  # noise
+        assert mock_np_true_divide.call_args_list[-2][0][1] == expected_leng_s - 1  # signal
+        assert mock_np_true_divide.call_args_list[-1][0][1] == expected_leng_n - 1  # noise
 
     # test fmin set but negative (same as missing)
     delta_t = 0.01
@@ -113,20 +108,15 @@ def test_snr(mock_np_true_divide):
         mock_np_true_divide.reset_mock()
         assert snr(signal, noise, signals_form=sf, fmin=-delta_f, fmax=None, delta_signal=delta,
                    delta_noise=delta, in_db=False) == 1
-        # we called np.true_divide 6 times:
-        # 1 for calculating dfreq for noise (if sf.lower() != 'pow')
-        # 1 for calculating dfreq for signal (if sf.lower() != 'pow')
-        # 1 for trimming noise signal (not 2 cause fmax is None)
-        # 1 for trimming signal (not 2 cause fmax is None)
+        # we called np.true_divide 2 times:
         # 1 for normalizing noise
         # 1 for normalizing signal
-        # 1 for the final sn ratio
         # thus
-        assert len(mock_np_true_divide.call_args_list) == 7 if not sf.lower() else 5
+        assert len(mock_np_true_divide.call_args_list) == 2
         # assert that when normalizing the second arg (number of points) is the expected fft number of points
         # minus 1 cause we set fmin=delta_f (ignore first freq bin)
-        assert mock_np_true_divide.call_args_list[-3][0][1] == expected_leng_s  # signal
-        assert mock_np_true_divide.call_args_list[-2][0][1] == expected_leng_n  # noise
+        assert mock_np_true_divide.call_args_list[-2][0][1] == expected_leng_s  # signal
+        assert mock_np_true_divide.call_args_list[-1][0][1] == expected_leng_n  # noise
 
     # test fmax set:
     signal = np.array([0, 1, 2, 3, 4, 5, 6])
@@ -149,8 +139,8 @@ def test_snr(mock_np_true_divide):
                          delta_signal=delta, delta_noise=delta, in_db=False)).all()
         # assert when normalizing we called a slice of signal and noise with the first element removed due
         # to the choice of delta_f and delta
-        signal_call = mock_np_true_divide.call_args_list[-3][0]
-        noise_call = mock_np_true_divide.call_args_list[-2][0]
+        signal_call = mock_np_true_divide.call_args_list[-2][0]
+        noise_call = mock_np_true_divide.call_args_list[-1][0]
         assert signal_call[1] == 2  # fmax removes all BUT first 2 frequencies
         assert noise_call[1] == 2  # fmax removes all BUT first 2 frequencies
 
@@ -167,7 +157,7 @@ def test_snr(mock_np_true_divide):
         # assert we did not call true_divide as many times as before
         # as empty arrays (because fmax=-delta_f)
         # are skipped:
-        assert len(mock_np_true_divide.call_args_list) == 4 if not sf else 2
+        assert len(mock_np_true_divide.call_args_list) == 0
 
 
 def test_triangsmooth():

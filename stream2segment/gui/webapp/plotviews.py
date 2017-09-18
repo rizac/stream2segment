@@ -14,14 +14,14 @@ special down-sampling (if given, the screen number of pixels is usually much low
 plot data points)
 
 Due to the fact that we need to synchronize when to load a segment and/or its components,
-when requesting a semgent all components are loaded together and their Plots are stored into a
+when requesting a segment all components are loaded together and their Plots are stored into a
 ```
 PlotsCache
 ```
 object, which also stores the sn_windows data (signal-to-noise windows according to the current
 config). All data in a PlotsCache is ... cached whenever possible. Note that if pre-process is
-enabled, a clone of PlotsCache is done, which works on the pre-processed stream (plots are not shared
-across these PlotsCache instances, whereas the sn_window data is)
+enabled, a clone of PlotsCache is done, which works on the pre-processed stream (plots are not
+shared across these PlotsCache instances, whereas the sn_window data is)
 
 Finally, this module holds a base manager class:
 ```
@@ -46,34 +46,32 @@ Then the user can call `.tojson` on any given plot and a response can be sent ac
 Finally, note that when s/n windows are changed, then PlotManager.set_sn_window must be called:
 this resets all plots and they will be recalculated when queried.
 
-Created on Jun 8, 2017
-
-@author: riccardo
+:date: Jun 8, 2017
+:author: riccardo
 '''
 from __future__ import division
-from builtins import zip
-from builtins import str
-from builtins import range
-from past.utils import old_div
-from builtins import object
+
+# make the following(s) behave like python3 counterparts if running from python2.7.x
+# (http://python-future.org/imports.html#explicit-imports):
+from builtins import zip, str, range, object
+
 from io import BytesIO
 from itertools import cycle
 from datetime import datetime, timedelta
 
 import numpy as np
-from sqlalchemy.sql.expression import and_, or_
-from sqlalchemy.orm.session import object_session
-from sqlalchemy.orm.util import aliased
+from sqlalchemy.orm import load_only
+# from sqlalchemy.sql.expression import and_, or_
+# from sqlalchemy.orm.session import object_session
+# from sqlalchemy.orm.util import aliased
 from obspy.core import Stream, Trace, UTCDateTime, read
-from obspy.geodetics.base import locations2degrees
 
 from stream2segment.analysis.mseeds import cumsum, cumtimes, fft
 from stream2segment.io.db.models import Channel, Segment
-from stream2segment.analysis import ampspec, powspec
+# from stream2segment.analysis import ampspec, powspec
 from stream2segment.io.db.queries import getallcomponents
 from stream2segment.download.utils import get_inventory
 from stream2segment.utils import iterfuncs
-from sqlalchemy.orm import load_only
 
 
 def get_stream(segment):
@@ -772,7 +770,7 @@ def downsample(array, npts):
     # get minima and maxima
     # http://numpy-discussion.10968.n7.nabble.com/reduce-array-by-computing-min-max-every-n-samples-td6919.html
     offset = array.size % npts
-    chunk_size = old_div(array.size, npts)
+    chunk_size = int(array.size / npts)
 
     newdxratio = np.true_divide(chunk_size, 2)
     if newdxratio <= 1:

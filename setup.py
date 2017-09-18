@@ -98,7 +98,7 @@ setup(
     # it apparently downloads numpy, then obspy, THEN INSTALLS both
     # so that, since obspy requires numpy, it complains that's not installed.
     # numpy must be therefore installed separately, and we write:
-    install_requires=['obspy', 'pyyaml', 'pandas', 'Flask', 'futures'],
+    install_requires=['obspy', 'pyyaml', 'pandas', 'Flask', 'futures', 'psycopg2', 'psutil'],
 
     # List additional groups of dependencies here (e.g. development
     # dependencies). You can install these using the following syntax,
@@ -106,7 +106,7 @@ setup(
     # $ pip install -e .[dev,test]
     extras_require={
         # 'dev': ['check-manifest'],
-        'test': ['pep8', 'pylint', 'pytest', 'pytest-cov', 'pytest-mock'],
+        'test': ['pep8', 'pylint', 'pytest', 'mock', 'pytest-cov', 'pytest-mock'],
     },
 
     # If there are data files included in your packages that need to be

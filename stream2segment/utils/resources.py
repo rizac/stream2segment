@@ -1,14 +1,16 @@
 '''
-Module returning all project specific resources (files).
+Module for easily accessing all project specific resources.
 
-Created on Feb 20, 2017
-
-@author: riccardo
+:date: Feb 20, 2017
+:author: riccardo
 '''
 from os import listdir
 from os.path import join, dirname, abspath, normpath, isfile, isabs, splitext
 import re
 from collections import defaultdict
+
+# python2-3 compatibility for items and viewitems:
+from future.utils import viewitems
 import yaml
 
 
@@ -106,7 +108,7 @@ def yaml_load(filepath, raw=False, **defaults):
         # we cannot modify a dict while in iteration, thus create a new dict of possibly
         # modified sqlite paths and use later dict.update
         newdict = {}
-        for k, v in ret.items():
+        for k, v in viewitems(ret):
             try:
                 if v.startswith(sqlite_prefix) and ":memory:" not in v:
                     dbpath = v[len(sqlite_prefix):]
@@ -117,7 +119,7 @@ def yaml_load(filepath, raw=False, **defaults):
         if newdict:
             ret.update(newdict)
 
-        for key, val in defaults.items():
+        for key, val in viewitems(defaults):
             if key not in ret:
                 ret[key] = val
     return ret

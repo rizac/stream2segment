@@ -2,8 +2,10 @@
 """
     Common utilities for the program
 """
-# from __future__ import print_function  # , unicode_literals
+# make the following(s) behave like python3 counterparts if running from python2.7.x
+# (http://python-future.org/imports.html#explicit-imports):
 from builtins import object
+
 import os
 import yaml
 import re
@@ -12,8 +14,8 @@ from datetime import datetime, timedelta
 import sys
 from collections import defaultdict
 import inspect
-
 from contextlib import contextmanager
+
 from sqlalchemy.orm.scoping import scoped_session
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm.session import sessionmaker
