@@ -39,7 +39,7 @@ def get_events_list(eventws, **args):
         if code == 413:  # payload too large (formerly: request entity too large)
             start = dateutil.parser.parse(args.get('start', datetime(1970, 1, 1).isoformat()))
             end = dateutil.parser.parse(args.get('end', datetime.utcnow().isoformat()))
-            total_seconds_diff = ((end-start) / 2).total_seconds()
+            total_seconds_diff = (end-start).total_seconds() / 2
             if total_seconds_diff < 1:
                 raise ValueError("%d: %s (maximum recursion reached: time window < 1 sec)" %
                                  (code, msg))

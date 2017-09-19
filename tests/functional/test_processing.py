@@ -3,8 +3,8 @@ Created on Feb 14, 2017
 
 @author: riccardo
 '''
-from __future__ import print_function
-from __future__ import division
+from __future__ import print_function, division
+
 from future import standard_library
 standard_library.install_aliases()
 from builtins import str

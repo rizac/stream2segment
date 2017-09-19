@@ -11,7 +11,7 @@ from __future__ import division
 
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import zip, str, range, object
+from builtins import zip, range, object
 
 import numpy as np
 from scipy.interpolate.ndgriddata import griddata
@@ -113,12 +113,28 @@ class TTTable(object):
 
     @property
     def model(self):
-        model = self._modelname.item()
-        return model.decode('utf8') if isinstance(model, bytes) else model
+        '''Returns the model name whereby this object has been built
+        :return: the model name (string)
+        '''
+        return self._py23str(self._modelname.item())
 
     @property
     def phases(self):
-        return [p.decode('utf8') if isinstance(p, bytes) else p for p in self._phases]
+        '''Returns the travel times phases whereby this object has been built
+        :return: a list of strings representing the travel time phases
+        '''
+        return [self._py23str(p) for p in self._phases]
+
+    @staticmethod
+    def _py23str(stringorbytes):
+        # this is due to the fact that we might have created the underlying .npz file with
+        # python2, and read it with python3. So some values of interest, namely
+        # self.phases and self.model, need to be converted. The brute force approach is
+        # to check if they are str (bytes in python2 and str in python3). If yes, go on, otherwise
+        # value is a `byte` object and we are in python3, so decode it:
+        if not isinstance(stringorbytes, str):
+            mname = stringorbytes.decode('utf8')
+        return mname
 
     def __str__(self, *args, **kwargs):
         maxrows = 6

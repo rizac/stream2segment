@@ -69,7 +69,7 @@ class Test(unittest.TestCase):
             # try to make ttp which should be faster than ttp+ and most likely without
             # nans that are not in ttp+
             result = runner.invoke(ttcreator.run, ['-o', mydir, '-m', 'iasp91', '-t', 10, '-p',
-                                                   phase, '-s', 61.3, '-r', 2, '-d', 44.3],
+                                                   phase, '-s', 51.3, '-r', 2, '-d', 34.3],
                                    catch_exceptions=False)
             assert result.exit_code == 0
             assert os.path.isfile(_filepath(mydir, 'iasp91', [phase]) + ".npz")
@@ -78,7 +78,7 @@ class Test(unittest.TestCase):
             # test with no receiver depths (set to 0)
             phase = 'tts'
             result = runner.invoke(ttcreator.run, ['-o', mydir, '-m', 'ak135', '-t', 10, '-p',
-                                                   phase, '-s', 61.3, '-r', 0 , '-d', 44.3],
+                                                   phase, '-s', 51.3, '-r', 0 , '-d', 34.3],
                                    catch_exceptions=False)
             assert result.exit_code == 0
             assert os.path.isfile(_filepath(mydir, 'ak135', [phase]) + ".npz")

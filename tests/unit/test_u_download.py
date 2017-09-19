@@ -10,13 +10,21 @@ Created on Feb 4, 2016
 
 from future import standard_library
 standard_library.install_aliases()
+
 from builtins import str
 import numpy as np
 from mock import patch
 import pytest
 from mock import Mock
 from datetime import datetime, timedelta
-from io import StringIO
+
+import sys
+# this can apparently not be avoided neither with the future package:
+# The problem is io.StringIO accepts unicodes in python2 and strings in python3:
+try:
+    from cStringIO import StringIO  # python2.x
+except ImportError:
+    from io import StringIO
 
 import unittest, os
 from sqlalchemy.engine import create_engine
@@ -42,7 +50,7 @@ import socket
 from obspy.taup.helper_classes import TauModelError
 # import logging
 # from logging import StreamHandler
-import sys
+
 # from stream2segment.main import logger as main_logger
 from sqlalchemy.sql.expression import func
 from stream2segment.utils import get_session, mseedlite3
@@ -327,7 +335,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         retvals = []
         # Check if we have an iterable (where strings are considered not iterables):
         if not hasattr(urlread_side_effect, "__iter__") or isinstance(urlread_side_effect, (bytes, str)):
-            # it’s not an iterable (wheere str/bytes/unicode are considered NOT iterable in both py2 and 3)
+            # it's not an iterable (wheere str/bytes/unicode are considered NOT iterable in both py2 and 3)
             urlread_side_effect = [urlread_side_effect]
             
         for k in urlread_side_effect:

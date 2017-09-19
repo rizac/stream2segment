@@ -8,8 +8,14 @@ from __future__ import print_function
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import str
+# this can apparently not be avoided neither with the future package:
+# The problem is io.StringIO accepts unicodes in python2 and strings in python3:
+try:
+    from cStringIO import StringIO  # python2.x
+except ImportError:
+    from io import StringIO
 
-from io import BytesIO, StringIO
+from io import BytesIO
 import os
 import sys
 import logging

@@ -77,12 +77,12 @@ def freqs(signal, delta):
     `floor(1 + len(signal) / 2.0)`. The first array value will be in any case 0
     """
     try:
-        leng = floor(1 + len(signal) / 2)
+        leng = int(floor(1 + len(signal) / 2))
         delta_f = dfreq(signal, delta)
     except TypeError:
         leng = signal
         delta_f = delta
-    return np.linspace(0, (delta_f * leng), leng, endpoint=False)
+    return np.linspace(0, delta_f * leng, leng, endpoint=False)
 
 
 def snr(signal, noise, signals_form='', fmin=None, fmax=None, delta_signal=1.,
