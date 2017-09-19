@@ -47,13 +47,14 @@ Finally, note that when s/n windows are changed, then PlotManager.set_sn_window 
 this resets all plots and they will be recalculated when queried.
 
 :date: Jun 8, 2017
-:author: riccardo
+
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
 from __future__ import division
 
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import zip, str, range, object
+from builtins import zip, range, object
 
 from io import BytesIO
 from itertools import cycle

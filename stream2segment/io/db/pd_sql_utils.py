@@ -19,9 +19,9 @@ Refs
   http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper
   http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper.columns
 
-Created on Jul 17, 2016
+:date: Jul 17, 2016
 
-@author: riccardo
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
 from __future__ import division
 

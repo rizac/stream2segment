@@ -4,9 +4,9 @@ this program. This allows to have a single point where all queries are
 implemented to make easier potential changes in the ORM models or performance
 optimizations
 
-Created on Jun 8, 2017
+:date: Jun 8, 2017
 
-@author: riccardo
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
 from sqlalchemy import func, distinct
 from sqlalchemy.orm import load_only

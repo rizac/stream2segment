@@ -1,13 +1,12 @@
 '''
+Main module for the processing
+
 Created on Feb 2, 2017
 
-@author: riccardo
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
 from __future__ import print_function
 
-# make the following(s) behave like python3 counterparts if running from python2.7.x
-# (http://python-future.org/imports.html#explicit-imports):
-from builtins import str
 # this can apparently not be avoided neither with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
 try:

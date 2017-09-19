@@ -3,12 +3,9 @@ Module implementing the functionalities that allow querying an sql database
 via string expression on table columns
 
 :date: Mar 6, 2017
-:author: riccardo
-'''
 
-# make the following(s) behave like python3 counterparts if running from python2.7.x
-# (http://python-future.org/imports.html#explicit-imports):
-from builtins import str
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
+'''
 
 from datetime import datetime
 import shlex

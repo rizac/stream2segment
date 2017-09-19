@@ -1,7 +1,9 @@
 '''
-Created on Jun 20, 2016
+Functions for launching the web app
 
-@author: riccardo
+:date: Jun 20, 2016
+
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
 from __future__ import print_function
 

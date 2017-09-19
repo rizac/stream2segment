@@ -2,12 +2,13 @@
 Core functionalities for the GUI web application
 
 :date: Jul 31, 2016
-:author: riccardo
+
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
 
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import map, zip, str
+from builtins import map, zip
 
 import re
 from itertools import cycle

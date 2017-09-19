@@ -2,12 +2,9 @@
 Http requests with multi-threading (async) utilities
 
 :date: Apr 15, 2017
-:author: riccardo
-'''
-# make the following(s) behave like python3 counterparts if running from python2.7.x
-# (http://python-future.org/imports.html#explicit-imports):
-from builtins import map, str
 
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
+'''
 from contextlib import closing
 import threading
 import http.client

@@ -2,11 +2,12 @@
 Class handling logger for downloading and processing
 
 :date: Feb 20, 2017
-:author: riccardo
+
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import str, object
+from builtins import object
 
 import os
 import tempfile

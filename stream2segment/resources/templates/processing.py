@@ -75,7 +75,7 @@ the processing function
 
 Created on Feb 2, 2017
 
-@author: riccardo
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):

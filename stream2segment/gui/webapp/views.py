@@ -1,7 +1,9 @@
 '''
-Created on Jun 20, 2016
+Views for the web app
 
-@author: riccardo
+:date: Jun 20, 2016
+
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
 from flask import render_template, request, jsonify, Blueprint, current_app
 # from stream2segment.gui.webapp.plots import user_defined_plots, View

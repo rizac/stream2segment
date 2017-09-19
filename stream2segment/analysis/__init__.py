@@ -1,7 +1,7 @@
 """
 Math utilities for python scalars or numpy arrays
 
-:author: riccardo Zaccarelli <rizac@gfz-potsdam.de>
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
 
 from __future__ import division

@@ -2,7 +2,8 @@
 Module for easily accessing all project specific resources.
 
 :date: Feb 20, 2017
-:author: riccardo
+
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
 from os import listdir
 from os.path import join, dirname, abspath, normpath, isfile, isabs, splitext

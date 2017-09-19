@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-    Main module of the stream2segment package. Entry points and click commands are defined here
+Main module of the stream2segment package. Entry points and click commands are defined here
 
-   :author: riccardo
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
 from __future__ import print_function
 
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import str, object
+from builtins import object
 
 import logging
 import sys

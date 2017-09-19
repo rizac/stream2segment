@@ -2,12 +2,9 @@
 Models for the ORM
 
 :date: Jul 15, 2016
-:author: riccardo
-'''
 
-# make the following(s) behave like python3 counterparts if running from python2.7.x
-# (http://python-future.org/imports.html#explicit-imports):
-from builtins import str
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
+'''
 
 import re
 import sqlite3

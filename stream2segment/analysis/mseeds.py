@@ -2,9 +2,9 @@
 Math utilities for `:ref:obspy.Stream` objects (see also `analysis` for the numpy and python scalars
 counterpart)
 
-Created on Jun 20, 2016
+:date: Jun 20, 2016
 
-@author: riccardo
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
 from __future__ import division
 

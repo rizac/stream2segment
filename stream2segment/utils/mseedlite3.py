@@ -1,24 +1,13 @@
 """Python-only Mini-SEED module with limited functionality.
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-any later version.
-
-   :Copyright:
-       2005 Andres Heinloo, GEOFON, GFZ Potsdam <geofon@gfz-potsdam.de>
-   :License:
-       GPLv3
-   :Platform:
-       Linux
-
 .. moduleauthor:: Andres Heinloo <andres@gfz-potsdam.de>, GEOFON, GFZ Potsdam
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
 from __future__ import print_function, division
 
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import bytes, str, object
+from builtins import object
 
 import datetime
 import struct

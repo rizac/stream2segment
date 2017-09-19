@@ -3,13 +3,9 @@ Module handling messages to be displayed throughout the program by normalizing m
 format
 
 :date: Nov 30, 2016
-:author: riccardo
+
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
-
-
-# make the following(s) behave like python3 counterparts if running from python2.7.x
-# (http://python-future.org/imports.html#explicit-imports):
-from builtins import str
 
 
 def MSG(topic=None, action=None, errmsg=None, url=None):

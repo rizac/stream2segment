@@ -1,3 +1,8 @@
+"""
+Web app (gui) entry point
+
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
+"""
 from flask import Flask, g
 from stream2segment.utils import get_session as s2s_get_session, load_source
 from flask.json import JSONEncoder

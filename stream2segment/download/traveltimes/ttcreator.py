@@ -5,13 +5,13 @@ using linear, cubic or nearest sample approximation
 
 :date: Aug 23, 2017
 
-:author: riccardo
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
 from __future__ import print_function, division
 
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import zip, next, str, range, object
+from builtins import zip, next, range, object
 
 import os
 import sys

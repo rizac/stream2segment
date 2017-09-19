@@ -52,6 +52,8 @@ obspy Trace. Any other function must return:
         order must match insertion order, use `OrderedDict`
 
 The documentation of the function will be shown in the GUI, if present
+
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
 import numpy as np
 from obspy.core import Trace, Stream, UTCDateTime

@@ -119,7 +119,7 @@ def test_stats_table():
 
     # now build a stats table
     ret = stats2str(data={'col1': s}, totals_caption='total')  # by def is TOTAL
-    expected = u"""                           col1  total
+    expected = """                           col1  total
 MyExc: e                      4      4
 MyExc: e [code=500]           0      0
 MyExc: e(500)                 0      0
@@ -146,7 +146,7 @@ total                         9    21     30"""
     assert not eq(ret, expected)
 
 # this is what to expect:
-    expected = u"""                            col1  col2  total
+    expected = """                            col1  col2  total
 MyExc: e                    4.0   NaN    4.0
 MyExc: e [code=500]         0.0   NaN    0.0
 MyExc: e(500)               0.0   NaN    0.0
@@ -161,7 +161,7 @@ total                       9.0  21.0   30.0"""
     # append new data, with new rows and a new column, filling na with zeros
     dic = {'a': 6, 'b': 15}
     ret = stats2str(data={'col1': s, 'col2': dic}, totals_caption='total')  # by def is TOTAL
-    expected = u"""                           col1  col2  total
+    expected = """                           col1  col2  total
 MyExc: e                      4     0      4
 MyExc: e [code=500]           0     0      0
 MyExc: e(500)                 0     0      0
@@ -180,7 +180,7 @@ total                         9    21     30"""
     # set on data, with some rows and some new column
     dic = {'x': 56, 'MyExc: e(500)': -34}
     ret = stats2str(data={'col1': s, 'col2': dic}, fillna=0, totals_caption='total')  # by def is TOTAL
-    expected = u"""                           col1  col2  total
+    expected = """                           col1  col2  total
 MyExc: e                      4     0      4
 MyExc: e [code=500]           0     0      0
 MyExc: e(500)                 0   -34    -34
@@ -193,7 +193,7 @@ total                         9    22     31"""
     # same as above, but set transpose = True
     dic = {'x': 56, 'MyExc: e(500)': -34}
     ret = stats2str(fillna=0, data={'col1': s, 'col2': dic}, transpose=True, totals_caption='total')  # by def is TOTAL
-    expected = u"""       MyExc: e  MyExc: e [code=500]  MyExc: e(500)  MyExc: e(5000) [code=500]  error 1   x  total
+    expected = """       MyExc: e  MyExc: e [code=500]  MyExc: e(500)  MyExc: e(5000) [code=500]  error 1   x  total
 col1          4                    0              0                          0        5   0      9
 col2          0                    0            -34                          0        0  56     22
 total         4                    0            -34                          0        5  56     31"""

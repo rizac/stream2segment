@@ -5,7 +5,7 @@ minimum theoretical travel times by means of a pre-computed grid of points
 using linear, cubic or nearest sample approximation
 
 :date: Sep 1, 2017
-:author: riccardo
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
 from __future__ import division
 
@@ -123,7 +123,7 @@ class TTTable(object):
         '''Returns the travel times phases whereby this object has been built
         :return: a list of strings representing the travel time phases
         '''
-        return [self._py23str(p) for p in self._phases]
+        return [self._py23str(p) for p in self._phases.tolist()]
 
     @staticmethod
     def _py23str(stringorbytes):
@@ -133,8 +133,8 @@ class TTTable(object):
         # to check if they are str (bytes in python2 and str in python3). If yes, go on, otherwise
         # value is a `byte` object and we are in python3, so decode it:
         if not isinstance(stringorbytes, str):
-            mname = stringorbytes.decode('utf8')
-        return mname
+            stringorbytes = stringorbytes.decode('utf8')
+        return stringorbytes
 
     def __str__(self, *args, **kwargs):
         maxrows = 6

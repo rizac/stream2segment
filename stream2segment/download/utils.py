@@ -2,12 +2,13 @@
 Utilities for the download package
 
 :date: Nov 25, 2016
-:author: riccardo
+
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
 from __future__ import division
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import zip, str
+from builtins import zip
 
 import re
 from datetime import timedelta, datetime

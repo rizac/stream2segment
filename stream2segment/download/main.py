@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 """
 Core functions and classes for the download routine
-:author: riccardo
+
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
 
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import map, next, zip, str, range, object
+from builtins import map, next, zip, range, object
 
 import sys
 import os

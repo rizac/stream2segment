@@ -1,7 +1,8 @@
 '''
 Created on Jul 25, 2016
 
-@author: Jessie mMayor
+.. moduleauthor:: Jessie mMayor
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
 from __future__ import division
 
