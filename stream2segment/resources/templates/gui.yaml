@@ -106,7 +106,7 @@ inventory: True
 # set to True or False if station inventories should be saved when they need to be downloaded
 # If missing (e.g., by deleting the line below), it defaults to False. This parameter has effect only if inventory above is True
 # Saving inventories might speed up further processing but increases db size
-save_downloaded_inventory: False
+save_inventory: False
 
 # Define the windows for the sn-spectra (signal-noise spectra)
 #

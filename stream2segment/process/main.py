@@ -6,6 +6,7 @@ Created on Feb 2, 2017
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
 from __future__ import print_function
+from stream2segment.io.utils import loads_inv
 
 # this can apparently not be avoided neither with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
@@ -31,8 +32,8 @@ from obspy.core.stream import read
 from stream2segment.utils import get_progressbar, load_source, secure_dburl
 from stream2segment.utils.resources import yaml_load
 from stream2segment.io.db.models import Segment  # , Station
-from stream2segment.download.utils import get_inventory
-from stream2segment.io.db.queries import getquery4process
+from stream2segment.utils.postdownload import get_inventory, save_inventory, SegmentWrapper
+from stream2segment.io.db.queries import query4process
 
 
 logger = logging.getLogger(__name__)
@@ -104,9 +105,6 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
     else:
         funcname = 'main'
 
-    # not implemented, but the following var is used below for exceptions info
-    # pysourcefilename = os.path.basename(pysourcefile)
-
     try:
         pyfunc = load_source(pysourcefile).__dict__[funcname]
     except Exception as exc:
@@ -133,10 +131,7 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
     logger.info(" for all segments in '%s", secure_dburl(str(session.bind.engine.url)))
     logger.info("Config. file: %s", str(configsourcefile))
 
-    save_station_inventory = config.get('save_downloaded_inventory', False)
-    inventory_required = config.get('inventory', False)
-
-    load_stream = True
+    save_station_inventory = config.get('save_inventory', False)
 
     # multiprocess with sessions is a mess. So we have two choices: either we build a dict from
     # each segment object, or we simply do not use multiprocess. We will opt for the second choice
@@ -145,57 +140,33 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
     # do an iteration on the main process to check when AsyncResults is ready
     done = 0
 
-    # attributes to load only for stations and segments (sppeeds up db queries):
-    SEG_ID = Segment.id.key
-    seg_atts = [SEG_ID]  # ["channel_id", "start_time", "end_time", "id"]
-    segs_staids = getquery4process(session, config.get('segment_select', {}), *seg_atts)
+    seg_ids = query4process(session, config.get('segment_select', {}))
 
     # get total segment length:
-    seg_len = segs_staids.count()
+    seg_len = seg_ids.count()
     # actually, this is better as it should be optimized, but how to translate for the query we
     # have? comment for the moment:
     # seg_len = session.query(func.count(Segment.id)).filter(seg_filter).scalar()
     logger.info("%d segments found to process", seg_len)
 
-    current_inv = None
-    current_sta_id = None
-
-    stations_discarded = 0
-    segments_discarded = 0
-    stations_saved = 0
+    segwrapper = SegmentWrapper(session, None, save_station_inventory=save_station_inventory,
+                                cache_size=1)
 
     with redirect(sys.stderr):
         with get_progressbar(show_progress, length=seg_len) as pbar:
             try:
-                for seg, sta_id in segs_staids:
+                for (seg_id,) in seg_ids:
+                    segwrapper.reinit(seg_id)
                     pbar.update(1)
-                    if inventory_required:
-                        if sta_id != current_sta_id:
-                            current_sta_id = sta_id
-                            # try loading inventory
-                            try:
-                                current_inv = get_inventory(seg.station, save_station_inventory)
-                            except Exception as exc:
-                                stations_discarded += 1
-                                current_inv = None
-                                logger.error(exc)
-                        if current_inv is None:
-                            segments_discarded += 1
-                            continue
                     try:
-                        if load_stream:
-                            try:
-                                mseed = read(BytesIO(seg.data))
-                            except Exception as exc:
-                                raise ValueError("Error while reading mseed: " + str(exc))
-                        array = pyfunc(seg, mseed, current_inv, config)
+                        array = pyfunc(segwrapper, config)
                         if array is not None:
-                            ondone(seg, array)
+                            ondone(segwrapper, array)
                         done += 1
                     except (ImportError, NameError, AttributeError, SyntaxError, TypeError) as _:
                         raise  # sys.exc_info()
                     except Exception as generr:
-                        logger.warning("segment (id=%d): %s", seg.id, str(generr))
+                        logger.warning("segment (id=%d): %s", seg_id, str(generr))
             except:
                 err_msg = traceback.format_exc()
                 logger.critical(err_msg)
@@ -220,11 +191,8 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
 
     s.close()  # maybe not really necessary
 
-    if stations_discarded:
-        logger.info("%d stations (and %d relative segments) unprocessed: "
-                    "error in reading inventory)", stations_discarded, segments_discarded)
-    if stations_saved:
-        logger.info("station inventories saved: %d", stations_saved)
+#     if stations_saved:
+#         logger.info("station inventories saved: %d", stations_saved)
 
     logger.info("%d of %d segments successfully processed\n" % (done, seg_len))
 

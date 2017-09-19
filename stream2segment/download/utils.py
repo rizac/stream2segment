@@ -23,7 +23,7 @@ from stream2segment.io.db.models import Event, Station, Channel
 from stream2segment.io.db.pd_sql_utils import harmonize_columns,\
     harmonize_rows, colnames
 from stream2segment.utils.url import urlread, URLException
-from stream2segment.io.utils import dumps_inv, loads_inv
+from stream2segment.utils import urljoin
 
 
 def get_events_list(eventws, **args):
@@ -267,134 +267,6 @@ def empty(*obj):
         return [empty(o) for o in obj]
     obj = obj[0]
     return obj is None or obj.empty  # (hasattr(obj, 'empty') and obj.empty)
-
-
-# def appenddf(df1, df2):
-#     """
-#     Merges "vertically" the two dataframes provided as argument, handling empty values without
-#     errors: if the first dataframe is empty (`empty(df1)==True`) returns the second, if the
-#     second is empty returns the first. Otherwise calls `df1.append(df2, ignore_index=True)`
-#     :param df1: the first dataframe
-#     :param df2: the second dataframe
-#     """
-#     if empty(df1):
-#         return df2
-#     elif empty(df2):
-#         return df1
-#     else:
-#         return df1.append(df2, ignore_index=True)
-
-
-def urljoin(*urlpath, **query_args):
-    """Joins urls and appends to it the query string obtained by kwargs
-    Note that this function is intended to be simple and fast: No check is made about white-spaces
-    in strings, no encoding is done, and if some value of `query_args` needs special formatting
-    (e.g., "%1.1f"), that needs to be done before calling this function
-    :param urls: portion of urls which will build the query url Q. For more complex url functions
-    see `urlparse` library: this function builds the url path via a simple join stripping slashes:
-    ```'/'.join(url.strip('/') for url in urlpath)```
-    So to preserve slashes (e.g., at the beginning) pass "/" or "" as arguments (e.g. as first
-    argument to preserve relative paths).
-    :query_args: keyword arguments which will build the query string
-    :return: a query url built from arguments
-
-    :Example:
-    ```
-    >>> urljoin("http://www.domain", start='2015-01-01T00:05:00', mag=5.455559, arg=True)
-    'http://www.domain?start=2015-01-01T00:05:00&mag=5.455559&arg=True'
-
-    >>> urljoin("http://www.domain", "data", start='2015-01-01T00:05:00', mag=5.455559, arg=True)
-    'http://www.domain/data?start=2015-01-01T00:05:00&mag=5.455559&arg=True'
-
-    # Note how slashes are handled in urlpath. These two examples give the same url path:
-
-    >>> urljoin("http://www.domain", "data")
-    'http://www.domain/data?'
-
-    >>> urljoin("http://www.domain/", "/data")
-    'http://www.domain/data?'
-
-    # leading and trailing slashes on each element of urlpath are removed:
-
-    >>> urljoin("/www.domain/", "/data")
-    'www.domain/data?'
-
-    # so if you want to preserve them, provide an empty argument or a slash:
-
-    >>> urljoin("", "/www.domain/", "/data")
-    '/www.domain/data?'
-
-    >>> urljoin("/", "/www.domain/", "/data")
-    '/www.domain/data?'
-    ```
-    """
-    # http://stackoverflow.com/questions/1793261/how-to-join-components-of-a-path-when-you-are-constructing-a-url-in-python
-    return "{}?{}".format('/'.join(url.strip('/') for url in urlpath),
-                          "&".join("{}={}".format(k, v) for k, v in query_args.items()))
-
-
-def get_inventory(station, save_if_downloaded=False, **urlread_kwargs):
-    """Gets the inventory object for the given station, downloading it and saving it
-    if not data is empty/None.
-    Raises SqlAlchemyError or TypeError if station's session is None, ValueError if inventory data
-    is empty
-    """
-    data = station.inventory_xml
-    if not data:
-        data = download_inventory(station, **urlread_kwargs)
-        if save_if_downloaded and data:
-            save_inventory(data, station)
-
-    if not data:
-        raise ValueError()
-
-    return loads_inv(data)
-
-
-def download_inventory(station, **urlread_kwargs):
-    query_url = get_inventory_url(station)
-    return urlread(query_url, **urlread_kwargs)[0]
-
-
-def get_inventory_url(station):
-    return get_inventory_url_(station.datacenter.station_url, station.network,
-                              station.station)
-
-
-def get_inventory_url_(station_url, network, station):
-    return urljoin(station_url, station=station, network=network, level='response')
-
-
-def save_inventory(downloaded_data, station):
-    """Saves the inventory. Raises SqlAlchemyError or TypeError if station's session is None
-    """
-    session = object_session(station)
-    if session is None:
-        raise TypeError("None session on station object")
-    station.inventory_xml = dumps_inv(downloaded_data)
-    session.commit()
-
-
-# def calculate_times(sta_lat, sta_lon, evt_lat, evt_lon, evt_depth_km, evt_time,
-#                     traveltime_phases, taup_model='ak135'):
-#     taupmodel_obj = TauPyModel(taup_model)  # create the taupmodel once
-#     # old comment (REMOVE not used here anymore):
-#     # iteration over dframe columns is faster than DataFrame.itertuples
-#     # and is more readable as we only need a bunch of columns.
-#     # Note: we zip using dataframe[columname] iterables. Using
-#     # dataframe[columname].values (underlying pandas numpy array) is even faster,
-#     # BUT IT DOES NOT RETURN pd.TimeStamp objects for date-time-like columns but np.datetim64
-#     # instead. As the former subclasses python datetime (so it's sqlalchemy compatible) and the
-#     # latter does not, we go for the latter ONLY BECAUSE WE DO NOT HAVE DATETIME LIKE OBJECTS:
-# #     for sta_id, stalat, stalon in izip(stations_df[Channel.station_id.key].values,
-# #                                        stations_df[Station.latitude.key].values,
-# #                                        stations_df[Station.longitude.key].values):
-# 
-#     # stalat, stalon = getattr(sta, latstr), getattr(sta, lonstr)
-#     degrees = locations2degrees(evt_lat, evt_lon, sta_lat, sta_lon)
-#     arr_time = get_arrival_time(degrees, evt_depth_km, evt_time, traveltime_phases,
-#                                 taupmodel_obj)
-#     return degrees, arr_time
 
 
 class UrlStats(dict):

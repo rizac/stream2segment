@@ -99,7 +99,7 @@ from obspy.core.utcdatetime import UTCDateTime
 # from stream2segment.analysis import ampspec as _ampspec, freqs
 
 
-def main(seg, stream, inventory, config):
+def main(segment, config):
     """
     Main processing function, where the user must implement the processing for a single segment
     which will populate a csv file row.
@@ -226,6 +226,12 @@ def main(seg, stream, inventory, config):
     Thus, it is suggested to convert everything to string or number. E.g., for `UTCDateTime`s
     you could return either `float(utcdatetime)` (numeric) or `utcdatetime.isoformat()` (string)
     """
+    # better to query the segment data first so in case of error the function exists
+    # and we avoid useless calculations:
+    stream = segment.stream()
+    inventory = segment.inventory()
+    arrival_time = segment.arrival_time
+    evt = segment.event
 
     # discard streams with more than one trace. This let us avoid to calculate gaps
     # which might be time consuming (the user can inspect later the miniseed in case)
@@ -242,10 +248,9 @@ def main(seg, stream, inventory, config):
         raise ValueError('possibly saturated (amp. ratio exceeds)')
 
     # convert to UTCDateTime for operations later:
-    a_time = UTCDateTime(seg.arrival_time) + config['arrival_time_delay']
+    a_time = UTCDateTime(arrival_time) + config['arrival_time_delay']
 
     # bandpass the trace, according to the event magnitude
-    evt = seg.event
     fmin = mag2freq(evt.magnitude)
     trace = bandpass(trace, fmin, freq_max=config['bandpass_freq_max'],
                      max_nyquist_ratio=config['bandpass_max_nyquist_ratio'],

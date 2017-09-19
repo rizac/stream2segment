@@ -16,7 +16,7 @@ from obspy.core.utcdatetime import UTCDateTime
 from stream2segment.analysis import ampspec, freqs
 
 
-def main(seg, config):
+def main(seg, config, arg1, arg2):
 
     if not seg.data:
         raise ValueError('empty data')

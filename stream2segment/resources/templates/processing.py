@@ -103,18 +103,11 @@ from stream2segment.analysis.mseeds import ampratio, bandpass, cumsum,\
 # from stream2segment.analysis import ampspec as _ampspec, freqs
 
 
-def main(seg, stream, inventory, config):
+def main(segment, config):
     """
     Main processing function, where the user must implement the processing for a single segment
-    which will populate a csv file row.
-    This function can return None or raise any Exception E not in
-    `TypeError, SyntaxError, NameError, ImportError`:
-    in both cases (None or E), the segment will not be
-    written to the csv file. None will silently ignore the segment, otherwise
-    the exception message (with the segment id) will be written to a `logger`.
-    If this file is run for csv output, the logger output will be a .log file in the same
-    folder than the output csv file.
-    For info about possible function to use, please have a look at `stream2segment.analysis.mseeds`
+
+    For info about possible functions to use, please have a look at `stream2segment.analysis.mseeds`
     and obviously at `obpsy <https://docs.obspy.org/packages/index.html>`_, in particular:
 
     *  `obspy.core.Stream <https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.html#obspy.core.stream.Stream>_`
@@ -123,15 +116,26 @@ def main(seg, stream, inventory, config):
     :param: segment (ptyhon object): An object representing a waveform data to be processed,
     reflecting the relative database table row.
 
-    Technically it's an 'SqlAlchemy` ORM instance but for the user it is enough to
-    consider and treat it as a normal python object. It has three special methods:
+    Technically it's like an 'SqlAlchemy` ORM instance but for the user it is enough to
+    consider and treat it as a normal python object. It has two special methods returning `obspy`
+    objects and several attributes reflecting and returning the segment table column value on the database.
 
-    `segment` has the following attributes (with relative python type) which return the values
-    of the relative database table columns. The attributes are mainly self-explanatory.
-    Attributes marked as * are time consuming when accessed. Their usage is therefore not
-    recommended (in general, you do not need to access them)
+    segment methods:
+    ----------------
 
-    segment.data                            bytes* (the raw data for building `stream`)
+    segment.stream(): the `obspy.Stream` object representing the waveform data saved to the db and
+    relative to the given segment
+
+    segment.inventory(): the `obspy.core.inventory.inventory.Inventory` object useful for removing
+    the instrumental response
+
+    segment attributes:
+    -------------------
+
+    (in the following the attributes and their python type. those marked with * are time consuming
+    when accessed: their usage is therefore not recommended. In general, you do not need to access them)
+
+    segment.data                            bytes* (the raw data for building `stream()`)
     segment.id                              int
     segment.event_distance_deg              float
     segment.start_time                      datetime.datetime
@@ -177,7 +181,7 @@ def main(seg, stream, inventory, config):
     segment.station.site_name               str
     segment.station.start_time              datetime.datetime
     segment.station.end_time                datetime.datetime
-    segment.station.inventory_xml           bytes* (the raw data for building `inventory`)
+    segment.station.inventory_xml           bytes* (the raw data for building `inventory()`)
     segment.station.datacenter              object (same as segment.datacenter, see below)
 
     segment.datacenter                      object (attributes below)
@@ -185,7 +189,7 @@ def main(seg, stream, inventory, config):
     segment.datacenter.station_url          str
     segment.datacenter.dataselect_url       str
 
-    segment.run                             object (attributes below)
+    segment.run                             object (attributes below) representing the download run
     segment.run.id                          int
     segment.run.run_time                    datetime.datetime
     segment.run.log                         str*
@@ -193,15 +197,6 @@ def main(seg, stream, inventory, config):
     segment.run.errors                      int
     segment.run.config                      str
     segment.run.program_version             str
-
-
-    :param stream: the `obspy.Stream` object representing the waveform data saved to the db and
-    relative to the given segment
-
-
-    :param inventory: the `obspy.core.inventory.inventory.Inventory` object useful for removing
-    the instrumental response ()
-    It is None in the `config` the key "inventory" is missing or set to False
 
     :param: config (python dict): a dictionary reflecting what has been implemented in $CONFIG.
     You can write there whatever you want (in yaml format, e.g. "propertyname: 6.7" ) and it
@@ -217,19 +212,26 @@ def main(seg, stream, inventory, config):
     If this function (or module) raises:
     `TypeError`, `SyntaxError`, `NameError`, `ImportError`
     this will **stop** the iteration process, because they are most likely caused
-    by code errors which the user should fix without waiting the all process.
+    by code errors which the user should fix without waiting the all segments to be processed.
     Otherwise, the function can **raise** any other Exception, or **return** None.
-    In both cases, the iteration will go on processing the following segment, but the current
-    segment will not be written to the csv file. In the former case, the exception message
-    (with a segment description, including its database id) will be written to a log file
-    `$OUTPUT.log`. Otherwise, return None to silently skip the segment (with no messages)
+    In both cases, the iteration will go on processing the following segment.
+    None will silently ignore the segment, otherwise
+    the exception message (with the segment id) will be written to a `logger`.
+    If this function is run for csv output, the logger output will be a .log file in the same
+    folder than the output csv file.
 
     Pay attention when setting complex objects (e.g., everything neither string nor numeric) as
     elements of the returned iterable: the values will be most likely converted to string according
     to python `__str__` function and might be out of control for the user.
-    Thus, it is suggested to convert everything to string or number. E.g., for `UTCDateTime`s
+    Thus, it is suggested to convert everything to string or number. E.g., for obspy's `UTCDateTime`s
     you could return either `float(utcdatetime)` (numeric) or `utcdatetime.isoformat()` (string)
     """
+    # better first to fetch the segment data all at once so in case of errors the function exists
+    # and we avoid useless and time consuming calculations on the current segment:
+    stream = segment.stream()
+    inventory = segment.inventory()
+    arrival_time = segment.arrival_time
+    evt = segment.event
 
     # discard streams with more than one trace. This let us avoid to calculate gaps
     # which might be time consuming (the user can inspect later the miniseed in case)
@@ -246,10 +248,9 @@ def main(seg, stream, inventory, config):
         raise ValueError('possibly saturated (amp. ratio exceeds)')
 
     # convert to UTCDateTime for operations later:
-    a_time = UTCDateTime(seg.arrival_time) + config['arrival_time_delay']
+    a_time = UTCDateTime(arrival_time) + config['arrival_time_delay']
 
     # bandpass the trace, according to the event magnitude
-    evt = seg.event
     fmin = mag2freq(evt.magnitude)
     trace = bandpass(trace, fmin, freq_max=config['bandpass_freq_max'],
                      max_nyquist_ratio=config['bandpass_max_nyquist_ratio'],

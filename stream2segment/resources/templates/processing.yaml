@@ -90,16 +90,10 @@ segment_select:
                     # whereas "GURALP CMG-40T-30S" matches "GURALP" or "CMG-40T-30S" but not the whole string. This is needed only with
                     # STRING VALUES WITH spaces. In any other case, provide only quotes around the whole expression
 
-# set to True or False if station inventories should be passed in the processing function
-# If you don't need inventories (usually useful for removing the instrumental response from the Stream object)
-# set to False, as this will speed up the processing loop
-# If missing (e.g., by deleting the line below), it defaults to False
-inventory: True
-
 # set to True or False if station inventories should be saved when they need to be downloaded
-# If missing (e.g., by deleting the line below), it defaults to False. This parameter has effect only if inventory above is True
+# If missing (e.g., by deleting the line below), it defaults to False.
 # Saving inventories might speed up further processing but increases db size
-save_downloaded_inventory: False
+save_inventory: False
 
 
 # custom parameters. You can define whatever you want here as needed in the processing python file

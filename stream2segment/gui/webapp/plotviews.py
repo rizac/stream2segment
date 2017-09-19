@@ -71,18 +71,9 @@ from stream2segment.analysis.mseeds import cumsum, cumtimes, fft
 from stream2segment.io.db.models import Channel, Segment
 # from stream2segment.analysis import ampspec, powspec
 from stream2segment.io.db.queries import getallcomponents
-from stream2segment.download.utils import get_inventory
+from stream2segment.utils.postdownload import get_inventory, get_stream
 from stream2segment.utils import iterfuncs
 
-
-def get_stream(segment):
-    """Returns a Stream object relative to the given segment.
-        :param segment: a model ORM instance representing a Segment (waveform data db row)
-    """
-    data = segment.data
-    if not data:
-        raise ValueError('no data')
-    return read(BytesIO(segment.data))
 
 
 def exec_function(func, segment, stream, inventory, config,
@@ -265,7 +256,7 @@ class PlotsCache(object):
             self.data[segid][2] = None  # will force to recalculate sn-windows on demand
             plots = self.data[segid][1]
             for i in range(len(plots)):
-                if i == index_of_traceplot:  # the trace plot stays the same, it does not use conig
+                if i == index_of_traceplot:  # the trace plot stays the same, it does not use config
                     continue
                 plots[i] = None
 
@@ -461,7 +452,7 @@ class PlotManager(object):
             if inventory is None:
                 try:
                     inventory = get_inventory(segment.station,
-                                              self.config['save_downloaded_inventory'])
+                                              self.config['save_inventory'])
                 except Exception as exc:
                     inventory = exc
                 self._inv_cache[sta_id] = inventory

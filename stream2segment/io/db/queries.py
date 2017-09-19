@@ -17,21 +17,16 @@ from sqlalchemy.sql.expression import or_, and_
 from sqlalchemy.orm.session import object_session
 
 
-def getquery4process(session, conditions, *seg_atts):
-    '''
-    seg_atts: what has to be loaded, as string(s)
-    '''
+def query4process(session, conditions={}):
     # segement selection, build query:
     # Base query: query segments and station id Note: without the join below, rows would be
     # duplicated
-    segs_staids = session.query(Segment, Station.id).join(Segment.station).\
-        options(load_only(*seg_atts)).\
-        order_by(Station.id)  # @UndefinedVariable
+    seg_ids = session.query(Segment.id).join(Segment.station).order_by(Station.id)
     # Now parse selection:
     if conditions:
         # parse user defined conditions (as dict of key:value <=> "column": "expr")
-        segs_staids = exprquery(segs_staids, conditions=conditions, orderby=None, distinct=True)
-    return segs_staids
+        seg_ids = exprquery(seg_ids, conditions=conditions, orderby=None, distinct=True)
+    return seg_ids
 
 
 def query4gui(session, conditions, orderby):

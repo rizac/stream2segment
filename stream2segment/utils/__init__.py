@@ -280,8 +280,57 @@ def indent(string, n_chars=3):
     with n_chars spaces.
     :param n_chars: int or string: the number of spaces to use for indentation. If 'tab',
     indents using the tab character"""
-    reg = re.compile("^", re.MULTILINE)
+    reg = re.compile("^", re.MULTILINE)  # @UndefinedVariable
     return reg.sub("\t" if n_chars == 'tab' else " " * n_chars, string)
+
+
+def urljoin(*urlpath, **query_args):
+    """Joins urls and appends to it the query string obtained by kwargs
+    Note that this function is intended to be simple and fast: No check is made about white-spaces
+    in strings, no encoding is done, and if some value of `query_args` needs special formatting
+    (e.g., "%1.1f"), that needs to be done before calling this function
+    :param urls: portion of urls which will build the query url Q. For more complex url functions
+    see `urlparse` library: this function builds the url path via a simple join stripping slashes:
+    ```'/'.join(url.strip('/') for url in urlpath)```
+    So to preserve slashes (e.g., at the beginning) pass "/" or "" as arguments (e.g. as first
+    argument to preserve relative paths).
+    :query_args: keyword arguments which will build the query string
+    :return: a query url built from arguments
+
+    :Example:
+    ```
+    >>> urljoin("http://www.domain", start='2015-01-01T00:05:00', mag=5.455559, arg=True)
+    'http://www.domain?start=2015-01-01T00:05:00&mag=5.455559&arg=True'
+
+    >>> urljoin("http://www.domain", "data", start='2015-01-01T00:05:00', mag=5.455559, arg=True)
+    'http://www.domain/data?start=2015-01-01T00:05:00&mag=5.455559&arg=True'
+
+    # Note how slashes are handled in urlpath. These two examples give the same url path:
+
+    >>> urljoin("http://www.domain", "data")
+    'http://www.domain/data?'
+
+    >>> urljoin("http://www.domain/", "/data")
+    'http://www.domain/data?'
+
+    # leading and trailing slashes on each element of urlpath are removed:
+
+    >>> urljoin("/www.domain/", "/data")
+    'www.domain/data?'
+
+    # so if you want to preserve them, provide an empty argument or a slash:
+
+    >>> urljoin("", "/www.domain/", "/data")
+    '/www.domain/data?'
+
+    >>> urljoin("/", "/www.domain/", "/data")
+    '/www.domain/data?'
+    ```
+    """
+    # http://stackoverflow.com/questions/1793261/how-to-join-components-of-a-path-when-you-are-constructing-a-url-in-python
+    return "{}?{}".format('/'.join(url.strip('/') for url in urlpath),
+                          "&".join("{}={}".format(k, v) for k, v in query_args.items()))
+
 
 
 # def printfunc(isterminal=False):

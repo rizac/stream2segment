@@ -6,6 +6,8 @@ Created on Feb 14, 2017
 from __future__ import print_function, division
 
 from future import standard_library
+from stream2segment.io.db.queries import query4process
+from stream2segment.utils.postdownload import SegmentWrapper, get_inventory_url
 standard_library.install_aliases()
 from builtins import str
 from past.utils import old_div
@@ -22,7 +24,7 @@ from urllib.error import URLError
 from click.testing import CliRunner
 from stream2segment.main import main, closing
 import tempfile
-from stream2segment.io.db.models import Base, Event, Class, Station, WebService
+from stream2segment.io.db.models import Base, Event, Class, Station, WebService, Segment, withdata
 import csv
 from itertools import cycle
 from future.backports.urllib.error import URLError
@@ -33,6 +35,7 @@ from stream2segment import process
 from obspy.core.stream import read
 import io
 from stream2segment.utils.resources import get_templates_fpaths
+from stream2segment.utils.postdownload import save_inventory as original_saveinv
 
 class DB(object):
     def __init__(self):
@@ -213,7 +216,7 @@ class Test(unittest.TestCase):
         self.dburi = self.db.dburi
 
         # mock get inventory:
-        self.patcher = patch('stream2segment.download.utils.urlread')
+        self.patcher = patch('stream2segment.utils.postdownload.urlread')
         self.mock_url_read = self.patcher.start()
         self.mock_url_read.side_effect = self.url_read
 
@@ -334,6 +337,8 @@ class Test(unittest.TestCase):
 
     @staticmethod
     def url_read(*a, **v):
+        '''mock urlread for inventories. Checks in the url (first arg if there is the 'err', 'ok'
+        or none' substring and returns appropriated data'''
         if "=err" in a[0]:
             raise URLError('error')
         elif "=none" in a[0]:
@@ -349,6 +354,38 @@ class Test(unittest.TestCase):
 
 ### ======== ACTUAL TESTS: ================================
 
+    @mock.patch('stream2segment.utils.postdownload.save_inventory', side_effect=original_saveinv)
+    def test_segwrapper(self, mock_saveinv):
+        
+        segids = query4process(self.session, {}).all()
+        prev_staid = None
+        segwrapper = SegmentWrapper(self.session, segment_id=None,
+                                    save_station_inventory=True)
+
+        for (segid,) in segids:
+            # mock_get_inventory.reset_mock()
+            staid = self.session.query(Segment).filter(Segment.id == segid).one().station.id
+            assert prev_staid is None or staid >= prev_staid
+            staequal = prev_staid is not None and staid == prev_staid
+            prev_staid = staid
+            segwrapper.reinit(segid)
+
+            mock_saveinv.reset_mock()
+            sta_url = get_inventory_url(segwrapper.station)
+            if "=err" in sta_url or "=none" in sta_url:
+                with pytest.raises(Exception):  # all inventories are None
+                    segwrapper.inventory()
+                assert not mock_saveinv.called
+            else:
+                segwrapper.inventory()
+                if staequal:
+                    assert not mock_saveinv.called
+                else:
+                    assert mock_saveinv.called
+                assert len(segwrapper.station.inventory_xml) > 0
+            
+        
+
     # Recall: we have 5 segments:
     # 2 are empty, out of the remaining three:
     # 1 has errors if its inventory is queried to the db. Out of the other two:
@@ -360,9 +397,13 @@ class Test(unittest.TestCase):
     # Here a simple test for a processing file returning dict. Save inventory and check it's saved
     @mock.patch('stream2segment.process.main.load_proc_cfg')
     def test_simple_run_retDict_saveinv(self, mock_load_cfg):
-        self.custom_config['inventory']=True
-        self.custom_config['save_downloaded_inventory']=True
+        self.custom_config['save_inventory']=True
         mock_load_cfg.side_effect = self.load_proc_cfg
+
+        # query data for testing now as the program will expunge all data from the session
+        # and thus we want to avoid DetachedInstanceError(s):
+        expected_first_row_seg_id = str(self.db.seg1.id)
+        station_id_whose_inventory_is_saved = self.db.sta_ok.id
 
         # need to reset this global variable: FIXME: better handling?
         process.main._inventories = {}
@@ -386,7 +427,7 @@ class Test(unittest.TestCase):
                 for row in spamreader:
                     rowz += 1
                     if rowz == 2:
-                        assert row[0] == str(self.db.seg1.id)
+                        assert row[0] == expected_first_row_seg_id
 #                         assert row[1] == self.db.seg1.start_time.isoformat()
 #                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 2
@@ -405,7 +446,8 @@ class Test(unittest.TestCase):
         # test we did save any inventory:
         stas = self.session.query(models.Station).all()
         assert any(s.inventory_xml for s in stas)
-        assert self.session.query(models.Station).filter(models.Station.id == self.db.sta_ok.id).first().inventory_xml
+        assert self.session.query(models.Station).filter(models.Station.id ==
+                                                         station_id_whose_inventory_is_saved).first().inventory_xml
 
 
     # Recall: we have 5 segments:
@@ -419,9 +461,12 @@ class Test(unittest.TestCase):
     # Here a simple test for a processing file returning dict. Don't save inventory and check it's not saved
     @mock.patch('stream2segment.process.main.load_proc_cfg')
     def test_simple_run_retDict_dontsaveinv(self, mock_load_cfg):
-        self.custom_config['inventory']=True
-        self.custom_config['save_downloaded_inventory']=False
+        self.custom_config['save_inventory']=False
         mock_load_cfg.side_effect = self.load_proc_cfg
+
+        # query data for testing now as the program will expunge all data from the session
+        # and thus we want to avoid DetachedInstanceError(s):
+        expected_first_row_seg_id = str(self.db.seg1.id)
 
         # need to reset this global variable: FIXME: better handling?
         process.main._inventories={}
@@ -445,7 +490,7 @@ class Test(unittest.TestCase):
                 for row in spamreader:
                     rowz += 1
                     if rowz == 2:
-                        assert row[0] == str(self.db.seg1.id)
+                        assert row[0] == expected_first_row_seg_id
 #                         assert row[1] == self.db.seg1.start_time.isoformat()
 #                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 2
@@ -478,8 +523,11 @@ class Test(unittest.TestCase):
         # Note: withdata is not specified so we will get 3 segments (2 with data None, 1 with data which raises
         # errors for station inventory)
         self.custom_config['segment_select'] = {'station.latitude': '<10', 'station.longitude': '<10'}
-        self.custom_config['inventory'] = True
         mock_load_cfg.side_effect = self.load_proc_cfg
+
+        # query data for testing now as the program will expunge all data from the session
+        # and thus we want to avoid DetachedInstanceError(s):
+        expected_first_row_seg_id = str(self.db.seg1.id)
         
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
@@ -504,7 +552,7 @@ class Test(unittest.TestCase):
                 for row in spamreader:
                     rowz += 1
                     if rowz == 2:
-                        assert row[0] == str(self.db.seg1.id)
+                        assert row[0] == expected_first_row_seg_id
 #                         assert row[1] == self.db.seg1.start_time.isoformat()
 #                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 0
@@ -515,10 +563,11 @@ class Test(unittest.TestCase):
                 assert "SAWarning: Pathed join target" in sss
                 
                 # ===================================================================
-                # NOW WE CAN CHECK IF THE URLREAD HAS BEEN CALLED TWICE AND NOT MORE:
-                # once for the none segments, once for the err segment
+                # NOW WE CAN CHECK IF THE URLREAD HAS BEEN CALLED ONCE.
+                # Out of the three segments to process, two have no data thus we do not reach
+                # the inventory() method. It remains only the third one:
                 # ===================================================================
-                assert self.mock_url_read.call_count == 2
+                assert self.mock_url_read.call_count == 1
 
 # Recall: we have 5 segments:
     # 2 are empty, out of the remaining three:
@@ -537,8 +586,11 @@ class Test(unittest.TestCase):
         # Note: withdata is True so we will get 1 segment (1 with data which raises
         # errors for station inventory)
         self.custom_config['segment_select'] = {'has_data': 'true', 'station.latitude': '<10', 'station.longitude': '<10'}
-        self.custom_config['inventory'] = True
         mock_load_cfg.side_effect = self.load_proc_cfg
+        
+        # query data for testing now as the program will expunge all data from the session
+        # and thus we want to avoid DetachedInstanceError(s):
+        expected_first_row_seg_id = str(self.db.seg1.id)
         
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
@@ -563,7 +615,7 @@ class Test(unittest.TestCase):
                 for row in spamreader:
                     rowz += 1
                     if rowz == 2:
-                        assert row[0] == str(self.db.seg1.id)
+                        assert row[0] == expected_first_row_seg_id
 #                         assert row[1] == self.db.seg1.start_time.isoformat()
 #                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 0
@@ -586,6 +638,10 @@ class Test(unittest.TestCase):
     def test_simple_run_ret_list(self):
         runner = CliRunner()
 
+        # query data for testing now as the program will expunge all data from the session
+        # and thus we want to avoid DetachedInstanceError(s):
+        expected_first_row_seg_id = str(self.db.seg1.id)
+
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             pyfile, conffile = self.get_processing_files(True)
             result = runner.invoke(main, ['p', '--dburl', self.dburi,
@@ -607,7 +663,7 @@ class Test(unittest.TestCase):
                 for row in spamreader:
                     rowz += 1
                     if rowz == 1:
-                        assert row[0] == str(self.db.seg1.id)
+                        assert row[0] == expected_first_row_seg_id
 #                         assert row[1] == self.db.seg1.start_time.isoformat()
 #                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 1
@@ -629,7 +685,7 @@ class Test(unittest.TestCase):
             # we should not write anything
             logtext = Test.read_and_remove(file.name+".log")
             # messages very from python 2 to 3. If python4 changes again, write it here below the case
-            string2check = "TypeError: main() takes 2 positional arguments but 4 were given" \
+            string2check = "TypeError: main() missing 2 required positional arguments: 'arg1' and 'arg2'" \
                 if sys.version_info[0] > 2 else "TypeError: main() takes exactly 2 arguments (4 given)"
             assert string2check in logtext
 
