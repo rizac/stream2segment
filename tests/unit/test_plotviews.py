@@ -29,10 +29,10 @@ from sqlalchemy.sql.expression import func, bindparam, and_
 import time
 from itertools import product
 from stream2segment.io.db.queries import getallcomponents
-from obspy.core.stream import read
+from obspy.core.stream import read, Stream
 from stream2segment.utils import load_source
 from stream2segment.utils.resources import yaml_load
-from stream2segment.gui.webapp.plotviews import PlotManager, exec_function
+from stream2segment.gui.webapp.plotviews import PlotManager, get_plot
 from obspy.io.stationtxt.core import all_components
 from mock.mock import patch
 
@@ -189,11 +189,82 @@ class Test(unittest.TestCase):
         with open(os.path.join(folder, "GE.FLT1.xml"), 'rb') as opn:
             self.inventory = loads_inv(opn.read())
 
+    @staticmethod
+    def plotslen(plotmanager):
+        return sum(1 if p[0] else 0 for p in plotmanager._plotscache.values())
+    
+    @staticmethod
+    def pplotslen(plotmanager):
+        return sum(1 if p[1] else 0 for p in plotmanager._plotscache.values())
+
+    @staticmethod
+    def getplots(plotmanager, seg_id, allcomponents=False):
+        data = plotmanager._plotscache[seg_id][0].data
+        if not data:
+            return []
+        if allcomponents:
+            return list(data[segid]['plots'] for segid in data)
+        else:
+            return data[seg_id]['plots']
+    
+    @staticmethod
+    def getpplots(plotmanager, seg_id, allcomponents=False):
+        data = plotmanager._plotscache[seg_id][1].data
+        if not data:
+            return []
+        if allcomponents:
+            return list(data[segid]['plots'] for segid in data)
+        else:
+            return data[seg_id]['plots']
+
+    @staticmethod
+    def computedplotslen(plotmanager, seg_id, allcomponents=False):
+        data = Test.getplots(plotmanager, seg_id, allcomponents)
+        if not allcomponents:
+            data = [data]
+        s = 0
+        for d in data:
+            s += sum(1 if _ else 0 for _ in d)
+        return s
+    
+    @staticmethod
+    def computedpplotslen(plotmanager, seg_id, allcomponents=False):
+        data = Test.getpplots(plotmanager, seg_id, allcomponents)
+        if not allcomponents:
+            data = [data]
+        s = 0
+        for d in data:
+            s += sum(1 if _ else 0 for _ in d)
+        return s
+    
+    @staticmethod
+    def tracecount(plotmanager, seg_id, allcomponents=False):
+        allsegids = plotmanager._plotscache[seg_id][0].data.keys()
+        total = 0
+        for sid in allsegids:
+            streamorexc = plotmanager._plotscache[sid][0].get_cache(sid, 'stream')
+            num = len(streamorexc) if isinstance(streamorexc, Stream) else 1 if isinstance(streamorexc, Exception) else 0
+            if not allcomponents and sid == seg_id:
+                return num
+            total += num
+        return total
+
+    @staticmethod
+    def ptracecount(plotmanager, seg_id, allcomponents=False):
+        allsegids = plotmanager._plotscache[seg_id][1].data.keys()
+        total = 0
+        for sid in allsegids:
+            streamorexc = plotmanager._plotscache[sid][1].get_cache(sid, 'stream')
+            num = len(streamorexc) if isinstance(streamorexc, Stream) else 1 if isinstance(streamorexc, Exception) else 0
+            if not allcomponents and sid == seg_id:
+                return num
+            total += num
+        return total
 
     def test_view_other_comps(self):
         m = PlotManager(self.pymodule, self.config)
         
-        prevlen = len(m._plots)
+        prevlen = self.plotslen(m)
         components_count = {} # group_id -> num expected components
         # where group_id is the tuple (event_id, channel.location)
         for s in self.session.query(Segment): 
@@ -209,27 +280,27 @@ class Test(unittest.TestCase):
         
         for s in self.session.query(Segment):
             expected_components_count = components_count[(s.event_id, s.channel.location)]
-            
+
             idxs = [0]
             all_components = True
             # s_id_was_in_views = s.id in m._plots
-            plots = m.getplots(self.session, s.id, idxs, True)
-            # assert returned plot has the correct time-series:
-            assert len(plots[0].data) == expected_components_count
+            plots = m.getplots(self.session, s.id, idxs, False, all_components)
+            # assert returned plot has the correct number of time/line-series:
+            # note that plots[0] might be generated from a stream with gaps
+            expected_lineseries = self.tracecount(m, s.id, all_components)
+            assert len(plots[0].data) == expected_lineseries
+
             # asssert the returned value match the input:
             assert len(plots) == len(idxs)
-            assert not m._pplots  # assert no filtering calculated
+            assert not self.pplotslen(m)  # assert no filtering calculated
             # assert we did not calculate other components (all_components=False)
-            viewmanager = m._plots[s.id]
-            calculated_plots=0
-            for sid in viewmanager.data:
-                calculated_plots += sum(plot is not None for plot in viewmanager.data[sid][1])
-            assert calculated_plots == expected_components_count
+            assert self.computedplotslen(m, s.id, allcomponents=False) == len(idxs)
+            assert self.computedplotslen(m, s.id, allcomponents=True) == expected_components_count
         
-    def test_view_inv_err(self):
+    def tst_view_inv_err(self):
         m = PlotManager(self.pymodule, self.config)
         
-        prevlen = len(m._plots)
+        prevlen = self.plotslen(m)
         components_count = {} # group_id -> num expected components
         # where group_id is the tuple (event_id, channel.location)
         for s in self.session.query(Segment): 
@@ -252,9 +323,9 @@ class Test(unittest.TestCase):
             plots = m.getplots(self.session, s.id, idxs, False)
             # asssert the returned value match the input:
             assert len(plots) == len(idxs)
-            assert not m._pplots  # assert no filtering calculated
+            assert not self.pplotslen(m)  # assert no filtering calculated
             # assert we did not calculate other components (all_components=False)
-            plotscache = m._plots[s.id]
+            plotscache = m._plotscache[s.id][0]
             calculated_plots = sum(plot is not None for plot in plotscache.data[s.id][1])
             assert calculated_plots == len(plots)
 
@@ -268,9 +339,9 @@ class Test(unittest.TestCase):
             plots = m.getplots(self.session, s.id, idxs, False)
             # asssert the returned value match the input:
             assert len(plots) == len(idxs)
-            assert not m._pplots  # assert no filtering calculated
+            assert not self.pplotslen(m)  # assert no filtering calculated
             # assert we did not calculate other components (all_components=False)
-            plotscache = m._plots[s.id]
+            plotscache = m._plotscache[s.id][0]
             calculated_plots = sum(plot is not None for plot in plotscache.data[s.id][1])
             assert calculated_plots == len(plots)
 
@@ -317,14 +388,14 @@ class Test(unittest.TestCase):
                 
             
     @patch('stream2segment.gui.webapp.plotviews.get_inventory')
-    @patch('stream2segment.gui.webapp.plotviews.exec_function')
-    def test_view_inv(self, mock_exec_func, mock_get_inv):
-        mock_exec_func.side_effect=lambda *a, **v: exec_function(*a, **v)
+    @patch('stream2segment.gui.webapp.plotviews.get_plot')
+    def tst_view_inv(self, mock_get_plot, mock_get_inv):
+        mock_get_plot.side_effect=lambda *a, **v: exec_function(*a, **v)
         mock_get_inv.side_effect=lambda *a, **v: self.inventory 
         
         m = PlotManager(self.pymodule, self.config)
         
-        prevlen = len(m._plots)
+        prevlen = len(m._plotscache)
         components_count = {} # group_id -> num expected components
         # where group_id is the tuple (event_id, channel.location)
         for s in self.session.query(Segment): 
@@ -381,23 +452,24 @@ class Test(unittest.TestCase):
             custom_plots = plots[1:]
             plots = plots[:1]
             
-            assert not m._pplots  # no filtering calculated
+            assert not self.pplotslen(m)  # no filtering calculated
             assert_warnings(m, s, False)
         
         assert mock_get_inv.call_count == 1
         # assert we called exec_function the correct number of times
-        assert mock_exec_func.call_count == self.session.query(Segment).count()*numplots
+        assert mock_get_plot.call_count == self.session.query(Segment).count()*numplots
         # and assure all plots are non-none:
-        for plotscache in m._plots.values():
+        for plotscache in m._plotscache.values():
             for s, plots, sn_warnings in plotscache.data.values():
                 assert all(plot is not None for plot in plots)
         
-        mock_exec_func.reset_mock()
+        mock_get_plot.reset_mock()
         mock_get_inv.reset_mock()
         for s in self.session.query(Segment):
             idxs = list(range(numplots))  # range(len(viewmanager.customfunctions))
             expected_components_count = components_count[(s.event_id, s.channel.location)]
-            plots = m.getpplots(self.session, s.id, idxs, True)
+            # get pre-processed plots:
+            plots = m.getplots(self.session, s.id, idxs, True, True)
             assert len(plots) == len(idxs)
             # as long as idxs[0] == 0 and 0 refers to the 'main' trace plot, we can do like this:
             
@@ -405,9 +477,10 @@ class Test(unittest.TestCase):
 
         assert mock_get_inv.call_count == 0  # already called
         # assert we called exec_function the correct number of times
-        assert mock_exec_func.call_count == self.session.query(Segment).count()*numplots
+        assert mock_get_plot.call_count == self.session.query(Segment).count()*numplots
         # and assure all plots are non-none:
-        for plotscache in m._pplots.values():
+        for plotscache_ in m._plotscache.values():
+            plotscache = plotscache_[1]
             for s, plots, sn_warnings in plotscache.data.values():
                 assert all(plot is not None for plot in plots)
         

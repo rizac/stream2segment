@@ -18,17 +18,162 @@ from __future__ import absolute_import, division, print_function
 from builtins import (ascii, chr, dict, filter, hex, input,
                       int, map, next, oct, open, pow, range, round,
                       super, zip)
+from future.utils import viewitems
 
+from collections import OrderedDict
 from io import BytesIO
 
 from sqlalchemy.orm.session import object_session
+from sqlalchemy.exc import SQLAlchemyError
+from obspy.core.utcdatetime import UTCDateTime
 from obspy.core.stream import read
 
 from stream2segment.io.utils import loads_inv, dumps_inv
 from stream2segment.utils.url import urlread
 from stream2segment.utils import urljoin
-from stream2segment.io.db.models import Segment
-from sqlalchemy.exc import SQLAlchemyError
+from stream2segment.io.db.models import Segment, Station
+from stream2segment.analysis.mseeds import cumsum, cumtimes
+from sqlalchemy.orm.exc import UnmappedInstanceError
+
+
+def raiseifreturnsexception(func):
+    '''decorator that makes a function raise the returned exception, if any
+    (otherwise no-op, and the function value is returned as it is)'''
+    def wrapping(*args, **kwargs):
+        ret = func(*args, **kwargs)
+        if isinstance(ret, Exception):
+            raise ret
+        return ret
+    return wrapping
+
+
+class SegmentWrapper(object):
+
+    def __init__(self, config={}):
+        self.__config = config
+
+    def reinit(self, session, segment_id, stream=None, inventory=None,
+               **kwargs):
+        # Mandatory attributes:
+        self.__session = session
+        self.__segment_id = segment_id
+        self.__segment = None
+        self.__stream = stream
+        self.__inv = inventory
+        self.__s_stream = None
+        self.__n_stream = None
+        self.__sn_windows = None
+        # Custom attributes. If they are used or not inside the methods, is up to the
+        # implementation (for the moment, none of them is used unless it overrides one of the
+        # previous mandatory attributes):
+        for name, value in viewitems(kwargs):
+            setattr(self, "__%s" % name, value)
+        return self
+
+    @property
+    @raiseifreturnsexception
+    def __getseg(self):
+        if self.__segment is None:
+            try:
+                self.__segment = self.__session.query(Segment).\
+                    filter(Segment.id == self.__segment_id).one()
+            except Exception as exc:
+                self.__segment = exc
+        return self.__segment
+
+    @raiseifreturnsexception
+    def stream(self, window=None):
+        if window not in (None, 'signal', 'noise'):
+            stream = self.__stream = self.__s_stream = self.__n_stream = \
+                TypeError(("segment.stream(): wrong argument '%s'. "
+                           "Please provide 'signal', 'noise' or no argument") % str(window))
+        else:
+            stream = self.__s_stream if window == 'signal' else self.__n_stream \
+                if window == 'noise' else self.__stream
+            if stream is None:
+                if self.__stream is None:
+                    try:
+                        self.__stream = get_stream(self)
+                        if window is None:
+                            stream = self.__stream
+                    except Exception as exc:
+                        stream = self.__stream = self.__s_stream = self.__n_stream = \
+                            Exception("MiniSeed (`obspy.Stream` object) error: %s" %
+                                      (str(exc) or str(exc.__class__.__name__)))
+                if window is not None and stream is None:
+                    try:
+                        if self.__sn_windows is None:
+                            self.__sn_windows = get_sn_windows(self.__config, self.arrival_time,
+                                                               stream)
+                        s_wdw, n_wdw = self.__sn_windows
+                        if window == 'signal':
+                            stream = self.__s_stream = stream.copy().trim(starttime=s_wdw[0],
+                                                                          endtime=s_wdw[1],
+                                                                          pad=True, fill_value=0,
+                                                                          nearest_sample=True)
+                        else:
+                            stream = self.__n_stream = stream.copy().trim(starttime=n_wdw[0],
+                                                                          endtime=n_wdw[1],
+                                                                          pad=True, fill_value=0,
+                                                                          nearest_sample=True)
+                    except Exception as exc:
+                        stream = self.__s_stream = self.__n_stream = exc
+        return stream
+
+    @raiseifreturnsexception
+    def inventory(self):
+        if self.__inv is None:
+            try:
+                save_station_inventory = self.__config['save_inventory']
+            except:
+                save_station_inventory = False
+            try:
+                self.__inv = get_inventory(self.station, save_station_inventory)
+            except Exception as exc:
+                self.__inv = Exception("Station inventory (xml) error: %s" %
+                                       (str(exc) or str(exc.__class__.__name__)))
+        return self.__inv
+
+#     @property
+#     def is_inventory_loaded(self):
+#         return self.__inv is not None
+# 
+#     @property
+#     def is_stream_loaded(self):
+#         return self.__stream is not None
+
+    def __getattr__(self, name):
+        return getattr(self._SegmentWrapper__getseg, name)
+
+
+def get_sn_windows(config, a_time, stream):
+    '''Returns the spectra windows from a given arguments. Used by `_spectra`
+    :return the tuple (start, end), (start, end) where all arguments are `UTCDateTime`s
+    and the first tuple refers to the noisy window, the latter to the signal window
+    '''
+    if 'sn_windows' not in config:
+        raise TypeError("'sn_windows' not defined in config")
+    if 'arrival_time_shift' not in config['sn_windows']:
+        raise TypeError("'arrival_time_shift' not defined in config['sn_windows']")
+    if 'signal_window' not in config['sn_windows']:
+        raise TypeError("'signal_window' not defined in config['sn_windows']")
+
+    if len(stream) != 1:
+        raise ValueError(("Unable to get sn-windows: %d traces in stream "
+                         "(possible gaps/overlaps)") % len(stream))
+
+    a_time = UTCDateTime(a_time) + config['sn_windows']['arrival_time_shift']
+    # Note above: UTCDateTime +float considers the latter in seconds
+    # we use UTcDateTime for consistency as the package functions
+    # work with that object type
+    try:
+        cum0, cum1 = config['sn_windows']['signal_window']
+        t0, t1 = cumtimes(cumsum(stream[0]), cum0, cum1)
+        nsy, sig = [a_time - (t1-t0), a_time], [t0, t1]
+    except TypeError:  # not a tuple/list? then it's a scalar:
+        shift = config['sn_windows']['signal_window']
+        nsy, sig = [a_time-shift, a_time], [a_time, a_time+shift]
+    return sig, nsy
 
 
 def get_stream(segment):
@@ -41,7 +186,7 @@ def get_stream(segment):
     return read(BytesIO(data))
 
 
-def get_inventory(station, asbytes=False, **urlread_kwargs):
+def get_inventory(station, saveinventory=True, **urlread_kwargs):
     """Gets the inventory object for the given station, downloading it and saving it
     if not data is empty/None.
     Raises any utils.url.URLException for any url related errors, ValueError if inventory data
@@ -50,10 +195,16 @@ def get_inventory(station, asbytes=False, **urlread_kwargs):
     data = station.inventory_xml
     if not data:
         data = download_inventory(station, **urlread_kwargs)
+        # saving the inventory must NOT prevent the continuation.
+        # If we are here we have non-empty data:
+        if saveinventory and data:
+            try:
+                save_inventory(station, data)
+            except Exception as _:
+                pass  # FIXME: how to handle it?
     if not data:
-        raise ValueError('Inventory data is empty (0 bytes)')
-
-    return data if asbytes else loads_inv(data)
+        raise ValueError('no data')
+    return loads_inv(data)  # convert from bytes into obspy object
 
 
 def download_inventory(station, **urlread_kwargs):
@@ -67,94 +218,53 @@ def get_inventory_url(station):
                    network=station.network, level='response')
 
 
-def save_inventory(session, station, downloaded_bytes_data):
+def save_inventory(station, downloaded_bytes_data):
     """Saves the inventory. Raises SqlAlchemyError if station's session is None,
     or (most likely IntegrityError) on failure
     """
     station.inventory_xml = dumps_inv(downloaded_bytes_data)
-    session.commit()
+    try:
+        object_session(station).commit()
+    except UnmappedInstanceError:
+        raise
+    except SQLAlchemyError:
+        object_session(station).rollback()
+        raise
 
 
-class SegmentWrapper(object):
+class LimitedSizeDict(OrderedDict):
+    def __init__(self, *args, **kwds):
+        self.size_limit = kwds.pop("size_limit", None)
+        super(LimitedSizeDict, self).__init__(*args, **kwds)
+        self._check_size_limit()
 
-    def __init__(self, session, segment_id, save_station_inventory=True, cache_size=1):
-        self.__sess = session
-        self.__saveinv = save_station_inventory
-        self.__streams = dict()
-        self.__invs = dict()
-        self.__cachesize = cache_size
-        self.reinit(segment_id)
+    def __setitem__(self, key, value):
+        super(LimitedSizeDict, self).__setitem__(key, value)
+        self._check_size_limit()
 
-    def reinit(self, segment_id):
-        self.__segid = segment_id
-        self.__inv = None
-        self.__segment = None
-        self.__sess.expunge_all()
-        self.__sess.close()
+    def _check_size_limit(self):
+        if self.size_limit is not None:
+            while len(self) > self.size_limit:
+                self.popitem(last=False)
 
-    @staticmethod
-    def __returnorraise(obj):
-        if isinstance(obj, Exception):
-            raise obj
-        return obj
 
-    @property
-    def __getseg(self):
-        if self.__segment is None:
-            try:
-                self.__segment = self.__sess.query(Segment).filter(Segment.id == self.__segid).one()
-            except Exception as exc:
-                self.__segment = exc
-        return self.__returnorraise(self.__segment)
+class InventoryCache(LimitedSizeDict):
 
-    def stream(self):
-        stream = self.__streams.get(self.__segid, None)
-        if stream is None:
-            try:
-                stream = get_stream(self)
-            except Exception as exc:
-                stream = Exception("MiniSeed (`obspy.Stream` object) error: %s" %
-                                   (str(exc) or str(exc.__class__.__name__)))
-            self.__setitem(self.__segid, stream, self.__streams, self.__cachesize)
-        return self.__returnorraise(stream)
+    def __init__(self, size_limit=30):
+        super(InventoryCache, self).__init__(size_limit=size_limit)
+        self._segid2staid = dict()
 
-    def inventory(self):
-        inv = self.__inv
-        if inv is None:  # not accessed inventory sofar, but we might have one in cache
-            sta_id = None
-            try:
-                sta = self.station
-                sta_id = sta.id
-                inv = self.__invs.get(sta_id, None)
-                if inv is None:  # inventory not in cache
-                    inv = get_inventory(sta, asbytes=self.__saveinv)
-                    # saving the inventory must NOT prevent the continuation.
-                    # If we are here we have non-empty data:
-                    if self.__saveinv:
-                        try:
-                            save_inventory(self.__sess, sta, inv)
-                        except SQLAlchemyError as exc:
-                            pass  # FIXME: how to handle it?
-                        inv = loads_inv(inv)  # convert from bytes into obspy object
-                else:
-                    sta_id = None  # do not insert inv in the cache dict
-            except Exception as exc:
-                inv = Exception("Station inventory (xml) error: %s" %
-                                (str(exc) or str(exc.__class__.__name__)))
-            self.__inv = inv
-            if sta_id is not None:
-                self.__setitem(sta_id, inv, self.__invs, self.__cachesize)
+    def __setitem__(self, segment, inventory_or_exception):
+        if inventory_or_exception is None:
+            return
+        super(InventoryCache, self).__setitem__(segment.station.id, inventory_or_exception)
+        self._segid2staid[segment.id] = segment.station.id
 
-        return self.__returnorraise(inv)
-
-    @staticmethod
-    def __setitem(key, val, dic, cachesize):
-        if cachesize <= 1:
-            dic.clear()
-        elif len(dic) and len(dic) >= cachesize:
-            del dic[next(iter(dic.keys()))]  # delete first item
-        dic[key] = val
-
-    def __getattr__(self, name):
-        return getattr(self._SegmentWrapper__getseg, name)
-
+    def __getitem__(self, segment_id):
+        inventory = None
+        staid = self._segid2staid.get(segment_id, None)
+        if staid is not None:
+            inventory = super(InventoryCache, self).get(staid, None)
+            if inventory is None:  # expired, remove the key:
+                self._segid2staid.pop(segment_id)
+        return inventory

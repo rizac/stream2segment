@@ -6,9 +6,9 @@ objects (the objects representing a plot on the GUI) to avoid re-calculations, w
 First of all, this module defines a
 ```Plot```
 class which represents a Plot on the GUI. A Plot is basically a tuple (x0, dx, y, error_message)
-and can be constructed from an obspy trace object very easily (`Plot.fromtrace`)
-The conversion to json for sending the plot data as web response can be easily made via
-`Plot.tojson`: the method has optimized algorithms for
+and can be constructed from an obspy trace object very easily (`Plot.fromtrace`) or Stream 
+(`Plot.fromstream`). `Plot.tojson` handles the conversion to json for sending the plot data as
+web response: the method has optimized algorithms for
 returning slices (in case of zooms) and only the relevant data for visualization by means of a
 special down-sampling (if given, the screen number of pixels is usually much lower than the
 plot data points)
@@ -16,35 +16,29 @@ plot data points)
 Due to the fact that we need to synchronize when to load a segment and/or its components,
 when requesting a segment all components are loaded together and their Plots are stored into a
 ```
-PlotsCache
+ChannelComponentsPlotsHandler
 ```
-object, which also stores the sn_windows data (signal-to-noise windows according to the current
-config). All data in a PlotsCache is ... cached whenever possible. Note that if pre-process is
-enabled, a clone of PlotsCache is done, which works on the pre-processed stream (plots are not
-shared across these PlotsCache instances, whereas the sn_window data is)
+object, which also stores and cache data (like the sn_windows data: signal-to-noise windows
+according to the current config). All data in a ChannelComponentsPlotsHandler is cached whenever
+possible. Note that if pre-process is
+enabled, a clone of ChannelComponentsPlotsHandler is done, which works on the pre-processed stream (plots
+are not shared across these ChannelComponentsPlotsHandler instances, whereas the sn_window data is)
 
 Finally, this module holds a base manager class:
 ```
 PlotManager
 ```
-which, roughly speaking, stores inside three dictionaries:
- - a dict for the inventories, if needed (with a cache system in order to avoid re-downloading them)
- - a dict for all `PlotsCache`s of the db segments (for a recorded stream on three components
- s1, s2, s3, all components are mapped to the same PlotsCache object)
- - a dict for all `PlotsCache`s of the db segments, with pre-process applied (same as above)
+which, roughly speaking, stores all the ChannelComponentsPlotsHandler (s) loaded (with a size limit
+for memory performances)
 
 The user has then simply to instantiate a PlotManager object (currently stored inside the
-Flask app config, but maybe we should investigate if it's a good practice): after that the methods
+Flask app config, but maybe we should investigate if it's a good practice): after that the method
 ```
 PlotManager.getplots
-PlotManager.getpplots
 ```
 do all the work of returning the requested plots, without re-calculating already existing plots,
 without re-downloading already existing traces or inventories.
 Then the user can call `.tojson` on any given plot and a response can be sent across the web
-
-Finally, note that when s/n windows are changed, then PlotManager.set_sn_window must be called:
-this resets all plots and they will be recalculated when queried.
 
 :date: Jun 8, 2017
 
@@ -54,7 +48,7 @@ from __future__ import division
 
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import zip, range, object
+from builtins import zip, range, object, dict
 
 from io import BytesIO
 from itertools import cycle
@@ -68,184 +62,153 @@ from sqlalchemy.orm import load_only
 from obspy.core import Stream, Trace, UTCDateTime, read
 
 from stream2segment.analysis.mseeds import cumsum, cumtimes, fft
-from stream2segment.io.db.models import Channel, Segment
+from stream2segment.io.db.models import Channel, Segment, Station
 # from stream2segment.analysis import ampspec, powspec
 from stream2segment.io.db.queries import getallcomponents
-from stream2segment.utils.postdownload import get_inventory, get_stream
+from stream2segment.utils.postdownload import SegmentWrapper, InventoryCache, LimitedSizeDict
 from stream2segment.utils import iterfuncs
 
 
+def exec_func(func, session, seg_id, plotscache, invcache, config):
+    '''Executes the given function on the given segment identified by seg_id
+        Returns the function result (or exception) after updating plotscache, if needed
+    '''
+    segwrapper = SegmentWrapper(config).reinit(session, seg_id,
+                                               stream=plotscache.get_cache(seg_id, 'stream', None),
+                                               inventory=invcache.get(seg_id, None),
+                                               sn_windows=plotscache.get_cache(seg_id, 'sn_windows', None))
 
-def exec_function(func, segment, stream, inventory, config,
-                  convert_return_value_to_plot=True):
+    try:
+        return func(segwrapper, config)
+    except Exception as exc:
+        return exc
+    finally:
+        # set back values if needed, even if we had exceptions.
+        # Any of these values might be also an exception. Call the
+        # 'private' attribute cause the relative method, if exists, most likely raises
+        # the exception, it does not return it
+        if segwrapper._SegmentWrapper__stream is not None:
+            plotscache.set_cache(seg_id, 'stream', segwrapper._SegmentWrapper__stream)
+        if segwrapper._SegmentWrapper__sn_windows is not None:
+            plotscache.set_cache(seg_id, 'sn_windows', segwrapper._SegmentWrapper__sn_windows)
+        # allocate the segment if we need to set the title (might be None):
+        segment = segwrapper._SegmentWrapper__segment
+        if segwrapper._SegmentWrapper__inv is not None and segment is not None:
+            # if inventory is not None and segment is None, we did pass inventory before func(...)
+            # call, so no need to set it again
+            invcache[segment] = segwrapper._SegmentWrapper__inv  # might be exception
+        if not plotscache.get_cache(seg_id, 'plot_title_prefix', None):
+            title = None
+            if isinstance(segwrapper._SegmentWrapper__stream, Stream):
+                title = segwrapper._SegmentWrapper__stream[0].get_id()
+                for trace in segwrapper._SegmentWrapper__stream:
+                    if trace.get_id() != title:
+                        title = None
+                        break
+            if title is None and isinstance(segment, Segment):
+                title = segment.strid
+            if title is None:
+                title = session.query(Segment).filter(Segment.id == seg_id).strid
+            if title is not None:
+                # try to get it from the stream. Otherwise, get it from the segment
+                plotscache.set_cache(seg_id, 'plot_title_prefix', title)
+
+
+def get_plot(func, session, seg_id, plotscache, invcache, config, func_name=None):
     '''Executes the given function on the given trace
     This function should be called by *all* functions returning a Plot object
     '''
-    title = plot_title(stream, segment, func)  # "%s - %s" % (main_plot.title, name)
     try:
-        try:
-            assertnoexc(stream)  # will raise if trace instanceof exception
-        except Exception as exc:
-            raise Exception("Stream N/A: %s" % str(exc))
-        try:
-            assertnoexc(inventory)  # same for inventories. Note that None does not raise
-        except Exception as exc:
-            raise Exception("Inventory N/A: %s" % str(exc))
-        # None is used when we do not request inventory. If we do, then we assume one wants
-        # to use it
-
-        funcres = func(segment, stream, inventory, config)
-        if not convert_return_value_to_plot:
-            return funcres
-
-        # this should be called internally (not anymore, leave functionality):
+        funcres = exec_func(func, session, seg_id, plotscache, invcache, config)
         if isinstance(funcres, Plot):
+            # this should be called internally when generating main plot:
             plt = funcres
+        elif isinstance(funcres, Trace):
+            plt = Plot.fromtrace(funcres)
+        elif isinstance(funcres, Stream):
+            plt = Plot.fromstream(funcres)
         else:
             labels = cycle([None])
-            if isinstance(funcres, Trace):
-                itr = [funcres]
-            elif isinstance(funcres, Stream):
-                itr = [t for t in funcres]
-            elif isinstance(funcres, dict):
+            if isinstance(funcres, dict):
                 labels = iter(funcres.keys())
                 itr = iter(funcres.values())
-            elif type(funcres) == np.ndarray or type(funcres) == tuple:
-                itr = [funcres]
+            elif type(funcres) == tuple:
+                itr = [funcres]  # (x0, dx, values, label_optional)
             else:
-                itr = funcres
+                itr = funcres  # list of mixed types above
 
-            plt = Plot(title, "")
+            plt = Plot("", "")
 
             for label, obj in zip(labels, itr):
                 if isinstance(obj, tuple):
-                    if len(obj) != 3:
-                        raise ValueError(("Expected tuple (x0, dx, y), "
-                                          "found %d-elements tuple") % len(obj))
-                    x0, dx, y = obj
+                    try:
+                        x0, dx, y, label = obj
+                    except ValueError:
+                        try:
+                            x0, dx, y = obj
+                        except ValueError:
+                            raise ValueError(("Cannot create plot from tuple (length=%d): "
+                                              "Expected (x0, dx, y) or (x0, dx, y, label)"
+                                              "") % len(obj))
                     plt.add(x0, dx, y, label)
+                elif isinstance(obj, Trace):
+                    plt.addtrace(obj, label)
+                elif isinstance(obj, Stream):
+                    for trace in obj:
+                        plt.addtrace(trace, label)
                 else:
-                    if isinstance(obj, Trace):
-                        plt.addtrace(obj, label)
-                    else:
-                        array = np.asarray(obj)
-                        if len(stream) != 1:  # FIXME: handle the case??!!
-                            raise ValueError(("numpy arrays invalid with input Streams"
-                                              "of %d traces (only single-trace streams)")
-                                             % len(stream))
-                        trace = stream[0]
-                        header = trace.stats.copy()
-                        header.npts = len(array)  # this converts end time
-                        plt.addtrace(Trace(data=array, header=header), label)
-    except Exception as exc:
-        plt = errplot(title, exc)
+                    raise ValueError(("Cannot create plot from %s (length=%d): ") % str(type(obj)))
 
+    except Exception as exc:
+        plt = Plot('', message=str(exc)).add(0, 1, [])
+
+    # set title:
+    title_prefix = plotscache.get_cache(seg_id, 'plot_title_prefix', '')
+    if not func_name:
+        func_name = getattr(func, "__name__", "")
+    if title_prefix or func_name:
+        sep = " - " if title_prefix and func_name else ''
+        plt.title = "%s%s%s" % (title_prefix, sep, func_name)
     return plt
 
 
-def errplot(title, exc):
-    return Plot(title, message=str(exc)).add(0, 1, [])
-
-
-def _get_spectra_windows(config, a_time, trace):
-    '''Returns the spectra windows from a given arguments. Used by `_spectra`
-    :return the tuple (start, end), (start, end) where all arguments are `UTCDateTime`s
-    and the first tuple refers to the noisy window, the latter to the signal window
-    '''
-    a_time = UTCDateTime(a_time) + config['sn_windows']['arrival_time_shift']
-    # Note above: UTCDateTime +float considers the latter in seconds
-    # we use UTcDateTime for consistency as the package functions
-    # work with that object type
-    try:
-        cum0, cum1 = config['sn_windows']['signal_window']
-        t0, t1 = cumtimes(cumsum(trace), cum0, cum1)
-        nsy, sig = [a_time - (t1-t0), a_time], [t0, t1]
-    except TypeError:  # not a tuple/list? then it's a scalar:
-        shift = config['sn_windows']['signal_window']
-        nsy, sig = [a_time-shift, a_time], [a_time, a_time+shift]
-    return sig, nsy
-
-
-def assertnoexc(obj):
-    '''Raises obj if the latter is an Exception, otherwise does nothing.
-    Convenience function used in `exec_function` for those objects (trace, inventory)
-    which can also be an Exception'''
-    if isinstance(obj, Exception):
-        raise obj
-
-
-def _get_me(segment, stream, inventory, config):
-    '''function returning the trace in the form of a Plot object'''
-    # note that returning a Plot does not set the title cause we provide it here
-    # note also that all other exception handling still works (e.g., if trace is an exception)
-    return Plot.fromstream(stream)
-
-
-def plot_title(trace, segment, func_or_funcname):
-    """
-    Creates a title for the given function (or function name)
-    from the given trace. Basically returns
-    ```trace.get_id() + " - " + func_or_funcname```
-    if trace is an Exception (resulting from an error when reading the trace), the segment is
-    used to retrieve trace.get_id() in the classical form:
-    ```network.station.location.channel```
-    """
-    try:
-        id_ = trace.get_id()
-    except AttributeError:
-        id_ = segment.seed_identifier
-        if not id:
-            id_ = ".".join([segment.station.network, segment.station.station,
-                           segment.channel.location, segment.channel.channel])
-
-    if func_or_funcname == _get_me:  # main function, return just the id
-        return str(id_)
-
-    try:
-        funcname = func_or_funcname.__name__
-    except AttributeError:
-        funcname = str(func_or_funcname)
-    return "%s - %s" % (id_, funcname)
-
-
-class PlotsCache(object):
-    """A PlotsCache is a class handling all the components traces and plots from the same event
+class ChannelComponentsPlotsHandler(object):
+    """A ChannelComponentsPlotsHandler is a class handling all the components
+    traces and plots from the same event
     on the same station and channel. The components are usually the last channel letter
-    (e.g. HHZ, HHE, HHN)
+    (e.g. HHZ, HHE, HHN). The need of such a class is because shared data across different 
+    components on the same channel is sometimes required
+    and needs not to be recalculated twice when possible
     """
 
-    def __init__(self, streams, seg_ids, functions, arrival_time):
-        """Builds a new PlotsCache
+    # set here what to set to None when calling invalidate (see __init__ for details):
+    _cahce_values_to_invalidate = ['sn_windows']
+
+    def __init__(self, segids, functions):
+        """Builds a new ChannelComponentsPlotsHandler
         :param functions: functions which must return a `Plot` (or an Plot-convertible object).
         **the first item MUST be `_getme` by default**
         """
         self.functions = functions
-        self.arrival_time = arrival_time
+        self.data = dict()  # make py2 compatible (see future imports at module's top)
         # data is a dict of type:
         # { ...,
-        #   seg_id: [
-        #            stream,
-        #            [plot1,...,plotN],
-        #            [[n_wdw_start, n_wdw_end], [s_wdw_start, s_wdw_end]]
-        #           ],
+        #   seg_id: {
+        #            'plots': [plot1,...,plotN],
+        #            'cache': {'stream': None, 'plot_title_prefix': None, 'sn_windows': None, ...}  # whatever will be added
+        #           },
         #  ...
         # }
-        # where N = len(functions), plot1 and plotN are the Plot's object of the i-th
-        # function in self.functions, and n_wdw_start is the start of the noise window
-        # (UtcDatetime), s_wdw_start is the start of the signal window, and so on. The
-        # array can be None: as for plots which are None's, it means it must be recalculated
-        self.data = {segid: [s,  [None] * len(self.functions), None] for
-                     s, segid in zip(streams, seg_ids)}
+
+        # set data:
+        for (segid,) in segids:
+            self.data[segid] = dict(plots=[None] * len(self.functions),
+                                    cache=dict(stream=None, sn_windows=None, plot_title_prefix=''))
 
     def copy(self):
-        '''copies this PlotsCache with empty plots. All other data is shared with this object'''
-        streams = []
-        seg_ids = []
-        for seg_id, d in self.data.items():
-            streams.append(d[0])
-            seg_ids.append(seg_id)
-        ret = PlotsCache(streams, seg_ids, self.functions, self.arrival_time)
-        return ret
+        '''copies this ChannelComponentsPlotsHandler with empty plots.
+        All other data is shared with this object'''
+        return ChannelComponentsPlotsHandler([(s,) for s in self.data.keys()], self.functions)
 
     def invalidate(self):
         '''invalidates all the plots and other stuff which must be calculated to get them
@@ -253,45 +216,40 @@ class PlotsCache(object):
         index_of_traceplot = 0  # the index of the function returning the
         # trace plot (main plot returning the trace as it is)
         for segid in self.data:
-            self.data[segid][2] = None  # will force to recalculate sn-windows on demand
-            plots = self.data[segid][1]
-            for i in range(len(plots)):
-                if i == index_of_traceplot:  # the trace plot stays the same, it does not use config
-                    continue
-                plots[i] = None
+            self.data[segid]['cache'] = self.data[segid]['cache'].copy()
+            for key in self._cahce_values_to_invalidate:
+                self.data[segid]['cache'][key] = None
+            for i in range(len(self.data[segid]['plots'])):
+                if i != index_of_traceplot:
+                    self.data[segid]['plots'][i] = None
 
-    def get_sn_windows(self, seg_id, config):
-        '''Returns the sn_windows for the stream of the given segment identified by its id
-        `seg_id` as the tuple
-        ```
-        ['noise_start], [noise_end], [signal_start, signal_end]
-        ```
-        all elements are `obspy` `UTCDateTime`s
-        raises `Exception` if the stream has more than one trace, or the
-        config values are not properly set
-        '''
-        sn_wdws = self.data[seg_id][2]
-        if isinstance(sn_wdws, Exception):
-            raise sn_wdws
-        if sn_wdws is not None:
-            return sn_wdws
-        # set as exception by default, override if we found a single trace stream
-        s = self.data[seg_id][0]
-        try:
-            if isinstance(s, Exception):
-                raise s
-            elif len(s) != 1:
-                raise Exception("%d traces in stream" % len(s))
-            try:
-                sn_wdws = _get_spectra_windows(config, self.arrival_time, s[0])
-            except KeyError as kerr:
-                raise Exception("'%s' not found (check config)" % str(kerr))
-        except Exception as exc:
-            sn_wdws = Exception("SN-windows N/A: %s" % str(exc))
-        self.data[seg_id][2] = sn_wdws
-        return self.get_sn_windows(seg_id, config)  # now should return a value, or raise
+    def get_cache(self, segment_id, cachekey, default_if_missing=None):
+        return self.data[segment_id]['cache'].get(cachekey, default_if_missing)
 
-    def get_plots(self, session, seg_id, plot_indices, inv, config, all_components=False):
+    def set_cache(self, segment_id, cachekey, value):
+        self.data[segment_id]['cache'][cachekey] = value
+
+#     def get_sn_windows(self, session, segment_id, config):
+#         '''Returns the sn_windows for the stream of the given segment identified by its id
+#         `seg_id` as the tuple
+#         ```
+#         [noise_start, noise_end], [signal_start, signal_end]
+#         ```
+#         all elements are `obspy` `UTCDateTime`s
+#         raises `Exception` if the stream has more than one trace, or the
+#         config values are not properly set
+#         '''
+#         try:
+#             data = self.data
+#             segw = SegmentWrapper().reinit(session, segment_id, config,
+#                                            stream=data[segment_id]['stream'])
+#             segw.stream('signal')  # calculates the sn windows
+#             return segw._SegmentWrapper_sn_windows
+#         except Exception as exc:
+#             return exc
+
+    def get_plots(self, session, seg_id, plot_indices, inv_cache, config,
+                  all_components_on_main_plot=False):
         '''
         Returns the `Plot`s representing the the custom functions of
         the segment identified by `seg_id
@@ -300,16 +258,13 @@ class PlotsCache(object):
         :param inv: (intventory object) an object either inventory or exception
         (will be handled by `exec_function`, which is called internally)
         :param config: (dict) the plot config parsed from a user defined yaml file
-        :param all_components: (bool) if True, a list of N `Plot`s will be returned, where the first
-        item is the plot of the segment whose id is `seg_id`, and all other plots are the
-        other components. N is the length of the `segments` list passed in the constructor. If
-        False, a list of a single `Plot` (relative to `seg_id`) will be returned
-        :return: a list of `Plot`s
+        :param all_components_on_main_plot: (bool) if True, and the index of the main plot
+        (usually 0) is in plot_indices, then the relative plot will show the stream and
+        and all other components together
         '''
-        segments = getsegs(session, seg_id, all_components=all_components, as_dict=True)
-        index_of_traceplot = 0  # the index of the function returning the
+        index_of_main_plot = 0  # the index of the function returning the
         # trace plot (main plot returning the trace as it is)
-        stream, plots, _ = self.data[seg_id]
+        plots = self.data[seg_id]['plots']
 
         # here we should build the warnings: check gaps /overlaps, check inventory exception
         # (pass None in case)
@@ -321,22 +276,23 @@ class PlotsCache(object):
                 # skip calculation and return empty trace with err message)
                 # inv: either trace or exception (will be handled by exec_function:
                 # append err mesage to warnings and proceed to calculation normally)
-                plots[i] = exec_function(self.functions[i], segments[seg_id], stream,
-                                         inv, config)
+                plots[i] = get_plot(self.functions[i], session, seg_id, self,
+                                    inv_cache, config,
+                                    func_name='' if i == index_of_main_plot else None)
             plot = plots[i]
-            if i == index_of_traceplot and all_components:
-                # get all other components:
+            if i == index_of_main_plot and all_components_on_main_plot:
+                # get all other components and merge them with the main plot
                 other_comp_plots = []
-                for segid, _data in self.data.items():
-                    if segid == seg_id:
+                for other_comp_segid, _data in self.data.items():
+                    if other_comp_segid == seg_id:
                         continue
-                    _stream, _plots, _ = _data
-                    if _plots[index_of_traceplot] is None:
+                    _plots = _data['plots']
+                    if _plots[index_of_main_plot] is None:
                         # see comments above
-                        _plots[index_of_traceplot] = \
-                            exec_function(self.functions[index_of_traceplot], segments[segid],
-                                          _stream, inv, config)
-                    other_comp_plots.append(_plots[index_of_traceplot])
+                        _plots[index_of_main_plot] = \
+                            get_plot(self.functions[index_of_main_plot], session,
+                                     other_comp_segid, self, inv_cache, config)
+                    other_comp_plots.append(_plots[index_of_main_plot])
                 if other_comp_plots:
                     plot = plot.merge(*other_comp_plots)  # returns a copy
 
@@ -346,53 +302,41 @@ class PlotsCache(object):
 
 class PlotManager(object):
     """
-    PlotManager is a class which handles (with cache mechanism) all Plots of the program
+    PlotManager is a class which handles (with cache mechanism) all Plots of the program. It
+    wraps a dict of segment ids mapped to ChannelComponentsPlotHandlers and returns the required
+    plots to be displayed
     """
     def __init__(self, pymodule, config):
-        self._plots = {}  # seg_id (str) to view
-        self._pplots = {}  # seg_id (str) to view
+        self._plotscache = LimitedSizeDict(size_limit=30)
         self.config = config
         self.functions = []
-        self._def_func_count = 2  # CHANGE THIS IF YOU CHANGE SOME FUNC BELOW
-        # by default, pre-process and spectrum function raise an exception: 'no func set'
-        # if they are defined in the config, they will be overridden below
-        # meanwhile they raise, and as lambda function cannot raise, we make use of our
-        # 'assertnoexc' function which is used in execfunction and comes handy here:
-        self.preprocessfunc = lambda *a, **v: assertnoexc(Exception("No '_pre_process' function set"))
-        sn_spectrumfunc = lambda *a, **v: assertnoexc(Exception("No '_sn_spectrum' function set"))  # @IgnorePep8
-        for f in iterfuncs(pymodule):
-            if f.__name__ == '_pre_process':
-                self.preprocessfunc = f
-            elif f.__name__ == '_sn_spectrum':
-                _sn_spectrumfunc = f
+        self.inv_cache = InventoryCache(10)
 
-                def sn_spectrumfunc(segment, stream, inv, conf):
-                    # hack to recognize if we are working with the pre-processed or raw stream:
-                    preprocessed = False
-                    plotscache = self._pplots.get(segment.id, None)
-                    if plotscache:
-                        stream_ = plotscache.data.get(segment.id, [None])[0]
-                        preprocessed = stream_ is stream
-                    # now proceed to calculations:
-                    s_wdw, n_wdw = self.get_sn_windows(segment.id, preprocessed)
-                    traces = [t.copy().trim(s_wdw[0], s_wdw[1]) for t in stream]
-                    x0_sig, df_sig, sig = _sn_spectrumfunc(segment, Stream(traces), inv, conf)
-                    traces = [t.copy().trim(n_wdw[0], n_wdw[1]) for t in stream]
-                    x0_noi, df_noi, noi = _sn_spectrumfunc(segment, Stream(traces), inv, conf)
-                    p = Plot(title='S/N spectra').add(x0_sig, df_sig, sig, 'Signal').\
-                        add(x0_noi, df_noi, noi, 'Noise')
-                    return p
+        self._def_func_count = 2  # CHANGE THIS IF YOU CHANGE SOME FUNC BELOW
+
+        # define default functions if not found:
+
+        def preprocess_func(segment, config):
+            raise Exception("No 'pre_process' function implemented")
+
+        def sn_specrtra_func(segment, config):
+            raise Exception("No 'sn_spectra' function implemented")
+
+        def main_function(segment, config):
+            return Plot.fromstream(segment.stream(), check_same_seedid=True)
+
+        self.preprocessfunc = preprocess_func
+
+        for f in iterfuncs(pymodule):
+            if f.__name__ == 'pre_process':
+                self.preprocessfunc = f
+            elif f.__name__ == 'sn_spectra':
+                sn_spectrafunc = f
             elif f.__name__.startswith('_'):
                 continue
             else:
                 self.functions.append(f)
-        self.functions = [_get_me, sn_spectrumfunc] + self.functions
-        self._inv_cache = {}  # station_id -> obj (inventory, exception or None)
-        # this is used to skip download if already present
-        self.segid2inv = {}  # segment_id -> obj (inventory, exception or None)
-        # this is used to get an inventory given a segment.id avoiding looking up its station
-        self.use_inventories = config.get('inventory', False)
-        self.save_inventories = config.get('save_downloaded_inventory', False)
+        self.functions = [main_function, sn_spectrafunc] + self.functions
 
     @property
     def userdefined_plotnames(self):
@@ -408,7 +352,7 @@ class PlotManager(object):
             ret = "Error getting function doc:\n%s" % str(exc)
         return ret
 
-    def getplots(self, session, seg_id, plot_indices, all_components=False):
+    def getplots(self, session, seg_id, plot_indices, preprocessed=False, all_components=False):
         """Returns the plots representing the trace of the segment `seg_id` (more precisely,
         the segment whose id is `seg_id`). The returned plots will be the results of
         returning in a list `self.functions[i]` applied on the trace, for all `i` in `indices`
@@ -418,180 +362,136 @@ class PlotManager(object):
         note that in this case, if `all_components=True` the plot will have also the
         trace(s) of all the other components of the segment `seg_id`, if any.
         """
-        return self._getplots(session, seg_id, self._getplotscache(session, seg_id),
-                              plot_indices, all_components)
+        return self._getplotscache(session, seg_id, preprocessed).\
+            get_plots(session, seg_id, plot_indices, self.inv_cache, self.config, all_components)
 
-    def _loadsegment(self, session, seg_id):
-        segments = getsegs(session, seg_id)
-        streams = []
-        seg_ids = []
-        arrival_time = None
-        for segment in segments:
-            seg_ids.append(segment.id)
-            if arrival_time is None:
-                arrival_time = segment.arrival_time
-            try:
-                stream = get_stream(segment)
-#                prevlen = len(stream)
-#                 if prevlen > 1:
-#                     stream = stream.merge(fill_value='latest')
-#                     if len(stream) != 1:
-#                         raise ValueError("Gaps/overlaps (unmergeable)")
-#                     if len(stream) != prevlen:
-#                         warning = "Gaps/overlaps (merged)"
-                streams.append(stream)
-            except Exception as exc:
-                streams.append(exc)
+#     def getpplots(self, session, seg_id, plot_indices, all_components=False):
+#         """Returns the plots representing the pre-processed trace of the segment `seg_id`
+#         (more precisely, the segment whose id is `seg_id`).
+#         The pre-processed trace is a trace where the custom pre-process function is applied on.
+#         The returned plots will be the results of
+#         returning in a list `self.functions[i]` applied on the pre-processed trace,
+#         for all `i` in `indices`
+# 
+#         :return: a list of `Plot`s according to `indices`. The index of the function returning
+#         the (pre-processed) trace as-it-is is currently 0. If you want to display it, 0 must be in
+#         `indices`: note that in this case, if `all_components=True` the plot will have also the
+#         (pre-processed) trace(s) of all the other components of the segment `seg_id`, if any.
+#         """
+#         return self._getplotscache(session, seg_id, True).\
+#             get_plots(session, seg_id, plot_indices, self.invcache, self.config, all_components)
 
-        # set the inventory if needed from the config. Otherwise, store it as None:
-        inventory = None
-        if self.config.get('inventory', False):
-            segment = segments[0]
-            sta_id = segment.channel.station_id  # should be faster than segment.station.id
-            inventory = self._inv_cache.get(sta_id, None)
-            if inventory is None:
+    def _getplotscache(self, session, seg_id, preprocessed=False):
+        plotscache, p_plotscache = self._plotscache.get(seg_id, [None, None])
+
+        if plotscache is None:
+            plotscache = ChannelComponentsPlotsHandler(getallcomponents(session, seg_id),
+                                                       self.functions)
+            # adds to the internal dict:
+            for segid in plotscache.data:
+                self._plotscache[segid] = [plotscache, None]
+
+        if not preprocessed:
+            return plotscache
+
+        if p_plotscache is None:
+            # Appliy a pre-process to the given plotscache,
+            # creating a copy of it and adding to the second element of self._plotscache
+            p_plotscache = plotscache.copy()
+            for seg_id in plotscache.data.keys():
+                stream = None
                 try:
-                    inventory = get_inventory(segment.station,
-                                              self.config['save_inventory'])
+                    stream = exec_func(self.preprocessfunc, session, seg_id, plotscache,
+                                       self.inv_cache, self.config)
+                    if isinstance(stream, Trace):
+                        stream = Stream([stream])
+                    elif isinstance(stream, Exception):
+                        raise stream
+                    elif not isinstance(stream, Stream):
+                        raise Exception('_pre_process function must return a Trace or Stream object')
                 except Exception as exc:
-                    inventory = exc
-                self._inv_cache[sta_id] = inventory
-        for segid in seg_ids:
-            self.segid2inv[segid] = inventory
+                    stream = exc
+                p_plotscache.set_cache(seg_id, 'stream', stream)
+                self._plotscache[seg_id][1] = p_plotscache
 
-        plotscache = PlotsCache(streams, seg_ids, self.functions, arrival_time)
-        for segid in seg_ids:
-            self._plots[segid] = plotscache
-        return plotscache
+        return p_plotscache
 
-    def getpplots(self, session, seg_id, plot_indices, all_components=False):
-        """Returns the plots representing the pre-processed trace of the segment `seg_id`
-        (more precisely, the segment whose id is `seg_id`).
-        The pre-processed trace is a trace where the custom pre-process function is applied on.
-        The returned plots will be the results of
-        returning in a list `self.functions[i]` applied on the pre-processed trace,
-        for all `i` in `indices`
+#     def get_warnings(self, seg_id, preprocessed):
+#         '''Returns a list of strings denoting the warnings for the given 'seg_id'. Warnings
+#         can be of three types:
+#         1. Gaps/overlaps in trace
+#         2. Inventory error (if inventories are required)
+#         3. S/N window calculation errors (e.g., because of point 1., or malformed input params)
+# 
+#         The returned list will have at most three elements, where each element is a string
+#         associated to one of the three problem above
+# 
+#         Note: if sn_windows are not calculated yet, this method calculates them
+#         '''
+#         ww = []
+#         pltcache = self._pplots.get(seg_id, None) if preprocessed else self._plots.get(seg_id, None)
+#         if pltcache is None:
+#             return ww
+# 
+#         stream, _, _ = pltcache.data[seg_id]
+#         if not isinstance(stream, Exception) and len(stream) != 1:
+#             ww.append("%d traces (probably gaps/overlaps)" % len(stream))
+# 
+#         inv = self.inv_cache.get(seg_id, None)
+#         if isinstance(inv, Exception):
+#             ww.append("Inventory N/A: %s" % str(inv))
+#             inv = None
+# 
+#         try:
+#             pltcache.get_sn_windows(seg_id, self.config)
+#         except Exception as exc:
+#             ww.append(str(exc))
+# 
+#         return ww
 
-        :return: a list of `Plot`s according to `indices`. The index of the function returning
-        the (pre-processed) trace as-it-is is currently 0. If you want to display it, 0 must be in
-        `indices`: note that in this case, if `all_components=True` the plot will have also the
-        (pre-processed) trace(s) of all the other components of the segment `seg_id`, if any.
-        """
-        plotscache = self._pplots.get(seg_id, None)
-        if plotscache is None:
-            orig_plotscache = self._getplotscache(session, seg_id)
-            plotscache = self._preprocess(session, orig_plotscache)  # also adds to self._pplots
-
-        return self._getplots(session, seg_id, plotscache, plot_indices, all_components)
-
-    def _getplotscache(self, session, seg_id):
-        plotscache = self._plots.get(seg_id, None)
-        if plotscache is None:
-            plotscache = self._loadsegment(session, seg_id)  # adds to the internal dict
-        return plotscache
-
-    def _preprocess(self, session, plotscahce):
-        '''Filters the given plotscache, creating a copy of it and adding to self._pplots'''
-        fpcache = plotscahce.copy()
-        segments = None
-        for segid, d in fpcache.data.items():
-            self._pplots[segid] = fpcache
-            if segments is None:
-                segments = getsegs(session, segid, as_dict=True)
-            try:
-                stream = d[0]
-                if isinstance(stream, Exception):
-                    raise stream
-                ret = self.preprocessfunc(segments[segid], stream,
-                                          self.segid2inv[segid], self.config)  # , s_wdw, n_wdw)
-                if isinstance(ret, Trace):
-                    ret = Stream([ret])
-                elif not isinstance(ret, Stream):
-                    raise Exception('_pre_process function must return a Trace or Stream object')
-            except Exception as exc:
-                ret = exc
-            d[0] = ret  # override source stream
-
-        return fpcache
-
-    def _getplots(self, session, seg_id, plotscache, plot_indices, all_components=False):
-        """Returns the View for a givens segment
-        The segment trace and potential errors to be displayed are saved as `View` class `dict`s
-        """
-        return plotscache.get_plots(session, seg_id, plot_indices, self.segid2inv[seg_id],
-                                    self.config, all_components)
-        # return [allcomps, plotscache.get_custom_plots(seg_id, inv, config, *indices)]
-
-    def get_warnings(self, seg_id, preprocessed):
-        '''Returns a list of strings denoting the warnings for the given 'seg_id'. Warnings
-        can be of three types:
-        1. Gaps/overlaps in trace
-        2. Inventory error (if inventories are required)
-        3. S/N window calculation errors (e.g., because of point 1., or malformed input params)
-
-        The returned list will have at most three elements, where each element is a string
-        associated to one of the three problem above
-
-        Note: if sn_windows are not calculated yet, this method calculates them
-        '''
-        ww = []
-        pltcache = self._pplots.get(seg_id, None) if preprocessed else self._plots.get(seg_id, None)
-        if pltcache is None:
-            return ww
-
-        stream, _, _ = pltcache.data[seg_id]
-        if not isinstance(stream, Exception) and len(stream) != 1:
-            ww.append("%d traces (probably gaps/overlaps)" % len(stream))
-
-        inv = self.segid2inv.get(seg_id, None)
-        if isinstance(inv, Exception):
-            ww.append("Inventory N/A: %s" % str(inv))
-            inv = None
-
+    def get_cache(self, segment_id, cachekey, preprocessed, default_if_missing=None):
         try:
-            pltcache.get_sn_windows(seg_id, self.config)
-        except Exception as exc:
-            ww.append(str(exc))
+            plots_cache = self._plotscache[0 if not preprocessed else 1]
+        except (KeyError, IndexError):
+            return default_if_missing
+        return plots_cache[segment_id].get_cache(segment_id, cachekey, default_if_missing)
 
-        return ww
-
-    def get_sn_windows(self, seg_id, preprocessed):
-        '''Returns the sn_windows for the stream of the given segment identified by its id
-        `seg_id` as the tuple
-        ```
-        ['noise_start], [noise_end], [signal_start, signal_end]
-        ```
-        all elements are `obspy` `UTCDateTime`s
-        raises `Exception` if the stream has more than one trace, or the
-        config values are not properly set
-
-        :param preprocessed: whether or not to return the sn-window on the pre-processed
-        plotscache, if a `_pre_process` function is defined
-        '''
-        plots_cache = self._plots if not preprocessed else self._pplots
-        return plots_cache[seg_id].get_sn_windows(seg_id, self.config)
+#     def get_sn_windows(self, session, seg_id, preprocessed):
+#         '''Returns the sn_windows for the stream of the given segment identified by its id
+#         `seg_id` as the tuple
+#         ```
+#         ['noise_start], [noise_end], [signal_start, signal_end]
+#         ```
+#         all elements are `obspy` `UTCDateTime`s
+#         raises `Exception` if the stream has more than one trace, or the
+#         config values are not properly set
+# 
+#         :param preprocessed: whether or not to return the sn-window on the pre-processed
+#         plotscache, if a `_pre_process` function is defined
+#         '''
+#         plots_cache = self._plots if not preprocessed else self._pplots
+#         return plots_cache[seg_id].get(seg_id, 'sn_windows', [])
 
     def update_config(self, **values):
         '''updates the current config and invalidates all plotcahce's, so that a query to
         their plots forces a recalculation (except for the main stream plot,
         currently at index 0)'''
         self.config.update(**values)
-        for v in self._plots.values():
-            v.invalidate()
-        for v in self._pplots.values():
-            v.invalidate()
+        for v in self._plotscache.values():
+            v[0].invalidate()
+            v[1].invalidate()
 
 
-def getsegs(session, seg_id, all_components=True, load_only_ids=True, as_dict=False):
-    """Returns a list (`as_dict=False`) of segments or a dict of {segment.id: segment} key-values
-    (`as_dict=True`).
-    The list/dict will have just one item if
-    all_components=False, load_only_ids does what the name says"""
-    segquery = (getallcomponents(session, seg_id) if all_components else
-                session.query(Segment).filter(Segment.id == seg_id))
-    if load_only_ids:
-        segquery = segquery.options(load_only(Segment.id))
-    return {s.id: s for s in segquery} if as_dict else segquery.all()
+# def getsegs(session, seg_id, all_components=True, load_only_ids=True, as_dict=False):
+#     """Returns a list (`as_dict=False`) of segments or a dict of {segment.id: segment} key-values
+#     (`as_dict=True`).
+#     The list/dict will have just one item if
+#     all_components=False, load_only_ids does what the name says"""
+#     segquery = (getallcomponents(session, seg_id) if all_components else
+#                 session.query(Segment).filter(Segment.id == seg_id))
+#     if load_only_ids:
+#         segquery = segquery.options(load_only(Segment.id))
+#     return {s.id: s for s in segquery} if as_dict else segquery.all()
 
 
 class Plot(object):
@@ -706,22 +606,24 @@ class Plot(object):
         return start, end
 
     @staticmethod
-    def fromstream(stream, title=None, message=None):
+    def fromstream(stream, title=None, message=None, check_same_seedid=False):
         p = Plot(title, message)
-        for t in stream:
+        seedid = None
+        for i, t in enumerate(stream):
             p.addtrace(t)
-        if title is None:  # no title provided, try to set it as trace.get_id if all ids are the
-            # same
-            for d in p.data:
-                if title is None:  # first round, assign
-                    title = d[-1]
-                elif title != d[-1]:
-                    title = None
-                    break
-            if title is not None:
-                p.title = title
-                for d in p.data:
-                    d[-1] = ''
+            if i == 0:
+                seedid = t.get_id()
+            elif seedid is not None and seedid != t.get_id():
+                msg = 'Different traces (seed id) in stream'
+                if p.message:
+                    p.messaage += "\n%s" % msg
+                else:
+                    p.messaage = msg
+                seedid = None
+        if title is None and seedid is not None:
+            p.title = seedid
+            for i, d in enumerate(p.data, 1):  # clear label for all line series (traces):
+                d[-1] = 'chunk %d' % i
         return p
 
     @staticmethod

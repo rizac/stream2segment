@@ -221,12 +221,13 @@ def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components,
         plotmanager.update_config(sn_windows=sn_wdws)
 
     if plot_indices:
-        get_plots_func = plotmanager.getpplots if preprocessed else plotmanager.getplots
-        plots = get_plots_func(session, seg_id, plot_indices, all_components)
+        plots = plotmanager.getplots(session, seg_id, plot_indices, preprocessed, all_components)
         try:
-            # return always sn_windows, as we already calculated them
+            # return always sn_windows, as we already calculated them. IT is better
+            # to call this method AFTER get_plots_func defined above
             sn_windows = [sorted([jsontimestamp(x[0]), jsontimestamp(x[1])])
-                          for x in plotmanager.get_sn_windows(seg_id, preprocessed)]
+                          for x in plotmanager.get_cache(session, seg_id, 'sn_windows',
+                                                         preprocessed, [])]
         except Exception:
             sn_windows = []
 

@@ -61,7 +61,7 @@ from stream2segment.analysis.mseeds import bandpass, cumsum, cumtimes, powspec, 
 from stream2segment.analysis import triangsmooth
 
 
-def _pre_process(segment, stream, inventory, config):
+def pre_process(segment, config):
     """Applies a pre-process on the given segment waveform by
     filtering the signal and removing the instrumental response
     The filter algorithm has the following steps:
@@ -79,9 +79,11 @@ def _pre_process(segment, stream, inventory, config):
     # or raise an Exception.
     # Remember that any exception thrown by functions here will be caught by the program which
     # will render in the GUI an empty plot with the error message shown
+    stream = segment.stream()
     if len(stream) != 1:
         raise Exception("%d traces (probably gaps/overlaps)" % len(stream))
 
+    inventory = segment.inventory()
     trace = stream[0]
     # define some parameters:
     evt = segment.event
@@ -177,7 +179,15 @@ def _mag2freq(magnitude):
 #     return {'Noise': (0, df_noise, spec_noise), 'Signal': (0, df_signal, spec_signal)}
 
 
-def _sn_spectrum(segment, stream, inventory, config):
+def sn_spectra(segment, config):
+    x0_sig, df_sig, sig = _sn_spectrum(segment.stream('signal'), config)
+    x0_noi, df_noi, noi = _sn_spectrum(segment.stream('noise'), config)
+    return {'Signal': (x0_sig, df_sig, sig), 'Noise': (x0_noi, df_noi, noi)}
+
+
+def _sn_spectrum(stream, config):
+    '''note this function is prefixed with '_' to ignore it in the gui (=no plot)
+    it is called from within sn_spectra above'''
     # stream is the `obspy.core.Stream` object returned by reading the segment data attribute.
     # If stream has more than one trace, most likely the segment has gaps. It is up to the user
     # to handle the case: you can call `stream.merge`, perform your own processing,
@@ -240,17 +250,15 @@ def _sn_spectrum(segment, stream, inventory, config):
 #     return f0, df, triangsmooth(amp_spec, winlen_ratio=0.05)
 
 
-
-
-
-def cumulative(segment, stream, inventory, config):
+def cumulative(segment, config):
     '''function returning the cumulative of a trace in the form of a Plot object'''
-        # stream is the `obspy.core.Stream` object returned by reading the segment data attribute.
+    # stream is the `obspy.core.Stream` object returned by reading the segment data attribute.
     # If stream has more than one trace, most likely the segment has gaps. It is up to the user
     # to handle the case: you can call `stream.merge`, perform your own processing,
     # or raise an Exception.
     # Remember that any exception thrown by functions here will be caught by the program which
     # will render in the GUI an empty plot with the error message shown
+    stream = segment.stream()
     if len(stream) != 1:
         raise Exception("%d traces (probably gaps/overlaps)" % len(stream))
     trace = stream[0]
@@ -261,13 +269,14 @@ def cumulative(segment, stream, inventory, config):
 # Now we can write a custom function. We will implement the 1st derivative
 # A custom function accepts the currently selected obspy Trace T, and MUST return another Trace,
 # or a numpy array with the same number of points as T:
-def first_deriv(segment, stream, inventory, config):
+def first_deriv(segment, config):
     """Calculates the first derivative of the current segment's trace"""
     # If stream has more than one trace, most likely the segment has gaps. It is up to the user
     # to handle the case: you can call `stream.merge`, perform your own processing,
     # or raise an Exception.
     # Remember that any exception thrown by functions here will be caught by the program which
     # will render in the GUI an empty plot with the error message shown
+    stream = segment.stream()
     if len(stream) != 1:
         raise Exception("%d traces (probably gaps/overlaps)" % len(stream))
     trace = stream[0]

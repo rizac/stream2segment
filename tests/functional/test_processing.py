@@ -355,7 +355,7 @@ class Test(unittest.TestCase):
 ### ======== ACTUAL TESTS: ================================
 
     @mock.patch('stream2segment.utils.postdownload.save_inventory', side_effect=original_saveinv)
-    def test_segwrapper(self, mock_saveinv):
+    def tst_segwrapper(self, mock_saveinv):
         
         segids = query4process(self.session, {}).all()
         prev_staid = None
@@ -397,7 +397,7 @@ class Test(unittest.TestCase):
     # Here a simple test for a processing file returning dict. Save inventory and check it's saved
     @mock.patch('stream2segment.process.main.load_proc_cfg')
     def test_simple_run_retDict_saveinv(self, mock_load_cfg):
-        self.custom_config['save_inventory']=True
+        self.custom_config['save_inventory'] = True
         mock_load_cfg.side_effect = self.load_proc_cfg
 
         # query data for testing now as the program will expunge all data from the session

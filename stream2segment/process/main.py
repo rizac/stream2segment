@@ -7,6 +7,7 @@ Created on Feb 2, 2017
 '''
 from __future__ import print_function
 from stream2segment.io.utils import loads_inv
+from itertools import cycle
 
 # this can apparently not be avoided neither with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
@@ -25,8 +26,15 @@ import re
 import traceback
 import csv
 
+# future direct imports (needs future package installed, otherwise remove):
+# (http://python-future.org/imports.html#explicit-imports)
+from builtins import (ascii, chr, dict, filter, hex, input,
+                      int, map, next, oct, open, pow, range, round,
+                      super, zip)
+
 # iterating over dictionary keys with the same set-like behaviour on Py2.7 as on Py3:
 from future.utils import viewkeys
+
 from obspy.core.stream import read
 
 from stream2segment.utils import get_progressbar, load_source, secure_dburl
@@ -131,33 +139,39 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
     logger.info(" for all segments in '%s", secure_dburl(str(session.bind.engine.url)))
     logger.info("Config. file: %s", str(configsourcefile))
 
-    save_station_inventory = config.get('save_inventory', False)
-
     # multiprocess with sessions is a mess. So we have two choices: either we build a dict from
     # each segment object, or we simply do not use multiprocess. We will opt for the second choice
     # (maybe implement tests in the future to see which is faster)
 
     # do an iteration on the main process to check when AsyncResults is ready
     done = 0
+    # clear the session every clear_session_step iterations:
+    clear_session_step = 10
 
-    seg_ids = query4process(session, config.get('segment_select', {}))
+    seg_sta_ids = query4process(session, config.get('segment_select', {}))
 
     # get total segment length:
-    seg_len = seg_ids.count()
+    seg_len = seg_sta_ids.count()  # FIXME: use a func count?
+
     # actually, this is better as it should be optimized, but how to translate for the query we
     # have? comment for the moment:
     # seg_len = session.query(func.count(Segment.id)).filter(seg_filter).scalar()
     logger.info("%d segments found to process", seg_len)
 
-    segwrapper = SegmentWrapper(session, None, save_station_inventory=save_station_inventory,
-                                cache_size=1)
+    segwrapper = SegmentWrapper(config=config)
+
+    last_inventory = None
+    last_inventory_stationid = None
 
     with redirect(sys.stderr):
         with get_progressbar(show_progress, length=seg_len) as pbar:
             try:
-                for (seg_id,) in seg_ids:
-                    segwrapper.reinit(seg_id)
-                    pbar.update(1)
+                for (seg_id, sta_id), idx in zip(seg_sta_ids, cycle(range(clear_session_step))):
+                    already_computed_inventory = None \
+                        if (last_inventory_stationid is None or last_inventory_stationid != sta_id)\
+                        else last_inventory
+                    segwrapper.reinit(session, seg_id,
+                                      inventory=already_computed_inventory)
                     try:
                         array = pyfunc(segwrapper, config)
                         if array is not None:
@@ -167,6 +181,15 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
                         raise  # sys.exc_info()
                     except Exception as generr:
                         logger.warning("segment (id=%d): %s", seg_id, str(generr))
+                    # check if we loaded the inventory and set it as last computed
+                    # do do this, little hack: check if the "private" field is defined:
+                    if segwrapper._SegmentWrapper__inv is not None:
+                        last_inventory = segwrapper._SegmentWrapper__inv
+                        last_inventory_stationid = sta_id
+                    pbar.update(1)
+                    if idx == 0:
+                        session.expunge_all()
+                        session.close()
             except:
                 err_msg = traceback.format_exc()
                 logger.critical(err_msg)
@@ -188,8 +211,6 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
     logging.captureWarnings(False)  # form the docs the redirection of warnings to the logging
     # system will stop, and warnings will be redirected to their original destinations
     # (i.e. those in effect before captureWarnings(True) was called).
-
-    s.close()  # maybe not really necessary
 
 #     if stations_saved:
 #         logger.info("station inventories saved: %d", stations_saved)
