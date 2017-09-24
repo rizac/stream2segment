@@ -242,6 +242,22 @@ class LimitedSizeDict(OrderedDict):
         super(LimitedSizeDict, self).__setitem__(key, value)
         self._check_size_limit()
 
+    def update(self, *args, **kwargs):  # python2 compatibility (python3 calls __setitem__)
+        if args:
+            if len(args) > 1:
+                raise TypeError("update expected at most 1 arguments, got %d" % len(args))
+            other = dict(args[0])
+            for key in other:
+                super(LimitedSizeDict, self).__setitem__(key, other[key])
+        for key in kwargs:
+            super(LimitedSizeDict, self).__setitem__(key, kwargs[key])
+        self._check_size_limit()
+
+    def setdefault(self, key, value=None):  # python2 compatibility (python3 calls __setitem__)
+        if key not in self:
+            self[key] = value
+        return self[key]
+
     def _check_size_limit(self):
         if self.size_limit is not None:
             while len(self) > self.size_limit:

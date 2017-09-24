@@ -20,7 +20,7 @@ from stream2segment.io.db.pd_sql_utils import colnames
 from stream2segment.io.db.models import Segment, Class, Station, Channel, DataCenter, Event,\
     ClassLabelling, Run
 from stream2segment.io.db.queries import query4gui, count as query_count
-from stream2segment.gui.webapp.plotviews import jsontimestamp
+from stream2segment.gui.webapp.plots.jsplot import jsontimestamp
 # from stream2segment.io.db import sqlevalexpr
 from stream2segment.utils.resources import yaml_load_doc, get_templates_fpath
 
@@ -197,7 +197,8 @@ def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components,
     javascript parsing
     :param classes: boolean, whether to return the integers classes ids (if any) of the given
     segment
-    :param warnings: boolean, whether to return the given warnings for the given segment. the
+    :param warnings: NOT IMPLEMENTED YET
+    boolean, whether to return the given warnings for the given segment. the
     warnings include: segment with gaps, inventory error (if inventory is required according to
     the config), and sn windows calculation error (e.g., bad values given from the config or the
     gui). The warnings is a list of (currently) at most 3 string elements
@@ -226,14 +227,14 @@ def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components,
             # return always sn_windows, as we already calculated them. IT is better
             # to call this method AFTER get_plots_func defined above
             sn_windows = [sorted([jsontimestamp(x[0]), jsontimestamp(x[1])])
-                          for x in plotmanager.get_cache(session, seg_id, 'sn_windows',
-                                                         preprocessed, [])]
+                          for x in plotmanager.getdata(session, seg_id, 'sn_windows',
+                                                       preprocessed, [])]
         except Exception:
             sn_windows = []
 
     return {'plots': [p.tojson(z, NPTS_WIDE) for p, z in zip(plots, zooms_)],
             'sn_windows': sn_windows,
-            'warnings': [] if not warnings else plotmanager.get_warnings(seg_id, preprocessed),
+            'warnings': [],  # if not warnings else plotmanager.get_warnings(seg_id, preprocessed),
             'metadata': [] if not metadata else get_metadata(session, seg_id),
             'classes': [] if not classes else get_classes(session, seg_id)}
 

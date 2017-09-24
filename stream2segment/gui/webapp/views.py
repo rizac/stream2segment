@@ -9,9 +9,9 @@ from flask import render_template, request, jsonify, Blueprint, current_app
 # from stream2segment.gui.webapp.plots import user_defined_plots, View
 from stream2segment.gui.webapp import core, get_session
 from stream2segment.utils import secure_dburl
-from stream2segment.gui.webapp.core import get_doc
+# from stream2segment.gui.webapp.core import get_doc
 # from stream2segment.gui.webapp.core import set_classes
-# from stream2segment.gui.webapp.plotviews import PlotManager
+# from stream2segment.gui.webapp.plots.core import PlotManager
 
 # http://flask.pocoo.org/docs/0.12/patterns/appfactories/#basic-factories:
 main_page = Blueprint('main_page', __name__, template_folder='templates')
@@ -25,9 +25,9 @@ def main():
     ud_plotnames = plotmanager.userdefined_plotnames
     keys = ['sn_windows', 'segment_select', 'segment_orderby']
     settings = {k: config[k] for k in keys}
-    preprocessfunc_doc = get_doc('preprocessfunc', plotmanager)
-    sn_windows_doc = get_doc('sn_windows', plotmanager)
-    segment_select_doc = get_doc('segment_select', plotmanager)
+    preprocessfunc_doc = core.get_doc('preprocessfunc', plotmanager)
+    sn_windows_doc = core.get_doc('sn_windows', plotmanager)
+    segment_select_doc = core.get_doc('segment_select', plotmanager)
     # filterfunc_doc = current_app.config['PLOTMANAGER'].get_filterfunc_doc.replace("\n", "<p>")
     return render_template('index.html', title=secure_dburl(current_app.config["DATABASE"]),
                            settings=settings,
