@@ -49,7 +49,7 @@ class SegmentPlotList(list):
     """
 
     # set here what to set to None when calling invalidate (see __init__ for details):
-    _cahce_values_to_invalidate = ['sn_windows']
+    _data_to_invalidate = ['sn_windows', 's_stream', 'n_stream']
 
     def __init__(self, segid, functions, other_components_id_list=[]):
         """Builds a new SegmentPlotList
@@ -59,7 +59,8 @@ class SegmentPlotList(list):
         super(SegmentPlotList, self).__init__([None] * len(functions))
         self.functions = functions
         # use dict instead of {} to make it py2 compatible (see future imports at module's top)
-        self.data = dict(stream=None, sn_windows=None, plot_title_prefix='')
+        self.data = dict(stream=None, plot_title_prefix='',
+                         **({k: None for k in self._data_to_invalidate}))
         self.segment_id = segid
         self.oc_segment_ids = other_components_id_list
 
@@ -68,16 +69,24 @@ class SegmentPlotList(list):
         All other data is shared with this object'''
         return SegmentPlotList(self.segment_id, self.functions, self.oc_segment_ids)
 
-    def invalidate(self):
-        '''invalidates all the plots and other stuff which must be calculated to get them
-        (setting what has to be invalidated to None) except the main trace plot'''
-        index_of_traceplot = 0  # the index of the function returning the
+    def invalidate(self, hard=False):
+        '''invalidates (sets to None) this object. Invalidate a value means setting it to None:
+         -  if `hard=False` (the default) leaves the plot resulting from the segment
+             without applying any function (usually at self[0]) and only `self.data` values whose
+             keys are not in `self._data_to_invalidate` (this means usually setting to None all
+             but data['stream'])
+         -  if `hard=True` (currently not used but left for potential new features),
+             invalidates all plots (elements of this list) and all `self.data`
+             values
+        '''
+        index_of_main_plot = 0  # the index of the function returning the
         # trace plot (main plot returning the trace as it is)
-        for key in self._cahce_values_to_invalidate:
+        for key in (self.data if hard else self._data_to_invalidate):
             self.data[key] = None
         for i in range(len(self)):
-            if i != index_of_traceplot:
-                self[i] = None
+            if not hard and i == index_of_main_plot:
+                continue
+            self[i] = None
 
     def get_plots(self, session, plot_indices, inv_cache, config):
         '''
@@ -158,7 +167,7 @@ class SegmentPlotList(list):
 
         # set title:
         title_prefix = self.data.get('plot_title_prefix', '')
-        if not func_name:
+        if func_name is None:
             func_name = getattr(func, "__name__", "")
         if title_prefix or func_name:
             sep = " - " if title_prefix and func_name else ''
@@ -167,7 +176,8 @@ class SegmentPlotList(list):
 
     def exec_func(self, func, session, invcache, config):
         '''Executes the given function on the given segment identified by seg_id
-            Returns the function result (or exception) after updating self, if needed
+           Returns the function result (or exception) after updating self, if needed.
+           Raises if func raises
         '''
         seg_id = self.segment_id
         segwrapper = SegmentWrapper(config).reinit(session, seg_id,
@@ -177,8 +187,6 @@ class SegmentPlotList(list):
 
         try:
             return func(segwrapper, config)
-        except Exception as exc:
-            return exc
         finally:
             # set back values if needed, even if we had exceptions.
             # Any of these values might be also an exception. Call the
@@ -186,6 +194,10 @@ class SegmentPlotList(list):
             # the exception, it does not return it
             if segwrapper._SegmentWrapper__stream is not None:
                 self.data['stream'] = segwrapper._SegmentWrapper__stream
+            if segwrapper._SegmentWrapper__s_stream is not None:
+                self.data['s_stream'] = segwrapper._SegmentWrapper__s_stream
+            if segwrapper._SegmentWrapper__n_stream is not None:
+                self.data['n_stream'] = segwrapper._SegmentWrapper__n_stream
             if segwrapper._SegmentWrapper__sn_windows is not None:
                 self.data['sn_windows'] = segwrapper._SegmentWrapper__sn_windows
             # allocate the segment if we need to set the title (might be None):
@@ -205,7 +217,9 @@ class SegmentPlotList(list):
                 if title is None and isinstance(segment, Segment):
                     title = segment.strid
                 if title is None:
-                    title = session.query(Segment).filter(Segment.id == seg_id).strid
+                    _ = session.query(Segment).filter(Segment.id == seg_id).first()
+                    if _:
+                        title = _.strid
                 if title is not None:
                     # try to get it from the stream. Otherwise, get it from the segment
                     self.data['plot_title_prefix'] = title
@@ -305,7 +319,7 @@ class PlotManager(LimitedSizeDict):
         if p_segplotlist is None:
             # Appliy a pre-process to the given segplotlist,
             # creating a copy of it and adding to the second element of self.segplotlists
-            for segplotlist in chain(segplotlist,
+            for segplotlist in chain([segplotlist],
                                      (self[_][0] for _ in segplotlist.oc_segment_ids)):
                 stream = None
                 try:
@@ -313,8 +327,6 @@ class PlotManager(LimitedSizeDict):
                                                    self.inv_cache, self.config)
                     if isinstance(stream, Trace):
                         stream = Stream([stream])
-                    elif isinstance(stream, Exception):
-                        raise stream
                     elif not isinstance(stream, Stream):
                         raise Exception('pre_process function must return a Trace or Stream object')
                 except Exception as exc:
@@ -340,8 +352,12 @@ class PlotManager(LimitedSizeDict):
         currently at index 0)'''
         self.config.update(**values)
         for v in self.values():
-            v[0].invalidate()
-            v[1].invalidate()
+            if v[0] is not None:
+                v[0].invalidate()
+            # pre-processed segplotlist is set to None to force re-calculate all
+            # as we cannot be sure if the main stream (resulting from preprocess func)
+            # needed a config value
+            v[1] = None
 
     def _check_size_limit(self):  # override super method to delete all components of a segment
         if self.size_limit is not None:

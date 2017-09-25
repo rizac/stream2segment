@@ -52,16 +52,15 @@ obspy Trace. Any other function must return:
         order must match insertion order, use `OrderedDict`
 
 The documentation of the function will be shown in the GUI, if present
-
-.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
+from math import factorial
 import numpy as np
 from obspy.core import Trace, Stream, UTCDateTime
 from stream2segment.analysis.mseeds import bandpass, cumsum, cumtimes, powspec, ampspec
 from stream2segment.analysis import triangsmooth
 
 
-def pre_process(segment, config):
+def _pre_process(segment, stream, inventory, config):
     """Applies a pre-process on the given segment waveform by
     filtering the signal and removing the instrumental response
     The filter algorithm has the following steps:
@@ -79,11 +78,9 @@ def pre_process(segment, config):
     # or raise an Exception.
     # Remember that any exception thrown by functions here will be caught by the program which
     # will render in the GUI an empty plot with the error message shown
-    stream = segment.stream()
     if len(stream) != 1:
         raise Exception("%d traces (probably gaps/overlaps)" % len(stream))
 
-    inventory = segment.inventory()
     trace = stream[0]
     # define some parameters:
     evt = segment.event
@@ -109,6 +106,76 @@ def _mag2freq(magnitude):
     else:
         freq_min = 0.05
     return freq_min
+
+def _savitzky_golay(y, window_size, order, deriv=0, rate=1):
+    r"""Smooth (and optionally differentiate) data with a Savitzky-Golay filter.
+    The Savitzky-Golay filter removes high frequency noise from data.
+    It has the advantage of preserving the original shape and
+    features of the signal better than other types of filtering
+    approaches, such as moving averages techniques.
+    Parameters
+    ----------
+    y : array_like, shape (N,)
+        the values of the time history of the signal.
+    window_size : int
+        the length of the window. Must be an odd integer number.
+    order : int
+        the order of the polynomial used in the filtering.
+        Must be less then `window_size` - 1.
+    deriv: int
+        the order of the derivative to compute (default = 0 means only smoothing)
+    Returns
+    -------
+    ys : ndarray, shape (N)
+        the smoothed signal (or it's n-th derivative).
+    Notes
+    -----
+    The Savitzky-Golay is a type of low-pass filter, particularly
+    suited for smoothing noisy data. The main idea behind this
+    approach is to make for each point a least-square fit with a
+    polynomial of high order over a odd-sized window centered at
+    the point.
+    Examples
+    --------
+    t = np.linspace(-4, 4, 500)
+    y = np.exp( -t**2 ) + np.random.normal(0, 0.05, t.shape)
+    ysg = savitzky_golay(y, window_size=31, order=4)
+    import matplotlib.pyplot as plt
+    plt.plot(t, y, label='Noisy signal')
+    plt.plot(t, np.exp(-t**2), 'k', lw=1.5, label='Original signal')
+    plt.plot(t, ysg, 'r', label='Filtered signal')
+    plt.legend()
+    plt.show()
+    References
+    ----------
+    .. [1] A. Savitzky, M. J. E. Golay, Smoothing and Differentiation of
+       Data by Simplified Least Squares Procedures. Analytical
+       Chemistry, 1964, 36 (8), pp 1627-1639.
+    .. [2] Numerical Recipes 3rd Edition: The Art of Scientific Computing
+       W.H. Press, S.A. Teukolsky, W.T. Vetterling, B.P. Flannery
+       Cambridge University Press ISBN-13: 9780521880688
+    """
+    
+    try:
+        window_size = np.abs(np.int(window_size))
+        order = np.abs(np.int(order))
+    except ValueError, msg:
+        raise ValueError("window_size and order have to be of type int")
+    if window_size % 2 != 1 or window_size < 1:
+        raise TypeError("window_size size must be a positive odd number")
+    if window_size < order + 2:
+        raise TypeError("window_size is too small for the polynomials order")
+    order_range = range(order+1)
+    half_window = (window_size -1) // 2
+    # precompute coefficients
+    b = np.mat([[k**i for i in order_range] for k in range(-half_window, half_window+1)])
+    m = np.linalg.pinv(b).A[deriv] * rate**deriv * factorial(deriv)
+    # pad the signal at the extremes with
+    # values taken from the signal itself
+    firstvals = y[0] - np.abs( y[1:half_window+1][::-1] - y[0] )
+    lastvals = y[-1] + np.abs(y[-half_window-1:-1][::-1] - y[-1])
+    y = np.concatenate((firstvals, y, lastvals))
+    return np.convolve( m[::-1], y, mode='valid')
 
 
 # def spectra(trace, segment, inventory, config, warning):
@@ -179,15 +246,7 @@ def _mag2freq(magnitude):
 #     return {'Noise': (0, df_noise, spec_noise), 'Signal': (0, df_signal, spec_signal)}
 
 
-def sn_spectra(segment, config):
-    x0_sig, df_sig, sig = _sn_spectrum(segment.stream('signal'), config)
-    x0_noi, df_noi, noi = _sn_spectrum(segment.stream('noise'), config)
-    return {'Signal': (x0_sig, df_sig, sig), 'Noise': (x0_noi, df_noi, noi)}
-
-
-def _sn_spectrum(stream, config):
-    '''note this function is prefixed with '_' to ignore it in the gui (=no plot)
-    it is called from within sn_spectra above'''
+def _sn_spectrum(segment, stream, inventory, config):
     # stream is the `obspy.core.Stream` object returned by reading the segment data attribute.
     # If stream has more than one trace, most likely the segment has gaps. It is up to the user
     # to handle the case: you can call `stream.merge`, perform your own processing,
@@ -250,15 +309,17 @@ def _sn_spectrum(stream, config):
 #     return f0, df, triangsmooth(amp_spec, winlen_ratio=0.05)
 
 
-def cumulative(segment, config):
+
+
+
+def cumulative(segment, stream, inventory, config):
     '''function returning the cumulative of a trace in the form of a Plot object'''
-    # stream is the `obspy.core.Stream` object returned by reading the segment data attribute.
+        # stream is the `obspy.core.Stream` object returned by reading the segment data attribute.
     # If stream has more than one trace, most likely the segment has gaps. It is up to the user
     # to handle the case: you can call `stream.merge`, perform your own processing,
     # or raise an Exception.
     # Remember that any exception thrown by functions here will be caught by the program which
     # will render in the GUI an empty plot with the error message shown
-    stream = segment.stream()
     if len(stream) != 1:
         raise Exception("%d traces (probably gaps/overlaps)" % len(stream))
     trace = stream[0]
@@ -269,14 +330,13 @@ def cumulative(segment, config):
 # Now we can write a custom function. We will implement the 1st derivative
 # A custom function accepts the currently selected obspy Trace T, and MUST return another Trace,
 # or a numpy array with the same number of points as T:
-def first_deriv(segment, config):
+def first_deriv(segment, stream, inventory, config):
     """Calculates the first derivative of the current segment's trace"""
     # If stream has more than one trace, most likely the segment has gaps. It is up to the user
     # to handle the case: you can call `stream.merge`, perform your own processing,
     # or raise an Exception.
     # Remember that any exception thrown by functions here will be caught by the program which
     # will render in the GUI an empty plot with the error message shown
-    stream = segment.stream()
     if len(stream) != 1:
         raise Exception("%d traces (probably gaps/overlaps)" % len(stream))
     trace = stream[0]
@@ -288,3 +348,32 @@ def first_deriv(segment, config):
     return deriv
     # or, alternatively:
     # return Trace(data=deriv, header=trace.stats.copy())
+
+def derivcum2(segment, stream, inventory, config):
+    """
+       compute the second derivative of the cumulative function
+       using savitzy-golay
+    """
+    cum=cumulative(segment, stream, inventory, config)
+    sec_der = _savitzky_golay(cum.data,31,2,deriv=2)
+    sec_der_abs = np.abs(sec_der)
+    mmm = np.nanmax(sec_der_abs)
+    sec_der /= mmm
+    
+    return sec_der_abs
+
+def synth_wa(segment, stream, inventory, config):
+    trace = stream[0]
+    # compute synthetic WA,NOTE: keep as last action, it modifies trace!!
+    config_wa = dict(config['paz_wa'])
+    # parse complex sring to complex numbers:
+    zeros_parsed = map(complex,(c.replace(' ','') for c in config_wa['zeros']))
+    config_wa['zeros'] = zeros_parsed
+    poles_parsed = map(complex,(c.replace(' ','') for c in config_wa['poles']))
+    config_wa['poles'] = poles_parsed
+    # compute synthetic WA response
+    trace_wa = trace.simulate(paz_remove=None, paz_simulate=config_wa)
+
+    return trace_wa
+
+

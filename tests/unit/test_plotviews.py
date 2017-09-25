@@ -32,9 +32,11 @@ from stream2segment.io.db.queries import getallcomponents
 from obspy.core.stream import read, Stream
 from stream2segment.utils import load_source
 from stream2segment.utils.resources import yaml_load
-from stream2segment.gui.webapp.plotviews import PlotManager
-from obspy.io.stationtxt.core import all_components
+from stream2segment.gui.webapp.plots.core import PlotManager
 from mock.mock import patch
+
+from stream2segment.utils.postdownload import get_inventory as original_get_inventory, get_stream as original_get_stream
+
 
 class Test(unittest.TestCase):
 
@@ -111,6 +113,7 @@ class Test(unittest.TestCase):
         id = 'firstevent'
         e1 = Event(eventid='event1', webservice_id=ws.id, time=utcnow, latitude=89.5, longitude=6,
                          depth_km=7.1, magnitude=56)
+        # note: e2 not used, store in db here anyway...
         e2 = Event(eventid='event2', webservice_id=ws.id, time=utcnow + timedelta(seconds=5),
                   latitude=89.5, longitude=6, depth_km=7.1, magnitude=56)
         
@@ -153,14 +156,21 @@ class Test(unittest.TestCase):
                      run_id = run.id,
                      )
         
+        # Note: data_gaps_merged is a stream where gaps can be merged via obspy.Stream.merge
+        # data_gaps_unmerged is a stream where gaps cannot be merged (is a stream of three different channels
+        # of the same event)
         folder = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
         with open(os.path.join(folder, "GE.FLT1..HH?.mseed"), 'rb') as opn:
             data_gaps_unmerged = opn.read()  # unmerged cause we have three traces of different channels
         with open(os.path.join(folder, "IA.BAKI..BHZ.D.2016.004.head"), 'rb') as opn:
             data_gaps_merged = opn.read()
+        with open(os.path.join(folder, "GE.FLT1..HH?.mseed"), 'rb') as opn:
+            data_ok = opn.read()
+        # create an 'ok' and 'error' Stream, the first by taking the first trace of "GE.FLT1..HH?.mseed",
+        # the second by maipulating it
+        obspy_stream = read(BytesIO(data_ok))
+        obspy_trace = obspy_stream[0]
         
-        
-        obspy_trace = read(BytesIO(data_gaps_unmerged))[0]
         # write data_ok is actually bytes data of 3 traces, write just the first one, we have
         # as it is it would be considered a trace with gaps, wwe have
         # another trace with gaps
@@ -168,16 +178,40 @@ class Test(unittest.TestCase):
         obspy_trace.write(b, format='MSEED')
         data_ok = b.getvalue()
         data_err = data_ok[:5]  # whatever slice should be ok
-             
-        for ev, c in product([e1, e2], channels):
+        
+        seedid_ok = seedid_err = obspy_trace.get_id()
+        seedid_gaps_unmerged = None
+        seedid_gaps_merged = read(BytesIO(data_gaps_merged))[0].get_id()
+        
+        
+        
+        for ev, c in product([e1], channels):
             val = int(c.location[:2])
             mseed = data_gaps_merged if "gap_merged" in c.location else \
                 data_err if "err" in c.location else data_gaps_unmerged if 'gap_unmerged' in c.location else data_ok
-            seg = Segment(start_time = ev.time+timedelta(seconds=val),
-                          arrival_time = ev.time+timedelta(seconds=2*val),
-                          end_time = ev.time+timedelta(seconds=5*val),
+            seedid = seedid_gaps_merged if "gap_merged" in c.location else \
+                seedid_err if 'err' in c.location else seedid_gaps_unmerged  if 'gap_unmerged' in c.location else seedid_ok
+            
+            # set times. For everything except data_ok, we set a out-of-bounds time:
+            start_time = ev.time - timedelta(seconds=5)
+            arrival_time = ev.time - timedelta(seconds=4)
+            end_time = ev.time - timedelta(seconds=1)
+            
+            if "gap_merged" not in c.location and not 'err' in c.location and not \
+                'gap_unmerged' in c.location:
+                start_time = obspy_trace.stats.starttime.datetime
+                arrival_time = (obspy_trace.stats.starttime + (obspy_trace.stats.endtime - obspy_trace.stats.starttime)/2).datetime
+                end_time = obspy_trace.stats.endtime.datetime
+            
+            if not isinstance(start_time, datetime) or not isinstance(arrival_time, datetime) \
+                or not isinstance(end_time, datetime):
+                asd = 9
+            
+            seg = Segment(start_time = start_time,
+                          arrival_time = arrival_time,
+                          end_time = end_time,
                           data = mseed,
-                          seed_identifier = obspy_trace.get_id() if mseed == data_ok else None,
+                          seed_identifier = seedid,
                           event_distance_deg = val,
                           event_id=ev.id,
                           **fixed_args)
@@ -187,7 +221,8 @@ class Test(unittest.TestCase):
         
         # set inventory
         with open(os.path.join(folder, "GE.FLT1.xml"), 'rb') as opn:
-            self.inventory = loads_inv(opn.read())
+            self.inventory_bytes = opn.read()
+        self.inventory = loads_inv(self.inventory_bytes)
 
     @staticmethod
     def plotslen(plotmanager, preprocessed):
@@ -229,12 +264,10 @@ class Test(unittest.TestCase):
             n += num
         return n
 
-    from stream2segment.utils.postdownload import get_inventory as ogi, get_stream as ogs
-
-    @patch('stream2segment.utils.postdownload.get_inventory', side_effect=ogi)
-    @patch('stream2segment.utils.postdownload.get_stream', side_effect=ogs)
+    @patch('stream2segment.utils.postdownload.get_inventory')
+    @patch('stream2segment.utils.postdownload.get_stream')
     def test_view_other_comps(self, mock_get_stream, mock_get_inv):
-        m = PlotManager(self.pymodule, self.config)
+        
         components_count = {} # group_id -> num expected components
         # where group_id is the tuple (event_id, channel.location)
         for s in self.session.query(Segment): 
@@ -247,16 +280,23 @@ class Test(unittest.TestCase):
                 
                 components_count[group_id] = other_comps_count
 
-        allcomponents = True
-        preprocessed = False
+        
+        
         for s in self.session.query(Segment):
+            
+            m = PlotManager(self.pymodule, self.config)
+            
             expected_components_count = components_count[(s.event_id, s.channel.location)]
 
             mock_get_stream.reset_mock()
             mock_get_inv.reset_mock()
+            mock_get_stream.side_effect = original_get_stream
+            mock_get_inv.side_effect = original_get_inventory
+            allcomponents = True
+            preprocessed = False
             idxs = [0]
             # s_id_was_in_views = s.id in m._plots
-            plots = m.get_plots(self.session, s.id, idxs, False, allcomponents)
+            plots = m.get_plots(self.session, s.id, idxs, preprocessed, allcomponents)
 #             # assert returned plot has the correct number of time/line-series:
 #             # note that plots[0] might be generated from a stream with gaps
             assert len(plots[0].data) == self.traceslen(m, s.id, preprocessed, allcomponents, count_exceptions_as_one_series=True)
@@ -269,12 +309,22 @@ class Test(unittest.TestCase):
             # assert SegmentWrapper function calls:
             assert not mock_get_inv.called  # preprocess=False
             assert mock_get_stream.call_count == expected_components_count
+            # assert we did not calculate any useless stream:
+            assert m[s.id][0].data['stream'] is not None
+            assert m[s.id][0].data['s_stream'] is None
+            assert m[s.id][0].data['n_stream'] is None
+            assert m[s.id][1] is None
+            assert m[s.id][1] is None
+            assert m[s.id][1] is None
+            
             
             mock_get_stream.reset_mock()
             mock_get_inv.reset_mock()
+            allcomponents = True
+            preprocessed = False
             idxs = [0, 1]
             # s_id_was_in_views = s.id in m._plots
-            plots = m.get_plots(self.session, s.id, idxs, False, allcomponents)
+            plots = m.get_plots(self.session, s.id, idxs, preprocessed, allcomponents)
 #           # asssert the returned value match the input:
             assert len(plots) == len(idxs)
             assert not self.plotslen(m, preprocessed=True)  # assert no filtering calculated
@@ -284,199 +334,188 @@ class Test(unittest.TestCase):
             # assert SegmentWrapper function calls:
             assert not mock_get_inv.called  # preprocess=False
             assert not mock_get_stream.called  # already computed
+            # assert we did not calculate any useless stream:
+            assert m[s.id][0].data['stream'] is not None
+            assert m[s.id][0].data['s_stream'] is not None
+            assert m[s.id][0].data['n_stream'] is not None
+            assert m[s.id][1] is None
+            assert m[s.id][1] is None
+            assert m[s.id][1] is None
             
-            
-            
-            
-            
-        m.inv_cache
-        
-    def tst_view_inv_err(self):
-        m = PlotManager(self.pymodule, self.config)
-        components_count = {} # group_id -> num expected components
-        # where group_id is the tuple (event_id, channel.location)
-        for s in self.session.query(Segment): 
-            group_id = (s.event_id, s.channel.location)
-            if group_id not in components_count:
-                # we should have created views also for the other components. To get
-                # other components, use the segment channel and event id
-                other_comps_count = self.session.query(Segment).join(Segment.channel).\
-                    filter(and_(Segment.event_id == s.event_id, Channel.location == s.channel.location)).count()
-                
-                components_count[group_id] = other_comps_count
-
-        
-        for s in self.session.query(Segment):
-            expected_components_count = components_count[(s.event_id, s.channel.location)]
-            
-            idxs = []
+            mock_get_stream.reset_mock()
+            mock_get_inv.reset_mock()
             allcomponents = False
-            preprocessed = False
-            # s_id_was_in_views = s.id in m._plots
-            plots = m.getplots(self.session, s.id, idxs, preprocessed, allcomponents)
-            # asssert the returned value match the input:
-            assert len(plots) == len(idxs)
-            assert not self.plotslen(m)  # assert no filtering calculated
-            # assert we did not calculate other components (all_components=False)
-            plotscache = m._plotscache[s.id][0]
-            calculated_plots = sum(plot is not None for plot in plotscache.data[s.id][1])
-            assert calculated_plots == len(plots)
-
-            # assert we associated the plotscache to expected_components_count keys:
-            assert sum(plotscache is vm for vm in  m._plots.values()) == expected_components_count
-            # assert we have the inventory for the segment:
-            # FIXME: test that we don't have it if we set inventory=False in the config
-            assert s.id in  m.segid2inv
-            
+            preprocessed = True
             idxs = [0, 1]
-            plots = m.getplots(self.session, s.id, idxs, False)
+            # s_id_was_in_views = s.id in m._plots
+            plots = m.get_plots(self.session, s.id, idxs, preprocessed, allcomponents)
+#           # asssert the returned value match the input:
+            assert len(plots) == len(idxs)
+            assert self.plotslen(m, preprocessed=True)  # assert no filtering calculated
+            # assert we did not calculate other components (all_components=False)
+            assert self.computedplotslen(m, s.id, preprocessed, allcomponents=False) == len(idxs)
+            assert self.computedplotslen(m, s.id, preprocessed, allcomponents) == len(idxs)
+            # assert SegmentWrapper function calls:
+            if 'err' not in s.channel.location and not 'gap' in s.channel.location:
+                assert mock_get_inv.called  # preprocess=False
+            else:
+                assert not mock_get_inv.called
+            assert not mock_get_stream.called  # already computed
+            # assert we did not calculate any useless stream:
+            assert m[s.id][0].data['stream'] is not None
+            assert m[s.id][0].data['s_stream'] is not None
+            assert m[s.id][0].data['n_stream'] is not None
+            assert m[s.id][1].data['stream'] is not None
+            assert m[s.id][1].data['s_stream'] is not None
+            assert m[s.id][1].data['n_stream'] is not None
+
+            mock_get_stream.reset_mock()
+            mock_get_inv.reset_mock()
+            allcomponents = True
+            preprocessed = True
+            idxs = [0, 1]
+            # s_id_was_in_views = s.id in m._plots
+            plots = m.get_plots(self.session, s.id, idxs, preprocessed, allcomponents)
             # asssert the returned value match the input:
             assert len(plots) == len(idxs)
-            assert not self.pplotslen(m)  # assert no filtering calculated
+            assert self.plotslen(m, preprocessed=True)  # assert no filtering calculated
             # assert we did not calculate other components (all_components=False)
-            plotscache = m._plotscache[s.id][0]
-            calculated_plots = sum(plot is not None for plot in plotscache.data[s.id][1])
-            assert calculated_plots == len(plots)
-
-            # assert we associated the plotscache to expected_components_count keys:
-            assert sum(plotscache is vm for vm in  m._plots.values()) == expected_components_count
-            # assert we have the inventory for the segment:
-            # FIXME: test that we don't have it if we set inventory=False in the config
-            assert s.id in  m.segid2inv
-
-            # calculate all indices
-            idxs = list(range(len(m.functions)))
-            plots = m.getplots(self.session, s.id, idxs, False)
-            calculated_plots = sum(plot is not None for plot in plotscache.data[s.id][1])
-            
-#             custom_plots = plots[1:]
-#             plots = plots[:1]
-            
-            # assert warnings are as expected. See plotmanager.get_warnings for a details of
-            # warnings. Note that the warning messages might change in the future, so the assert
-            # statements below try to check what most likely will not be changed, to avoid
-            # recurring failing tests because of a message text changed in the future
-            
-            warnings = m.get_warnings(s.id, False)
-            # we have inventory errors in any case:
-            assert any('inventory n/a' in _.lower() for _ in warnings)
+            assert self.computedplotslen(m, s.id, preprocessed, allcomponents=False) == len(idxs)
+            assert self.computedplotslen(m, s.id, preprocessed, allcomponents) == expected_components_count+1
+            # assert SegmentWrapper function calls:
+            assert not mock_get_inv.called  # already called
+            assert not mock_get_stream.called  # already computed
+            # assert all titles are properly set, with the given prefix
+            seedid = s.seed_identifier or s.strid
+            assert all(p is None or p.title.startswith(seedid) for p in m[s.id][0])
+            assert all(p is None or p.title.startswith(seedid) for p in m[s.id][1])
+            # check plot titles and warnings:
+            stream = m[s.id][0].data['stream']
+            preprocessed_stream = m[s.id][1].data['stream']
             if 'err' in s.channel.location:
-                # error 
-                assert any('sn-windows n/a: ' in _.lower() for _ in warnings)
-            elif 'gap_merged'  in s.channel.location:
-                # gaps merged is not anymore merged by default, so this equals the if below
-                # gaps merged is not anymore merged by default, so check we should heve these warnings:
-                assert any('gaps/overlaps' in _.lower() for _ in warnings)
-                # also, the stream has more traces, so we cannot calculate sn windows:
-                assert any('sn-windows n/a: ' in _.lower() for _ in warnings)
-            elif 'gap_unmerged'  in s.channel.location:
-                # gaps unmerged is not anymore merged by default, so this equals the if above
-                assert any('gaps/overlaps' in _.lower() for _ in warnings)
-                # also, the stream has more traces, so we cannot calculate sn windows
-                assert any('sn-windows n/a: ' in _.lower() for _ in warnings)
-                   
+                assert isinstance(stream, Exception) and isinstance(preprocessed_stream, Exception) and \
+                    'MiniSeed error' in str(preprocessed_stream)
+                for i in idxs:
+                    plot, pplot = m[s.id][0][i], m[s.id][1][i]
+                    assert len(plot.data) == 1 # only one (fake) trace
+                    assert plot.warnings
+                    assert len(pplot.data) == 1 # only one (fake) trace
+                    assert pplot.warnings
+                    
+            elif 'gap' in s.channel.location:
+                assert isinstance(stream, Stream) and isinstance(preprocessed_stream, Exception) and \
+                    'gaps/overlaps' in str(preprocessed_stream)
+                for i in idxs:
+                    plot, pplot = m[s.id][0][i], m[s.id][1][i]
+                    # if idx=1, plot has 1 series (due to error in gaps/overlaps) otherwise matches stream traces count:
+                    assert len(plot.data) == 1 if i==1 else len(stream)
+                    if 'gap_unmerged' in s.channel.location:
+                        assert 'Different traces (seed id) in stream' in plot.warnings if i == 0 \
+                            else 'gaps/overlaps' in pplot.warnings[0]
+                    else:
+                        assert not plot.warnings if i == 0 else \
+                            'gaps/overlaps' in pplot.warnings[0]  # gaps /overlaps are simply shown as lineseries, no warnings
+                    assert len(pplot.data) == 1 # only one (fake) trace
+                    assert pplot.warnings and 'gaps/overlaps' in pplot.warnings[0]  # gaps /overlaps
             else:
-                # for segments ok, we should have only a warning concerning the inventory:
-                assert len(warnings) == 1
-                
+                assert isinstance(stream, Stream) and isinstance(preprocessed_stream, Exception) and \
+                        'Station inventory (xml) error: unknown url type' in str(preprocessed_stream)
+                for i in idxs:
+                    plot, pplot = m[s.id][0][i], m[s.id][1][i]
+                    # if idx=1, plot has 2 series (noie/signal) otherwise matches stream traces count:
+                    assert len(plot.data) == 2 if i==1 else len(stream)
+                    assert not plot.warnings  # gaps /overlaps
+                    assert len(pplot.data) == 1 # only one (fake) trace
+                    assert pplot.warnings and 'inventory' in pplot.warnings[0]  # gaps /overlaps
+            # assert we did not calculate any useless stream:
+            assert m[s.id][0].data['stream'] is not None
+            assert m[s.id][0].data['s_stream'] is not None
+            assert m[s.id][0].data['n_stream'] is not None
+            assert m[s.id][1].data['stream'] is not None
+            assert m[s.id][1].data['s_stream'] is not None
+            assert m[s.id][1].data['n_stream'] is not None
             
-    @patch('stream2segment.gui.webapp.plotviews.get_inventory')
-    @patch('stream2segment.gui.webapp.plotviews.get_plot')
-    def tst_view_inv(self, mock_get_plot, mock_get_inv):
-        mock_get_plot.side_effect=lambda *a, **v: exec_function(*a, **v)
-        mock_get_inv.side_effect=lambda *a, **v: self.inventory 
-        
-        m = PlotManager(self.pymodule, self.config)
-        
-        prevlen = len(m._plotscache)
-        components_count = {} # group_id -> num expected components
-        # where group_id is the tuple (event_id, channel.location)
-        for s in self.session.query(Segment): 
-            group_id = (s.event_id, s.channel.location)
-            if group_id not in components_count:
-                # we should have created views also for the other components. To get
-                # other components, use the segment channel and event id
-                other_comps_count = self.session.query(Segment).join(Segment.channel).\
-                    filter(and_(Segment.event_id == s.event_id, Channel.location == s.channel.location)).count()
-                
-                components_count[group_id] = other_comps_count
-
-
-        def assert_warnings(plotsmanager, segment, preprocessed):
-            '''asserts the correct warnings for the given segment. Called after plots are
-            calculated and after filtered plots to assure the warnings are the same'''
-            
-            # assert warnings are as expected. See plotmanager.get_warnings for a details of
-            # warnings. Note that the warning messages might change in the future, so the assert
-            # statements below try to check what most likely will not be changed, to avoid
-            # recurring failing tests because of a message text changed in the future
-            
-            warnings = plotsmanager.get_warnings(segment.id, preprocessed)
-            # we have inventory errors in any case:
-            assert not any('inventory n/a' in _.lower() for _ in warnings)
-            if 'err' in s.channel.location:
-                # error reading stream
-                assert any('sn-windows n/a: ' in _.lower() for _ in warnings)
-            elif 'gap_merged'  in s.channel.location:
-                # gaps merged is not anymore merged by default, so this equals the if below
-                # gaps merged is not anymore merged by default, so check we should heve these warnings:
-                assert any('gaps/overlaps' in _.lower() for _ in warnings)
-                # also, the stream has more traces, so we cannot calculate sn windows:
-                assert any('sn-windows n/a: ' in _.lower() for _ in warnings)
-            elif 'gap_unmerged'  in s.channel.location:
-                # gaps unmerged is not anymore merged by default, so this equals the if above
-                assert any('gaps/overlaps' in _.lower() for _ in warnings)
-                # also, the stream has more traces, so we cannot calculate sn windows:
-                assert any('sn-windows n/a: ' in _.lower() for _ in warnings)
-                   
+            # now check update config:
+            # store the s_stream to compare later:
+            # we need now to store the proper inventory for the 'ok' segment in order to let
+            # the preprocess function work properly (so that get_inventory) does not raise:
+            # Don't know why, but side_effect does not work:
+#             mock_get_inv.reset_mock()
+#             def ginv(*a, **v):
+#                 return self.inventory
+#             mock_get_inv.side_effect = ginv
+            # so we manually set the inventory on the db, discarding it afterwards:
+            s.station.inventory_xml = self.inventory_bytes
+            self.session.commit()
+            assert s.station.inventory_xml
+            # re-initialize a new PlotManager to assure everytging is re-calculated
+            # this also sets all cache to None, including m.inv_cache:
+            m = PlotManager(self.pymodule, self.config)
+            # calculate plots
+            idxs = [0, 1]
+            m.get_plots(self.session, s.id, idxs, preprocessed=False, all_components_in_segment_plot=True)
+            m.get_plots(self.session, s.id, idxs, preprocessed=True, all_components_in_segment_plot=True)
+            # and store their values for later comparison
+            s_stream = m[s.id][0].data['s_stream']
+            p_s_stream = m[s.id][1].data['s_stream']
+            n_stream = m[s.id][0].data['n_stream']
+            p_n_stream = m[s.id][1].data['n_stream']
+            # shift back the arrival time. 1 second is still within the stream time bounds for the 'ok'
+            # stream:
+            sn_windows = dict(m.config['sn_windows'])
+            sn_windows['arrival_time_shift']  -= 1
+            m.update_config(sn_windows=sn_windows)
+            # assert we restored streams that have to be invalidated, and we kept those not to invalidate:
+            assert m[s.id][0].data['stream'] is not None
+            assert m[s.id][0].data['s_stream'] is None
+            assert m[s.id][0].data['n_stream'] is None
+            assert m[s.id][1] is None
+            assert m[s.id][1] is None
+            assert m[s.id][1] is None
+            # and run again the get_plots: with preprocess=False
+            idxs = [0, 1]
+            plots = m.get_plots(self.session, s.id, idxs, preprocessed=False, all_components_in_segment_plot=True)
+            assert m[s.id][0].data['s_stream'] is not None
+            assert m[s.id][1] is None
+            new_s_stream = m[s.id][0].data['s_stream']
+            new_n_stream = m[s.id][0].data['n_stream']
+            # we changed the arrival time, BUT: the signal noise depends on the cumulative, thus
+            # changing the arrival time does not change the signal window s_stream
+            # Conversely, n_stream should change BUT only for the 'ok' stream (no 'gap' or 'err' in s.channel.location)
+            # as for the other we explicitly set a miniseed starttime, endtime BEFORE the event time
+            # which should result in noise stream all padded with zeros regardless of the arrival time shift
+            if isinstance(new_s_stream, Stream):
+                # as said, the signal window should not change:
+                assert np.allclose(s_stream[0].data, new_s_stream[0].data, equal_nan=True)
+                # the n window does if the segment is 'ok'
+                assert not np.allclose(n_stream[0].data, new_n_stream[0].data, equal_nan=True)
             else:
-                # for segments ok, we should have only a warning concerning the inventory:
-                assert len(warnings) == 0
-            
-        numplots = len(m.functions)
-        for s in self.session.query(Segment):
-            expected_components_count = components_count[(s.event_id, s.channel.location)]
-             
-            all_components = True
-            idxs = list(range(numplots))
-            plots = m.getplots(self.session, s.id, idxs, all_components)
-            assert len(plots) == len(idxs)
-            # as long as idxs[0] == 0 and 0 refers to the 'main' trace plot, we can do like this:
-            custom_plots = plots[1:]
-            plots = plots[:1]
-            
-            assert not self.pplotslen(m)  # no filtering calculated
-            assert_warnings(m, s, False)
-        
-        assert mock_get_inv.call_count == 1
-        # assert we called exec_function the correct number of times
-        assert mock_get_plot.call_count == self.session.query(Segment).count()*numplots
-        # and assure all plots are non-none:
-        for plotscache in m._plotscache.values():
-            for s, plots, sn_warnings in plotscache.data.values():
-                assert all(plot is not None for plot in plots)
-        
-        mock_get_plot.reset_mock()
-        mock_get_inv.reset_mock()
-        for s in self.session.query(Segment):
-            idxs = list(range(numplots))  # range(len(viewmanager.customfunctions))
-            expected_components_count = components_count[(s.event_id, s.channel.location)]
-            # get pre-processed plots:
-            plots = m.getplots(self.session, s.id, idxs, True, True)
-            assert len(plots) == len(idxs)
-            # as long as idxs[0] == 0 and 0 refers to the 'main' trace plot, we can do like this:
-            
-            assert_warnings(m, s, True)
+                assert not isinstance(s_stream, Stream) and not isinstance(n_stream, Stream) and \
+                    type(s_stream) == type(n_stream)
+            # now run again with preprocessed=True.
+            plots = m.get_plots(self.session, s.id, idxs, preprocessed=True, all_components_in_segment_plot=True)
+            assert m[s.id][0].data['s_stream'] is not None
+            assert m[s.id][1].data['s_stream'] is not None
+            new_p_s_stream = m[s.id][1].data['s_stream']
+            new_p_n_stream = m[s.id][1].data['n_stream']
+            # assert the s_stream differs from the previous, as we changed the signal/noise arrival time shift
+            # this must hold only for the 'ok' stream (no 'gap' or 'err' in s.channel.location)
+            # as for the other we explicitly set a miniseed starttime, endtime BEFORE the event time
+            # (thus by shifting BACK the arrival time we should not see changes in the s/n stream windows)
+            if isinstance(new_p_s_stream, Stream):
+                # as said, the signal window should not change:
+                assert np.allclose(p_s_stream[0].data, new_p_s_stream[0].data, equal_nan=True)
+                # the n window does if the segment is 'ok'
+                assert not np.allclose(p_n_stream[0].data, new_p_n_stream[0].data, equal_nan=True)
+            else:
+                assert not isinstance(p_n_stream, Stream) and not isinstance(p_s_stream, Stream) and \
+                    type(p_n_stream) == type(p_s_stream)
+            # re-set the inventory_xml to None:
+            s.station.inventory_xml = None
+            self.session.commit()
+            assert not s.station.inventory_xml
 
-        assert mock_get_inv.call_count == 0  # already called
-        # assert we called exec_function the correct number of times
-        assert mock_get_plot.call_count == self.session.query(Segment).count()*numplots
-        # and assure all plots are non-none:
-        for plotscache_ in m._plotscache.values():
-            plotscache = plotscache_[1]
-            for s, plots, sn_warnings in plotscache.data.values():
-                assert all(plot is not None for plot in plots)
-        
+
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']
     unittest.main()

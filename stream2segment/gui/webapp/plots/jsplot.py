@@ -43,18 +43,42 @@ class Plot(object):
 #                     "#9edae5"])
 
     def __init__(self, title=None, warnings=None):
+        '''initialize a new Plot object. Use `add`, `addtrace` to populate it later (the methods
+        can be chained as in jQuery syntax: plot = `Plot(...),addtrace(...)`).
+        Have a look also at the static methods `fromtrace` and `fromstream` for creating Plot
+        objects directly.
+        Here you can customize the plot title and warning messages.
+        Note that it is up to the frontend library managing `tojson` to display titles and warnings
+        :param title: string, the plot title
+        :param warnings: a string or a list of strings for one or more
+            warnings. If falsy, the list wil be empty. `plot.warnings` is stored internally as a
+            list of strings
+        '''
         self.title = title or ''
         self.data = []  # a list of series. Each series is a list [x0, dx, np.asarray(y), label]
         self.is_timeseries = False
-        if isinstance(warnings, bytes):
-            warnings = warnings.decode('utf8')
-        if isinstance(warnings, str):
-            warnings = [warnings]
+        if warnings:
+            if isinstance(warnings, bytes):
+                warnings = warnings.decode('utf8')
+            if isinstance(warnings, str):
+                warnings = [warnings]
         self.warnings = warnings or []
 
     def add(self, x0=None, dx=None, y=None, label=None):
-        """Adds a new series (scatter line) to this plot. This method optimizes
-        the data transfer and the line will be handled by the frontend plot library"""
+        """Adds a new series (scatter line) to this plot.
+        :param x0: (numeric, datetime, `:ref:obspy.UTCDateTime`) the x value of the first point.
+            If `x0` **or** `dx` are time-domain values, then the following conversion will take
+            place: `x0=UtcDateTime(x0)` (if `x0` is not an `UTCDateTime` object) and
+            `dx=1000*dx.total_seconds()` (if `dx` is not a `timedelta` object).
+            Note that a Plot can have series with all the same domain type, otherwise this method
+            raises a ValueError
+        :param dx: (numeric, timedelta): the value of the distance of two points on the x axis. See
+            note above for `x0`.
+        :param y: (numeric iterable, numpy array) the y values
+        :param label: (string or None): the label of this series. Typically, this is the string
+            displayed on the plot legend, if any
+        :raise: ValueError if series with different domain types are added
+        """
         verr = ValueError("mixed x-domain types (e.g., time and numeric)")
         if isinstance(x0, datetime) or isinstance(x0, UTCDateTime) or isinstance(dx, timedelta):
             x0 = x0 if isinstance(x0, UTCDateTime) else UTCDateTime(x0)
@@ -72,11 +96,21 @@ class Plot(object):
         return self
 
     def addtrace(self, trace, label=None):
+        '''Adds a trace to this plot.
+        :param: label: the trace label (typically the name displayed on the plot legend). If None
+            it defaults to `trace.get_id()` (the trace seed id)
+        :raise: ValueError if this plot time domain (depending on what has already been added)
+        is not compatible with time-series
+        '''
         return self.add(trace.stats.starttime,
                         trace.stats.delta, trace.data,
                         trace.get_id() if label is None else label)
 
     def merge(self, *plots):
+        '''Merge this Plot with all other plots. Preserves the `warnings` of the current plot
+        discarding potential `warnings` in the other plots
+        :return: A new Plot with all plots series
+        '''
         ret = Plot(title=self.title, warnings=self.warnings)
         ret.data = list(self.data)
         # _warnings = []
@@ -85,6 +119,22 @@ class Plot(object):
         return ret
 
     def tojson(self, xbounds=None, npts=-1):  # this makes the current class json serializable
+        '''Returns a json-serializable representation of this Plot. Basically, it returns
+         ```[self.title or '', data, "\n".join(self.warnings), self.is_timeseries]```
+        where `data` (python list) is a serialized version of `self.data`
+        (basically, `self.data` after converting numpy arrays to list): each `data` element
+        represents a series of the plot in the form:
+        ```[x0, dx, y, label]```
+        :param xbounds: 2-element numeric tuple/list, or None (default:None): restrict all series
+        of this plot to be trimmed between the given xbounds. if None, no trim is performed.
+        Otherwise a tuple/list of [xstart, xend] values
+        :param npts: integer (default:-1): resample all series to have for the given number of
+        points. This number is useful for downsampling data to be displayed in devices whose
+        pixel width is smaller than the series number of points: downsampling it here is
+        faster as it avoids sending and processing redundant data: the new series of the plot
+        will display for each "bin" (of a given length depending on `npts`) only the minimum and
+        the maximum of that bin.
+        '''
         data = []
         for x0, dx, y, label in self.data:
             x0, dx, y = self.get_slice(x0, dx, y, xbounds, npts)

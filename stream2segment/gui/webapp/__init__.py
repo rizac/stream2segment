@@ -8,7 +8,7 @@ from stream2segment.utils import get_session as s2s_get_session, load_source
 from flask.json import JSONEncoder
 from obspy.core.utcdatetime import UTCDateTime
 import os
-from stream2segment.gui.webapp.plotviews import PlotManager
+from stream2segment.gui.webapp.plots.core import PlotManager
 #from stream2segment.gui.webapp.plots import set_filter_config, set_spectra_config
 
 # from stream2segment.gui.webapp.core import classannotator

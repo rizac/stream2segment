@@ -222,7 +222,7 @@ def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components,
         plotmanager.update_config(sn_windows=sn_wdws)
 
     if plot_indices:
-        plots = plotmanager.getplots(session, seg_id, plot_indices, preprocessed, all_components)
+        plots = plotmanager.get_plots(session, seg_id, plot_indices, preprocessed, all_components)
         try:
             # return always sn_windows, as we already calculated them. IT is better
             # to call this method AFTER get_plots_func defined above

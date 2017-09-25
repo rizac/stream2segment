@@ -84,40 +84,44 @@ class SegmentWrapper(object):
     @raiseifreturnsexception
     def stream(self, window=None):
         if window not in (None, 'signal', 'noise'):
-            stream = self.__stream = self.__s_stream = self.__n_stream = \
-                TypeError(("segment.stream(): wrong argument '%s'. "
-                           "Please provide 'signal', 'noise' or no argument") % str(window))
-        else:
-            stream = self.__s_stream if window == 'signal' else self.__n_stream \
-                if window == 'noise' else self.__stream
-            if stream is None:
-                if self.__stream is None:
-                    try:
-                        self.__stream = get_stream(self)
-                        if window is None:
-                            stream = self.__stream
-                    except Exception as exc:
-                        stream = self.__stream = self.__s_stream = self.__n_stream = \
-                            Exception("MiniSeed (`obspy.Stream` object) error: %s" %
-                                      (str(exc) or str(exc.__class__.__name__)))
-                if window is not None and stream is None:
-                    try:
-                        if self.__sn_windows is None:
-                            self.__sn_windows = get_sn_windows(self.__config, self.arrival_time,
-                                                               stream)
-                        s_wdw, n_wdw = self.__sn_windows
-                        if window == 'signal':
-                            stream = self.__s_stream = stream.copy().trim(starttime=s_wdw[0],
-                                                                          endtime=s_wdw[1],
-                                                                          pad=True, fill_value=0,
-                                                                          nearest_sample=True)
-                        else:
-                            stream = self.__n_stream = stream.copy().trim(starttime=n_wdw[0],
-                                                                          endtime=n_wdw[1],
-                                                                          pad=True, fill_value=0,
-                                                                          nearest_sample=True)
-                    except Exception as exc:
-                        stream = self.__s_stream = self.__n_stream = exc
+            return TypeError(("segment.stream(): wrong argument '%s'. "
+                              "Please provide 'signal', 'noise' or no argument") % str(window))
+
+        if window is None and self.__stream is not None:
+            return self.__stream
+        elif window == 'signal' and self.__s_stream is not None:
+            return self.__s_stream
+        elif window == 'noise' and self.__n_stream is not None:
+            return self.__n_stream
+
+        if self.__stream is None:
+            try:
+                self.__stream = get_stream(self)
+            except Exception as exc:
+                self.__stream = Exception("MiniSeed error: %s" %
+                                          (str(exc) or str(exc.__class__.__name__)))
+
+        if window is None:
+            return self.__stream
+
+        try:
+            stream = self.stream()
+            if self.__sn_windows is None:
+                self.__sn_windows = get_sn_windows(self.__config, self.arrival_time,
+                                                   stream)
+            s_wdw, n_wdw = self.__sn_windows
+            if window == 'signal':
+                stream = self.__s_stream = stream.copy().trim(starttime=s_wdw[0],
+                                                              endtime=s_wdw[1],
+                                                              pad=True, fill_value=0,
+                                                              nearest_sample=True)
+            else:
+                stream = self.__n_stream = stream.copy().trim(starttime=n_wdw[0],
+                                                              endtime=n_wdw[1],
+                                                              pad=True, fill_value=0,
+                                                              nearest_sample=True)
+        except Exception as exc:
+            stream = self.__s_stream = self.__n_stream = exc
         return stream
 
     @raiseifreturnsexception

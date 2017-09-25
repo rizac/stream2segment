@@ -106,7 +106,7 @@ inventory: True
 # set to True or False if station inventories should be saved when they need to be downloaded
 # If missing (e.g., by deleting the line below), it defaults to False. This parameter has effect only if inventory above is True
 # Saving inventories might speed up further processing but increases db size
-save_inventory: False
+save_downloaded_inventory: False
 
 # Define the windows for the sn-spectra (signal-noise spectra)
 #
@@ -150,12 +150,21 @@ sn_spectra:
 #  Aftershock: "Segment with non overlapping multi-events recorded (aftershock)"
 #  MultiEvent: "Segment with overlapping multi-events recorded (no aftershock)"
 #  BadCoda: "Segment with a bad coda (bad decay)"
-
+  
 # custom paremeters below. You can change / delete their values but you should also
 # re-implement the spectra function defined in the python file:
 filter_settings:
   remove_response_water_level: 60
   remove_response_output: 'ACC'
-  bandpass_freq_max: 20  # the max frequency, in Hz:
+  bandpass_freq_max: 30  # the max frequency, in Hz:
   bandpass_max_nyquist_ratio: 0.9
   bandpass_corners: 2
+
+paz_wa:
+  sensitivity: 2800
+  zeros:
+    - '0j'
+  poles:
+    - '-6.2832-4.7124j'
+    - '-6.2832+4.7124j'
+  gain: 1
