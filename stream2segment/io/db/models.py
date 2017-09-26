@@ -330,7 +330,7 @@ class Segment(Base):
     arrival_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
     sample_rate = Column(Float)
-    max_gap_ovlap_ratio = Column(Float)
+    max_gap_overlap_ratio = Column(Float)
     run_id = Column(Integer, ForeignKey("runs.id"), nullable=False)
 
 #     @hybrid_property

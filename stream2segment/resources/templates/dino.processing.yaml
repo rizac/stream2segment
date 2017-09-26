@@ -117,20 +117,21 @@
 #   station.start_time: "<= 2016-01-01T00:00:00"
 #   channel.sensor_description: "'GURALP CMG-40T-30S'"
 segment_select:
-  has_data: "true"  # remember to quote (either with " or '): expressions needs to be string (from the GUI, quotes are not needed)
-                    # Note that string values with spaces needs to be quoted twice. In the example above "'GURALP CMG-40T-30S'"
-                    # matches 'GURALP CMG-40T-30S',
-                    # whereas "GURALP CMG-40T-30S" matches "GURALP" or "CMG-40T-30S" but not the whole string. This is needed only with
-                    # STRING VALUES WITH spaces. In any other case, provide only quotes around the whole expression
-  max_gap_overlap_ratio: "(-0.5, 0.5)"
+  has_data: 'true'
+# id: '<300'
+  max_gap_overlap_ratio: '(-0.5, 0.5)'
+  event.time: "(2014-01-01T00:00:00, 2014-12-31T23:59:59)"
+  event.latitude: "[24, 70]"
+  event.longitude: "[-11, 24]"
+
 
 # set to True or False if station inventories should be saved when they need to be downloaded
 # If missing (e.g., by deleting the line below), it defaults to False.
 # Saving inventories might speed up further processing but increases db size
-save_inventory: True
+save_inventory: False
 
-# Define the windows for the sn-spectra (signal-noise spectra) available via segment.stream('signal')
-# and segment.stream('noise')
+
+# Define the windows for the sn-spectra (signal-noise spectra)
 #
 # Arrival time shift: shifts programmatically the calculated arrival time of
 # each segment by the specified amount of time (in seconds). Negative values are allowed.
@@ -144,33 +145,42 @@ save_inventory: True
 # the time it reaches 95% of its maximum. Note that in this case the noise window and the
 # signal window might overlap.
 sn_windows:
-  arrival_time_shift: 0  # programmatically shifts the arrival time for every segment (in seconds). Tune if you find arrival times should be corrected after visual inspection
+  arrival_time_shift: -2.0  # programmatically shifts the arrival time for every segment (in seconds). Tune if you find arrival times should be corrected after visual inspection
   signal_window: [0.1, 0.9]  # either a number (in seconds) or interval relative to the % of the cumulative
 
 # settings for the current implementation of the sn (signal-to-noise) spectra (see processing python file).
-# Remove / modify if you do not use / implement a different sn_spectra function 
+# Remove / modify if you do not use / implement a different sn_spectra function
 sn_spectra:
   taper:
     max_percentage: 0.05
     type: 'hann'
   smoothing_wlen_ratio: 0.05  # 0 for no smoothing
   type: 'amp'  # if 'pow', then power spectra are computed, otherwise any other value defaults to amplitude spectra
-
+  
 # settings for the current implementation of the pre-process function (see processing python file).
 # Remove / modify if you do not use / implement a different pre-process function 
 preprocess:
   remove_response_water_level: 60
   remove_response_output: 'ACC'
-  bandpass_freq_max: 20  # the max frequency, in Hz:
+  bandpass_freq_max: 30  # the max frequency, in Hz:
   bandpass_max_nyquist_ratio: 0.9
   bandpass_corners: 2
 
+paz_wa:
+  sensitivity: 2800
+  zeros:
+    - '0j'
+  poles:
+    - '-6.2832-4.7124j'
+    - '-6.2832+4.7124j'
+  gain: 1
+
 ###############################################################################
 # Classes (label: description) for manual annotation in case of supervised classification problem
-# The labels below have will first be added to the db and then will show up in the GUI where one or
+# The labels below will first be added to the db and then will show up in the GUI where one or
 # more classes can be assigned to a given segment
 # this parameter is optional, if missing no class labels will show in the GUI, unless already
-# set previously
+# set by a previous config
 # we leave here below an example of it: uncomment the block from ''class_labels' on, 
 # and provide your own labels if needed 
 ###############################################################################
@@ -183,9 +193,15 @@ preprocess:
 #  MultiEvent: "Segment with overlapping multi-events recorded (no aftershock)"
 #  BadCoda: "Segment with a bad coda (bad decay)"
 
-# custom parameters. You can define whatever else you want to be accessible in the 'config' dictionary
-# of each function in the processing python file
+
+# custom parameters:
 amp_ratio_threshold: 0.8
+threshold_inside_tmin_tmax_percent: 0.90
+threshold_inside_tmin_tmax_sec: 10.0
+threshold_after_tmax_percent: 0.10
+# the window length (in seconds). There will be two spectra, one calculated on
+# AT-window_length (noisy signal), the other on AT+window_length ('normal' signal):
+snr_threshold: 3
 freqs_interp:
  - 0.1
  - 0.106365

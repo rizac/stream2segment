@@ -47,6 +47,28 @@ def raiseifreturnsexception(func):
     return wrapping
 
 
+class decorators(object):
+    class gui(object):
+
+        @staticmethod
+        def preprocess(func):
+            '''decorator that adds the attribute func._s2s_att = "gui.preprocess"'''
+            func._s2s_att = "gui.preprocess"
+            return func
+
+        @staticmethod
+        def customplot(func):
+            '''decorator that adds the attribute func._s2s_att = "gui.customplot"'''
+            func._s2s_att = "gui.customplot"
+            return func
+
+        @staticmethod
+        def sideplot(func):
+            '''decorator that adds the attribute func._s2s_att = "gui.sideplot"'''
+            func._s2s_att = "gui.sideplot"
+            return func
+
+
 class SegmentWrapper(object):
 
     def __init__(self, config={}):

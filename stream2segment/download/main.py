@@ -831,7 +831,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
     SEG_DATA = Segment.data.key
     SEG_DSCODE = Segment.download_status_code.key
     SEG_SEEDID = Segment.seed_identifier.key
-    SEG_MGAP = Segment.max_gap_ovlap_ratio.key
+    SEG_MGAP = Segment.max_gap_overlap_ratio.key
     SEG_SRATE = Segment.sample_rate.key
     SEG_RUNID = Segment.run_id.key
 
@@ -854,7 +854,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
 
     datcen_id2url = datacenters_df.set_index([DC_ID])[DC_DSURL].to_dict()
 
-    cols2update = [Segment.run_id, Segment.data, Segment.sample_rate, Segment.max_gap_ovlap_ratio,
+    cols2update = [Segment.run_id, Segment.data, Segment.sample_rate, Segment.max_gap_overlap_ratio,
                    Segment.seed_identifier, Segment.download_status_code,
                    Segment.start_time, Segment.arrival_time, Segment.end_time]
     segmanager = DbManager(session, Segment.id, cols2update,

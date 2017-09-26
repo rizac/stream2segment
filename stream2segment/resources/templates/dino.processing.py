@@ -219,6 +219,9 @@ Created on Feb 2, 2017
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
+
+from __future__ import division
+
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import (ascii, bytes, chr, dict, filter, hex, input,
@@ -229,19 +232,46 @@ from builtins import (ascii, bytes, chr, dict, filter, hex, input,
 # (a normal python dict returns its keys in arbitrary order)
 # Useful e.g. in  "main" if we want to control the *order* of the columns in the output csv
 from collections import OrderedDict
+from math import factorial # for savitzky_golay function
+
 # import numpy for efficient computation:
 import numpy as np
 # when working with times, use obspy UTCDateTime:
 from obspy.core.utcdatetime import UTCDateTime
+from obspy.signal.util import smooth
+from obspy.geodetics import degrees2kilometers as d2km
 # decorators needed to setup this module @gui.sideplot, @gui.preprocess etcetera:
 from stream2segment.utils.postdownload.decorators import gui
 # strem2segment functions for processing mseeds. This is just a list of possible functions
 # to show how to import them:
 from stream2segment.analysis.mseeds import ampratio, bandpass, cumsum,\
-    cumtimes, fft, maxabs, snr, utcdatetime, ampspec, get_tbounds, powspec
+    cumtimes, fft, maxabs, utcdatetime, ampspec, get_tbounds, powspec
 # stream2segment function for processing numpy arrays:
-from stream2segment.analysis import triangsmooth
+from stream2segment.analysis import triangsmooth, snr
 from datetime import timedelta
+
+# import ordered dict if you want to create a csv with the header columns ordered as you want
+from collections import OrderedDict
+from itertools import izip 
+
+
+
+
+# # strem2segment functions for processing mseeds. This is just a list of possible functions
+# # to show how to import them:
+# from stream2segment.analysis.mseeds import amp_ratio, cumsum,\
+#     cumtimes, maxabs, utcdatetime, timeof, stream_compliant, bandpass, ampspec
+
+# # not used anymore (mainly implemented here)
+# from stream2segment.analysis.mseeds import get_gaps, bandpass, get_multievent, \
+#    stream_compliant
+
+# stream2segment function for processing numpy arrays (such as stream.traces[0])
+# If you need to to use them, import them:
+#from stream2segment.analysis import triangsmooth, snr  #, dfreq, freqs
+
+# not used anymore:
+# from stream2segment.analysis import amp_spec
 
 
 def main(segment, config):
@@ -303,13 +333,9 @@ def main(segment, config):
     `UTCDateTime`s you could return either `float(utcdatetime)` (numeric) or
     `utcdatetime.isoformat()` (string)
     """
-    # better first to fetch the segment data all at once so in case of errors the function exists
-    # and we avoid useless and time consuming calculations on the current segment:
     stream = segment.stream()
-    arrival_time = segment.arrival_time
 
-    # discard streams with more than one trace. This let us avoid to calculate gaps
-    # which might be time consuming (the user can inspect later the miniseed in case)
+    # discard streams with more than one trace:
     if len(stream) != 1:
         raise ValueError('more than one obspy.Trace. Possible cause: gaps')
 
@@ -318,49 +344,94 @@ def main(segment, config):
     trace = stream[0]
 
     # discard saturated signals (according to the threshold set in the config file):
-    aratio = ampratio(trace)
-    if aratio >= config['amp_ratio_threshold']:
+    ampratio = amp_ratio(trace)
+    if ampratio >= config['amp_ratio_threshold']:
         raise ValueError('possibly saturated (amp. ratio exceeds)')
 
-    # convert to UTCDateTime for operations later:
-    a_time = UTCDateTime(arrival_time) + config['arrival_time_delay']
-
     # bandpass the trace, according to the event magnitude
-    # and remove the response:
-    trace_rem_resp = bandpass_remresp(segment, config)
+    trace = bandpass_remresp(segment, config)
 
-    # calculate cumulative:
-    cum_trace = cumsum(trace_rem_resp)
-    # and then calculate t005, t010, t025, t050, t075, t90, t95 (UTCDateTime objects):
-    cum_percentages = [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
-    cum_times = cumtimes(cum_trace, *cum_percentages)
-    # then, for instance:
-    # mseed_rem_resp_t05_t95 = trace_rem_resp.slice(t05, t95)
+    snspectra = sn_spectra(segment, config)
+    noise_f0, noise_df, noise_spe = snspectra['Noise']
+    normal_f0, normal_df, normal_spe = snspectra['Signal']
+    evt = segment.event
+    fcmin = mag2freq(evt.magnitude)
+    fcmax = fcmax = config['preprocess']['bandpass_freq_max']  # was also used in bandpass_remresp
+    snr_ = snr(normal_spe, noise_spe, signals_form=config['sn_spectra']['type'],
+               fmin=fcmin, fmax=fcmax, delta_signal=normal_df, delta_noise=noise_df)
+    if snr_ < config['snr_threshold']:
+        raise ValueError('low snr %f' % snr_)
+
+    # remove response, note: modify trace!!
+#     trace.remove_response(inventory=inventory, output=config['preprocess']['remove_response_output'],
+#                                      water_level=config['preprocess']['remove_response_water_level'])
+
+    # calculate cumulative
+    cum_labels = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]
+    cum_trace = cumulative(trace)
+    cum_times = cumtimes(cum_trace, *cum_labels)
+
+    # double event
+    pstart= 1
+    pend= -2
+    pref= 3  # non mi ricordo ma lo uso!!!! (Grande Dino :))
+    (score,t_double,tt1,tt2) = \
+        get_multievent_sg(cum_trace, cum_times[pstart], cum_times[pend], cum_times[pref],
+                          config['threshold_inside_tmin_tmax_percent'],
+                          config['threshold_inside_tmin_tmax_sec'],
+                          config['threshold_after_tmax_percent'])
+    if score in {1,3}:
+        raise ValueError('Double event detected %d %s %s %s' % (score,t_double,tt1,tt2))
+
 
     # calculate PGA and times of occurrence (t_PGA):
-    t95 = cum_times[-1]
-    t_PGA, PGA = maxabs(trace_rem_resp, a_time, t95)
+    t_PGA, PGA = maxabs(trace) # note: you can also provide tstart tend for slicing
+    trace_int = trace.copy()
+    trace_int.integrate()
+    t_PGV, PGV = maxabs(trace_int)
 
     # calculates amplitudes at the frequency bins given in the config file:
-    starttime, endtime = get_tbounds(trace_rem_resp, a_time, config['snr_window_length'])
-    amp_spec_freqs, amp_spec = ampspec(trace_rem_resp, starttime, endtime,
-                                       taper_max_percentage=config['taper_max_percentage'],
-                                       return_freqs=True)
     required_freqs = config['freqs_interp']
-    required_amplitudes = np.interp(required_freqs, amp_spec_freqs, amp_spec)
+    ampspec_freqs = np.linspace(start=normal_f0, stop=normal_df * len(normal_spe),
+                                num=len(normal_spe), endpoint=False)
+    required_amplitudes = np.interp(required_freqs, ampspec_freqs, normal_spe) / seg.sample_rate
 
-    # convert cum_times to float for saving
-    cum_times_float = [float(t) for t in cum_times]
+    # compute synthetic WA. NOTE: keep as last action, it modifies trace!!
+    trace_wa = synth_wa(segment, config)
+    t_WA, maxWA = maxabs(trace_wa)
 
-    # save as csv row: fft amplitudes, times of cumulative, t_PGA and PGA:
-    # return np.hstack((required_amplitudes, cum_times_float, [float(t_PGA), PGA]))
+    # write stuff to csv:
+    ret = OrderedDict()
 
-    # Or you can return an ordered dict to save the dict keys as header (1st row) in the csv:
-    return OrderedDict([("%.2fHz" % freq, ampl) for freq, ampl in zip(required_freqs, required_amplitudes)] +
-                       [("%.2f%%" % cum_p, cum_t) for cum_p, cum_t in zip(cum_percentages, cum_times_float)] +
-                       [('t_PGA', t_PGA), ('PGA', PGA)]
-                       )
+    for cum_lbl, cum_t in izip(cum_labels, cum_times):
+        ret['cum_t%d' % cum_lbl] = float(cum_t)  # convert cum_times to float for saving
 
+    ret['distDeg'] = seg.event_distance_deg        # dist
+    ret['dist_km'] = d2km(seg.event_distance_deg)  # dist_km
+    ret['t_PGA'] = t_PGA                  # peak info
+    ret['PGA'] = PGA
+    ret['t_PGV'] = t_PGV                  # peak info
+    ret['PGV'] = PGV
+    ret['t_WA'] = t_WA
+    ret['maxWA'] = maxWA
+    ret['channel']= seg.channel.channel
+    ret['ev_id'] = seg.event.id           # event metadata
+    ret['ev_lat'] = seg.event.latitude
+    ret['ev_lon'] = seg.event.longitude
+    ret['ev_dep'] = seg.event.depth_km
+    ret['ev_mag'] = seg.event.magnitude
+    ret['ev_mty'] = seg.event.mag_type
+    ret['st_id'] = seg.station.id         # station metadata
+    ret['st_name'] = seg.station.station
+    ret['st_net'] = seg.station.network
+    ret['st_lat'] = seg.station.latitude
+    ret['st_lon'] = seg.station.longitude
+    ret['st_ele'] = seg.station.elevation
+
+    for f, a in izip(required_freqs, required_amplitudes):
+       ret['f_%.5f' % f] = float(a)  
+
+    return ret
 
 @gui.preprocess
 def bandpass_remresp(segment, config):
@@ -375,25 +446,22 @@ def bandpass_remresp(segment, config):
     5. Apply bandpass filter, where the lower frequency is set according to the magnitude
     6. Remove padded elements
     7. Remove the instrumental response
+    
+    As any function decorated with '@gui.preprocess' must return either a Trace or Stream
+    object
 
-    :return: the function decorated with '@gui.preprocess' must return either a Trace or Stream
-        object
+    :return: a Trace object. 
     """
-    # stream is the `obspy.core.Stream` object returned by reading the segment data attribute.
-    # If stream has more than one trace, most likely the segment has gaps. It is up to the user
-    # to handle the case: you can call `stream.merge`, perform your own processing,
-    # or raise an Exception.
-    # Remember that any exception thrown by functions here will be caught by the program which
-    # will render in the GUI an empty plot with the error message shown
     stream = segment.stream()
     if len(stream) != 1:
         raise Exception("%d traces (probably gaps/overlaps)" % len(stream))
 
     inventory = segment.inventory()
+    
     trace = stream[0]
     # define some parameters:
     evt = segment.event
-    conf = config['filter_settings']
+    conf = config['preprocess']
     # note: bandpass here below copied the trace! important!
     trace = bandpass(trace, mag2freq(evt.magnitude), freq_max=conf['bandpass_freq_max'],
                      max_nyquist_ratio=conf['bandpass_max_nyquist_ratio'],
@@ -404,17 +472,244 @@ def bandpass_remresp(segment, config):
 
 
 def mag2freq(magnitude):
-    """converts magnitude to frequency. Used in our bandpass function to get the min freq.
-    parameter. The underscore prevents this function to be used as a custom plot"""
-    if magnitude <= 4:
-        freq_min = 0.5
-    elif magnitude <= 5:
-        freq_min = 0.3
-    elif magnitude <= 6.0:
+    if magnitude <= 4.5:
+        freq_min = 0.4
+    elif magnitude <= 5.5:
+        freq_min = 0.2
+    elif magnitude <= 6.5:
         freq_min = 0.1
     else:
         freq_min = 0.05
     return freq_min
+
+
+def savitzky_golay(y, window_size, order, deriv=0, rate=1):
+    r"""Smooth (and optionally differentiate) data with a Savitzky-Golay filter.
+    The Savitzky-Golay filter removes high frequency noise from data.
+    It has the advantage of preserving the original shape and
+    features of the signal better than other types of filtering
+    approaches, such as moving averages techniques.
+    Parameters
+    ----------
+    y : array_like, shape (N,)
+        the values of the time history of the signal.
+    window_size : int
+        the length of the window. Must be an odd integer number.
+    order : int
+        the order of the polynomial used in the filtering.
+        Must be less then `window_size` - 1.
+    deriv: int
+        the order of the derivative to compute (default = 0 means only smoothing)
+    Returns
+    -------
+    ys : ndarray, shape (N)
+        the smoothed signal (or it's n-th derivative).
+    Notes
+    -----
+    The Savitzky-Golay is a type of low-pass filter, particularly
+    suited for smoothing noisy data. The main idea behind this
+    approach is to make for each point a least-square fit with a
+    polynomial of high order over a odd-sized window centered at
+    the point.
+    Examples
+    --------
+    t = np.linspace(-4, 4, 500)
+    y = np.exp( -t**2 ) + np.random.normal(0, 0.05, t.shape)
+    ysg = savitzky_golay(y, window_size=31, order=4)
+    import matplotlib.pyplot as plt
+    plt.plot(t, y, label='Noisy signal')
+    plt.plot(t, np.exp(-t**2), 'k', lw=1.5, label='Original signal')
+    plt.plot(t, ysg, 'r', label='Filtered signal')
+    plt.legend()
+    plt.show()
+    References
+    ----------
+    .. [1] A. Savitzky, M. J. E. Golay, Smoothing and Differentiation of
+       Data by Simplified Least Squares Procedures. Analytical
+       Chemistry, 1964, 36 (8), pp 1627-1639.
+    .. [2] Numerical Recipes 3rd Edition: The Art of Scientific Computing
+       W.H. Press, S.A. Teukolsky, W.T. Vetterling, B.P. Flannery
+       Cambridge University Press ISBN-13: 9780521880688
+    """
+    try:
+        window_size = np.abs(np.int(window_size))
+        order = np.abs(np.int(order))
+    except ValueError as msg:
+        raise ValueError("window_size and order have to be of type int")
+    if window_size % 2 != 1 or window_size < 1:
+        raise TypeError("window_size size must be a positive odd number")
+    if window_size < order + 2:
+        raise TypeError("window_size is too small for the polynomials order")
+    order_range = range(order+1)
+    half_window = (window_size -1) // 2
+    # precompute coefficients
+    b = np.mat([[k**i for i in order_range] for k in range(-half_window, half_window+1)])
+    m = np.linalg.pinv(b).A[deriv] * rate**deriv * factorial(deriv)
+    # pad the signal at the extremes with
+    # values taken from the signal itself
+    firstvals = y[0] - np.abs( y[1:half_window+1][::-1] - y[0] )
+    lastvals = y[-1] + np.abs(y[-half_window-1:-1][::-1] - y[-1])
+    y = np.concatenate((firstvals, y, lastvals))
+    return np.convolve( m[::-1], y, mode='valid')
+
+def get_multievent_sg(cum_trace, tmin, tmax, tstart,
+                   threshold_inside_tmin_tmax_percent,
+                   threshold_inside_tmin_tmax_sec, threshold_after_tmax_percent):
+    """
+        Returns the tuple (or a list of tuples, if the first argument is a stream) of the
+        values (score, UTCDateTime of arrival)
+        where scores is: 0: no double event, 1: double event inside tmin_tmax,
+            2: double event after tmax, 3: both double event previously defined are detected
+        If score is 2 or 3, the second argument is the UTCDateTime denoting the occurrence of the
+        first sample triggering the double event after tmax
+        :param trace: the input obspy.core.Trace
+    """
+    tmin = utcdatetime(tmin)
+    tmax = utcdatetime(tmax)
+    tstart = utcdatetime(tstart)
+
+    # what's happen if threshold_inside_tmin_tmax_percent > tmax-tmin?
+    #twin = tmax-tmin
+    #if (threshold_inside_tmin_tmax_sec > twin):
+    #   threshold_inside_tmin_tmax_sec = 0.8*twin
+    ##
+
+    double_event_after_tmax_time = None
+    deltatime= None
+    d_order = 2
+
+    # split traces between tmin and tmax and after tmax
+    traces = [cum_trace.slice(tmin, tmax), cum_trace.slice(tmax, None)]
+
+    # calculate second derivative and normalize:
+    derivs = []
+    max_ = None
+    for ttt in traces:
+        ttt.taper(type='cosine', max_percentage=0.05)
+        sec_der = savitzky_golay(ttt.data,31,2,deriv=2)
+        sec_der_abs = np.abs(sec_der)
+        idx = np.nanargmax(sec_der_abs)
+        max_ = np.nanmax([max_, sec_der_abs[idx]])  # get max (global) for normalization (see below):
+        derivs.append(sec_der_abs)
+
+    # normalize second derivatives:
+    for der in derivs:
+        der /= max_
+
+    result = 0
+
+    # case A: see if after tmax we exceed a threshold
+    indices = np.where(derivs[1] >= threshold_after_tmax_percent)[0]
+
+    if len(indices):
+        result = 2
+        double_event_after_tmax_time = timeof(traces[1], indices[0])
+    # case B: see if inside tmin tmax we exceed a threshold, and in case check the duration
+    indices = np.where(derivs[0] >= threshold_inside_tmin_tmax_percent)[0]
+    if len(indices) >= 2:
+        idx0 = indices[0]
+        idx1 = indices[-1]
+        deltatime = (idx1 - idx0) * cum_trace.stats.delta
+        #deltatime = timeof(traces[0], indices[-1]) - timeof(traces[0], indices[0])
+        #deltatime = timeof(traces[1], indices[-1]) - tstart
+
+        if deltatime >= threshold_inside_tmin_tmax_sec:
+            result += 1
+
+    return (result, deltatime, timeof(traces[0], indices[-1]), timeof(traces[0], indices[0]))
+
+
+@gui.customplot
+def synth_wa(segment, config):
+    '''compute synthetic WA. NOTE: keep as last action, it modifies trace!!
+    
+    As any function decorated with '@gui.sideplot' or '@gui.customplot', must return
+    a numeric sequence y taken at successive equally spaced points in any of these types:
+    - a Trace object
+    - a Stream object
+    - the tuple (x0, dx, y) or (x0, dx, y, label)
+    - a dict of any of the above types, where the keys (string) will denote each sequence
+    name to be displayed on the plot legend.
+    When supplying a tuple, x0 (numeric or datetime or `UTCDateTime`) is the abscissa of the first
+    point, dx is the sampling period (numeric or `timedelta`), y is the numpy array/list of y
+    values, and label (optional) is the sequence name to be displayed on the plot legend.
+    
+    :return:  an obspy Trace
+    '''
+    stream = segment.stream()
+    if len(stream) != 1:
+        raise Exception("%d traces (probably gaps/overlaps)" % len(stream))
+
+    trace = stream[0]
+    # compute synthetic WA,NOTE: keep as last action, it modifies trace!!
+    config_wa = dict(config['paz_wa'])
+    # parse complex sring to complex numbers:
+    zeros_parsed = map(complex,(c.replace(' ','') for c in config_wa['zeros']))
+    config_wa['zeros'] = zeros_parsed
+    poles_parsed = map(complex,(c.replace(' ','') for c in config_wa['poles']))
+    config_wa['poles'] = poles_parsed
+    # compute synthetic WA response
+    trace_wa = trace.simulate(paz_remove=None, paz_simulate=config_wa)
+
+    return trace_wa
+
+
+@gui.customplot
+def derivcum2(segment, stream, inventory, config):
+    """
+    compute the second derivative of the cumulative function using savitzy-golay
+    
+    As any function decorated with '@gui.sideplot' or '@gui.customplot', must return
+    a numeric sequence y taken at successive equally spaced points in any of these types:
+    - a Trace object
+    - a Stream object
+    - the tuple (x0, dx, y) or (x0, dx, y, label)
+    - a dict of any of the above types, where the keys (string) will denote each sequence
+    name to be displayed on the plot legend.
+    When supplying a tuple, x0 (numeric or datetime or `UTCDateTime`) is the abscissa of the first
+    point, dx is the sampling period (numeric or `timedelta`), y is the numpy array/list of y
+    values, and label (optional) is the sequence name to be displayed on the plot legend.
+
+    :return: the tuple (starttime, timedelta, values)
+
+    :raise: an Exception if `segment.stream()` is empty or has more than one trace (possible
+    gaps/overlaps)
+    """
+    cum = cumulative(segment, config)
+    sec_der = savitzky_golay(cum.data, 31, 2, deriv=2)
+    sec_der_abs = np.abs(sec_der)
+    mmm = np.nanmax(sec_der_abs)
+    sec_der /= mmm
+    
+    return segment.stream().stats.starttime, segment.stream().stats.delta, sec_der_abs
+
+
+@gui.customplot
+def cumulative(segment, config):
+    '''Computes the cumulative of a trace in the form of a Plot object.
+
+    As any function decorated with '@gui.sideplot' or '@gui.customplot', must return
+    a numeric sequence y taken at successive equally spaced points in any of these types:
+    - a Trace object
+    - a Stream object
+    - the tuple (x0, dx, y) or (x0, dx, y, label)
+    - a dict of any of the above types, where the keys (string) will denote each sequence
+    name to be displayed on the plot legend.
+    When supplying a tuple, x0 (numeric or datetime or `UTCDateTime`) is the abscissa of the first
+    point, dx is the sampling period (numeric or `timedelta`), y is the numpy array/list of y
+    values, and label (optional) is the sequence name to be displayed on the plot legend.
+
+    :return: an obspy.Trace
+
+    :raise: an Exception if `segment.stream()` is empty or has more than one trace (possible
+    gaps/overlaps)
+    '''
+    stream = segment.stream()
+    if len(stream) != 1:
+        raise Exception("%d traces (probably gaps/overlaps)" % len(stream))
+    trace = stream[0]
+
+    return cumsum(trace)
 
 
 @gui.sideplot
@@ -462,70 +757,10 @@ def _sn_spectrum(stream, config):
     # if you want to implement your own smoothing, change the lines below before 'return'
     # and implement your own config variables, if any
     smoothing_wlen_ratio = config['sn_spectra']['smoothing_wlen_ratio']
-    # removing the if branch below
+
     if smoothing_wlen_ratio > 0:
         spec_ = triangsmooth(spec_, winlen_ratio=smoothing_wlen_ratio)
 
     return (0, df_, spec_)
 
 
-@gui.customplot
-def cumulative(segment, config):
-    '''Computes the cumulative of a trace in the form of a Plot object.
-
-    As any function decorated with '@gui.sideplot' or '@gui.customplot', must return
-    a numeric sequence y taken at successive equally spaced points in any of these types:
-    - a Trace object
-    - a Stream object
-    - the tuple (x0, dx, y) or (x0, dx, y, label)
-    - a dict of any of the above types, where the keys (string) will denote each sequence
-    name to be displayed on the plot legend.
-    When supplying a tuple, x0 (numeric or datetime or `UTCDateTime`) is the abscissa of the first
-    point, dx is the sampling period (numeric or `timedelta`), y is the numpy array/list of y
-    values, and label (optional) is the sequence name to be displayed on the plot legend.
-
-    :return: an obspy.Trace
-
-    :raise: an Exception if `segment.stream()` is empty or has more than one trace (possible
-    gaps/overlaps)
-    '''
-    stream = segment.stream()
-    if len(stream) != 1:
-        raise Exception("%d traces (probably gaps/overlaps)" % len(stream))
-    trace = stream[0]
-
-    return cumsum(trace)
-
-
-@gui.customplot
-def first_deriv(segment, config):
-    """Computes the first derivative of the current segment's trace
-
-    As any function decorated with '@gui.sideplot' or '@gui.customplot', must return
-    a numeric sequence y taken at successive equally spaced points in any of these types:
-    - a Trace object
-    - a Stream object
-    - the tuple (x0, dx, y) or (x0, dx, y, label)
-    - a dict of any of the above types, where the keys (string) will denote each sequence
-    name to be displayed on the plot legend.
-    When supplying a tuple, x0 (numeric or datetime or `UTCDateTime`) is the abscissa of the first
-    point, dx is the sampling period (numeric or `timedelta`), y is the numpy array/list of y
-    values, and label (optional) is the sequence name to be displayed on the plot legend.
-
-    :return: the tuple (starttime, timedelta, values)
-
-    :raise: an Exception if `segment.stream()` is empty or has more than one trace (possible
-    gaps/overlaps)
-    """
-    stream = segment.stream()
-    if len(stream) != 1:
-        raise Exception("%d traces (probably gaps/overlaps)" % len(stream))
-    trace = stream[0]
-
-    deriv = np.diff(trace.data)
-    # append last point (deriv.size = trace.data.size-1):
-    deriv = np.append(deriv, deriv[-1])
-    # and return our array:
-    return trace.stats.starttime, timedelta(seconds=trace.stats.delta), deriv
-    # or, alternatively:
-    # return Trace(data=deriv, header=trace.stats.copy())

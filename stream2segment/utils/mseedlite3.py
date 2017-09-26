@@ -504,7 +504,7 @@ def unpack(data):
     "network.station.location.channel"
     mapped to a tuple
     ```
-    (data, sample_rate, max_gap_ratio, error)
+    (data, sample_rate, max_gap_overlap_ratio, error)
     ```
     whose elements are:
     - the data in bytes read (can be None)
@@ -524,12 +524,12 @@ def unpack(data):
     :param data: the bytes (or str in python2) representing waveform data as, e.g., returned from
     a query response
     :return: a dictionarry of keys (tuples `(network, station location, channel)`) mapped to the
-    tuple representing the record read: (data, sample_rate, max_gap_ratio, error)
+    tuple representing the record read: (data, sample_rate, max_gap_overlap_ratio, error)
     :raise MiniseedError if some error is raised, that is 'not' recoverable (e.g., bad file length
     for some record causing all subsequent records to be mis-aligned)
     """
     # don't bother initializing keys if do not exist: use defaultdict:
-    # remember, the fields are: bytesio, sample_rate, max_gap_ratio, last_endtime, error
+    # remember, the fields are: bytesio, sample_rate, max_gap_overlap_ratio, last_endtime, error
     ret_dic = defaultdict(lambda: [[], None, 0, None, None])
     input_ = Input2(data)
     for id_, rec, exc in input_:
@@ -546,19 +546,6 @@ def unpack(data):
 
         value[0].append(rec)
 
-#         # set gaps:
-#         last_endtime = value[-2]
-#         if last_endtime is not None:
-#             fsamp = value[1]
-#             gap_ratio = abs(last_endtime - rec.begin_time).total_seconds() * fsamp
-#             value[-3] = max(value[-3], gap_ratio)
-#         else:
-#             value[1] = float(rec.fsamp)
-#         value[-2] = rec.end_time
-# 
-#         # tuple is hashable, as well as its args in this case:
-#         rec.write(value[0], int(log(rec.size)/log(2)))
-
     unpacked_data = {}
     for id_, value in ret_dic.items():
         if value[-1] is not None:
@@ -568,16 +555,19 @@ def unpack(data):
             chunks = value[0]
             chunks.sort(key=lambda elm: elm.begin_time)
             fsamp = value[1]
-            max_gap_ratio = 0
+            max_gap_overlap_ratio = 0
             bytesio = BytesIO()
             for i, record in enumerate(chunks):
-                if i > 0:
-                    max_gap_ratio = max(max_gap_ratio,
-                                        abs(chunks[i-1].end_time -
-                                            record.begin_time).total_seconds() * fsamp)
                 record.write(bytesio, int(log(record.size) / log(2)))
+                if i == 0:
+                    continue
+                curr_max_gap_ratio = (chunks[i-1].end_time -
+                                      record.begin_time).total_seconds() * fsamp
+                if abs(curr_max_gap_ratio) > abs(max_gap_overlap_ratio):
+                    max_gap_overlap_ratio = curr_max_gap_ratio
+
             bytez = bytesio.getvalue()
             bytesio.close()
-            unpacked_data[id_] = (bytez, value[1], max_gap_ratio, None)
+            unpacked_data[id_] = (bytez, value[1], max_gap_overlap_ratio, None)
 
     return unpacked_data
