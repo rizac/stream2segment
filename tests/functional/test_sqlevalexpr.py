@@ -24,7 +24,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm.session import object_session
 from stream2segment.io.db.sqlevalexpr import exprquery, get_condition
 from stream2segment.io.db.models import ClassLabelling, Class, Segment, Station, Channel,\
-    Event, DataCenter, Run, WebService
+    Event, DataCenter, Download, WebService
 from sqlalchemy.sql.expression import desc
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -68,7 +68,7 @@ class Test(unittest.TestCase):
 
     def test_query_joins(self):
         sess = self.session
-        run = Run()
+        run = Download()
         sess.add(run)
         sess.commit()
         

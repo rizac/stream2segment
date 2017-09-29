@@ -13,7 +13,7 @@
 # paths will be considered relative to the config file they are written in.
 # If not sqlite, the syntax is:
 # dialect+driver://username:password@host:port/database
-# (e.g.: 'postgresql://smith:Hw_6,9@hh21.uni-northpole.org/stream2segment_db')
+# (e.g.: 'postgresql://smith:Hw_6,9@hh21.unibo.org/s2s_db')
 # (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)
 dburl: 'sqlite:////path/to/my/db.sqlite'
 
@@ -34,29 +34,26 @@ retry_4xx: false
 retry_5xx: true
 
 # Set if station inventories should be downloaded. 
-# If true, the inventory .xml file will be saved for each station which has not its inventory
-# already saved and has at least one downloaded segment with non-empty data.
-# In case of download errors, nothing is saved.
-# Inventories  can be used for removing the intrumental response of the segments, set to True if
-# you later need this feature for processing. Inventories are saved compressed because
-# they are relatively "big" in size. Moreover, their download slows down the segments
-# download, and you can always fetch and save it to the processing
-# Optional: defaults to false if missing
-inventory: false
+# If true, inventory data (xml format) will be saved for each station whithout inventory data
+# and at least one downloaded segment with downloaded data.
+# You can always fetch and save inventories later during processing, if required
+inventory: true
 
 
 #######################
 # DATA QUERY PARAMETERS
 #######################
 
-# Limit to events (and datacenters) on or after the specified start time.
-# Optional: missing value defaults to yesterday at midnight
+# Limit to events (and datacenters) on or after the specified start time. Specify a date or date-time in iso-format
+# or a non-negative integer to denote the number of days before today at midnight.
+# Example: start=1 and end=0 => fetch events occurred yesterday
 start: 2006-01-01T00:00:00
-# Limit to events (and datacenters) on or before the specified end time.
-# Optional: missing value defaults to today at midnight
+# Limit to events (and datacenters) on or before the specified end time. Specify a date or date-time in iso-format
+# or a non-negative integer to denote the number of days before today at midnight.
+# Example: start=1 and end=0 => fetch events occurred yesterday
 end: 2016-12-25T00:00:00
 
-# the event web service (url)
+# the event web service to use (url)
 eventws: 'http://seismicportal.eu/fdsnws/event/1/query'
 
 # a dict of fdns ws arguments for the eventws query. All values are permitted except 'format', 'start' 
@@ -70,14 +67,13 @@ eventws_query_args:
   mindepth: 1
   maxdepth: 50
 
-# data-select service to use. Currently implemented are "eida" and "iris". Missing values will
-# get all datacenters from the given routing service (see 'routing_service_url' in advanced_settings)
-service: 'eida'
+# data-select web service to use (url). It should be fdsn-ws compliant, so that the relative
+# station url can be retrieved automatically. You can also type two special values, "iris" and
+# "eida". The former is just a shortcut for the iris data-select url, the latter will automatically
+# fetch all eida datacenters and their urls
+dataws: 'eida'
 
-# stations will be downloaded with level='channel'. Set here which channels to download. For info see e.g.:
-# https://ds.iris.edu/ds/nodes/dmc/tools/data_channels/#???
-# We experienced some cases where non-matchin channels (e.g. EHZ) are returned regardless the settings
-# this problem is datacenter dependent and out of control
+# channels to be downloaded for each station found
 channels:
  - "HH?"
  # - 'SH?'
@@ -85,7 +81,6 @@ channels:
  # - 'SN?'
  - 'HL?'
  # - 'SL?'
-
 
 # search radius: for each event, stations will be searched within a circular area whose radius is a linear function
 # of the event magnitude:
@@ -114,31 +109,27 @@ search_radius:
 # Set to 0 or negative number to ignore the sampling rate
 min_sample_rate: 60
 
-# Set here the model to be used to asses the travel times of a wave from
-# the event location to each station location. A model is internally a set of pre-calculated
-# travel time points. For any new event and a station distance (within the search radius defined
-# before), an interpolated value of the relative travel time will be computed.
-# The value error with respect of the "real" value is negligible (max 0.5 second from experiments
-# with the current default models) 
-# and the calculation speed is dramatically increased. The model available
-# by default, all assuming receiver depth=0 for simplicity, are:
+# The model to be used to asses the travel times of a wave from
+# the event location to each station location. For each segment, the arrival time (travel
+# time + event time) will be the pivot whereby the user sets up the download time window
+# (see also 'wtimespan').
+# A model is internally a 2- or 3-dimensional grid
+# of pre-computed travel time points coupled with an highly efficient
+# algoritm which returns interpolated travel time values. From experiments comparing the algorithm
+# and the "real" function values, we observed max errors < 0.5 seconds and a relevant increase in
+# execution speed.
+# The available default models, all assuming receiver depth=0 for simplicity, are:
 # ak135_ttp+: ak135 model pre-computed for all ttp+ phases (P wave arrivals)
 # ak135_tts+: ak135 model pre-computed for all tts+ phases (S wave arrivals)
 # iasp91_ttp+: iasp91 model pre-computed for all ttp+ phases (P wave arrivals)
 # iasp91_tts+: iasp91 model pre-computed for all tts+ phases (S wave arrivals)
-# A script is available (python ttcreator.py --help) to calculate
-# your own model given a set of phases, a model name and source/receiver depths. Future releases
-# will better document this option. 
-# For info see: https://docs.obspy.org/packages/obspy.taup.html#phase-naming-in-obspy-taup
 traveltimes_model: 'ak135_ttp+'
 
-# Waveform segment time window: specify two positive floats denoting the 
+# The segments time window to download: specify two positive floats denoting the 
 # minutes to account for before and after the calculated arrival time.
 # Note that 3.5 means 3 minutes 30 seconds, so 3 minutes and 1 second should be 3.01666666, but you
-# should never need such a fine resolution. In any case, all segments time windows after computation
-# will be eventually rounded to the closest second: segments already downloaded
-# (according to the tuple (channel_id, event_id)) and with a different time window will be
-# downloaded again regardless of the retry flags
+# should never need such a fine resolution. Note that all segment time windows will be rounded
+# to the closest second to avoid floating point errors when checking for already existing segments
 wtimespan:
  - 1.0 # start time of the waveform segment to download, in minutes *before* the previously calculated arrival time.
  - 3.0 # end time of the waveform segment to download, in minutes *after* the previously calculated arrival time

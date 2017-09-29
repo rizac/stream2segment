@@ -6,25 +6,6 @@ Created on Feb 2, 2017
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
 from __future__ import print_function
-from stream2segment.io.utils import loads_inv
-from itertools import cycle
-
-# this can apparently not be avoided neither with the future package:
-# The problem is io.StringIO accepts unicodes in python2 and strings in python3:
-try:
-    from cStringIO import StringIO  # python2.x
-except ImportError:
-    from io import StringIO
-
-from io import BytesIO
-import os
-import sys
-import logging
-from contextlib import contextmanager
-import warnings
-import re
-import traceback
-import csv
 
 # future direct imports (needs future package installed, otherwise remove):
 # (http://python-future.org/imports.html#explicit-imports)
@@ -35,12 +16,29 @@ from builtins import (ascii, chr, dict, filter, hex, input,
 # iterating over dictionary keys with the same set-like behaviour on Py2.7 as on Py3:
 from future.utils import viewkeys
 
-from obspy.core.stream import read
+# this can not apparently be fixed with the future package:
+# The problem is io.StringIO accepts unicodes in python2 and strings in python3:
+try:
+    from cStringIO import StringIO  # python2.x
+except ImportError:
+    from io import StringIO
+
+import os
+import sys
+import logging
+from contextlib import contextmanager
+import warnings
+import re
+import traceback
+import csv
+from itertools import cycle
+
+from sqlalchemy import func
 
 from stream2segment.utils import get_progressbar, load_source, secure_dburl
 from stream2segment.utils.resources import yaml_load
-from stream2segment.io.db.models import Segment  # , Station
-from stream2segment.utils.postdownload import get_inventory, save_inventory, SegmentWrapper
+from stream2segment.io.db.models import Segment, Station
+from stream2segment.utils.postdownload import SegmentWrapper
 from stream2segment.io.db.queries import query4process
 
 
@@ -153,6 +151,9 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
     # get total segment length:
     seg_len = seg_sta_ids.count()  # FIXME: use a func count?
 
+    # get stations with data:
+    stasaved = session.query(func.count(Station.id)).filter(Station.has_inventory()).scalar()
+
     # actually, this is better as it should be optimized, but how to translate for the query we
     # have? comment for the moment:
     # seg_len = session.query(func.count(Segment.id)).filter(seg_filter).scalar()
@@ -212,8 +213,10 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
     # system will stop, and warnings will be redirected to their original destinations
     # (i.e. those in effect before captureWarnings(True) was called).
 
-#     if stations_saved:
-#         logger.info("station inventories saved: %d", stations_saved)
+    # get stations with data and inform the user if any new has been saved:
+    stasaved2 = session.query(func.count(Station.id)).filter(Station.has_inventory()).scalar()
+    if stasaved2 > stasaved:
+        logger.info("station inventories saved: %d", (stasaved2-stasaved))
 
     logger.info("%d of %d segments successfully processed\n" % (done, seg_len))
 

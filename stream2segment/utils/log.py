@@ -18,7 +18,7 @@ from contextlib import contextmanager
 import time
 
 from stream2segment.utils import timedeltaround
-from stream2segment.io.db.models import Run
+from stream2segment.io.db.models import Download
 
 # CRITICAL    50
 # ERROR    40
@@ -39,16 +39,17 @@ class DbStreamHandler(logging.FileHandler):
     FOR AN EXAMPLE USING LOG AND SQLALCHEMY, SEE:
     http://docs.pylonsproject.org/projects/pyramid_cookbook/en/latest/logging/sqlalchemy_logger.html
     """
-    def __init__(self, session, run_id, min_level=20):
+    def __init__(self, session, download_id, min_level=20):
         """
-        :param run_instance: a database instance reflecting a row of the Run table.
+        :param download_id: the id of the database instance reflecting a row of the Download table.
         THE INSTANCE MUST BE ADDED TO THE DATABASE ALREADY. It will be
         notified with each error and warning issued by this log
         """
-        super(DbStreamHandler, self).__init__(gettmpfile(), mode='w+')  # w+: allows to read without closing first
+        # w+: allows to read without closing first:
+        super(DbStreamHandler, self).__init__(gettmpfile(), mode='w+')
         # access the stream with self.stream
         self.session = session
-        self.run_id = run_id
+        self.download_id = download_id
         self.errors = 0
         self.warnings = 0
         # configure level and formatter
@@ -74,10 +75,10 @@ class DbStreamHandler(logging.FileHandler):
             os.remove(self.baseFilename)
         except:
             pass
-        self.session.query(Run).filter(Run.id == self.run_id).\
-            update({Run.log.key: logcontent,
-                    Run.errors.key: self.errors,
-                    Run.warnings.key: self.warnings})
+        self.session.query(Download).filter(Download.id == self.download_id).\
+            update({Download.log.key: logcontent,
+                    Download.errors.key: self.errors,
+                    Download.warnings.key: self.warnings})
         self.session.commit()
 
 
@@ -127,13 +128,13 @@ def gettmpfile():
     return os.path.join(tempfile.gettempdir(), "s2s_%s.log" % datetime.utcnow().isoformat())
 
 
-def configlog4download(logger, db_session, run_id, isterminal):
+def configlog4download(logger, db_session, download_id, isterminal):
     """configs for download and returns the handler used to store the log to the db
     and to a tmp file. The file is accessible via logger..baseFilename
     """
     logger.setLevel(logging.INFO)  # necessary to forward to handlers
     # custom StreamHandler: count errors and warnings:
-    dbstream_handler = DbStreamHandler(db_session, run_id)
+    dbstream_handler = DbStreamHandler(db_session, download_id)
     logger.addHandler(dbstream_handler)
     if isterminal:
         # configure print to stdout (by default only info and critical messages)

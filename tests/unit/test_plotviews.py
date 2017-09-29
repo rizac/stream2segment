@@ -12,7 +12,7 @@ import numpy as np
 import os
 from io import BytesIO
 from stream2segment.io.db.models import Base, Event, WebService, Channel, Station, \
-    DataCenter, Segment, Class, Run, ClassLabelling, withdata
+    DataCenter, Segment, Class, Download, ClassLabelling, withdata
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, load_only
 import pandas as pd
@@ -58,11 +58,11 @@ class Test(unittest.TestCase):
         self.pymodule = load_source(os.path.join(os.path.dirname(__file__), '..', '..',
                                                  'stream2segment',
                                                   'resources', 'templates',
-                                               'gui.py'))
+                                               'processing.py'))
         self.config = yaml_load(os.path.join(os.path.dirname(__file__), '..', '..',
                                              'stream2segment',
                                                   'resources', 'templates',
-                                               'gui.yaml'))
+                                               'processing.yaml'))
         
 
     @staticmethod
@@ -103,7 +103,7 @@ class Test(unittest.TestCase):
 
         utcnow = datetime.utcnow()
 
-        run = Run(run_time=utcnow)
+        run = Download(run_time=utcnow)
         self.session.add(run)
         
         ws = WebService(url='webserviceurl')

@@ -1,191 +1,216 @@
-# This is the list of key (attributes) and values used for the segment_select property. Scroll down
-# at the end of the table for info on how to use them
+# ===========================================================
+# Stream2segment: Processing+Visualization yaml file template
+# ===========================================================
+#
+# This is the yaml file template setting up the configuration for processing downloaded
+# waveform segments and defining the segment plots to be visualized in the web GUI
+# (Graphical user interface).
+#
+# This file can be edited and passed to the commands `s2s v` (visualize) and `s2s p` (process) of
+# the program as -c or --configfile option, together with an associated python file implementing
+# the processing source code (-p option):
+# ```
+#     s2s v -p [pythonfilepath] -c [thisfilepath] ...
+#     s2s p -p [pythonfilepath] -c [thisfilepath] ...
+# ```
+#
+# This module needs to implement few mandatory (non-deletable) parameters
+# ('segment_select', 'save_inventory' , 'dburl' and 'sn_windows') but everything else can be user
+# defined. Write here (http://docs.ansible.com/ansible/latest/YAMLSyntax.html) anything you need
+# to access as `config` dict in the the functions with signature:
+# ```
+#     def myfunction(segment, config):
+# ```
+# defined in the the given python file (-p option) 
+#
+# ------------------------------------------------------------------------------------------
+#
+# The first default parameter, 'segment_select', defines what segments to be processed or
+# visualized. Criteria can be given in form of string expression associated to any
+# segment attribute and will be converted into their sql counterpart to exploit the powerful
+# capabilities of sql select statement. We first recall the segment attributes, which are:
 # 
-# ========================================= ================================================
-# attribute                                 python type
-# ========================================= ================================================
-# segment.id                                int
-# segment.event_distance_deg                float (segment station to event distance, in degrees)
-# segment.start_time                        datetime.datetime
-# segment.arrival_time                      datetime.datetime
-# segment.end_time                          datetime.datetime
-# segment.sample_rate                       float (as written in the segment bytes data,
-# \                                         might differ from segment.channel.sample_rate)
-# segment.download_status_code              int (typically, values between 200 and 399 denote
-# \                                         ok download. Values >=400 or lower than zero denote
-# \                                         errors)
-# segment.max_gap_overlap_ratio             float (max gap or - if < 0 - overlap, in
-# \                                         sampling_period unit = `segment.stream().stats.delta`.
-# \                                         Thus values >=1 denote segment waveforms with missing
-# \                                         samples, values <=1 denote segment waveforms with
-# \                                         overlapping samples. A good rule of thumb is to consider
-# \                                         a segment without gaps /overlaps when this value is
-# \                                         within the interval [-0.5, 0.5])
-# segment.seed_identifier                   str (when None, string in the typical
-# \                                         Network.Station.Location.Channel format)
-# segment.data                              bytes (you don't generally need to access this
-# \                                         attribute which is also time-comsuming to fetch. It is
-# \                                         the raw data for building `stream()`)
-# ----------------------------------------- ------------------------------------------------
-# segment.event                             object (attributes below)
-# segment.event.id                          str
-# segment.event.time                        datetime.datetime
-# segment.event.latitude                    float
-# segment.event.longitude                   float
-# segment.event.depth_km                    float
-# segment.event.author                      str
-# segment.event.catalog                     str
-# segment.event.contributor                 str
-# segment.event.contributor_id              str
-# segment.event.mag_type                    str
-# segment.event.magnitude                   float
-# segment.event.mag_author                  str
-# segment.event.event_location_name         str
-# ----------------------------------------- ------------------------------------------------
-# segment.channel                           object (attributes below)
-# segment.channel.id                        str
-# segment.channel.location                  str
-# segment.channel.channel                   str
-# segment.channel.depth                     float
-# segment.channel.azimuth                   float
-# segment.channel.dip                       float
-# segment.channel.sensor_description        str
-# segment.channel.scale                     float
-# segment.channel.scale_freq                float
-# segment.channel.scale_units               str
-# segment.channel.sample_rate               float
-# segment.channel.station                   object (same as segment.station, see below)
-# ----------------------------------------- ------------------------------------------------
-# segment.station                           object (attributes below)
-# segment.station.id                        str
-# segment.station.network                   str
-# segment.station.station                   str
-# segment.station.latitude                  float
-# segment.station.longitude                 float
-# segment.station.elevation                 float
-# segment.station.site_name                 str
-# segment.station.start_time                datetime.datetime
-# segment.station.end_time                  datetime.datetime
-# segment.station.inventory_xml             bytes* (you don't generally need to access this
-# \                                         attribute which is also time-comsuming to fetch. It is
-# \                                         the raw data for building `inventory()`)
-# segment.station.datacenter                object (same as segment.datacenter, see below)
-# ----------------------------------------- ------------------------------------------------
-# segment.datacenter                        object (attributes below)
-# segment.datacenter.id                     int
-# segment.datacenter.station_url            str
-# segment.datacenter.dataselect_url         str
-# segment.datacenter.node_organization_name str
-# ----------------------------------------- ------------------------------------------------
-# segment.run                               object (attributes below): 'Run' represents a
-# \                                         download execution (download run)
-# segment.run.id                            int
-# segment.run.run_time                      datetime.datetime
-# segment.run.log                           str  (you don't generally need to access this
-# \                                         attribute which is also time-comsuming to fetch. It is
-# \                                         the log text written during download, useful for
-# \                                         inspecting the download result in details)
-# segment.run.warnings                      int
-# segment.run.errors                        int
-# segment.run.config                        str
-# segment.run.program_version               str
-#     
-# classes                                   str either 'any' (segment which have at least one
-# \                                         class assigned) or 'none' (segments with no class assigned)
-# classes.id                                int
-# ========================================= ================================================
+# ================================= ================================================
+# attribute                         python type
+# ================================= ================================================
+# id                                int
+# event_distance_deg                float (distance between segment station and event, in degrees)
+# start_time                        datetime.datetime
+# arrival_time                      datetime.datetime
+# end_time                          datetime.datetime
+# sample_rate                       float (as written in the segment bytes data,
+#                                   might differ from segment.channel.sample_rate)
+# download_status_code              int (typically, values between 200 and 399 denote
+#                                   ok download. Values >=400 or lower than zero denote
+#                                   errors)
+# max_gap_overlap_ratio             float (denotes the maximum number of missing points, if positive,
+#                                   or overlapping points, if negative, in the waveform data.
+#                                   As this number is easy to obtain while downloading waveform
+#                                   bytes data, it is saved to the database so that the user can
+#                                   speed up processing or visualization by discarding malformed data,
+#                                   if gaps/overlaps are a concern. A value of 0 denotes no gaps/overlaps,
+#                                   a value >= 1 denotes gaps, and a value <= 1 denotes overlaps
+#                                   in the waveform data. However, as this number is the ratio between
+#                                   the maximum gap/overlap interval found, in seconds,
+#                                   and the waveform data sampling period, in seconds, there is no way
+#                                   to safely assess max_gap_overlap_ratio values in (-1, 1):
+#                                   a rule of thumb is to select segments whose max_gap_overlap_ratio
+#                                   is in the interval [-0.5, 0.5] and perform a check for safety, e.g., via
+#                                   `len(segment.stream())` or  `segment.stream().get_gaps()`)
+# seed_identifier                   str (string in the typical Network.Station.Location.Channel
+#                                   format. Do not rely on this value because it might be None
+#                                   - e.g. when download errors occurred)
+# --------------------------------- ------------------------------------------------
+# event.id                          str
+# event.time                        datetime.datetime
+# event.latitude                    float
+# event.longitude                   float
+# event.depth_km                    float
+# event.author                      str
+# event.catalog                     str
+# event.contributor                 str
+# event.contributor_id              str
+# event.mag_type                    str
+# event.magnitude                   float
+# event.mag_author                  str
+# event.event_location_name         str
+# --------------------------------- ------------------------------------------------
+# channel.id                        str
+# channel.location                  str
+# channel.channel                   str
+# channel.depth                     float
+# channel.azimuth                   float
+# channel.dip                       float
+# channel.sensor_description        str
+# channel.scale                     float
+# channel.scale_freq                float
+# channel.scale_units               str
+# channel.sample_rate               float
+# channel.station                   object (same as segment.station, see below)
+# --------------------------------- ------------------------------------------------
+# station.id                        str
+# station.network                   str
+# station.station                   str
+# station.latitude                  float
+# station.longitude                 float
+# station.elevation                 float
+# station.site_name                 str
+# station.start_time                datetime.datetime
+# station.end_time                  datetime.datetime
+# station.inventory_xml             bytes* (you don't generally need to access this
+#                                   attribute which is also time-comsuming to fetch. It is
+#                                   the raw data for building `inventory()`)
+# station.datacenter                object (same as segment.datacenter, see below)
+# --------------------------------- ------------------------------------------------
+# datacenter.id                     int
+# datacenter.station_url            str
+# datacenter.dataselect_url         str
+# datacenter.node_organization_name str
+# --------------------------------- ------------------------------------------------
+# ('download' below represents a download execution)
+# download.id                       int
+# download.run_time                 datetime.datetime
+# download.log                      str  (you don't generally need to access this
+#                                   attribute which is also time-comsuming to fetch. It is
+#                                   the log text written during download, useful for
+#                                   debugging /inspection)
+# download.warnings                 int
+# download.errors                   int
+# download.config                   str
+# download.program_version          str
+# --------------------------------- ------------------------------------------------
+# (these properties are meaningful only if class labels are set, see below)
+# classes                           str either 'any' (segment which have at least one
+# \                                 class assigned) or 'none' (segments with no class assigned)
+# classes.id                        int
+# ================================= ================================================
 #    
-# (the last two properties are available only if class labels are given, see below)
+# 
 
 # Here you can select which segments to work on, discarding non-matching segments.
-# For a given key, type a select condition given in any of the following string expressions:
+# For a given segment attribute, type a select condition given in any of the following string expressions:
 # 1. A list of space-separated values: select segment matching those values only (sql 'in' operator)
 # 2. A value preceeded by any of the symbols: = >= > < <= !=
 # 3. A tuple or list (same syntax as python) of two values: select segments whose value is in between (sql 'between' operator)
 #    Note that tuples (opening and closing round brackets) denote the open interval (no endpoint included), whereas
 #    lists  (opening and closing square brackets) denote the closed interval (endpoints included). You can mix them, e,g: (4,5]
 #
-# Example: to select and work on segments whose id is in a specified list of
-# ids (e.g., 1 4 5 67 89 342), with downloaded waveform data
-# (non empty data), whose event magnitude is in [4.5, 5.56] (endpoints included), whose station start_time is not greater
-# than 1st january 2016, and whose channel sensor description is 'GURALP CMG-40T-30S'
-#
+# Example: to select and work on segments of year 2017 only, whose id is in a specified list of
+# ids (e.g., 1 4 5 67 89 342), with downloaded waveform data (non empty data),
+# whose event magnitude is greater than 4.2,
+# and whose channel sensor description is 'GURALP CMG-40T-30S', write:
 # segment_select:
 #   has_data: true
 #   id: "1 4 5 67 89 342"
-#   event.latitude: "[4.5, 5.6]"
-#   station.start_time: "<= 2016-01-01T00:00:00"
+#   event.latitude: ">4.2"
+#   station.start_time: "[2017-01-01T00:00:00, 2018-01-01T00:00:00)"
 #   channel.sensor_description: "'GURALP CMG-40T-30S'"
+# (note: for str types with spaces we need to quote twice: 'GURALP CMG-40T-30S', as otherwise "GURALP CMG-40T-30S"
+# would match 'GURALP' and 'CMG-40T-30S', but not the whole string)
 segment_select:
-  has_data: "true"  # remember to quote (either with " or '): expressions needs to be string (from the GUI, quotes are not needed)
-                    # Note that string values with spaces needs to be quoted twice. In the example above "'GURALP CMG-40T-30S'"
-                    # matches 'GURALP CMG-40T-30S',
-                    # whereas "GURALP CMG-40T-30S" matches "GURALP" or "CMG-40T-30S" but not the whole string. This is needed only with
-                    # STRING VALUES WITH spaces. In any other case, provide only quotes around the whole expression
-  max_gap_overlap_ratio: "(-0.5, 0.5)"
+  has_data: 'true'
+# id: '<300'
+  max_gap_overlap_ratio: '(-0.5, 0.5)'
+  event.time: "(2014-01-01T00:00:00, 2014-12-31T23:59:59)"
+  event.latitude: "[24, 70]"
+  event.longitude: "[-11, 24]"
 
-# set to True or False if station inventories should be saved when they need to be downloaded
-# If missing (e.g., by deleting the line below), it defaults to False.
+# Boolean flag indicating whether station inventories (in xml format) should be saved to the database
+# when they need to be downloaded
 # Saving inventories might speed up further processing but increases db size
-save_inventory: True
+save_inventory: False
 
-# Define the windows for the sn-spectra (signal-noise spectra) available via segment.stream('signal')
-# and segment.stream('noise')
+# Settings for computing the 'signal' and 'noise' windows on a segment waveform
 #
 # Arrival time shift: shifts programmatically the calculated arrival time of
 # each segment by the specified amount of time (in seconds). Negative values are allowed.
 # The arrival time sets the end of the noise window, whose
-# length (duration) is always set equal to the signal window (see below)
+# duration will always be equal to the signal window (see below)
 #
 # Signal window: specifies the signal window. It can be a number, specifying the
 # window duration, in seconds starting from the arrival time, or a 2-element array
 # specifying the window time start and end, relative to the cumulative. A value of [0.05, 0.95] for
 # instance sets the signal window from the time the cumulative reaches 5% of its maximum, until
-# the time it reaches 95% of its maximum. Note that in this case the noise window and the
+# the time it reaches 95% of its maximum. Note that when providing a 2-element array the noise window and the
 # signal window might overlap.
 sn_windows:
-  arrival_time_shift: 0  # programmatically shifts the arrival time for every segment (in seconds). Tune if you find arrival times should be corrected after visual inspection
+  arrival_time_shift: -2.0  # programmatically shifts the arrival time for every segment (in seconds). Tune if you find arrival times should be corrected after visual inspection
   signal_window: [0.1, 0.9]  # either a number (in seconds) or interval relative to the % of the cumulative
 
-# settings for the current implementation of the sn (signal-to-noise) spectra (see processing python file).
-# Remove / modify if you do not use / implement a different sn_spectra function 
+
+# settings for the current implementation of the sn (signal-to-noise) spectra
+# (decorated with @gui.sideplot in the associated python file):
 sn_spectra:
   taper:
     max_percentage: 0.05
     type: 'hann'
   smoothing_wlen_ratio: 0.05  # 0 for no smoothing
-  type: 'amp'  # if 'pow', then power spectra are computed, otherwise any other value defaults to amplitude spectra
-
-# settings for the current implementation of the pre-process function (see processing python file).
-# Remove / modify if you do not use / implement a different pre-process function 
+  type: 'amp'  # if 'pow', then power spectra are computed, otherwise if 'amp', amplitude spectra are computed
+  
+# settings for the current implementation of the pre-process function
+# (decorated with @gui.preprocess in the associated python file):
 preprocess:
   remove_response_water_level: 60
   remove_response_output: 'ACC'
-  bandpass_freq_max: 20  # the max frequency, in Hz:
+  bandpass_freq_max: 30  # the max frequency, in Hz:
   bandpass_max_nyquist_ratio: 0.9
   bandpass_corners: 2
 
-###############################################################################
-# Classes (label: description) for manual annotation in case of supervised classification problem
-# The labels below have will first be added to the db and then will show up in the GUI where one or
-# more classes can be assigned to a given segment
-# this parameter is optional, if missing no class labels will show in the GUI, unless already
-# set previously
-# we leave here below an example of it: uncomment the block from ''class_labels' on, 
-# and provide your own labels if needed 
-###############################################################################
-#class_labels:
-#  Discarded: "Segment which does not fall in any other cathegory (e.g., unknown artifacts, bad formats etcetera)"
-#  Unknown: "Segment which is either: unlabeled (not annotated) or unclassified"
-#  Ok: "Segment with no artifact"
-#  LowS2N: "Segment has a low signal-to-noise ratio"
-#  Aftershock: "Segment with non overlapping multi-events recorded (aftershock)"
-#  MultiEvent: "Segment with overlapping multi-events recorded (no aftershock)"
-#  BadCoda: "Segment with a bad coda (bad decay)"
+paz_wa:
+  sensitivity: 2800
+  zeros:
+    - '0j'
+  poles:
+    - '-6.2832-4.7124j'
+    - '-6.2832+4.7124j'
+  gain: 1
 
-# custom parameters. You can define whatever else you want to be accessible in the 'config' dictionary
-# of each function in the processing python file
+# other custom parameters:
 amp_ratio_threshold: 0.8
+threshold_inside_tmin_tmax_percent: 0.90
+threshold_inside_tmin_tmax_sec: 10.0
+threshold_after_tmax_percent: 0.10
+snr_threshold: 3
 freqs_interp:
  - 0.1
  - 0.106365
@@ -287,3 +312,18 @@ freqs_interp:
  - 39.7752
  - 42.307
  - 45.
+
+# If you want to use the GUI as hand labelling tool for supervised classification problems
+# you can provide the parameter 'class_labels' which is a dictionary of label names mapped
+# to their description. If provided, the labels will first be added to the database
+# (updating the description, if the label name is already present) and then will show up in the GUI
+# where one or more classes can be assigned to a given segment via check boxes.
+# If missing, no class labels will show up in the GUI, unless already set by a previous config. Example:
+#class_labels:
+#  Discarded: "Segment which does not fall in any other cathegory (e.g., unknown artifacts, bad formats etcetera)"
+#  Unknown: "Segment which is either: unlabeled (not annotated) or unclassified"
+#  Ok: "Segment with no artifact"
+#  LowS2N: "Segment has a low signal-to-noise ratio"
+#  Aftershock: "Segment with non overlapping multi-events recorded (aftershock)"
+#  MultiEvent: "Segment with overlapping multi-events recorded (no aftershock)"
+#  BadCoda: "Segment with a bad coda (bad decay)"

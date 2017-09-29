@@ -11,7 +11,7 @@ import numpy as np
 import os
 from io import BytesIO
 from stream2segment.io.db.models import Base, Event, WebService, Channel, Station, \
-    DataCenter, Segment, Class, Run, ClassLabelling, withdata
+    DataCenter, Segment, Class, Download, ClassLabelling, withdata
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, load_only
 import pandas as pd
@@ -148,7 +148,7 @@ class Test(unittest.TestCase):
     
             utcnow = datetime.utcnow()
     
-            run = Run(run_time=utcnow)
+            run = Download(run_time=utcnow)
             session.add(run)
             
             ws = WebService(url='webserviceurl')

@@ -85,13 +85,6 @@ Install the current package
 ```
 pip install -e .
 ```
-
-Copy default config to a config file (not included in git commit):
-```
-cp config.example.yaml config.yaml
-```
-and edit it if you whish
-
 To run tests, move in the project directory and run the command:
 ```
 py.test ./tests/
@@ -100,6 +93,8 @@ py.test ./tests/
 
 ## Usage
 
+(more on this upcoming...)
+
 Move (`cd` on a terminal) to the stream2segment folder. If you installed and activated a python virtual environment during installation (hopefully you did), **activate the virtual environment first**:
 ```
 source env/bin/activate
@@ -107,13 +102,27 @@ source env/bin/activate
 
 > <sub>When you're finished, type `deactivate` on the terminal to deactivate the current pythoin virtual environment and return to the global system defined Python</sub>
 
-Edit config.yaml file if needed, or type ```stream2segment --help``` for command line options (options in config.yaml are the default. If given, command line options will override the defaults)
-
-Eventually run
+Type:
 ```
-stream2segment
+s2s t --help
 ```
+and check how to create download and processing template files. Once done, type
+```
+s2s d --help
+```
+to see how to execute the download. Edit the download yaml file created with `s2s t --help` and run the
+download. If a postgres database is used, setup the database first.
 
+For processing, type:
+```
+s2s p --help
+```
+or alternatively, for visualizing the downloaded data, type:
+```
+s2s v --help
+```
+Edit the processing files (yaml and python) created with `s2s t --help` and run the processing
+or the GUI
 
 ## Installation Notes:
 
@@ -147,9 +156,7 @@ sudo apt-get install sqlitebrowser
 
 ### ~~matplotlibrc~~
 
-We do not use anymore matplotlib for responsive GUIs, we moved to more robust and more powerful
-web interfaces with Flask. Therefore, the following lines are not needed anymore (just as reminder in case).
-
-~~There is a `matplotlibrc` in the stream2segment directory. It tells matplotlib to use a TkAgg backend which is able to show figures (for `stream2segment --gui` options) Advantage: it can be used for specific customizations that you do not want to apply elsewhere (if you have other matplotlib settings). Drawback: *you need to cd to stream2segment for making the program work with the default matplotlib config*~~
-~~(Reminder: for global backend settings create or open the file  `$HOME/.config/matplotlib/matplotlibrc` on Ubuntu or `$HOME/.matplotlib/matplotlibrc` in OSX. Then add the line:~~
-~~```backend: TkAgg``` and save it. For info, see http://matplotlib.org/users/customizing.html) ~~
+A `matplotlibrc` file is included in the main root package. It sets the backend to 'TkAgg' so that
+we hide the "Turning interactive mode on" message (for Mac users) when importing packages
+requiring matplotlib (the program does not use anymore `matplotlib` for responsive GUIs
+as we moved to more robust and more powerful web interfaces with Flask).

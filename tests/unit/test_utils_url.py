@@ -158,13 +158,19 @@ class Test(unittest.TestCase):
         
     def test_general_exception_inside_yield(self):
         data = [b'none', b''] * 10000  # supply an empty string otherwise urllib.read does not stop
-        self.config_urlopen(data, sleep_time=None)
+        self.config_urlopen(data, sleep_time=5)
         
         # self.urls has a valid url (which should execute onsuccess) and an invalid one
         # which should execute onerror)
         with pytest.raises(KeyboardInterrupt):
             self.read_async_raise_exc_in_called_func(self.urls)
         assert self.progress == 0
+        # set the totalcounts of mock_urlread: 2 * len(url):
+        totalcounts = 2 * len(url)
+        # assert we stopped before reading all url(s). Relax the condition by putting <=, as
+        # if self.mock_urlread.call_count == totalcounts does not mean the test failed, it
+        # can be due to the fact that we mock io-bound operations in urlread with non-io bound operations
+        assert self.mock_urlread.call_count <= totalcounts
         
         # same regardless of urllib2 returned value:
         self.config_urlopen([urllib.error.URLError("")], sleep_time=None)

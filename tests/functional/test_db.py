@@ -11,7 +11,7 @@ import unittest
 import numpy as np
 import os
 from stream2segment.io.db.models import Base, Event, WebService, Channel, Station, \
-    DataCenter, Segment, Class, Run, ClassLabelling, withdata
+    DataCenter, Segment, Class, Download, ClassLabelling, withdata
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, load_only
 import pandas as pd
@@ -127,7 +127,7 @@ class Test(unittest.TestCase):
 #             df = e.parse_df(df)
 
     def test_run(self):
-        r = Run()
+        r = Download()
         assert r.run_time is None and r.warnings is None and r.errors is None and r.id is None
         self.session.add(r)
         self.session.commit()
@@ -233,17 +233,17 @@ class Test(unittest.TestCase):
         assert not self.session.query(WebService).all()
         
     def testSqlAlchemy(self):
-        #run_cols = Run.__table__.columns.keys()
+        #run_cols = Download.__table__.columns.keys()
         #run_cols.remove('id')  # remove id (auto set in the model)
         #d = pd.DataFrame(columns=run_cols, data=[[None for _ in run_cols]])
         #records = d.to_dict('records') # records(index=False)
         # record = records[0]
 
         # pass a run_id without id and see if it's updated as utcnow:
-        run_row = Run()
+        run_row = Download()
         assert run_row.id is None
 
-        run_row = Run(id=None)
+        run_row = Download(id=None)
         assert run_row.id is None
 
         # test that methods of the base class work:
@@ -271,10 +271,10 @@ class Test(unittest.TestCase):
         # in py that would
         # fail cause within the same transaction the db issues always the same value
         # BUT we specified also a python default which should make the trick:
-        self.session.add(Run())
+        self.session.add(Download())
         # self.session.flush()
         self.session.commit()
-        runz = self.session.query(Run).all()
+        runz = self.session.query(Download).all()
         assert len(runz) == 2
         
         # assert the two timestamps are equal cause issued within the same session:
@@ -287,7 +287,7 @@ class Test(unittest.TestCase):
         
         # now pass a utcdatetime and see if we keep that value:
         utcnow = datetime.utcnow()
-        run_row = Run(run_time=utcnow)
+        run_row = Download(run_time=utcnow)
         assert run_row.run_time == utcnow
         self.session.add_all([run_row])
         # self.session.flush()
@@ -479,7 +479,7 @@ class Test(unittest.TestCase):
 
         utcnow = datetime.utcnow()
 
-        run = Run(run_time=utcnow)
+        run = Download(run_time=utcnow)
         self.session.add(run)
         
         ws = WebService(url='webserviceurl')

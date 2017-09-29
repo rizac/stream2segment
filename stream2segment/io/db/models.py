@@ -61,7 +61,8 @@ def withdata(model_column):
 # for setting foreign keys in sqlite:
 @event.listens_for(Engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
-    if type(dbapi_connection) is sqlite3.Connection:  # play well with other DB backends
+    # play well with other DB backends:
+    if type(dbapi_connection) is sqlite3.Connection:  # @UndefinedVariable
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
@@ -104,10 +105,10 @@ def ForeignKey(*pos, **kwa):
     return SqlAlchemyForeignKey(*pos, **kwa)
 
 
-class Run(Base):
-    """The runs"""
+class Download(Base):
+    """The downloads executed"""
 
-    __tablename__ = "runs"
+    __tablename__ = "downloads"
 
     id = Column(Integer, primary_key=True)  # pylint:disable=invalid-name
     # run_time below has server_default as `func.now()`. This issues a CURRENT TIMESTAMP
@@ -331,7 +332,7 @@ class Segment(Base):
     end_time = Column(DateTime, nullable=False)
     sample_rate = Column(Float)
     max_gap_overlap_ratio = Column(Float)
-    run_id = Column(Integer, ForeignKey("runs.id"), nullable=False)
+    download_id = Column(Integer, ForeignKey("downloads.id"), nullable=False)
 
 #     @hybrid_property
 #     def seedid(self):
@@ -342,7 +343,7 @@ class Segment(Base):
 #                              [self.station.network, self.station.station, self.channel.location,
 #                               self.channel.channel]])
 
-    # DEFINE HTBRID PROPERTIES. ACTUALY, WE ARE JUST INTERESTED IN HYBRID CLASSMETHODS FOR
+    # DEFINE HYBRID PROPERTIES. ACTUALY, WE ARE JUST INTERESTED IN HYBRID CLASSMETHODS FOR
     # QUERYING, BUT IT SEEMS THERE IS NO WAY TO DEFINE THEM WITHOUT DEFINING THE INSTANCE METHOD
     @hybrid_property
     def has_data(self):
@@ -353,7 +354,7 @@ class Segment(Base):
         return withdata(cls.data)
 
     @hybrid_method
-    def has_class(self, *ids):
+    def has_class(self, *ids):  # FIXME: do we use it?
         if not ids:
             return self.classes.count() > 0
         else:
@@ -377,7 +378,7 @@ class Segment(Base):
     event = relationship("Event", backref=backref("segments", lazy="dynamic"))
     channel = relationship("Channel", backref=backref("segments", lazy="dynamic"))
     datacenter = relationship("DataCenter", backref=backref("segments", lazy="dynamic"))
-    run = relationship("Run", backref=backref("segments", lazy="dynamic"))
+    download = relationship("Download", backref=backref("segments", lazy="dynamic"))
 
     # http://stackoverflow.com/questions/17580649/sqlalchemy-relationships-across-multiple-tables
     # this method will work better, as the ORM can also handle
@@ -390,12 +391,6 @@ class Segment(Base):
     classes = relationship("Class", lazy='dynamic',
                            secondary="class_labellings",  # <-  must be table name in metadata
                            viewonly=True, backref=backref("segments", lazy="dynamic"))
-#     hl_classes = relationship("Class", lazy='dynamic',
-#                               secondary="class_labellings",  # <-  must be table name in metadata
-#                               viewonly=True, backref=backref("segments", lazy="dynamic"))
-#     cl_classes = relationship("Class", lazy='dynamic',
-#                               secondary="class_labellings",  # <-  must be table name in metadata
-#                               viewonly=True, backref=backref("segments", lazy="dynamic"))
 
     __table_args__ = (
                       UniqueConstraint('channel_id', 'start_time', 'end_time',

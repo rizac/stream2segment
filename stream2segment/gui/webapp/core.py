@@ -13,12 +13,12 @@ from builtins import map, zip
 import re
 from itertools import cycle
 
-# from sqlalchemy import func
+from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
 
 from stream2segment.io.db.pd_sql_utils import colnames
 from stream2segment.io.db.models import Segment, Class, Station, Channel, DataCenter, Event,\
-    ClassLabelling, Run
+    ClassLabelling, Download
 from stream2segment.io.db.queries import query4gui, count as query_count
 from stream2segment.gui.webapp.plots.jsplot import jsontimestamp
 # from stream2segment.io.db import sqlevalexpr
@@ -56,7 +56,7 @@ def get_metadata(session, seg_id=None):
         segment = None
 
     METADATA = [("", Segment), ("event", Event), ("channel", Channel),
-                ("station", Station), ("datacenter", DataCenter), ('run', Run)]
+                ("station", Station), ("datacenter", DataCenter), ('download', Download)]
 
     def type2str(python_type):
         '''returns the str representation of a python type'''
@@ -64,8 +64,8 @@ def get_metadata(session, seg_id=None):
 
     ret = []
     # exclude columns with byte data or too long text data which would make no sense to show:
-    excluded_colnames = set([Station.inventory_xml.key, Segment.data.key, Run.log.key,
-                             Run.config.key])
+    excluded_colnames = set([Station.inventory_xml.key, Segment.data.key, Download.log.key,
+                             Download.config.key])
     # if segment is None, return hybrid attributes, too.
     # Use a dict of pairs: (model -> list of hybrid attributes to be shown)
     # The type of the hybrid attribute will be later inferred by sqlalchemy:
@@ -98,12 +98,11 @@ def get_metadata(session, seg_id=None):
             except Exception as _:
                 continue
             ret.append([("%s." % prefix) + colname if prefix else colname, value])
-
-    if segment is None:  # add fields for selecting. These fields do not need to be set
-        # if a segment is provided (e.g., classes for a segment is returned if requested via
-        # a separate response key, and has_data does not need to be shown in the infos for a
-        # segment)
-        if query_count(session, Class.id) > 0:
+    # add fields for selecting. These fields do not need to be set if a segment is provided:
+    if segment is None:
+        # https://stackoverflow.com/questions/14754994/why-is-sqlalchemy-count-much-slower-than-the-raw-query
+        classcount = session.query(func.count(Class.id)).scalar()
+        if classcount > 0:
             ret.insert(0, ['classes.id', type2str(Class.id.type.python_type)  # @UndefinedVariable
                            ])
             ret.insert(0, ['classes', type2str(str) +  # @UndefinedVariable
@@ -168,8 +167,12 @@ def get_classes(session, seg_id=None):
         row = {}
         for col in colz:
             row[col] = getattr(c, col)
-        row['count'] = session.query(ClassLabelling).\
-            filter(ClassLabelling.class_id == c.id).count()  # FIX COUNT AS FUNC COUNT
+        # https://stackoverflow.com/questions/14754994/why-is-sqlalchemy-count-much-slower-than-the-raw-query
+        rowcount = session.query(func.count(ClassLabelling)).\
+            filter(ClassLabelling.class_id == c.id).scalar()
+        row['count'] = rowcount
+#         session.query(ClassLabelling).\
+#             filter(ClassLabelling.class_id == c.id).count()  # FIX COUNT AS FUNC COUNT
         ret.append(row)
     return ret
 

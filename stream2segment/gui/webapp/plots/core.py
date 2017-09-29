@@ -242,10 +242,10 @@ class PlotManager(LimitedSizeDict):
         # define default functions if not found:
 
         def preprocess_func(segment, config):
-            raise Exception("No 'pre_process' function implemented")
+            raise Exception("No function decorated with '@gui.preprocess'")
 
-        def sn_specrtra_func(segment, config):
-            raise Exception("No 'sn_spectra' function implemented")
+        def side_func(segment, config):
+            raise Exception("No function decorated with '@gui.sideplot'")
 
         def main_function(segment, config):
             return Plot.fromstream(segment.stream(), check_same_seedid=True)
@@ -253,15 +253,14 @@ class PlotManager(LimitedSizeDict):
         self.preprocessfunc = preprocess_func
 
         for f in iterfuncs(pymodule):
-            if f.__name__ == 'pre_process':
+            att = getattr(f, "_s2s_att", "")
+            if att == 'gui.preprocess':
                 self.preprocessfunc = f
-            elif f.__name__ == 'sn_spectra':
-                sn_spectrafunc = f
-            elif f.__name__.startswith('_'):
-                continue
-            else:
+            elif att == 'gui.sideplot':
+                side_func = f
+            elif att == 'gui.customplot':
                 self.functions.append(f)
-        self.functions = [main_function, sn_spectrafunc] + self.functions
+        self.functions = [main_function, side_func] + self.functions
 
     @property
     def userdefined_plotnames(self):

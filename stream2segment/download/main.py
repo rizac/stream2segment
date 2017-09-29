@@ -41,6 +41,7 @@ from stream2segment.utils.resources import get_ttable_fpath
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#aliased-imports):
 from future import standard_library
+from itertools import cycle
 standard_library.install_aliases()
 from urllib.parse import urlparse  # @IgnorePep8
 from urllib.request import Request  # @IgnorePep8
@@ -114,12 +115,34 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
                decode=None, raise_http_err=True, timeout=None, max_mem_consumption=90,
                **kwargs):
     """Wrapper around read_async defined in url which raises a QuitDownload in case of MemoryError
+    :param max_mem_consumption: a value in (0, 100] denoting the threshold in % of the
+    total memory after which the program should raise. This should return as fast as possible
+    consuming the less memory possible, and assuring the quit-download message will be sent to
+    the logger
     """
+
     try:
-        for _ in original_read_async(iterable, urlkey, max_workers, blocksize, decode,
-                                     raise_http_err, timeout, max_mem_consumption, **kwargs):
-            yield _
-    except MemoryError as exc:
+        # split the two cases, a little nit more verbose but hopefully it's faster when
+        # max_mem_consumption is higher than zero...
+        if max_mem_consumption > 0 and max_mem_consumption < 100:
+            check_mem_step = 10
+            process = psutil.Process(os.getpid())
+            for result, check_mem_val in zip(original_read_async(iterable, urlkey, max_workers,
+                                                                 blocksize, decode,
+                                                                 raise_http_err, timeout,
+                                                                 max_mem_consumption, **kwargs),
+                                             cycle(range(check_mem_step))):
+                yield result
+                if check_mem_val == 0:
+                    mem_percent = process.memory_percent()
+                    if mem_percent > max_mem_consumption:
+                        raise MemoryError("Memory overflow: %.2f%% (used) > %.2f%% (threshold)" %
+                                          (mem_percent, max_mem_consumption))
+        else:
+            for _ in original_read_async(iterable, urlkey, max_workers, blocksize, decode,
+                                         raise_http_err, timeout, max_mem_consumption, **kwargs):
+                yield _
+    except Exception as exc:
         raise QuitDownload(exc)
 
 
@@ -812,7 +835,7 @@ def get_seg_request(segments_df, datacenter_url, chaid2mseedid_dict):
     return Request(url=datacenter_url, data=post_data)
 
 
-def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_dict, run_id,
+def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_dict, download_id,
                            max_thread_workers, timeout, download_blocksize, db_bufsize,
                            show_progress=False):
 
@@ -833,7 +856,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
     SEG_SEEDID = Segment.seed_identifier.key
     SEG_MGAP = Segment.max_gap_overlap_ratio.key
     SEG_SRATE = Segment.sample_rate.key
-    SEG_RUNID = Segment.run_id.key
+    SEG_DOWNLID = Segment.download_id.key
 
     # set once the dict of column names mapped to their default values.
     # Set nan to let pandas understand it's numeric. None I don't know how it is converted
@@ -854,7 +877,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
 
     datcen_id2url = datacenters_df.set_index([DC_ID])[DC_DSURL].to_dict()
 
-    cols2update = [Segment.run_id, Segment.data, Segment.sample_rate, Segment.max_gap_overlap_ratio,
+    cols2update = [Segment.download_id, Segment.data, Segment.sample_rate, Segment.max_gap_overlap_ratio,
                    Segment.seed_identifier, Segment.download_status_code,
                    Segment.start_time, Segment.arrival_time, Segment.end_time]
     segmanager = DbManager(session, Segment.id, cols2update,
@@ -925,7 +948,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                     # to preserve order, if needed. A starting discussion on adding new column:
                     # https://stackoverflow.com/questions/12555323/adding-new-column-to-existing-dataframe-in-python-pandas
                 # init run id column with our run_id:
-                df[SEG_RUNID] = run_id
+                df[SEG_DOWNLID] = download_id
                 if exc:
                     code = URLERR_CODE
                 elif code >= 400:
@@ -1164,7 +1187,7 @@ def print_stats(stats_dict, datacenters_df):
                  "(Nothing to show)"))
 
 
-def run(session, run_id, eventws, start, end, service, eventws_query_args,
+def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
         search_radius,
         channels, min_sample_rate, inventory,
         wtimespan, retry_no_code, retry_url_errors, retry_mseed_errors, retry_4xx, retry_5xx,
@@ -1211,7 +1234,7 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
     logger.info("STEP %s: Requesting data-centers", next(stepiter))
     try:
         datacenters_df, postdata = get_datacenters_df(session,
-                                                      service,
+                                                      dataws,
                                                       advanced_settings['routing_service_url'],
                                                       channels, start, end, dbbufsize)
     except QuitDownload as dexc:
@@ -1249,7 +1272,6 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
     # help gc by deleting the (only) refs to unused dataframes
     del events_df
     del channels_df
-    # session.expunge_all()  # for memory: https://stackoverflow.com/questions/30021923/how-to-delete-a-sqlalchemy-mapped-object-from-memory
 
     logger.info("")
     logger.info(("STEP %s: %d segments found. Checking already downloaded segments"),
@@ -1259,7 +1281,7 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
         segments_df = prepare_for_download(session, segments_df, wtimespan, retry_no_code,
                                            retry_url_errors, retry_mseed_errors, retry_4xx,
                                            retry_5xx)
-        session.close()  # frees memory?
+
         # download_save_segments raises a QuitDownload if there is no data, remember its
         # exitcode
         logger.info("")
@@ -1269,8 +1291,14 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
             logger.info("STEP %s: Downloading %d segments and saving to db", next(stepiter),
                         len(segments_df))
 
+        # frees memory. Although maybe unecessary, let's do our best to free stuff cause the
+        # next one is memory consuming:
+        # https://stackoverflow.com/questions/30021923/how-to-delete-a-sqlalchemy-mapped-object-from-memory
+        session.expunge_all()
+        session.close()
+
         d_stats = download_save_segments(session, segments_df, datacenters_df,
-                                         chaid2mseedid, run_id,
+                                         chaid2mseedid, download_id,
                                          advanced_settings['max_thread_workers'],
                                          advanced_settings['w_timeout'],
                                          advanced_settings['download_blocksize'],
@@ -1292,6 +1320,12 @@ def run(session, run_id, eventws, start, end, service, eventws_query_args,
             return exit_code
 
     if inventory:
+        # frees memory. Although maybe unecessary, let's do our best to free stuff cause the
+        # next one might be memory consuming:
+        # https://stackoverflow.com/questions/30021923/how-to-delete-a-sqlalchemy-mapped-object-from-memory
+        session.expunge_all()
+        session.close()
+
         # query station id, network station, datacenter_url
         # for those stations with empty inventory_xml
         # AND at least one segment non empty/null

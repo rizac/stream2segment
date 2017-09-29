@@ -10,7 +10,6 @@ import threading
 import http.client
 import socket
 from multiprocessing.pool import ThreadPool
-import psutil
 import os
 
 # make the following(s) behave like python3 counterparts if running from python2.7.x
@@ -105,13 +104,8 @@ class URLException(Exception):
         return str(self.exc)
 
 
-def _mem_percent(process=None):
-    return 0 if process is None else process.memory_percent()
-
-
-def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
-               decode=None, raise_http_err=True, timeout=None, max_mem_consumption=90,
-               unordered=True,
+def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, decode=None,
+               raise_http_err=True, timeout=None, unordered=True,
                **kwargs):  # pylint:disable=too-many-arguments
     """
         Wrapper around `multiprocessing.pool.ThreadPool()` for downloading
@@ -173,17 +167,12 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
         :param timeout: timeout parameter specifies a timeout in seconds for blocking operations
         like the connection attempt (if not specified, None or non-positive, the global default
         timeout setting will be used). This actually only works for HTTP, HTTPS and FTP connections.
-        :param max_mem_consumption: integer in ]0 100], default: 90. For big downloads with a log
-        of elements in `iterable`, this function might kill the python program: Set the maximum
-        memory percentage (90% by default): if the programs overcomes that percentage, it returns
-        and raises a `MemoryError`: This lets the caller handle the case (e.g., closing db
-        connection, saving what has been downloaded etcetera) without loosing data
         :param unordered: boolean (default False): tells whether the download results are yielded
         in the same order they are input in `iterable`, i.e. if the i-th download is relative
         to the i-th element of iterable. Theoretically, False (the default) might execute faster,
-        the drawback being that the results are not guaranteed to be returned in the same order
-        as `iterable`. (Although with `ThreadPool`s we could not
-        assess it clearly. Maybe it holds `ProcessPool`s, maybe is due to chunksize)
+        but results are not guaranteed to be yielded in the same order as `iterable`. Although
+        tests did not show any relevant performance increase with `ThreadPool`s (maybe it's a
+        feature of `ProcessPool`s) this argument is False by default
         :param kwargs: optional keyword arguments passed to `urllib2.urlopen` function (except
         the `timeout` argument, see above). NOT TESTED. For info see
         https://docs.python.org/2/library/urllib2.html#urllib2.urlopen
@@ -197,9 +186,9 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
         This function changed from using `concurrent.futures.ThreadPoolExecutor` into
         the "old" `multiprocessing.pool.ThreadPool`: the latter consumes in most cases
         less memory (about 30% less), especially if `iterable` is not a list in memory but
-        a python iterable (`concurrent.futures.ThreadPoolExecutor` allocates `set`s of
-        `Future`s object, whereas `multiprocessing.pool.ThreadPool` seems just to execute
-        each element in iterable)
+        a python iterable (`concurrent.futures.ThreadPoolExecutor` builds a `set` of
+        `Future`s object from `iterable`, whereas `multiprocessing.pool.ThreadPool` seems just
+        to execute each element in iterable)
 
         killing threads / handling exceptions
         -------------------------------------
@@ -210,11 +199,6 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
         threads have finished, an internal boolean flag makes all remaining worker threads quit as
         soon as possible, making the function return (or raise) much more quickly
     """
-    if not (max_mem_consumption > 0 and max_mem_consumption < 100):
-        max_mem_consumption = -1
-
-    process = psutil.Process(os.getpid()) if max_mem_consumption != -1 else None
-
     # flag for CTRL-C or cancelled tasks
     kill = False
 
@@ -233,19 +217,12 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
     threadpoolmap = tpool.imap_unordered if unordered else tpool.imap  # (func, iterable, chunksize)
     # note above: chunksize argument for threads (not processes)
     # seems to slow down download. Omit the argument and leave chunksize=1 (default)
-
     try:
         # this try is for the keyboard interrupt, which will be caught inside the
         # as_completed below
         for result_tuple in threadpoolmap(urlwrapper, iterable):
-            if process is not None:
-                mem_percent = _mem_percent(process)
-                if mem_percent > max_mem_consumption:
-                    raise MemoryError("Memory overflow: %.2f%% (used) > %.2f%% (threshold)" %
-                                      (mem_percent, max_mem_consumption))
-
             if kill:
-                continue  # (for safety: should never happen as long as kill=True in 'except' below)
+                continue  # (for safety: we should never enter here)
             yield result_tuple
     except:
         # According to this post:

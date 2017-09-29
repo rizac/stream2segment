@@ -12,13 +12,13 @@ from builtins import object
 
 import logging
 import sys
-import datetime as dt
 import os
 from contextlib import contextmanager
 import shutil
 
 # iterate over dictionary keys without list allocation in both py 2 and 3:
 from future.utils import viewitems
+from datetime import datetime, timedelta
 import yaml
 import click
 from click.exceptions import BadParameter, ClickException, MissingParameter
@@ -27,7 +27,7 @@ from stream2segment.utils.log import configlog4download, configlog4processing,\
     elapsedtime2logger_when_finished, configlog4stdout
 # from stream2segment.download.utils import run_instance
 from stream2segment.utils.resources import version
-from stream2segment.io.db.models import Segment, Run
+from stream2segment.io.db.models import Segment, Download
 from stream2segment.process.main import run as run_process, to_csv
 from stream2segment.download.main import run as run_download
 from stream2segment.utils import tounicode, get_session, strptime,\
@@ -45,46 +45,36 @@ from stream2segment.utils.resources import get_templates_fpath, yaml_load, yaml_
 logger = logging.getLogger("stream2segment")
 
 
-class click_stuff(object):
-    """just a wrapper (to make code more readable) around
-    click stuff used for validating/defaults etcetera"""
+class clickutils(object):
+    """Container for Options validations, default settings so as not to pollute the click
+    decorators"""
 
-    TERMINAL_HELP_WIDTH = 80  # control width of help. 80 should be the default (roughly)
+    TERMINAL_HELP_WIDTH = 90  # control width of help. 80 should be the default (roughly)
+    NOW = datetime.utcnow()
+    DEFAULTDOC = yaml_load_doc(get_templates_fpath("download.yaml"))
+    DBURLDOC_SUFFIX = ("****IMPORTANT NOTE****: It can also be the path of a yaml file "
+                       "containing the property 'dburl' (e.g., the yaml you used for "
+                       "downloading, so as to avoid re-typing the database path)")
 
-    @staticmethod
-    def valid_date(string):
+    @classmethod
+    def valid_date(cls, string):
         """does a check on string to see if it's a valid datetime string.
+        If integer, is a datetime object relative to today, at midnight, plus
+        `string` days (negative values are allowed)
         This is executed only if the relative Option is given
         Returns the datetime on success, throws an BadParameter otherwise"""
         try:
             return strptime(string)
-        except ValueError as exc:
-            raise BadParameter(str(exc))
-        # return string
+        except ValueError as _:
+            try:
+                days = int(string)
+                endt = datetime(cls.NOW.year, cls.NOW.month, cls.NOW.day, 0, 0, 0, 0)
+                return endt - timedelta(days=days)
+            except:
+                raise BadParameter("Invalid date time or invalid integer")
 
-    _external_file_suffix = """To set up a directory with all necessary files run the program with
-the 't' option first ('t --help' for help): the files are ready-to-use as program arguments, but
-can be customized editing them and following the help instructions implemented therein"""
-
-    @staticmethod
-    def get_config_help():
-        return ("The path to the configuration file in yaml format "
-                "(https://learn.getgrav.org/advanced/yaml). "
-                "%s" % click_stuff._external_file_suffix)
-
-    @staticmethod
-    def get_v_pyfile_help():
-        return ("The path to the python file "
-                "where to implement the plots for the GUI. %s" % click_stuff._external_file_suffix)
-
-    @staticmethod
-    def get_p_pyfile_help():
-        return ("The path to the python file where to implement the processing function. "
-                "The function will be then automatically called iteratively on each segment to "
-                "create the csv file. %s" % click_stuff._external_file_suffix)
-
-    @staticmethod
-    def set_help_from_download_yaml(ctx, param, value):
+    @classmethod
+    def set_help_from_yaml(cls, ctx, param, value):
         """
         When attaching this function as `callback` argument to an Option (`click.Option`),
         it will set
@@ -96,57 +86,30 @@ can be customized editing them and following the help instructions implemented t
         Assuming opt1, opt2, opt3 are variables of the config yaml file, and opt4 not, this
         sets the default help for opt1 and opt2:
         ```
-        \@click.Option('--opt1', ..., callback=set_help_from_download_yaml, is_eager=True,...)
+        \@click.Option('--opt1', ..., callback=set_help_from_yaml, is_eager=True,...)
         \@click.Option('--opt2'...)
         \@click.Option('--opt3'..., help='my custom help do not set the config help')
         \@click.Option('--opt4'...)
         ...
         ```
         """
-        # define iterator over options (no arguments):
-        def _optsiter():
-            for option in ctx.command.params:
-                if option.param_type_name == 'option':
-                    yield option
-
-        cfg_doc = yaml_load_doc(get_templates_fpath("download.yaml"))
-
-        for option in _optsiter():
+        cfg_doc = cls.DEFAULTDOC
+        for option in (opt for opt in ctx.command.params if opt.param_type_name == 'option'):
             if option.help is None:
-                option.help = cfg_doc[option.name]
+                option.help = cfg_doc.get(option.name, None)
 
         return value
 
     @staticmethod
     def proc_eventws_args(ctx, param, value):
-        """parses optional event query args into a dict for the 'd' command"""
-        # stupid way to iterate as pair (key, value) in eventws_query_args as the latter is
-        # supposed to be in the form (key, value, key, value,...):
-        ret = {}
-        key = None
-        for val in value:
-            if key is None:
-                key = val
-            else:
-                ret[key] = val
-                key = None
-        return ret
-
-    dburl_opt_help = """Database path where to fetch the segments.
-It can be specified also as a yaml file path with the variable 'dburl' defined therein
-(for instance, the config file previously used for downloading the data).
-In any case, the db url must denote an sql database (currently supported are sqlite or postresql).
-If sqlite, just write the path to your local file prefixed with 'sqlite:///'
-(e.g., 'sqlite:////home/my_folder/db.sqlite'). If read from a config file,
-non-absolute paths will be relative to the config file. If specified from the command line,
-they should be relative to the current working directory, although this has not be tested.
-If not sqlite, the syntax is:
-dialect+driver://username:password@host:port/database
-(e.g.: 'postgresql://smith:Hw_6,9@hh21.uni-northpole.org/stream2segment_db')
-(for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)"""
+        """parses optional event query args (when the 'd' command is issued) into a dict"""
+        # use iter to make a dict from a list whose even indices = keys, odd ones = values
+        # https://stackoverflow.com/questions/4576115/convert-a-list-to-a-dictionary-in-python
+        itr = iter(value)
+        return dict(zip(itr, itr))
 
     @staticmethod
-    def check_dburl(ctx, param, value):
+    def extract_dburl_if_yaml(ctx, param, value):
         """
         For all non-download click Options, returns the database path from 'value':
         'value' can be a file (in that case is assumed to be a yaml file with the
@@ -154,35 +117,13 @@ dialect+driver://username:password@host:port/database
         """
         if value and os.path.isfile(value):
             try:
-                value = yaml_load(get_templates_fpath("download.yaml"))['dburl']
+                value = yaml_load(value)['dburl']
             except Exception:
                 raise BadParameter("'dburl' not found in '%s'" % value)
         if not value:
             raise MissingParameter("dburl")
         return value
-# other utility functions:
 
-
-def get_def_timerange():
-    """ Returns the default time range when  not specified, for downloading data
-    the returned tuple has two datetime objects: yesterday, at midniight and
-    today, at midnight"""
-    dnow = dt.datetime.utcnow()
-    endt = dt.datetime(dnow.year, dnow.month, dnow.day)
-    startt = endt - dt.timedelta(days=1)
-    return startt, endt
-
-
-def clickcommand(**kwargs):
-    '''Returns a click.command decorator with the given arguments. If
-    kwargs['context_settings']['max_content_width'] is not set, it will be set to
-    a wider text width (50)'''
-    MAX_CONTENT_WIDTH = 50
-    if 'context_settings' not in kwargs:
-        kwargs['context_settings'] = {}
-    if not 'max_content_width' not in kwargs['context_settings']:
-        kwargs['context_settings']['max_content_width'] = MAX_CONTENT_WIDTH
-    return click.command(**kwargs)
 
 # main functionalities:
 
@@ -196,16 +137,17 @@ def download(isterminal=False, **yaml_dict):
     with closing(dburl) as session:
         # print local vars: use safe_dump to avoid python types. See:
         # http://stackoverflow.com/questions/1950306/pyyaml-dumping-without-tags
-        run_inst = Run(config=tounicode(yaml.safe_dump(yaml_dict, default_flow_style=False)),
-                       # log by default shows error. If everything works fine, we replace
-                       # the content later
-                       log=('Content N/A: this is probably due to an unexpected'
-                             'and uncontrollable interruption of the download process '
-                             '(e.g., memory error)'), program_version=version())
+        download_inst = Download(config=tounicode(yaml.safe_dump(yaml_dict,
+                                                                 default_flow_style=False)),
+                                 # log by default shows error. If everything works fine, we replace
+                                 # the content later
+                                 log=('Content N/A: this is probably due to an unexpected'
+                                      'and out-of-control interruption of the download process '
+                                      '(e.g., memory error)'), program_version=version())
 
-        session.add(run_inst)
+        session.add(download_inst)
         session.commit()
-        run_id = run_inst.id
+        download_id = download_inst.id
         session.close()  # frees memory?
 
         if isterminal:
@@ -216,17 +158,18 @@ def download(isterminal=False, **yaml_dict):
             yaml_safe = dict(yaml_dict, dburl=secure_dburl(yaml_dict.pop('dburl')))
             print(indent(yaml.safe_dump(yaml_safe, default_flow_style=False), 2))
 
-        loghandler = configlog4download(logger, session, run_id, isterminal)
+        loghandler = configlog4download(logger, session, download_id, isterminal)
 
         if isterminal:
             print("Log messages will be temporarily written to '%s'" % str(loghandler.baseFilename))
-            print("In case of unexpected interruption of the program from external causes "
-                  "(e.g., memory overflow) the file acts as a backup for all stored log messages")
-            print("In any other case the file will be deleted before exiting and its content will "
-                  "be written to the table '%s' (column '%s')" % (Run.__tablename__, Run.log.key))
+            print("If the program does not quit for external causes (e.g., memory overflow), "
+                  "the file will be deleted before exiting and its content will "
+                  "be written to the table '%s' (column '%s')" % (Download.__tablename__,
+                                                                  Download.log.key))
 
         with elapsedtime2logger_when_finished(logger):
-            run_download(session=session, run_id=run_id, isterminal=isterminal, **yaml_dict)
+            run_download(session=session, download_id=download_id, isterminal=isterminal,
+                         **yaml_dict)
             logger.info("%d total error(s), %d total warning(s)", loghandler.errors,
                         loghandler.warnings)
 
@@ -338,8 +281,8 @@ def closing(dburl, scoped=False, close_logger=True, close_session=True):
             except NameError:
                 pass
 
-
 # click commands:
+
 
 @click.group()
 def main():
@@ -363,59 +306,43 @@ def main():
 
 
 @main.command(short_help='Efficiently download waveform data segments',
-              context_settings=dict(max_content_width=click_stuff.TERMINAL_HELP_WIDTH))
+              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option("-c", "--configfile",
-              help=click_stuff.get_config_help(),
+              help="The path to the configuration file in yaml format "
+                   "(https://learn.getgrav.org/advanced/yaml).",
               type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
                               readable=True), is_eager=True,
-              callback=click_stuff.set_help_from_download_yaml)
+              callback=clickutils.set_help_from_yaml)
 @click.option('-d', '--dburl')
-@click.option('-t0', '--start', type=click_stuff.valid_date)
-@click.option('-t1', '--end', type=click_stuff.valid_date)
-@click.option('-s', '--service')
-@click.option('--wtimespan', nargs=2, type=float)
+@click.option('-e', '--eventws')
+@click.option('-t0', '--start', type=clickutils.valid_date)
+@click.option('-t1', '--end', type=clickutils.valid_date)
+@click.option('-ds', '--dataws')
 @click.option('--min_sample_rate')
+@click.option('-t', '--traveltimes_model')
+@click.option('-w', '--wtimespan', nargs=2, type=float)
 @click.option('-r1', '--retry_url_errors', is_flag=True, default=None)
 @click.option('-r2', '--retry_mseed_errors', is_flag=True, default=None)
 @click.option('-r3', '--retry_no_code', is_flag=True, default=None)
 @click.option('-r4', '--retry_4xx', is_flag=True, default=None)
 @click.option('-r5', '--retry_5xx', is_flag=True, default=None)
 @click.option('-i', '--inventory', is_flag=True, default=None)
-@click.option('-e', '--eventws')
-@click.option('-t', '--traveltimes_model')
 @click.argument('eventws_query_args', nargs=-1, type=click.UNPROCESSED,
-                callback=click_stuff.proc_eventws_args)
-def d(configfile, dburl, start, end, service, wtimespan, min_sample_rate, retry_no_code,
-      retry_url_errors, retry_mseed_errors, retry_4xx, retry_5xx, inventory, eventws,
-      traveltimes_model, eventws_query_args):
+                callback=clickutils.proc_eventws_args)
+def d(configfile, dburl, eventws, start, end, dataws, min_sample_rate, traveltimes_model,
+      wtimespan, retry_no_code, retry_url_errors, retry_mseed_errors, retry_4xx, retry_5xx,
+      inventory, eventws_query_args):
     """Efficiently download waveform data segments and relative events, stations and channels
     metadata into a specified database for further processing or visual inspection in a
-    browser. Options are listed below: when not specified, their default
-    values are those set in the value of the configfile option.
-    [EVENTWS_QUERY_ARGS] is an optional list of space separated arguments to be passed
-    to the event web service query (example: minmag 5.5 minlon 34.5) and will be added to
-    the arguments of `eventws_query_args` specified in in the config file,
-    if any. In case of conflicts, the values command line values supplied here will override the
-    config ones
-    All FDSN query arguments are valid
-    *EXCEPT* 'start', 'end' and 'format' (the first two are set via 't0' or 'start' and 't1' or
-    'end'), the format will default in most cases to 'text' for performance reasons)
+    browser. The -c option (required) sets the defaults for all other options below, which are
+    optional.
+    The argument 'eventws_query_args' is an optional list of space separated key and values to be
+    passed to the event web service query (example: minmag 5.5 minlon 34.5). All FDSN query
+    arguments are valid except 'start', 'end' (set them via -t0 and -t1) and 'format'
     """
-    _ = dict(locals())
-    cfg_dict = yaml_load(_.pop('configfile'))
-
-    # set start and end as default if not provided. If specified in the command line, they will
-    # be overidden below
-    start_def, end_def = get_def_timerange()
-    cfg_dict['start'] = cfg_dict.get('start', start_def)
-    cfg_dict['end'] = cfg_dict.get('end', end_def)
-
-    # override with command line values, if any:
-    for var, val in viewitems(_):
-        if val:
-            cfg_dict[var] = val
-
     try:
+        cfg_dict = yaml_load(configfile, **{k: v for k, v in locals().items()
+                                            if v not in ((), {}, None, configfile)})
         ret = download(isterminal=True, **cfg_dict)
         sys.exit(ret)
     except KeyboardInterrupt:  # this except avoids printing traceback
@@ -423,14 +350,18 @@ def d(configfile, dburl, start, end, service, wtimespan, min_sample_rate, retry_
 
 
 @main.command(short_help='Process downloaded waveform data segments',
-              context_settings=dict(max_content_width=click_stuff.TERMINAL_HELP_WIDTH))
-@click.option('-d', '--dburl', callback=click_stuff.check_dburl, help=click_stuff.dburl_opt_help)
+              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
+@click.option('-d', '--dburl', callback=clickutils.extract_dburl_if_yaml,
+              help="%s.\n%s" % (clickutils.DEFAULTDOC['dburl'], clickutils.DBURLDOC_SUFFIX))
 @click.option("-c", "--configfile",
-              help=click_stuff.get_config_help(),
+              help="The path to the configuration file in yaml format "
+                   "(https://learn.getgrav.org/advanced/yaml).",
               type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
                               readable=True))
 @click.option("-p", "--pyfile",
-              help=click_stuff.get_v_pyfile_help(),
+              help="The path to the python file where to implement the processing function "
+                   "which will be called iteratively on each segment "
+                   "selected in the config file",
               type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
                               readable=True))
 @click.argument('outfile')
@@ -444,14 +375,16 @@ def p(dburl, configfile, pyfile, outfile):
 
 
 @main.command(short_help='Visualize downloaded waveform data segments in a browser',
-              context_settings=dict(max_content_width=click_stuff.TERMINAL_HELP_WIDTH))
-@click.option('-d', '--dburl', callback=click_stuff.check_dburl, help=click_stuff.dburl_opt_help)
+              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
+@click.option('-d', '--dburl', callback=clickutils.extract_dburl_if_yaml,
+              help="%s.\n%s" % (clickutils.DEFAULTDOC['dburl'], clickutils.DBURLDOC_SUFFIX))
 @click.option("-c", "--configfile",
-              help=click_stuff.get_config_help(),
+              help="The path to the configuration file in yaml format "
+                   "(https://learn.getgrav.org/advanced/yaml).",
               type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
                               readable=True))
 @click.option("-p", "--pyfile",
-              help=click_stuff.get_v_pyfile_help(),
+              help="The path to the python file with the plot functions implemented",
               type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
                               readable=True))
 def v(dburl, configfile, pyfile):
@@ -461,7 +394,7 @@ def v(dburl, configfile, pyfile):
 
 # @main.command(short_help='Create a data availability html file showing downloaded data '
 #                          'quality on a map')
-# @click.option('-d', '--dburl', callback=click_stuff.set_dburl, is_eager=True)
+# @click.option('-d', '--dburl', callback=clickutils.set_dburl, is_eager=True)
 # @click.option('-m', '--max_gap_ovlap_ratio', help="""Sets the maximum gap/overlap ratio.
 # Mark segments has 'corrupted' because of gaps/overlaps if they exceed this threshold.
 # Defaults to 0.5 (half of the segment sampling frequency)""", default=0.5)
@@ -473,17 +406,16 @@ def v(dburl, configfile, pyfile):
 
 
 @main.command(short_help='Create template/config files in a specified directory',
-              context_settings=dict(max_content_width=click_stuff.TERMINAL_HELP_WIDTH))
+              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.argument('outdir')
 def t(outdir):
     """Creates template/config files which can be inspected and edited for launching download,
     processing and visualization.
     """
-    helpdict = {'download.yaml': 'download configuration file (-c option)',
-                'gui.py': 'visualization python file (-p option)',
-                'gui.yaml': 'visualization configuration file (-c option)',
-                'processing.py': 'processing python file (-p option)',
-                'processing.yaml': 'processing configuration file (-c option)'}
+    helpdict = {"download.yaml": "download configuration file ('s2s d' -c option)",
+                "processing.py": "processing/gui python file ('s2s p' and 's2s v' -p option)",
+                "processing.yaml": ("processing/gui configuration file "
+                                    "('s2s p' and 's2s v' -c option)")}
     try:
         copied_files = create_templates(outdir, True, *helpdict)
         print('')

@@ -43,7 +43,7 @@ from stream2segment.download.main import get_events_df, get_datacenters_df, \
 #     get_fdsn_channels_df, save_stations_and_channels, get_dists_and_times, set_saved_dist_and_times,\
 #     download_segments, drop_already_downloaded, set_download_urls, save_segments
 from obspy.core.stream import Stream, read
-from stream2segment.io.db.models import DataCenter, Segment, Run, Station, Channel, WebService
+from stream2segment.io.db.models import DataCenter, Segment, Download, Station, Channel, WebService
 from itertools import cycle, repeat, count, product
 from urllib.error import URLError
 import socket
@@ -252,7 +252,7 @@ class Test(unittest.TestCase):
         #self.mock_main_logger = self.patcher3.start()
         
         # setup a run_id:
-        r = Run()
+        r = Download()
         self.session.add(r)
         self.session.commit()
         self.run = r

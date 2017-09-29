@@ -54,7 +54,7 @@ class DB(object):
         self.session = Session()
 
         # setup a run_id:
-        r = models.Run()
+        r = models.Download()
         self.session.add(r)
         self.session.commit()
         self.run = r

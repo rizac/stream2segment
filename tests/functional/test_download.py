@@ -43,7 +43,7 @@ get_channels_df, merge_events_stations, \
 #     get_fdsn_channels_df, save_stations_and_channels, get_dists_and_times, set_saved_dist_and_times,\
 #     download_segments, drop_already_downloaded, set_download_urls, save_segments
 from obspy.core.stream import Stream, read
-from stream2segment.io.db.models import DataCenter, Segment, Run, Station, Channel, WebService,\
+from stream2segment.io.db.models import DataCenter, Segment, Download, Station, Channel, WebService,\
     withdata
 from itertools import cycle, repeat, count, product
 from urllib.error import URLError
@@ -258,7 +258,7 @@ class Test(unittest.TestCase):
         #self.mock_main_logger = self.patcher3.start()
         
         # setup a run_id:
-        r = Run()
+        r = Download()
         self.session.add(r)
         self.session.commit()
         self.run = r
@@ -432,7 +432,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
      
         # The run table is populated with a run_id in the constructor of this class
         # for checking run_ids, store here the number of runs we have in the table:
-        runs = len(self.session.query(Run.id).all())
+        runs = len(self.session.query(Download.id).all())
 
 
         # first thing to check is that, when we have a db error, channels and stations are correctly
@@ -495,7 +495,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         # assert run log has been written correctly, i.e. that the db error on the segments
         # has not affected further writing operations. To do this quickly, assert that
         # all run.log have something written in (not null, not empty)
-        assert self.session.query(withdata(Run.log)).count() == self.session.query(Run).count()
+        assert self.session.query(withdata(Download.log)).count() == self.session.query(Download).count()
         
              
     @patch('stream2segment.download.main.get_events_df')
@@ -522,7 +522,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
      
         # The run table is populated with a run_id in the constructor of this class
         # for checking run_ids, store here the number of runs we have in the table:
-        runs = len(self.session.query(Run.id).all())
+        runs = len(self.session.query(Download.id).all())
 
 
 
@@ -544,7 +544,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
             assert False
             return
         
-        assert len(self.session.query(Run.id).all()) == runs + 1
+        assert len(self.session.query(Download.id).all()) == runs + 1
         runs += 1
         segments = self.session.query(Segment).all()
         assert len(segments) == 12
@@ -605,7 +605,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         URLERROR, MSEEDERROR = get_url_mseed_errorcodes()
         
         assert len(dfres2) == len(dfres1)
-        assert len(self.session.query(Run.id).all()) == runs + 1
+        assert len(self.session.query(Download.id).all()) == runs + 1
         runs += 1
         # asssert we changed the download status code for segments which should be retried
         # WARNING: THIS TEST COULD FAIL IF WE CHANGE THE DEFAULTS. CHANGE `mask` IN CASE

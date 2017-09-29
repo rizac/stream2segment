@@ -40,6 +40,8 @@ def main():
 @main_page.route("/get_segments", methods=['POST'])
 def init():
     data = request.get_json()
+    # Note: data.get('segment_orderby', None) is not anymore implemented in the config
+    # it will default to None (order by event time desending and by event_distance ascending)
     dic = core.get_segments(get_session(current_app), data.get('segment_select', None),
                             data.get('segment_orderby', None),
                             data.get('metadata', False),

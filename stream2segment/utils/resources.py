@@ -95,34 +95,32 @@ def get_ws_fpath():
     return get_resources_fpath(filename='ws.yaml')
 
 
-def yaml_load(filepath, raw=False, **defaults):
-    """Loads default config from yaml file, normalizing relative sqlite file paths if any
-    assuming they are relative to `filepath`, and setting the given defaults (if any)
-    for arguments missing in the config
-    (if raw is True)"""
+def yaml_load(filepath, **updates):
+    """Loads a yaml file producing the corresponding Python dict (`safe_load`). Then:
+    1. normalizes non-absolute sqlite path values relative to `filepath`, if any
+    2. updates the dict values with `updqtes`
+    and returns the yaml dict.
+    :param updates: arguments which will updates the yaml dict before it is returned
+    """
     with open(filepath, 'r') as stream:
-        ret = yaml.safe_load(stream) if not raw else stream.read()
-    if not raw:
-        configfilepath = abspath(dirname(filepath))
-        # convert relative sqlite path to absolute, assuming they are relative to the config:
-        sqlite_prefix = 'sqlite:///'
-        # we cannot modify a dict while in iteration, thus create a new dict of possibly
-        # modified sqlite paths and use later dict.update
-        newdict = {}
-        for k, v in viewitems(ret):
-            try:
-                if v.startswith(sqlite_prefix) and ":memory:" not in v:
-                    dbpath = v[len(sqlite_prefix):]
-                    if not isabs(dbpath):
-                        newdict[k] = sqlite_prefix + normpath(join(configfilepath, dbpath))
-            except AttributeError:
-                pass
-        if newdict:
-            ret.update(newdict)
-
-        for key, val in viewitems(defaults):
-            if key not in ret:
-                ret[key] = val
+        ret = yaml.safe_load(stream)
+    # convert sqlite into absolute paths, if any
+    configfilepath = abspath(dirname(filepath))
+    # convert relative sqlite path to absolute, assuming they are relative to the config:
+    sqlite_prefix = 'sqlite:///'
+    # we cannot modify a dict while in iteration, thus create a new dict of possibly
+    # modified sqlite paths and use later dict.update
+    newdict = {}
+    for k, v in viewitems(ret):
+        try:
+            if v.startswith(sqlite_prefix) and ":memory:" not in v:
+                dbpath = v[len(sqlite_prefix):]
+                if not isabs(dbpath):
+                    newdict[k] = sqlite_prefix + abspath(normpath(join(configfilepath, dbpath)))
+        except AttributeError:
+            pass
+    newdict.update(updates)
+    ret.updates(newdict)
     return ret
 
 

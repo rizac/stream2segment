@@ -47,26 +47,26 @@ def raiseifreturnsexception(func):
     return wrapping
 
 
-class decorators(object):
-    class gui(object):
+class gui(object):
+    "decorators for the processing.py file"
 
-        @staticmethod
-        def preprocess(func):
-            '''decorator that adds the attribute func._s2s_att = "gui.preprocess"'''
-            func._s2s_att = "gui.preprocess"
-            return func
+    @staticmethod
+    def preprocess(func):
+        '''decorator that adds the attribute func._s2s_att = "gui.preprocess"'''
+        func._s2s_att = "gui.preprocess"
+        return func
 
-        @staticmethod
-        def customplot(func):
-            '''decorator that adds the attribute func._s2s_att = "gui.customplot"'''
-            func._s2s_att = "gui.customplot"
-            return func
+    @staticmethod
+    def customplot(func):
+        '''decorator that adds the attribute func._s2s_att = "gui.customplot"'''
+        func._s2s_att = "gui.customplot"
+        return func
 
-        @staticmethod
-        def sideplot(func):
-            '''decorator that adds the attribute func._s2s_att = "gui.sideplot"'''
-            func._s2s_att = "gui.sideplot"
-            return func
+    @staticmethod
+    def sideplot(func):
+        '''decorator that adds the attribute func._s2s_att = "gui.sideplot"'''
+        func._s2s_att = "gui.sideplot"
+        return func
 
 
 class SegmentWrapper(object):
@@ -104,18 +104,7 @@ class SegmentWrapper(object):
         return self.__segment
 
     @raiseifreturnsexception
-    def stream(self, window=None):
-        if window not in (None, 'signal', 'noise'):
-            return TypeError(("segment.stream(): wrong argument '%s'. "
-                              "Please provide 'signal', 'noise' or no argument") % str(window))
-
-        if window is None and self.__stream is not None:
-            return self.__stream
-        elif window == 'signal' and self.__s_stream is not None:
-            return self.__s_stream
-        elif window == 'noise' and self.__n_stream is not None:
-            return self.__n_stream
-
+    def stream(self):
         if self.__stream is None:
             try:
                 self.__stream = get_stream(self)
@@ -123,28 +112,7 @@ class SegmentWrapper(object):
                 self.__stream = Exception("MiniSeed error: %s" %
                                           (str(exc) or str(exc.__class__.__name__)))
 
-        if window is None:
-            return self.__stream
-
-        try:
-            stream = self.stream()
-            if self.__sn_windows is None:
-                self.__sn_windows = get_sn_windows(self.__config, self.arrival_time,
-                                                   stream)
-            s_wdw, n_wdw = self.__sn_windows
-            if window == 'signal':
-                stream = self.__s_stream = stream.copy().trim(starttime=s_wdw[0],
-                                                              endtime=s_wdw[1],
-                                                              pad=True, fill_value=0,
-                                                              nearest_sample=True)
-            else:
-                stream = self.__n_stream = stream.copy().trim(starttime=n_wdw[0],
-                                                              endtime=n_wdw[1],
-                                                              pad=True, fill_value=0,
-                                                              nearest_sample=True)
-        except Exception as exc:
-            stream = self.__s_stream = self.__n_stream = exc
-        return stream
+        return self.__stream
 
     @raiseifreturnsexception
     def inventory(self):
@@ -160,13 +128,24 @@ class SegmentWrapper(object):
                                        (str(exc) or str(exc.__class__.__name__)))
         return self.__inv
 
-#     @property
-#     def is_inventory_loaded(self):
-#         return self.__inv is not None
-# 
-#     @property
-#     def is_stream_loaded(self):
-#         return self.__stream is not None
+    @raiseifreturnsexception
+    def timewindow(self, wtype):
+        '''returns [start, end] as UtcDateTime's representing the signal or noise window
+        :param wtype: either 'signal', 's', 'noise' or 'n'
+        '''
+        if wtype in ('signal', 'noise'):
+            wtype = wtype[0]
+        wtype = wtype.lower()
+        if wtype not in ('s', 'n'):
+            return TypeError(("segment.timewindow() got wrong argument '%s'. "
+                              "Please provide 'signal', 's', 'noise' or 'n'") % str(wtype))
+
+        if self.__sn_windows is None:
+            try:
+                self.__sn_windows = get_sn_windows(self.__config, self.arrival_time, self.stream())
+            except Exception as exc:
+                self._sn__windows = [exc, exc]  # hack to return an exception regardless of wtype
+        return self.__sn_windows[1 if wtype == 'n' else 0]
 
     def __getattr__(self, name):
         return getattr(self._SegmentWrapper__getseg, name)

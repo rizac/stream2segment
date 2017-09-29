@@ -11,7 +11,7 @@ import unittest
 import numpy as np
 import os
 from stream2segment.io.db.models import Base, Event, WebService, Channel, Station, \
-    DataCenter, Segment, Class, Run, ClassLabelling, withdata
+    DataCenter, Segment, Class, Download, ClassLabelling, withdata
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, load_only
 import pandas as pd
@@ -122,7 +122,7 @@ class Test(unittest.TestCase):
 
         utcnow = datetime.utcnow()
 
-        run = Run(run_time=utcnow)
+        run = Download(run_time=utcnow)
         self.session.add(run)
         
         ws = WebService(url='webserviceurl')
@@ -146,7 +146,7 @@ class Test(unittest.TestCase):
         s = self.session.query(Station).first()
         e = self.session.query(Event).first()
         dc = self.session.query(DataCenter).first()
-        run = self.session.query(Run).first()
+        run = self.session.query(Download).first()
 
         channels = [
             Channel(location= '00', channel='HHE', sample_rate=6),

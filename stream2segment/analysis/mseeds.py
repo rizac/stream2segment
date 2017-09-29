@@ -222,44 +222,44 @@ def powspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, tape
     return _, _powspec(dft, signal_is_fft=True)
 
 
-@stream_compliant
-def get_tbounds(trace, fixed_time=None, window_in_sec=None):
-    """Returns the bounds (start_time, end_time) of a given trace, fixed time and a window
-    starting (if positive) or ending (if negative) at `fixed_time`
-    The returned tuple can be used with obspy trace `trim` method
-    :param trace: a given obspy trace
-    :param fixed_time: an UTCDateTime denoting a fixed time. This will be the start time or
-    end time of the resulting window (see `window_in_sec`). If None, the first element of the
-    returned tuple is None, which obspy `trace.trim` considers as the trace start time
-    :param window_in_sec: a float of seconds denoting the window length: if positive, then
-    `fixed_time` will be the start time (first element) of the returned tuple. If negative, then
-    `fixed_time` will be the end time of the returned tuple (seconds element). If None, then
-    the second element of the returned tuple will be None, which obspy `trace.trim` considers as
-    the trace end time
-    :return: the tuple start_time, end_time denoting a time window (both arguments `UTCDateTime`)
-    """
-    if fixed_time is None:
-        starttime = None
-        endtime = None if window_in_sec is None else trace.stats.starttime + window_in_sec
-    elif window_in_sec is None:
-        starttime = fixed_time
-        endtime = None
-    else:
-        t01 = fixed_time
-        t02 = fixed_time + window_in_sec
-        starttime, endtime = min(t01, t02), max(t01, t02)
-    return starttime, endtime
+# @stream_compliant
+# def get_tbounds(trace, fixed_time=None, window_in_sec=None):
+#     """Returns the bounds (start_time, end_time) of a given trace, fixed time and a window
+#     starting (if positive) or ending (if negative) at `fixed_time`
+#     The returned tuple can be used with obspy trace `trim` method
+#     :param trace: a given obspy trace
+#     :param fixed_time: an UTCDateTime denoting a fixed time. This will be the start time or
+#     end time of the resulting window (see `window_in_sec`). If None, the first element of the
+#     returned tuple is None, which obspy `trace.trim` considers as the trace start time
+#     :param window_in_sec: a float of seconds denoting the window length: if positive, then
+#     `fixed_time` will be the start time (first element) of the returned tuple. If negative, then
+#     `fixed_time` will be the end time of the returned tuple (seconds element). If None, then
+#     the second element of the returned tuple will be None, which obspy `trace.trim` considers as
+#     the trace end time
+#     :return: the tuple start_time, end_time denoting a time window (both arguments `UTCDateTime`)
+#     """
+#     if fixed_time is None:
+#         starttime = None
+#         endtime = None if window_in_sec is None else trace.stats.starttime + window_in_sec
+#     elif window_in_sec is None:
+#         starttime = fixed_time
+#         endtime = None
+#     else:
+#         t01 = fixed_time
+#         t02 = fixed_time + window_in_sec
+#         starttime, endtime = min(t01, t02), max(t01, t02)
+#     return starttime, endtime
 
 
-@stream_compliant
-def snr(trace, noisy_trace, fmin=None, fmax=None, nearest_sample=False, in_db=False):
-    """Wrapper around `analysis.snr` for trace or streams
-    :param trace: a given `obspy` Trace denoting the trace of the signal
-    :param noisy_trace: a given `obspy` Trace denoting the trace of noise
-    s"""
-    return _snr(trace.data, noisy_trace.data, signals_form='', fmin=fmin, fmax=fmax,
-                delta_signal=trace.stats.delta, delta_noise=noisy_trace.stats.delta,
-                nearest_sample=nearest_sample, in_db=in_db)
+# @stream_compliant
+# def snr(trace, noisy_trace, fmin=None, fmax=None, nearest_sample=False, in_db=False):
+#     """Wrapper around `analysis.snr` for trace or streams
+#     :param trace: a given `obspy` Trace denoting the trace of the signal
+#     :param noisy_trace: a given `obspy` Trace denoting the trace of noise
+#     s"""
+#     return _snr(trace.data, noisy_trace.data, signals_form='', fmin=fmin, fmax=fmax,
+#                 delta_signal=trace.stats.delta, delta_noise=noisy_trace.stats.delta,
+#                 nearest_sample=nearest_sample, in_db=in_db)
 
 
 @stream_compliant

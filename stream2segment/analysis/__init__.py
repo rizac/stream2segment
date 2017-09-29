@@ -59,22 +59,11 @@ def freqs(signal, delta):
         L = floor(1 + len(signal) / 2.0)
         return [0, deltaF, ..., (i-1) * deltaF, ..., (L-1) * deltaF]
     ```
-    Note that if `signal` is an integer, then it is considered as the length of the frequency array
-    to be returned and `delta` as the already computed `deltaF`. Thus this function
-    is a "trivial" numpy `linspace` alias:
-    ```
-        L = signal
-        deltaF = delta
-        return [0, deltaF, ..., (i-1) * deltaF, ..., (L-1) * deltaF]
-    ```
     :param signal: numpy array or numeric list, denoting the time-series
-    on which the fft should (or has) been applied. If integer, then it is the length of the
-    returned array
-    :param delta (float): the signal sampling period (in seconds) if `signal`
-    is an array, or the delta frequency (in Hz) if `signal` is an integer
-    :return: a new array representing the linearly spaced values of the frequencies. The length
-    of the returned array is `len(signal)` if `signal` is an integer, else
-    `floor(1 + len(signal) / 2.0)`. The first array value will be in any case 0
+    on which the fft should be (or has been) applied.
+    :param delta (float): the signal sampling period (in seconds)
+    :return: a new array representing the evenly spaced values of the frequencies. The length
+    of the returned array is  `floor(1 + len(signal) / 2.0)`. The first array value will be 0
     """
     try:
         leng = int(floor(1 + len(signal) / 2))
@@ -83,6 +72,16 @@ def freqs(signal, delta):
         leng = signal
         delta_f = delta
     return np.linspace(0, delta_f * leng, leng, endpoint=False)
+
+
+def linspace(start, delta, num):
+    """Similar to numopy's linspace, but with different argument. Useful for building an
+    array of frequencies from f0, df, and the spectrum points. Equivalent to:
+    `np.linspace(start, delta * num, num, endpoint=False)`
+    :return: An array of evenly spaced `num` numbers starting from `start`, and `delta` as spacing
+    value.
+    """
+    return np.linspace(start, delta * num, num, endpoint=False)
 
 
 def snr(signal, noise, signals_form='', fmin=None, fmax=None, delta_signal=1.,
@@ -94,23 +93,28 @@ def snr(signal, noise, signals_form='', fmin=None, fmax=None, delta_signal=1.,
     :param noise: a numpy array denoting the dividend of the snr
     :param signals_form: tells this function what the given signals are. If:
         - 'fft' or 'dft': then the signals are discrete Fourier transforms, and they will be
-            converted to amplitude spectra before computing the snr (modulus of each fft component)
-        - 'amp;: then the signals are amplitude spectra.
+            converted to power spectra before computing the snr (modulus of each fft component)
+        - 'amp;: then the signals are amplitude spectra, they will be converted to power spectra
+            before computing the snr
         - 'pow', then the signals are power spectra.
-        - any other value: then the signals are time series, their amplitude spectra will be
+        - any other value: then the signals are time series, their power spectra will be
             computed before returning the snr
-    :param fmin: None or float: the minimum frequency to account for when computing the SNR.
-    None (the default) will consider all frequencies
-    :param fmax: None or float: the maximum frequency to account for when computing the SNR.
-    None (the default) will consider all frequencies
-    :param delta_signal: float (ignored if both `fmin` and `fmax` are None):
-    the delta frequency of `signal` (in Herz), if `signal` is a frequency domain array
-    (`signals_form` in `['pow', 'dft', 'fft', 'amp']`), or the sample rate (in seconds)
-    otherwise
-    :param delta_noise: float (ignored if both `fmin` and `fmax` are None):
-    the delta frequency of `noise` (in Herz), if `noise` is a frequency domain array
-    (`signals_form` in `['pow', 'dft', 'fft', 'amp']`), or the sample rate (in seconds)
-    otherwise
+    :param fmin: None or float: the start frequency of the interval where to compute the snr.
+    None (the default) will set a left-unbounded interval. If `fmin=fmax=None` then no frequency
+    interval will be set (compute the snr on all frequencies)
+    :param fmax: None or float: the end frequency of the interval where to compute the snr.
+    None (the default) will set a right-unbounded interval. If `fmin=fmax=None` then no frequency
+    interval will be set (compute the snr on all frequencies)
+    :param delta_signal: float (ignored if both `fmin` and `fmax` are None): the sampling interval
+    of `signal`:
+         - in Herz, if `signal` is a frequency domain array (`signals_form` in
+           `['pow', 'dft', 'fft', 'amp']`)
+         - in seconds, otherwise
+    :param delta_noise: float (ignored if both `fmin` and `fmax` are None): the sampling interval
+    of `noise`:
+        - in Herz, if `noise` is a frequency domain array (`signals_form` in
+          `['pow', 'dft', 'fft', 'amp']`)
+        - in seconds, otherwise
     :param nearest_sample: boolean, default False  (ignored if both `fmin` and `fmax` are None):
     whether or not to take the nearest sample when trimming according to `fmin` and `fmax`, or to
     take only the samples strictly included in the interval (the default)
