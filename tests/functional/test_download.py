@@ -65,7 +65,7 @@ from test.test_userdict import d1
 from stream2segment.utils.mseedlite3 import MSeedError, unpack
 import threading
 from stream2segment.utils.url import read_async
-from stream2segment.utils.resources import get_templates_fpath
+from stream2segment.utils.resources import get_templates_fpath, yaml_load
 from stream2segment.utils.log import configlog4download
 from stream2segment.io.db.pd_sql_utils import _get_max as _get_db_autoinc_col_max
 
@@ -207,6 +207,18 @@ class Test(unittest.TestCase):
             return closing(*a, **v)
         self.mock_closing.side_effect = clsing
         
+        # this mocks yaml_load and sets inventory to False, as tests rely on that
+        # this mocks closing to actually NOT close the session (we will do it here):
+        self.patcher_yl = patch('stream2segment.main.yaml_load')
+        self.mock_yaml_load = self.patcher_yl.start()
+        def yload(*a, **v):
+            dic = yaml_load(*a, **v)
+            if 'inventory' not in v:
+                dic['inventory'] = False
+            else:
+                sdf = 0
+            return dic
+        self.mock_yaml_load.side_effect = yload
         
         # mock threadpoolexecutor to run one instance at a time, so we get deterministic results:
         self.patcher23 = patch('stream2segment.download.main.original_read_async')
@@ -253,7 +265,7 @@ class Test(unittest.TestCase):
              
         
         self.patchers = [self.patcher, self.patcher1, self.patcher2, self.patcher23,
-                         self.patcher29]
+                         self.patcher29, self.patcher_yl]
         #self.patcher3 = patch('stream2segment.main.logger')
         #self.mock_main_logger = self.patcher3.start()
         
@@ -559,7 +571,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         dfres1 = dbquery2df(self.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
                                                Segment.event_id,
                                          Segment.download_status_code, Segment.data,
-                                         Segment.max_gap_ovlap_ratio, Segment.run_id,
+                                         Segment.max_gap_overlap_ratio, Segment.download_id,
                                          Segment.sample_rate, Segment.seed_identifier))
         dfres1.sort_values(by=Segment.id.key, inplace=True)  # for easier visual compare
         dfres1.reset_index(drop=True, inplace=True)  # we need to normalize indices for comparison later
@@ -590,7 +602,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         dfres2 = dbquery2df(self.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
                                                Segment.event_id,
                                          Segment.download_status_code, Segment.data,
-                                         Segment.max_gap_ovlap_ratio, Segment.run_id,
+                                         Segment.max_gap_overlap_ratio, Segment.download_id,
                                          Segment.sample_rate, Segment.seed_identifier))
         dfres2.sort_values(by=Segment.id.key, inplace=True)  # for easier visual compare
         dfres2.reset_index(drop=True, inplace=True)  # we need to normalize indices for comparison later
@@ -616,7 +628,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         assert (retried[Segment.download_status_code.key] == 413).all()
         # asssert we changed the run_id for segments which should be retried
         # WARNING: THIS TEST COULD FAIL IF WE CHANGE THE DEFAULTS. CHANGE THE `mask` IN CASE
-        assert (retried[Segment.run_id.key] > dfres1.loc[retried.index, Segment.run_id.key]).all()
+        assert (retried[Segment.download_id.key] > dfres1.loc[retried.index, Segment.download_id.key]).all()
         
         assert mock_download_save_segments.called
 

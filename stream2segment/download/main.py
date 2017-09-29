@@ -142,7 +142,7 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
             for _ in original_read_async(iterable, urlkey, max_workers, blocksize, decode,
                                          raise_http_err, timeout, max_mem_consumption, **kwargs):
                 yield _
-    except Exception as exc:
+    except MemoryError as exc:
         raise QuitDownload(exc)
 
 
@@ -947,7 +947,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                     # df.insert(len(df.columns), col, segvals[col])
                     # to preserve order, if needed. A starting discussion on adding new column:
                     # https://stackoverflow.com/questions/12555323/adding-new-column-to-existing-dataframe-in-python-pandas
-                # init run id column with our run_id:
+                # init download id column with our download_id:
                 df[SEG_DOWNLID] = download_id
                 if exc:
                     code = URLERR_CODE

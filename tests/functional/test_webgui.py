@@ -69,11 +69,11 @@ class Test(unittest.TestCase):
         self.pymodule = load_source(os.path.join(os.path.dirname(__file__), '..', '..',
                                                  'stream2segment',
                                                   'resources', 'templates',
-                                               'gui.py'))
+                                               'processing.py'))
         self.config = yaml_load(os.path.join(os.path.dirname(__file__), '..', '..',
                                              'stream2segment',
                                                   'resources', 'templates',
-                                               'gui.yaml'))
+                                               'processing.yaml'))
         
         self.app = create_app(url, self.pymodule, self.config)
         
@@ -197,7 +197,7 @@ class Test(unittest.TestCase):
             session.commit()
             
             fixed_args = dict(datacenter_id=dc.id,
-                         run_id=run.id,
+                         download_id=run.id,
                          )
             
             folder = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
@@ -256,7 +256,7 @@ class Test(unittest.TestCase):
             clz = self.session.query(Class).all()
 
             # assert global js vars in the script tag of the main page are injected from jinja rendering:
-            expected_str = """var __SETTINGS = {"segment_orderby": ["event.time-", "event_distance_deg"], "segment_select": {"has_data": "true"}, "sn_windows": {"arrival_time_shift": 0, "signal_window": [0.1, 0.9]}};"""
+            expected_str = """var __SETTINGS = {"segment_select": {"event.latitude": "[24, 70]", "event.longitude": "[-11, 24]", "event.time": "(2014-01-01T00:00:00, 2014-12-31T23:59:59)", "has_data": "true", "max_gap_overlap_ratio": "[-0.5, 0.5]"}, "sn_windows": {"arrival_time_shift": -2.0, "signal_window": [0.1, 0.9]}};"""
             # https://github.com/pallets/flask/issues/716 is bytes in python3. Fix for both 2 and 3:
             response_data = rv.data.decode('utf-8')
             assert expected_str in response_data

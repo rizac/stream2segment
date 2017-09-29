@@ -23,7 +23,7 @@ def main():
     core.set_classes(get_session(current_app), config)
     plotmanager = current_app.config['PLOTMANAGER']
     ud_plotnames = plotmanager.userdefined_plotnames
-    keys = ['sn_windows', 'segment_select', 'segment_orderby']
+    keys = ['sn_windows', 'segment_select']
     settings = {k: config[k] for k in keys}
     preprocessfunc_doc = core.get_doc('preprocessfunc', plotmanager)
     sn_windows_doc = core.get_doc('sn_windows', plotmanager)

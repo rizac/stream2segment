@@ -552,7 +552,7 @@ class Test(unittest.TestCase):
         # set necessary attributes
         seg.event_id = e.id
         seg.datacenter_id = dc.id
-        seg.run_id = run.id
+        seg.download_id = run.id
         seg.channel_id = c.id
         # and now it will work:
         self.session.add(seg)

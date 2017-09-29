@@ -19,7 +19,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from stream2segment.io.db.pd_sql_utils import colnames
 from stream2segment.io.db.models import Segment, Class, Station, Channel, DataCenter, Event,\
     ClassLabelling, Download
-from stream2segment.io.db.queries import query4gui, count as query_count
+from stream2segment.io.db.queries import query4gui
 from stream2segment.gui.webapp.plots.jsplot import jsontimestamp
 # from stream2segment.io.db import sqlevalexpr
 from stream2segment.utils.resources import yaml_load_doc, get_templates_fpath
@@ -168,7 +168,7 @@ def get_classes(session, seg_id=None):
         for col in colz:
             row[col] = getattr(c, col)
         # https://stackoverflow.com/questions/14754994/why-is-sqlalchemy-count-much-slower-than-the-raw-query
-        rowcount = session.query(func.count(ClassLabelling)).\
+        rowcount = session.query(func.count(ClassLabelling.id)).\
             filter(ClassLabelling.class_id == c.id).scalar()
         row['count'] = rowcount
 #         session.query(ClassLabelling).\
@@ -295,9 +295,9 @@ def get_doc(key, plotmanager):
     if key == 'preprocessfunc':
         ret = plotmanager.get_preprocessfunc_doc
     elif key == 'sn_windows':
-        ret = yaml_load_doc(get_templates_fpath("gui.yaml"), "sn_windows")
+        ret = yaml_load_doc(get_templates_fpath("processing.yaml"), "sn_windows")
     elif key == 'segment_select':
-        ret = yaml_load_doc(get_templates_fpath("gui.yaml"), "segment_select")
+        ret = yaml_load_doc(get_templates_fpath("processing.yaml"), "segment_select")
 
     if not ret:
         ret = "error: documentation N/A"

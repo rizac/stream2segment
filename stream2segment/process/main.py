@@ -33,6 +33,8 @@ import traceback
 import csv
 from itertools import cycle
 
+import numpy as np
+
 from sqlalchemy import func
 
 from stream2segment.utils import get_progressbar, load_source, secure_dburl
@@ -93,23 +95,26 @@ def redirect(src=sys.stdout, dst=os.devnull):
             _redirect_(to=old_)
 
 
+def default_funcname():
+    '''returns 'main', the default function name for processing, when such a name is not given'''
+    return 'main'
+
+
 def load_proc_cfg(configsourcefile):
     """Returns the dict represetning the processing yaml file"""
-    # Simply call the default "yaml to dict" function (yaml_load). Originally,
-    # this function also modified the returned a dictionary to return an object where keys where
-    # accessible via attributes (attrdict), but this would apply to the main config only (and not
-    # to nested dictionaries), thus confusing non expert users
+    # After refactoring, this function simply calls the default "yaml to dict" function (yaml_load)
+    # leave it here for testing purposes (mock)
     return yaml_load(configsourcefile)
 
 
 def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=False):
-    reg = re.compile("^(.*):([a-zA-Z_][a-zA-Z0-9_]*)$")
+    reg = re.compile("^(.*):([a-zA-Z_][a-zA-Z_0-9]*)$")
     m = reg.match(pysourcefile)
     if m and m.groups():
         pysourcefile = m.groups()[0]
         funcname = m.groups()[1]
     else:
-        funcname = 'main'
+        funcname = default_funcname()
 
     try:
         pyfunc = load_source(pysourcefile).__dict__[funcname]
@@ -137,22 +142,30 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
     logger.info(" for all segments in '%s", secure_dburl(str(session.bind.engine.url)))
     logger.info("Config. file: %s", str(configsourcefile))
 
-    # multiprocess with sessions is a mess. So we have two choices: either we build a dict from
-    # each segment object, or we simply do not use multiprocess. We will opt for the second choice
-    # (maybe implement tests in the future to see which is faster)
+    # multiprocess with sessions is a mess. Among other problems, we should not share any
+    # session-related operation with the same session object across different multiprocesses.
+    # Is it worth to create a new session each time? not for the moment 
 
-    # do an iteration on the main process to check when AsyncResults is ready
-    done = 0
     # clear the session every clear_session_step iterations:
     clear_session_step = 10
 
-    seg_sta_ids = query4process(session, config.get('segment_select', {}))
+    logger.info("Fetching segments to process, please wait...")
 
+    # the query is always loaded in memory, see:
+    # https://stackoverflow.com/questions/11769366/why-is-sqlalchemy-insert-with-sqlite-25-times-slower-than-using-sqlite3-directly/11769768#11769768
+    # thus we load it as np.array to save memory and we discard the session later:
+    seg_sta_ids = np.array(query4process(session, config.get('segment_select', {})).all(),
+                           dtype=int)
     # get total segment length:
-    seg_len = seg_sta_ids.count()  # FIXME: use a func count?
-
+    seg_len = seg_sta_ids.shape[0]
     # get stations with data:
-    stasaved = session.query(func.count(Station.id)).filter(Station.has_inventory()).scalar()
+
+    def stationssaved():
+        return session.query(func.count(Station.id)).filter(Station.has_inventory==True).scalar()  # @IgnorePep8
+    stasaved = stationssaved()
+    # purge session (needed or not, for safety):
+    session.expunge_all()
+    session.close()
 
     # actually, this is better as it should be optimized, but how to translate for the query we
     # have? comment for the moment:
@@ -160,14 +173,15 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
     logger.info("%d segments found to process", seg_len)
 
     segwrapper = SegmentWrapper(config=config)
-
     last_inventory = None
     last_inventory_stationid = None
+    done, skipped, skipped_error = 0, 0, 0
 
     with redirect(sys.stderr):
         with get_progressbar(show_progress, length=seg_len) as pbar:
             try:
-                for (seg_id, sta_id), idx in zip(seg_sta_ids, cycle(range(clear_session_step))):
+                for row, idx in zip(seg_sta_ids, cycle(range(clear_session_step))):
+                    seg_id, sta_id = row.tolist()
                     already_computed_inventory = None \
                         if (last_inventory_stationid is None or last_inventory_stationid != sta_id)\
                         else last_inventory
@@ -177,11 +191,14 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
                         array = pyfunc(segwrapper, config)
                         if array is not None:
                             ondone(segwrapper, array)
-                        done += 1
+                            done += 1
+                        else:
+                            skipped += 1
                     except (ImportError, NameError, AttributeError, SyntaxError, TypeError) as _:
                         raise  # sys.exc_info()
                     except Exception as generr:
                         logger.warning("segment (id=%d): %s", seg_id, str(generr))
+                        skipped_error += 1
                     # check if we loaded the inventory and set it as last computed
                     # do do this, little hack: check if the "private" field is defined:
                     if segwrapper._SegmentWrapper__inv is not None:
@@ -214,11 +231,14 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
     # (i.e. those in effect before captureWarnings(True) was called).
 
     # get stations with data and inform the user if any new has been saved:
-    stasaved2 = session.query(func.count(Station.id)).filter(Station.has_inventory()).scalar()
+    stasaved2 = stationssaved()
     if stasaved2 > stasaved:
         logger.info("station inventories saved: %d", (stasaved2-stasaved))
 
     logger.info("%d of %d segments successfully processed\n" % (done, seg_len))
+    logger.info("%d of %d segments skipped without messages\n" % (skipped, seg_len))
+    logger.info("%d of %d segments skipped with message "
+                "(check log or details)\n" % (skipped_error, seg_len))
 
 
 def to_csv(outcsvfile, session, pysourcefile, configsourcefile, isterminal):

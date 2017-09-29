@@ -28,7 +28,7 @@ from stream2segment.utils.log import configlog4download, configlog4processing,\
 # from stream2segment.download.utils import run_instance
 from stream2segment.utils.resources import version
 from stream2segment.io.db.models import Segment, Download
-from stream2segment.process.main import run as run_process, to_csv
+from stream2segment.process.main import run as run_process, to_csv, default_funcname
 from stream2segment.download.main import run as run_download
 from stream2segment.utils import tounicode, get_session, strptime,\
     indent, secure_dburl
@@ -291,7 +291,7 @@ def main():
     According to the given command, segments can be:
 
     \b
-    - efficiently downloaded (with metadata) in a custom database without polluting the filesystem
+    - efficiently downloaded (with metadata) in a custom sqlite or postgres database
     - processed with little implementation effort by supplying a custom python file
     - visualized and annotated in a web browser
 
@@ -364,12 +364,17 @@ def d(configfile, dburl, eventws, start, end, dataws, min_sample_rate, traveltim
                    "selected in the config file",
               type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
                               readable=True))
+@click.option("-f", "--funcname",
+              help="The name of the function to execute in the given python file. "
+                   "Optional: defaults to '%s' when missing" % default_funcname(),
+              )  # do not set default='main', so that we can test when arg is missing or not
 @click.argument('outfile')
-def p(dburl, configfile, pyfile, outfile):
+def p(dburl, configfile, pyfile, funcname, outfile):
     """Process downloaded waveform data segments via a custom python file and a configuration
     file"""
     try:
-        process(dburl, pyfile, configfile, outfile, isterminal=True)
+        process(dburl, pyfile+":"+funcname if funcname else pyfile, configfile, outfile,
+                isterminal=True)
     except KeyboardInterrupt:  # this except avoids printing traceback
         sys.exit(1)  # exit with 1 as normal python exceptions
 

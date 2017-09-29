@@ -261,7 +261,11 @@ from stream2segment.analysis.mseeds import ampratio, bandpass, cumsum,\
 from stream2segment.analysis import triangsmooth, snr
 
 
-def main(segment, config):
+def main_typeerr(segment, config, wrong_argument):
+    return [6]
+
+
+def main_retlist(segment, config):
     """
     Main processing function for generating output in a .csv file
     See `return` below for a detailed explanation of what this function should return after the
@@ -387,36 +391,31 @@ def main(segment, config):
     t_WA, maxWA = maxabs(trace_wa)
 
     # write stuff to csv:
-    ret = OrderedDict()
+    ret = [float(cum_t) for cum_lbl, cum_t in zip(cum_labels, cum_times)]
 
-    for cum_lbl, cum_t in zip(cum_labels, cum_times):
-        ret['cum_t%d' % cum_lbl] = float(cum_t)  # convert cum_times to float for saving
+    ret += [segment.event_distance_deg,        # dist
+            d2km(segment.event_distance_deg),  # dist_km
+            t_PGA,                  # peak info
+            PGA,
+            t_PGV,                  # peak info
+            PGV,
+            t_WA,
+            maxWA,
+            segment.channel.channel,
+            segment.event.id,           # event metadata
+            segment.event.latitude,
+            segment.event.longitude,
+            segment.event.depth_km,
+            segment.event.magnitude,
+            segment.event.mag_type,
+            segment.station.id,    # station metadata
+            segment.station.station,
+            segment.station.network,
+            segment.station.latitude,
+            segment.station.longitude,
+            segment.station.elevation]
 
-    ret['dist_deg'] = segment.event_distance_deg        # dist
-    ret['dist_km'] = d2km(segment.event_distance_deg)  # dist_km
-    ret['t_PGA'] = t_PGA                  # peak info
-    ret['PGA'] = PGA
-    ret['t_PGV'] = t_PGV                  # peak info
-    ret['PGV'] = PGV
-    ret['t_WA'] = t_WA
-    ret['maxWA'] = maxWA
-    ret['channel'] = segment.channel.channel
-    ret['ev_id'] = segment.event.id           # event metadata
-    ret['ev_lat'] = segment.event.latitude
-    ret['ev_lon'] = segment.event.longitude
-    ret['ev_dep'] = segment.event.depth_km
-    ret['ev_mag'] = segment.event.magnitude
-    ret['ev_mty'] = segment.event.mag_type
-    ret['st_id'] = segment.station.id         # station metadata
-    ret['st_name'] = segment.station.station
-    ret['st_net'] = segment.station.network
-    ret['st_lat'] = segment.station.latitude
-    ret['st_lon'] = segment.station.longitude
-    ret['st_ele'] = segment.station.elevation
-
-    for f, a in zip(required_freqs, required_amplitudes):
-        ret['f_%.5f' % f] = float(a)
-
+    ret += [float(a) for f, a in zip(required_freqs, required_amplitudes)]
     return ret
 
 

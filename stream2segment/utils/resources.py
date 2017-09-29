@@ -120,7 +120,7 @@ def yaml_load(filepath, **updates):
         except AttributeError:
             pass
     newdict.update(updates)
-    ret.updates(newdict)
+    ret.update(newdict)
     return ret
 
 

@@ -121,28 +121,28 @@ class DB(object):
 
         # build three segments with data:
         # "normal" segment
-        sg1 = models.Segment(channel_id=c_ok.id, datacenter_id=d.id, event_id=e1.id, run_id=r.id,
+        sg1 = models.Segment(channel_id=c_ok.id, datacenter_id=d.id, event_id=e1.id, download_id=r.id,
                              event_distance_deg=35, **data)
 
         # this segment should have inventory returning an exception (see url_read above)
-        sg2 = models.Segment(channel_id=c_err.id, datacenter_id=d.id, event_id=e2.id, run_id=r.id,
+        sg2 = models.Segment(channel_id=c_err.id, datacenter_id=d.id, event_id=e2.id, download_id=r.id,
                              event_distance_deg=45, **data)
         # segment with gaps
         data = Test.read_stream_raw('IA.BAKI..BHZ.D.2016.004.head')
-        sg3 = models.Segment(channel_id=c_ok.id, datacenter_id=d.id, event_id=e3.id, run_id=r.id,
+        sg3 = models.Segment(channel_id=c_ok.id, datacenter_id=d.id, event_id=e3.id, download_id=r.id,
                              event_distance_deg=55, **data)
 
         # build two segments without data:
         # empty segment
         data['data'] = b''
         data['start_time'] += timedelta(seconds=1)  # avoid unique constraint
-        sg4 = models.Segment(channel_id=c_none.id, datacenter_id=d.id, event_id=e4.id, run_id=r.id,
+        sg4 = models.Segment(channel_id=c_none.id, datacenter_id=d.id, event_id=e4.id, download_id=r.id,
                              event_distance_deg=45, **data)
 
         # null segment
         data['data'] = None
         data['start_time'] += timedelta(seconds=2)  # avoid unique constraint
-        sg5 = models.Segment(channel_id=c_none.id, datacenter_id=d.id, event_id=e5.id, run_id=r.id,
+        sg5 = models.Segment(channel_id=c_none.id, datacenter_id=d.id, event_id=e5.id, download_id=r.id,
                              event_distance_deg=45, **data)
 
 
@@ -204,10 +204,8 @@ class Test(unittest.TestCase):
         #add cleanup (in case tearDown is not called due to exceptions):
         self.addCleanup(Test.cleanup, self)
 
-        # remove file if not removed:
-        #Test.cleanup(None, self.file)
-
-        self.custom_config= {'save_downloaded_inventory': False, 'inventory': True}
+        # values to override the config, if specified:
+        self.config_overrides = {}
         self.inventory=True
 
         self.db = DB()
@@ -254,6 +252,7 @@ class Test(unittest.TestCase):
         arrival_time = (start_time + old_div((end_time - start_time),3)).datetime,
         start_time = start_time.datetime,
         end_time = end_time.datetime,
+        sample_rate=stream[0].stats.sampling_rate
         )
 
     @staticmethod
@@ -278,11 +277,8 @@ class Test(unittest.TestCase):
         return path
 
     @staticmethod
-    def get_processing_files(get_template_returning_list=False):
+    def get_processing_files():
         pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
-        if get_template_returning_list:
-            pyfile = os.path.join(os.path.dirname(pyfile),
-                                  os.path.basename(pyfile).replace(".py", ".returning_list.py"))
         return pyfile, conffile
 
     # DEPRECATED: NOT USED ANYMORE (WE DONT USE PYTHON MULTIPROCESSING ANYMORE):
@@ -349,7 +345,7 @@ class Test(unittest.TestCase):
     def load_proc_cfg(self, *a, **kw):
         """called by mocked read config: updates the parsed dict with the custom config"""
         cfg = load_proc_cfg(*a, **kw)
-        cfg.update(self.custom_config)
+        cfg.update(self.config_overrides)
         return cfg
 
 ### ======== ACTUAL TESTS: ================================
@@ -362,9 +358,9 @@ class Test(unittest.TestCase):
         segwrapper = SegmentWrapper(self.session, segment_id=None,
                                     save_station_inventory=True)
 
-        for (segid,) in segids:
+        for (segid, staid) in segids:
             # mock_get_inventory.reset_mock()
-            staid = self.session.query(Segment).filter(Segment.id == segid).one().station.id
+            # staid = self.session.query(Segment).filter(Segment.id == segid).one().station.id
             assert prev_staid is None or staid >= prev_staid
             staequal = prev_staid is not None and staid == prev_staid
             prev_staid = staid
@@ -397,7 +393,11 @@ class Test(unittest.TestCase):
     # Here a simple test for a processing file returning dict. Save inventory and check it's saved
     @mock.patch('stream2segment.process.main.load_proc_cfg')
     def test_simple_run_retDict_saveinv(self, mock_load_cfg):
-        self.custom_config['save_inventory'] = True
+        '''test a case where save inventory is True, and that we saved inventories'''
+        # set values which will override the yaml config in templates folder:
+        self.config_overrides = {'save_inventory': True,
+                                 'snr_threshold': 0,
+                                 'segment_select': {'has_data': 'true'}}
         mock_load_cfg.side_effect = self.load_proc_cfg
 
         # query data for testing now as the program will expunge all data from the session
@@ -431,7 +431,8 @@ class Test(unittest.TestCase):
 #                         assert row[1] == self.db.seg1.start_time.isoformat()
 #                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 2
-                assert len(self.read_and_remove(file.name+".log")) > 0
+                logtext = self.read_and_remove(file.name+".log")
+                assert len(logtext) > 0
 
                 # REMEMBER, THIS DOES NOT WORK:
                 # assert mock_url_read.call_count == 2
@@ -450,6 +451,66 @@ class Test(unittest.TestCase):
                                                          station_id_whose_inventory_is_saved).first().inventory_xml
 
 
+    @mock.patch('stream2segment.process.main.load_proc_cfg')
+    def test_simple_run_retDict_saveinv_high_snr_threshold(self, mock_load_cfg):
+        '''same as `test_simple_run_retDict_saveinv` above
+        but with a very high snr threshold'''
+        # set values which will override the yaml config in templates folder:
+        self.config_overrides = {'save_inventory': True,
+                                 'snr_threshold': 3,  # 3 is high enough to discard the only segment we would process otherwise
+                                 'segment_select': {'has_data': 'true'}}
+        mock_load_cfg.side_effect = self.load_proc_cfg
+
+        # query data for testing now as the program will expunge all data from the session
+        # and thus we want to avoid DetachedInstanceError(s):
+        expected_first_row_seg_id = str(self.db.seg1.id)
+        station_id_whose_inventory_is_saved = self.db.sta_ok.id
+
+        # need to reset this global variable: FIXME: better handling?
+        process.main._inventories = {}
+        runner = CliRunner()
+        with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
+            pyfile, conffile = self.get_processing_files()
+            result = runner.invoke(main, ['p', '--dburl', self.dburi,
+                                   '-p', pyfile, '-c', conffile, file.name])
+
+            if result.exception:
+                import traceback
+                traceback.print_exception(*result.exc_info)
+                print(result.output)
+                assert False
+                return
+
+            # check file has been correctly written:
+            with open(file.name, 'r') as csvfile:
+                spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
+                rowz = 0
+                for row in spamreader:
+                    rowz += 1
+                    if rowz == 2:
+                        assert row[0] == expected_first_row_seg_id
+#                         assert row[1] == self.db.seg1.start_time.isoformat()
+#                         assert row[2] == self.db.seg1.end_time.isoformat()
+                assert rowz == 0
+                logtext = self.read_and_remove(file.name+".log")
+                assert "low snr" in logtext
+
+                # REMEMBER, THIS DOES NOT WORK:
+                # assert mock_url_read.call_count == 2
+                # that's why we tested above by mocking multiprocessing
+                # (there must be some issue with multiprocessing)
+
+
+        # save_downloaded_inventory True, test that we did save any:
+        assert len(self.session.query(Station).filter(Station.has_inventory).all()) > 0
+
+        # Or alternatively:
+        # test we did save any inventory:
+        stas = self.session.query(models.Station).all()
+        assert any(s.inventory_xml for s in stas)
+        assert self.session.query(models.Station).filter(models.Station.id ==
+                                                         station_id_whose_inventory_is_saved).first().inventory_xml
+
     # Recall: we have 5 segments:
     # 2 are empty, out of the remaining three:
     # 1 has errors if its inventory is queried to the db. Out of the other two:
@@ -461,7 +522,12 @@ class Test(unittest.TestCase):
     # Here a simple test for a processing file returning dict. Don't save inventory and check it's not saved
     @mock.patch('stream2segment.process.main.load_proc_cfg')
     def test_simple_run_retDict_dontsaveinv(self, mock_load_cfg):
-        self.custom_config['save_inventory']=False
+        '''same as `test_simple_run_retDict_saveinv` above
+         but with a 0 snr threshold and do not save inventories'''
+        # set values which will override the yaml config in templates folder:
+        self.config_overrides = {'save_inventory': False,
+                                 'snr_threshold': 0,  # take all segments
+                                 'segment_select': {'has_data': 'true'}}
         mock_load_cfg.side_effect = self.load_proc_cfg
 
         # query data for testing now as the program will expunge all data from the session
@@ -494,7 +560,8 @@ class Test(unittest.TestCase):
 #                         assert row[1] == self.db.seg1.start_time.isoformat()
 #                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 2
-                assert len(self.read_and_remove(file.name+".log")) > 0
+                logtext = self.read_and_remove(file.name+".log")
+                assert len(logtext) > 0
 
                 # REMEMBER, THIS DOES NOT WORK:
                 # assert mock_url_read.call_count == 2
@@ -518,11 +585,17 @@ class Test(unittest.TestCase):
     # using associated stations lat and lon. 
     @mock.patch('stream2segment.process.main.load_proc_cfg')
     def test_simple_run_retDict_seg_select_empty_and_err_segments(self, mock_load_cfg):
+        '''test that segment selection works'''
+        # set values which will override the yaml config in templates folder:
+        self.config_overrides = {'save_inventory': False,
+                                 'snr_threshold': 0,  # take all segments
+                                 'segment_select': {'station.latitude': '<10',
+                                                    'station.longitude': '<10'}}
+        # Note on segment_select above:
         # s_ok stations have lat and lon > 11, other stations do not
         # now we want to set a filter which gets us only the segments from stations not ok.
-        # Note: withdata is not specified so we will get 3 segments (2 with data None, 1 with data which raises
+        # Note: has_data is not specified so we will get 3 segments (2 with data None, 1 with data which raises
         # errors for station inventory)
-        self.custom_config['segment_select'] = {'station.latitude': '<10', 'station.longitude': '<10'}
         mock_load_cfg.side_effect = self.load_proc_cfg
 
         # query data for testing now as the program will expunge all data from the session
@@ -556,11 +629,11 @@ class Test(unittest.TestCase):
 #                         assert row[1] == self.db.seg1.start_time.isoformat()
 #                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 0
-                sss = self.read_and_remove(file.name+".log")
+                logtext = self.read_and_remove(file.name+".log")
                 # as we have joined twice segment with stations (one is done by default, the other
                 # has been set in custom_config['segment_select'] above, we should have this sqlalchemy msg
                 # in the log:
-                assert "SAWarning: Pathed join target" in sss
+                assert "SAWarning: Pathed join target" in logtext
                 
                 # ===================================================================
                 # NOW WE CAN CHECK IF THE URLREAD HAS BEEN CALLED ONCE.
@@ -569,7 +642,7 @@ class Test(unittest.TestCase):
                 # ===================================================================
                 assert self.mock_url_read.call_count == 1
 
-# Recall: we have 5 segments:
+    # Recall: we have 5 segments:
     # 2 are empty, out of the remaining three:
     # 1 has errors if its inventory is queried to the db. Out of the other two:
     # 1 has gaps
@@ -581,11 +654,17 @@ class Test(unittest.TestCase):
     # using associated stations lat and lon. 
     @mock.patch('stream2segment.process.main.load_proc_cfg')
     def test_simple_run_retDict_seg_select_only_one_err_segment(self, mock_load_cfg):
-        # s_ok stations have lat and lon > 11, other stations do not
+        '''test that segment selection works (2)'''
+        # set values which will override the yaml config in templates folder:
+        self.config_overrides = {'save_inventory': False,
+                                 'snr_threshold': 0,  # take all segments
+                                 'segment_select': {'has_data': 'true',
+                                                    'station.latitude': '<10',
+                                                    'station.longitude': '<10'}}
+        # Note on segment_select above: s_ok stations have lat and lon > 11, other stations do not
         # now we want to set a filter which gets us only the segments from stations not ok.
         # Note: withdata is True so we will get 1 segment (1 with data which raises
         # errors for station inventory)
-        self.custom_config['segment_select'] = {'has_data': 'true', 'station.latitude': '<10', 'station.longitude': '<10'}
         mock_load_cfg.side_effect = self.load_proc_cfg
         
         # query data for testing now as the program will expunge all data from the session
@@ -619,7 +698,8 @@ class Test(unittest.TestCase):
 #                         assert row[1] == self.db.seg1.start_time.isoformat()
 #                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 0
-                assert len(self.read_and_remove(file.name+".log")) > 0
+                logtext = self.read_and_remove(file.name+".log")
+                assert len(logtext) > 0
                 # ===================================================================
                 # NOW WE CAN CHECK IF THE URLREAD HAS BEEN CALLED ONCE AND NOT MORE:
                 # out of three segmens, we called urlread
@@ -635,19 +715,26 @@ class Test(unittest.TestCase):
     # as by default withdata is True in segment_select, then we process only the last three
     #
     # Here a simple test for a processing file returning list. Just check it works
-    def test_simple_run_ret_list(self):
-        runner = CliRunner()
+    @mock.patch('stream2segment.process.main.load_proc_cfg')
+    def test_simple_run_ret_list(self, mock_load_cfg):
+        '''test processing returning list, and also when we specify a different main function'''
+        # set values which will override the yaml config in templates folder:
+        self.config_overrides = {'save_inventory': False,
+                                 'snr_threshold': 0,  # take all segments
+                                 'segment_select': {'has_data': 'true'}}
+        mock_load_cfg.side_effect = self.load_proc_cfg
 
+        runner = CliRunner()
         # query data for testing now as the program will expunge all data from the session
         # and thus we want to avoid DetachedInstanceError(s):
         expected_first_row_seg_id = str(self.db.seg1.id)
-
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = self.get_processing_files(True)
+            pyfile, conffile = self.get_processing_files()
+            pyfile = self.get_file("processing.py")  # custom one
             result = runner.invoke(main, ['p', '--dburl', self.dburi,
-                                   '-p', pyfile,
-                                   '-c', conffile,
-                                   file.name])
+                                          '-p', pyfile, '-f', "main_retlist",
+                                          '-c', conffile,
+                                          file.name])
 
             if result.exception:
                 import traceback
@@ -667,26 +754,59 @@ class Test(unittest.TestCase):
 #                         assert row[1] == self.db.seg1.start_time.isoformat()
 #                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 1
-                assert len(self.read_and_remove(file.name+".log")) > 0
+                logtext = self.read_and_remove(file.name+".log")
+                assert len(logtext) > 0
 
-
-    def test_simple_run_codeerror(self):
-
+    @mock.patch('stream2segment.process.main.load_proc_cfg')
+    def test_simple_run_codeerror(self, mock_load_cfg):
+        '''test processing type error(wrong argumens)'''
+        # set values which will override the yaml config in templates folder:
+        self.config_overrides = {'save_inventory': False,
+                                 'snr_threshold': 0,  # take all segments
+                                 'segment_select': {'has_data': 'true'}}
+        mock_load_cfg.side_effect = self.load_proc_cfg
+        
         runner = CliRunner()
 
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            # pyfile, conffile = Test.get_processing_files()
+            pyfile, conffile = self.get_processing_files()
+            pyfile = self.get_file("processing.py")  # custom one
             result = runner.invoke(main, ['p', '--dburl', self.dburi,
-                                   '-p', Test.get_file("processing_test_freqs2csv_dict.py"),
-                                   '-c', Test.get_file('processing.config.yaml'),
-                                   file.name])
+                                          '-p', pyfile, '-f', "main_typeerr",
+                                          '-c', conffile,
+                                          file.name])
 
             # the file above are bad implementation (old one)
             # we should not write anything
             logtext = Test.read_and_remove(file.name+".log")
             # messages very from python 2 to 3. If python4 changes again, write it here below the case
-            string2check = "TypeError: main() missing 2 required positional arguments: 'arg1' and 'arg2'" \
-                if sys.version_info[0] > 2 else "TypeError: main() takes exactly 2 arguments (4 given)"
+            # py3 is something like: TypeError: main_typeerr() missing 1 required positional argument...
+            # py2 is something like: TypeError: main_typeerr() takes...
+            # so build a general string:
+            string2check = "TypeError: main_typeerr() "
+            assert string2check in logtext
+
+    
+    def test_simple_run_codeerror_nosegs(self):
+        '''test processing type error(wrong argumens), but test that 
+        since we do not have segments to process, the type error is not reached
+        '''
+        
+        
+        runner = CliRunner()
+
+        with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
+            pyfile, conffile = self.get_processing_files()
+            pyfile = self.get_file("processing.py")  # custom one
+            result = runner.invoke(main, ['p', '--dburl', self.dburi,
+                                          '-p', pyfile, '-f', "main_typeerr",
+                                          '-c', conffile,
+                                          file.name])
+
+            # the file above are bad implementation (old one)
+            # we should not write anything
+            logtext = Test.read_and_remove(file.name+".log")
+            string2check = "0 segments"
             assert string2check in logtext
 
 
