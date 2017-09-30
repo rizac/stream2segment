@@ -49,7 +49,7 @@ class SegmentPlotList(list):
     """
 
     # set here what to set to None when calling invalidate (see __init__ for details):
-    _data_to_invalidate = ['sn_windows', 's_stream', 'n_stream']
+    _data_to_invalidate = ['sn_windows']
 
     def __init__(self, segid, functions, other_components_id_list=[]):
         """Builds a new SegmentPlotList
@@ -194,10 +194,6 @@ class SegmentPlotList(list):
             # the exception, it does not return it
             if segwrapper._SegmentWrapper__stream is not None:
                 self.data['stream'] = segwrapper._SegmentWrapper__stream
-            if segwrapper._SegmentWrapper__s_stream is not None:
-                self.data['s_stream'] = segwrapper._SegmentWrapper__s_stream
-            if segwrapper._SegmentWrapper__n_stream is not None:
-                self.data['n_stream'] = segwrapper._SegmentWrapper__n_stream
             if segwrapper._SegmentWrapper__sn_windows is not None:
                 self.data['sn_windows'] = segwrapper._SegmentWrapper__sn_windows
             # allocate the segment if we need to set the title (might be None):

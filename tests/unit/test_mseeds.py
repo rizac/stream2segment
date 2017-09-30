@@ -19,7 +19,7 @@ from stream2segment.analysis import snr as orig_snr
 from stream2segment.analysis import powspec as orig_powspec
 
 
-from stream2segment.analysis.mseeds import fft, snr , bandpass, dfreq, maxabs,\
+from stream2segment.analysis.mseeds import fft , bandpass, dfreq, maxabs,\
     timeof
 # from stream2segment.io.utils import loads, dumps
 # from stream2segment.analysis.mseeds import _IO_FORMAT_FFT, _IO_FORMAT_STREAM, _IO_FORMAT_TIME,\
@@ -48,21 +48,21 @@ def test_fft(mock_mseed_fft, arr, arr_len_after_trim, fft_npts):
     g = 9
 
 
-@mock.patch('stream2segment.analysis.mseeds._snr', side_effect=lambda *a, **k: orig_snr(*a, **k))
-@mock.patch('stream2segment.analysis.powspec', side_effect=lambda *a, **k: orig_powspec(*a, **k))
-def test_snr(mock_powspec, mock_analysis_snr):
-    trace = get_data()['mseed'][0]
-    res = snr(trace, trace, fmin=10, fmax=100.34)
-    assert res == 1
-    assert mock_powspec.call_count == 2  # one for each trace
-    assert len(mock_analysis_snr.call_args_list) ==1
-    assert mock_analysis_snr.call_args_list[0][1]['fmin'] == 10
-    assert mock_analysis_snr.call_args_list[0][1]['fmax'] == 100.34
-    assert mock_analysis_snr.call_args_list[0][1]['delta_signal'] == trace.stats.delta
-    assert mock_analysis_snr.call_args_list[0][1]['delta_noise'] == trace.stats.delta
-    
-    
-    h = 9
+# @mock.patch('stream2segment.analysis.mseeds._snr', side_effect=lambda *a, **k: orig_snr(*a, **k))
+# @mock.patch('stream2segment.analysis.powspec', side_effect=lambda *a, **k: orig_powspec(*a, **k))
+# def test_snr(mock_powspec, mock_analysis_snr):
+#     trace = get_data()['mseed'][0]
+#     res = snr(trace, trace, fmin=10, fmax=100.34)
+#     assert res == 1
+#     assert mock_powspec.call_count == 2  # one for each trace
+#     assert len(mock_analysis_snr.call_args_list) ==1
+#     assert mock_analysis_snr.call_args_list[0][1]['fmin'] == 10
+#     assert mock_analysis_snr.call_args_list[0][1]['fmax'] == 100.34
+#     assert mock_analysis_snr.call_args_list[0][1]['delta_signal'] == trace.stats.delta
+#     assert mock_analysis_snr.call_args_list[0][1]['delta_noise'] == trace.stats.delta
+#     
+#     
+#     h = 9
     
     
 def test_bandpass():

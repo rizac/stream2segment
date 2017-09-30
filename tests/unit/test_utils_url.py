@@ -166,7 +166,7 @@ class Test(unittest.TestCase):
             self.read_async_raise_exc_in_called_func(self.urls)
         assert self.progress == 0
         # set the totalcounts of mock_urlread: 2 * len(url):
-        totalcounts = 2 * len(url)
+        totalcounts = 2 * len(self.urls)
         # assert we stopped before reading all url(s). Relax the condition by putting <=, as
         # if self.mock_urlread.call_count == totalcounts does not mean the test failed, it
         # can be due to the fact that we mock io-bound operations in urlread with non-io bound operations
@@ -180,27 +180,35 @@ class Test(unittest.TestCase):
             self.read_async_raise_exc_in_called_func(self.urls)
         assert self.progress == 0
     
-    @patch("stream2segment.utils.url._mem_percent")
-    def test_exception_max_mem_cons(self, mock_mem_consumption):
-        N= 5000
-        data = [b''] * N  # supply an empty string otherwise urllib.read does not stop
-        urls = ["http://sdgfjvkherkdfvsffd"] *N 
-        self.config_urlopen(data)
+#     def test_exception_max_mem_cons(self):
+#         N= 50
+#         data = [b'abc', b''] * N  # supply an empty string otherwise urllib.read does not stop
+#         urls = ["http://sdgfjvkherkdfvsffd"] *N 
+#         self.config_urlopen(data)
+#         
+#         for _ in read_async(urls):
+#             pass
+#         ccount = self.mock_urlread.call_count
+#         
+#         self.config_urlopen(data)
+#         try:
+#             for _ in read_async(urls):
+#                 raise MemoryError('')
+#         except MemoryError:
+#             assert self.mock_urlread.call_count < ccount
         
-        mmc = 90
-        
-        itr = [0]
-        def mmc_se(*a, **v):
-            if itr[0] > 5:
-                return mmc+1
-            itr[0] += 1
-            return 0
-        mock_mem_consumption.side_effect = mmc_se
-        
-        with pytest.raises(MemoryError) as excinfo:
-            self.read_async(urls, max_memoru_consumption=mmc)
-        assert self.progress == 6
-        assert "Memory overflow: %.2f%% (used) > %.2f%% (threshold)" % (mmc+1, mmc) in str(excinfo.value)
+#         itr = [0]
+#         def mmc_se(*a, **v):
+#             if itr[0] > 5:
+#                 return mmc+1
+#             itr[0] += 1
+#             return 0
+#         mock_mem_consumption.side_effect = mmc_se
+#         
+#         with pytest.raises(MemoryError) as excinfo:
+#             self.read_async(urls, max_memoru_consumption=mmc)
+#         assert self.progress == 6
+#         assert "Memory overflow: %.2f%% (used) > %.2f%% (threshold)" % (mmc+1, mmc) in str(excinfo.value)
     
 
 if __name__ == "__main__":

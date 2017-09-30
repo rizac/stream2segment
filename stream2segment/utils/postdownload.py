@@ -82,8 +82,6 @@ class SegmentWrapper(object):
         self.__segment = None
         self.__stream = stream
         self.__inv = inventory
-        self.__s_stream = None
-        self.__n_stream = None
         self.__sn_windows = None
         # Custom attributes. If they are used or not inside the methods, is up to the
         # implementation (for the moment, none of them is used unless it overrides one of the

@@ -196,7 +196,7 @@ class Plot(object):
             if i == 0:
                 seedid = t.get_id()
             elif seedid is not None and seedid != t.get_id():
-                p.warnings += ['Different traces (seed id) in stream']
+                p.warnings += ['Traces with different seed ids in stream']
                 seedid = None
         if title is None and seedid is not None:
             p.title = seedid

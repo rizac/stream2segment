@@ -1228,7 +1228,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         expected = len(segments_df)  # no segment on db, we should have all segments to download
         wtimespan = [1,2]
         assert not Segment.id.key in segments_df.columns
-        assert not Segment.run_id.key in segments_df.columns
+        assert not Segment.download_id.key in segments_df.columns
         orig_seg_df = segments_df.copy()
         segments_df = prepare_for_download(self.session, orig_seg_df, wtimespan,
                                            retry_no_code=True,
@@ -1265,7 +1265,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
 
         assert Segment.id.key in segments_df.columns
-        assert Segment.run_id.key not in segments_df.columns
+        assert Segment.download_id.key not in segments_df.columns
         assert len(segments_df) == expected
         # assert len(self.session.query(Segment.id).all()) == len(segments_df)
         
@@ -1279,7 +1279,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         for i, download_status_code in enumerate(downloadstatuscodes):
             dic = segments_df.iloc[i].to_dict()
             dic['download_status_code'] = download_status_code
-            dic['run_id'] = self.run.id
+            dic['download_id'] = self.run.id
             # hack for deleting unused columns:
             for col in [Station.network.key, Station.station.key,
                         Channel.location.key, Channel.channel.key]:
@@ -1476,11 +1476,11 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                             self.run.id, 1,2,3, db_bufsize=self.db_buf_size)
         # get columns from db which we are interested on to check
         cols = [Segment.id, Segment.channel_id, Segment.datacenter_id,
-                Segment.download_status_code, Segment.max_gap_ovlap_ratio, \
-                Segment.sample_rate, Segment.seed_identifier, Segment.data, Segment.run_id, Segment.start_time, Segment.end_time,
+                Segment.download_status_code, Segment.max_gap_overlap_ratio, \
+                Segment.sample_rate, Segment.seed_identifier, Segment.data, Segment.download_id, Segment.start_time, Segment.end_time,
                 ]
         db_segments_df = dbquery2df(self.session.query(*cols))
-        assert Segment.run_id.key in db_segments_df.columns
+        assert Segment.download_id.key in db_segments_df.columns
         
         
         # change data column otherwise we cannot display db_segments_df. When there is data just print "data"
@@ -1554,10 +1554,10 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         
         # assert gaps are only in the given position
         URLERR_CODE, MSEEDERR_CODE = get_url_mseed_errorcodes()
-        COL = Segment.max_gap_ovlap_ratio.key
+        COL = Segment.max_gap_overlap_ratio.key
         assert (db_segments_df.iloc[:3][COL] < 0.01).all()
         assert pd.isnull(db_segments_df.iloc[3:5][COL]).all()
-        assert (db_segments_df.iloc[5][COL] > 1).all()
+        assert (db_segments_df.iloc[5][COL] < -10).all()
         assert pd.isnull(db_segments_df.iloc[6:][COL]).all()
         
         

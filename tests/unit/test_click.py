@@ -5,7 +5,7 @@ Created on May 23, 2017
 '''
 import unittest
 from click.testing import CliRunner
-from stream2segment.main import main, get_def_timerange
+from stream2segment.main import main
 from mock.mock import patch
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
 from tempfile import NamedTemporaryFile
@@ -80,14 +80,16 @@ def test_click_download(mock_download):
         assert dic['dburl'] == yamldic['dburl']
         assert result.exit_code == 0
 
-    # test no start no end then current time range is used
-    with download_setup("download.yaml", start=None, end=None) as (conffile, yamldic):
+    # test start and end given as integers
+    with download_setup("download.yaml", start=1, end=0) as (conffile, yamldic):
         mock_download.reset_mock()
         result = runner.invoke(main, ['d', '-c', conffile])
         dic = mock_download.call_args_list[0][1]
-        start, end = get_def_timerange()
-        assert dic['start'] == start
-        assert dic['end'] == end
+        d = datetime.utcnow()
+        startd = datetime(d.year, d.month, d.day) - timedelta(days=1)
+        endd = datetime(d.year, d.month, d.day)
+        assert dic['start'] == startd
+        assert dic['end'] == endd
         assert dic['dburl'] == yamldic['dburl']
         assert result.exit_code == 0
 
@@ -156,8 +158,8 @@ def test_click_process(mock_process):
 def test_click_visualize(mock_visualize):
     runner = CliRunner()
     d_conffile = get_templates_fpath("download.yaml")
-    conffile = get_templates_fpath("gui.yaml")
-    pyfile = get_templates_fpath("gui.py")
+    conffile = get_templates_fpath("processing.yaml")
+    pyfile = get_templates_fpath("processing.py")
 
     # test no dburl supplied
     mock_visualize.reset_mock()
@@ -227,9 +229,9 @@ def test_click_template_realcopy():
         filez = os.listdir(mydir)
         assert "download.yaml" in filez
         assert "processing.yaml" in filez
-        assert "gui.yaml" in filez
+        # assert "gui.yaml" in filez
         assert "processing.py" in filez
-        assert "gui.py" in filez
+        # assert "gui.py" in filez
 
 
     # assert help works:

@@ -102,14 +102,14 @@ def test_standard():
 #     assert sorted(mseed_dic.keys()) == sorted(obspy_dic.keys())
 #     assert gaps == keys_with_gaps(obspy_dic)
 
-def test_with_gaps():
+def test_with_gaps_overlaps():
     # Let's change some header. But keeping the ref to the trace id for the record with errors:
     bytez = mock_response_inbytes(True)
 
     # get our dicts of trace_id: trace_bytes
     dic = unpack(bytez)
     assert not haserr(dic)
-    assert any(g[-2] > 1 for g in dic.values())
+    assert any(g[-2] < -10 for g in dic.values())  # overlaps
     # get the same dict by calling obspy.read:
     obspy_stream = get_stream(bytez)
     s2s_stream = get_s2s_stream(dic)

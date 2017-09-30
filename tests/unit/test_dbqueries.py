@@ -177,7 +177,7 @@ class Test(unittest.TestCase):
                      data=b'',
                      event_id = e.id,
                      datacenter_id = dc.id,
-                     run_id = run.id,
+                     download_id = run.id,
                      )
         segments = []
         # and now it will work:

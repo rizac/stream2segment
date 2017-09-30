@@ -57,21 +57,21 @@ class clickutils(object):
                        "downloading, so as to avoid re-typing the database path)")
 
     @classmethod
-    def valid_date(cls, string):
+    def valid_date(cls, obj):
         """does a check on string to see if it's a valid datetime string.
         If integer, is a datetime object relative to today, at midnight, plus
         `string` days (negative values are allowed)
-        This is executed only if the relative Option is given
         Returns the datetime on success, throws an BadParameter otherwise"""
         try:
-            return strptime(string)
+            return strptime(obj)  # if obj is datetime, returns obj
         except ValueError as _:
             try:
-                days = int(string)
+                days = int(obj)
                 endt = datetime(cls.NOW.year, cls.NOW.month, cls.NOW.day, 0, 0, 0, 0)
                 return endt - timedelta(days=days)
-            except:
-                raise BadParameter("Invalid date time or invalid integer")
+            except Exception:
+                pass
+        raise BadParameter("Invalid date time or invalid integer")
 
     @classmethod
     def set_help_from_yaml(cls, ctx, param, value):
@@ -343,6 +343,11 @@ def d(configfile, dburl, eventws, start, end, dataws, min_sample_rate, traveltim
     try:
         cfg_dict = yaml_load(configfile, **{k: v for k, v in locals().items()
                                             if v not in ((), {}, None, configfile)})
+        # start and end might be integers. If we attach the conversion function
+        # `clickutils.valid_date` to the relative clikc Option 'type' argument, the
+        # function does not affect integer values in the config. Thus we need to set it here:
+        cfg_dict['start'] = clickutils.valid_date(cfg_dict['start'])
+        cfg_dict['end'] = clickutils.valid_date(cfg_dict['end'])
         ret = download(isterminal=True, **cfg_dict)
         sys.exit(ret)
     except KeyboardInterrupt:  # this except avoids printing traceback

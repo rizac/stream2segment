@@ -138,8 +138,8 @@ class Test(unittest.TestCase):
             Channel(location= '02', channel='HHN', sample_rate=6),
             Channel(location= '02', channel='HHZ', sample_rate=6),
             
-            Channel(location= '03', channel='HHE', sample_rate=6),
-            Channel(location= '03', channel='HHN', sample_rate=6),
+#             Channel(location= '03', channel='HHE', sample_rate=6),
+#             Channel(location= '03', channel='HHN', sample_rate=6),
             
             Channel(location= '04', channel='HHZ', sample_rate=6),
             
@@ -153,8 +153,8 @@ class Test(unittest.TestCase):
         self.session.commit()
         
         fixed_args = dict(datacenter_id = dc.id,
-                     run_id = run.id,
-                     )
+                          download_id = run.id,
+                          )
         
         # Note: data_gaps_merged is a stream where gaps can be merged via obspy.Stream.merge
         # data_gaps_unmerged is a stream where gaps cannot be merged (is a stream of three different channels
@@ -280,8 +280,51 @@ class Test(unittest.TestCase):
                 
                 components_count[group_id] = other_comps_count
 
-        
-        
+        def assert_(segplotlist, segment, preprocessed):
+            # raw:
+            # gap: stream: ok, sn_spectra exc, sn_windows: none
+            # err: stream exc, sn_spectra: exc, sn_windows: none
+            # other: stream ok, sn_spectra:ok, sn_windows: non-none
+            # preprocessed
+            iserr = 'err' in segment.channel.location
+            hasgaps = 'gap' in segment.channel.location
+            isinverr = isinstance(segplotlist.data['stream'], Exception) and \
+                "inventory" in str(segplotlist.data['stream'])
+            if preprocessed:
+                if iserr or hasgaps or isinverr:
+                    assert len("".join(segplotlist[0].warnings))
+                    assert isinstance(segplotlist.data['stream'], Exception)
+                    assert segplotlist.data['sn_windows'] is None  # never calculated
+                    if segplotlist[1] is not None:
+                        assert len("".join(segplotlist[1].warnings))
+                else:
+                    assert not len("".join(segplotlist[0].warnings))
+                    assert isinstance(segplotlist.data['stream'], Stream)
+                    assert segplotlist.data['sn_windows'] is not None
+                    if segplotlist[1] is not None:
+                        assert not len("".join(segplotlist[1].warnings))
+            else:
+                if iserr:
+                    assert len("".join(segplotlist[0].warnings))
+                    assert isinstance(segplotlist.data['stream'], Exception)
+                    assert segplotlist.data['sn_windows'] is None  # never calculated
+                    if segplotlist[1] is not None:
+                        assert len("".join(segplotlist[1].warnings))
+                else:
+                    if "gap_unmerged" in segment.channel.location:
+                        assert "different seed ids" in "".join(segplotlist[0].warnings)
+                    else:
+                        assert not len("".join(segplotlist[0].warnings))
+                    assert isinstance(segplotlist.data['stream'], Stream)
+                    if segplotlist[1] is not None:
+                        if hasgaps:
+                            assert segplotlist.data['sn_windows'] is None
+                            assert len("".join(segplotlist[1].warnings))
+                        else:
+                            assert segplotlist.data['sn_windows'] is not None
+                            assert not len("".join(segplotlist[1].warnings))
+            
+            
         for s in self.session.query(Segment):
             
             m = PlotManager(self.pymodule, self.config)
@@ -310,11 +353,7 @@ class Test(unittest.TestCase):
             assert not mock_get_inv.called  # preprocess=False
             assert mock_get_stream.call_count == expected_components_count
             # assert we did not calculate any useless stream:
-            assert m[s.id][0].data['stream'] is not None
-            assert m[s.id][0].data['s_stream'] is None
-            assert m[s.id][0].data['n_stream'] is None
-            assert m[s.id][1] is None
-            assert m[s.id][1] is None
+            assert_(m[s.id][0], s, preprocessed=False)
             assert m[s.id][1] is None
             
             
@@ -335,11 +374,7 @@ class Test(unittest.TestCase):
             assert not mock_get_inv.called  # preprocess=False
             assert not mock_get_stream.called  # already computed
             # assert we did not calculate any useless stream:
-            assert m[s.id][0].data['stream'] is not None
-            assert m[s.id][0].data['s_stream'] is not None
-            assert m[s.id][0].data['n_stream'] is not None
-            assert m[s.id][1] is None
-            assert m[s.id][1] is None
+            assert_(m[s.id][0], s, preprocessed=False)
             assert m[s.id][1] is None
             
             mock_get_stream.reset_mock()
@@ -362,12 +397,8 @@ class Test(unittest.TestCase):
                 assert not mock_get_inv.called
             assert not mock_get_stream.called  # already computed
             # assert we did not calculate any useless stream:
-            assert m[s.id][0].data['stream'] is not None
-            assert m[s.id][0].data['s_stream'] is not None
-            assert m[s.id][0].data['n_stream'] is not None
-            assert m[s.id][1].data['stream'] is not None
-            assert m[s.id][1].data['s_stream'] is not None
-            assert m[s.id][1].data['n_stream'] is not None
+            assert_(m[s.id][0], s, preprocessed=False)
+            assert_(m[s.id][1], s, preprocessed=True)
 
             mock_get_stream.reset_mock()
             mock_get_inv.reset_mock()
@@ -410,7 +441,7 @@ class Test(unittest.TestCase):
                     # if idx=1, plot has 1 series (due to error in gaps/overlaps) otherwise matches stream traces count:
                     assert len(plot.data) == 1 if i==1 else len(stream)
                     if 'gap_unmerged' in s.channel.location:
-                        assert 'Different traces (seed id) in stream' in plot.warnings if i == 0 \
+                        assert 'different seed ids' in "".join(plot.warnings) if i == 0 \
                             else 'gaps/overlaps' in pplot.warnings[0]
                     else:
                         assert not plot.warnings if i == 0 else \
@@ -428,12 +459,8 @@ class Test(unittest.TestCase):
                     assert len(pplot.data) == 1 # only one (fake) trace
                     assert pplot.warnings and 'inventory' in pplot.warnings[0]  # gaps /overlaps
             # assert we did not calculate any useless stream:
-            assert m[s.id][0].data['stream'] is not None
-            assert m[s.id][0].data['s_stream'] is not None
-            assert m[s.id][0].data['n_stream'] is not None
-            assert m[s.id][1].data['stream'] is not None
-            assert m[s.id][1].data['s_stream'] is not None
-            assert m[s.id][1].data['n_stream'] is not None
+            assert_(m[s.id][0], s, preprocessed=False)
+            assert_(m[s.id][1], s, preprocessed=True)
             
             # now check update config:
             # store the s_stream to compare later:
@@ -456,60 +483,52 @@ class Test(unittest.TestCase):
             m.get_plots(self.session, s.id, idxs, preprocessed=False, all_components_in_segment_plot=True)
             m.get_plots(self.session, s.id, idxs, preprocessed=True, all_components_in_segment_plot=True)
             # and store their values for later comparison
-            s_stream = m[s.id][0].data['s_stream']
-            p_s_stream = m[s.id][1].data['s_stream']
-            n_stream = m[s.id][0].data['n_stream']
-            p_n_stream = m[s.id][1].data['n_stream']
+            SN_INDEX = 1
+            sn_plot_unprocessed = m[s.id][0][SN_INDEX].data
+            sn_plot_preprocessed = m[s.id][1][SN_INDEX].data
             # shift back the arrival time. 1 second is still within the stream time bounds for the 'ok'
             # stream:
             sn_windows = dict(m.config['sn_windows'])
             sn_windows['arrival_time_shift']  -= 1
             m.update_config(sn_windows=sn_windows)
             # assert we restored streams that have to be invalidated, and we kept those not to invalidate:
-            assert m[s.id][0].data['stream'] is not None
-            assert m[s.id][0].data['s_stream'] is None
-            assert m[s.id][0].data['n_stream'] is None
-            assert m[s.id][1] is None
-            assert m[s.id][1] is None
+            assert_(m[s.id][0], s, preprocessed=False)
             assert m[s.id][1] is None
             # and run again the get_plots: with preprocess=False
             idxs = [0, 1]
             plots = m.get_plots(self.session, s.id, idxs, preprocessed=False, all_components_in_segment_plot=True)
-            assert m[s.id][0].data['s_stream'] is not None
+            assert_(m[s.id][0], s, preprocessed=False)
             assert m[s.id][1] is None
-            new_s_stream = m[s.id][0].data['s_stream']
-            new_n_stream = m[s.id][0].data['n_stream']
+            sn_plot_unprocessed_new = m[s.id][0][SN_INDEX].data
             # we changed the arrival time, BUT: the signal noise depends on the cumulative, thus
             # changing the arrival time does not change the signal window s_stream
             # Conversely, n_stream should change BUT only for the 'ok' stream (no 'gap' or 'err' in s.channel.location)
             # as for the other we explicitly set a miniseed starttime, endtime BEFORE the event time
             # which should result in noise stream all padded with zeros regardless of the arrival time shift
-            if isinstance(new_s_stream, Stream):
-                # as said, the signal window should not change:
-                assert np.allclose(s_stream[0].data, new_s_stream[0].data, equal_nan=True)
-                # the n window does if the segment is 'ok'
-                assert not np.allclose(n_stream[0].data, new_n_stream[0].data, equal_nan=True)
+            if len(sn_plot_unprocessed) == 1:
+                #there was an error in sn ratio (e.g., gaps, overlaps in source stream):
+                assert len(sn_plot_unprocessed_new) == 1
             else:
-                assert not isinstance(s_stream, Stream) and not isinstance(n_stream, Stream) and \
-                    type(s_stream) == type(n_stream)
+                # no singal window is the same (index 0. Then index 2 cause it is the np.array of the data)
+                assert np.allclose(sn_plot_unprocessed_new[0][2], sn_plot_unprocessed[0][2], equal_nan=True)
+                # the n window does not:
+                assert not np.allclose(sn_plot_unprocessed_new[1][2], sn_plot_unprocessed[1][2], equal_nan=True)
+
             # now run again with preprocessed=True.
             plots = m.get_plots(self.session, s.id, idxs, preprocessed=True, all_components_in_segment_plot=True)
-            assert m[s.id][0].data['s_stream'] is not None
-            assert m[s.id][1].data['s_stream'] is not None
-            new_p_s_stream = m[s.id][1].data['s_stream']
-            new_p_n_stream = m[s.id][1].data['n_stream']
+            sn_plot_preprocessed_new = m[s.id][1][SN_INDEX].data
             # assert the s_stream differs from the previous, as we changed the signal/noise arrival time shift
             # this must hold only for the 'ok' stream (no 'gap' or 'err' in s.channel.location)
             # as for the other we explicitly set a miniseed starttime, endtime BEFORE the event time
             # (thus by shifting BACK the arrival time we should not see changes in the s/n stream windows)
-            if isinstance(new_p_s_stream, Stream):
-                # as said, the signal window should not change:
-                assert np.allclose(p_s_stream[0].data, new_p_s_stream[0].data, equal_nan=True)
-                # the n window does if the segment is 'ok'
-                assert not np.allclose(p_n_stream[0].data, new_p_n_stream[0].data, equal_nan=True)
+            if len(sn_plot_preprocessed) == 1:
+                #there was an error in sn ratio (e.g., gaps, overlaps in source stream):
+                assert len(sn_plot_preprocessed_new) == 1
             else:
-                assert not isinstance(p_n_stream, Stream) and not isinstance(p_s_stream, Stream) and \
-                    type(p_n_stream) == type(p_s_stream)
+                # no singal window is the same (index 0. Then index 2 cause it is the np.array of the data)
+                assert np.allclose(sn_plot_preprocessed_new[0][2], sn_plot_preprocessed[0][2], equal_nan=True)
+                # the n window does not:
+                assert not np.allclose(sn_plot_preprocessed_new[1][2], sn_plot_preprocessed[1][2], equal_nan=True)
             # re-set the inventory_xml to None:
             s.station.inventory_xml = None
             self.session.commit()

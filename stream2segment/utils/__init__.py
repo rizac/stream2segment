@@ -173,25 +173,29 @@ def strptime(string, formats=None):
     if isinstance(string, datetime):
         return string
 
-    string = string.strip()
+    try:
+        string = string.strip()
 
-    if formats is None:
-        has_z = string[-1] == 'Z'
-        has_t = 'T' in string
-        if has_t or has_z or ' ' in string:
-            t_str, z_str = 'T' if has_t else ' ', 'Z' if has_z else ''
-            formats = ['%Y-%m-%d{}%H:%M:%S.%f{}'.format(t_str, z_str),
-                       '%Y-%m-%d{}%H:%M:%S{}'.format(t_str, z_str)]
-        else:
-            formats = ['%Y-%m-%d']
+        if formats is None:
+            has_z = string[-1] == 'Z'
+            has_t = 'T' in string
+            if has_t or has_z or ' ' in string:
+                t_str, z_str = 'T' if has_t else ' ', 'Z' if has_z else ''
+                formats = ['%Y-%m-%d{}%H:%M:%S.%f{}'.format(t_str, z_str),
+                           '%Y-%m-%d{}%H:%M:%S{}'.format(t_str, z_str)]
+            else:
+                formats = ['%Y-%m-%d']
 
-    for dtformat in formats:
-        try:
-            return datetime.strptime(string, dtformat)
-        except ValueError:  # as exce:
-            pass
-
-    raise ValueError("%s: invalid date time" % string)
+        for dtformat in formats:
+            try:
+                return datetime.strptime(string, dtformat)
+            except ValueError:  # as exce:
+                pass
+        raise ValueError("invalid date time '%s'" % str(string))
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(str(exc))
 
 
 def get_session(dbpath, scoped=False):  # , enable_fk_if_sqlite=True):

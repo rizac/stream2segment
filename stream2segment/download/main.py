@@ -120,30 +120,26 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
     consuming the less memory possible, and assuring the quit-download message will be sent to
     the logger
     """
-
-    try:
-        # split the two cases, a little nit more verbose but hopefully it's faster when
-        # max_mem_consumption is higher than zero...
-        if max_mem_consumption > 0 and max_mem_consumption < 100:
-            check_mem_step = 10
-            process = psutil.Process(os.getpid())
-            for result, check_mem_val in zip(original_read_async(iterable, urlkey, max_workers,
-                                                                 blocksize, decode,
-                                                                 raise_http_err, timeout,
-                                                                 max_mem_consumption, **kwargs),
-                                             cycle(range(check_mem_step))):
-                yield result
-                if check_mem_val == 0:
-                    mem_percent = process.memory_percent()
-                    if mem_percent > max_mem_consumption:
-                        raise MemoryError("Memory overflow: %.2f%% (used) > %.2f%% (threshold)" %
-                                          (mem_percent, max_mem_consumption))
-        else:
-            for _ in original_read_async(iterable, urlkey, max_workers, blocksize, decode,
-                                         raise_http_err, timeout, max_mem_consumption, **kwargs):
-                yield _
-    except MemoryError as exc:
-        raise QuitDownload(exc)
+    # split the two cases, a little nit more verbose but hopefully it's faster when
+    # max_mem_consumption is higher than zero...
+    if max_mem_consumption > 0 and max_mem_consumption < 100:
+        check_mem_step = 10
+        process = psutil.Process(os.getpid())
+        for result, check_mem_val in zip(original_read_async(iterable, urlkey, max_workers,
+                                                             blocksize, decode,
+                                                             raise_http_err, timeout, **kwargs),
+                                         cycle(range(check_mem_step))):
+            yield result
+            if check_mem_val == 0:
+                mem_percent = process.memory_percent()
+                if mem_percent > max_mem_consumption:
+                    raise QuitDownload(MemoryError(("Memory overflow: %.2f%% (used) > "
+                                                    "%.2f%% (threshold)") %
+                                                   (mem_percent, max_mem_consumption)))
+    else:
+        for result in original_read_async(iterable, urlkey, max_workers, blocksize, decode,
+                                          raise_http_err, timeout, **kwargs):
+            yield result
 
 
 def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_size=10,
