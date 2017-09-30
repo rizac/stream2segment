@@ -43,20 +43,19 @@
 # download_status_code              int (typically, values between 200 and 399 denote
 #                                   ok download. Values >=400 or lower than zero denote
 #                                   errors)
-# max_gap_overlap_ratio             float (denotes the maximum number of missing points, if positive,
-#                                   or overlapping points, if negative, in the waveform data.
-#                                   As this number is easy to obtain while downloading waveform
-#                                   bytes data, it is saved to the database so that the user can
-#                                   speed up processing or visualization by discarding malformed data,
-#                                   if gaps/overlaps are a concern. A value of 0 denotes no gaps/overlaps,
-#                                   a value >= 1 denotes gaps, and a value <= 1 denotes overlaps
-#                                   in the waveform data. However, as this number is the ratio between
-#                                   the maximum gap/overlap interval found, in seconds,
-#                                   and the waveform data sampling period, in seconds, there is no way
-#                                   to safely assess max_gap_overlap_ratio values in (-1, 1):
-#                                   a rule of thumb is to select segments whose max_gap_overlap_ratio
-#                                   is in the interval [-0.5, 0.5] and perform a check for safety, e.g., via
-#                                   `len(segment.stream())` or  `segment.stream().get_gaps()`)
+# segment.max_gap_overlap_ratio     float (if positive, denotes the maximum number of
+#                                   missing points. If negative, the maximum number of
+#                                   overlapping points. Zero means no gaps/overlaps.
+#                                   If gaps/overlaps are a concern, use this attribute
+#                                   to speed up the processing by discarding malformed data.
+#                                   Note that this number is the ratio between the waveform
+#                                   data's max gap/overlap, in seconds, and the waveform
+#                                   data's sampling period, in seconds. Thus, float values in
+#                                   in (-1, 1) are difficult to interpret: a rule of thumb
+#                                   is to select segments whose max_gap_overlap_ratio
+#                                   is in the interval [-0.5, 0.5] and perform a check for
+#                                   safety, e.g., via `len(segment.stream())` or
+#                                   `segment.stream().get_gaps()`)
 # seed_identifier                   str (string in the typical Network.Station.Location.Channel
 #                                   format. Do not rely on this value because it might be None
 #                                   - e.g. when download errors occurred)
