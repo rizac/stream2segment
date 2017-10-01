@@ -122,24 +122,29 @@ segment attributes:
 attribute                                 python type
 ========================================= ================================================
 segment.id                                int
-segment.event_distance_deg                float (distance between segment station and event,
-\                                         in degrees)
+segment.event_distance_deg                float (distance between the segment's station and
+\                                         the event, in degrees)
 segment.start_time                        datetime.datetime
 segment.arrival_time                      datetime.datetime
 segment.end_time                          datetime.datetime
-segment.sample_rate                       float (as written in the segment bytes data,
-\                                         might differ from segment.channel.sample_rate)
+segment.sample_rate                       float (as written in the segment's waveform data,
+\                                         it might differ from segment.channel.sample_rate)
 segment.download_status_code              int (typically, values between 200 and 399 denote
-\                                         ok download. Values >=400 or lower than zero denote
-\                                         errors)
-segment.max_gap_overlap_ratio             float (if positive, denotes the maximum number of
-\                                         missing points. If negative, the maximum number of
-\                                         overlapping points. Zero means no gaps/overlaps.
+\                                         successful download. Values >=400 and lower than 500
+\                                         denote client errors, values >=500 server errors, -1
+\                                         indicates a general download error - e.g. no Internet
+\                                         connection, -2 that the waveform data is corrupted,
+\                                         and finally None denotes a general unknown error not
+\                                         in the previous categories)
+segment.max_gap_overlap_ratio             float (the maximum length of all gaps and overlaps
+\                                         found in the waveform data, *in number of points*.
+\                                         If the value is positive, the max is a gap. If negative,
+\                                         it's an overlap. If zero, no gaps/overlaps were found.
 \                                         If gaps/overlaps are a concern, use this attribute
 \                                         to speed up the processing by discarding malformed data.
 \                                         Note that this number is the ratio between the waveform
-\                                         data's max gap/overlap, in seconds, and the waveform
-\                                         data's sampling period, in seconds. Thus, float values in
+\                                         data's max gap/overlap and its sampling period
+\                                         (both in seconds). Thus, non-zero float values
 \                                         in (-1, 1) are difficult to interpret: a rule of thumb
 \                                         is to select segments whose max_gap_overlap_ratio
 \                                         is in the interval [-0.5, 0.5] and perform a check for
@@ -154,7 +159,7 @@ segment.data                              bytes (you don't generally need to acc
 \                                         the raw data for building `stream()`)
 ----------------------------------------- ------------------------------------------------
 segment.event                             object (attributes below)
-segment.event.id                          str
+segment.event.id                          int
 segment.event.time                        datetime.datetime
 segment.event.latitude                    float
 segment.event.longitude                   float
@@ -169,7 +174,7 @@ segment.event.mag_author                  str
 segment.event.event_location_name         str
 ----------------------------------------- ------------------------------------------------
 segment.channel                           object (attributes below)
-segment.channel.id                        str
+segment.channel.id                        int
 segment.channel.location                  str
 segment.channel.channel                   str
 segment.channel.depth                     float
@@ -183,7 +188,7 @@ segment.channel.sample_rate               float
 segment.channel.station                   object (same as segment.station, see below)
 ----------------------------------------- ------------------------------------------------
 segment.station                           object (attributes below)
-segment.station.id                        str
+segment.station.id                        int
 segment.station.network                   str
 segment.station.station                   str
 segment.station.latitude                  float

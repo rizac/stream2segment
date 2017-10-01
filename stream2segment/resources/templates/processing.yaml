@@ -4,7 +4,7 @@
 #
 # This is the yaml file template setting up the configuration for processing downloaded
 # waveform segments and defining the segment plots to be visualized in the web GUI
-# (Graphical user interface).
+# (Graphical user interface)
 #
 # This file can be edited and passed to the commands `s2s v` (visualize) and `s2s p` (process) of
 # the program as -c or --configfile option, together with an associated python file implementing
@@ -15,7 +15,7 @@
 # ```
 #
 # This module needs to implement few mandatory (non-deletable) parameters
-# ('segment_select', 'save_inventory' , 'dburl' and 'sn_windows') but everything else can be user
+# ('segment_select', 'save_inventory' and 'sn_windows') but everything else can be user
 # defined. Write here (http://docs.ansible.com/ansible/latest/YAMLSyntax.html) anything you need
 # to access as `config` dict in the the functions with signature:
 # ```
@@ -34,23 +34,28 @@
 # attribute                         python type
 # ================================= ================================================
 # id                                int
-# event_distance_deg                float (distance between segment station and event, in degrees)
+# event_distance_deg                float (distance between the segment's station and the event, in degrees)
 # start_time                        datetime.datetime
 # arrival_time                      datetime.datetime
 # end_time                          datetime.datetime
-# sample_rate                       float (as written in the segment bytes data,
-#                                   might differ from segment.channel.sample_rate)
-# download_status_code              int (typically, values between 200 and 399 denote
-#                                   ok download. Values >=400 or lower than zero denote
-#                                   errors)
-# segment.max_gap_overlap_ratio     float (if positive, denotes the maximum number of
-#                                   missing points. If negative, the maximum number of
-#                                   overlapping points. Zero means no gaps/overlaps.
+# sample_rate                       float (as written in the segment's waveform data,
+#                                   it might differ from segment.channel.sample_rate)
+# download_status_code              int (typically, values between 200 and 399 denote    
+#                                   successful download. Values >=400 and lower than 500 
+#                                   denote client errors, values >=500 server errors, -1  
+#                                   indicates a general download error - e.g. no Internet
+#                                   connection, -2 that the waveform data is corrupted,  
+#                                   and finally None denotes a general unknown error not 
+#                                   in the previous categories)                          
+# segment.max_gap_overlap_ratio     float (the maximum length of all gaps and overlaps
+#                                   found in the waveform data, *in number of points*.
+#                                   If the value is positive, the max is a gap. If negative,
+#                                   it's an overlap. If zero, no gaps/overlaps were found.
 #                                   If gaps/overlaps are a concern, use this attribute
 #                                   to speed up the processing by discarding malformed data.
 #                                   Note that this number is the ratio between the waveform
-#                                   data's max gap/overlap, in seconds, and the waveform
-#                                   data's sampling period, in seconds. Thus, float values in
+#                                   data's max gap/overlap and its sampling period
+#                                   (both in seconds). Thus, non-zero float values
 #                                   in (-1, 1) are difficult to interpret: a rule of thumb
 #                                   is to select segments whose max_gap_overlap_ratio
 #                                   is in the interval [-0.5, 0.5] and perform a check for
@@ -60,7 +65,7 @@
 #                                   format. Do not rely on this value because it might be None
 #                                   - e.g. when download errors occurred)
 # --------------------------------- ------------------------------------------------
-# event.id                          str
+# event.id                          int
 # event.time                        datetime.datetime
 # event.latitude                    float
 # event.longitude                   float
@@ -74,7 +79,7 @@
 # event.mag_author                  str
 # event.event_location_name         str
 # --------------------------------- ------------------------------------------------
-# channel.id                        str
+# channel.id                        int
 # channel.location                  str
 # channel.channel                   str
 # channel.depth                     float
@@ -87,7 +92,7 @@
 # channel.sample_rate               float
 # channel.station                   object (same as segment.station, see below)
 # --------------------------------- ------------------------------------------------
-# station.id                        str
+# station.id                        int
 # station.network                   str
 # station.station                   str
 # station.latitude                  float
@@ -159,21 +164,21 @@ segment_select:
 # Saving inventories might speed up further processing but increases db size
 save_inventory: False
 
-# Settings for computing the 'signal' and 'noise' windows on a segment waveform
+# Settings for computing the 'signal' and 'noise' time windows on a segment waveform
 #
 # Arrival time shift: shifts programmatically the calculated arrival time of
 # each segment by the specified amount of time (in seconds). Negative values are allowed.
 # The arrival time sets the end of the noise window, whose
 # duration will always be equal to the signal window (see below)
 #
-# Signal window: specifies the signal window. It can be a number, specifying the
-# window duration, in seconds starting from the arrival time, or a 2-element array
-# specifying the window time start and end, relative to the cumulative. A value of [0.05, 0.95] for
-# instance sets the signal window from the time the cumulative reaches 5% of its maximum, until
-# the time it reaches 95% of its maximum. Note that when providing a 2-element array the noise window and the
-# signal window might overlap.
+# Signal window: specifies the signal window length. If numeric (scalar), it's
+# window duration, in seconds starting from the arrival time. If 2-element numeric array,
+# it's the time window start and end, relative to the cumulative. E.g., a value of [0.05, 0.95]
+# sets the signal window from the time the cumulative reaches 5% of its maximum, until
+# the time it reaches 95% of its maximum. Note that when providing a 2-element array the noise
+# window and the signal window might overlap.
 sn_windows:
-  arrival_time_shift: -2.0  # programmatically shifts the arrival time for every segment (in seconds). Tune if you find arrival times should be corrected after visual inspection
+  arrival_time_shift: -2.0  # programmatically shifts the arrival time for every segment (in seconds)
   signal_window: [0.1, 0.9]  # either a number (in seconds) or interval relative to the % of the cumulative
 
 
