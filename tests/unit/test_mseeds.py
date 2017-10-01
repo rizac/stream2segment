@@ -14,7 +14,7 @@ import re
 import argparse
 from io import BytesIO
 import numpy as np
-from stream2segment.analysis import fft as orig_fft
+from stream2segment.analysis import fft as orig_fft, linspace
 from stream2segment.analysis import snr as orig_snr
 from stream2segment.analysis import powspec as orig_powspec
 
@@ -45,9 +45,27 @@ def test_fft(mock_mseed_fft, arr, arr_len_after_trim, fft_npts):
     assert len(mock_mseed_fft.call_args[0][0]) == arr_len_after_trim
     assert len(f) == fft_npts
     assert df == dfreq(t.data, t.stats.delta)
-    g = 9
+    freqs0 = np.linspace(0, len(f) * df, len(f), endpoint=False)
+    
+    freqs, f = fft(t, return_freqs=True)
+    assert (freqs == freqs0).all()  # also assures they have same length
+    assert np.allclose(freqs[1] - freqs[0], df)
 
 
+@pytest.mark.parametrize('start, delta, num',
+                        [(0.1, 12, 11),
+                         (0, 0.01, 100),
+                         (1,1,1),
+                         (1.1, 0, 55),
+                         (1, 1, 0)
+                         ])
+def test_linspace(start, delta, num):
+    space = linspace(start, delta, num)
+    if num == 0:
+        assert len(space) == 0
+    else:
+        expected = np.linspace(start, space[-1], num, endpoint=True)
+        assert (space==expected).all()
 # @mock.patch('stream2segment.analysis.mseeds._snr', side_effect=lambda *a, **k: orig_snr(*a, **k))
 # @mock.patch('stream2segment.analysis.powspec', side_effect=lambda *a, **k: orig_powspec(*a, **k))
 # def test_snr(mock_powspec, mock_analysis_snr):
@@ -154,19 +172,11 @@ def get_stream_with_gaps(_data):
     return obspy_read(os.path.join(mseed_dir, "IA.BAKI..BHZ.D.2016.004.head"))
 
 
-def test_get_trace_with_gaps(_data):  # WTF am I testing here? obspy?? FIXME: remove
-    stream = get_stream_with_gaps(_data)
-    arr = stream.get_gaps()
-    assert len(arr) > 0
-
-
 def testmaxabs():
     mseed = get_data()['mseed']
-    _ = maxabs(mseed)
-    t, g = _[0]
-    t1, g1 = maxabs(mseed[0])
-    assert t== t1 and g == g1
     
+    t, g = maxabs(mseed[0])
+
     assert np.max(np.abs(mseed[0].data)) == g
     idx =  np.argmax(np.abs(mseed[0].data))
     

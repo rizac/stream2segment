@@ -1,5 +1,5 @@
 """
-Math utilities for python scalars or numpy arrays
+Math utilities
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
@@ -13,9 +13,10 @@ from scipy.signal import hilbert
 
 
 def powspec(signal, signal_is_fft=False):
-    """Returns the power spectrum of a REAL signal. If `signal_is_fft=False`,
-    for computing the frequency delta, see `dfreq` (providing the signal delta_t, in seconds)
-    :param signal: a signal (numeric array)
+    """Returns the power spectrum of a REAL signal.
+    For computing the frequency resolution or the relative frequencies array,
+    see `dfreq` and `freqs`, respectively
+    :param signal: the time-series input signal (numeric array)
     :param signal_is_fft: if true, the signal is already an fft of some signal. Otherwise
     (the default), fft(signal) will be applied first
     """
@@ -23,9 +24,10 @@ def powspec(signal, signal_is_fft=False):
 
 
 def ampspec(signal, signal_is_fft=False):
-    """Returns the amplitude spectrum of a REAL signal. If `signal_is_fft=False`,
-    for computing the frequency delta, see `dfreq` (providing the signal delta_t, in seconds)
-    :param signal: a signal (numeric array)
+    """Returns the amplitude spectrum of a REAL signal.
+    For computing the frequency resolution or the relative frequencies array,
+    see `dfreq` and `freqs`, respectively
+    :param signal: the time-series input signal (numeric array)
     :param signal_is_fft: if true, the signal is already an fft of some signal. Otherwise
     (the default), fft(signal) will be applied first
     """
@@ -33,55 +35,50 @@ def ampspec(signal, signal_is_fft=False):
 
 
 def fft(signal):
-    """Returns the fft of a REAL signal. For computing the frequency delta, see `dfreq` (providing
-    the signal delta_t, in seconds)
-    :param signal: a signal (numeric array)
-    :param dt: the delta t (distance from two points of the equally sampled signal)
-    :param return_abs: if true, np.abs is applied to the returned fft, thus converting it to
-        power spectrum
+    """Returns the fft of a REAL signal.
+    For computing the frequency resolution or the relative frequencies array,
+    see `dfreq` and `freqs`, respectively
+    :param signal: the time-series input signal (numeric array)
     """
     return np.fft.rfft(signal)
 
 
 def dfreq(time_signal, delta_t):
-    """return the delta frequency of a given signal with given sampling rate delta_t (in seconds)
-    :param time_signal: numpy array, list, everything with a `__len__` attribute: the time-domain
-    signal (time-series)
-    :param delta_t: the sample rate of signal (distance in seconds between two points)
+    """Returns the frequency resolution df (in Hertz) of a real fft applied on `time_signal`
+    :param time_signal: numpy array or numeric list: the time-domain signal (time-series)
+    :param delta_t: `time_signal` sampling period, in seconds
+    :return: the frequency resolution df (in Hertz) of a real fft applied on `time_signal`
     """
     return 1 / (len(time_signal) * delta_t)
 
 
-def freqs(signal, delta):
-    """return the numpy array of the frequencies of a real fft for the given signal:
+def freqs(time_signal, delta_t):
+    """Returns the numpy array of the frequencies of a real fft applied on `time_signal`:
     ```
-        deltaF = dfreq(signal, delta)
-        L = floor(1 + len(signal) / 2.0)
+        deltaF = dfreq(time_signal, delta_t)
+        L = floor(1 + len(time_signal) / 2.0)
         return [0, deltaF, ..., (i-1) * deltaF, ..., (L-1) * deltaF]
     ```
-    :param signal: numpy array or numeric list, denoting the time-series
-    on which the fft should be (or has been) applied.
-    :param delta (float): the signal sampling period (in seconds)
-    :return: a new array representing the evenly spaced values of the frequencies. The length
-    of the returned array is  `floor(1 + len(signal) / 2.0)`. The first array value will be 0
+    :param time_signal: numpy array or numeric list: the time-domain signal (time-series)
+    :param delta_t (float): `time_signal` sampling period (in seconds)
+    :return: the numpy array of the frequencies of a real fft applied on `time_signal`
     """
     try:
-        leng = int(floor(1 + len(signal) / 2))
-        delta_f = dfreq(signal, delta)
+        leng = int(floor(1 + len(time_signal) / 2))
+        delta_f = dfreq(time_signal, delta_t)
     except TypeError:
-        leng = signal
-        delta_f = delta
-    return np.linspace(0, delta_f * leng, leng, endpoint=False)
+        leng = time_signal
+        delta_f = delta_t
+    return linspace(0, delta_f, leng)
 
 
 def linspace(start, delta, num):
-    """Similar to numopy's linspace, but with different argument. Useful for building an
-    array of frequencies from f0, df, and the spectrum points. Equivalent to:
-    `np.linspace(start, delta * num, num, endpoint=False)`
-    :return: An array of evenly spaced `num` numbers starting from `start`, and `delta` as spacing
-    value.
+    """Returns an evenly spaced array of values. Equivalent to:
+    `np.linspace(start, start + delta * num, num, endpoint=False)`
+    :return: An array of evenly spaced `num` numbers starting from `start`,
+    with `delta` as "spacing" value.
     """
-    return np.linspace(start, delta * num, num, endpoint=False)
+    return np.linspace(start, start + delta * num, num, endpoint=False)
 
 
 def snr(signal, noise, signals_form='', fmin=None, fmax=None, delta_signal=1.,
@@ -119,6 +116,7 @@ def snr(signal, noise, signals_form='', fmin=None, fmax=None, delta_signal=1.,
     whether or not to take the nearest sample when trimming according to `fmin` and `fmax`, or to
     take only the samples strictly included in the interval (the default)
     :param in_db: boolean (False by default): whether to return the SNR in db's or not
+    :return: the signal-to-noise ratio of two signals
     """
     if signals_form.lower() == 'amp':
         signal = np.square(signal)
@@ -161,8 +159,7 @@ def snr(signal, noise, signals_form='', fmin=None, fmax=None, delta_signal=1.,
 
 
 def trim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
-    """Trims the equally-spaced signal. General function that works
-    like obspy.Trace.trim for any kind of array
+    """Trims the evenly spaced signal `signal`.
     :param signal: numpy numeric array denoting the values to trim
     :param deltax: the delta between two points of signal on the x axis. The unit must be
     the same as `minx` and `maxx` (e.g., Herz, seconds, etcetera)
@@ -179,7 +176,7 @@ def trim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
 
 
 def argtrim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
-    """returns the indices of signal such as `signal[i0:i1]` is the slice of signal
+    """Returns the indices of signal such as `signal[i0:i1]` is the slice of signal
     between (and including) minx and maxx. The returned 2-element tuple might contain `None`s
     (valid python slice argument to indicate: no bounds)
     """
@@ -200,7 +197,9 @@ def argtrim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
 
 
 def cumsum(signal, normalize=True):
-    """Returns the cumulative resulting from the cumulative on the given signal
+    """Return the cumulative sum of `signal**2`
+    :param normalize: if True (the default), normalizes the cumulative in [0,1]
+    :return: the cumulative sum of the square of `signal`
     """
     ret = np.cumsum(np.square(signal), axis=None, dtype=None, out=None)
     if normalize:  # and (ret != 0).any():

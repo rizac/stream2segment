@@ -1,4 +1,7 @@
 '''
+Module for coda analysis.
+Not yet implemented (future feature in new versions)
+
 Created on Jul 25, 2016
 
 .. moduleauthor:: Jessie mMayor
@@ -15,8 +18,6 @@ import scipy
 
 from obspy.signal.filter import bandpass
 from obspy.signal.trigger import classic_sta_lta
-
-from stream2segment.analysis.mseeds import stream_compliant
 
 
 # cycle=nombre de periode "moyenne" dans une fenetre; signal est un array,
@@ -69,7 +70,6 @@ def group(indices_list):
     yield first, last  # Yield the last group
 
 
-@stream_compliant
 def analyze_coda(trace, fm=6, cycle=10, noise_level=16, Lw=50, noise_duration=5, subwdw_length=5,
                  subwdw_length_rec=2.5):
     """

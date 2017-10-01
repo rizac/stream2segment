@@ -1,5 +1,5 @@
 '''
-Main module for the processing
+Main module for the segment processing and .csv output
 
 Created on Feb 2, 2017
 
@@ -139,7 +139,7 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
     warnings_logger = logging.getLogger("py.warnings")
     warnings_logger.addHandler(logger_handler)
     logger.info("Executing '%s' in '%s'", funcname, pysourcefile)
-    logger.info(" for all segments in '%s", secure_dburl(str(session.bind.engine.url)))
+    logger.info("Input database: '%s", secure_dburl(str(session.bind.engine.url)))
     logger.info("Config. file: %s", str(configsourcefile))
 
     # multiprocess with sessions is a mess. Among other problems, we should not share any
@@ -158,7 +158,6 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
                            dtype=int)
     # get total segment length:
     seg_len = seg_sta_ids.shape[0]
-    # get stations with data:
 
     def stationssaved():
         return session.query(func.count(Station.id)).filter(Station.has_inventory==True).scalar()  # @IgnorePep8
@@ -167,9 +166,6 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
     session.expunge_all()
     session.close()
 
-    # actually, this is better as it should be optimized, but how to translate for the query we
-    # have? comment for the moment:
-    # seg_len = session.query(func.count(Segment.id)).filter(seg_filter).scalar()
     logger.info("%d segments found to process", seg_len)
 
     segwrapper = SegmentWrapper(config=config)
@@ -249,7 +245,7 @@ def to_csv(outcsvfile, session, pysourcefile, configsourcefile, isterminal):
     # ------------------------
     # cols always written (1 for the moment, the id): Segment ORM table attribute name(s):
     col_headers = [Segment.id.key]
-    CHEAD_FRMT = "_segment_db_%s_"  # try avoiding overridding user defined keys
+    CHEAD_FRMT = "Segment.%s"  # try avoiding overridding user defined keys
     csvwriter = [None, None]  # bad hack: in python3, we might use 'nonlocal' @UnusedVariable
 
     with open(outcsvfile, 'w', 1) as csvfile:

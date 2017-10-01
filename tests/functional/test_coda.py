@@ -28,10 +28,8 @@ class Test(unittest.TestCase):
 
     def test_coda_jessie_mseed(self):
         mseed = self.read_data_trace("20091217_231838.FR.ESCA.00.HHZ.SAC")
-        ret = coda_module.analyze_coda(mseed)
-        assert len(ret) == 1
-        coda_result = ret[0]
         trace = mseed[0]
+        coda_result = coda_module.analyze_coda(trace)
         coda_start_time = coda_result[0]
         assert coda_start_time > trace.stats.starttime
         coda_slope = coda_result[1]
@@ -40,8 +38,8 @@ class Test(unittest.TestCase):
 
     def test_coda_low_noise_level(self):
         mseed = self.read_data_trace("trace_GE.APE.mseed")
-        ret = coda_module.analyze_coda(mseed)
-        assert len(ret) == 1 and ret[0] is None
+        ret = coda_module.analyze_coda(mseed[0])
+        assert ret is None
 
 
 if __name__ == "__main__":

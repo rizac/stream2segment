@@ -258,7 +258,17 @@ from stream2segment.utils.postdownload import gui
 from stream2segment.analysis.mseeds import ampratio, bandpass, cumsum,\
     cumtimes, fft, maxabs, utcdatetime, ampspec, powspec, timeof
 # stream2segment function for processing numpy arrays:
-from stream2segment.analysis import triangsmooth, snr
+from stream2segment.analysis import triangsmooth, snr, linspace
+
+
+def assert1trace(stream):
+    '''asserts the stream has only one trace, raising an Exception if it's not the case,
+    as this is the pre-condition for all processing functions implemented here.
+    Note that, due to the way we download data, a stream with more than one trace his
+    most likely due to gaps / overlaps'''
+    # stream.get_gaps() is slower as it does more than checking the stream length
+    if len(stream) != 1:
+        raise Exception("%d traces (probably gaps/overlaps)" % len(stream))
 
 
 def main(segment, config):
@@ -322,14 +332,8 @@ def main(segment, config):
     `utcdatetime.isoformat()` (string)
     """
     stream = segment.stream()
-
-    # discard streams with more than one trace:
-    if len(stream) != 1:
-        raise ValueError('more than one obspy.Trace. Possible cause: gaps')
-
-    # work on the trace now. All functions will return Traces or scalars, which is better
-    # so we can write them to database more easily
-    trace = stream[0]
+    assert1trace(stream)  # raise and return if stream has more than one trace
+    trace = stream[0]  # work with the (surely) one trace now
 
     # discard saturated signals (according to the threshold set in the config file):
     amp_ratio = ampratio(trace)
@@ -343,7 +347,7 @@ def main(segment, config):
     noise_f0, noise_df, noise_spe = spectrum(trace, config, *segment.timewindow('noise'))
     evt = segment.event
     fcmin = mag2freq(evt.magnitude)
-    fcmax = fcmax = config['preprocess']['bandpass_freq_max']  # was also used in bandpass_remresp
+    fcmax = config['preprocess']['bandpass_freq_max']  # used in bandpass_remresp
     snr_ = snr(normal_spe, noise_spe, signals_form=config['sn_spectra']['type'],
                fmin=fcmin, fmax=fcmax, delta_signal=normal_df, delta_noise=noise_df)
     if snr_ < config['snr_threshold']:
@@ -378,11 +382,10 @@ def main(segment, config):
 
     # calculates amplitudes at the frequency bins given in the config file:
     required_freqs = config['freqs_interp']
-    ampspec_freqs = np.linspace(start=normal_f0, stop=normal_df * len(normal_spe),
-                                num=len(normal_spe), endpoint=False)
+    ampspec_freqs = linspace(start=normal_f0, delta=normal_df, num=len(normal_spe))
     required_amplitudes = np.interp(required_freqs, ampspec_freqs, normal_spe) / segment.sample_rate
 
-    # compute synthetic WA. NOTE: keep as last action, it modifies trace!!
+    # compute synthetic WA. NOTE: keep it as last action, it modifies trace!!
     trace_wa = synth_wa(segment, config)
     t_WA, maxWA = maxabs(trace_wa)
 
@@ -440,11 +443,8 @@ def bandpass_remresp(segment, config):
     :return: a Trace object.
     """
     stream = segment.stream()
-    if len(stream) != 1:
-        raise Exception("%d traces (probably gaps/overlaps)" % len(stream))
-
+    assert1trace(stream)  # raise and return if stream has more than one trace
     inventory = segment.inventory()
-
     trace = stream[0]
     # define some parameters:
     evt = segment.event
@@ -631,9 +631,7 @@ def synth_wa(segment, config):
     :return:  an obspy Trace
     '''
     stream = segment.stream()
-    if len(stream) != 1:
-        raise Exception("%d traces (probably gaps/overlaps)" % len(stream))
-
+    assert1trace(stream)  # raise and return if stream has more than one trace
     trace = stream[0]
     # compute synthetic WA,NOTE: keep as last action, it modifies trace!!
     config_wa = dict(config['paz_wa'])
@@ -678,7 +676,7 @@ def derivcum2(segment, config):
     sec_der_abs = np.abs(sec_der)
     mmm = np.nanmax(sec_der_abs)
     sec_der /= mmm  # FIXME: this should be sec_der_abs /= mmm
-    
+
     return segment.stream().stats.starttime, segment.stream().stats.delta, sec_der_abs
 
 
@@ -707,10 +705,8 @@ def cumulative(segment, config):
     gaps/overlaps)
     '''
     stream = segment.stream()
-    if len(stream) != 1:
-        raise Exception("%d traces (probably gaps/overlaps)" % len(stream))
+    assert1trace(stream)  # raise and return if stream has more than one trace
     trace = stream[0]
-
     return cumsum(trace)
 
 
@@ -741,9 +737,7 @@ def sn_spectra(segment, config):
     gaps/overlaps)
     """
     stream = segment.stream()
-    if len(stream) != 1:
-        raise Exception("%d traces (probably gaps/overlaps)" % len(stream))
-
+    assert1trace(stream)  # raise and return if stream has more than one trace
     x0_sig, df_sig, sig = spectrum(stream[0], config, *segment.timewindow('signal'))
     x0_noi, df_noi, noi = spectrum(stream[0], config, *segment.timewindow('noise'))
     return {'Signal': (x0_sig, df_sig, sig), 'Noise': (x0_noi, df_noi, noi)}
