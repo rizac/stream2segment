@@ -126,13 +126,13 @@ Install the current package
 pip install -e .
 ```
 
-### Runt ests
+### Runt tests
 
 To run tests, move in the project directory and run the command:
 ```
 py.test ./tests/ --ignore=./tests/skip --cov=./stream2segment
 ```
-or
+or (if 'pytest not found' message appears):
 ```
 python -m pytest ./tests/ --ignore=./tests/skip --cov=./stream2segment
 ```
