@@ -90,10 +90,9 @@ def maxabs(trace, starttime=None, endtime=None):
     In other words, returns the point `(time, value)` where `value = max(abs(trace.data))`
     and time (`UTCDateTime`) is the time occurrence of `value`
     :param trace: the input obspy.core.Trace
-    :param starttime: an obspy UTCDateTime object (or any value
-    `UTCDateTime` accepts, e.g. integer / `datetime` object) denoting
-    the start time (None or missing defaults to the trace end): the maximum of the trace `abs`
-    will be searched *from* this time. This argument, if provided, does not affect the
+    :param starttime: (`obspy.UTCDateTime`) the start time (None or missing defaults to the trace
+    end): the maximum of the trace `abs` will be searched *from* this time. This argument,
+    if provided, does not affect the
     returned `time` which will be always relative to the trace passed as argument
     :param endtime: an obspy UTCDateTime object (or any value
     `UTCDateTime` accepts, e.g. integer / `datetime` object) denoting
@@ -186,7 +185,7 @@ def fft(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_ty
 def ampspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',
             return_freqs=False):
     """Computes the amplitude spectrum of the given trace.
-    See `fft` doc-string for info (this function does exactly the same it
+    See `fft` doc-string for info (this function does exactly the same, it
     only returns the amplitude spectrum as second element - i.e., the modulus of the fft)"""
     _, dft = fft(trace, starttime, endtime, taper_max_percentage, taper_type, return_freqs)
     return _, _ampspec(dft, signal_is_fft=True)
@@ -195,8 +194,8 @@ def ampspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, tape
 def powspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',
             return_freqs=False):
     """Computes the power spectrum of the given trace.
-     See `fft` doc-string for info (this function does exactly the same it
-    only returns the amplitude spectrum as second element - i.e., the square of the fft)"""
+    See `fft` doc-string for info (this function does exactly the same, it
+    only returns the power spectrum as second element - i.e., the square of the fft)"""
     _, dft = fft(trace, starttime, endtime, taper_max_percentage, taper_type, return_freqs)
     return _, _powspec(dft, signal_is_fft=True)
 
@@ -226,7 +225,7 @@ def timeof(trace, index):
 def utcdatetime(time, return_if_none=None):
     '''Normalizes `time` into an `UTCDateTime`.
     This function can be used when working with datetime-like objects (python `datetime`,
-    time-stamps as `float` or `int`, obspy `UtcDateTime`s) including `None`s,
+    time-stamps as `float` or `int`, obspy `UtcDateTime`s) or `None`s,
     to normalize results and work consistently with the same object type.
     It basically returns `time` if already `UTCDateTime` or `UTCDateTime(time)` otherwise.
     If `time` is None, returns None by default (so that the returned

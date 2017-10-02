@@ -59,7 +59,7 @@ from logging import StreamHandler
 import logging
 from io import BytesIO
 import urllib.request, urllib.error, urllib.parse
-from stream2segment.download.utils import get_url_mseed_errorcodes
+from stream2segment.download.utils import get_url_mseed_errorcodes 
 from stream2segment.utils.mseedlite3 import MSeedError, unpack
 import threading
 from stream2segment.utils.url import read_async

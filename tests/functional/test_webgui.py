@@ -238,6 +238,16 @@ class Test(unittest.TestCase):
             with open(os.path.join(folder, "GE.FLT1.xml"), 'rb') as opn:
                 self.inventory = loads_inv(opn.read())
     
+    def jsonloads(self, data, encoding='utf8'):
+        # python 3.5 and 3.6 behave differently, seems that the latter accepts bytes
+        # and decodes them automatically, whereas in 3.5 (and below?) it doesn't
+        # This method decodes bytes data and then returns json.loads
+        # For info see thread (last post seems to confirm what we said):
+        # https://bugs.python.org/issue10976
+        if isinstance(data, bytes):
+            data = data.decode('utf8')
+        return json.loads(data)
+    
     def test_root(self):
         with self.app.test_request_context():
             app = self.app.test_client()
@@ -305,7 +315,7 @@ class Test(unittest.TestCase):
                                                segment_orderby=None, metadata=True, classes=True)),
                                headers={'Content-Type': 'application/json'})
             #    rv = app.get("/get_segments")
-            data = json.loads(rv.data)
+            data = self.jsonloads(rv.data)
             assert len(data['segment_ids']) == 28
             assert any(x[0] == 'has_data' for x in data['metadata'])
             assert not data['classes']
@@ -322,7 +332,7 @@ class Test(unittest.TestCase):
             assert len(segment.classes.all()) == 0
             rv = app.post("/toggle_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid}),
                                    headers={'Content-Type': 'application/json'})
-            data = json.loads(rv.data)
+            data = self.jsonloads(rv.data)
             
             assert len(segment.classes.all()) == 1
             assert segment.classes.all()[0].id == cid
@@ -365,8 +375,8 @@ class Test(unittest.TestCase):
                 
             rv = app.post("/get_segment", data=json.dumps(d),
                                headers={'Content-Type': 'application/json'})
-            #    rv = app.get("/get_segments")
-            data = json.loads(rv.data)
+            # https: 
+            data = self.jsonloads(rv.data)
             assert len(data['plots']) == len(d['plot_indices'])
             assert bool(len(data['metadata'])) == metadata
             assert bool(len(data['classes'])) == (classes and has_labellings)
