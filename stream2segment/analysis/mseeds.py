@@ -1,17 +1,17 @@
 '''
 Math utilities for `obspy.Trace` objects.
 
+This package wraps many functions of the `analysis` module (working on `numpy` arrays)
+defining their counterparts for `Trace` objects
+
 Remember that all functions processing and returning `Trace`s, e.g.:
 ```
-    new_trace = func(trace, ...)
+    func(trace, ...)  # returns a new Trace from trace
 ```
 can be applied on a `Stream` easily:
 ```
-    new_stream = Stream([func(trace, ...) for trace in stream])`
+    Stream([func(trace, ...) for trace in stream])` # returns a new Stream from stream
 ```
-
-This package wraps many functions of `analysis` defining their counterparts
-for `Trace` objects
 
 :date: Jun 20, 2016
 
@@ -27,13 +27,22 @@ from stream2segment.analysis import fft as _fft, ampspec as _ampspec, powspec as
     cumsum as _cumsum, dfreq, freqs
 
 
-__all__ = ['bandpass']
+__all__ = ['bandpass', 'maxabs', 'cumsum', 'cumtimes', 'fft', 'ampspec', 'powspec', 'ampratio',
+           'timeof', 'utcdatetime']
 
 
 def bandpass(trace, freq_min, freq_max, max_nyquist_ratio=0.9,
              corners=2, copy=True):
-    """filters a signal trace. Wrapper around trace.filter in that it does some pre-processing
-    before filtering
+    """Filters a signal trace with a bandpass and other pre-processing.
+    The algorithm steps are:
+     1. Set the max frequency to 0.9 of the nyquist freauency (sampling rate /2)
+        (slightly less than nyquist seems to avoid artifacts)
+     2. Offset removal (substract the mean from the signal)
+     3. Tapering
+     4. Pad data with zeros at the END in order to accomodate the filter transient
+     5. Apply bandpass filter, where the lower frequency is set according to the magnitude
+     6. Remove padded elements
+     7. Remove the instrumental response
     :param trace: the input obspy.core.Trace
     :param magnitude: the magnitude which originated the trace (or stream). It dictates the value
     of the high-pass corner (the minimum frequency, freq_min, in Hz)
@@ -77,8 +86,8 @@ def bandpass(trace, freq_min, freq_max, max_nyquist_ratio=0.9,
 
 
 def maxabs(trace, starttime=None, endtime=None):
-    """Returns the trace point `(time, value)`
-    where `value = max(abs(trace.data))`
+    """Returns the maximum of the absolute values of `trace`, and its occurrence time.
+    In other words, returns the point `(time, value)` where `value = max(abs(trace.data))`
     and time (`UTCDateTime`) is the time occurrence of `value`
     :param trace: the input obspy.core.Trace
     :param starttime: an obspy UTCDateTime object (or any value
@@ -115,8 +124,8 @@ def cumsum(trace):
 
 
 def cumtimes(cum_trace, *percentages):
-    """Given cum_trace (a monotonically increasing trace, e.g. as resulting from `cumsum`),
-    calculates the time(s) where the signal reaches the given percentage(s) of the total signal.
+    """Calculates the time(s) where `cum_trace` reaches the given percentage(s) of the total signal.
+    **`cum_trace.data` need to be monotonically increasing**, e.g. as resulting from `cumsum`.
     Called N = `len(percentages)`, returns a list of N `obspy.UTCTimeStamp`s objects
     :param cum_trace: the input obspy.core.Trace (cumulative)
     :param percentages: the precentages to be calculated, e.g. 0.05, 0.95 (5% and 95%)
@@ -138,13 +147,14 @@ def cumtimes(cum_trace, *percentages):
 
 def fft(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',
         return_freqs=False):
-    """Computes the fft of the given trace returning the relative numpy array `fft` as the second
-    element the tuple
-    ```(df, fft)```
-    if `return_freqs=False` (df is the delta-frequency, as float), or
+    """Computes the Fast Fourier transform of the given trace.
+    If `return_freqs=False` (the default), returns the tuple
+    ```df, fft```
+    where `df` is the frequency resolution (in Hz). Otherwise, returns
     ```(freqs, fft)```
-    if `return_freqs=True` (`freqs` is linear space of frequencies, starting from 0, in Hz).
-    This methods optionally trims the given trace, tapers it and then applies the fft
+    where `freqs` is the frequencies vector (in Hz), evenly spaced with `df` as frequency
+    resolution.
+    This methods also optionally trims and tapers the given trace before applying the fft
     :param trace: the input obspy.core.Trace
     :param starttime: the start time for trim, or None (=> starttime = trace start time)
     :param endtime: the end time for trim, or None (=> endtime = trace end time)
@@ -176,7 +186,8 @@ def fft(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_ty
 def ampspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',
             return_freqs=False):
     """Computes the amplitude spectrum of the given trace.
-    Same as `fft`, but returns the amplitude spectrum as second element instead of the fft"""
+    See `fft` doc-string for info (this function does exactly the same it
+    only returns the amplitude spectrum as second element - i.e., the modulus of the fft)"""
     _, dft = fft(trace, starttime, endtime, taper_max_percentage, taper_type, return_freqs)
     return _, _ampspec(dft, signal_is_fft=True)
 
@@ -184,7 +195,8 @@ def ampspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, tape
 def powspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',
             return_freqs=False):
     """Computes the power spectrum of the given trace.
-    Same as `fft`, but returns the amplitude spectrum as second element instead of the fft"""
+     See `fft` doc-string for info (this function does exactly the same it
+    only returns the amplitude spectrum as second element - i.e., the square of the fft)"""
     _, dft = fft(trace, starttime, endtime, taper_max_percentage, taper_type, return_freqs)
     return _, _powspec(dft, signal_is_fft=True)
 
@@ -201,16 +213,23 @@ def ampratio(trace, threshold=2**23):
 
 
 def timeof(trace, index):
-    """Returns an `UTCDateTime` object corresponding to the time occurrence of the
-    `index`-th point of `trace`. Note that the index does not need to be inside the trace indices,
-    the corresponding time will be computed anyway according to the trace sampling rate"""
+    """Returns the time occurrence of the `index`-th point of `trace`.
+    Note that the index does not need to be inside the trace indices,
+    the corresponding time will be computed anyway according to the trace sampling rate
+    :param trace: an obspy Trace
+    :param index: a numeric integer
+    :return an `UTCDateTime` object corresponding to the time of the `inde`-th point of `trace`
+    """
     return trace.stats.starttime + index * trace.stats.delta
 
 
 def utcdatetime(time, return_if_none=None):
-    '''Convenience function to normalize any datetime object into UTCDateTime:
-    converts `time` into obspy UTCDateTime, by returning `time` if already UTCDateTime or
-    `UTCDateTime(time)` otherwise. If `time` is None, returns None by default (so that the returned
+    '''Normalizes `time` into an `UTCDateTime`.
+    This function can be used when working with datetime-like objects (python `datetime`,
+    time-stamps as `float` or `int`, obspy `UtcDateTime`s) including `None`s,
+    to normalize results and work consistently with the same object type.
+    It basically returns `time` if already `UTCDateTime` or `UTCDateTime(time)` otherwise.
+    If `time` is None, returns None by default (so that the returned
     value can be safely used when slicing/trimming such as, e.g. `trace.trim`), or any
     value supplied to the optional argument `return_if_none`
     :param time: a float, `datetime.datetime` object, or UtcDateTime. None is permitted and will

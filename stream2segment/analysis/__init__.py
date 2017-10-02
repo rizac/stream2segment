@@ -73,10 +73,11 @@ def freqs(time_signal, delta_t):
 
 
 def linspace(start, delta, num):
-    """Returns an evenly spaced array of values. Equivalent to:
+    """Returns an evenly spaced array of values, convenient for building e.g. arrays of
+    frequencies from the fft's frequency resolution `delta`. Equivalent to:
     `np.linspace(start, start + delta * num, num, endpoint=False)`
     :return: An array of evenly spaced `num` numbers starting from `start`,
-    with `delta` as "spacing" value.
+    with resolution=`delta` (distance between two consecutive points).
     """
     return np.linspace(start, start + delta * num, num, endpoint=False)
 
@@ -159,7 +160,7 @@ def snr(signal, noise, signals_form='', fmin=None, fmax=None, delta_signal=1.,
 
 
 def trim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
-    """Trims the evenly spaced signal `signal`.
+    """Trims the evenly spaced sampled signal `signal`.
     :param signal: numpy numeric array denoting the values to trim
     :param deltax: the delta between two points of signal on the x axis. The unit must be
     the same as `minx` and `maxx` (e.g., Herz, seconds, etcetera)
@@ -180,19 +181,13 @@ def argtrim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
     between (and including) minx and maxx. The returned 2-element tuple might contain `None`s
     (valid python slice argument to indicate: no bounds)
     """
-    if minx is None and maxx is None:
-        return (None, None)
-
-    idxmin, idxmax = minx, maxx
-
+    idxmin, idxmax = None, None
     if minx is not None:
         idx = int(round(minx / deltax) if nearest_sample else ceil(minx / deltax))
         idxmin = min(max(0, idx), len(signal))
-
     if maxx is not None:
         idx = int(round(maxx / deltax) if nearest_sample else floor(maxx / deltax)) + 1
         idxmax = min(max(0, idx), len(signal))
-
     return idxmin, idxmax
 
 
