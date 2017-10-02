@@ -777,11 +777,11 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
         # http://ws.resif.fr/fdsnws/dataselect/1/query
         # ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
         # """
-        assert self.mock_urlopen.call_args_list[0][0][0].data == """format=text
+        assert self.mock_urlopen.call_args_list[0][0][0].data == b"""format=text
 level=channel
 ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
 UP ARJ * * 2013-08-01T00:00:00 2017-04-25"""
-        assert self.mock_urlopen.call_args_list[1][0][0].data == """format=text
+        assert self.mock_urlopen.call_args_list[1][0][0].data == b"""format=text
 level=channel
 ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999"""
         assert self.mock_urlopen.call_args_list[0][0][0].get_full_url() == "http://geofon.gfz-potsdam.de/fdsnws/station/1/query"

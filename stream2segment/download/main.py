@@ -283,7 +283,7 @@ def response2normalizeddf(url, raw_data, dbmodel_key):
     """Returns a normalized and harmonized dataframe from raw_data. dbmodel_key can be 'event'
     'station' or 'channel'. Raises ValueError if the resulting dataframe is empty or if
     a ValueError is raised from sub-functions
-    :param url: url (string) or `urllib2.Request` object. Used only to log the specified
+    :param url: url (string) or `Request` object. Used only to log the specified
     url in case of wranings
     """
 
@@ -437,10 +437,11 @@ def get_channels_df(session, datacenters_df, post_data, channels, starttime, end
 
     ret = []
     url_failed_dc_ids = []
-    iterable = ((id_, Request(url, data='format=text\nlevel=channel\n'+post_data_str))
+    iterable = ((id_, Request(url,
+                              data=('format=text\nlevel=channel\n'+post_data_str).encode('utf8')))
                 for url, id_, post_data_str in zip(dc_df_fromweb[DataCenter.station_url.key],
-                                                    dc_df_fromweb[DataCenter.id.key],
-                                                    post_data_iter))
+                                                   dc_df_fromweb[DataCenter.id.key],
+                                                   post_data_iter))
 
     with get_progressbar(show_progress, length=len(dc_df_fromweb)) as bar:
         for obj, result, exc, url in read_async(iterable, urlkey=lambda obj: obj[-1],
@@ -828,7 +829,7 @@ def get_seg_request(segments_df, datacenter_url, chaid2mseedid_dict):
     post_data = "\n".join("{} {} {}".format(*(chaid2mseedid_dict[chaid].replace("..", ".--.").
                                               replace(".", " "), stime, etime))
                           for chaid in segments_df[CHA_ID] if chaid in chaid2mseedid_dict)
-    return Request(url=datacenter_url, data=post_data)
+    return Request(url=datacenter_url, data=post_data.encode('utf8'))
 
 
 def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_dict, download_id,
@@ -1039,7 +1040,7 @@ def _get_sta_request(datacenter_url, network, station, start_time, end_time):
     et = datetime.utcnow().isoformat() if pd.isnull(end_time) else end_time.isoformat()
     post_data = " ".join("*" if not x else x for x in[network, station, "*", "*",
                                                       start_time.isoformat(), et])
-    return Request(url=datacenter_url, data="level=response\n{}".format(post_data))
+    return Request(url=datacenter_url, data="level=response\n{}".format(post_data).encode('utf8'))
 
 
 def save_inventories(session, stations_df, max_thread_workers, timeout,

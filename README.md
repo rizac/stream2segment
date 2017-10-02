@@ -1,34 +1,49 @@
 # stream2segment
 
-A python project to download seismic waveforms related to events featuring several pre- and post- download processing utilities
+A python project to download seismic waveforms related to events featuring several pre- and
+post- download processing utilities
 
 ## Installation
 
 This program has been installed and tested on Ubuntu14.04, Ubuntu16.04 and Mac OSX El Capitan.
-The installation instructions below refer to the former (Ubuntu). In principle, Mac users can safely follow the same instructions below (trying to skip in the first place the [Prerequisites](#prerequisites) section, as it might not be necessary),
-
+The installation instructions below refer to the former (Ubuntu). In principle, Mac users can
+safely follow the same instructions below.
 
 ### Prerequisites
 
+This is a set of system packages which are necessary to run the program on Ubuntu.
+On Mac OsX El Capitan, we **did not experience the need of these packages** as they are probably
+pre-installed, so you can try to skip this section in the first place and get back here just in case.
+
 #### Ubuntu14.04 and Python2.7+
-The following system packages are required: `git python-pip python2.7-dev libpng-dev libfreetype6-dev 
-build-essential gfortran libatlas-base-dev libxml2-dev libxslt-dev`
-If you want to be (almost) sure beforehand, you can install them by typing:
+
+We suggest to upgrade `gcc` first:
 ```
 sudo apt-get update
 sudo apt-get upgrade gcc
+```
+The following system packages are required: `git python-pip python2.7-dev libpng-dev libfreetype6-dev 
+build-essential gfortran libatlas-base-dev libxml2-dev libxslt-dev`
+You can skip installing the system packages and get back here in case of problems, or choose to be
+(almost) sure (see also [Installation Notes](#installation-notes)):
+```
+sudo apt-get update
 sudo apt-get install git python-pip python2.7-dev libpng-dev libfreetype6-dev \
 	build-essential gfortran libatlas-base-dev libxml2-dev libxslt-dev python-tk
 ```
-Another choice (the one followed when building this documentation) is to skip this section and get back here in case of problems (or jumping to the section [Installation Notes](#installation-notes))
 
 #### Ubuntu16.04 and Python3.5+
 
-The following system packages are required: `git python3-pip `
-If you want to be (almost) sure beforehand, you can install them by typing:
+We suggest to upgrade `gcc` first (this has been proved necessary because some tests failed before
+upgrading and did not afterwards):
 ```
 sudo apt-get update
 sudo apt-get upgrade gcc
+```
+You can skip installing the system packages and get back here in case of problems, or choose to be
+(almost) sure (see also [Installation Notes](#installation-notes)):
+```
+sudo apt-get update
 sudo apt-get install git python3-pip
 ```
 

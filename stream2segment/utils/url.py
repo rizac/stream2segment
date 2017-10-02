@@ -25,7 +25,7 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
         Reads and return data from the given url. Wrapper around urllib2.open with some
         features added. Returns the tuple (content_read, status, message)
 
-        :param url: (string or urllib2.Request) a valid url or an `urllib2.Request` object
+        :param url: (string or `Request` object) a valid url or an `urllib2.Request` object
         :param blockSize: int, default: -1. The block size while reading, -1 means:
         read entire content at once
         :param: decode: string or None, default: None. The string used for decoding to string
@@ -44,7 +44,10 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
         :param timeout: timeout parameter specifies a timeout in seconds for blocking operations
         like the connection attempt (if not specified, None or non-positive, the global default
         timeout setting will be used). This actually only works for HTTP, HTTPS and FTP connections.
-        :param kwargs: optional arguments for `urllib2.urlopen` function (e.g., timeout=60)
+        :param kwargs: optional arguments for `urllib2.urlopen` function (e.g., timeout=60). Note
+        that if `data` is provided, then the method of the Request object will default to POST.
+        If `data` is a string, it should be of type `bytes` (this seems a problem in python3.5:
+        from python 3.6 it works with strings as well, in python 2x there is no difference)
         :return: the tuple (content_read, status code, status message), where the first item is
         the bytes sequence read (can be None if `raise_http_err=False`, is string - unicode in
         python2 - if `decode` is given, i.e. not None),
@@ -174,8 +177,10 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, dec
         tests did not show any relevant performance increase with `ThreadPool`s (maybe it's a
         feature of `ProcessPool`s) this argument is False by default
         :param kwargs: optional keyword arguments passed to `urllib2.urlopen` function (except
-        the `timeout` argument, see above). NOT TESTED. For info see
-        https://docs.python.org/2/library/urllib2.html#urllib2.urlopen
+        the `timeout` argument, see above). Note that if `data` is provided, then the method of
+        the Request object will default to POST. If `data` is a string, it should be of type
+        `bytes` (this seems a problem in python3.5: from python 3.6 it works with strings as well,
+        in python 2x there is no difference)
 
         Notes:
         ======

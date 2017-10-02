@@ -420,7 +420,7 @@ def v(dburl, configfile, pyfile):
 @click.argument('outdir')
 def t(outdir):
     """Creates template/config files which can be inspected and edited for launching download,
-    processing and visualization.
+    processing and visualization. OUTDIR will be created if it does not exist
     """
     helpdict = {"download.yaml": "download configuration file ('s2s d' -c option)",
                 "processing.py": "processing/gui python file ('s2s p' and 's2s v' -p option)",
@@ -428,14 +428,13 @@ def t(outdir):
                                     "('s2s p' and 's2s v' -c option)")}
     try:
         copied_files = create_templates(outdir, True, *helpdict)
-        print('')
         if not copied_files:
             print("No file copied")
         else:
             print("%d file(s) copied in '%s':" % (len(copied_files), outdir))
             for fcopied in copied_files:
                 bname = os.path.basename(fcopied)
-                print("%s: %s" % (bname, helpdict.get(bname, "")))
+                print("   %s: %s" % (bname, helpdict.get(bname, "")))
             sys.exit(0)
     except Exception as exc:
         print('')
