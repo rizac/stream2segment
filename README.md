@@ -2,14 +2,15 @@
 
 A python project to download seismic waveforms related to events featuring several pre- and post- download processing utilities
 
-## Installation (tested on Ubuntu14.04 - Ubuntu 12.10)
+## Installation
 
-This program has been written on Mac OS El Capitan, but a fresh installation test could be done
-on Ubuntu only. In principle, Mac users can safely follow the instructions below
-(trying to skip the [Prerequisites](#prerequisites) section, as it might not be necessary),
-but a complete track of possible issues is still to be published
+This program has been installed and tested on Ubuntu14.04, Ubuntu16.04 and Mac OSX El Capitan.
+The installation instructions below refer to the former (Ubuntu). In principle, Mac users can safely follow the same instructions below (trying to skip in the first place the [Prerequisites](#prerequisites) section, as it might not be necessary),
+
 
 ### Prerequisites
+
+#### Ubuntu14.04 and Python2.7+
 The following system packages are required: `git python-pip python2.7-dev libpng-dev libfreetype6-dev 
 build-essential gfortran libatlas-base-dev libxml2-dev libxslt-dev`
 If you want to be (almost) sure beforehand, you can install them by typing:
@@ -20,6 +21,16 @@ sudo apt-get install git python-pip python2.7-dev libpng-dev libfreetype6-dev \
 	build-essential gfortran libatlas-base-dev libxml2-dev libxslt-dev python-tk
 ```
 Another choice (the one followed when building this documentation) is to skip this section and get back here in case of problems (or jumping to the section [Installation Notes](#installation-notes))
+
+#### Ubuntu16.04 and Python3.5+
+
+The following system packages are required: `git python3-pip `
+If you want to be (almost) sure beforehand, you can install them by typing:
+```
+sudo apt-get update
+sudo apt-get upgrade gcc
+sudo apt-get install git python3-pip
+```
 
 ### Cloning repository
 
@@ -34,19 +45,35 @@ cd stream2segment
 
 ### Install and activate python virtualenv
 
-We strongly recomend to use python virtual environment. Why? Because by isolating all python packages we are about to install, we won't create conflicts with already installed packages. However feel free to skip this part (at your own risk, but you might know what you're doing). To install python virtual environment
+We strongly recomend to use python virtual environment, because by isolating all python packages we are about to install, we won't create conflicts with already installed packages.
+
+#### Installation (all versions)
+To install python virtual environment either use [Virtualenvwrapper][http://virtualenvwrapper.readthedocs.io/en/latest/install.html#basic-installation] or the more low-level approach `virtualenv`:
 ```
 sudo pip install virtualenv
 ```
-
 Make virtual environment in an stream2segment/env directory (env is a convention, but it's ignored by git commits so keep it)
  ```
 virtualenv env
  ```
+(on ubuntu 16.04, we got the message 'virtualenv: Command not found.'. We just typed: `/usr/local/bin/virtualenv env`)
 and activate it:
+
+#### Installation (alternative for python3)
+Python 3 has a built-in support for virtual environments - venv. It might be better to use that instead. To install
+```
+sudo apt-get install python3-venv wheel
+```
+Make virtual environment in an stream2segment/env directory (env is a convention, but it's ignored by git commits so keep it)
+```
+python3 -m venv ./env
+```
+You might 
+#### Activation (any python version)
  ```
  source env/bin/activate
  ```
+or `source env/bin/activate.csh` (depending on your shell)
 
 > <sub>Activation needs to be done __each time__ we will run the program. See section [Usage](#usage) below</sub>
 > <sub>Check: To check you are in the right env, type: `which pip` and you should see it's pointing inside the env folder</sub>
@@ -72,22 +99,42 @@ Activate your virtual environment
 
 ### Install and config packages
 
+Now you are supposed to be in your python virtualenv
+
+Run `pip freeze`. If you get the message 'You are using pip version ..., however version ... is available.'
+then execute:
+```
+pip install --upgrade pip
+```
+
+#### Using pre-built scripts ...
+
+Run `./installme` or `./installme-dev` (the latter if you want to run tests, recommended)
+
+#### ... or the old (longer) way:
+
 Install via requirements file:
 ```
 pip install ./requirements.txt
 ```
-Or, if you want to run tests (recommended),:
+Or, if you want to run tests (recommended):
 ```
 pip install ./requirements.dev.txt
 ```
-
 Install the current package
 ```
 pip install -e .
 ```
+
+### Runt ests
+
 To run tests, move in the project directory and run the command:
 ```
-py.test ./tests/
+py.test ./tests/ --ignore=./tests/skip --cov=./stream2segment
+```
+or
+```
+python -m pytest ./tests/ --ignore=./tests/skip --cov=./stream2segment
 ```
 (you should see a message with no errors, such as "===== 8 passed in 1.30 seconds ======")
 
