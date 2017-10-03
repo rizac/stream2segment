@@ -237,6 +237,8 @@ class Test(unittest.TestCase):
         
         self.logout = StringIO()
         self.handler = StreamHandler(stream=self.logout)
+        self._logout_cache = ""
+
         # THIS IS A HACK:
         query_logger.setLevel(logging.INFO)  # necessary to forward to handlers
         # if we called closing (we are testing the whole chain) the level will be reset (to level.INFO)
@@ -318,7 +320,11 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         self.routing_service = yaml_load(get_templates_fpath("download.yaml"))['advanced_settings']['routing_service_url']
 
     def log_msg(self):
-        return self.logout.getvalue()
+        idx = len(self._logout_cache)
+        self._logout_cache = self.logout.getvalue()
+        if len(self._logout_cache) == idx:
+            idx = None # do not slice
+        return self._logout_cache[idx:]
     
     def setup_urlopen(self, urlread_side_effect):
         """setup urlopen return value. 
@@ -703,6 +709,8 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
         assert self.mock_urlopen.called
         assert sorted(df[DataCenter.id.key].tolist()) == dcs
 
+
+
 # =================================================================================================
 
 
@@ -736,7 +744,7 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
                                                            channels=channels, db_bufsize=self.db_buf_size)
         
         # url read for channels: Note: first response data raises, second has an error and
-        #that error is skipped (other channels are added), and last two channels are from two
+        #that error is skipped (the other channels are added), and last two channels are from two
         # stations (BLA|BLA|...) with only different start time (thus stations should both be added)
         urlread_sideeffect  = ["""#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
 --- ERROR --- MALFORMED|12T00:00:00|
@@ -805,6 +813,7 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999"""
 
         assert len(cha_df2) == len(cha_df)
         assert sorted(list(cha_df.columns)) == sorted(list(cha_df2.columns))
+
         
         # now mock a datacenter null (or empty) postdata in the second datacenter
         # (<==> no data in eida routing service under a specific datacenter)
@@ -820,7 +829,7 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999"""
         assert cha_df3.equals(cha_df2)
         assert 'discarding response data' in self.log_msg()
 
-        # now test the opposite, but note that urlread side effect should return now an urlerror and a socket error:
+        # now test urlerrors in mock_url:
         with pytest.raises(QuitDownload):
             cha_df2 = self.get_channels_df(URLError('urlerror_wat'), self.session,
                                                            datacenters_df,
@@ -829,9 +838,9 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999"""
                                                            100, None, None, -1, self.db_buf_size
                                                    )
         assert 'urlerror_wat' in self.log_msg()
-        assert 'WARNING: unable to fetch stations from 1 data center(s)' in self.log_msg()
+        assert 'No response for' in self.log_msg()
 
-        # now test again, we should ahve a socket timeout
+        # now test again, we should have a socket timeout
         with pytest.raises(QuitDownload):
             cha_df2 = self.get_channels_df(socket.timeout(), self.session,
                                                            datacenters_df,
@@ -841,7 +850,8 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999"""
                                                    )
         assert 'timeout' in self.log_msg()
         
-        # now the case where the none post request is for the "good" repsonse data:
+        # now the case where the none post request is for the "good" repsonse data
+        # urlread_sideeffect[1]:
         # Basically, replace ['x', None] with [None, 'x'] and swap urlread side effects
         cha_df2 = self.get_channels_df([urlread_sideeffect[1], urlread_sideeffect[0]],
                                        self.session,
@@ -852,6 +862,9 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999"""
                                                    )
         
         assert len(cha_df2) == 6
+        
+        # now mixed case: 
+        
         # now change min sampling rate and see what happens (we do not have one channel more
         # cause we have overlapping names, and the 50 Hz channel is overridden by the second
         # query) 
@@ -925,11 +938,12 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
             cha_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                                datacenters_df,
                                                                [None] * len(datacenters_df),
-                                                               ['B??'], None, None,
+                                                               ['??'], None, None,
                                                                10, None, None, -1, self.db_buf_size
                                                        )
-        assert ("Fetching stations and channels from "
-                "db for %d data-center(s)") % len(datacenters_df) in self.log_msg()
+        assert "Fetching data from database for %d of %d data-center(s)" \
+                % (len(datacenters_df), len(datacenters_df)) in self.log_msg()
+        
         
            
         # Test the case where all responses are empty: raise quit download
@@ -941,8 +955,7 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
                                                                10, None, None, -1, self.db_buf_size
                                                        )
 
-        assert ("No channel found (Request error or empty response in all station queries, "
-                "no data in cache (database). Check config and log for details)") == str(qerr.value)
+        assert ("No channel found (Request error or empty response in all station") in str(qerr.value)
                 
         # same as above if all responses are errors
         with pytest.raises(QuitDownload) as qerr:
@@ -1010,6 +1023,45 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
                                                                10, None, None, -1, self.db_buf_size
                                                        )
             
+        
+        # now make the first url_side_effect raise => force query from db, and the second good
+        # => fetch from the web
+        # We want to test the mixed case: some fetched from db, some from the web
+        # ---------------------------------------------------
+        # first we query the db to check what we have:
+        cha_df = dbquery2df(self.session.query(Channel.id, Station.datacenter_id,
+                                               Station.network).join(Station))
+        # build a new network:
+        newnetwork = 'U'
+        while newnetwork in cha_df[Station.network.key]:
+            newnetwork += 'U'
+        urlread_sideeffect2  = ["""#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
+%s|W||HBE|39.0211|22.336|622.0|0.0|0.0|-90.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|50.0|2008-02-12T00:00:00|2010-02-12T00:00:00
+""" % newnetwork,  socket.timeout()]
+        # now note: the first url read raised, now it does not: write the channel above with
+        # network = newnetwork (surely non existing to the db)
+        #  The second url read did not raise, now it does (socket.timeout): fetch from the db
+        # we issue a ['???'] as 'channel' argument in order to fetch everything from the db
+        # (we would have got the same by passing None as 'channel' argument)
+        cha_df_ = self.get_channels_df(urlread_sideeffect2, self.session,
+                                                         datacenters_df,
+                                                         ['x'] * len(datacenters_df),
+                                                         ['???'], None, None,
+                                                         10, None, None, -1, self.db_buf_size
+                                                       )
+        
+        # we should have the channel with network 'U' to the first datacenter
+        dcid = datacenters_df.iloc[0][DataCenter.id.key]
+        assert len(cha_df_[cha_df_[Station.datacenter_id.key] == dcid]) == 1
+        assert cha_df_[cha_df_[Station.datacenter_id.key] == dcid][Station.network.key][0] == \
+            newnetwork
+        # but we did not query other channels for datacenter id = dcid, as the web response
+        # was successful, we rely on that. Conversely, for the other datacenter we should have all
+        # channels fetched from db
+        dcid = datacenters_df.iloc[1][DataCenter.id.key]
+        chaids_of_dcid = cha_df_[cha_df_[Station.datacenter_id.key] == dcid][Channel.id.key].tolist()
+        db_chaids_of_dcid = cha_df[cha_df[Station.datacenter_id.key] == dcid][Channel.id.key].tolist()
+        assert chaids_of_dcid == db_chaids_of_dcid
 
 # FIXME: test save inventories!!!!
 

@@ -16,9 +16,10 @@
 # (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)
 dburl: 'sqlite:////path/to/my/db.sqlite'
 
-# Try to dowonload again already saved segments whose response does not have a status code.
+# Try to dowonload again already saved segments without a download status code (NULL).
 # This indicates a failed download for any reason not included in the others listed here (e.g.,
-# when queries for several channels like 'HH?' are made and not all expected channels are returned)
+# when queries for several channels like 'HH?' are made, the Response status code is '200: Ok' but
+# not all expected channels segments are returned)
 retry_no_code: true
 # Try to dowonload again already saved segments whose response could not be retrieved because of a
 # general url error (e.g., no internet connection)

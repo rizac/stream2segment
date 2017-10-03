@@ -148,7 +148,8 @@ def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_s
     new dataframe. Raises `QuitDownload` if the returned dataframe is empty (no row saved)"""
     oldlen = len(dataframe)
     df, new = syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_size,
-                     drop_duplicates, return_df, onerr=handledbexc(cols_to_print_on_err))
+                     drop_duplicates, return_df,
+                     onerr=None if not cols_to_print_on_err else handledbexc(cols_to_print_on_err))
     table = autoincrement_pkey_col.class_
     if empty(df):
         raise QuitDownload(Exception(MSG("",
@@ -191,7 +192,7 @@ def dblog(table, inserted, not_inserted, updated=-1, not_updated=-1):
 
     def item(num):
         return "row" if num == 1 else "rows"
-    _header = "Db table '%s' summary"
+    _header = "Db table '%s'"
     _errmsg = "sql error (e.g., null constr., unique constr.)"
     _noerrmsg = "no sql errors"
 
@@ -404,7 +405,7 @@ def get_eida_datacenters_df(session, routing_service_url, channels, starttime=No
         else:
             msg = MSG("",
                       "eida routing service error, trying to work "
-                      "with %d already saved data-centers",
+                      "with already saved data-centers (%d)",
                       urlexc.exc, url)
             logger.warning(msg, len(dc_df))
             logger.info(msg, len(dc_df))
@@ -470,11 +471,9 @@ def get_channels_df(session, datacenters_df, post_data, channels, starttime, end
         else:
             dc_df_fromdb.append(failed_dcs)
         logger.info(MSG("",
-                        ("WARNING: unable to fetch stations from %d data center(s), "
-                         "the relative channels and segment will not be available"),
-                        "this might be due to connection errors (e.g., timeout)", ""),
+                        "Download error(s) from %d data center(s)",
+                        "") + ":",
                     len(url_failed_dc_ids))
-        logger.info("The data centers involved are (showing 'dataselect' url):")
         logger.info(failed_dcs[DataCenter.dataselect_url.key].to_string(index=False))
 
     # build two dataframes which we will concatenate afterwards
@@ -483,12 +482,13 @@ def get_channels_df(session, datacenters_df, post_data, channels, starttime, end
     db_cha_df = pd.DataFrame()
 
     if not dc_df_fromdb.empty:
-        logger.info("Fetching stations and channels from "
-                    "db for %d data-center(s)" % len(dc_df_fromdb))
+        logger.info(MSG("", "Fetching data from database for %d (of %d) data-center(s)",
+                    "") %
+                    (len(dc_df_fromdb), len(datacenters_df)))
         db_cha_df = get_channels_df_from_db(session, dc_df_fromdb, channels, starttime, endtime,
                                             min_sample_rate, db_bufsize)
         if db_cha_df.empty and web_cha_df.empty:
-            raise QuitDownload("No channel found in database according to given parameters")
+            raise QuitDownload("No channels found in the database according to given parameters")
 
     if not web_cha_df.empty:  # pd.concat complains for empty list
         # remove unmatching sample rates:
@@ -517,7 +517,7 @@ def get_channels_df(session, datacenters_df, post_data, channels, starttime, end
         # ok, now let's see if we have remaining datacenters to be fetched from the db
         raise QuitDownload(Exception(MSG("", "No channel found",
                                      ("Request error or empty response in all station "
-                                      "queries, no data in cache (database). "
+                                      "queries, no data to fetch from the database. "
                                       "Check config and log for details"))))
 
     # the columns for the channels dataframe that will be returned
@@ -525,8 +525,12 @@ def get_channels_df(session, datacenters_df, post_data, channels, starttime, end
                                 Station.longitude, Station.datacenter_id, Station.start_time,
                                 Station.end_time, Station.network, Station.station,
                                 Channel.location, Channel.channel]]
-    return (web_cha_df if db_cha_df.empty else db_cha_df if web_cha_df.empty else
-            pd.concat(web_cha_df, db_cha_df))[colnames].copy()
+    if db_cha_df.empty:
+        return web_cha_df[colnames]
+    elif web_cha_df.empty:
+        return db_cha_df[colnames]
+    else:
+        return pd.concat((web_cha_df, db_cha_df), axis=0, ignore_index=True)[colnames].copy()
 
 
 def get_channels_df_from_db(session, datacenters_df, channels, starttime, endtime, min_sample_rate,
@@ -1002,8 +1006,10 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                         stats[url]["%d: %s" % (code, msg)] += oks
                         unknowns = len(df) - oks - errors
                         if unknowns > 0:
-                            stats[url]["Unknown: response code %d, but expected segment data"
-                                       "not found. No download code assigned" % code] += unknowns
+                            stats[url]["No code: Expected segment data not found in "
+                                       "Response(code=%d). "
+                                       "Segment download status code set to NULL"
+                                       % code] += unknowns
                     except MSeedError as mseedexc:
                         code = MSEEDERR_CODE
                         exc = mseedexc
@@ -1029,6 +1035,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                 # break the next loop, if any
                 segments_df = pd.DataFrame()
 
+    segmanager.close()  # flush remaining stuff to insert / update, if any, and prints info
     return stats
 
 
@@ -1055,11 +1062,11 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
                            Station.start_time.key])
     with get_progressbar(show_progress, length=len(stations_df)) as bar:
         iterable = zip(stations_df[Station.id.key],
-                        stations_df[DataCenter.station_url.key],
-                        stations_df[Station.network.key],
-                        stations_df[Station.station.key],
-                        stations_df[Station.start_time.key],
-                        stations_df[Station.end_time.key])
+                       stations_df[DataCenter.station_url.key],
+                       stations_df[Station.network.key],
+                       stations_df[Station.station.key],
+                       stations_df[Station.start_time.key],
+                       stations_df[Station.end_time.key])
         for obj, result, exc, request in read_async(iterable,
                                                     urlkey=lambda obj: _get_sta_request(*obj[1:]),
                                                     max_workers=max_thread_workers,
@@ -1081,11 +1088,11 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
                                                 Station.inventory_xml.key: [dumps_inv(data)]}))
 
     logger.info(("Summary of web service responses for station inventories:\n"
-                 "downloaded %d\n"
-                 "discarded: %d (empty response)\n"
-                 "not downloaded: %d (client/server errors)") %
+                 "- downloaded     %6d \n"
+                 "- discarded      %6d (empty response)\n"
+                 "- not downloaded %6d (client/server errors)") %
                 (downloaded, empty, errors))
-    dbmanager.flush()
+    dbmanager.close()
 
 
 class DbManager(object):
@@ -1157,11 +1164,15 @@ class DbManager(object):
         self.updates = []
 
     def flush(self):
-        """flushes remaining stuff to insert/ update, if any, prints to log updates and inserts"""
+        """flushes remaining stuff to insert/ update, if any"""
         if self.inserts:
             self.insert()
         if self.updates:
             self.update()
+
+    def close(self):
+        """flushes remaining stuff to insert/ update, if any, prints to log updates and inserts"""
+        self.flush()
         new, ntot, upd, utot = self.info
         dblog(self.table, new, ntot - new, upd, utot - upd)
 
@@ -1340,4 +1351,5 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
                              advanced_settings['i_timeout'],
                              advanced_settings['download_blocksize'], dbbufsize, isterminal)
 
+    logger.info("")
     return exit_code

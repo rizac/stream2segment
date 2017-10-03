@@ -431,7 +431,7 @@ def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_siz
         dframe_with_pkeys = dframe_with_pkeys.drop_duplicates(subset=subset_cols)
         dframe_with_pkeys.is_copy = False
     return insertdf_napkeys(dframe_with_pkeys, session, autoincrement_pkey_col, buf_size,
-                            return_df)
+                            return_df, onerr)
 
 
 def insertdf_napkeys(dataframe, session, autoincrement_pkey_col, buf_size=10, return_df=True,
