@@ -568,24 +568,26 @@ class EidaValidator(object):
                 return True if return_bool else regexiterable[regex]
         return False if return_bool else None
 
-    def isin(self, dc_id, net, sta, loc, cha):
-        # dc_id - > {net_re -> //}
-        stadic = self.dic.get(dc_id, {}).get(net, None)
-        if stadic is None:
-            return False
-        # sta_re - > {loc_re -> //}
-        locdic = self._get(stadic, sta)
-        if locdic is None:
-            return False
-        # loc_re - > set(cha_re,..)
-        chaset = self._get(locdic, loc)
-        if chaset is None:
-            return False
+    def isin(self, dc_id, net, sta, loc, cha, return_np=True):
+        isarray = hasattr(dc_id, "__iter__") and not isinstance(dc_id, (bytes, str))
+        itr = zip(dc_id, net, sta, loc, cha) if isarray else \
+            zip([dc_id], [net], [sta], [loc], [cha])
+        res = []
+        for dc_id, net, sta, loc, cha in itr:
+            # dc_id - > {net_re -> //}
+            stadic = self.dic.get(dc_id, {}).get(net, None)
+            if stadic is None:
+                res.append(False)
+            # sta_re - > {loc_re -> //}
+            locdic = self._get(stadic, sta)
+            if locdic is None:
+                res.append(False)
+            # loc_re - > set(cha_re,..)
+            chaset = self._get(locdic, loc)
+            if chaset is None:
+                res.append(False)
+            res.append(self._get(chaset, cha, return_bool=True))
+        if not isarray:
+            res = res[0]
+        return np.array(res, dtype=bool) if return_np else res
 
-        return self._get(chaset, cha, return_bool=True)
-
-    def arein(self, dc_id, net, sta, loc, cha):
-        ret = []
-        for d, n, s, l, c in zip(dc_id, net, sta, loc, cha):
-            ret.append(self.isin(d, n, s, l, c))
-        return ret

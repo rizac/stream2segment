@@ -27,7 +27,7 @@ from stream2segment.io.db.pd_sql_utils import dfrowiter, mergeupdate,\
     dbquery2df, syncdf, insertdf_napkeys, updatedf
 from stream2segment.download.utils import empty, urljoin, response2df, normalize_fdsn_dframe,\
     get_search_radius, UrlStats, stats2str,\
-    get_events_list, locations2degrees, get_url_mseed_errorcodes
+    get_events_list, locations2degrees, get_url_mseed_errorcodes, eidarsiter, EidaValidator
 from stream2segment.utils import strconvert, get_progressbar
 from stream2segment.utils.mseedlite3 import MSeedError, unpack as mseedunpack
 from stream2segment.utils.msgs import MSG
@@ -301,12 +301,11 @@ def response2normalizeddf(url, raw_data, dbmodel_key):
 def get_datacenters_df(session, service, routing_service_url,
                        channels, starttime=None, endtime=None,
                        db_bufsize=None):
-    """Returns a 2 elements tuple: the dataframe of the datacenter matching `service`
-    and the
-    relative postdata (in the same order as the dataframe rows) as a list of strings.
-    The elements of the strings might be falsy (empty strings or None),
-    a function processing the output of this function should consider invalid datacenters with
-    falsy post data and e.g. query the database instead
+    """Returns a 3 elements tuple: the dataframe of the datacenter(s) matching `service`,
+    the postdata as string (for querying the datacenter), and, if service == 'eida',
+    an EidaValidator (built on the eida routing service response)
+    for checking stations/channels duplicates after querying the datacenter(s)
+    for stations / channels. If service != 'eida', this argument is None
     :param service: the string denoting the dataselect *or* station url in fdsn format, or
     'eida', or 'iris'. In case of 'eida', `routing_service_url` must denote an url for the
     edia routing service. If falsy (e.g., empty string ot None), `service` defaults to 'eida'
@@ -317,9 +316,13 @@ def get_datacenters_df(session, service, routing_service_url,
     DC_DURL = DataCenter.dataselect_url.key
     DC_ORG = DataCenter.node_organization_name.key
 
-    postdata = ["* * * %s %s %s" % (",".join(channels) if channels else "*",
-                                    "*" if not starttime else starttime.isoformat(),
-                                    "*" if not endtime else endtime.isoformat())]
+    postdata = "* * * %s %s %s" % (",".join(channels) if channels else "*",
+                                   "*" if not starttime else starttime.isoformat(),
+                                   "*" if not endtime else endtime.isoformat())
+
+    eidavalidator = None
+    eidars_responsetext = ''
+
     if not service:
         service = 'eida'
 
@@ -340,20 +343,22 @@ def get_datacenters_df(session, service, routing_service_url,
             raise QuitDownload(Exception(MSG("", "Unable to use datacenter",
                                              "Url does not seem to be a valid fdsn url", service)))
     else:
-        dc_df, postdata = get_eida_datacenters_df(session, routing_service_url, channels,
-                                                  starttime, endtime)
+        dc_df, eidars_responsetext = get_eida_datacenters_df(session, routing_service_url,
+                                                             channels, starttime, endtime)
 
-    if postdata:  # not eida, or eda succesfully queried
+    # attempt saving to db only if we might have something to save:
+    if service != 'eida' or eidars_responsetext:  # not eida, or eida succesfully queried: Sync db
         dc_df = dbsyncdf(dc_df, session, [DataCenter.station_url], DataCenter.id,
                          buf_size=len(dc_df) if db_bufsize is None else db_bufsize)
-    else:  # routing service error, we fetched from db, normalize postdata, no need to write to db
-        postdata = [''] * len(dc_df)
+        if eidars_responsetext:
+            eidavalidator = EidaValidator(dc_df, eidars_responsetext)
 
-    return dc_df, postdata
+    return dc_df, postdata, eidavalidator
 
 
 def get_eida_datacenters_df(session, routing_service_url, channels, starttime=None, endtime=None):
-    """Same as `get_eida_datacenters_df`, but returns eida nodes (data-centers)
+    """Returns the tuple (datacenters_df, eidavalidator) from eidars or from the db (in this latter
+    case eidavalidator is None)
     """
     # For convenience and readability, define once the mapped column names representing the
     # dataframe columns that we need:
@@ -372,26 +377,17 @@ def get_eida_datacenters_df(session, routing_service_url, channels, starttime=No
 
     url = urljoin(routing_service_url, **query_args)
     dc_df = None
-    dc_postdata = []
+    dcdicts = {}
 
     try:
-        dc_result, status, msg = urlread(url, decode='utf8', raise_http_err=True)
-        dc_split = dc_result.strip().split("\n\n")
-
-        for dcstr in dc_split:
-            idx = dcstr.find("\n")
-            if idx > -1:
-                url, postdata = dcstr[:idx].strip(), dcstr[idx:].strip()
-                urls = fdsn_urls(url)
-                if urls:
-                    dc_postdata.append(postdata)
-                    dcdict = {DC_SURL: urls[0], DC_DURL: urls[1], DC_ORG: 'eida'}
-                    if dc_df is None:
-                        dc_df = pd.DataFrame(dcdict, index=[0])
-                    else:
-                        dc_df = dc_df.append(dcdict, ignore_index=True)
-
-        return dc_df, dc_postdata
+        responsetext, status, msg = urlread(url, decode='utf8', raise_http_err=True)
+        for url, postdata in eidarsiter(responsetext):  # @UnusedVariable
+            urls = fdsn_urls(url)
+            if urls:
+                dcdicts.append({DC_SURL: urls[0], DC_DURL: urls[1], DC_ORG: 'eida'})
+        if not dcdicts:
+            raise URLException(Exception("No datacenters parsed from response text"))
+        return pd.DataFrame(dcdicts), responsetext
 
     except URLException as urlexc:
         dc_df = dbquery2df(session.query(DataCenter.id, DataCenter.station_url,
@@ -399,20 +395,18 @@ def get_eida_datacenters_df(session, routing_service_url, channels, starttime=No
                            filter(DataCenter.node_organization_name == 'eida')).\
                                 reset_index(drop=True)
         if empty(dc_df):
-            msg = MSG("", "eida routing service error, no eida data-center saved in database",
+            msg = MSG("", "eida routing service error and no eida data-center saved in database",
                       urlexc.exc, url)
             raise QuitDownload(Exception(msg))
         else:
-            msg = MSG("",
-                      "eida routing service error, trying to work "
-                      "with already saved data-centers (%d)",
-                      urlexc.exc, url)
-            logger.warning(msg, len(dc_df))
-            logger.info(msg, len(dc_df))
+            msg = MSG("", "eida routing service error", urlexc.exc, url)
+            logger.warning(msg)
+            logger.info(msg)
             return dc_df, None
 
 
-def get_channels_df(session, datacenters_df, post_data, channels, starttime, endtime,
+def get_channels_df(session, datacenters_df, post_data, eidavalidator,  # <- can be none
+                    channels, starttime, endtime,
                     min_sample_rate,
                     max_thread_workers, timeout, blocksize, db_bufsize,
                     show_progress=False):
@@ -423,28 +417,22 @@ def get_channels_df(session, datacenters_df, post_data, channels, starttime, end
     [Channel.id, Station.latitude, Station.longitude, Station.datacenter_id]
     ```
     :param datacenters_df: the first item resulting from `get_datacenters_df` (pandas DataFrame)
-    :param post_data: the second item resulting from `get_datacenters_df` (list of strings or None)
-    If None, the internal db is queried with the given arguments
+    :param post_data: the second item resulting from `get_datacenters_df` (string)
     :param channels: a list of string denoting the channels, or None for no filtering
     (all channels). Each string follows FDSN specifications (e.g. 'BHZ', 'H??'). This argument
     is not used if `post_data` is given (not None)
     :param min_sample_rate: minimum sampling rate, set to negative value for no-filtering
     (all channels)
     """
-    _mask = np.array([True if _ else False for _ in post_data])
-    post_data_iter = (p for p in post_data if p)
-    dc_df_fromweb = datacenters_df[_mask]
-    dc_df_fromdb = datacenters_df[~_mask]
-
     ret = []
     url_failed_dc_ids = []
     iterable = ((id_, Request(url,
                               data=('format=text\nlevel=channel\n'+post_data_str).encode('utf8')))
-                for url, id_, post_data_str in zip(dc_df_fromweb[DataCenter.station_url.key],
-                                                   dc_df_fromweb[DataCenter.id.key],
-                                                   post_data_iter))
+                for url, id_, post_data_str in zip(datacenters_df[DataCenter.station_url.key],
+                                                   datacenters_df[DataCenter.id.key],
+                                                   cycle([post_data])))
 
-    with get_progressbar(show_progress, length=len(dc_df_fromweb)) as bar:
+    with get_progressbar(show_progress, length=len(datacenters_df)) as bar:
         for obj, result, exc, url in read_async(iterable, urlkey=lambda obj: obj[-1],
                                                 blocksize=blocksize,
                                                 max_workers=max_thread_workers,
@@ -464,33 +452,20 @@ def get_channels_df(session, datacenters_df, post_data, channels, starttime, end
                     df[Station.datacenter_id.key] = dcen_id
                     ret.append(df)
 
-    if url_failed_dc_ids:  # if some datacenter does not return station, warn with INFO
-        failed_dcs = datacenters_df.loc[datacenters_df[DataCenter.id.key].isin(url_failed_dc_ids)]
-        if dc_df_fromdb.empty:
-            dc_df_fromdb = failed_dcs
-        else:
-            dc_df_fromdb.append(failed_dcs)
-        logger.info(MSG("",
-                        "Download error(s) from %d data center(s)",
-                        "") + ":",
-                    len(url_failed_dc_ids))
-        logger.info(failed_dcs[DataCenter.dataselect_url.key].to_string(index=False))
-
-    # build two dataframes which we will concatenate afterwards
-    web_cha_df = pd.DataFrame() if not ret else pd.concat(ret, axis=0, ignore_index=True,
-                                                          copy=False)
     db_cha_df = pd.DataFrame()
-
-    if not dc_df_fromdb.empty:
+    if url_failed_dc_ids:  # if some datacenter does not return station, warn with INFO
+        dc_df_fromdb = datacenters_df.loc[datacenters_df[DataCenter.id.key].isin(url_failed_dc_ids)]
         logger.info(MSG("", "Fetching data from database for %d (of %d) data-center(s)",
-                    "") %
-                    (len(dc_df_fromdb), len(datacenters_df)))
+                    "download errors occurred") %
+                    (len(dc_df_fromdb), len(datacenters_df)) + ":")
+        logger.info(dc_df_fromdb[DataCenter.dataselect_url.key].to_string(index=False))
         db_cha_df = get_channels_df_from_db(session, dc_df_fromdb, channels, starttime, endtime,
                                             min_sample_rate, db_bufsize)
-        if db_cha_df.empty and web_cha_df.empty:
-            raise QuitDownload("No channels found in the database according to given parameters")
 
-    if not web_cha_df.empty:  # pd.concat complains for empty list
+    # build two dataframes which we will concatenate afterwards
+    web_cha_df = pd.DataFrame()
+    if ret:  # pd.concat complains for empty list
+        web_cha_df = pd.concat(ret, axis=0, ignore_index=True, copy=False)
         # remove unmatching sample rates:
         if min_sample_rate > 0:
             srate_col = Channel.sample_rate.key
@@ -552,7 +527,7 @@ def get_channels_df_from_db(session, datacenters_df, channels, starttime, endtim
     return dbquery2df(qry)
 
 
-def save_stations_and_channels(session, channels_df, db_bufsize):
+def save_stations_and_channels(session, channels_df, db_bufsize, eidavalidator):
     """
         Saves to db channels (and their stations) and returns a dataframe with only channels saved
         The returned data frame will have the column 'id' (`Station.id`) renamed to
@@ -561,24 +536,59 @@ def save_stations_and_channels(session, channels_df, db_bufsize):
         :param channels_df: pandas DataFrame resulting from `get_channels_df`
     """
     # define columns (sql-alchemy model attrs) and their string names (pandas col names) once:
-    sta_cols = [Station.network, Station.station, Station.start_time]
-    sta_colnames = [c.key for c in sta_cols]
-    cha_cols = [Channel.station_id, Channel.location, Channel.channel]
-    cha_colnames = [c.key for c in [Channel.station_id, Station.network, Station.station,
-                                    Channel.location, Channel.channel, Station.start_time,
-                                    Station.datacenter_id]]
-    chastaid_colname = Channel.station_id.key
-    staid_colname = Station.id.key
+    STA_NET = Station.network.key
+    STA_STA = Station.station.key
+    STA_STIME = Station.start_time.key
+    STA_DCID = Station.datacenter_id.key
+    STA_ID = Station.id.key
+    CHA_STAID = Channel.station_id.key
+    CHA_LOC = Channel.location.key
+    CHA_CHA = Channel.channel.key
+    # first check dupes
+    stas_df = channels_df.drop_duplicates(subset=[STA_NET, STA_STA, STA_STIME, STA_DCID]).copy()
+    duplicated = stas_df.duplicated(keep=False)
+    if duplicated.any():
+        sta_df_dupes = stas_df[duplicated]
+        if eidavalidator is not None:
+            logger.info("Duplicated stations found. Checking validity by means of eida-rs response")
+            discarded = ~eidavalidator.isin(sta_df_dupes[STA_DCID],
+                                            sta_df_dupes[STA_NET],
+                                            sta_df_dupes[STA_STA],
+                                            sta_df_dupes[CHA_LOC],
+                                            sta_df_dupes[CHA_CHA])
+            sta_df_dupes = sta_df_dupes[discarded]
+        else:
+            logger.info("Duplicated stations found. Checking validity by means of stations "
+                        "already saved on the database")
+            sta_df_dupes.is_copy = False
+            sta_df_dupes[STA_DCID] = None
+            sta_db = dbquery2df(session.query(Station.network, Station.station, Station.start_time,
+                                              Station.datacenter_id))
+            mergeupdate(sta_df_dupes, sta_db, [STA_NET, STA_STA, STA_STIME], [STA_DCID])
+            sta_df_dupes = sta_df_dupes.dropna(axis=0, subset=[STA_DCID])
+
+        stas_discarded = stas_df[-duplicated]
+        if not stas_discarded.empty:
+            exc_msg = "%d duplicated stations removed" % (len(stas_discarded))
+            handledbexc([STA_NET, STA_STA, STA_STIME, STA_DCID])(stas_discarded, Exception(exc_msg))
+            # https://stackoverflow.com/questions/28901683/pandas-get-rows-which-are-not-in-other-dataframe:
+            stas_df = stas_df.loc[~stas_df.index.isin(stas_discarded.index)]
+
     # remember: dbsyncdf raises a QuitDownload, so no need to check for empty(dataframe)
-    # attempt to write only unique stations. Purge stations now otherwise we get misleading
-    # error message: "xxx stations discarded"
-    stas_df = dbsyncdf(channels_df.drop_duplicates(subset=sta_colnames).copy(), session, sta_cols,
-                       Station.id, db_bufsize, cols_to_print_on_err=sta_colnames)
-    channels_df = mergeupdate(channels_df, stas_df, sta_colnames, [staid_colname])
+    stas_df = dbsyncdf(stas_df, session, [Station.network, Station.station, Station.start_time],
+                       Station.id, db_bufsize,
+                       cols_to_print_on_err=[STA_NET, STA_STA, STA_STIME, STA_DCID])
+    channels_df = mergeupdate(channels_df, stas_df, [STA_NET, STA_STA, STA_STIME], [STA_ID])
+    oldlen = len(channels_df)
+    channels_df.dropna(axis=0, subset=[STA_ID], inplace=True)
+    if len(channels_df) < oldlen:
+        logger.info("%d channels removed (due to duplicated stations)" % (oldlen-len(channels_df)))
     # add channels to db:
-    channels_df = dbsyncdf(channels_df.rename(columns={staid_colname: chastaid_colname}),
-                           session, cha_cols, Channel.id, db_bufsize,
-                           cols_to_print_on_err=cha_colnames)
+    channels_df = dbsyncdf(channels_df.rename(columns={STA_ID: CHA_STAID}), session,
+                           [Channel.station_id, Channel.location, Channel.channel],
+                           Channel.id, db_bufsize,
+                           cols_to_print_on_err=[CHA_STAID, STA_NET, STA_STA, CHA_LOC, CHA_CHA,
+                                                 STA_STIME, STA_DCID])
     return channels_df
 
 
@@ -664,7 +674,7 @@ def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius,
 
     with get_progressbar(show_progress, length=len(max_radia)) as bar:
         for max_radius, evt_dic in zip(max_radia, dfrowiter(events_df, [EVT_ID, EVT_LAT, EVT_LON,
-                                                                         EVT_TIME, EVT_DEPTH])):
+                                                                        EVT_TIME, EVT_DEPTH])):
             l2d = locations2degrees(stations_df[STA_LAT], stations_df[STA_LON],
                                     evt_dic[EVT_LAT], evt_dic[EVT_LON])
             condition = (l2d <= max_radius) & (stations_df[STA_STIME] <= evt_dic[EVT_TIME]) & \
@@ -1241,10 +1251,9 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
     logger.info("")
     logger.info("STEP %s: Requesting data-centers", next(stepiter))
     try:
-        datacenters_df, postdata = get_datacenters_df(session,
-                                                      dataws,
-                                                      advanced_settings['routing_service_url'],
-                                                      channels, start, end, dbbufsize)
+        datacenters_df, postdata, eidavalidator = \
+            get_datacenters_df(session, dataws, advanced_settings['routing_service_url'],
+                               channels, start, end, dbbufsize)
     except QuitDownload as dexc:
         return dexc.log()
 
@@ -1253,7 +1262,8 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
                 len(datacenters_df),
                 'data-center' if len(datacenters_df) == 1 else 'data-centers')
     try:
-        channels_df = get_channels_df(session, datacenters_df, postdata, channels, start, end,
+        channels_df = get_channels_df(session, datacenters_df, postdata, eidavalidator,
+                                      channels, start, end,
                                       min_sample_rate,
                                       advanced_settings['max_thread_workers'],
                                       advanced_settings['s_timeout'],
