@@ -8,7 +8,7 @@ Utilities for the download package
 from __future__ import division
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import zip
+from builtins import zip, range
 
 import re
 from datetime import timedelta, datetime
@@ -19,11 +19,12 @@ import numpy as np
 import pandas as pd
 from sqlalchemy.orm.session import object_session
 
-from stream2segment.io.db.models import Event, Station, Channel
+from stream2segment.io.db.models import Event, Station, Channel, DataCenter, fdsn_urls
 from stream2segment.io.db.pd_sql_utils import harmonize_columns,\
-    harmonize_rows, colnames
+    harmonize_rows, colnames, dbquery2df
 from stream2segment.utils.url import urlread, URLException
-from stream2segment.utils import urljoin
+from stream2segment.utils import urljoin, strconvert
+from _collections import defaultdict
 
 
 def get_events_list(eventws, **args):
@@ -478,3 +479,113 @@ def locations2degrees(lat1, lon1, lat2, lon2):
 def get_url_mseed_errorcodes():
     """returns the error codes for general url exceptions and mseed errors, respectively"""
     return (-1, -2)
+
+
+def eidarsiter(responsetext):
+    """iterator yielding the tuple (url, postdata) for each datacenter found in responsetext
+    :param responsetext: the eida routing service response text
+    """
+    # not really pythonic code, but I enjoyed avoiding copying strings and creating lists
+    # so this iterator is most likely really low memory consuming
+    start = 0
+    while True:
+        end = responsetext.find("\n\n", start)
+        if end < 0:
+            break
+        mid = responsetext.find("\n", start, end)  # note: now we set a new value to idx
+        if mid > -1:
+            url, postdata = responsetext[start:mid].strip(), responsetext[mid:end].strip()
+            if url and postdata:
+                yield url, postdata
+        start = end + 2
+
+#     dc_split = responsetext.strip().split("\n\n")
+#     for dcstr in dc_split:
+#         idx = dcstr.find("\n")
+#         if idx > -1:
+#             url, postdata = dcstr[:idx].strip(), dcstr[idx:].strip()
+#             if url and postdata:
+#                 yield url, postdata
+
+#     previdx = 0
+#     textlen = len(responsetext)
+#     for i in range(0, textlen):
+#         if i == textlen-1 or responsetext[i] == responsetext[i+1] == '\n':
+#             dcstr = responsetext[previdx:i].strip()
+#             previdx = i+2
+#             if dcstr:
+#                 idx = dcstr.find("\n")
+#                 if idx > -1:
+#                     url, postdata = dcstr[:idx].strip(), dcstr[idx:].strip()
+#                     if url and postdata:
+#                         yield url, postdata
+
+
+class EidaValidator(object):
+
+    def __init__(self, datacenters_df, responsetext):
+        """Initializes a validator by """
+        self.dic = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(lambda:
+                                                                                           set()))))
+        reg = re.compile("^(\\S+) (\\S+) (\\S+) (\\S+) .*$",
+                         re.MULTILINE)  # @UndefinedVariable
+        for url, postdata in eidarsiter(responsetext):
+            _ = datacenters_df[datacenters_df[DataCenter.dataselect_url.key] == url]
+            if _.empty:
+                _ = datacenters_df[datacenters_df[DataCenter.station_url.key] == url]
+            if len(_) != 1:
+                continue
+            dc_id = _[DataCenter.id.key].iloc[0]
+            for match in reg.finditer(postdata):
+                try:
+                    net, sta, loc, cha = \
+                        match.group(1), match.group(2), match.group(3), match.group(4)
+                except IndexError:
+                    continue
+                self.add(dc_id, net, sta, loc, cha)
+
+    @staticmethod
+    def _tore(wild_str):
+        if wild_str == '--':
+            wild_str = ''
+        return re.compile("^%s$" % strconvert.wild2re(wild_str))
+
+    def add(self, dc_id, net, sta, loc, cha):
+        """adds the tuple datacenter id, network station location channels to the internal dic
+        :param dc_id: integer
+        :param net: string, the network name
+        :param sta: string, the station name. Special cases: '*' (match all), "--" (empty)
+        :param sta: string, the location name. Special cases: '*' (match all), "--" (empty)
+        :param cha: string, the channel (can contain wildcards like '*' or '?'). Special cases:
+                    '*' (match all)
+        """
+        self.dic[dc_id][net][self._tore(sta)][self._tore(loc)].add(self._tore(cha))
+
+    @staticmethod
+    def _get(regexiterable, key, return_bool=False):
+        for regex in regexiterable:
+            if regex.match(key):
+                return True if return_bool else regexiterable[regex]
+        return False if return_bool else None
+
+    def isin(self, dc_id, net, sta, loc, cha):
+        # dc_id - > {net_re -> //}
+        stadic = self.dic.get(dc_id, {}).get(net, None)
+        if stadic is None:
+            return False
+        # sta_re - > {loc_re -> //}
+        locdic = self._get(stadic, sta)
+        if locdic is None:
+            return False
+        # loc_re - > set(cha_re,..)
+        chaset = self._get(locdic, loc)
+        if chaset is None:
+            return False
+
+        return self._get(chaset, cha, return_bool=True)
+
+    def arein(self, dc_id, net, sta, loc, cha):
+        ret = []
+        for d, n, s, l, c in zip(dc_id, net, sta, loc, cha):
+            ret.append(self.isin(d, n, s, l, c))
+        return ret

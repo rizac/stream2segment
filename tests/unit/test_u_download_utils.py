@@ -9,6 +9,8 @@ from __future__ import print_function
 
 
 from future import standard_library
+from stream2segment.download.main import get_datacenters_df
+from stream2segment.io.db.models import DataCenter
 standard_library.install_aliases()
 from builtins import zip
 from mock import patch
@@ -18,9 +20,10 @@ from datetime import datetime, timedelta
 from io import StringIO
 import stream2segment
 from stream2segment.download.utils import get_search_radius, UrlStats,\
-    stats2str, locations2degrees as s2sloc2deg
+    stats2str, locations2degrees as s2sloc2deg, EidaValidator
 from obspy.geodetics.base import locations2degrees  as obspyloc2deg
 import numpy as np
+import pandas as pd
 import code
 from itertools import count, product
 import time
@@ -240,6 +243,45 @@ def eq(str1, str2):
 
     return True
     
+
+def test_eidavalidator():
+    responsetext = """http://ws.resif.fr/fdsnws/station/1/query
+Z3 A001A * HL? 2017-09-27T00:00:00 2017-10-01T00:00:00
+YF * * H?? 2017-09-27T00:00:00 2017-10-01T00:00:00
+
+http://eida.ethz.ch/fdsnws/station/1/query
+Z3 A291A * HH? 2017-09-27T00:00:00 2017-10-01T00:00:00
+
+http:wrong
+"""
+    dc_df = pd.DataFrame(columns=[DataCenter.id.key, DataCenter.station_url.key,
+                                  DataCenter.dataselect_url.key],
+                         data=[[1, 'http://ws.resif.fr/fdsnws/station/1/query', 'http://ws.resif.fr/fdsnws/dataselect/1/query' ],
+                               [2, 'http://eida.ethz.ch/fdsnws/station/1/query', 'http://eida.ethz.ch/fdsnws/dataselect/1/query' ]])
+    eidavalidator = EidaValidator(dc_df, responsetext)
+    
+    tests = {
+        (1, 'Z3', 'A001A', '01', 'HLLL'): False,
+        (1, 'Z3', 'A001A', '01', 'HLL'): True,
+        (2, '', '', '', ''): False,
+        (3, '', '', '', ''): False,
+        (1, 'Z3', 'A002a', '01', 'HLL'): False,
+        (1, 'Z3', 'A001A', '01', 'HLO'): True,
+        (1, 'Z3', 'A001A', '', 'HLL'): True,
+        (1, 'Z3', 'A291A', '01', 'HHL'): False,
+        (1, 'Z3', 'A291A', '01', 'HH'): False,
+        (2, 'Z3', 'A291A', '01', 'HH?'): True,
+        (1, 'YF', '*', '01', 'HH?'): True,
+        (1, 'YF', '*', '01', 'abc'): False,
+        (1, 'YF', '*', '01', 'HLW'): True,
+        (1, 'YF', '*fwe', 'bla', 'HL?'): True,
+        (1, 'YF', 'aewf*', '', 'HDF'): True,
+        (1, 'YFA', 'aewf*', '', 'HHH'): False,
+        (1, 'YFA', 'aewf*', '', 'HHH'): False,
+        }
+    
+    for k, expected in tests.items():
+        assert eidavalidator.isin(*k) == expected
     
 # PIECES OF MUSEUMS BELOW!!! OLD TESTS!! leaving as i would do with ancient ruins ;)    
     
