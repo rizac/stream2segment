@@ -243,6 +243,8 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, dec
         # (in the order of few seconds max) and the command below can be executed quickly:
         raise
 
+    tpool.close()
+
 
 def _ismainthread():
     """

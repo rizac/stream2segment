@@ -1,5 +1,9 @@
 '''
-Utilities for the download package
+Utilities for the download package.
+
+All "simple" functions not involving IO operations
+(logging, rul read, db IO operations) are separated from the main download package and implemented
+here
 
 :date: Nov 25, 2016
 
@@ -488,10 +492,11 @@ def eidarsiter(responsetext):
     # not really pythonic code, but I enjoyed avoiding copying strings and creating lists
     # so this iterator is most likely really low memory consuming
     start = 0
-    while True:
+    textlen = len(responsetext)
+    while start < textlen:
         end = responsetext.find("\n\n", start)
         if end < 0:
-            break
+            end = textlen
         mid = responsetext.find("\n", start, end)  # note: now we set a new value to idx
         if mid > -1:
             url, postdata = responsetext[start:mid].strip(), responsetext[mid:end].strip()
@@ -499,32 +504,16 @@ def eidarsiter(responsetext):
                 yield url, postdata
         start = end + 2
 
-#     dc_split = responsetext.strip().split("\n\n")
-#     for dcstr in dc_split:
-#         idx = dcstr.find("\n")
-#         if idx > -1:
-#             url, postdata = dcstr[:idx].strip(), dcstr[idx:].strip()
-#             if url and postdata:
-#                 yield url, postdata
-
-#     previdx = 0
-#     textlen = len(responsetext)
-#     for i in range(0, textlen):
-#         if i == textlen-1 or responsetext[i] == responsetext[i+1] == '\n':
-#             dcstr = responsetext[previdx:i].strip()
-#             previdx = i+2
-#             if dcstr:
-#                 idx = dcstr.find("\n")
-#                 if idx > -1:
-#                     url, postdata = dcstr[:idx].strip(), dcstr[idx:].strip()
-#                     if url and postdata:
-#                         yield url, postdata
-
 
 class EidaValidator(object):
-
+    '''Class for validating stations duplicates according to the eida routing service
+    response text'''
     def __init__(self, datacenters_df, responsetext):
-        """Initializes a validator by """
+        """Initializes a validator. You can then call `isin` to check if a station is valid
+        :param datacenters_df: a dataframe representing the datacenters read from the eida
+        routing service
+        :param responsetext: the plain response text from the eida routing service
+        """
         self.dic = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(lambda:
                                                                                            set()))))
         reg = re.compile("^(\\S+) (\\S+) (\\S+) (\\S+) .*$",
@@ -569,6 +558,12 @@ class EidaValidator(object):
         return False if return_bool else None
 
     def isin(self, dc_id, net, sta, loc, cha, return_np=True):
+        """Returns a boolean (or a list of booleans) telling if the tuple arguments:
+        ```(dc_id, net, sta, loc, cha)```
+        match any of the eida response lines of text.
+        Returns a list of boolean if the arguments are iterable (not including strings)
+        Returns numpy.array if return_np = True
+        """
         isarray = hasattr(dc_id, "__iter__") and not isinstance(dc_id, (bytes, str))
         itr = zip(dc_id, net, sta, loc, cha) if isarray else \
             zip([dc_id], [net], [sta], [loc], [cha])
@@ -578,14 +573,17 @@ class EidaValidator(object):
             stadic = self.dic.get(dc_id, {}).get(net, None)
             if stadic is None:
                 res.append(False)
+                continue
             # sta_re - > {loc_re -> //}
             locdic = self._get(stadic, sta)
             if locdic is None:
                 res.append(False)
+                continue
             # loc_re - > set(cha_re,..)
             chaset = self._get(locdic, loc)
             if chaset is None:
                 res.append(False)
+                continue
             res.append(self._get(chaset, cha, return_bool=True))
         if not isarray:
             res = res[0]

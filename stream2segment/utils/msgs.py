@@ -8,18 +8,14 @@ format
 '''
 
 
-def MSG(topic=None, action=None, errmsg=None, url=None):
-    """Utility function which formats a message in order to have normalized message
+def MSG(action=None, errmsg=None, url=None):
+    """Function which formats a message in order to have normalized message
     types across the program (e.g., in logging utilities). The argument can contain new
     (e.g., "{}") but also old-style format keywords (such as '%s', '%d') for usage within the
-    logging functions (e.g. `logging.warning(MSG('dataselect ws', '%d segments discarded'), 3)`).
+    logging functions, e.g.: `logging.warning(MSG('%d segments discarded', 'no response'), 3)`.
     The resulting string message will be in any of the following formats (according to
-    how many arguments are truthy):
+    how many arguments are non-empty):
     ```
-        "{topic}: {action} ({errmsg}). url: {url}"
-        "{topic}: {action} ({errmsg})"
-        "{topic}: {action}"
-        "{topic}"
         "{action} ({errmsg}). url: {url}"
         "{action} ({errmsg})"
         "{action}"
@@ -28,28 +24,20 @@ def MSG(topic=None, action=None, errmsg=None, url=None):
         "{url}"
         ""
     ```
-    :param topic: string or None: the topic of the message (e.g. "downloading channels")
     :param action: string or None: what has been done (e.g. "discarded 3 events")
     :param errmsg: string or Exception: the Exception or error message which caused the action
     :param url: the url (string) or `urllib2.Request` object: the url originating the message, if
     the latter was issued from a web request
     """
-    msg = ""
-    if topic:
-        msg = topic.strip()
-    if action:
-        action = action.strip()
-        msg = "{}: {}".format(msg, action) if msg else action
+    msg = action.strip()
     if errmsg:
         # sometimes exceptions have no message, append their name
         # (e.g. socket.timeout would now print at least 'timeout')
-        strerr = str(errmsg) or str(errmsg.__class__.__name__)
-        strerr = strerr.strip()
+        strerr = (str(errmsg) or str(errmsg.__class__.__name__)).strip()
         msg = "{} ({})".format(msg, strerr) if msg else strerr
     if url:
-        _ = url2str(url)
-        _ = _.strip()
-        msg = "{}. url: {}".format(msg, _) if msg else _
+        urlmsg = url2str(url).strip()
+        msg = "{}. url: {}".format(msg, urlmsg) if msg else urlmsg
     return msg
 
 
