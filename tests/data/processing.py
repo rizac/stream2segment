@@ -206,7 +206,7 @@ segment.datacenter                        object (attributes below)
 segment.datacenter.id                     int
 segment.datacenter.station_url            str
 segment.datacenter.dataselect_url         str
-segment.datacenter.node_organization_name str
+segment.datacenter.organization_name      str
 ----------------------------------------- ------------------------------------------------
 segment.download                          object (attributes below): the download execution
 segment.download.id                       int

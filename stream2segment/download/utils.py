@@ -557,35 +557,23 @@ class EidaValidator(object):
                 return True if return_bool else regexiterable[regex]
         return False if return_bool else None
 
-    def isin(self, dc_id, net, sta, loc, cha, return_np=True):
+    def isin(self, dc_id, net, sta, loc, cha):
         """Returns a boolean (or a list of booleans) telling if the tuple arguments:
         ```(dc_id, net, sta, loc, cha)```
         match any of the eida response lines of text.
         Returns a list of boolean if the arguments are iterable (not including strings)
         Returns numpy.array if return_np = True
         """
-        isarray = hasattr(dc_id, "__iter__") and not isinstance(dc_id, (bytes, str))
-        itr = zip(dc_id, net, sta, loc, cha) if isarray else \
-            zip([dc_id], [net], [sta], [loc], [cha])
-        res = []
-        for dc_id, net, sta, loc, cha in itr:
-            # dc_id - > {net_re -> //}
-            stadic = self.dic.get(dc_id, {}).get(net, None)
-            if stadic is None:
-                res.append(False)
-                continue
-            # sta_re - > {loc_re -> //}
-            locdic = self._get(stadic, sta)
-            if locdic is None:
-                res.append(False)
-                continue
-            # loc_re - > set(cha_re,..)
-            chaset = self._get(locdic, loc)
-            if chaset is None:
-                res.append(False)
-                continue
-            res.append(self._get(chaset, cha, return_bool=True))
-        if not isarray:
-            res = res[0]
-        return np.array(res, dtype=bool) if return_np else res
-
+        # dc_id - > {net_re -> //}
+        stadic = self.dic.get(dc_id, {}).get(net, None)
+        if stadic is None:
+            return False
+        # sta_re - > {loc_re -> //}
+        locdic = self._get(stadic, sta)
+        if locdic is None:
+            return False
+        # loc_re - > set(cha_re,..)
+        chaset = self._get(locdic, loc)
+        if chaset is None:
+            return False
+        return self._get(chaset, cha, return_bool=True)

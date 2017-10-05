@@ -333,10 +333,16 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                         #self.patcher3)
         
         self.configfile = get_templates_fpath("download.yaml")
-        
+        # self._logout_cache = ""
+    
     def log_msg(self):
         return self.logout.getvalue()
-    
+#         idx = len(self._logout_cache)
+#         self._logout_cache = self.logout.getvalue()
+#         if len(self._logout_cache) == idx:
+#             idx = None # do not slice
+#         return self._logout_cache[idx:]
+
     def setup_urlopen(self, urlread_side_effect):
         """setup urlopen return value. 
         :param urlread_side_effect: a LIST of strings or exceptions returned by urlopen.read, that will be converted
@@ -655,7 +661,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         # test some edge cases, if run from eclipse, a debugger and inspection of self.log_msg()
         # might be needed to check that everything is printed right. IF WE CHANGE THE MESSAGES
         # TO BE DISPLAYED, THEN CHANGE THE STRING BELOW:
-        str_err = "routing service error, trying to work with 2 already saved data-centers"
+        str_err = "Eida routing service error"
         assert str_err not in self.log_msg()
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(500, *a, **v) 
         mock_download_save_segments.reset_mock()
@@ -672,9 +678,8 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
             return
         
         assert not mock_download_save_segments.called
+        x = self.log_msg()
         assert str_err in self.log_msg()
-        str_1 = "Fetching stations and channels from db for %d data-center(s)" % self.session.query(DataCenter).count()
-        assert str_1 in self.log_msg()
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
         
 

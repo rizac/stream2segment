@@ -280,31 +280,11 @@ http:wrong
         (1, 'YFA', 'aewf*', '', 'HHH'): False,
         }
     
-    nptype = type(np.array(True))
-    booltype = type(True)
     for k, expected in tests.items():
-        npval = eidavalidator.isin(*k)
-        val = eidavalidator.isin(*k, return_np=False)
-        assert type(npval) == nptype
-        assert type(val) == booltype
-        
         assert eidavalidator.isin(*k) == expected
     
-    expected = []
-    data= []
-    for k, val in tests.items():
-        data.append(k)
-        expected.append(val)
-        
-    d = pd.DataFrame(columns=['dc_id','n', 's', 'l', 'c'], data=data)
     
-    npres = eidavalidator.isin(d['dc_id'], d['n'], d['s'], d['l'], d['c'])
-    res = eidavalidator.isin(d['dc_id'], d['n'], d['s'], d['l'], d['c'], return_np=False)
-    
-    assert np.array_equal(npres, expected)
-    assert np.array_equal(res, expected)
-    assert type(npres) == nptype
-    assert type(res) == list
+
 # PIECES OF MUSEUMS BELOW!!! OLD TESTS!! leaving as i would do with ancient ruins ;)    
     
 # @pytest.mark.parametrize('inargs, expected_dt',

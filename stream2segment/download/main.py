@@ -313,7 +313,7 @@ def get_datacenters_df(session, service, routing_service_url,
     # dataframe columns that we need:
     DC_SURL = DataCenter.station_url.key
     DC_DURL = DataCenter.dataselect_url.key
-    DC_ORG = DataCenter.node_organization_name.key
+    DC_ORG = DataCenter.organization_name.key
 
     eidavalidator = None
     eidars_responsetext = ''
@@ -359,7 +359,7 @@ def get_eida_datacenters_df(session, routing_service_url, channels, starttime=No
     # dataframe columns that we need:
     DC_SURL = DataCenter.station_url.key
     DC_DURL = DataCenter.dataselect_url.key
-    DC_ORG = DataCenter.node_organization_name.key
+    DC_ORG = DataCenter.organization_name.key
 
     # do not return only new datacenters, return all of them
     query_args = {'service': 'dataselect', 'format': 'post'}
@@ -387,7 +387,7 @@ def get_eida_datacenters_df(session, routing_service_url, channels, starttime=No
     except URLException as urlexc:
         dc_df = dbquery2df(session.query(DataCenter.id, DataCenter.station_url,
                                          DataCenter.dataselect_url).
-                           filter(DataCenter.node_organization_name == 'eida')).\
+                           filter(DataCenter.organization_name == 'eida')).\
                                 reset_index(drop=True)
         if empty(dc_df):
             msg = MSG("Eida routing service error, no eida data-center saved in database",
@@ -396,7 +396,7 @@ def get_eida_datacenters_df(session, routing_service_url, channels, starttime=No
         else:
             msg = MSG("Eida routing service error", urlexc.exc, url)
             logger.warning(msg)
-            logger.info(msg)
+            # logger.info(msg)
             return dc_df, None
 
 
@@ -552,51 +552,69 @@ def save_stations_and_channels(session, channels_df, eidavalidator, db_bufsize):
     CHA_STAID = Channel.station_id.key
     CHA_LOC = Channel.location.key
     CHA_CHA = Channel.channel.key
-    # first check dupes
+    # set columns to show in the log on error (no row written):
+    STA_ERRCOLS = [STA_NET, STA_STA, STA_STIME, STA_DCID]
+    CHA_ERRCOLS = [STA_NET, STA_STA, CHA_LOC, CHA_CHA, STA_STIME, STA_DCID]
+    # define a pre-formatteed string to log.info to in case od duplicates:
+    infomsg = "Found {:d} {} to be removed (checked against %s)" % \
+        ("already saved stations (eida routing service n/a)" if eidavalidator is None else \
+         "eida routing service response")
+    # first drop channels of same station:
     stas_df = channels_df.drop_duplicates(subset=[STA_NET, STA_STA, STA_STIME, STA_DCID]).copy()
-    duplicated = stas_df.duplicated(keep=False)
+    # then check dupes. Same network, station, starttime but different datacenter:
+    duplicated = stas_df.duplicated(subset=[STA_NET, STA_STA, STA_STIME], keep=False)
     if duplicated.any():
         sta_df_dupes = stas_df[duplicated]
         if eidavalidator is not None:
-            logger.info("Duplicated stations found. Checking validity by means of eida-rs response")
-            discarded = ~eidavalidator.isin(sta_df_dupes[STA_DCID],
-                                            sta_df_dupes[STA_NET],
-                                            sta_df_dupes[STA_STA],
-                                            sta_df_dupes[CHA_LOC],
-                                            sta_df_dupes[CHA_CHA])
-            sta_df_dupes = sta_df_dupes[discarded]
+            keep_indices = []
+            for _, group_df in sta_df_dupes.groupby(by=[STA_NET, STA_STA, STA_STIME],
+                                                    sort=False):
+                gdf = group_df.sort_values([STA_DCID])  # so we take first dc returning True
+                for i, d, n, s, l, c in zip(gdf.index, gdf[STA_DCID], gdf[STA_NET], gdf[STA_STA],
+                                            gdf[CHA_LOC], gdf[CHA_CHA]):
+                    if eidavalidator.isin(d, n, s, l, c):
+                        keep_indices.append(i)
+                        break
+            sta_df_dupes = sta_df_dupes.loc[~sta_df_dupes.index.isin(keep_indices)]
         else:
-            logger.info("Duplicated stations found. Checking validity by means of stations "
-                        "already saved on the database")
             sta_df_dupes.is_copy = False
-            sta_df_dupes[STA_DCID] = None
+            sta_df_dupes[STA_DCID + "_tmp"] = sta_df_dupes[STA_DCID].copy()
+            sta_df_dupes[STA_DCID] = np.nan
             sta_db = dbquery2df(session.query(Station.network, Station.station, Station.start_time,
                                               Station.datacenter_id))
             mergeupdate(sta_df_dupes, sta_db, [STA_NET, STA_STA, STA_STIME], [STA_DCID])
-            sta_df_dupes = sta_df_dupes.dropna(axis=0, subset=[STA_DCID])
+            sta_df_dupes = sta_df_dupes[sta_df_dupes[STA_DCID] != sta_df_dupes[STA_DCID + "_tmp"]]
 
-        stas_discarded = stas_df[-duplicated]
-        if not stas_discarded.empty:
-            exc_msg = "%d duplicated stations removed" % (len(stas_discarded))
-            handledbexc([STA_NET, STA_STA, STA_STIME, STA_DCID])(stas_discarded, Exception(exc_msg))
+        if not sta_df_dupes.empty:
+            exc_msg = "duplicated station(s)"
+            logger.info(infomsg.format(len(sta_df_dupes), exc_msg))
+            # print the removed dataframe to log.warning (showing STA_ERRCOLS only):
+            handledbexc(STA_ERRCOLS)(sta_df_dupes, Exception(exc_msg))
             # https://stackoverflow.com/questions/28901683/pandas-get-rows-which-are-not-in-other-dataframe:
-            stas_df = stas_df.loc[~stas_df.index.isin(stas_discarded.index)]
+            stas_df = stas_df.loc[~stas_df.index.isin(sta_df_dupes.index)]
 
     # remember: dbsyncdf raises a QuitDownload, so no need to check for empty(dataframe)
     stas_df = dbsyncdf(stas_df, session, [Station.network, Station.station, Station.start_time],
-                       Station.id, db_bufsize,
-                       cols_to_print_on_err=[STA_NET, STA_STA, STA_STIME, STA_DCID])
-    channels_df = mergeupdate(channels_df, stas_df, [STA_NET, STA_STA, STA_STIME], [STA_ID])
-    oldlen = len(channels_df)
-    channels_df.dropna(axis=0, subset=[STA_ID], inplace=True)
-    if len(channels_df) < oldlen:
-        logger.info("%d channels removed (due to duplicated stations)" % (oldlen-len(channels_df)))
+                       Station.id, db_bufsize, drop_duplicates=False,
+                       cols_to_print_on_err=STA_ERRCOLS)
+    channels_df = mergeupdate(channels_df, stas_df, [STA_NET, STA_STA, STA_STIME, STA_DCID],
+                              [STA_ID])
+    # rename now 'id' to 'station_id':
+    channels_df.rename(columns={STA_ID: CHA_STAID}, inplace=True)
+    # check dupes and warn:
+    channels_df_dupes = channels_df[channels_df[CHA_STAID].isnull()]
+    if not channels_df_dupes.empty:
+        exc_msg = "duplicated channel(s)"
+        logger.info(infomsg.format(len(channels_df_dupes), exc_msg))
+        # do not print the removed dataframe to log.warning (showing CHA_ERRCOLS only)
+        # the info is redundant given the already removed stations. Left commented in any case:
+        # handledbexc(CHA_ERRCOLS)(channels_df_dupes, Exception(exc_msg))
+        channels_df.dropna(axis=0, subset=[CHA_STAID], inplace=True)
     # add channels to db:
-    channels_df = dbsyncdf(channels_df.rename(columns={STA_ID: CHA_STAID}), session,
+    channels_df = dbsyncdf(channels_df, session,
                            [Channel.station_id, Channel.location, Channel.channel],
-                           Channel.id, db_bufsize,
-                           cols_to_print_on_err=[CHA_STAID, STA_NET, STA_STA, CHA_LOC, CHA_CHA,
-                                                 STA_STIME, STA_DCID])
+                           Channel.id, db_bufsize, drop_duplicates=False,
+                           cols_to_print_on_err=CHA_ERRCOLS)
     return channels_df
 
 
@@ -1259,7 +1277,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
     logger.info("")
     logger.info("STEP %s: Requesting data-centers", next(stepiter))
     try:
-        datacenters_df, postdata, eidavalidator = \
+        datacenters_df, eidavalidator = \
             get_datacenters_df(session, dataws, advanced_settings['routing_service_url'],
                                channels, start, end, dbbufsize)
     except QuitDownload as dexc:
@@ -1270,7 +1288,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
                 len(datacenters_df),
                 'data-center' if len(datacenters_df) == 1 else 'data-centers')
     try:
-        channels_df = get_channels_df(session, datacenters_df, postdata, eidavalidator,
+        channels_df = get_channels_df(session, datacenters_df, eidavalidator,
                                       channels, start, end,
                                       min_sample_rate,
                                       advanced_settings['max_thread_workers'],

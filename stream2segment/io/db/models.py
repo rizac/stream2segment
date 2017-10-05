@@ -189,7 +189,7 @@ class DataCenter(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)  # pylint:disable=invalid-name
     station_url = Column(String, nullable=False)  # if you change attr, see BELOW!
     dataselect_url = Column(String, nullable=False)  # , default=dc_datasel_default, onupdate=dc_datasel_default)
-    node_organization_name = Column(String, nullable=True)
+    organization_name = Column(String, nullable=True)
 
     # segments = relationship("Segment", backref="data_centers")
     # stations = relationship("Station", backref="data_centers")
