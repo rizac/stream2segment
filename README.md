@@ -1,7 +1,12 @@
 # stream2segment
 
-A python project to download seismic waveforms related to events featuring several pre- and
-post- download processing utilities
+A python project to download, process and visualize seismic event waveforms segments.
+
+The program stores segments in a db storage (sqlite or postgres) and exploits its capabilities for
+building highly customizable processing modules for building csv outputs. The user can visualize
+the downloded segments and customize functions to plot in a web browser GUI exploiting the high
+capabilities of Javascript plotting libraries. Finally, a set of class labels can be defined
+to make the GUI a hand-labelling tool for supervised classification problems
 
 ## Installation
 
@@ -44,7 +49,7 @@ You can skip installing the system packages and get back here in case of problem
 (almost) sure (see also [Installation Notes](#installation-notes)):
 ```
 sudo apt-get update
-sudo apt-get install git python3-pip
+sudo apt-get install git python3-pip wheel
 ```
 
 ### Cloning repository
@@ -58,7 +63,7 @@ and move into package folder:
 cd stream2segment
 ```
 
-### Install and activate python virtualenv
+### Install and activate python virtualenv (If using Anaconda, see below)
 
 We strongly recomend to use python virtual environment, because by isolating all python packages we are about to install, we won't create conflicts with already installed packages.
 
@@ -77,24 +82,24 @@ and activate it:
 #### Installation (alternative for python3)
 Python 3 has a built-in support for virtual environments - venv. It might be better to use that instead. To install
 ```
-sudo apt-get install python3-venv wheel
+sudo apt-get install python3-venv
 ```
 Make virtual environment in an stream2segment/env directory (env is a convention, but it's ignored by git commits so keep it)
 ```
 python3 -m venv ./env
 ```
-You might 
+
 #### Activation (any python version)
  ```
  source env/bin/activate
  ```
 or `source env/bin/activate.csh` (depending on your shell)
 
-> <sub>Activation needs to be done __each time__ we will run the program. See section [Usage](#usage) below</sub>
-> <sub>Check: To check you are in the right env, type: `which pip` and you should see it's pointing inside the env folder</sub>
+> <sub>Activation needs to be done __each time__ we will run the program. See section [Usage](#usage) below. </sub>
+> <sub>To check you are in the right env, type: `which pip` and you should see it's pointing inside the env folder</sub>
 
 
-#### Virtualenv with anaconda
+### Install and activate python virtualenv (Anaconda)
 
 (Thanks to JessieMyr who wrote this for us)
 
@@ -122,7 +127,7 @@ then execute:
 pip install --upgrade pip
 ```
 
-#### Using pre-built scripts ...
+#### Install using pre-built scripts ...
 
 Run `./installme` or `./installme-dev` (the latter if you want to run tests, recommended)
 
@@ -168,7 +173,13 @@ Type:
 ```
 s2s t --help
 ```
-and check how to create download and processing template files. Once done, type
+and check how to create download and processing template files. This creates three files:
+
+  - download.yaml: the config file for download data
+  - processing.yaml: the config file for processing/visualization
+  - processing.py: the python module to be run during processing/visualization
+
+Once done, type
 ```
 s2s d --help
 ```
@@ -179,7 +190,7 @@ For processing, type:
 ```
 s2s p --help
 ```
-or alternatively, for visualizing the downloaded data, type:
+or alternatively, for visualizing the downloaded data in a web browser GUI, type:
 ```
 s2s v --help
 ```
@@ -193,7 +204,7 @@ Move the file or create a link in the proper folder. The problem has been solved
 http://phersung.blogspot.de/2013/06/how-to-compile-libxml2-for-lxml-python.html
 
 - On Ubuntu 14.04 
-All following issues should be solved by following the instructions in the section [Prerequisites](#prerequisites). However,
+All following issues should be solved by following the instructions in the section [Prerequisites](#prerequisites). However:
  - For numpy installation problems (such as `Cannot compile 'Python.h'`) , the fix
 has been to update gcc and install python2.7-dev: 
 	```sudo apt-get update
@@ -203,9 +214,7 @@ has been to update gcc and install python2.7-dev:
  - For scipy problems, `build-essential gfortran libatlas-base-dev` are required for scipy (see http://stackoverflow.com/questions/2213551/installing-scipy-with-pip/3865521#3865521)
  - For lxml problems, `libxml2-dev libxslt-dev` are required (see here: http://lxml.de/installation.html)
 
-(We do not use anymore matplotlib for responsive GUIs, you can skip the lines below)
- - ~~For matplotlib problems, `libpng-dev libfreetype6-dev` are required (see http://stackoverflow.com/questions/25593512/cant-install-matplotlib-using-pip and http://stackoverflow.com/questions/28914202/pip-install-matplotlib-fails-cannot-build-package-freetype-python-setup-py-e)~~
- - ~~For matplotlib problems, if running `stream2segment --gui` (after downloading some data), you get `ImportError: cannot import name _tkagg` you should install python-tk: ```apt-get install python-tk`` (see http://stackoverflow.com/questions/4783810/install-tkinter-for-python)~~
+ - For matplotlib problems (matplotlib is not used by the program but from imported libraries), `libpng-dev libfreetype6-dev` are required (see http://stackoverflow.com/questions/25593512/cant-install-matplotlib-using-pip and http://stackoverflow.com/questions/28914202/pip-install-matplotlib-fails-cannot-build-package-freetype-python-setup-py-e)
 
 ## Misc:
 
@@ -216,9 +225,7 @@ sudo add-apt-repository ppa:linuxgndu/sqlitebrowser
 sudo apt-get install sqlitebrowser
 ```
 
-### ~~matplotlibrc~~
+### matplotlibrc
 
-A `matplotlibrc` file is included in the main root package. It sets the backend to 'TkAgg' so that
-we hide the "Turning interactive mode on" message (for Mac users) when importing packages
-requiring matplotlib (the program does not use anymore `matplotlib` for responsive GUIs
-as we moved to more robust and more powerful web interfaces with Flask).
+A `matplotlibrc` file is included in the main root package. As said, matplotlib is not used by the program
+but from imported libraries, The included file sets the backend to 'TkAgg' so that we hide the "Turning interactive mode on" message (for Mac users)
