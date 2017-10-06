@@ -161,11 +161,12 @@ def download(isterminal=False, **yaml_dict):
         loghandler = configlog4download(logger, session, download_id, isterminal)
 
         if isterminal:
-            print("Log messages will be temporarily written to '%s'" % str(loghandler.baseFilename))
-            print("If the program does not quit for external causes (e.g., memory overflow), "
-                  "the file will be deleted before exiting and its content will "
-                  "be written to the table '%s' (column '%s')" % (Download.__tablename__,
-                                                                  Download.log.key))
+            print("Log messages will be temporarily written to:\n'%s'" %
+                  str(loghandler.baseFilename))
+            print("(if the program does not quit for external causes, e.g., memory overflow,\n"
+                  "the file will be deleted before exiting and its content will be written\n"
+                  "to the table '%s', column '%s')" % (Download.__tablename__,
+                                                       Download.log.key))
 
         with elapsedtime2logger_when_finished(logger):
             run_download(session=session, download_id=download_id, isterminal=isterminal,

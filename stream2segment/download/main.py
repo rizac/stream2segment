@@ -556,7 +556,7 @@ def save_stations_and_channels(session, channels_df, eidavalidator, db_bufsize):
     STA_ERRCOLS = [STA_NET, STA_STA, STA_STIME, STA_DCID]
     CHA_ERRCOLS = [STA_NET, STA_STA, CHA_LOC, CHA_CHA, STA_STIME, STA_DCID]
     # define a pre-formatteed string to log.info to in case od duplicates:
-    infomsg = "Found {:d} {} to be removed (checked against %s)" % \
+    infomsg = "Found {:d} {} to be discarded (checked against %s)" % \
         ("already saved stations (eida routing service n/a)" if eidavalidator is None else \
          "eida routing service response")
     # first drop channels of same station:
@@ -1252,14 +1252,19 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
 
     process = psutil.Process(os.getpid()) if isterminal else None
     __steps = 6 + inventory  # bool substraction works: 8 - True == 7
-    stepiter = map(lambda i: "%d of %d%s" % (i+1, __steps,
-                                              "" if process is None else
-                                              (" (%.2f%% memory used)" %
-                                               process.memory_percent())), range(__steps))
+    stepiter = iter(range(1, __steps+1))
 
     # custom function for logging.info different steps:
     def stepinfo(text, *args, **kwargs):
-        logger.info("\nSTEP %s: %s" % (next(stepiter), text), *args, **kwargs)
+        step = next(stepiter)
+        memused = ''
+        if process is not None:
+            percent = process.memory_percent()
+            if args or kwargs:
+                memused = " (%.1f%% memory used)" % percent
+            else:
+                memused = " (%.1f%% memory used)" % percent
+        logger.info("\nSTEP %d of %d%s: {}".format(text), step, __steps, memused, *args, **kwargs)
     # add_classes(session, class_labels, dbbufsize)
 
     startiso = start.isoformat()
