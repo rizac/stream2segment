@@ -265,8 +265,9 @@ class Test(unittest.TestCase):
             rv = app.get('/')
             clz = self.session.query(Class).all()
 
-            # assert global js vars in the script tag of the main page are injected from jinja rendering:
-            expected_str = """var __SETTINGS = {"segment_select": {"event.latitude": "[24, 70]", "event.longitude": "[-11, 24]", "event.time": "(2014-01-01T00:00:00, 2014-12-31T23:59:59)", "has_data": "true", "max_gap_overlap_ratio": "[-0.5, 0.5]"}, "sn_windows": {"arrival_time_shift": -2.0, "signal_window": [0.1, 0.9]}};"""
+            # assert global yaml config vars are injected as javascript from jinja rendering:
+            # (be relaxed, if we change the template yaml file we do not want to fail)
+            expected_str = """var __SETTINGS = {"segment_select": {"has_data": "true"""
             # https://github.com/pallets/flask/issues/716 is bytes in python3. Fix for both 2 and 3:
             response_data = rv.data.decode('utf-8')
             assert expected_str in response_data
