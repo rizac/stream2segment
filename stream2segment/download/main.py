@@ -597,9 +597,10 @@ def save_stations_and_channels(session, channels_df, eidavalidator, db_bufsize):
     stas_df = dbsyncdf(stas_df, session, [Station.network, Station.station, Station.start_time],
                        Station.id, db_bufsize, drop_duplicates=False,
                        cols_to_print_on_err=STA_ERRCOLS)
+    # stas_df will have the STA_ID columns, channels_df not: set it from the former to the latter:
     channels_df = mergeupdate(channels_df, stas_df, [STA_NET, STA_STA, STA_STIME, STA_DCID],
                               [STA_ID])
-    # rename now 'id' to 'station_id':
+    # rename now 'id' to 'station_id' before writing the channels to db:
     channels_df.rename(columns={STA_ID: CHA_STAID}, inplace=True)
     # check dupes and warn:
     channels_df_dupes = channels_df[channels_df[CHA_STAID].isnull()]
@@ -735,7 +736,7 @@ def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius,
     # first check we have data:
     if not ret:
         raise QuitDownload(Exception(MSG("No segments to process",
-                                             "No station within search radia")))
+                                         "No station within search radia")))
     # now concat:
     ret = pd.concat(ret, axis=0, ignore_index=True, copy=True)
     # compute travel times. Doing it on a single array is much faster
@@ -1256,7 +1257,9 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
                                               (" (%.2f%% memory used)" %
                                                process.memory_percent())), range(__steps))
 
-    # write the class labels:
+    # custom function for logging.info different steps:
+    def stepinfo(text, *args, **kwargs):
+        logger.info("\nSTEP %s: %s" % (next(stepiter), text), *args, **kwargs)
     # add_classes(session, class_labels, dbbufsize)
 
     startiso = start.isoformat()

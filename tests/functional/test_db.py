@@ -309,7 +309,8 @@ class Test(unittest.TestCase):
         assert e.id == int(val)
 
         # test types. string floats are parsed automatically as int? YES if INT in sqlite
-        # so this is IntegrityError in sqlite (for what we just stated) and No on postgres (but raises a DataError instead)
+        # so this is IntegrityError in sqlite (for what we just stated) and No on postgres
+        # (but raises a DataError instead)
         val = '5.2'
         e = Class(id=val)
         assert e.id != float(val)

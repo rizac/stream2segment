@@ -981,44 +981,53 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
         urlread_sideeffect = """http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query
 A1 * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
 A2 a2 * * 2013-08-01T00:00:00 2017-04-25
-XX xx * HH? 2013-08-01T00:00:00 2017-04-25
+XX xx * * 2013-08-01T00:00:00 2017-04-25
 YY yy * HH? 2013-08-01T00:00:00 2017-04-25
 
 http://ws.resif.fr/fdsnws/dataselect/1/query
-B1 * * HL? 2002-09-01T00:00:00 2005-10-20T00:00:00
-B2 b2 * HH? 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
-XX xx * HL? 2013-08-01T00:00:00 2017-04-25
-YY yy * HL? 2013-08-01T00:00:00 2017-04-25
+B1 * * HH? 2002-09-01T00:00:00 2005-10-20T00:00:00
+XX xx * * 2013-08-01T00:00:00 2017-04-25
+YY yy * DE? 2013-08-01T00:00:00 2017-04-25
 """
         channels = None
         datacenters_df, eidavalidator = \
             self.get_datacenters_df(urlread_sideeffect, self.session, None, self.routing_service,
                                     channels=channels, db_bufsize=self.db_buf_size)
         
-        # write here the datacenters responses. In Sensor description we write it is expected to
-        # be written ("OK: [explanation, if any]") or not ("NO: [explanation, if any]"),
-        # so we can test more easily later 
-        # LEGEND:
-        # expected: not in the eida routing service of this datacenter
-        #     the eida routing service of the datacenter is the urlread_side_effect text above 
-        # with dupes: the same (network, station, starttime) is returned also by the other datacenter
-        #     response
+        # the idea of the eida routing service (or db query) is. Given a station, if it's unique
+        # just fetch the station id from the db. Note that this does not touch the station datacenter
+        # so we might end up downloading station's segment from a different datacenter than the
+        # station's datacenter saved on the database. That's what we want.
+        # If the station is NOT unique query the eida routing service (or the database): the FIRST
+        # station (sorted by datacenter id) which has a match on the eida routing service or db is
+        # taken, the other(s) discarded. If no station match (the station is not supposed to be
+        # returned by ANY datacenter in the eida-rs, or we do not have that station on the db) the
+        # station, and all its channels, are discarded
+        #
+        # To test what we just said, we write here the datacenters station query responses.
+        # LEGEND. In the channel:
+        # First letter: D=has dupes, N=no dupes. If N, the channel is always added
+        # Second letter: E=expected (is in the eida routing service of this datacenter), N: not expected
+        # Third letter: No meaning, (left free to be able play with regexps)
+        # Note that in Sensor description we writeif the channel should be saved
+        # ("OK: [explanation, if any]") or not ("NO: [explanation, if any]"). Channels starting with
+        # 'N', has said, do not need explanation as they have no dupes => written
         urlread_sideeffect  = ["""#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
-A1|AGG||HHZ|3|4|6|0|0|0|OK: expected                                                        |8|0.1|M/S|50.0|2008-02-12T00:00:00|
-A1|AGG||HHL|3|4|6|0|0|0|OK: expected                                                        |8|0.1|M/S|50.0|2008-02-12T00:00:00|
-A2|www||HHL|3|4|6|0|0|0|OK: not expected, but no dupes, so added                            |8|0.1|M/S|50.0|2008-02-12T00:00:00|
-A2|AGG||HHL|3|4|6|0|0|0|NO: not expected, with dupes, NOT added we cannot guess             |8|0.1|M/S|50.0|2008-02-12T00:00:00|
-XX|xx||HHL|3|4|6|0|0|0|OK: expected, with dupes, added cause it's the first                 |8|0.1|M/S|50.0|2008-02-12T00:00:00|
-YY|yy||HLL|3|4|6|0|0|0|NO: expected, with dupes, not added: channels does not match         |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+A1|aa||DEZ|3|4|6|0|0|0|OK:                                                |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+A1|aa||DEL|3|4|6|0|0|0|OK:                                                |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+A2|ww||NNL|3|4|6|0|0|0|OK:                                                |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+A2|xx||DNL|3|4|6|0|0|0|NO: we cannot guess                                |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+XX|xx||DEL|3|4|6|0|0|0|OK: it's the first                                 |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+YY|yy||DEL|3|4|6|0|0|0|NO: channel check done cause it's dupe: no match   |8|0.1|M/S|50.0|2008-02-12T00:00:00|
 """, 
 """#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
-B1|bbb||HHZ|3|4|6|0|0|0|OK: expected, channel does not match but no dupe, so taken                  |8|0.1|M/S|50.0|2008-02-12T00:00:00|
-A1|AGG||HHZ|3|4|6|0|0|0|NO: not expected, with dupes                                                 |8|0.1|M/S|50.0|2008-02-12T00:00:00|
-A1|AGG||HHZ|3|4|6|0|0|0|OK: not expected, but no dupes (starttime changed -> new station), so added  |8|0.1|M/S|50.0|2018-02-12T00:00:00|
-A2|AGG||HHL|3|4|6|0|0|0|NO: not expected, with dupes, not added we cannot guess                      |8|0.1|M/S|50.0|2008-02-12T00:00:00|
-A2|a2||HHL|3|4|6|0|0|0|OK: not expected, but no dupes, so added                                      |8|0.1|M/S|50.0|2008-02-12T00:00:00|
-XX|xx||HLL|3|4|6|0|0|0|NO: expected, with dupes, not added cause it's not the first                  |8|0.1|M/S|50.0|2008-02-12T00:00:00|
-YY|yy||HLL|3|4|6|0|0|0|OK: expected, with dupes, added: channels match                               |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+B1|bb||NEZ|3|4|6|0|0|0|OK: channel check not doneo taken                  |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+A1|aa||DNZ|3|4|6|0|0|0|NO:                                                |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+A1|aa||NNZ|3|4|6|0|0|0|OK: starttime changed -> new station               |8|0.1|M/S|50.0|2018-02-12T00:00:00|
+A2|xx||DNL|3|4|6|0|0|0|NO: we cannot guess                                |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+A2|a2||NNL|3|4|6|0|0|0|OK:                                                |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+XX|xx||DEL|3|4|6|0|0|0|NO: it's not the first                             |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+YY|yy||DEL|3|4|6|0|0|0|OK: channel check done cause it's dupe: matches    |8|0.1|M/S|50.0|2008-02-12T00:00:00|
 """]
 
         # get channels with the above implemented urlread_sideeffect:
@@ -1042,11 +1051,31 @@ YY|yy||HLL|3|4|6|0|0|0|OK: expected, with dupes, added: channels match          
                                                        channels, None, None,
                                                        10, None, None, -1, self.db_buf_size)
         
-        csd2 = dbquery2df(self.session.query(Channel.sensor_description))
-        assert len(csd2) == 8
-        # assert that the OK string is in the sensor description
-        assert all("OK: " for c in csd[Channel.sensor_description.key])
+        # assert that we get the same result as when eidavalidator is None:
+        assert cha_df2.equals(cha_df)
     
+    
+        # now test when the response is different
+        urlread_sideeffect[0], urlread_sideeffect[1]  = urlread_sideeffect[1], urlread_sideeffect[0]
+        # get channels with the above implemented urlread_sideeffect:
+        cha_df3 = self.get_channels_df(urlread_sideeffect, self.session,
+                                                       datacenters_df,
+                                                       eidavalidator,
+                                                       channels, None, None,
+                                                       10, None, None, -1, self.db_buf_size)
+        # we tested visually that everything is ok visually by issuing a 
+        # str(dbquery2df(self.session.query(Channel.id, Station.network, Station.station, Channel.channel, Channel.station_id, Station.datacenter_id).join(Station)))
+        #, we might add some more specific assert here
+        assert len(cha_df3) == 7
+
+        # get channels with the above implemented urlread_sideeffect:
+        cha_df4 = self.get_channels_df(urlread_sideeffect, self.session,
+                                                       datacenters_df,
+                                                       None,
+                                                       channels, None, None,
+                                                       10, None, None, -1, self.db_buf_size)
+        
+        assert cha_df3.equals(cha_df4)
 # FIXME: test save inventories!!!!
 
     def ttable(self, modelname=None):

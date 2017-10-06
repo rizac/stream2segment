@@ -439,8 +439,12 @@ def insertdf_napkeys(dataframe, session, autoincrement_pkey_col, buf_size=10, re
     """
     Efficiently inserts rows of `dataframe` in the corresponding database table T, but only
     where `autoincrement_pkey_col` is N/A (handling auto-incrementing of `autoincrement_pkey_col`
-    internally for good performances). `autoincrement_pkey_col` needs not to be in
+    internally for good performances). The column C=`autoincrement_pkey_col` needs not to be in
     `dataframe.columns` (the case is treated as if all `autoincrement_pkey_col` values were N/A).
+    C's dtype will be set to the appropriate type according to the sql `autoincrement_pkey_col.type`
+    (presumably, integer. C's dtype is set automatically if C is not in `dataframe`, or will be
+    cast to if `C` is in `dataframe`)
+
     Returns the tuple `(d, new)` where
 
     `return_df`  `d`:                                     `new`:
@@ -484,6 +488,12 @@ def insertdf_napkeys(dataframe, session, autoincrement_pkey_col, buf_size=10, re
             if df_has_pkey:
                 dframe_with_pkeys.loc[new_df.index, df_pkey_col] = new_df[df_pkey_col]
                 dframe_with_pkeys = dframe_with_pkeys.dropna(subset=[df_pkey_col])  # for safety
+                # now cast to integer cause we might have had float(s)
+                # Actually, be more general: take the dtype and cast
+                col_type = _get_dtype(autoincrement_pkey_col.type)
+                if dframe_with_pkeys[df_pkey_col].dtype != col_type:
+                    dframe_with_pkeys[df_pkey_col] = \
+                        dframe_with_pkeys[df_pkey_col].astype(col_type, copy=False)
             else:
                 dframe_with_pkeys = new_df
             ret_first_arg = dframe_with_pkeys
@@ -681,7 +691,10 @@ def _dbquery2set(session, columns, query_filter=None):
 def fetchsetpkeys(dataframe, session, matching_columns, pkey_col):
     """Fetches the primary keys of the table T corresponding to `dataframe` and sets their values
     on `dataframe[pkey_col.key]`. `dataframe` does not need to have that column in the first place
-    (it will be added if not present)
+    (it will be added if not present).
+    NOTE: As pkey_col should be of sql type INTEGER, the returning dataframe[pkey_col.key]'s
+    dtype might be float to accomodate NaN's, if any. Note that postgres is strict and will issue
+    an `sqlalchemy.exc.DataError` if inserting/updating a non-nan value (e.g., 6.0 instead of 6)
 
     :param dataframe: a pandas dataframe
     :param session: an sql-alchemy session
