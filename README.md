@@ -63,7 +63,9 @@ and move into package folder:
 cd stream2segment
 ```
 
-### Install and activate python virtualenv (If using Anaconda, see below)
+### Install and activate python virtualenv
+
+(If using Anaconda, skip this section and go to the next one)
 
 We strongly recomend to use python virtual environment, because by isolating all python packages we are about to install, we won't create conflicts with already installed packages.
 
@@ -156,11 +158,12 @@ or (if 'pytest not found' message appears):
 ```
 python -m pytest ./tests/ --ignore=./tests/skip --cov=./stream2segment
 ```
-(you should see a message with no errors, such as "===== 8 passed in 1.30 seconds ======")
+Wait, tests are time consuming (some minutes currently) and you should see a message with no errors, such as
+`"===== 8 passed in 1.30 seconds ======"`
 
 ## Usage
 
-(more on this upcoming...)
+This is a short tutorial, more detailed instructions soon...
 
 Move (`cd` on a terminal) to the stream2segment folder. If you installed and activated a python virtual environment during installation (hopefully you did), **activate the virtual environment first**:
 ```
