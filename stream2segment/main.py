@@ -170,7 +170,7 @@ def download(isterminal=False, **yaml_dict):
         with elapsedtime2logger_when_finished(logger):
             run_download(session=session, download_id=download_id, isterminal=isterminal,
                          **yaml_dict)
-            logger.info("%d total error(s), %d total warning(s)", loghandler.errors,
+            logger.info("\n%d total error(s), %d total warning(s)", loghandler.errors,
                         loghandler.warnings)
 
     return 0
@@ -362,13 +362,19 @@ def d(configfile, dburl, eventws, start, end, dataws, min_sample_rate, traveltim
               help="The path to the configuration file in yaml format "
                    "(https://learn.getgrav.org/advanced/yaml).",
               type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
-                              readable=True))
+                              readable=True),
+              required=True  # type click.Path checks the existence only if option is provided.
+              # Don't set required = True with eager=True: it suppresses --help
+              )
 @click.option("-p", "--pyfile",
               help="The path to the python file where to implement the processing function "
                    "which will be called iteratively on each segment "
                    "selected in the config file",
               type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
-                              readable=True))
+                              readable=True),
+              required=True  # type click.Path checks the existence only if option is provided.
+              # Don't set required = True with eager=True: it suppresses --help
+              )
 @click.option("-f", "--funcname",
               help="The name of the function to execute in the given python file. "
                    "Optional: defaults to '%s' when missing" % default_funcname(),
@@ -392,11 +398,17 @@ def p(dburl, configfile, pyfile, funcname, outfile):
               help="The path to the configuration file in yaml format "
                    "(https://learn.getgrav.org/advanced/yaml).",
               type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
-                              readable=True))
+                              readable=True),
+              required=True  # type click.Path checks the existence only if option is provided.
+              # Don't set required = True with eager=True: it suppresses --help
+              )
 @click.option("-p", "--pyfile",
               help="The path to the python file with the plot functions implemented",
               type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
-                              readable=True))
+                              readable=True),
+              required=True  # type click.Path checks the existence only if option is provided.
+              # Don't set required = True with eager=True: it suppresses --help
+              )
 def v(dburl, configfile, pyfile):
     """Visualize downloaded waveform data segments in a browser"""
     visualize(dburl, pyfile, configfile)

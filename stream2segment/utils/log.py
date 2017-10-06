@@ -161,7 +161,7 @@ def elapsedtime2logger_when_finished(logger, method='info'):
     """
     starttime = time.time()
     yield
-    getattr(logger, method)("Completed in %s",
+    getattr(logger, method)("(Completed in %s)",
                             str(timedeltaround(timedelta(seconds=time.time()-starttime))))
 
 # class MyFormatter(logging.Formatter):

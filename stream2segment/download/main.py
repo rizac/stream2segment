@@ -1267,8 +1267,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
 
     # events and datacenters should print meaningful stuff
     # cause otherwise is unclear why the program stop so quickly
-    logger.info("")
-    logger.info("STEP %s: Requesting events", next(stepiter))
+    stepinfo("Requesting events")
     # eventws_url = get_eventws_url(session, service)
     try:
         events_df = get_events_df(session, eventws, dbbufsize, start=startiso, end=endiso,
@@ -1277,8 +1276,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
         return dexc.log()
 
     # Get datacenters, store them in the db, returns the dc instances (db rows) correctly added:
-    logger.info("")
-    logger.info("STEP %s: Requesting data-centers", next(stepiter))
+    stepinfo("Requesting data-centers")
     try:
         datacenters_df, eidavalidator = \
             get_datacenters_df(session, dataws, advanced_settings['routing_service_url'],
@@ -1286,10 +1284,8 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
     except QuitDownload as dexc:
         return dexc.log()
 
-    logger.info("")
-    logger.info(("STEP %s: Requesting stations and channels from %d %s"), next(stepiter),
-                len(datacenters_df),
-                'data-center' if len(datacenters_df) == 1 else 'data-centers')
+    stepinfo("Requesting stations and channels from %d %s", len(datacenters_df),
+             "data-center" if len(datacenters_df) == 1 else "data-centers")
     try:
         channels_df = get_channels_df(session, datacenters_df, eidavalidator,
                                       channels, start, end,
@@ -1306,9 +1302,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
     # unnecessary columns and save space (and time)
     chaid2mseedid = chaid2mseedid_dict(channels_df, drop_mseedid_columns=True)
 
-    logger.info("")
-    logger.info(("STEP %s: Selecting stations within search area from %d events"), next(stepiter),
-                len(events_df))
+    stepinfo("Selecting stations within search area from %d events", len(events_df))
     try:
         segments_df = merge_events_stations(events_df, channels_df, search_radius['minmag'],
                                             search_radius['maxmag'], search_radius['minmag_radius'],
@@ -1320,9 +1314,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
     del events_df
     del channels_df
 
-    logger.info("")
-    logger.info(("STEP %s: %d segments found. Checking already downloaded segments"),
-                next(stepiter), len(segments_df))
+    stepinfo("%d segments found. Checking already downloaded segments", len(segments_df))
     exit_code = 0
     try:
         segments_df = prepare_for_download(session, segments_df, wtimespan, retry_no_code,
@@ -1331,12 +1323,10 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
 
         # download_save_segments raises a QuitDownload if there is no data, remember its
         # exitcode
-        logger.info("")
         if empty(segments_df):
-            logger.info("STEP %s: Skipping: No segment to download", next(stepiter))
+            stepinfo("Skipping: No segment to download")
         else:
-            logger.info("STEP %s: Downloading %d segments and saving to db", next(stepiter),
-                        len(segments_df))
+            stepinfo("Downloading %d segments and saving to db", len(segments_df))
 
         # frees memory. Although maybe unecessary, let's do our best to free stuff cause the
         # next one is memory consuming:
@@ -1379,16 +1369,13 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
         # Download inventories for those stations only
         sta_df = dbquery2df(query4inventorydownload(session))
         # stations = session.query(Station).filter(~withdata(Station.inventory_xml)).all()
-        logger.info("")
         if empty(sta_df):
-            logger.info(("STEP %s: Skipping: No station inventory to download"), next(stepiter))
+            stepinfo("Skipping: No station inventory to download")
         else:
-            logger.info(("STEP %s: Downloading %d station inventories"), next(stepiter),
-                        len(sta_df))
+            stepinfo("Downloading %d station inventories", len(sta_df))
             save_inventories(session, sta_df,
                              advanced_settings['max_thread_workers'],
                              advanced_settings['i_timeout'],
                              advanced_settings['download_blocksize'], dbbufsize, isterminal)
 
-    logger.info("")
     return exit_code

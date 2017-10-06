@@ -153,11 +153,11 @@
 # would match 'GURALP' and 'CMG-40T-30S', but not the whole string)
 segment_select:
   has_data: 'true'
-# id: '<300'
+  # id: '<300'
   max_gap_overlap_ratio: '[-0.5, 0.5]'
-  event.time: "(2014-01-01T00:00:00, 2014-12-31T23:59:59)"
-  event.latitude: "[24, 70]"
-  event.longitude: "[-11, 24]"
+  # event.time: "(2014-01-01T00:00:00, 2014-12-31T23:59:59)"
+  # event.latitude: "[24, 70]"
+  # event.longitude: "[-11, 24]"
 
 # Boolean flag indicating whether station inventories (in xml format) should be saved to the database
 # when they need to be downloaded
