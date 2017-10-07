@@ -27,7 +27,7 @@ def exprquery(sa_query, conditions, orderby=None, distinct=None):
     Joins are automatically added inside this method, if needed.
     Columns (and relationships, if any) are extracted from `conditions` keys (strings)
     by detecting the reference model class from `sa_query` first column
-    (`sa_query.column_descriptions[0]`).
+    (`sa_query.column_descriptions[0]`): thus **pay attention to the argument order of sa_query**.
     The returned query is a valid sql-alchemy query and can be further manipulated
     **in most cases**: a case when it's not possible is when issuing a `group_by` in `postgres`
     (for info, see

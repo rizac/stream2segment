@@ -354,9 +354,9 @@ class PlotManager(LimitedSizeDict):
             # needed a config value
             v[1] = None
 
-    def _check_size_limit(self):  # override super method to delete all components of a segment
-        if self.size_limit is not None:
-            while len(self) > self.size_limit:
-                _, segplotlist = self.popitem(last=False)
-                for sid in segplotlist.oc_segment_ids:
-                    self.pop(sid)
+    def _popitem_size_limit(self):
+        '''Called when super._check_size_limit is called. Remove also other components
+        segmentPlotList(s)'''
+        _, segplotlist = super(PlotManager, self)._popitem_size_limit()
+        for sid in segplotlist.oc_segment_ids:
+            self.pop(sid)

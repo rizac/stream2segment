@@ -563,15 +563,8 @@ class Test(unittest.TestCase):
                 logtext = self.read_and_remove(file.name+".log")
                 assert len(logtext) > 0
 
-                # REMEMBER, THIS DOES NOT WORK:
-                # assert mock_url_read.call_count == 2
-                # that's why we tested above by mocking multiprocessing
-                # (there must be some issue with multiprocessing)
-
-
         # save_downloaded_inventory False, test that we did not save any:
         assert len(self.session.query(Station).filter(Station.has_inventory).all()) == 0
-
 
     # Recall: we have 5 segments:
     # 2 are empty, out of the remaining three:

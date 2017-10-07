@@ -183,13 +183,13 @@ def get_stream(segment, format="MSEED", headonly=False, **kwargs):  # @ReservedA
     """Returns a Stream object relative to the given segment. The optional arguments are the same
     than `obspy.core.stream.read` (excepts than "format" defaults to "MSEED")
     :param segment: a model ORM instance representing a Segment (waveform data db row)
-    :param format: string, optional (default "MSEED"). Format of the file to read
-        (e.g. ``"MSEED"``). See obspy `Supported Formats`_ section below for a list of supported
+    :param format: string, optional (default "MSEED"). Format of the file to read. See obspy
+        `Supported Formats`_ section below for a list of supported
         formats. If format is set to ``None`` it will be automatically detected which
         results in a slightly slower reading. If a format is specified, no
         further format checking is done.
-    :param headonly: bool, optional. If set to ``True``, read only the data header. This is
-        most useful for scanning available meta information of huge data sets
+    :param headonly: bool, optional (dafult: False). If set to ``True``, read only the data
+        header. This is most useful for scanning available meta information of huge data sets
     :param kwargs: Additional keyword arguments passed to the underlying
         waveform reader method.
     """
@@ -288,7 +288,10 @@ class LimitedSizeDict(OrderedDict):
     def _check_size_limit(self):
         if self.size_limit is not None:
             while len(self) > self.size_limit:
-                self.popitem(last=False)
+                self._popitem_size_limit()
+
+    def _popitem_size_limit(self):
+        return self.popitem(last=False)
 
 
 class InventoryCache(LimitedSizeDict):
