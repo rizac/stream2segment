@@ -1,4 +1,5 @@
 #@PydevCodeAnalysisIgnore
+# -*- coding: utf-8 -*-
 '''
 Created on Feb 4, 2016
 
