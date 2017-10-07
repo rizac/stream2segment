@@ -206,10 +206,9 @@ def get_stream(segment, format="MSEED", headonly=False, **kwargs):  # @ReservedA
     # "obspy.io.mseed.core._read_mseed"
     try:
         return _read(BytesIO(data), format, headonly, **kwargs)
-    except TypeError as terr:
-        # as type errors should generally be raised in case of errors (see obspy source code),
-        # and type errors break the processing of all remaining segments,
-        # we do not want this behaviour. Thus raise a ValueError with the same message
+    except Exception as terr:
+        # As some exceptions break the processing of all remaining segments, wrap here errors
+        # and raise a ValueError which breaks only current segment in case
         raise ValueError(str(terr))
 
 
