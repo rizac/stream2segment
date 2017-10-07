@@ -251,7 +251,7 @@ def to_csv(outcsvfile, session, pysourcefile, configsourcefile, isterminal):
     with open(outcsvfile, 'w', 1) as csvfile:
 
         def ondone(segment, result):  # result is surely not None
-            if csvwriter[0] is None:  # instanitate writer according to first input
+            if csvwriter[0] is None:  # instantiate writer according to first input
                 isdict = isinstance(result, dict)
                 csvwriter[1] = isdict
                 # write first column(s):

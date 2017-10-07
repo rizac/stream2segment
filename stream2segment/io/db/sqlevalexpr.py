@@ -1,6 +1,7 @@
 '''
-Module implementing the functionalities that allow querying an sql database
-via string expression on table columns
+Module implementing the functionalities that allow issuing sql select statements from
+config files, command line or via GUI input controls
+via string expression on database tables columns
 
 :date: Mar 6, 2017
 
@@ -23,12 +24,10 @@ def exprquery(sa_query, conditions, orderby=None, distinct=None):
     """
     Enhance the given sql-alchemy query `sa_query` with conditions
     and ordering given in form of (string) expression, returning a new sql alchemy query.
-    Joins are automatically added inside this
-    method. That is, if any given `condition` key refers to relationships defined on the model class
-    (retrieved from the first ORM model found in `sa_querysa_query.column_descriptions`), then
-    necessary joins are appended to `sa_query`. If `sa_query` already contains joins, the join
-    is not added again, and sql-alchemy issues a warning 'SAWarning: Pathed join target'
-    (currently in `sqlalchemy.orm.query.py:2105`).
+    Joins are automatically added inside this method, if needed.
+    Columns (and relationships, if any) are extracted from `conditions` keys (strings)
+    by detecting the reference model class from `sa_query` first column
+    (`sa_query.column_descriptions[0]`).
     The returned query is a valid sql-alchemy query and can be further manipulated
     **in most cases**: a case when it's not possible is when issuing a `group_by` in `postgres`
     (for info, see
@@ -52,49 +51,61 @@ def exprquery(sa_query, conditions, orderby=None, distinct=None):
         birth = Column(DateTime, ...)
         parent = relationship(Parent,...)
 
-    # some queries, given a session object
     sess = ...  # sql-alchemy session
+    sa_query = sess.query  # sql-alchemy session's query object
 
-    #return all parents who have children:
-    exprquery(sess.query(Parent), {'children', 'any'})
+    # return all parents who have children:
+    exprquery(sa_query(Parent), {'children', 'any'})
 
-    #return all parents id's who have children:
-    exprquery(sess.query(Parent.id), {'children', 'any'})
+    # return all parents id's who have children:
+    exprquery(sa_query(Parent.id), {'children', 'any'})
 
-    #return all parents who have adult children:
-    exprquery(sess.query(Parent), {'children.age', '>=18'})
+    # return all parents who have adult children:
+    exprquery(sa_query(Parent), {'children.age', '>=18'})
 
-    #return all parents born before 1980 who have children not minor:
-    date1980 = datetime(1980,1,1))
-    # all these query are equivalent:
-    exprquery(sess.query(Parent).filter(Parent.birth < date1980), {'children.age', '>=18'})
-    exprquery(sess.query(Parent), {'children.age', '>=18'}).filter(Parent.birth < date1980)
-    exprquery(sess.query(Parent), {'birth': '1980-01-01', 'children.age', '>=18'})
+    # return all parents born before 1980 who have adult children:
+    exprquery(sa_query(Parent), {'birth': '<1980-01-01', 'children.age', '>=18'})
 
-    #return all parents who have non-minor children, with age sorted ascending:
-    exprquery(sess.query(Parent), {'children.age', '>=18'}, ['age'])
-    # same as above (providing 'asc' which if missing is the default):
-    exprquery(sess.query(Parent), {'children.age', '>=18'}, [('age', 'asc')])
-    # You can also provide more than one order (which in this case is quote trivial/redundant):
-    exprquery(sess.query(Parent), {'children.age', '>=18'}, [('age', 'desc'), ('birth', 'asc')])
+    # return all parents who have adult children, sorted (ascending) by parent's age (2 solutions):
+    exprquery(sa_query(Parent), {'children.age', '>=18'}, ['age'])  # or
+    exprquery(sa_query(Parent), {'children.age', '>=18'}, [('age', 'asc')])
+
+    # return all parents who have adult children, sorted (ascending) by parent's age and then
+    # descending by parent's id:
+    exprquery(sa_query(Parent), {'children.age', '>=18'}, [('age', 'asc'), ('id', 'desc')])
+
+    # Finally, note that these three are equivalent and valid:
+    date1980 = datetime(1980, 1, 1)
+    exprquery(sa_query(Parent).filter(Parent.birth < date1980), {'children.age', '>=18'})
+    exprquery(sa_query(Parent), {'children.age', '>=18'}).filter(Parent.birth < date1980)
+    exprquery(sa_query(Parent), {'birth': '<1980-01-01', 'children.age', '>=18'})
     ```
 
-    :param query: any sql-alchemy query object
+    :param sa_query: any sql-alchemy query object
     :param conditions: a dict of string columns mapped to **strings** expression, e.g.
     "column2": "[1, 45]" or "column1": "true" (not the boolean True)
-    A string column is an expression denoting an attribute of the underlying model (retrieved
-    as the first ORM model found in `sa_querysa_query.column_descriptions`) and can include
-    relationships. Example: if the model tablename is 'mymodel', then a string column 'name'
+    A string column is an expression denoting an attribute of the reference model class
+    and can include relationships.
+    Example: if the reference model tablename is 'mymodel', then a string column 'name'
     will refer to 'mymodel.name', 'name.id' denotes on the other hand a relationship 'name'
     on 'mymodel' and will refer to the 'id' attribute of the table mapped by 'mymodel.name'.
     The values of the dict on the other hand are string expressions in the form recognized
     by `get_condition`. E.g. '>=5', '["4", "5"]' ...
     For each condition mapped to a falsy value (e.g., None or empty string), the condition is
-    discarded
+    discarded. See note [*] below for auto-added joins from columns.
     :param orderby: a list of string columns (same format
     as `conditions` keys), or a list of tuples where the first element is
     a string column, and the second is either "asc" (ascending) or "desc" (descending). In the
-    first case, the order is "asc" by default
+    first case, the order is "asc" by default. See note [*] below for auto-added joins from
+    orderby columns.
+
+    :return: a new sel-alchemy query including the given conditions and ordering
+
+    [*] Note on auto-added joins: if any given `condition` or `orderby` key refers to
+    relationships defined on the reference model class, then necessary joins are appended to
+    `sa_query`.
+    If `sa_query` already contains joins, the join is not added again, and sql-alchemy issues
+    a warning 'SAWarning: Pathed join target' (currently in `sqlalchemy.orm.query.py:2105`).
     """
     # get the table model from the query
     model = sa_query.column_descriptions[0]['entity']

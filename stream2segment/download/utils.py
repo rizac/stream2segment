@@ -1,9 +1,8 @@
 '''
 Utilities for the download package.
 
-All "simple" functions not involving IO operations
-(logging, rul read, db IO operations) are separated from the main download package and implemented
-here
+Module implementing all functions not involving IO operations
+(logging, url read, db IO operations) in order to cleanup a bit the main module
 
 :date: Nov 25, 2016
 
@@ -18,6 +17,7 @@ import re
 from datetime import timedelta, datetime
 import dateutil
 from itertools import count
+from collections import defaultdict
 
 import numpy as np
 import pandas as pd
@@ -28,7 +28,6 @@ from stream2segment.io.db.pd_sql_utils import harmonize_columns,\
     harmonize_rows, colnames, dbquery2df
 from stream2segment.utils.url import urlread, URLException
 from stream2segment.utils import urljoin, strconvert
-from _collections import defaultdict
 
 
 def get_events_list(eventws, **args):

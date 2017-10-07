@@ -1,6 +1,6 @@
 # encoding: utf-8
 """
-IO utilities (db to python and viceversa)
+IO utilities and compression functions
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """

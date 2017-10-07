@@ -35,8 +35,6 @@ from future.utils import listvalues, iterkeys
 
 
 from datetime import datetime, date
-# from collections import OrderedDict
-# from itertools import cycle
 import numpy as np
 import pandas as pd
 
@@ -326,8 +324,7 @@ def dfrowiter(dataframe, columns=None):
     cols, datalist = _insert_data(dataframe[columns] if columns is not None else dataframe)
     # Note below: datalist is an array of N column, each of M rows (it would be nicer to return an
     # array of N rows, each of them representing a table row. But we do not want to touch pandas
-    # code.
-    # See _insert_table below). Thus we zip it:
+    # code. See _insert_table below). Thus we zip it:
     for row_values in zip(*datalist):
         yield dict(zip(cols, row_values))
 
@@ -359,6 +356,13 @@ def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_siz
            drop_duplicates=True, return_df=True, onerr=None):
     """
     Efficiently synchronizes `dataframe` with the corresponding database table T.
+    
+    This function works by:
+    1. Setting first the value of `autoincrement_pkey_col` for those rows found on T
+       (according to `matching_columns`)
+    2. Auto-incrementing `autoincrement_pkey_col` values for the remaining rows
+       (not found on the db), and finally writing those rows to T
+
     Returns the tuple `(d, new)` where:
 
     `return_df`  `d`:                                        `new`:
@@ -374,12 +378,6 @@ def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_siz
     ===========  =========================================== ====================================
 
     `return_df=False` is in principle faster as less operations are involved.
-
-    This function works by:
-    1. Setting first the value of `autoincrement_pkey_col` for those rows found on T
-       (according to `matching_columns`)
-    2. Auto-incrementing `autoincrement_pkey_col` values for the remaining rows
-       (not found on the db), and finally writing those rows to T
 
     :param dataframe: a pandas dataframe
     :param session: an sql-alchemy session
@@ -768,7 +766,6 @@ def mergeupdate(df_old, df_new, matching_columns, set_columns, drop_df_new_dupli
             ser = mergedf[col].values
         else:
             ser = np.where(mergedf['_merge'] == 'both', mergedf[col+"_y"], mergedf[col+"_x"])
-        # ser = mergedf[col+"_y"].where(mergedf['_merge'] == 'both', mergedf[col+"_x"])
         df_old[col] = ser
 
     return df_old

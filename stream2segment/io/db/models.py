@@ -93,7 +93,6 @@ class Base(_Base):
 def ForeignKey(*pos, **kwa):
     """Overrides the ForeignKey defined in SqlAlchemy by providing default
     `onupdate='CASCADE'` and `ondelete='CASCADE'` if the two keyword argument are missing in `kwa`.
-    As all Foreign keys defined here have nullable=False, this seem to be a reasonable choice.
     If this behavior needs to be modified for some column in the future,
     just provide the arguments in the constructor as one would do with sqlalchemy ForeignKey class
     E.g.: column = Column(..., ForeignKey(..., onupdate='SET NULL',...), nullable=True)
@@ -158,19 +157,13 @@ class Event(Base):
     # segments = relationship("Segment", back_populates="event")
 
 
-# the class below might be linked to a station_url and dataselect_url, and be a FDSNWSService
-# table to whom events, stations and dataselect are all linked. However,
-# Whereas IRIS provides a single service for the three of them, EIDA provides only station and
-# dataselect. Moreover, EIDA has several datacenters (federated) whereas IRIS has just one (centralized)
-# The program will have thus a "service" parameter which can be set to "eida" or "iris" and 
-# by means of the routing service we then do our filtering of networks and stations accordingly
 class WebService(Base):
     """event fdsn service"""
     __tablename__ = "web_services"
 
     id = Column(Integer, primary_key=True, autoincrement=True)  # pylint:disable=invalid-name
     name = Column(String)
-    type = Column(String)
+    type = Column(String)  # e.g.: event, station, dataselect (currently only event is used)
     url = Column(String, nullable=False)  # if you change attr, see BELOW!
 
     # segments = relationship("Segment", backref="data_centers")
@@ -188,11 +181,8 @@ class DataCenter(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)  # pylint:disable=invalid-name
     station_url = Column(String, nullable=False)  # if you change attr, see BELOW!
-    dataselect_url = Column(String, nullable=False)  # , default=dc_datasel_default, onupdate=dc_datasel_default)
+    dataselect_url = Column(String, nullable=False)
     organization_name = Column(String, nullable=True)
-
-    # segments = relationship("Segment", backref="data_centers")
-    # stations = relationship("Station", backref="data_centers")
 
     @hybrid_property
     def netloc(self):
@@ -240,7 +230,7 @@ def fdsn_urls(url):
     '''Returns the strings tuple (station_url, dataselect_url) by parsing url as a fdsn url
     (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf). Returns None if url
     is not parsable as fdsn url.
-    ''' 
+    '''
     services = ['station', 'dataselect']
     _ = re.match("^(.*/fdsnws)/(?P<service>.*?)/(?P<majorversion>.*?)(|/.*)$", url)
     if _:
@@ -261,7 +251,7 @@ class Station(Base):
 
     __tablename__ = "stations"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)  # , default=sta_pkey_default, onupdate=sta_pkey_default)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
     network = Column(String, nullable=False)
     station = Column(String, nullable=False)
@@ -293,7 +283,7 @@ class Channel(Base):
 
     __tablename__ = "channels"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)  # , default=cha_pkey_default, onupdate=cha_pkey_default)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     station_id = Column(Integer, ForeignKey("stations.id"), nullable=False)
     location = Column(String, nullable=False)
     channel = Column(String, nullable=False)
@@ -319,7 +309,7 @@ class Segment(Base):
 
     __tablename__ = "segments"
 
-    id = Column(Integer, primary_key=True)  # , default=seg_pkey_default, onupdate=seg_pkey_default)
+    id = Column(Integer, primary_key=True)
     event_id = Column(Integer, ForeignKey("events.id"), nullable=False)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
     datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
@@ -333,15 +323,6 @@ class Segment(Base):
     sample_rate = Column(Float)
     max_gap_overlap_ratio = Column(Float)
     download_id = Column(Integer, ForeignKey("downloads.id"), nullable=False)
-
-#     @hybrid_property
-#     def seedid(self):
-#         if self.seed_identifier:
-#             return self.seed_identifier
-#         else:
-#             return ".".join([x if x else "" for x in
-#                              [self.station.network, self.station.station, self.channel.location,
-#                               self.channel.channel]])
 
     # DEFINE HYBRID PROPERTIES. ACTUALY, WE ARE JUST INTERESTED IN HYBRID CLASSMETHODS FOR
     # QUERYING, BUT IT SEEMS THERE IS NO WAY TO DEFINE THEM WITHOUT DEFINING THE INSTANCE METHOD
@@ -400,7 +381,7 @@ class Segment(Base):
                      )
 
 
-class Class(Base):  # pylint: disable=no-init
+class Class(Base):
     """A class label"""
     __tablename__ = 'classes'
 

@@ -6,12 +6,9 @@ Views for the web app
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
 from flask import render_template, request, jsonify, Blueprint, current_app
-# from stream2segment.gui.webapp.plots import user_defined_plots, View
+
 from stream2segment.gui.webapp import core, get_session
 from stream2segment.utils import secure_dburl
-# from stream2segment.gui.webapp.core import get_doc
-# from stream2segment.gui.webapp.core import set_classes
-# from stream2segment.gui.webapp.plots.core import PlotManager
 
 # http://flask.pocoo.org/docs/0.12/patterns/appfactories/#basic-factories:
 main_page = Blueprint('main_page', __name__, template_folder='templates')
@@ -72,32 +69,8 @@ def get_segment_data():
                                          sn_windows))
 
 
-# @main_page.route("/get_segment_plots", methods=['POST'])
-# def get_segment_plots():
-#     data = request.get_json()
-#     seg_id = data['segId']
-#     rem_resp_filtered = data['filteredRemResp']
-#     zooms = data['zooms']
-#     all_components = data['allComponents']
-#     # NOTE: seg_id is a unicode string, but the query to the db works as well
-#     return jsonify(core.get_segment_data(seg_id, all_components, rem_resp_filtered, zooms))
-
-
-# @main_page.route("/select_segments", methods=['POST'])
-# def select_segments():
-#     data = request.get_json()
-#     # NOTE: seg_id is a unicode string, but the query to the db works as well
-#     return jsonify(core.get_segment_ids(data['selection'], data.get('order-by', None),
-#                                         data.get('with-data', True)))
-
-
 @main_page.route("/toggle_class_id", methods=['POST'])
 def toggle_class_id():
     json_req = request.get_json()
     return jsonify(core.toggle_class_id(get_session(current_app),
                                         json_req['segment_id'], json_req['class_id']))
-
-
-# @main_page.route("/config_spectra", methods=['POST'])
-# def config_spectra():
-#     return jsonify(core.config_spectra(request.get_json()))

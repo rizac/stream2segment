@@ -14,6 +14,7 @@ import os
 import logging
 from collections import defaultdict, OrderedDict
 from datetime import timedelta, datetime
+from itertools import cycle
 
 import numpy as np
 import pandas as pd
@@ -33,7 +34,6 @@ from stream2segment.utils.mseedlite3 import MSeedError, unpack as mseedunpack
 from stream2segment.utils.msgs import MSG
 # from stream2segment.utils.resources import get_ws_fpath, yaml_load
 from stream2segment.io.utils import dumps_inv
-
 from stream2segment.io.db.queries import query4inventorydownload
 from stream2segment.download.traveltimes.ttloader import TTTable
 from stream2segment.utils.resources import get_ttable_fpath
@@ -41,7 +41,6 @@ from stream2segment.utils.resources import get_ttable_fpath
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#aliased-imports):
 from future import standard_library
-from itertools import cycle
 standard_library.install_aliases()
 from urllib.parse import urlparse  # @IgnorePep8
 from urllib.request import Request  # @IgnorePep8
@@ -170,8 +169,7 @@ def handledbexc(cols_to_print_on_err, update=False):
             except AttributeError:
                 errmsg = str(exception)
             len_df = len(dataframe)
-            msg = MSG("%d database rows not %s" % (len_df,
-                                                       "updated" if update else "inserted"),
+            msg = MSG("%d database rows not %s" % (len_df, "updated" if update else "inserted"),
                       errmsg)
             if len_df > N:
                 footer = "\n... (showing first %d rows only)" % N
@@ -557,14 +555,14 @@ def save_stations_and_channels(session, channels_df, eidavalidator, db_bufsize):
     CHA_ERRCOLS = [STA_NET, STA_STA, CHA_LOC, CHA_CHA, STA_STIME, STA_DCID]
     # define a pre-formatteed string to log.info to in case od duplicates:
     infomsg = "Found {:d} {} to be discarded (checked against %s)" % \
-        ("already saved stations (eida routing service n/a)" if eidavalidator is None else \
+        ("already saved stations: eida routing service n/a" if eidavalidator is None else
          "eida routing service response")
     # first drop channels of same station:
-    stas_df = channels_df.drop_duplicates(subset=[STA_NET, STA_STA, STA_STIME, STA_DCID]).copy()
+    sta_df = channels_df.drop_duplicates(subset=[STA_NET, STA_STA, STA_STIME, STA_DCID]).copy()
     # then check dupes. Same network, station, starttime but different datacenter:
-    duplicated = stas_df.duplicated(subset=[STA_NET, STA_STA, STA_STIME], keep=False)
+    duplicated = sta_df.duplicated(subset=[STA_NET, STA_STA, STA_STIME], keep=False)
     if duplicated.any():
-        sta_df_dupes = stas_df[duplicated]
+        sta_df_dupes = sta_df[duplicated]
         if eidavalidator is not None:
             keep_indices = []
             for _, group_df in sta_df_dupes.groupby(by=[STA_NET, STA_STA, STA_STIME],
@@ -591,14 +589,14 @@ def save_stations_and_channels(session, channels_df, eidavalidator, db_bufsize):
             # print the removed dataframe to log.warning (showing STA_ERRCOLS only):
             handledbexc(STA_ERRCOLS)(sta_df_dupes, Exception(exc_msg))
             # https://stackoverflow.com/questions/28901683/pandas-get-rows-which-are-not-in-other-dataframe:
-            stas_df = stas_df.loc[~stas_df.index.isin(sta_df_dupes.index)]
+            sta_df = sta_df.loc[~sta_df.index.isin(sta_df_dupes.index)]
 
     # remember: dbsyncdf raises a QuitDownload, so no need to check for empty(dataframe)
-    stas_df = dbsyncdf(stas_df, session, [Station.network, Station.station, Station.start_time],
-                       Station.id, db_bufsize, drop_duplicates=False,
-                       cols_to_print_on_err=STA_ERRCOLS)
-    # stas_df will have the STA_ID columns, channels_df not: set it from the former to the latter:
-    channels_df = mergeupdate(channels_df, stas_df, [STA_NET, STA_STA, STA_STIME, STA_DCID],
+    sta_df = dbsyncdf(sta_df, session, [Station.network, Station.station, Station.start_time],
+                      Station.id, db_bufsize, drop_duplicates=False,
+                      cols_to_print_on_err=STA_ERRCOLS)
+    # sta_df will have the STA_ID columns, channels_df not: set it from the former to the latter:
+    channels_df = mergeupdate(channels_df, sta_df, [STA_NET, STA_STA, STA_STIME, STA_DCID],
                               [STA_ID])
     # rename now 'id' to 'station_id' before writing the channels to db:
     channels_df.rename(columns={STA_ID: CHA_STAID}, inplace=True)
@@ -649,8 +647,8 @@ def chaid2mseedid_dict(channels_df, drop_mseedid_columns=True):
     # we could return
     # pd.DataFrame(index=channels_df[CHA_ID], {'mseed_id': _mseedids})
     # but the latter does NOT consume less memory (strings are python string in pandas)
-    # and the search for an mseed_id given a loc[channel_id] is slightly slower than python dicts
-    # as the returned element is intended for searching, then return a dict:
+    # and the search for an mseed_id given a loc[channel_id] is slower than python dicts.
+    # As the returned element is intended for searching, then return a dict:
     return {chaid: mseedid for chaid, mseedid in zip(channels_df[CHA_ID], _mseedids)}
 
 
@@ -718,8 +716,8 @@ def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius,
             # set locations2 degrees
             stations_df[SEG_EVDIST] = l2d
             # Copy distances calculated on stations to their channels
-            # (match along column CHA_STAID shared between the reletive dataframes). Set values only for
-            # channels whose stations are within radius (stations_df[condition]):
+            # (match along column CHA_STAID shared between the reletive dataframes). Set values
+            # only for channels whose stations are within radius (stations_df[condition]):
             cha_df = mergeupdate(channels_df, stations_df[condition], [CHA_STAID], [SEG_EVDIST],
                                  drop_df_new_duplicates=False)  # dupes already dropped
             # drop channels which are not related to station within radius:
@@ -915,9 +913,10 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
 
     datcen_id2url = datacenters_df.set_index([DC_ID])[DC_DSURL].to_dict()
 
-    cols2update = [Segment.download_id, Segment.data, Segment.sample_rate, Segment.max_gap_overlap_ratio,
-                   Segment.seed_identifier, Segment.download_status_code,
-                   Segment.start_time, Segment.arrival_time, Segment.end_time]
+    cols2update = [Segment.download_id, Segment.data, Segment.sample_rate,
+                   Segment.max_gap_overlap_ratio, Segment.seed_identifier,
+                   Segment.download_status_code, Segment.start_time, Segment.arrival_time,
+                   Segment.end_time]
     segmanager = DbManager(session, Segment.id, cols2update,
                            db_bufsize, [SEG_ID, SEG_CHAID, SEG_STIME, SEG_ETIME, SEG_DCID])
 
