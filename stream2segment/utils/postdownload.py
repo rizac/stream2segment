@@ -26,7 +26,7 @@ from io import BytesIO
 from sqlalchemy.orm.session import object_session
 from sqlalchemy.exc import SQLAlchemyError
 from obspy.core.utcdatetime import UTCDateTime
-from obspy.core.stream import read
+from obspy.core.stream import _read
 
 from stream2segment.io.utils import loads_inv, dumps_inv
 from stream2segment.utils.url import urlread
@@ -179,14 +179,38 @@ def get_sn_windows(config, a_time, stream):
     return sig, nsy
 
 
-def get_stream(segment):
-    """Returns a Stream object relative to the given segment.
-        :param segment: a model ORM instance representing a Segment (waveform data db row)
+def get_stream(segment, format="MSEED", headonly=False, **kwargs):  # @ReservedAssignment
+    """Returns a Stream object relative to the given segment. The optional arguments are the same
+    than `obspy.core.stream.read` (excepts than "format" defaults to "MSEED")
+    :param segment: a model ORM instance representing a Segment (waveform data db row)
+    :param format: string, optional (default "MSEED"). Format of the file to read
+        (e.g. ``"MSEED"``). See obspy `Supported Formats`_ section below for a list of supported
+        formats. If format is set to ``None`` it will be automatically detected which
+        results in a slightly slower reading. If a format is specified, no
+        further format checking is done.
+    :param headonly: bool, optional. If set to ``True``, read only the data header. This is
+        most useful for scanning available meta information of huge data sets
+    :param kwargs: Additional keyword arguments passed to the underlying
+        waveform reader method.
     """
     data = segment.data
     if not data:
         raise ValueError('no data')
-    return read(BytesIO(data))
+    # Do not call `obspy.core.stream.read` because, when passed a BytesIO, if it fails reading
+    # it stores the bytes data to a temporary file and re-tries by reading the file.
+    # This is a useless and time-consuming behavior in our case: `data` is directly
+    # downloaded from the data-center: if we fail we should raise immediately. To do that,
+    # we call ``obspy.core.stream._read`, which is what `obspy.core.stream.read` does internally.
+    # Note that: calling _read might require some attention as "private" methods might change
+    # across versions. Also, FYI, the source function which does the real job is
+    # "obspy.io.mseed.core._read_mseed"
+    try:
+        return _read(BytesIO(data), format, headonly, **kwargs)
+    except TypeError as terr:
+        # as type errors should generally be raised in case of errors (see obspy source code),
+        # and type errors break the processing of all remaining segments,
+        # we do not want this behaviour. Thus raise a ValueError with the same message
+        raise ValueError(str(terr))
 
 
 def get_inventory(station, saveinventory=True, **urlread_kwargs):
