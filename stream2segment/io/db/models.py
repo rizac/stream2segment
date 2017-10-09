@@ -158,11 +158,11 @@ class Event(Base):
 
 
 class WebService(Base):
-    """event fdsn service"""
+    """web service (e.g., event web service)"""
     __tablename__ = "web_services"
 
     id = Column(Integer, primary_key=True, autoincrement=True)  # pylint:disable=invalid-name
-    name = Column(String)
+    name = Column(String)  # optional
     type = Column(String)  # e.g.: event, station, dataselect (currently only event is used)
     url = Column(String, nullable=False)  # if you change attr, see BELOW!
 
@@ -374,8 +374,6 @@ class Segment(Base):
                            viewonly=True, backref=backref("segments", lazy="dynamic"))
 
     __table_args__ = (
-                      UniqueConstraint('channel_id', 'start_time', 'end_time',
-                                       name='chaid_stime_etime_uc'),
                       UniqueConstraint('channel_id', 'event_id',
                                        name='chaid_evtid_uc'),
                      )
