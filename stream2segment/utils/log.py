@@ -142,10 +142,10 @@ def configlog4download(logger, db_session, download_id, isterminal):
     return dbstream_handler
 
 
-def configlog4stdout(logger):
-    logger.setLevel(logging.INFO)  # necessary to forward to handlers
-    # configure print to stdout (by default only info and critical messages):
-    logger.addHandler(SysOutStreamHandler(sys.stdout))
+# def configlog4stdout(logger):
+#     logger.setLevel(logging.INFO)  # necessary to forward to handlers
+#     # configure print to stdout (by default only info and critical messages):
+#     logger.addHandler(SysOutStreamHandler(sys.stdout))
 
 
 @contextmanager

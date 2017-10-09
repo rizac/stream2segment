@@ -37,9 +37,9 @@ def bandpass(trace, freq_min, freq_max, max_nyquist_ratio=0.9,
     The algorithm steps are:
      1. Set the max frequency to 0.9 of the nyquist freauency (sampling rate /2)
         (slightly less than nyquist seems to avoid artifacts)
-     2. Offset removal (substract the mean from the signal)
+     2. Offset removal (subtract the mean from the signal)
      3. Tapering
-     4. Pad data with zeros at the END in order to accomodate the filter transient
+     4. Pad data with zeros at the END in order to accommodate the filter transient
      5. Apply bandpass filter, where the lower frequency is set according to the magnitude
      6. Remove padded elements
      7. Remove the instrumental response
@@ -104,6 +104,8 @@ def maxabs(trace, starttime=None, endtime=None):
     """
     original_stime = None if starttime is None else trace.stats.starttime
     if starttime is not None or endtime is not None:
+        # from the docs: "this returns a New Trace object
+        # Does not copy data but just passes a reference to it"
         trace = trace.slice(starttime, endtime)
     if trace.stats.npts < 1:
         return np.nan
@@ -122,24 +124,24 @@ def cumsum(trace):
     return Trace(_cumsum(trace.data, normalize=True), header=trace.stats.copy())
 
 
-def cumtimes(cum_trace, *percentages):
-    """Calculates the time(s) where `cum_trace` reaches the given percentage(s) of the total signal.
-    **`cum_trace.data` need to be monotonically increasing**, e.g. as resulting from `cumsum`.
-    Called N = `len(percentages)`, returns a list of N `obspy.UTCTimeStamp`s objects
-    :param cum_trace: the input obspy.core.Trace (cumulative)
+def cumtimes(mi_trace, *percentages):
+    """Calculates the time(s) where `mi_trace` reaches the given percentage(s) of the total signal.
+    **`mi_trace.data` need to be monotonically increasing**, e.g., as resulting from
+    :func:`stream2segment.analysis.mseeds.cumsum`.
+    :param mi_trace: a monotonically increasing trace
     :param percentages: the precentages to be calculated, e.g. 0.05, 0.95 (5% and 95%)
     :return: a list of length P = len(percentages) denoting the the obspy.UTCTimeStamp(s) where
     the given percentages occur
-    :return: a list of `UtcDateTime's denoting the occurrence of the given percentages of the total
-    signal in `cum_trace`
+    :return: a list of `UtcDateTime`'s denoting the occurrence of the given percentages of the total
+    signal in `mi_trace`
     """
-    starttime = cum_trace.stats.starttime
-    delta = cum_trace.stats.delta
+    starttime = mi_trace.stats.starttime
+    delta = mi_trace.stats.delta
     val = []
-    minv = cum_trace[0]
-    maxv = cum_trace[-1]
+    minv = mi_trace[0]
+    maxv = mi_trace[-1]
     for perc in percentages:
-        idx = np.searchsorted(cum_trace.data, minv + (maxv - minv) * perc)
+        idx = np.searchsorted(mi_trace.data, minv + (maxv - minv) * perc)
         val.append(starttime + idx * delta)
     return val
 
@@ -153,7 +155,7 @@ def fft(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_ty
     ```(freqs, fft)```
     where `freqs` is the frequencies vector (in Hz), evenly spaced with `df` as frequency
     resolution.
-    This methods also optionally trims and tapers the given trace before applying the fft
+    This function optionally trims and tapers the given trace before applying the fft
     :param trace: the input obspy.core.Trace
     :param starttime: the start time for trim, or None (=> starttime = trace start time)
     :param endtime: the end time for trim, or None (=> endtime = trace end time)
@@ -185,8 +187,8 @@ def fft(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_ty
 def ampspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',
             return_freqs=False):
     """Computes the amplitude spectrum of the given trace.
-    See `fft` doc-string for info (this function does exactly the same, it
-    only returns the amplitude spectrum as second element - i.e., the modulus of the fft)"""
+    See :func:`stream2segment.analysis.mseeds.fft` for info (this function does exactly the same,
+    it only returns the amplitude spectrum as second element - i.e., the modulus of the fft)"""
     _, dft = fft(trace, starttime, endtime, taper_max_percentage, taper_type, return_freqs)
     return _, _ampspec(dft, signal_is_fft=True)
 
@@ -194,8 +196,8 @@ def ampspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, tape
 def powspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',
             return_freqs=False):
     """Computes the power spectrum of the given trace.
-    See `fft` doc-string for info (this function does exactly the same, it
-    only returns the power spectrum as second element - i.e., the square of the fft)"""
+    See :func:`stream2segment.analysis.mseeds.fft` for info (this function does exactly the same,
+    it only returns the power spectrum as second element - i.e., the square of the fft)"""
     _, dft = fft(trace, starttime, endtime, taper_max_percentage, taper_type, return_freqs)
     return _, _powspec(dft, signal_is_fft=True)
 
@@ -223,16 +225,12 @@ def timeof(trace, index):
 
 
 def utcdatetime(time, return_if_none=None):
-    '''Normalizes `time` into an `UTCDateTime`.
-    This function can be used when working with datetime-like objects (python `datetime`,
-    time-stamps as `float` or `int`, obspy `UtcDateTime`s) or `None`s,
-    to normalize results and work consistently with the same object type.
-    It basically returns `time` if already `UTCDateTime` or `UTCDateTime(time)` otherwise.
-    If `time` is None, returns None by default (so that the returned
-    value can be safely used when slicing/trimming such as, e.g. `trace.trim`), or any
-    value supplied to the optional argument `return_if_none`
-    :param time: a float, `datetime.datetime` object, or UtcDateTime. None is permitted and will
-    return `return_if_none` (see below)
+    '''Normalizes `time` into an `UTCDateTime`. Utility function for working consistently
+    with different date-time-like inputs and convert them to the same object type.
+    :param time: numeric (int, float), `datetime.datetime` object, `UtcDateTime`. If `UtcDateTime`,
+    then `time` is returned with no processing. If None, then None (or `return_if_none`, if
+    supplied) is returned. Otherwise, `UTCDateTime(time)` is returned
+    (see :class:`obspy.core.utcdatetime.UTCDateTime` for info).
     :param return_if_none: None by default (when missing), indicates the value to return if
     `time` is None
     '''

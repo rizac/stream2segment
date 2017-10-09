@@ -481,12 +481,12 @@ def _filepath(fileout, model, phases):
     return fileout
 
 
-@clickcommand(short_help='Creates via obspy routines travel time table, i.e. a grid of points '
+@clickcommand(short_help='Creates via obspy routines a travel time table, i.e. a grid of points '
               'in a 3-D space, where each point is '
-              'associated to pre-computed minima travel times arrays. Stores the '
+              'associated to pre-computed travel times arrays. Stores the '
               'resulting file as .npz compressed numpy format. The resulting file, opened with '
               'the dedicated program class, allows to compute approximate travel times in a '
-              '*much* faster way than using obspy routines')
+              '*much* faster way than using obspy routines directly')
 @clickoption('-o', '--output', required=True,
              help=('The output file. If directory, the file name will be automatically '
                    'created inside the directory. Otherwise must denote a valid writable '
@@ -499,49 +499,41 @@ def _filepath(fileout, model, phases):
 @clickoption('-t', '--tt_errtol', type=float, required=True,
              help=('The error tolerance (in seconds). The algorithm will try to store grid points '
                    'whose distance is close to this value. Decrease this value to increase '
-                   'precision, increase this value to increase the execution speed '
-                   ''))
+                   'precision, increase this value to increase the execution speed'))
 @clickoption('-s', '--maxsourcedepth', type=float, default=DEFAULT_SD_MAX, show_default=True,
              help=('Optional: the maximum source depth (in km) used for the grid generation. '
                    'When loaded, the relative model can calculate travel times for source depths '
                    'lower or equal to this value'))
 @clickoption('-r', '--maxreceiverdepth', type=float, default=DEFAULT_RD_MAX, show_default=True,
-             help=('Optional: the maximum source depth (in km) used for the grid generation. '
+             help=('Optional: the maximum receiver depth (in km) used for the grid generation. '
                    'When loaded, the relative model can calculate travel times for receiver '
-                   'depths lower or equal to this value. Note that setting thus value '
+                   'depths lower or equal to this value. Note that setting this value '
                    'greater than zero might lead to numerical problems, e.g. times not '
                    'monotonically increasing with distances, especially for short distances '
-                   'values around the source'))
+                   'around the source'))
 @clickoption('-d', '--maxdistance', type=float, default=DEFAULT_DIST_MAX,  show_default=True,
              help=('Optional: the maximum distance (in degrees) used for the grid generation. '
                    'When loaded, the relative model can calculate travel times for receiver '
                    'depths lower or equal to this value'))
 @clickoption('-P', '--pwavevelocity', type=float, default=DEFAULT_PWAVEVELOCITY, show_default=True,
              help=('Optional: the P-wave velocity (in km/sec), if the calculation of the P-waves '
-                   'is required according to the phases argument (otherwise ignored). '
-                   'For performances reasons, along the distances dimension a fixed step '
-                   'in degree is set (by means of this value and 1 degree length in km) '
-                   'in order for the computed travel time deltas'
-                   'not to exceed tt_errtol. '
-                   'By setting the minimum P-wave velocity, the resulting step, '
-                   'although redundant at high source depths, assures all travel '
-                   'time deltas <= tt_errtol. '
-                   '(http://rallen.berkeley.edu/teaching/F04_GEO302_PhysChemEarth/Lectures/HellfrichWood2001.pdf)'))  # @IgnorePep8
+                   'is required according to the argument `phases` (otherwise ignored). '
+                   'As the grid points (in degree) of the distances axis '
+                   'cannot be optimized, a fixed step S is set for which it holds: '
+                   '`min(travel_times(D+step))-min(travel_times(D)) <= tt_errtol` for any point '
+                   'D of the grid. The P-wave velocity is needed to asses such a step '
+                   '(for info, see: '
+                   'http://rallen.berkeley.edu/teaching/F04_GEO302_PhysChemEarth/Lectures/HellfrichWood2001.pdf)'))  # @IgnorePep8
 @clickoption('-S', '--swavevelocity', type=float, default=DEFAULT_SWAVEVELOCITY,  show_default=True,
              help=('Optional: the S-wave velocity (in km/sec), if the calculation of the S-waves '
-                   'is required according to the phases argument (otherwise ignored). '
-                   'For performances reasons, along the distances dimension a fixed step '
-                   'in degree is set (by means of this value and 1 degree length in km) '
-                   'in order for the computed travel time deltas'
-                   'not to exceed tt_errtol. '
-                   'By setting the minimum S-wave velocity, the resulting step, '
-                   'although redundant at high source depths, assures all travel '
-                   'time deltas <= tt_errtol. '
+                   '*only* is required, according to the argument `phases` (otherwise ignored). '
+                   'As the grid points (in degree) of the distances axis '
+                   'cannot be optimized, a fixed step S is set for which it holds: '
+                   '`min(travel_times(D+step))-min(travel_times(D)) <= tt_errtol` for any point '
+                   'D of the grid. If the calculation of the P-waves is also needed according to '
+                   'the argument `phases` , the p-wave velocity value will be used and this '
+                   'argument will be ignored. (for info, see: '
                    '(http://rallen.berkeley.edu/teaching/F04_GEO302_PhysChemEarth/Lectures/HellfrichWood2001.pdf)'))  # @IgnorePep8
-# @click.option('-D', '--deg2km', type=float, default=DEFAULT_DEG2KM,
-#               help=('The (approximate) length (in km) of a degree. Used for the grid generation '
-#                     'to assess the step of the distances arrays.'
-#                     'Optional: defaults to 111 when missing.'))
 def run(output, model, phases, tt_errtol, maxsourcedepth, maxreceiverdepth, maxdistance,
         pwavevelocity, swavevelocity):
     try:

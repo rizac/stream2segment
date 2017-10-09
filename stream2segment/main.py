@@ -10,39 +10,21 @@ from __future__ import print_function
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import object
 
-import logging
 import sys
 import os
-from contextlib import contextmanager
-import shutil
 
 # iterate over dictionary keys without list allocation in both py 2 and 3:
-from future.utils import viewitems
 from datetime import datetime, timedelta
-import yaml
+
 import click
 from click.exceptions import BadParameter, ClickException, MissingParameter
 
-from stream2segment.utils.log import configlog4download, configlog4processing,\
-    elapsedtime2logger_when_finished, configlog4stdout
-# from stream2segment.download.utils import run_instance
-from stream2segment.utils.resources import version
-from stream2segment.io.db.models import Segment, Download
-from stream2segment.process.main import run as run_process, to_csv, default_funcname
-from stream2segment.download.main import run as run_download
-from stream2segment.utils import tounicode, get_session, strptime,\
-    indent, secure_dburl
-from stream2segment.utils.resources import get_templates_fpath, yaml_load, yaml_load_doc,\
-    get_templates_fpaths
+from stream2segment.process.main import default_funcname
+from stream2segment.utils import strptime
+from stream2segment.utils.resources import get_templates_fpath, yaml_load, yaml_load_doc
 
-
-# set root logger if we are executing this module as script, otherwise as module name following
-# logger conventions. Discussion here:
-# http://stackoverflow.com/questions/30824981/do-i-need-to-explicitly-check-for-name-main-before-calling-getlogge
-# howver, based on how we configured entry points in config, the name is (as november 2016)
-# 'stream2segment.main', which messes up all hineritances. So basically setup a main logger
-# with the package name
-logger = logging.getLogger("stream2segment")
+from stream2segment.core import helpmathiter, _TEMPLATE_FILES, create_templates, visualize,\
+    download, process
 
 
 class clickutils(object):
@@ -123,164 +105,6 @@ class clickutils(object):
         if not value:
             raise MissingParameter("dburl")
         return value
-
-
-# main functionalities:
-
-
-def download(isterminal=False, **yaml_dict):
-    """
-        Downloads the given segment providing a set of keyword arguments to match those of the
-        config file (see confi.example.yaml for details)
-    """
-    dburl = yaml_dict['dburl']
-    with closing(dburl) as session:
-        # print local vars: use safe_dump to avoid python types. See:
-        # http://stackoverflow.com/questions/1950306/pyyaml-dumping-without-tags
-        download_inst = Download(config=tounicode(yaml.safe_dump(yaml_dict,
-                                                                 default_flow_style=False)),
-                                 # log by default shows error. If everything works fine, we replace
-                                 # the content later
-                                 log=('Content N/A: this is probably due to an unexpected'
-                                      'and out-of-control interruption of the download process '
-                                      '(e.g., memory error)'), program_version=version())
-
-        session.add(download_inst)
-        session.commit()
-        download_id = download_inst.id
-        session.close()  # frees memory?
-
-        if isterminal:
-            print("Arguments:")
-            # replace dbrul passowrd for printing to terminal
-            # Note that we remove dburl from yaml_dict cause query_main gets its session object
-            # (which we just built)
-            yaml_safe = dict(yaml_dict, dburl=secure_dburl(yaml_dict.pop('dburl')))
-            print(indent(yaml.safe_dump(yaml_safe, default_flow_style=False), 2))
-
-        loghandler = configlog4download(logger, session, download_id, isterminal)
-
-        if isterminal:
-            print("Log messages will be temporarily written to:\n'%s'" %
-                  str(loghandler.baseFilename))
-            print("(if the program does not quit for external causes, e.g., memory overflow,\n"
-                  "the file will be deleted before exiting and its content will be written\n"
-                  "to the table '%s', column '%s')" % (Download.__tablename__,
-                                                       Download.log.key))
-
-        with elapsedtime2logger_when_finished(logger):
-            run_download(session=session, download_id=download_id, isterminal=isterminal,
-                         **yaml_dict)
-            logger.info("\n%d total error(s), %d total warning(s)", loghandler.errors,
-                        loghandler.warnings)
-
-    return 0
-
-
-def process(dburl, pyfile, configfile, outcsvfile, isterminal=False):
-    """
-        Process the segment saved in the db and saves the results into a csv file
-        :param processing: a dict as load from the config
-    """
-    with closing(dburl) as session:
-        if isterminal:
-            print("Processing, please wait")
-        logger.info('Output file: %s', outcsvfile)
-
-        configlog4processing(logger, outcsvfile, isterminal)
-        with elapsedtime2logger_when_finished(logger):
-            to_csv(outcsvfile, session, pyfile, configfile, isterminal)
-
-    return 0
-
-
-def visualize(dburl, pyfile, configfile):
-    from stream2segment.gui import main as main_gui
-    main_gui.run_in_browser(dburl, pyfile, configfile)
-    return 0
-
-
-# def data_aval(dburl, outfile, max_gap_ovlap_ratio=0.5):
-#     from stream2segment.gui.da_report.main import create_da_html
-#     # errors are printed to terminal:
-#     configlog4stdout(logger)
-#     with closing(dburl) as session:
-#         create_da_html(session, outfile, max_gap_ovlap_ratio, True)
-#     if os.path.isfile(outfile):
-#         import webbrowser
-#         webbrowser.open_new_tab('file://' + os.path.realpath(outfile))
-
-
-def create_templates(outpath, prompt=True, *filenames):
-    # get the template files. Use all files except those with more than one dot
-    # This might be better implemented
-    if not os.path.isdir(outpath):
-        os.makedirs(outpath)
-        if not os.path.isdir(outpath):
-            raise Exception("Unable to create '%s'" % outpath)
-    template_files = get_templates_fpaths(*filenames)
-    if prompt:
-        existing_files = [t for t in template_files
-                          if os.path.isfile(os.path.join(outpath, os.path.basename(t)))]
-        non_existing_files = [t for t in template_files if t not in existing_files]
-        if existing_files:
-            suffix = ("Type:\n1: overwrite all files\n2: write only non-existing\n"
-                      "0 or any other value: do nothing (exit)")
-            msg = ("The following file(s) "
-                   "already exist on '%s':\n%s"
-                   "\n\n%s") % (outpath, "\n".join([os.path.basename(_)
-                                                    for _ in existing_files]), suffix)
-            val = click.prompt(msg)
-            try:
-                val = int(val)
-                if val == 2:
-                    if not len(non_existing_files):
-                        raise ValueError()
-                    else:
-                        template_files = non_existing_files
-                elif val != 1:
-                    raise ValueError()
-            except ValueError:
-                return []
-    copied_files = []
-    for tfile in template_files:
-        shutil.copy2(tfile, outpath)
-        copied_files.append(os.path.join(outpath, os.path.basename(tfile)))
-    return copied_files
-
-
-@contextmanager
-def closing(dburl, scoped=False, close_logger=True, close_session=True):
-    """Opens a sqlalchemy session and closes it. Also closes and removes all logger handlers if
-    close_logger is True (the default)
-    :example:
-        # configure logger ...
-        with closing(dburl) as session:
-            # ... do stuff, print to logger etcetera ...
-        # session is closed and also the logger handlers
-    """
-    try:
-        session = get_session(dburl, scoped=scoped)
-        yield session
-    except:
-        logger.critical(sys.exc_info()[1])
-        raise
-    finally:
-        if close_logger:
-            handlers = logger.handlers[:]  # make a copy
-            for handler in handlers:
-                try:
-                    handler.close()
-                    logger.removeHandler(handler)
-                except (AttributeError, TypeError, IOError, ValueError):
-                    pass
-        if close_session:
-            # close the session at the **real** end! we might need it above when closing loggers!!!
-            try:
-                session.close()
-                session.bind.dispose()
-            except NameError:
-                pass
 
 # click commands:
 
@@ -435,25 +259,50 @@ def t(outdir):
     """Creates template/config files which can be inspected and edited for launching download,
     processing and visualization. OUTDIR will be created if it does not exist
     """
-    helpdict = {"download.yaml": "download configuration file ('s2s d' -c option)",
-                "processing.py": "processing/gui python file ('s2s p' and 's2s v' -p option)",
-                "processing.yaml": ("processing/gui configuration file "
-                                    "('s2s p' and 's2s v' -c option)")}
-    try:
-        copied_files = create_templates(outdir, True, *helpdict)
+    existing_files = [t for t in _TEMPLATE_FILES
+                      if os.path.isfile(os.path.join(outdir, os.path.basename(t)))]
+    copied_files = []
+    if existing_files:
+        suffix = ("Type:\n1: overwrite all files\n2: write only non-existing\n"
+                  "0 or any other value: do nothing (exit)")
+        msg = ("The following file(s) "
+               "already exist on '%s':\n%s"
+               "\n\n%s") % (outdir, "\n".join([os.path.basename(_)
+                                               for _ in existing_files]), suffix)
+        val = click.prompt(msg)
+        copied_files = []
+        if val in ('1', '2'):
+            try:
+                copied_files = create_templates(outdir, val == '1')
+            except Exception as exc:
+                print("ERROR: %s" % str(exc))
+                sys.exit(1)
+
         if not copied_files:
             print("No file copied")
         else:
             print("%d file(s) copied in '%s':" % (len(copied_files), outdir))
             for fcopied in copied_files:
                 bname = os.path.basename(fcopied)
-                print("   %s: %s" % (bname, helpdict.get(bname, "")))
+                print("   %s: %s" % (bname, _TEMPLATE_FILES.get(bname, "")))
             sys.exit(0)
-    except Exception as exc:
-        print('')
-        print("error: %s" % str(exc))
-    sys.exit(1)
 
+
+@main.command(short_help='Show quick help on stream2segment built-in math functions',
+              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
+@click.option("-t", "--type", type=click.Choice(['numpy', 'obspy', 'all']), default='all',
+              show_default=True,
+              help="Show help only for the function matching the given type. Numpy indicates "
+                    "functions operating on numpy arrays (module `stream2segment.analysis`). "
+                    "Obspy (module `stream2segment.analysis.mseeds`) those operating on obspy "
+                    "Traces, most of which are simply the numpy counterparts defined for Trace "
+                    "objects")
+@click.option("-f", "--filter", default='*', show_default=True,
+              help="Show doc only for the function whose name matches the given filter. "
+                    "Wildcards (* and ?) are allowed")
+def h(type, filter):  # @ReservedAssignment
+    for line in helpmathiter(type, filter):
+        print(line)
 
 if __name__ == '__main__':
     main()  # pylint: disable=E1120
