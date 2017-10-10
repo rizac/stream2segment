@@ -212,7 +212,7 @@ class Test(unittest.TestCase):
                           arrival_time = arrival_time,
                           end_time = end_time,
                           data = mseed,
-                          seed_identifier = seedid,
+                          data_identifier = seedid,
                           event_distance_deg = val,
                           event_id=ev.id,
                           **fixed_args)
@@ -444,7 +444,7 @@ class Test(unittest.TestCase):
             assert not mock_get_inv.called  # already called
             assert not mock_get_stream.called  # already computed
             # assert all titles are properly set, with the given prefix
-            seedid = s.seed_identifier or s.strid
+            seedid = s.data_identifier or s.strid
             assert all(p is None or p.title.startswith(seedid) for p in m[s.id][0])
             assert all(p is None or p.title.startswith(seedid) for p in m[s.id][1])
             # check plot titles and warnings:

@@ -137,12 +137,6 @@ segment.event_distance_deg                float (distance between the segment's 
 segment.start_time                        datetime.datetime
 segment.arrival_time                      datetime.datetime
 segment.end_time                          datetime.datetime
-segment.has_data                          boolean (this attribute is particularly useful to discard
-\                                         immediately - thus more efficiently -
-\                                         segments which are generally not suitable for processing.
-\                                         Segment might not have data because of a download error
-\                                         or an empty response generally with download status
-\                                         code = 204)
 segment.sample_rate                       float (as written in the segment's waveform data,
 \                                         it might differ from segment.channel.sample_rate)
 segment.download_status_code              int (typically, values between 200 and 399 denote
@@ -166,13 +160,18 @@ segment.max_gap_overlap_ratio             float (the maximum length of all gaps 
 \                                         is in the interval [-0.5, 0.5] and perform a check for
 \                                         safety, e.g., via `len(segment.stream())` or
 \                                         `segment.stream().get_gaps()`)
-segment.seed_identifier                   str (string in the typical
-\                                         Network.Station.Location.Channel format. Do not rely
-\                                         on this value because it might be None - e.g. when
-\                                         download errors occurred)
+segment.data_identifier                   str (the seed identifier as read from the data. It might
+\                                         be null if the data is empty or null because of a
+\                                         download error)
 segment.data                              bytes (you don't generally need to access this
 \                                         attribute which is also time-comsuming to fetch. It is
 \                                         the raw data for building `stream()`)
+segment.has_data                          boolean (this attribute is particularly useful to discard
+\                                         immediately - thus more efficiently -
+\                                         segments which are generally not suitable for processing.
+\                                         Segment might not have data because of a download error
+\                                         or an empty response generally with download status
+\                                         code = 204)
 ----------------------------------------- ------------------------------------------------
 segment.event                             object (attributes below)
 segment.event.id                          int
@@ -201,6 +200,9 @@ segment.channel.scale                     float
 segment.channel.scale_freq                float
 segment.channel.scale_units               str
 segment.channel.sample_rate               float
+segment.channel.band_code                 str (the first letter of channel.channel)
+segment.channel.instrument_code           str (the second letter of channel.channel)
+segment.channel.orientation_code          str (the third letter of channel.channel)
 segment.channel.station                   object (same as segment.station, see below)
 ----------------------------------------- ------------------------------------------------
 segment.station                           object (attributes below)
@@ -216,6 +218,8 @@ segment.station.end_time                  datetime.datetime
 segment.station.inventory_xml             bytes* (you don't generally need to access this
 \                                         attribute which is also time-comsuming to fetch. It is
 \                                         the raw data for building `inventory()`)
+segment.station.has_inventory             boolean (whether or not inventory_xml has data saved.
+\                                         avoids loading segments whose inventory is n/a)
 segment.station.datacenter                object (same as segment.datacenter, see below)
 ----------------------------------------- ------------------------------------------------
 segment.datacenter                        object (attributes below)

@@ -26,11 +26,12 @@ from sqlalchemy import (
     # BigInteger,
     UniqueConstraint,
     event)
-from sqlalchemy.sql.expression import func, text
+from sqlalchemy.sql.expression import func, text, case, null, select
 # from sqlalchemy.orm.mapper import validates
 # from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.inspection import inspect
 from sqlalchemy.ext.hybrid import hybrid_property, hybrid_method
+from sqlalchemy.ext.associationproxy import association_proxy
 
 _Base = declarative_base()
 
@@ -296,6 +297,42 @@ class Channel(Base):
     scale_units = Column(String)
     sample_rate = Column(Float, nullable=False)
 
+    @hybrid_property
+    def band_code(self):
+        '''returns the first letter of the channel field, or None if the latter has not length 3'''
+        return self.channel[0] if len(self.channel) == 3 else None
+
+    @band_code.expression
+    def band_code(cls):  # @NoSelf
+        '''returns the sql expression returning the first letter of the channel field,
+        or NULL if the latter has not length 3'''
+        # return an sql expression matching the last char or None if not three letter channel
+        return case([(func.length(cls.channel) == 3, func.left(cls.channel, 1))], else_=null())
+
+    @hybrid_property
+    def instrument_code(self):
+        '''returns the second letter of the channel field, or None if the latter has not length 3'''
+        return self.channel[1] if len(self.channel) == 3 else None
+
+    @instrument_code.expression
+    def instrument_code(cls):  # @NoSelf
+        '''returns the sql expression returning the second letter of the channel field,
+        or NULL if the latter has not length 3'''
+        # return an sql expression matching the last char or None if not three letter channel
+        return case([(func.length(cls.channel) == 3, func.substr(cls.channel, 2, 1))], else_=null())
+
+    @hybrid_property
+    def orientation_code(self):
+        '''returns the third letter of the channel field, or None if the latter has not length 3'''
+        return self.channel[2] if len(self.channel) == 3 else None
+
+    @orientation_code.expression
+    def orientation_code(cls):  # @NoSelf
+        '''returns the sql expression returning the third letter of the channel field,
+        or NULL if the latter has not length 3'''
+        # return an sql expression matching the last char or None if not three letter channel
+        return case([(func.length(cls.channel) == 3, func.right(cls.channel, 1))], else_=null())
+
     __table_args__ = (
                       UniqueConstraint('station_id', 'location', 'channel',
                                        name='net_sta_loc_cha_uc'),
@@ -313,7 +350,7 @@ class Segment(Base):
     event_id = Column(Integer, ForeignKey("events.id"), nullable=False)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
     datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
-    seed_identifier = Column(String)
+    data_identifier = Column(String)
     event_distance_deg = Column(Float, nullable=False)
     data = Column(LargeBinary)
     download_status_code = Column(Integer, nullable=True)
@@ -335,7 +372,7 @@ class Segment(Base):
         return withdata(cls.data)
 
     @hybrid_method
-    def has_class(self, *ids):  # FIXME: do we use it?
+    def has_class(self, *ids):  # this is used only for testing purposes. See test_db
         if not ids:
             return self.classes.count() > 0
         else:
@@ -343,7 +380,7 @@ class Segment(Base):
             return any(c.id in _ids for c in self.classes)
 
     @has_class.expression
-    def has_class(cls, *ids):  # @NoSelf
+    def has_class(cls, *ids):  # @NoSelf  # this is used only for testing purposes. See test_db
         any_ = cls.classes.any
         if not ids:
             return any_()
@@ -352,9 +389,36 @@ class Segment(Base):
 
     @hybrid_property
     def strid(self):
-        return self.seed_identifier or \
+        return self.data_identifier or \
             ".".join([self.station.network, self.station.station,
                       self.channel.location, self.channel.channel])
+
+    @hybrid_property
+    def seed_identifier(self):
+        return self.data_identifier or \
+            ".".join([self.station.network, self.station.station,
+                      self.channel.location, self.channel.channel])
+
+#     @seed_identifier.expression
+#     def seed_identifier(cls):  # @NoSelf
+#         return func.concat(cls._network, '.', cls._station, '.', cls._location, '.', cls._channel)
+#         return select([Station.network, Station.station, Channel.location, Channel.channel]).\
+#             where((Channel.id == cls.id) & (Channel.station_id == Station.id))
+#         return case([(cls.data_identifier.isnot(None), cls.data_identifier)],
+#                     else_=func.concat(cls.station.network, '.', cls.station.station, '.',
+#                                       cls.channel.location, '.', cls.channel.channel))
+
+
+#     @hybrid_property
+#     def is_me_with_different_orientation(self, segment):
+#         return self.event_id == segment.event_id and \
+#             self.channel.location == segment.channel.location and \
+#             self.station.id == segment.station.id and \
+#             self.channel.channel[:-1] == segment.channel.channel[:-1]
+# 
+#     @is_me_with_different_orientation.expression
+#     def is_me_with_different_orientation(cls, segment):  # @NoSelf
+#         return cls
 
     event = relationship("Event", backref=backref("segments", lazy="dynamic"))
     channel = relationship("Channel", backref=backref("segments", lazy="dynamic"))

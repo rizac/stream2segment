@@ -801,6 +801,54 @@ class Test(unittest.TestCase):
         # segments with data, stations with inventory data: use hybrid attrs (in process.main)
         # segments with classes: any, none: use query, not hybrid attrs (in gui)
         
+        
+        # test other properties:
+        segments = self.session.query(Segment).all()
+        segment = segments[0]
+        
+        
+        value = segment.channel.band_code
+        assert value == segment.channel.channel[0]
+        sid = segment.id
+        # now try with a query to test the sql expression associated to it:
+        segs = self.session.query(Segment).join(Segment.channel).filter(Channel.band_code == value).all()
+        assert any(s.id == sid for s in segs)
+        
+        value = segment.channel.instrument_code
+        assert value == segment.channel.channel[1]
+        sid = segment.id
+        # now try with a query to test the sql expression associated to it:
+        segs = self.session.query(Segment).join(Segment.channel).filter(Channel.instrument_code == value).all()
+        assert any(s.id == sid for s in segs)
+        
+        value = segment.channel.orientation_code
+        assert value == segment.channel.channel[-1]
+        sid = segment.id
+        # now try with a query to test the sql expression associated to it:
+        segs = self.session.query(Segment).join(Segment.channel).filter(Channel.orientation_code == value).all()
+        assert any(s.id == sid for s in segs)
+        
+        # test seed_identifier
+        s1 = segs[0]
+        s2 = segs[1]
+        s1_seed_id = 'abc'
+        s2_seed_id = ".".join([s1.station.network, s1.station.station, s1.channel.location,
+                               s1.channel.channel])
+        s1.data_identifier =  s1_seed_id
+        self.session.commit()
+        
+        ss1 = self.session.query(Segment).filter(Segment.seed_identifier == s1_seed_id).all()
+        assert len(ss1) == 1
+        assert ss1[0].id == s1.id
+        
+        ss2 = self.session.query(Segment).filter(Segment.seed_identifier == s2_seed_id).all()
+        assert len(ss2) >= 1
+        assert any(_[0].id == s2.id for _ in ss2)
+        
+        
+        
+        
+        
     def tst_get_cols(self, seg):
         
         clen = len(seg.__class__.__table__.columns)
