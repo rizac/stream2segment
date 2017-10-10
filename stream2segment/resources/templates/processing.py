@@ -68,14 +68,15 @@ in this module).
 Important notes
 ===============
 
-This module is designed to force the DRY (don't repeat yourself) principle, thus if a portion
+1) This module is designed to force the DRY (don't repeat yourself) principle, thus if a portion
 of code implemented in "main" should be visualized for inspection, it should be moved, not copied,
 to a separated function (decorated with '@gui.customplot') and called from within "main"
 
-All functions here can safely raise Exceptions, as all exceptions will be caught by the caller
-displaying the error message on the plot if the function is called for visualization,
-printing it to a log file if called for processing into .csv (More details on this in the "main"
-function doc-string). Thus do not issue print statement in any function because, to put it short,
+2) All functions here can safely raise Exceptions, as all exceptions will be caught by the caller:
+- displaying the error message on the plot if the function is called for visualization,
+- printing it to a log file, if teh function is called for processing into .csv
+  (More details on this in the "main" function doc-string).
+Thus do not issue print statement in any function because, to put it short,
 it's useless (and if you are used to do it extensively for debugging, consider changing this habit
 and use a logger): if any information should be given, simply raise a base exception, e.g.:
 `raise Exception("segment sample rate too low")`.
@@ -98,18 +99,27 @@ Each attribute can be considered as segment metadata: it reflects a segment colu
 segment methods:
 ----------------
 
-segment.stream(): the `obspy.Stream` object representing the waveform data (raw or pre-processed)
-associated to the segment
+segment.stream(): the `obspy.Stream` object representing the waveform data
+associated to the segment. Please note that all functions modifying the stream or any of its traces
+in-place **WILL ALSO MODIFY LATER CALLS TO segment.stream()**:
+```
+    s = segment.stream()
+    s_rem_resp = s.remove_response(segment.inventory())
+    # now the traces of s are actually those of s_rem_resp
+    s = segment.stream()
+```
+this is particularly important for the functions decorated for plotting, because any modification
+will affect subsequent plots
 
-segment.timewindow('s') or segment.timewindow('signal'): a list of two `UTCDateTime`s denoting the
-start and end time of the computed window on the waveform 'signal' part (opposed to waveform
-'noise' part). The window is computed according to the settings of the associated yaml
-configuration file, available under `config['sn_windows']`). You can use it to, e.g., trim
-`segment.stream()` or any other Stream/Trace object via its `trim` method:
-`trace_signal = trace.copy().trim(*segment.timewindow('s'), ...)`
-
-segment.timewindow('n') or segment.timewindow('noise'): same as segment.timewindow('s'),
-but returns the computed window on the waveform 'noise' part
+segment.sn_windows(): returns the signal and noise time windows:
+(s_start, s_end), (n_start, n_end)
+where all elements are `UTCDateTime`s. The windows are computed according to
+the settings of the associated yaml configuration file: `config['sn_windows']`). Example usage:
+`
+sig_wdw, noise_wdw = segment.sn_windows()
+stream_signal = segment.stream().copy().trim(*sig_wdw, ...)
+`
+If segment's stream has more than one trace, the method raises.
 
 segment.inventory(): the `obspy.core.inventory.inventory.Inventory`. This object is useful e.g.,
 for removing the instrumental response from `segment.stream()`
@@ -127,6 +137,12 @@ segment.event_distance_deg                float (distance between the segment's 
 segment.start_time                        datetime.datetime
 segment.arrival_time                      datetime.datetime
 segment.end_time                          datetime.datetime
+segment.has_data                          boolean (this attribute is particularly useful to discard
+\                                         immediately - thus more efficiently -
+\                                         segments which are generally not suitable for processing.
+\                                         Segment might not have data because of a download error
+\                                         or an empty response generally with download status
+\                                         code = 204)
 segment.sample_rate                       float (as written in the segment's waveform data,
 \                                         it might differ from segment.channel.sample_rate)
 segment.download_status_code              int (typically, values between 200 and 399 denote
@@ -279,7 +295,7 @@ def main(segment, config):
 
     This function is called by executing the command:
     ```
-        >>> stream2segment p $PYFILE $CONFIG $OUTPUT
+        >>> stream2segment -p $PYFILE -c $CONFIG $OUTPUT
     ```
     where:
       - $PYFILE is the path of this file,
@@ -340,11 +356,17 @@ def main(segment, config):
     if amp_ratio >= config['amp_ratio_threshold']:
         raise ValueError('possibly saturated (amp. ratio exceeds)')
 
-    # bandpass the trace, according to the event magnitude
+    # bandpass the trace, according to the event magnitude.
+    # WARNING: this modifies the segment.stream() permanently!
+    # If you want to preserve the original stream, store trace.copy()
+    # and later set segment.stream()[0] = trace
     trace = bandpass_remresp(segment, config)
+    # From now on, we want segment.stream() to return the trace just computed:
+    segment.stream()[0] = trace
 
-    normal_f0, normal_df, normal_spe = spectrum(trace, config, *segment.timewindow('signal'))
-    noise_f0, noise_df, noise_spe = spectrum(trace, config, *segment.timewindow('noise'))
+    spectra = sn_spectra(segment, config)
+    normal_f0, normal_df, normal_spe = spectra['Signal']
+    noise_f0, noise_df, noise_spe = spectra['Noise']
     evt = segment.event
     fcmin = mag2freq(evt.magnitude)
     fcmax = config['preprocess']['bandpass_freq_max']  # used in bandpass_remresp
@@ -352,10 +374,6 @@ def main(segment, config):
                fmin=fcmin, fmax=fcmax, delta_signal=normal_df, delta_noise=noise_df)
     if snr_ < config['snr_threshold']:
         raise ValueError('low snr %f' % snr_)
-
-    # remove response, note: modify trace!!
-#     trace.remove_response(inventory=inventory, output=config['preprocess']['remove_response_output'],
-#                                      water_level=config['preprocess']['remove_response_water_level'])
 
     # calculate cumulative
     cum_labels = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]
@@ -365,7 +383,7 @@ def main(segment, config):
     # double event
     pstart = 1
     pend = -2
-    pref = 3  # non mi ricordo ma lo uso!!!! (Grande Dino :))
+    pref = 3
     (score, t_double, tt1, tt2) = \
         get_multievent_sg(cum_trace, cum_times[pstart], cum_times[pend], cum_times[pref],
                           config['threshold_inside_tmin_tmax_percent'],
@@ -385,13 +403,14 @@ def main(segment, config):
     ampspec_freqs = linspace(start=normal_f0, delta=normal_df, num=len(normal_spe))
     required_amplitudes = np.interp(required_freqs, ampspec_freqs, normal_spe) / segment.sample_rate
 
-    # compute synthetic WA. NOTE: keep it as last action, it modifies trace!!
+    # compute synthetic WA. Note: modifies the segment trace in-place!
     trace_wa = synth_wa(segment, config)
     t_WA, maxWA = maxabs(trace_wa)
 
     # write stuff to csv:
     ret = OrderedDict()
 
+    ret['snr'] = snr_
     for cum_lbl, cum_t in zip(cum_labels, cum_times):
         ret['cum_t%d' % cum_lbl] = float(cum_t)  # convert cum_times to float for saving
 
@@ -404,6 +423,7 @@ def main(segment, config):
     ret['t_WA'] = t_WA
     ret['maxWA'] = maxWA
     ret['channel'] = segment.channel.channel
+    ret['channel_component'] = segment.channel.channel[-1]
     ret['ev_id'] = segment.event.id           # event metadata
     ret['ev_lat'] = segment.event.latitude
     ret['ev_lon'] = segment.event.longitude
@@ -426,7 +446,10 @@ def main(segment, config):
 @gui.preprocess
 def bandpass_remresp(segment, config):
     """Applies a pre-process on the given segment waveform by
-    filtering the signal and removing the instrumental response
+    filtering the signal and removing the instrumental response.
+    Does not modify the segment's stream or traces in-place. Raises if the segment's stream
+    has more than one trace.
+
     The filter algorithm has the following steps:
     1. Sets the max frequency to 0.9 of the nyquist freauency (sampling rate /2)
     (slightly less than nyquist seems to avoid artifacts)
@@ -437,7 +460,10 @@ def bandpass_remresp(segment, config):
     6. Remove padded elements
     7. Remove the instrumental response
 
-    Being decorated with '@gui.preprocess', this function must return either a Trace or Stream
+    IMPORTANT NOTES:
+    - As this function is decorated for the gui visualization, any modification to the segment's
+    Stream or any of its Traces will affect subsequent plots
+    - Being decorated with '@gui.preprocess', this function must return either a Trace or Stream
     object
 
     :return: a Trace object.
@@ -556,77 +582,72 @@ def get_multievent_sg(cum_trace, tmin, tmax, tstart,
     tmax = utcdatetime(tmax)
     tstart = utcdatetime(tstart)
 
-    # what's happen if threshold_inside_tmin_tmax_percent > tmax-tmin?
-    # twin = tmax-tmin
-    # if (threshold_inside_tmin_tmax_sec > twin):
-    #    threshold_inside_tmin_tmax_sec = 0.8*twin
-    ##
-
-    double_event_after_tmax_time = None
-    deltatime= None
-    d_order = 2
-
     # split traces between tmin and tmax and after tmax
     traces = [cum_trace.slice(tmin, tmax), cum_trace.slice(tmax, None)]
 
     # calculate second derivative and normalize:
-    derivs = []
+    second_derivs = []
     max_ = np.nan
     for ttt in traces:
         ttt.taper(type='cosine', max_percentage=0.05)
-        sec_der = savitzky_golay(ttt.data,31,2,deriv=2)
+        sec_der = savitzky_golay(ttt.data, 31, 2, deriv=2)
         sec_der_abs = np.abs(sec_der)
         idx = np.nanargmax(sec_der_abs)
-        max_ = np.nanmax([max_, sec_der_abs[idx]])  # get max (global) for normalization (see below):
-        derivs.append(sec_der_abs)
+        # get max (global) for normalization:
+        max_ = np.nanmax([max_, sec_der_abs[idx]])
+        second_derivs.append(sec_der_abs)
 
     # normalize second derivatives:
-    for der in derivs:
+    for der in second_derivs:
         der /= max_
 
     result = 0
 
     # case A: see if after tmax we exceed a threshold
-    indices = np.where(derivs[1] >= threshold_after_tmax_percent)[0]
+    indices = np.where(second_derivs[1] >= threshold_after_tmax_percent)[0]
     if len(indices):
         result = 2
-        double_event_after_tmax_time = timeof(traces[1], indices[0])  # FIXME
 
     # case B: see if inside tmin tmax we exceed a threshold, and in case check the duration
-    indices = np.where(derivs[0] >= threshold_inside_tmin_tmax_percent)[0]
+    deltatime = 0
+    indices = np.where(second_derivs[0] >= threshold_inside_tmin_tmax_percent)[0]
+    starttime = endtime = None
     if len(indices) >= 2:
         idx0 = indices[0]
         idx1 = indices[-1]
-        deltatime = (idx1 - idx0) * cum_trace.stats.delta
-        # deltatime = timeof(traces[0], indices[-1]) - timeof(traces[0], indices[0])
-        # deltatime = timeof(traces[1], indices[-1]) - tstart
-
+        starttime = timeof(traces[0], idx0)
+        endtime = timeof(traces[0], idx1)
+        deltatime = endtime - starttime
         if deltatime >= threshold_inside_tmin_tmax_sec:
             result += 1
 
-    return result, None, None, None
-    # FIXME:
-    # return result, deltatime, timeof(traces[0], indices[-1]), timeof(traces[0], indices[0])
+    return result, deltatime, starttime, endtime
 
 
 @gui.customplot
 def synth_wa(segment, config):
-    '''compute synthetic WA. NOTE: keep as last action, it modifies trace!!
+    '''compute synthetic WA. This method does NOT remove the segment's stream instrumental response.
+    Does not modify the segment's stream or traces in-place.
 
-    Being decorated with '@gui.sideplot' or '@gui.customplot', this function must return
-    a numeric sequence y taken at successive equally spaced points in any of these forms:
-    - a Trace object
-    - a Stream object
-    - the tuple (x0, dx, y) or (x0, dx, y, label), where
-        - x0 (numeric, `datetime` or `UTCDateTime`) is the abscissa of the first point
-        - dx (numeric or `timedelta`) is the sampling period
-        - y (numpy array or numeric list) are the sequence values
-        - label (string, optional) is the sequence name to be displayed on the plot legend.
-          (if x0 is numeric and `dx` is a `timedelta` object, then x0 will be converted
-          to `UTCDateTime(x0)`; if x0 is a `datetime` or `UTCDateTime` object and `dx` is numeric,
-          then `dx` will be converted to `timedelta(seconds=dx)`)
-    - a dict of any of the above types, where the keys (string) will denote each sequence
-      name to be displayed on the plot legend.
+    IMPORTANT NOTES:
+
+    - As this function is decorated for the gui visualization, any in-place modification to
+    the segment's Stream or any of its Traces will affect subsequent plots
+
+    -Being decorated with '@gui.sideplot' or '@gui.customplot', this function must return
+     a numeric sequence y taken at successive equally spaced points in any of these forms:
+        - a Trace object
+        - a Stream object
+        - the tuple (x0, dx, y) or (x0, dx, y, label), where
+            - x0 (numeric, `datetime` or `UTCDateTime`) is the abscissa of the first point
+            - dx (numeric or `timedelta`) is the sampling period
+            - y (numpy array or numeric list) are the sequence values
+            - label (string, optional) is the sequence name to be displayed on the plot legend.
+              (if x0 is numeric and `dx` is a `timedelta` object, then x0 will be converted
+              to `UTCDateTime(x0)`; if x0 is a `datetime` or `UTCDateTime` object and `dx` is
+              numeric, then `dx` will be converted to `timedelta(seconds=dx)`)
+        - a dict of any of the above types, where the keys (string) will denote each sequence
+          name to be displayed on the plot legend.
 
     :return:  an obspy Trace
     '''
@@ -640,31 +661,35 @@ def synth_wa(segment, config):
     config_wa['zeros'] = list(zeros_parsed)
     poles_parsed = map(complex, (c.replace(' ', '') for c in config_wa['poles']))
     config_wa['poles'] = list(poles_parsed)
-    # compute synthetic WA response
-    trace_wa = trace.simulate(paz_remove=None, paz_simulate=config_wa)
-
-    return trace_wa
+    # compute synthetic WA response. This modifies the trace in-place!
+    return trace.copy().simulate(paz_remove=None, paz_simulate=config_wa)
 
 
 @gui.customplot
 def derivcum2(segment, config):
     """
-    compute the second derivative of the cumulative function using savitzy-golay
+    compute the second derivative of the cumulative function using savitzy-golay.
+    Does not modify the segment's stream or traces in-place
 
-    Being decorated with '@gui.sideplot' or '@gui.customplot', this function must return
-    a numeric sequence y taken at successive equally spaced points in any of these forms:
-    - a Trace object
-    - a Stream object
-    - the tuple (x0, dx, y) or (x0, dx, y, label), where
-        - x0 (numeric, `datetime` or `UTCDateTime`) is the abscissa of the first point
-        - dx (numeric or `timedelta`) is the sampling period
-        - y (numpy array or numeric list) are the sequence values
-        - label (string, optional) is the sequence name to be displayed on the plot legend.
-          (if x0 is numeric and `dx` is a `timedelta` object, then x0 will be converted
-          to `UTCDateTime(x0)`; if x0 is a `datetime` or `UTCDateTime` object and `dx` is numeric,
-          then `dx` will be converted to `timedelta(seconds=dx)`)
-    - a dict of any of the above types, where the keys (string) will denote each sequence
-      name to be displayed on the plot legend.
+    IMPORTANT NOTES:
+
+    - As this function is decorated for the gui visualization, any in-place modification to
+    the segment's Stream or any of its Traces will affect subsequent plots
+
+    -Being decorated with '@gui.sideplot' or '@gui.customplot', this function must return
+     a numeric sequence y taken at successive equally spaced points in any of these forms:
+        - a Trace object
+        - a Stream object
+        - the tuple (x0, dx, y) or (x0, dx, y, label), where
+            - x0 (numeric, `datetime` or `UTCDateTime`) is the abscissa of the first point
+            - dx (numeric or `timedelta`) is the sampling period
+            - y (numpy array or numeric list) are the sequence values
+            - label (string, optional) is the sequence name to be displayed on the plot legend.
+              (if x0 is numeric and `dx` is a `timedelta` object, then x0 will be converted
+              to `UTCDateTime(x0)`; if x0 is a `datetime` or `UTCDateTime` object and `dx` is
+              numeric, then `dx` will be converted to `timedelta(seconds=dx)`)
+        - a dict of any of the above types, where the keys (string) will denote each sequence
+          name to be displayed on the plot legend.
 
     :return: the tuple (starttime, timedelta, values)
 
@@ -683,21 +708,27 @@ def derivcum2(segment, config):
 @gui.customplot
 def cumulative(segment, config):
     '''Computes the cumulative of a trace in the form of a Plot object.
+    Does not modify the segment's stream or traces in-place
 
-    Being decorated with '@gui.sideplot' or '@gui.customplot', this function must return
-    a numeric sequence y taken at successive equally spaced points in any of these forms:
-    - a Trace object
-    - a Stream object
-    - the tuple (x0, dx, y) or (x0, dx, y, label), where
-        - x0 (numeric, `datetime` or `UTCDateTime`) is the abscissa of the first point
-        - dx (numeric or `timedelta`) is the sampling period
-        - y (numpy array or numeric list) are the sequence values
-        - label (string, optional) is the sequence name to be displayed on the plot legend.
-          (if x0 is numeric and `dx` is a `timedelta` object, then x0 will be converted
-          to `UTCDateTime(x0)`; if x0 is a `datetime` or `UTCDateTime` object and `dx` is numeric,
-          then `dx` will be converted to `timedelta(seconds=dx)`)
-    - a dict of any of the above types, where the keys (string) will denote each sequence
-      name to be displayed on the plot legend.
+    IMPORTANT NOTES:
+
+    - As this function is decorated for the gui visualization, any in-place modification to
+    the segment's Stream or any of its Traces will affect subsequent plots
+
+    -Being decorated with '@gui.sideplot' or '@gui.customplot', this function must return
+     a numeric sequence y taken at successive equally spaced points in any of these forms:
+        - a Trace object
+        - a Stream object
+        - the tuple (x0, dx, y) or (x0, dx, y, label), where
+            - x0 (numeric, `datetime` or `UTCDateTime`) is the abscissa of the first point
+            - dx (numeric or `timedelta`) is the sampling period
+            - y (numpy array or numeric list) are the sequence values
+            - label (string, optional) is the sequence name to be displayed on the plot legend.
+              (if x0 is numeric and `dx` is a `timedelta` object, then x0 will be converted
+              to `UTCDateTime(x0)`; if x0 is a `datetime` or `UTCDateTime` object and `dx` is
+              numeric, then `dx` will be converted to `timedelta(seconds=dx)`)
+        - a dict of any of the above types, where the keys (string) will denote each sequence
+          name to be displayed on the plot legend.
 
     :return: an obspy.Trace
 
@@ -714,21 +745,27 @@ def cumulative(segment, config):
 def sn_spectra(segment, config):
     """
     Computes the signal and noise spectra, as dict of strings mapped to tuples (x0, dx, y).
+    Does not modify the segment's stream or traces in-place
 
-    Being decorated with '@gui.sideplot' or '@gui.customplot', this function must return
-    a numeric sequence y taken at successive equally spaced points in any of these forms:
-    - a Trace object
-    - a Stream object
-    - the tuple (x0, dx, y) or (x0, dx, y, label), where
-        - x0 (numeric, `datetime` or `UTCDateTime`) is the abscissa of the first point
-        - dx (numeric or `timedelta`) is the sampling period
-        - y (numpy array or numeric list) are the sequence values
-        - label (string, optional) is the sequence name to be displayed on the plot legend.
-          (if x0 is numeric and `dx` is a `timedelta` object, then x0 will be converted
-          to `UTCDateTime(x0)`; if x0 is a `datetime` or `UTCDateTime` object and `dx` is numeric,
-          then `dx` will be converted to `timedelta(seconds=dx)`)
-    - a dict of any of the above types, where the keys (string) will denote each sequence
-      name to be displayed on the plot legend.
+    IMPORTANT NOTES:
+
+    - As this function is decorated for the gui visualization, any in-place modification to
+    the segment's Stream or any of its Traces will affect subsequent plots
+
+    -Being decorated with '@gui.sideplot' or '@gui.customplot', this function must return
+     a numeric sequence y taken at successive equally spaced points in any of these forms:
+        - a Trace object
+        - a Stream object
+        - the tuple (x0, dx, y) or (x0, dx, y, label), where
+            - x0 (numeric, `datetime` or `UTCDateTime`) is the abscissa of the first point
+            - dx (numeric or `timedelta`) is the sampling period
+            - y (numpy array or numeric list) are the sequence values
+            - label (string, optional) is the sequence name to be displayed on the plot legend.
+              (if x0 is numeric and `dx` is a `timedelta` object, then x0 will be converted
+              to `UTCDateTime(x0)`; if x0 is a `datetime` or `UTCDateTime` object and `dx` is
+              numeric, then `dx` will be converted to `timedelta(seconds=dx)`)
+        - a dict of any of the above types, where the keys (string) will denote each sequence
+          name to be displayed on the plot legend.
 
     :return: a dict with two keys, 'Signal' and 'Noise', mapped respectively to the tuples
     (f0, df, frequencies)
@@ -738,20 +775,23 @@ def sn_spectra(segment, config):
     """
     stream = segment.stream()
     assert1trace(stream)  # raise and return if stream has more than one trace
-    x0_sig, df_sig, sig = spectrum(stream[0], config, *segment.timewindow('signal'))
-    x0_noi, df_noi, noi = spectrum(stream[0], config, *segment.timewindow('noise'))
+    signal_wdw, noise_wdw = segment.sn_windows()
+    x0_sig, df_sig, sig = _spectrum(stream[0], config, *signal_wdw)
+    x0_noi, df_noi, noi = _spectrum(stream[0], config, *noise_wdw)
     return {'Signal': (x0_sig, df_sig, sig), 'Noise': (x0_noi, df_noi, noi)}
 
 
-def spectrum(trace, config, starttime=None, endtime=None):
-    '''Calculate the spectrum of a trace. Returns the tuple 0, df, values, where
-    values depends on the config dict parameters'''
+def _spectrum(trace, config, starttime=None, endtime=None):
+    '''Calculate the spectrum of a trace. Returns the tuple (0, df, values), where
+    values depends on the config dict parameters.
+    Does not modify the trace in-place
+    '''
     taper_max_percentage = config['sn_spectra']['taper']['max_percentage']
     taper_type = config['sn_spectra']['taper']['type']
     if config['sn_spectra']['type'] == 'pow':
-        func = powspec
+        func = powspec  # copies the trace if needed
     elif config['sn_spectra']['type'] == 'amp':
-        func = ampspec
+        func = ampspec  # copies the trace if needed
     else:
         # raise TypeError so that if called from within main, the iteration stops
         raise TypeError("config['sn_spectra']['type'] expects either 'pow' or 'amp'")

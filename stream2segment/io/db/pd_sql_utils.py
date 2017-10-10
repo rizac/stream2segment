@@ -356,7 +356,7 @@ def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_siz
            drop_duplicates=True, return_df=True, onerr=None):
     """
     Efficiently synchronizes `dataframe` with the corresponding database table T.
-    
+
     This function works by:
     1. Setting first the value of `autoincrement_pkey_col` for those rows found on T
        (according to `matching_columns`)

@@ -315,7 +315,7 @@ class Segment(Base):
     datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
     seed_identifier = Column(String)
     event_distance_deg = Column(Float, nullable=False)
-    data = deferred(Column(LargeBinary))  # lazy load only upon access
+    data = Column(LargeBinary)
     download_status_code = Column(Integer, nullable=True)
     start_time = Column(DateTime, nullable=False)
     arrival_time = Column(DateTime, nullable=False)

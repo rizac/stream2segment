@@ -38,6 +38,12 @@
 # start_time                        datetime.datetime
 # arrival_time                      datetime.datetime
 # end_time                          datetime.datetime
+# has_data                          boolean (this attribute is particularly useful to discard 
+#                                   immediately - thus more efficiently -                     
+#                                   segments which are generally not suitable for processing. 
+#                                   Segment might not have data because of a download error   
+#                                   or an empty response generally with download status       
+#                                   code = 204)
 # sample_rate                       float (as written in the segment's waveform data,
 #                                   it might differ from segment.channel.sample_rate)
 # download_status_code              int (typically, values between 200 and 399 denote    

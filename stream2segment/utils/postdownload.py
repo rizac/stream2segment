@@ -26,7 +26,8 @@ from io import BytesIO
 from sqlalchemy.orm.session import object_session
 from sqlalchemy.exc import SQLAlchemyError
 from obspy.core.utcdatetime import UTCDateTime
-from obspy.core.stream import _read
+from obspy.core.stream import _read, Stream
+from obspy.core.trace import Trace
 
 from stream2segment.io.utils import loads_inv, dumps_inv
 from stream2segment.utils.url import urlread
@@ -82,7 +83,6 @@ class SegmentWrapper(object):
         self.__segment = None
         self.__stream = stream
         self.__inv = inventory
-        self.__sn_windows = None
         # Custom attributes. If they are used or not inside the methods, is up to the
         # implementation (for the moment, none of them is used unless it overrides one of the
         # previous mandatory attributes):
@@ -126,24 +126,15 @@ class SegmentWrapper(object):
                                        (str(exc) or str(exc.__class__.__name__)))
         return self.__inv
 
-    @raiseifreturnsexception
-    def timewindow(self, wtype):
-        '''returns [start, end] as UtcDateTime's representing the signal or noise window
-        :param wtype: either 'signal', 's', 'noise' or 'n'
+    def sn_windows(self):
+        '''returns the tuples (start, end), (start, end) where the first list is the signal
+        window, and the second is the noise window. All elements are UtcDateTime's
         '''
-        if wtype in ('signal', 'noise'):
-            wtype = wtype[0]
-        wtype = wtype.lower()
-        if wtype not in ('s', 'n'):
-            return TypeError(("segment.timewindow() got wrong argument '%s'. "
-                              "Please provide 'signal', 's', 'noise' or 'n'") % str(wtype))
-
-        if self.__sn_windows is None:
-            try:
-                self.__sn_windows = get_sn_windows(self.__config, self.arrival_time, self.stream())
-            except Exception as exc:
-                self._sn__windows = [exc, exc]  # hack to return an exception regardless of wtype
-        return self.__sn_windows[1 if wtype == 'n' else 0]
+        # No cache for this variable, as we might modify the segment stream in-place thus it's
+        # hard to know when a recalculation is needed (this is particularly important when
+        # bounds relative to the cumulative sum are given, if an interval was given there would be
+        # no problem)
+        return get_sn_windows(self.__config, self.arrival_time, self.stream())
 
     def __getattr__(self, name):
         return getattr(self._SegmentWrapper__getseg, name)
@@ -172,10 +163,11 @@ def get_sn_windows(config, a_time, stream):
     try:
         cum0, cum1 = config['sn_windows']['signal_window']
         t0, t1 = cumtimes(cumsum(stream[0]), cum0, cum1)
-        nsy, sig = [a_time - (t1-t0), a_time], [t0, t1]
+        nsy, sig = (a_time - (t1-t0), a_time), (t0, t1)
     except TypeError:  # not a tuple/list? then it's a scalar:
         shift = config['sn_windows']['signal_window']
-        nsy, sig = [a_time-shift, a_time], [a_time, a_time+shift]
+        nsy, sig = (a_time-shift, a_time), (a_time, a_time+shift)
+    # note: returns always tuples as they cannot be modified by the user (safer)
     return sig, nsy
 
 
