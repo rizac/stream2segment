@@ -845,7 +845,22 @@ class Test(unittest.TestCase):
         assert len(ss2) >= 1
         assert any(_[0] == s2.id for _ in ss2)
         
-        
+#         sss = self.session.query(Segment).all()
+#         # assert no segment has duplicates (since we built it when we still had the constraint
+#         # unique ch_id, start_time, end_time
+#         assert not all(s.num_duplicates for s in sss)
+#         # assert all have the same id:
+#         assert all(s.channel_id==sss[0].channel_id for s in sss)
+#         # now make the first two with the same time-bounds:
+#         stime = datetime.utcnow()
+#         etime = stime + timedelta(seconds=120)
+#         sss[0].start_time = sss[0].start_time = stime
+#         sss[1].end_time = sss[1].end_time = etime
+#         self.session.commit()
+#         # make a tuple of expected dupes:
+#         id_dupes = (sss[0].id, sss[1].id)
+        # query and check:
+
         
         
         

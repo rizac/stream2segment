@@ -26,12 +26,13 @@ from sqlalchemy import (
     # BigInteger,
     UniqueConstraint,
     event)
-from sqlalchemy.sql.expression import func, text, case, null, select
+from sqlalchemy.sql.expression import func, text, case, null, select, join, alias, exists, and_
 # from sqlalchemy.orm.mapper import validates
 # from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.inspection import inspect
 from sqlalchemy.ext.hybrid import hybrid_property, hybrid_method
 from sqlalchemy.ext.associationproxy import association_proxy
+from sqlalchemy.orm.util import aliased
 
 _Base = declarative_base()
 
@@ -388,12 +389,6 @@ class Segment(Base):
             return any_(Class.id.isin_(ids))
 
     @hybrid_property
-    def strid(self):
-        return self.data_identifier or \
-            ".".join([self.station.network, self.station.station,
-                      self.channel.location, self.channel.channel])
-
-    @hybrid_property
     def seed_identifier(self):
         return self.data_identifier or \
             ".".join([self.station.network, self.station.station,
@@ -403,7 +398,6 @@ class Segment(Base):
     def seed_identifier(cls):  # @NoSelf
         '''returns data_identifier if the latter is not None, else net.sta.loc.cha by querying the
         relative channel and station'''
-        dot = text("'.'")
         # wow that was tough. To know what we are doing in 'sel' below, please look:
         # http://docs.sqlalchemy.org/en/latest/orm/extensions/hybrid.html#correlated-subquery-relationship-hybrid
         # Notes
@@ -413,6 +407,7 @@ class Segment(Base):
         # network+station and location + channel strings
         # - the label(...) at the end makes all the difference. The doc is, as always, unclear
         # http://docs.sqlalchemy.org/en/latest/core/sqlelement.html#sqlalchemy.sql.expression.label
+        dot = text("'.'")
         sel = select([func.concat(Station.network, dot, Station.station, dot,
                                   Channel.location, dot, Channel.channel)]).\
             where((Channel.id == cls.channel_id) & (Station.id == Channel.station_id)).limit(1).\
