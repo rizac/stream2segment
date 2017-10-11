@@ -801,6 +801,69 @@ class Test(unittest.TestCase):
         # segments with data, stations with inventory data: use hybrid attrs (in process.main)
         # segments with classes: any, none: use query, not hybrid attrs (in gui)
         
+        
+        # test other properties:
+        segments = self.session.query(Segment).all()
+        segment = segments[0]
+        
+        
+        value = segment.channel.band_code
+        assert value == segment.channel.channel[0]
+        sid = segment.id
+        # now try with a query to test the sql expression associated to it:
+        segs = self.session.query(Segment).join(Segment.channel).filter(Channel.band_code == value).all()
+        assert any(s.id == sid for s in segs)
+        
+        value = segment.channel.instrument_code
+        assert value == segment.channel.channel[1]
+        sid = segment.id
+        # now try with a query to test the sql expression associated to it:
+        segs = self.session.query(Segment).join(Segment.channel).filter(Channel.instrument_code == value).all()
+        assert any(s.id == sid for s in segs)
+        
+        value = segment.channel.orientation_code
+        assert value == segment.channel.channel[-1]
+        sid = segment.id
+        # now try with a query to test the sql expression associated to it:
+        segs = self.session.query(Segment).join(Segment.channel).filter(Channel.orientation_code == value).all()
+        assert any(s.id == sid for s in segs)
+        
+        # test seed_identifier
+        s1 = segs[0]
+        s2 = segs[1]
+        s1_seed_id = 'abc'
+        s2_seed_id = ".".join([s1.station.network, s1.station.station, s1.channel.location,
+                               s1.channel.channel])
+        s1.data_identifier =  s1_seed_id
+        self.session.commit()
+        
+        ss1 = self.session.query(Segment.id).filter(Segment.seed_identifier == s1_seed_id).all()
+        assert len(ss1) == 1
+        assert ss1[0][0] == s1.id
+        
+        ss2 = self.session.query(Segment.id).filter(Segment.seed_identifier == s2_seed_id).all()
+        assert len(ss2) >= 1
+        assert any(_[0] == s2.id for _ in ss2)
+        
+#         sss = self.session.query(Segment).all()
+#         # assert no segment has duplicates (since we built it when we still had the constraint
+#         # unique ch_id, start_time, end_time
+#         assert not all(s.num_duplicates for s in sss)
+#         # assert all have the same id:
+#         assert all(s.channel_id==sss[0].channel_id for s in sss)
+#         # now make the first two with the same time-bounds:
+#         stime = datetime.utcnow()
+#         etime = stime + timedelta(seconds=120)
+#         sss[0].start_time = sss[0].start_time = stime
+#         sss[1].end_time = sss[1].end_time = etime
+#         self.session.commit()
+#         # make a tuple of expected dupes:
+#         id_dupes = (sss[0].id, sss[1].id)
+        # query and check:
+
+        
+        
+        
     def tst_get_cols(self, seg):
         
         clen = len(seg.__class__.__table__.columns)

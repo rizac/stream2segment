@@ -163,23 +163,32 @@ def handledbexc(cols_to_print_on_err, update=False):
     the db. Basically, it prints to log"""
     def hde(dataframe, exception):
         if not empty(dataframe):
-            N = 30
             try:
+                # if sql-alchemy exception, try to guess the orig atrribute which represents
+                # the wrapped exception
+                # http://docs.sqlalchemy.org/en/latest/core/exceptions.html
                 errmsg = str(exception.orig)
             except AttributeError:
+                # just use the string representation of exception
                 errmsg = str(exception)
             len_df = len(dataframe)
             msg = MSG("%d database rows not %s" % (len_df, "updated" if update else "inserted"),
                       errmsg)
-            if len_df > N:
-                footer = "\n... (showing first %d rows only)" % N
-                dataframe = dataframe.iloc[:N]
-            else:
-                footer = ""
-            msg = "{}:\n{}{}".format(msg, dataframe.to_string(columns=cols_to_print_on_err,
-                                                              index=False), footer)
-            logger.warning(msg)
+            logwarn_dataframe(dataframe, msg, cols_to_print_on_err)
     return hde
+
+
+def logwarn_dataframe(dataframe, msg, cols_to_print_on_err, max_row_count=30):
+    '''prints (using log.warning) the current dataframe. Does not check if dataframe is empty'''
+    len_df = len(dataframe)
+    if len_df > max_row_count:
+        footer = "\n... (showing first %d rows only)" % max_row_count
+        dataframe = dataframe.iloc[:max_row_count]
+    else:
+        footer = ""
+    msg = "{}:\n{}{}".format(msg, dataframe.to_string(columns=cols_to_print_on_err,
+                                                      index=False), footer)
+    logger.warning(msg)
 
 
 def dblog(table, inserted, not_inserted, updated=-1, not_updated=-1):
@@ -587,7 +596,8 @@ def save_stations_and_channels(session, channels_df, eidavalidator, db_bufsize):
             exc_msg = "duplicated station(s)"
             logger.info(infomsg.format(len(sta_df_dupes), exc_msg))
             # print the removed dataframe to log.warning (showing STA_ERRCOLS only):
-            handledbexc(STA_ERRCOLS)(sta_df_dupes, Exception(exc_msg))
+            handledbexc(STA_ERRCOLS)(sta_df_dupes.sort_values(by=[STA_NET, STA_STA, STA_STIME]),
+                                     Exception(exc_msg))
             # https://stackoverflow.com/questions/28901683/pandas-get-rows-which-are-not-in-other-dataframe:
             sta_df = sta_df.loc[~sta_df.index.isin(sta_df_dupes.index)]
 
@@ -850,6 +860,26 @@ def prepare_for_download(session, segments_df, wtimespan, retry_no_code, retry_u
         raise QuitDownload("Nothing to download: all segments already downloaded according to "
                            "the current configuration")
 
+    # warn the user if we have duplicated segments, i.e. segments of the same
+    # (channel_id, start_time, end_time). This can happen when we have to very close events
+    # Note that the time bounds are given by the combinations of
+    # [event.lat, event.lon, event.depth_km, segment.event_distance_deg] so the condition
+    # 'duplicated segments' might actually happen
+    seg_dupes_mask = segments_df.duplicated(subset=[SEG_CHID, SEG_STIME, SEG_ETIME], keep=False)
+    if seg_dupes_mask.any():
+        seg_dupes = segments_df[seg_dupes_mask]
+        logger.info(MSG("%d suspicious duplicated segments found:\n"
+                        "any of these segment has by definition at least another segment\n"
+                        "with the same channel_id, start_time and end_time.\n"
+                        "Cause: two or more events with different id's arriving to the same\n"
+                        "channel at the same date and time (rounded to the nearest second).\n"
+                        "(all these segments will anyway be written to the database)."),
+                    len(seg_dupes))
+        logwarn_dataframe(seg_dupes.sort_values(by=[SEG_CHID, SEG_STIME, SEG_ETIME]),
+                          "Suspicious duplicated segments",
+                          [SEG_CHID, SEG_STIME, SEG_ETIME, SEG_EVID],
+                          max_row_count=100)
+
     segments_df.drop([SEG_RETRY], axis=1, inplace=True)
     return segments_df
 
@@ -889,7 +919,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
     SEG_ETIME = Segment.end_time.key
     SEG_DATA = Segment.data.key
     SEG_DSCODE = Segment.download_status_code.key
-    SEG_SEEDID = Segment.seed_identifier.key
+    SEG_DATAID = Segment.data_identifier.key
     SEG_MGAP = Segment.max_gap_overlap_ratio.key
     SEG_SRATE = Segment.sample_rate.key
     SEG_DOWNLID = Segment.download_id.key
@@ -901,7 +931,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
     # https://docs.scipy.org/doc/numpy/reference/arrays.dtypes.html#specifying-and-constructing-data-types
     # Use OrderedDict to preserve order (see comments below)
     segvals = OrderedDict([(SEG_DATA, None), (SEG_SRATE, np.nan), (SEG_MGAP, np.nan),
-                           (SEG_SEEDID, None), (SEG_DSCODE, np.nan)])
+                           (SEG_DATAID, None), (SEG_DSCODE, np.nan)])
     # Define separate keys cause we will use it elsewhere:
     # Note that the order of these keys must match `mseed_unpack` returned data
     # (this is why we used OrderedDict above)
@@ -914,7 +944,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
     datcen_id2url = datacenters_df.set_index([DC_ID])[DC_DSURL].to_dict()
 
     cols2update = [Segment.download_id, Segment.data, Segment.sample_rate,
-                   Segment.max_gap_overlap_ratio, Segment.seed_identifier,
+                   Segment.max_gap_overlap_ratio, Segment.data_identifier,
                    Segment.download_status_code, Segment.start_time, Segment.arrival_time,
                    Segment.end_time]
     segmanager = DbManager(session, Segment.id, cols2update,
@@ -1325,12 +1355,9 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
                                            retry_url_errors, retry_mseed_errors, retry_4xx,
                                            retry_5xx)
 
-        # download_save_segments raises a QuitDownload if there is no data, remember its
-        # exitcode
-        if empty(segments_df):
-            stepinfo("Skipping: No segment to download")
-        else:
-            stepinfo("Downloading %d segments and saving to db", len(segments_df))
+        # download_save_segments raises a QuitDownload if there is no data, so if we are here
+        # segments_df is not empty
+        stepinfo("Downloading %d segments and saving to db", len(segments_df))
 
         # frees memory. Although maybe unecessary, let's do our best to free stuff cause the
         # next one is memory consuming:

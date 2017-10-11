@@ -1397,6 +1397,105 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             assert len(s_df) == len(orig_seg_df)
         # this hol
 
+
+    def test_prepare_for_download_sametimespans(self):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
+        # prepare. event ws returns two events very close by
+        urlread_sideeffect = """#EventID | Time | Latitude | Longitude | Depth/km | Author | Catalog | Contributor | ContributorID | MagType | Magnitude | MagAuthor | EventLocationName
+20160508_0000129|2016-05-08 05:17:11.500000|1|1|2.01|AZER|EMSC-RTS|AZER|505483|ml|3|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
+20160508_0000004|2016-05-08 05:17:12.300000|1.001|1.001|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|4|EMSC|CROATIA
+"""
+        events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", db_bufsize=self.db_buf_size)
+        channels = None
+        urlread_sideeffect = None
+        datacenters_df, eidavalidator = \
+            self.get_datacenters_df(urlread_sideeffect, self.session, None, self.routing_service,
+                                    channels=channels, db_bufsize=self.db_buf_size)                                      
+        channels_df = self.get_channels_df(urlread_sideeffect, self.session,
+                                                       datacenters_df,
+                                                       eidavalidator,
+                                                       channels, None, None,
+                                                       100, None, None, -1, self.db_buf_size
+                                               )
+        assert len(channels_df) == 12  # just to be sure. If failing, we might have changed the class default
+    # events_df
+#    id  magnitude  latitude  longitude  depth_km                    time
+# 0  1   3.0        1.0       1.0        60.0     2016-05-08 05:17:11.500
+# 1  2   4.0        90.0      90.0       2.0      2016-05-08 01:45:30.300
+
+    # channels_df:
+#    id  station_id  latitude  longitude  datacenter_id start_time end_time network station location channel
+# 0  1   1           1.0       1.0        1             2003-01-01 NaT       GE      FLT1             HHE   
+# 1  2   1           1.0       1.0        1             2003-01-01 NaT       GE      FLT1             HHN   
+# 2  3   1           1.0       1.0        1             2003-01-01 NaT       GE      FLT1             HHZ   
+# 3  4   2           90.0      90.0       1             2009-01-01 NaT       n1      s                c1    
+# 4  5   2           90.0      90.0       1             2009-01-01 NaT       n1      s                c2    
+# 5  6   2           90.0      90.0       1             2009-01-01 NaT       n1      s                c3    
+# 6   7   3           1.0       1.0        2             2003-01-01 NaT       IA      BAKI             BHE   
+# 7   8   3           1.0       1.0        2             2003-01-01 NaT       IA      BAKI             BHN   
+# 8   9   3           1.0       1.0        2             2003-01-01 NaT       IA      BAKI             BHZ   
+# 9   10  4           90.0      90.0       2             2009-01-01 NaT       n2      s                c1    
+# 10  11  4           90.0      90.0       2             2009-01-01 NaT       n2      s                c2    
+# 11  12  4           90.0      90.0       2             2009-01-01 NaT       n2      s                c3    
+
+        # take all segments:
+        segments_df = merge_events_stations(events_df, channels_df, minmag=10, maxmag=10,
+                                   minmag_radius=100, maxmag_radius=200, tttable=self.ttable())
+
+        
+# segments_df:
+#    channel_id  station_id  datacenter_id network station location channel  event_distance_deg  event_id  depth_km                    time               arrival_time
+# 0  1           1           1              GE      FLT1             HHE     500.555             1         60.0     2016-05-08 05:17:11.500 2017-05-10 12:39:13.463745
+# 1  2           1           1              GE      FLT1             HHN     500.555             1         60.0     2016-05-08 05:17:11.500 2017-05-10 12:39:13.463745
+# 2  3           1           1              GE      FLT1             HHZ     500.555             1         60.0     2016-05-08 05:17:11.500 2017-05-10 12:39:13.463745
+# 3  4           2           1              n1      s                c1      89.000              1         60.0     2016-05-08 05:17:11.500 NaT                       
+# 4  5           2           1              n1      s                c2      89.000              1         60.0     2016-05-08 05:17:11.500 NaT                       
+# 5  6           2           1              n1      s                c3      89.0                1         60.0     2016-05-08 05:17:11.500 NaT         
+# 6  7           3           2              IA      BAKI             BHE     0.0                 1         60.0     2016-05-08 05:17:11.500 NaT         
+# 7  8           3           2              IA      BAKI             BHN     0.0                 1         60.0     2016-05-08 05:17:11.500 NaT         
+# 8  9           3           2              IA      BAKI             BHZ     0.0                 1         60.0     2016-05-08 05:17:11.500 NaT         
+# 9  10          4           2              n2      s                c1      89.0                1         60.0     2016-05-08 05:17:11.500 NaT         
+# 10  11          4           2              n2      s                c2      89.0                1         60.0     2016-05-08 05:17:11.500 NaT         
+# 11  12          4           2              n2      s                c3      89.0                1         60.0     2016-05-08 05:17:11.500 NaT         
+# 12  1           1           1              GE      FLT1             HHE     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
+# 13  2           1           1              GE      FLT1             HHN     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
+# 14  3           1           1              GE      FLT1             HHZ     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
+# 15  4           2           1              n1      s                c1      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
+# 16  5           2           1              n1      s                c2      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
+# 17  6           2           1              n1      s                c3      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
+# 18  7           3           2              IA      BAKI             BHE     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
+# 19  8           3           2              IA      BAKI             BHN     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
+# 20  9           3           2              IA      BAKI             BHZ     89.0                2         2.0      2016-05-08 01:45:30.300 NaT         
+# 21  10          4           2              n2      s                c1      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
+# 22  11          4           2              n2      s                c2      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
+# 23  12          4           2              n2      s                c3      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT         
+
+        
+        
+        
+        # make a copy of evts_stations_df cause we will modify in place the data frame
+#         segments_df =  self.get_arrivaltimes(urlread_sideeffect, evts_stations_df.copy(),
+#                                                    [1,2], ['P', 'Q'],
+#                                                         'ak135', mp_max_workers=1)
+        
+        expected = len(segments_df)  # no segment on db, we should have all segments to download
+        wtimespan = [1,2]
+        assert not Segment.id.key in segments_df.columns
+        assert not Segment.download_id.key in segments_df.columns
+        orig_seg_df = segments_df.copy()
+        segments_df = prepare_for_download(self.session, orig_seg_df, wtimespan,
+                                           retry_no_code=True,
+                                           retry_url_errors=True,
+                                           retry_mseed_errors=True,
+                                           retry_4xx=True,
+                                           retry_5xx=True)
+        
+        logmsg = self.log_msg()
+        # the dupes should be the number of segments divided by the events set (2) which are
+        # very close
+        expected_dupes = len(segments_df) / len(events_df)
+        assert ("%d suspicious duplicated segments found" % expected_dupes) in logmsg
+        g = 9
+    
     def download_save_segments(self, url_read_side_effect, *a, **kw):
         self.setup_urlopen(self._seg_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
         return download_save_segments(*a, **kw)
@@ -1404,7 +1503,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     @patch("stream2segment.download.main.mseedunpack")
     @patch("stream2segment.download.main.insertdf_napkeys")
     @patch("stream2segment.download.main.updatedf")
-    def test_download_save_segments(self, mock_updatedf, mock_insertdf_napkeys, mseed_unpack):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
+    def tst_download_save_segments(self, mock_updatedf, mock_insertdf_napkeys, mseed_unpack):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
         # prepare:
         mseed_unpack.side_effect = lambda *a, **v: mseedlite3.unpack(*a, **v)
         mock_insertdf_napkeys.side_effect = lambda *a, **v: insertdf_napkeys(*a, **v)
@@ -1545,7 +1644,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # get columns from db which we are interested on to check
         cols = [Segment.id, Segment.channel_id, Segment.datacenter_id,
                 Segment.download_status_code, Segment.max_gap_overlap_ratio, \
-                Segment.sample_rate, Segment.seed_identifier, Segment.data, Segment.download_id, Segment.start_time, Segment.end_time,
+                Segment.sample_rate, Segment.data_identifier, Segment.data, Segment.download_id, Segment.start_time, Segment.end_time,
                 ]
         db_segments_df = dbquery2df(self.session.query(*cols))
         assert Segment.download_id.key in db_segments_df.columns
@@ -1562,7 +1661,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         db_segments_df = pd.concat(ret, axis=0)
 
 # db_segments_df:
-#    id  channel_id  datacenter_id  download_status_code  max_gap_ovlap_ratio  sample_rate seed_identifier  data  run_id          start_time            end_time
+#    id  channel_id  datacenter_id  download_status_code  max_gap_ovlap_ratio  sample_rate data_identifier  data  run_id          start_time            end_time
 # 0  1   1           1              200.0                 0.0001               100.0        GE.FLT1..HHE    data  1      2016-05-08 05:16:12 2016-05-08 05:19:12
 # 1  2   2           1              200.0                 0.0001               100.0        GE.FLT1..HHN    data  1      2016-05-08 05:16:12 2016-05-08 05:19:12
 # 2  3   3           1              200.0                 0.0001               100.0        GE.FLT1..HHZ    data  1      2016-05-08 05:16:12 2016-05-08 05:19:12

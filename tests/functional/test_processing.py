@@ -8,6 +8,7 @@ from __future__ import print_function, division
 from future import standard_library
 from stream2segment.io.db.queries import query4process
 from stream2segment.utils.postdownload import SegmentWrapper, get_inventory_url
+from tempfile import NamedTemporaryFile
 standard_library.install_aliases()
 from builtins import str
 from past.utils import old_div
@@ -723,32 +724,92 @@ class Test(unittest.TestCase):
         expected_first_row_seg_id = str(self.db.seg1.id)
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             pyfile, conffile = self.get_processing_files()
-            pyfile = self.get_file("processing.py")  # custom one
-            result = runner.invoke(main, ['p', '--dburl', self.dburi,
-                                          '-p', pyfile, '-f', "main_retlist",
-                                          '-c', conffile,
-                                          file.name])
+            
+            # Now wrtite pyfile into a named temp file, with the method:
+            # def main_retlist(segment, config):
+            #    return main(segment, config).keys()
+            # the method returns a list (which is what we want to test
+            # and this way, we do not need to keep synchronized any additional file
+            with tempfile.NamedTemporaryFile(suffix='.py') as pyfile2:  # @ReservedAssignment
+                
+                with open(pyfile, 'r') as opn:
+                    content = opn.read()
 
-            if result.exception:
-                import traceback
-                traceback.print_exception(*result.exc_info)
-                print(result.output)
-                assert False
-                return
+                cont2 = content.replace("def main(segment, config):", """def main_retlist(segment, config):
+    return main(segment, config).keys()
+def main(segment, config):""")
+                pyfile2.write(cont2.encode('utf8'))
+                pyfile2.seek(0)
 
-            # check file has been correctly written:
-            with open(file.name, 'r') as csvfile:
-                spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
-                rowz = 0
-                for row in spamreader:
-                    rowz += 1
-                    if rowz == 1:
-                        assert row[0] == expected_first_row_seg_id
-#                         assert row[1] == self.db.seg1.start_time.isoformat()
-#                         assert row[2] == self.db.seg1.end_time.isoformat()
-                assert rowz == 1
-                logtext = self.read_and_remove(file.name+".log")
-                assert len(logtext) > 0
+                result = runner.invoke(main, ['p', '--dburl', self.dburi,
+                                              '-p', pyfile2.name, '-f', "main_retlist",
+                                              '-c', conffile,
+                                              file.name])
+    
+                if result.exception:
+                    import traceback
+                    traceback.print_exception(*result.exc_info)
+                    print(result.output)
+                    assert False
+                    return
+    
+                # check file has been correctly written:
+                with open(file.name, 'r') as csvfile:
+                    spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
+                    rowz = 0
+                    for row in spamreader:
+                        rowz += 1
+                        if rowz == 1:
+                            assert row[0] == expected_first_row_seg_id
+    #                         assert row[1] == self.db.seg1.start_time.isoformat()
+    #                         assert row[2] == self.db.seg1.end_time.isoformat()
+                    assert rowz == 1
+                    logtext = self.read_and_remove(file.name+".log")
+                    assert len(logtext) > 0
+                    
+                    
+    @mock.patch('stream2segment.process.main.load_proc_cfg')
+    def test_wrong_pyfile(self, mock_load_cfg):
+        '''test processing when supplying a wrong python file (not py extension, this seem
+        to raise when impoerting it in python3)'''
+        # set values which will override the yaml config in templates folder:
+        
+        mock_load_cfg.side_effect = self.load_proc_cfg
+
+        runner = CliRunner()
+        with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
+            pyfile, conffile = self.get_processing_files()
+            
+            # Now wrtite pyfile into a named temp file, BUT DO NOT SUPPLY EXTENSION
+            # This seems to fail in python3 (FIXME: python2?)
+            with tempfile.NamedTemporaryFile() as pyfile2:  # @ReservedAssignment
+                
+                with open(pyfile, 'r') as opn:
+                    content = opn.read()
+
+                pyfile2.write(content.encode('utf8'))
+                pyfile2.seek(0)
+
+                result = runner.invoke(main, ['p', '--dburl', self.dburi,
+                                              '-p', pyfile2.name, '-f', "main_retlist",
+                                              '-c', conffile,
+                                              file.name])
+    
+                if result.exception:
+                    import traceback
+                    traceback.print_exception(*result.exc_info)
+                    print(result.output)
+                    assert False
+                    return
+    
+                # check file has NOT be written:
+                with open(file.name, 'r') as csvfile:
+                    spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
+                    rowz = sum(1 for _ in spamreader)
+                    assert rowz == 0
+                    logtext = self.read_and_remove(file.name+".log")
+                    assert "Error while importing 'main_retlist'" in logtext
+
 
     @mock.patch('stream2segment.process.main.load_proc_cfg')
     def test_simple_run_codeerror(self, mock_load_cfg):
@@ -763,21 +824,34 @@ class Test(unittest.TestCase):
 
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             pyfile, conffile = self.get_processing_files()
-            pyfile = self.get_file("processing.py")  # custom one
-            result = runner.invoke(main, ['p', '--dburl', self.dburi,
-                                          '-p', pyfile, '-f', "main_typeerr",
-                                          '-c', conffile,
-                                          file.name])
+            # pyfile = self.get_file("processing.py")  # custom one
+            
+            with NamedTemporaryFile(suffix='.py') as tmpfile:
+                
+                with open(pyfile) as opn:
+                    content = opn.read()
+                
+                content = content.replace("def main(", """def main_typeerr(segment, config, wrong_argument):
+    return [6]
 
-            # the file above are bad implementation (old one)
-            # we should not write anything
-            logtext = Test.read_and_remove(file.name+".log")
-            # messages very from python 2 to 3. If python4 changes again, write it here below the case
-            # py3 is something like: TypeError: main_typeerr() missing 1 required positional argument...
-            # py2 is something like: TypeError: main_typeerr() takes...
-            # so build a general string:
-            string2check = "TypeError: main_typeerr() "
-            assert string2check in logtext
+def main(""")
+                tmpfile.write(content.encode('utf8'))
+                tmpfile.seek(0)
+                
+                result = runner.invoke(main, ['p', '--dburl', self.dburi,
+                                              '-p', tmpfile.name, '-f', "main_typeerr",
+                                              '-c', conffile,
+                                              file.name])
+    
+                # the file above are bad implementation (old one)
+                # we should not write anything
+                logtext = Test.read_and_remove(file.name+".log")
+                # messages very from python 2 to 3. If python4 changes again, write it here below the case
+                # py3 is something like: TypeError: main_typeerr() missing 1 required positional argument...
+                # py2 is something like: TypeError: main_typeerr() takes...
+                # so build a general string:
+                string2check = "TypeError: main_typeerr() "
+                assert string2check in logtext
 
     
     def test_simple_run_codeerror_nosegs(self):
@@ -790,17 +864,29 @@ class Test(unittest.TestCase):
 
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             pyfile, conffile = self.get_processing_files()
-            pyfile = self.get_file("processing.py")  # custom one
-            result = runner.invoke(main, ['p', '--dburl', self.dburi,
-                                          '-p', pyfile, '-f', "main_typeerr",
-                                          '-c', conffile,
-                                          file.name])
+            # pyfile = self.get_file("processing.py")  # custom one
+            with NamedTemporaryFile(suffix='.py') as tmpfile:
+                
+                with open(pyfile) as opn:
+                    content = opn.read()
+                
+                content = content.replace("def main(", """def main_typeerr(segment, config, wrong_argument):
+    return [6]
 
-            # the file above are bad implementation (old one)
-            # we should not write anything
-            logtext = Test.read_and_remove(file.name+".log")
-            string2check = "0 segments"
-            assert string2check in logtext
+def main(""")
+                tmpfile.write(content.encode('utf8'))
+                tmpfile.seek(0)
+                
+                result = runner.invoke(main, ['p', '--dburl', self.dburi,
+                                              '-p', tmpfile.name, '-f', "main_typeerr",
+                                              '-c', conffile,
+                                              file.name])
+    
+                # the file above are bad implementation (old one)
+                # we should not write anything
+                logtext = Test.read_and_remove(file.name+".log")
+                string2check = "0 segments"
+                assert string2check in logtext
 
 
 if __name__ == "__main__":

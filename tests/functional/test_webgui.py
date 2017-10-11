@@ -224,7 +224,7 @@ class Test(unittest.TestCase):
                               arrival_time=ev.time + timedelta(seconds=2 * val),
                               end_time=ev.time + timedelta(seconds=5 * val),
                               data=mseed,
-                              seed_identifier=obspy_trace.get_id() if mseed == data_ok else None,
+                              data_identifier=obspy_trace.get_id() if mseed == data_ok else None,
                               event_distance_deg=val,
                               event_id=ev.id,
                               **fixed_args)

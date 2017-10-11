@@ -26,11 +26,13 @@ from sqlalchemy import (
     # BigInteger,
     UniqueConstraint,
     event)
-from sqlalchemy.sql.expression import func, text
+from sqlalchemy.sql.expression import func, text, case, null, select, join, alias, exists, and_
 # from sqlalchemy.orm.mapper import validates
 # from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.inspection import inspect
 from sqlalchemy.ext.hybrid import hybrid_property, hybrid_method
+from sqlalchemy.ext.associationproxy import association_proxy
+from sqlalchemy.orm.util import aliased
 
 _Base = declarative_base()
 
@@ -158,11 +160,11 @@ class Event(Base):
 
 
 class WebService(Base):
-    """event fdsn service"""
+    """web service (e.g., event web service)"""
     __tablename__ = "web_services"
 
     id = Column(Integer, primary_key=True, autoincrement=True)  # pylint:disable=invalid-name
-    name = Column(String)
+    name = Column(String)  # optional
     type = Column(String)  # e.g.: event, station, dataselect (currently only event is used)
     url = Column(String, nullable=False)  # if you change attr, see BELOW!
 
@@ -296,6 +298,42 @@ class Channel(Base):
     scale_units = Column(String)
     sample_rate = Column(Float, nullable=False)
 
+    @hybrid_property
+    def band_code(self):
+        '''returns the first letter of the channel field, or None if the latter has not length 3'''
+        return self.channel[0] if len(self.channel) == 3 else None
+
+    @band_code.expression
+    def band_code(cls):  # @NoSelf
+        '''returns the sql expression returning the first letter of the channel field,
+        or NULL if the latter has not length 3'''
+        # return an sql expression matching the last char or None if not three letter channel
+        return case([(func.length(cls.channel) == 3, func.left(cls.channel, 1))], else_=null())
+
+    @hybrid_property
+    def instrument_code(self):
+        '''returns the second letter of the channel field, or None if the latter has not length 3'''
+        return self.channel[1] if len(self.channel) == 3 else None
+
+    @instrument_code.expression
+    def instrument_code(cls):  # @NoSelf
+        '''returns the sql expression returning the second letter of the channel field,
+        or NULL if the latter has not length 3'''
+        # return an sql expression matching the last char or None if not three letter channel
+        return case([(func.length(cls.channel) == 3, func.substr(cls.channel, 2, 1))], else_=null())
+
+    @hybrid_property
+    def orientation_code(self):
+        '''returns the third letter of the channel field, or None if the latter has not length 3'''
+        return self.channel[2] if len(self.channel) == 3 else None
+
+    @orientation_code.expression
+    def orientation_code(cls):  # @NoSelf
+        '''returns the sql expression returning the third letter of the channel field,
+        or NULL if the latter has not length 3'''
+        # return an sql expression matching the last char or None if not three letter channel
+        return case([(func.length(cls.channel) == 3, func.right(cls.channel, 1))], else_=null())
+
     __table_args__ = (
                       UniqueConstraint('station_id', 'location', 'channel',
                                        name='net_sta_loc_cha_uc'),
@@ -313,9 +351,9 @@ class Segment(Base):
     event_id = Column(Integer, ForeignKey("events.id"), nullable=False)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
     datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
-    seed_identifier = Column(String)
+    data_identifier = Column(String)
     event_distance_deg = Column(Float, nullable=False)
-    data = deferred(Column(LargeBinary))  # lazy load only upon access
+    data = Column(LargeBinary)
     download_status_code = Column(Integer, nullable=True)
     start_time = Column(DateTime, nullable=False)
     arrival_time = Column(DateTime, nullable=False)
@@ -335,7 +373,7 @@ class Segment(Base):
         return withdata(cls.data)
 
     @hybrid_method
-    def has_class(self, *ids):  # FIXME: do we use it?
+    def has_class(self, *ids):  # this is used only for testing purposes. See test_db
         if not ids:
             return self.classes.count() > 0
         else:
@@ -343,7 +381,7 @@ class Segment(Base):
             return any(c.id in _ids for c in self.classes)
 
     @has_class.expression
-    def has_class(cls, *ids):  # @NoSelf
+    def has_class(cls, *ids):  # @NoSelf  # this is used only for testing purposes. See test_db
         any_ = cls.classes.any
         if not ids:
             return any_()
@@ -351,10 +389,31 @@ class Segment(Base):
             return any_(Class.id.isin_(ids))
 
     @hybrid_property
-    def strid(self):
-        return self.seed_identifier or \
+    def seed_identifier(self):
+        return self.data_identifier or \
             ".".join([self.station.network, self.station.station,
                       self.channel.location, self.channel.channel])
+
+    @seed_identifier.expression
+    def seed_identifier(cls):  # @NoSelf
+        '''returns data_identifier if the latter is not None, else net.sta.loc.cha by querying the
+        relative channel and station'''
+        # wow that was tough. To know what we are doing in 'sel' below, please look:
+        # http://docs.sqlalchemy.org/en/latest/orm/extensions/hybrid.html#correlated-subquery-relationship-hybrid
+        # Notes
+        # - we use limit(1) cause we might get more than one
+        # result. Regardless of why it happens (because we don't join or apply a distinct?)
+        # it is relevant for us to get the first result which has the requested
+        # network+station and location + channel strings
+        # - the label(...) at the end makes all the difference. The doc is, as always, unclear
+        # http://docs.sqlalchemy.org/en/latest/core/sqlelement.html#sqlalchemy.sql.expression.label
+        dot = text("'.'")
+        sel = select([func.concat(Station.network, dot, Station.station, dot,
+                                  Channel.location, dot, Channel.channel)]).\
+            where((Channel.id == cls.channel_id) & (Station.id == Channel.station_id)).limit(1).\
+            label('seedidentifier')
+        return case([(cls.data_identifier.isnot(None), cls.data_identifier)],
+                    else_=sel)
 
     event = relationship("Event", backref=backref("segments", lazy="dynamic"))
     channel = relationship("Channel", backref=backref("segments", lazy="dynamic"))
@@ -374,8 +433,6 @@ class Segment(Base):
                            viewonly=True, backref=backref("segments", lazy="dynamic"))
 
     __table_args__ = (
-                      UniqueConstraint('channel_id', 'start_time', 'end_time',
-                                       name='chaid_stime_etime_uc'),
                       UniqueConstraint('channel_id', 'event_id',
                                        name='chaid_evtid_uc'),
                      )

@@ -42,7 +42,6 @@ def bandpass(trace, freq_min, freq_max, max_nyquist_ratio=0.9,
      4. Pad data with zeros at the END in order to accommodate the filter transient
      5. Apply bandpass filter, where the lower frequency is set according to the magnitude
      6. Remove padded elements
-     7. Remove the instrumental response
     :param trace: the input obspy.core.Trace
     :param magnitude: the magnitude which originated the trace (or stream). It dictates the value
     of the high-pass corner (the minimum frequency, freq_min, in Hz)

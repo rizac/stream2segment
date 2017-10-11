@@ -61,9 +61,20 @@
 #                                   is in the interval [-0.5, 0.5] and perform a check for
 #                                   safety, e.g., via `len(segment.stream())` or
 #                                   `segment.stream().get_gaps()`)
-# seed_identifier                   str (string in the typical Network.Station.Location.Channel
-#                                   format. Do not rely on this value because it might be None
-#                                   - e.g. when download errors occurred)
+# data_identifier                   str (the seed identifier as read from the data. It might
+#                                   be null if the data is empty or null because of a       
+#                                   download error)                                         
+# seed_identifier                   str (the seed identifier in the typical format
+#                                   'Network.Station.Location.Channel': it is the same as
+#                                   'segment.data_identifier', but it is assured not to be
+#                                   null, as the segment meta-data is used if needed: in this
+#                                   case the query might perform more poorly at the SQL level)
+# has_data                          boolean (this attribute is particularly useful to discard 
+#                                   immediately - thus more efficiently -                     
+#                                   segments which are generally not suitable for processing. 
+#                                   Segment might not have data because of a download error   
+#                                   or an empty response generally with download status       
+#                                   code = 204)
 # --------------------------------- ------------------------------------------------
 # event.id                          int
 # event.time                        datetime.datetime
@@ -90,6 +101,9 @@
 # channel.scale_freq                float
 # channel.scale_units               str
 # channel.sample_rate               float
+# channel.band_code                 str (the first letter of channel.channel)
+# channel.instrument_code           str (the second letter of channel.channel)
+# channel.orientation_code          str (the third letter of channel.channel)
 # channel.station                   object (same as segment.station, see below)
 # --------------------------------- ------------------------------------------------
 # station.id                        int
@@ -104,6 +118,8 @@
 # station.inventory_xml             bytes* (you don't generally need to access this
 #                                   attribute which is also time-comsuming to fetch. It is
 #                                   the raw data for building `inventory()`)
+# station.has_inventory             boolean (whether or not inventory_xml has data.
+#                                   It does not assure the data is not malformed)
 # station.datacenter                object (same as segment.datacenter, see below)
 # --------------------------------- ------------------------------------------------
 # datacenter.id                     int

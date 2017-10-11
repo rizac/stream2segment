@@ -36,6 +36,7 @@ from stream2segment.gui.webapp.plots.core import PlotManager
 from mock.mock import patch
 
 from stream2segment.utils.postdownload import get_inventory as original_get_inventory, get_stream as original_get_stream
+from obspy.core.utcdatetime import UTCDateTime
 
 
 class Test(unittest.TestCase):
@@ -211,7 +212,7 @@ class Test(unittest.TestCase):
                           arrival_time = arrival_time,
                           end_time = end_time,
                           data = mseed,
-                          seed_identifier = seedid,
+                          data_identifier = seedid,
                           event_distance_deg = val,
                           event_id=ev.id,
                           **fixed_args)
@@ -280,7 +281,13 @@ class Test(unittest.TestCase):
                 
                 components_count[group_id] = other_comps_count
 
-        def assert_(segplotlist, segment, preprocessed):
+        def assert_(segplotlist, segment, preprocessed, is_invalidated=False):
+            '''does some assertion
+            :preprocessed: if the segplotlist refers toa  preprocessed segment
+            :is_invalidated: if the segplotlist has been invalidated. Valid only
+            if preprocessed=False (otherwise segplotlist should be None)
+            This is used for checking that segplotlist.data['sn_windows'] is None
+            '''
             # raw:
             # gap: stream: ok, sn_spectra exc, sn_windows: none
             # err: stream exc, sn_spectra: exc, sn_windows: none
@@ -294,34 +301,54 @@ class Test(unittest.TestCase):
                 if iserr or hasgaps or isinverr:
                     assert len("".join(segplotlist[0].warnings))
                     assert isinstance(segplotlist.data['stream'], Exception)
-                    assert segplotlist.data['sn_windows'] is None  # never calculated
+                    # if stream has an exception, as we use the stream for the sn_windows, assert
+                    # the exception is the same:
+                    assert segplotlist.data['sn_windows'] == segplotlist.data['stream']
                     if segplotlist[1] is not None:
                         assert len("".join(segplotlist[1].warnings))
                 else:
                     assert not len("".join(segplotlist[0].warnings))
                     assert isinstance(segplotlist.data['stream'], Stream)
-                    assert segplotlist.data['sn_windows'] is not None
+                    # assert sn_windows are correct:
+                    sn_wdw = segplotlist.data['sn_windows']
+                    assert len(sn_wdw) == 2
+                    assert all(isinstance(_, UTCDateTime) for _ in list(sn_wdw[0]) + list(sn_wdw[1]))
                     if segplotlist[1] is not None:
                         assert not len("".join(segplotlist[1].warnings))
             else:
+                # test sn_windows first:
+                if is_invalidated:
+                    assert segplotlist.data['sn_windows'] is None  # reset from invalidation
+                elif iserr:
+                    assert isinstance(segplotlist.data['sn_windows'], Exception)
+                    # assert also that it is the same exception raised from stream:
+                    assert segplotlist.data['stream'] == segplotlist.data['sn_windows']
+                elif 'gap' in segment.channel.location:
+                    # sn_windows should raise, as we have more than one trace:
+                    assert isinstance(segplotlist.data['sn_windows'], Exception)
+                    assert "gap" in str(segplotlist.data['sn_windows'])
+                else:  # good segment
+                    # if the stream is unprocessed, and it was successfully loaded, assert
+                    # sn_windows are correct:
+                    sn_wdw = segplotlist.data['sn_windows']
+                    assert len(sn_wdw) == 2
+                    assert all(isinstance(_, UTCDateTime) for _ in list(sn_wdw[0]) + list(sn_wdw[1]))
+                # test other stuff:
                 if iserr:
                     assert len("".join(segplotlist[0].warnings))
                     assert isinstance(segplotlist.data['stream'], Exception)
-                    assert segplotlist.data['sn_windows'] is None  # never calculated
                     if segplotlist[1] is not None:
                         assert len("".join(segplotlist[1].warnings))
                 else:
-                    if "gap_unmerged" in segment.channel.location:
-                        assert "different seed ids" in "".join(segplotlist[0].warnings)
-                    else:
-                        assert not len("".join(segplotlist[0].warnings))
                     assert isinstance(segplotlist.data['stream'], Stream)
+                    if "gap_unmerged" in segment.channel.location:
+                        assert "different seed ids" in "".join(segplotlist[0].warnings)    
+                    else:
+                        assert not len("".join(segplotlist[0].warnings)) 
                     if segplotlist[1] is not None:
                         if hasgaps:
-                            assert segplotlist.data['sn_windows'] is None
                             assert len("".join(segplotlist[1].warnings))
                         else:
-                            assert segplotlist.data['sn_windows'] is not None
                             assert not len("".join(segplotlist[1].warnings))
             
             
@@ -417,7 +444,7 @@ class Test(unittest.TestCase):
             assert not mock_get_inv.called  # already called
             assert not mock_get_stream.called  # already computed
             # assert all titles are properly set, with the given prefix
-            seedid = s.seed_identifier or s.strid
+            seedid = s.seed_identifier
             assert all(p is None or p.title.startswith(seedid) for p in m[s.id][0])
             assert all(p is None or p.title.startswith(seedid) for p in m[s.id][1])
             # check plot titles and warnings:
@@ -475,7 +502,7 @@ class Test(unittest.TestCase):
             s.station.inventory_xml = self.inventory_bytes
             self.session.commit()
             assert s.station.inventory_xml
-            # re-initialize a new PlotManager to assure everytging is re-calculated
+            # re-initialize a new PlotManager to assure everything is re-calculated
             # this also sets all cache to None, including m.inv_cache:
             m = PlotManager(self.pymodule, self.config)
             # calculate plots
@@ -492,7 +519,7 @@ class Test(unittest.TestCase):
             sn_windows['arrival_time_shift']  -= 1
             m.update_config(sn_windows=sn_windows)
             # assert we restored streams that have to be invalidated, and we kept those not to invalidate:
-            assert_(m[s.id][0], s, preprocessed=False)
+            assert_(m[s.id][0], s, preprocessed=False, is_invalidated=True)
             assert m[s.id][1] is None
             # and run again the get_plots: with preprocess=False
             idxs = [0, 1]
@@ -529,6 +556,8 @@ class Test(unittest.TestCase):
                 assert np.allclose(sn_plot_preprocessed_new[0][2], sn_plot_preprocessed[0][2], equal_nan=True)
                 # the n window does not:
                 assert not np.allclose(sn_plot_preprocessed_new[1][2], sn_plot_preprocessed[1][2], equal_nan=True)
+            
+            assert_(m[s.id][1], s, preprocessed=True)
             # re-set the inventory_xml to None:
             s.station.inventory_xml = None
             self.session.commit()

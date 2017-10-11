@@ -180,10 +180,11 @@ class SegmentPlotList(list):
            Raises if func raises
         '''
         seg_id = self.segment_id
+        stream = self.data.get('stream', None)
+        inventory = invcache.get(seg_id, None)
         segwrapper = SegmentWrapper(config).reinit(session, seg_id,
-                                                   stream=self.data.get('stream', None),
-                                                   inventory=invcache.get(seg_id, None),
-                                                   sn_windows=self.data.get('sn_windows', None))
+                                                   stream=stream,
+                                                   inventory=inventory)
 
         try:
             return func(segwrapper, config)
@@ -192,16 +193,21 @@ class SegmentPlotList(list):
             # Any of these values might be also an exception. Call the
             # 'private' attribute cause the relative method, if exists, most likely raises
             # the exception, it does not return it
-            if segwrapper._SegmentWrapper__stream is not None:
-                self.data['stream'] = segwrapper._SegmentWrapper__stream
-            if segwrapper._SegmentWrapper__sn_windows is not None:
-                self.data['sn_windows'] = segwrapper._SegmentWrapper__sn_windows
+            if stream is None:
+                self.data['stream'] = segwrapper._SegmentWrapper__stream  # might be exc, or None
+            sn_windows = self.data.get('sn_windows', None)
+            if sn_windows is None:
+                try:
+                    self.data['sn_windows'] = segwrapper.sn_windows()
+                except Exception as exc:
+                    self.data['sn_windows'] = exc
+                    
+            if self.data.get('sn_windows', None) is None:
+                sdf = 9
             # allocate the segment if we need to set the title (might be None):
             segment = segwrapper._SegmentWrapper__segment
-            if segwrapper._SegmentWrapper__inv is not None and segment is not None:
-                # if inventory is not None and segment is None, we did pass inventory before
-                # func(...) call, so no need to set it again
-                invcache[segment] = segwrapper._SegmentWrapper__inv  # might be exception
+            if inventory is None and segment is not None:
+                invcache[segment] = segwrapper._SegmentWrapper__inv  # might be exc, or None
             if not self.data.get('plot_title_prefix', None):
                 title = None
                 if isinstance(segwrapper._SegmentWrapper__stream, Stream):
@@ -211,11 +217,11 @@ class SegmentPlotList(list):
                             title = None
                             break
                 if title is None and isinstance(segment, Segment):
-                    title = segment.strid
+                    title = segment.seed_identifier
                 if title is None:
                     _ = session.query(Segment).filter(Segment.id == seg_id).first()
                     if _:
-                        title = _.strid
+                        title = _.seed_identifier
                 if title is not None:
                     # try to get it from the stream. Otherwise, get it from the segment
                     self.data['plot_title_prefix'] = title
