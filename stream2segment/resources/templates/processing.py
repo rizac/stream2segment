@@ -709,10 +709,9 @@ def derivcum2(segment, config):
     cum = cumulative(segment, config)
     sec_der = savitzky_golay(cum.data, 31, 2, deriv=2)
     sec_der_abs = np.abs(sec_der)
-    mmm = np.nanmax(sec_der_abs)
-    sec_der /= mmm  # FIXME: this should be sec_der_abs /= mmm
-
-    return segment.stream().stats.starttime, segment.stream().stats.delta, sec_der_abs
+    sec_der_abs /= np.nanmax(sec_der_abs)  # FIXME: this should be sec_der_abs /= mmm
+    # the stream object has surely only one trace (see 'cumulative')
+    return segment.stream()[0].stats.starttime, segment.stream()[0].stats.delta, sec_der_abs
 
 
 @gui.customplot
