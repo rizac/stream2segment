@@ -160,12 +160,18 @@ segment.max_gap_overlap_ratio             float (the maximum length of all gaps 
 \                                         is in the interval [-0.5, 0.5] and perform a check for
 \                                         safety, e.g., via `len(segment.stream())` or
 \                                         `segment.stream().get_gaps()`)
-segment.data_identifier                   str (the seed identifier as read from the data. It might
-\                                         be null if the data is empty or null because of a
-\                                         download error)
+segment.data_identifier                   str (the seed identifier in the typical format
+\                                         'Network.Station.Location.Channel' as read from the data.
+\                                         It might be null if the data is empty or null because of
+\                                         a download error. See also 'segment.meed_identifier')
 segment.data                              bytes (you don't generally need to access this
 \                                         attribute which is also time-comsuming to fetch. It is
 \                                         the raw data for building `stream()`)
+segment.seed_identifier                   str (the seed identifier in the typical format
+\                                         'Network.Station.Location.Channel': it is the same as
+\                                         'segment.data_identifier', but it is assured not to be,
+\                                         null, as the segment meta-data is used if needed: in this
+\                                         case the query might perform more poorly at the SQL level)
 segment.has_data                          boolean (this attribute is particularly useful to discard
 \                                         immediately - thus more efficiently -
 \                                         segments which are generally not suitable for processing.

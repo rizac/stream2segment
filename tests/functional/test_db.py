@@ -837,13 +837,13 @@ class Test(unittest.TestCase):
         s1.data_identifier =  s1_seed_id
         self.session.commit()
         
-        ss1 = self.session.query(Segment).filter(Segment.seed_identifier == s1_seed_id).all()
+        ss1 = self.session.query(Segment.id).filter(Segment.seed_identifier == s1_seed_id).all()
         assert len(ss1) == 1
-        assert ss1[0].id == s1.id
+        assert ss1[0][0] == s1.id
         
-        ss2 = self.session.query(Segment).filter(Segment.seed_identifier == s2_seed_id).all()
+        ss2 = self.session.query(Segment.id).filter(Segment.seed_identifier == s2_seed_id).all()
         assert len(ss2) >= 1
-        assert any(_[0].id == s2.id for _ in ss2)
+        assert any(_[0] == s2.id for _ in ss2)
         
         
         

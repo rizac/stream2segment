@@ -399,26 +399,26 @@ class Segment(Base):
             ".".join([self.station.network, self.station.station,
                       self.channel.location, self.channel.channel])
 
-#     @seed_identifier.expression
-#     def seed_identifier(cls):  # @NoSelf
-#         return func.concat(cls._network, '.', cls._station, '.', cls._location, '.', cls._channel)
-#         return select([Station.network, Station.station, Channel.location, Channel.channel]).\
-#             where((Channel.id == cls.id) & (Channel.station_id == Station.id))
-#         return case([(cls.data_identifier.isnot(None), cls.data_identifier)],
-#                     else_=func.concat(cls.station.network, '.', cls.station.station, '.',
-#                                       cls.channel.location, '.', cls.channel.channel))
-
-
-#     @hybrid_property
-#     def is_me_with_different_orientation(self, segment):
-#         return self.event_id == segment.event_id and \
-#             self.channel.location == segment.channel.location and \
-#             self.station.id == segment.station.id and \
-#             self.channel.channel[:-1] == segment.channel.channel[:-1]
-# 
-#     @is_me_with_different_orientation.expression
-#     def is_me_with_different_orientation(cls, segment):  # @NoSelf
-#         return cls
+    @seed_identifier.expression
+    def seed_identifier(cls):  # @NoSelf
+        '''returns data_identifier if the latter is not None, else net.sta.loc.cha by querying the
+        relative channel and station'''
+        dot = text("'.'")
+        # wow that was tough. To know what we are doing in 'sel' below, please look:
+        # http://docs.sqlalchemy.org/en/latest/orm/extensions/hybrid.html#correlated-subquery-relationship-hybrid
+        # Notes
+        # - we use limit(1) cause we might get more than one
+        # result. Regardless of why it happens (because we don't join or apply a distinct?)
+        # it is relevant for us to get the first result which has the requested
+        # network+station and location + channel strings
+        # - the label(...) at the end makes all the difference. The doc is, as always, unclear
+        # http://docs.sqlalchemy.org/en/latest/core/sqlelement.html#sqlalchemy.sql.expression.label
+        sel = select([func.concat(Station.network, dot, Station.station, dot,
+                                  Channel.location, dot, Channel.channel)]).\
+            where((Channel.id == cls.channel_id) & (Station.id == Channel.station_id)).limit(1).\
+            label('seedidentifier')
+        return case([(cls.data_identifier.isnot(None), cls.data_identifier)],
+                    else_=sel)
 
     event = relationship("Event", backref=backref("segments", lazy="dynamic"))
     channel = relationship("Channel", backref=backref("segments", lazy="dynamic"))
