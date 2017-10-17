@@ -4,6 +4,7 @@ Created on Apr 9, 2017
 @author: riccardo
 '''
 import os
+from datetime import datetime, timedelta
 from obspy.core.stream import read, Stream
 # from cStringIO import StringIO
 from math import log
@@ -101,6 +102,25 @@ def test_standard():
 #     assert all(np.array_equal(x.data, obspy_dic[id_].data) for id_, x in mseed_dic.iteritems())
 #     assert sorted(mseed_dic.keys()) == sorted(obspy_dic.keys())
 #     assert gaps == keys_with_gaps(obspy_dic)
+
+def test_standard_timebounds():
+    bytez = mock_response_inbytes()
+    # g= get_stream(bytez)  # _read_mseed(BytesIO(bytez))
+    # get our dicts of trace_id: trace_bytes
+    dic = unpack(bytez, None, None)
+    assert not haserr(dic)
+    # assert we have data and the error field is empty:
+    assert all(v[0] and v[-1] is None for v in dic.values())
+    s2s_stream = get_s2s_stream(dic)
+    
+    start = s2s_stream[0].stats.starttime.datetime
+    end = s2s_stream[0].stats.endtime.datetime
+    tdelta = (end-start)/2
+    
+    for times in [(start, start+tdelta), (start+tdelta, end)]:
+        dic = unpack(bytez, *times)
+        assert all(v[0] and isinstance(v[-1], ValueError) for v in dic.values())
+
 
 def test_with_gaps_overlaps():
     # Let's change some header. But keeping the ref to the trace id for the record with errors:

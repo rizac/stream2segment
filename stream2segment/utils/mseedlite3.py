@@ -7,7 +7,7 @@ from __future__ import print_function, division
 
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import object
+from builtins import object, dict
 
 import datetime
 import struct
@@ -497,7 +497,7 @@ def _get_id(n, s, l, c):
     return (b"%s.%s.%s.%s" % (n.strip(), s.strip(), l.strip(), c.strip())).decode('utf8')
 
 
-def unpack(data):
+def unpack(data, starttime=None, endtime=None):
     """
     Unpacks data into its "traces" (time series). Returns a dict where keys are the seed id as
     strings:
@@ -510,36 +510,79 @@ def unpack(data):
     - the data in bytes read (can be None)
     - the sample rate (float)
     - the max gap ratio as a ratio of max_gap / delta_time (delta_time = 1/sample_rate)
-    - the error (MiniSeedError)
-    If the error is None, the first three fields are non-None, and vice-versa
-    This method assures that:
+    - the error (MiniSeedError) or warning (ValueError)
+
+    There are three possible cases the user should check (X means: "not None"):
+
+    ============================= ======== ======== ======== ==========
+                                  data     srate    max g/o  error
+    ============================= ======== ======== ======== ==========
+    miniseed succesfully read:    X        X        X        None
+    miniseed read, with warnings: X        X        X        X
+    miniseed error:               None     None     None     X
+
+    so basically the user should check if `data` is None and handle the error, and otherwise
+    handle `data` and, if needed, check if `error` is not None (and handle the warning). the
+    warning happens when there are some mini seed chunks out-of bounds. This never happens when
+    `starttime` and `endtime` are both missing (or None) because no check is made.
+    In the first two cases (when no error occurs) this method assures that:
     ```
     Stream(obspy.read(data))
     ```
     and
     ```
-    Stream([obspy.read(d[0])[0] for d in unpack(data).itervalues()])
+    Stream([obspy.read(d[0])[0] for d in unpack(data).values()])
     ```
     return the same object
     :param data: the bytes (or str in python2) representing waveform data as, e.g., returned from
     a query response
+    :param starttime: the *expected* starttime (`datetime` object) or None (do not check for time
+    bounds): if not None, all chunks completely before this value will not be returned.
+    :param endtime: the *expected* endtime (`datetime` object) or None (do not check for time
+    bounds): if not None, all chunks completely after this value will not be returned
     :return: a dictionarry of keys (tuples `(network, station location, channel)`) mapped to the
     tuple representing the record read: (data, sample_rate, max_gap_overlap_ratio, error)
     :raise MiniseedError if some error is raised, that is 'not' recoverable (e.g., bad file length
     for some record causing all subsequent records to be mis-aligned)
     """
-    # don't bother initializing keys if do not exist: use defaultdict:
-    # remember, the fields are: bytesio, sample_rate, max_gap_overlap_ratio, last_endtime, error
-    ret_dic = defaultdict(lambda: [[], None, 0, None, None])
+    outoftime = ValueError("Some data chunks outside requested time bounds")
+    # we might use defaultdict, but a dict with the future package is py2-3 compliant
+    # e.g., when using dict.items()
+    ret_dic = dict()
     input_ = Input2(data)
     for id_, rec, exc in input_:
-        value = ret_dic[id_]
-        if value[-1] is not None:  # key already existed and has error
+        value = ret_dic.get(id_, None)
+        if value is None:
+            # remember, the fields are: bytesio, sample_rate, max_gap_overlap_ratio, error_warning
+            value = [[], None, 0, None]
+            ret_dic[id_] = value
+
+        if value[0] is None:  # key already existed and has error
             continue
+
         if exc is not None:  # key does not exist, data read has error
             value[-1] = exc
-            value[0] = []  # help gc??
+            value[0] = None  # help gc?? anyway, set to None which has different meaning than []
             continue
+
+        # check time bounds:
+        if starttime is not None:
+            # discard if:
+            #      starttime            or:       starttime
+            #          |                              |
+            # |record|                          |record|
+            if starttime > rec.end_time:  # or (starttime-rec.begin_time) > (rec.end_time-starttime):
+                value[-1] = outoftime
+                continue
+
+        if endtime is not None:
+            # discard if:
+            #      endtime            or:       endtime
+            #          |                           |
+            #            |record|                 |record|
+            if endtime < rec.begin_time:  # or (endtime-rec.begin_time) < (rec.end_time-endtime):
+                value[-1] = outoftime
+                continue
 
         if not value[0]:  # set sample frequency (only first time)
             value[1] = float(rec.fsamp)
@@ -548,7 +591,9 @@ def unpack(data):
 
     unpacked_data = {}
     for id_, value in ret_dic.items():
-        if value[-1] is not None:
+        if value[-1] is not None and not value[0]:  # value[0] can be None, [] or non-empty list
+            if value[-1] is outoftime:  # convert warning to error
+                value[-1] = ValueError("Data outside requested time bounds")
             unpacked_data[id_] = (None, None, None, value[-1])
         else:
             # get chunks and sort ascending by time
@@ -568,6 +613,6 @@ def unpack(data):
 
             bytez = bytesio.getvalue()
             bytesio.close()
-            unpacked_data[id_] = (bytez, value[1], max_gap_overlap_ratio, None)
+            unpacked_data[id_] = (bytez, value[1], max_gap_overlap_ratio, value[-1])
 
     return unpacked_data
