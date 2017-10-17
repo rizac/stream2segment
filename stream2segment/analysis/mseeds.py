@@ -42,15 +42,15 @@ def bandpass(trace, freq_min, freq_max, max_nyquist_ratio=0.9,
      4. Pad data with zeros at the END in order to accommodate the filter transient
      5. Apply bandpass filter, where the lower frequency is set according to the magnitude
      6. Remove padded elements
+
     :param trace: the input obspy.core.Trace
     :param magnitude: the magnitude which originated the trace (or stream). It dictates the value
-    of the high-pass corner (the minimum frequency, freq_min, in Hz)
+        of the high-pass corner (the minimum frequency, freq_min, in Hz)
     :param freq_max: the value of the low-pass corner (freq_max), in Hz
     :param max_nyquist_ratio: the ratio of freq_max to be computed. The real low-pass corner will
-    be set as max_nyquist_ratio * freq_max (default: 0.9, i.e. 90%)
+        be set as max_nyquist_ratio * freq_max (default: 0.9, i.e. 90%)
     :param corners: the corners (i.e., the order of the filter)
-    :return: the tuple (new_trace, fmin), where fmin is the minimum frequency set according to
-    the given magnitude
+
     :return: a Trace with the bandpass algorithm applied
     """
     tra = trace.copy() if copy is True else trace
@@ -88,17 +88,19 @@ def maxabs(trace, starttime=None, endtime=None):
     """Returns the maximum of the absolute values of `trace`, and its occurrence time.
     In other words, returns the point `(time, value)` where `value = max(abs(trace.data))`
     and time (`UTCDateTime`) is the time occurrence of `value`
+
     :param trace: the input obspy.core.Trace
     :param starttime: (`obspy.UTCDateTime`) the start time (None or missing defaults to the trace
-    end): the maximum of the trace `abs` will be searched *from* this time. This argument,
-    if provided, does not affect the
-    returned `time` which will be always relative to the trace passed as argument
+        end): the maximum of the trace `abs` will be searched *from* this time. This argument,
+        if provided, does not affect the
+        returned `time` which will be always relative to the trace passed as argument
     :param endtime: an obspy UTCDateTime object (or any value
-    `UTCDateTime` accepts, e.g. integer / `datetime` object) denoting
-    the end time (None or missing defaults to the trace end): the maximum of the trace `abs`
-    will be searched *until* this time
-    :return: the tuple (time, value) where `value = max(abs(trace.data))`, and time is
-    the value occurrence (`UTCDateTime`)
+        `UTCDateTime` accepts, e.g. integer / `datetime` object) denoting
+        the end time (None or missing defaults to the trace end): the maximum of the trace `abs`
+        will be searched *until* this time
+        :return: the tuple (time, value) where `value = max(abs(trace.data))`, and time is
+        the value occurrence (`UTCDateTime`)
+
     :return: the tuple `(time_of_max_abs, max_abs)`
     """
     original_stime = None if starttime is None else trace.stats.starttime
@@ -118,6 +120,7 @@ def maxabs(trace, starttime=None, endtime=None):
 def cumsum(trace):
     """Returns the cumulative sum of `trace.data**2`, normalized between 0 and 1
     :param trace: the input obspy.core.Trace
+
     :return: a new Trace representing the cumulative sum of the square of `trace.data`
     """
     return Trace(_cumsum(trace.data, normalize=True), header=trace.stats.copy())
@@ -126,13 +129,13 @@ def cumsum(trace):
 def cumtimes(mi_trace, *percentages):
     """Calculates the time(s) where `mi_trace` reaches the given percentage(s) of the total signal.
     **`mi_trace.data` need to be monotonically increasing**, e.g., as resulting from
-    :func:`stream2segment.analysis.mseeds.cumsum`.
+    :func:`stream2segment.analysis.mseeds.cumsum`
+
     :param mi_trace: a monotonically increasing trace
     :param percentages: the precentages to be calculated, e.g. 0.05, 0.95 (5% and 95%)
-    :return: a list of length P = len(percentages) denoting the the obspy.UTCTimeStamp(s) where
-    the given percentages occur
-    :return: a list of `UtcDateTime`'s denoting the occurrence of the given percentages of the total
-    signal in `mi_trace`
+
+    :return: a list of length P = len(percentages) `UtcDateTime`'s denoting the occurrence of
+        the given percentages of the total signal in `mi_trace`
     """
     starttime = mi_trace.stats.starttime
     delta = mi_trace.stats.delta
@@ -155,18 +158,20 @@ def fft(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_ty
     where `freqs` is the frequencies vector (in Hz), evenly spaced with `df` as frequency
     resolution.
     This function optionally trims and tapers the given trace before applying the fft
+
     :param trace: the input obspy.core.Trace
     :param starttime: the start time for trim, or None (=> starttime = trace start time)
     :param endtime: the end time for trim, or None (=> endtime = trace end time)
-    :type taper_max_percentage: if non positive, no taper is applied on the (trimmed) trace before
-    computing the fft. Otherwise, is a number between 0 and 1 to be passed to `trace.taper`
+    :param taper_max_percentage: if non positive, no taper is applied on the (trimmed) trace before
+        computing the fft. Otherwise, is a number between 0 and 1 to be passed to `trace.taper`
     :param taper_type: string, defaults to 'hann'. Ignored if no tapering is required
-    (`taper_max_percentage<=0`)
+        (`taper_max_percentage<=0`)
     :param return_freqs: if False (the default) the first item of the returned tuple will be
-    the delta frequency, otherwise the array of frequencies
+        the frequency resolution 'df', otherwise the array of frequencies
+
     :return: a tuple where the second element if the numpy array of the fft values, and the first
-    item is either the delta frequency (`return_freqs=False`) or the numpy array of the
-    frequencies of the fft (`return_freqs=True`)
+        item is either the frequency resolution (`return_freqs=False`) or the numpy array of the
+        frequencies of the fft (`return_freqs=True`)
     """
     if starttime is not None or endtime is not None or taper_max_percentage > 0:
         trace = trace.copy()
@@ -203,10 +208,12 @@ def powspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, tape
 
 def ampratio(trace, threshold=2**23):
     """Returns the amplitude ratio given by:
-        np.nanmax(np.abs(trace.data)) / threshold
+        ```numpy.nanmax(numpy.abs(trace.data)) / threshold```
     The trace has not to be in physical units but in counts
+
     :param trace: a given obspy Trace
     :param threshold: float, defaults to `2 ** 23`: the denominator of the returned ratio
+
     :return: float indicating the amplitude ratio value
     """
     return np.true_divide(np.nanmax(np.abs(trace.data)), threshold)
@@ -216,8 +223,10 @@ def timeof(trace, index):
     """Returns the time occurrence of the `index`-th point of `trace`.
     Note that the index does not need to be inside the trace indices,
     the corresponding time will be computed anyway according to the trace sampling rate
+
     :param trace: an obspy Trace
     :param index: a numeric integer
+
     :return an `UTCDateTime` object corresponding to the time of the `inde`-th point of `trace`
     """
     return trace.stats.starttime + index * trace.stats.delta
@@ -226,12 +235,15 @@ def timeof(trace, index):
 def utcdatetime(time, return_if_none=None):
     '''Normalizes `time` into an `UTCDateTime`. Utility function for working consistently
     with different date-time-like inputs and convert them to the same object type.
+
     :param time: numeric (int, float), `datetime.datetime` object, `UtcDateTime`. If `UtcDateTime`,
-    then `time` is returned with no processing. If None, then None (or `return_if_none`, if
-    supplied) is returned. Otherwise, `UTCDateTime(time)` is returned
-    (see :class:`obspy.core.utcdatetime.UTCDateTime` for info).
+        then `time` is returned with no processing. If None, then None (or `return_if_none`, if
+        supplied) is returned. Otherwise, `UTCDateTime(time)` is returned
+        (see :class:`obspy.core.utcdatetime.UTCDateTime` for info).
     :param return_if_none: None by default (when missing), indicates the value to return if
-    `time` is None
+    `    time` is None
+
+    :return: an :class:`obspy.core.utcdatetime.UTCDateTime` from the given time argument
     '''
     if not isinstance(time, UTCDateTime):
         time = return_if_none if time is None else UTCDateTime(time)

@@ -23,8 +23,8 @@ from stream2segment.process.main import default_funcname
 from stream2segment.utils import strptime
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, yaml_load_doc
 
-from stream2segment.core import helpmathiter, _TEMPLATE_FILES, create_templates, visualize,\
-    download, process
+from stream2segment.core import helpmathiter, _TEMPLATE_FILES, create_templates, visualize_p,\
+    download, process, visualize_d
 
 
 class clickutils(object):
@@ -236,8 +236,16 @@ def p(dburl, configfile, pyfile, funcname, outfile):
               )
 def v(dburl, configfile, pyfile):
     """Visualize downloaded waveform data segments in a browser"""
-    visualize(dburl, pyfile, configfile)
+    visualize_p(dburl, pyfile, configfile)
 
+
+@main.command(short_help='Visualize downloaded report with stations data availability in a browser',
+              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
+@click.option('-d', '--dburl', callback=clickutils.extract_dburl_if_yaml,
+              help="%s.\n%s" % (clickutils.DEFAULTDOC['dburl'], clickutils.DBURLDOC_SUFFIX))
+def dreport(dburl):
+    """Visualize downloaded waveform data segments in a browser"""
+    visualize_d(dburl)
 
 # @main.command(short_help='Create a data availability html file showing downloaded data '
 #                          'quality on a map')

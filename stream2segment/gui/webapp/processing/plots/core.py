@@ -36,7 +36,7 @@ from stream2segment.io.db.models import Channel, Segment, Station
 from stream2segment.io.db.queries import getallcomponents
 from stream2segment.utils.postdownload import SegmentWrapper, InventoryCache, LimitedSizeDict
 from stream2segment.utils import iterfuncs
-from stream2segment.gui.webapp.plots.jsplot import Plot
+from stream2segment.gui.webapp.processing.plots.jsplot import Plot
 
 
 class SegmentPlotList(list):

@@ -1,5 +1,5 @@
 '''
-Views for the web app
+Views for the web app (processing)
 
 :date: Jun 20, 2016
 
@@ -7,7 +7,8 @@ Views for the web app
 '''
 from flask import render_template, request, jsonify, Blueprint, current_app
 
-from stream2segment.gui.webapp import core, get_session
+from stream2segment.gui.webapp import get_session
+from stream2segment.gui.webapp.processing import core
 from stream2segment.utils import secure_dburl
 
 # http://flask.pocoo.org/docs/0.12/patterns/appfactories/#basic-factories:
@@ -26,7 +27,7 @@ def main():
     sn_windows_doc = core.get_doc('sn_windows', plotmanager)
     segment_select_doc = core.get_doc('segment_select', plotmanager)
     # filterfunc_doc = current_app.config['PLOTMANAGER'].get_filterfunc_doc.replace("\n", "<p>")
-    return render_template('index.html', title=secure_dburl(current_app.config["DATABASE"]),
+    return render_template('processing.html', title=secure_dburl(current_app.config["DATABASE"]),
                            settings=settings,
                            userDefinedPlotNames=ud_plotnames,
                            preprocessfunc_doc=preprocessfunc_doc,

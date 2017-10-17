@@ -1,40 +1,4 @@
 
-html, body, div.main{
-	height:100%;
-}
-
-body{
-	font-family: "Lucida Sans Unicode", Arial, Helvetica, "Trebuchet MS", Verdana, sans-serif;
-	background-color: #f5f5f5;
-	padding: .5vw .5vh;
-}
-
-/* flex layout stuff (great invention!). NOTE: as of march 2017, plotly does not work with flex (too bad!)
-Rule: to create a flex containers, add the classes 'flex h-container' or 'flex v-container'
-the container items therein, add the classes 'center', 'left' 'right' 'top' or 'bottom'
- */
-div.flex.h-container, div.flex.v-container{
-	display: flex;
-}
-
-div.flex.h-container{
-	flex-direction: row;
-}
-
-div.flex.v-container{
-	flex-direction: column;
-}
-
-div.flex.h-container > .left, div.flex.h-container > .right,
-div.flex.v-container > .top, div.flex.v-container > .bottom{
-	flex: 0 1 auto;
-}
-
-div.flex.h-container > .center, div.flex.v-container .center{
-	flex: 1 1 auto;
-}
-
-
 /* Main divs layout (left panel -with controls buttons etcetera - and center panel - with plots + metadata)
 Remember: flex doesn't work with plotly (as of march 2017)
 */
@@ -223,10 +187,6 @@ div.metadata > div.panel-body{
 
 
 /* override bootstrap */
-
-label {
-    font-weight: normal !important;
-}
 
 .divider { /* in bootstrap .divider works only inside a dropdown-menu: make it general (copied and pasted from bootstrap) */
     height: 1px;

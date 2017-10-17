@@ -1,49 +1,20 @@
-<!DOCTYPE html>
-<html>
-<head>
-<!-- DOWNLOAD LIBRARIES WITH FALLBACKS. FOR INFO SEE
-http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-make-a-copy-on-my-server
- -->
-<script src="https://cdn.plot.ly/plotly-1.24.0.min.js"></script>
-<script>window.Plotly || document.write('<script src="static/js/plotly.1.24.0.min.js"><\/script>')</script>
+{% extends "base.html" %}
+{% set use_plotly = true %}
+{% set use_leaflet = false %}
+{% set use_esrileaflet = false %}
 
-<script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.5.6/angular.min.js"></script>
-<script>window.angular || document.write('<script src="static/js/angular.1.5.6.min.js"><\/script>')</script>
+{% block head %}
+    {{ super() }}
+	<link href="static/css/processing.css" rel="stylesheet" media="screen">
+	<title>{{ title }}</title>
+	<script type="text/javascript">
+		var __SETTINGS = {{ settings|tojson }};
+	</script>
+{% endblock %}
 
-<!-- load bootstrap css (with fallback, see
-	https://stackoverflow.com/questions/14141532/how-to-load-local-copy-of-bootstrap-css-when-the-cdn-server-is-down -->
-<link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" rel="stylesheet" media="screen">
-<script type="text/javascript">
-    var cssFound = false;
-    for (var i = 0; i < document.styleSheets.length; i++) {
-        var sheet = document.styleSheets[i];
-        if (sheet['href'] && sheet['href'].indexOf("bootstrap.min.css") >= 0) {
-        	//console.log(sheet['href']);
-            cssFound = true;
-            break;
-        }
-    }
-    if (!cssFound){
-    	local_bootstrap = document.createElement('link');
-        local_bootstrap.setAttribute("rel", "stylesheet");
-        local_bootstrap.setAttribute("type", "text/css");
-        local_bootstrap.setAttribute("media", "screen");
-        local_bootstrap.setAttribute("href", "static/css/bootstrap.3.3.7.min.css");
-        document.getElementsByTagName("head")[0].appendChild(local_bootstrap);
-    }
-</script>
-
-<link href="static/css/mystyle.css" rel="stylesheet" media="screen">
-<title>{{ title }}</title>
-
-<script type="text/javascript">
-	var __SETTINGS = {{ settings|tojson }};
-</script>
-
-</head>
-<!--  raw tells jinjs not to parse curly braces so we can angular takes place -->
-{% raw %}
-<body ng-app="myApp" ng-controller="myController">
+{% block body_content %}
+	<!--  raw tells jinja not to parse curly braces so we can angular takes place -->
+	{% raw %}
 	<div class="main v-container">
 		<div class=top></div> <!-- not used, maybe in the future for a top toolbar ... -->
 		<div class="center h-container">
@@ -216,8 +187,7 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 		</div>
 	</div>
 	<!-- load plots config and angular at the end (IN THIS ORDER!) -->
-	<script src="static/js/plotlyconfig.js" defer></script>
-	<script src="static/js/app.js" defer></script>
-</body>
-</html>
-{% endraw %}
+	<script src="static/js/processing/plotlyconfig.js" defer></script>
+	<script src="static/js/processing/ng-app.js" defer></script>
+	{% endraw %}
+{% endblock %}

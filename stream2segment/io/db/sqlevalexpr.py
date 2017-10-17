@@ -90,7 +90,7 @@ def exprquery(sa_query, conditions, orderby=None, distinct=None):
     will refer to 'mymodel.name', 'name.id' denotes on the other hand a relationship 'name'
     on 'mymodel' and will refer to the 'id' attribute of the table mapped by 'mymodel.name'.
     The values of the dict on the other hand are string expressions in the form recognized
-    by `get_condition`. E.g. '>=5', '["4", "5"]' ...
+    by `binexpr`. E.g. '>=5', '["4", "5"]' ...
     For each condition mapped to a falsy value (e.g., None or empty string), the condition is
     discarded. See note [*] below for auto-added joins from columns.
     :param orderby: a list of string columns (same format
@@ -127,7 +127,7 @@ def exprquery(sa_query, conditions, orderby=None, distinct=None):
             else:
                 if relationship is not None:
                     joins.add(relationship)
-                condition = get_condition(column, expression)
+                condition = binexpr(column, expression)
             parsed_conditions.append(condition)
 
     directions = {"asc": asc, "desc": desc}
@@ -142,6 +142,7 @@ def exprquery(sa_query, conditions, orderby=None, distinct=None):
             relationship, column = _get_rel_and_column(model, column_str, relations)
             if relationship is not None:
                 joins.add(relationship)
+            # FIXME: we might also write column.asc() or column.desc()
             orders.append(directionfunc(column))
 
     if joins:
@@ -171,17 +172,18 @@ def _get_rel_and_column(model, colname, relations=None):
     return rel, obj
 
 
-def get_condition(column, expr):
-    """Returns an sql alchemy binary expression to be used as `query.filter` argument
-    from the given column and the given expression. Supports the operators given in `split` and the
-    types given in `parsevals` ()
+def binexpr(column, expr):
+    """Returns an :class:`sqlalchemy.sql.expression.BinaryExpression` to be used as `query.filter`
+    argument from the given column and the given expression. Supports the operators given in
+    :function:`stream2segment.io.db.sqlevalexpr.split` and the types given in `parsevals`:
+    (`int`s, `float`s, `datetime`s, `bool`s and `str`s)
     :param column: an sqlkalchemy model column
     :param expr: a string expression (see `split`)
 
     :example:
     ```
     # given a model with column `column1`
-    get_condition(model.column1, '>=5')
+    binexpr(model.column1, '>=5')
     ```
     """
     operator, values = split(expr)

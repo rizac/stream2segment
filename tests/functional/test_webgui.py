@@ -320,7 +320,7 @@ class Test(unittest.TestCase):
             assert len(data['segment_ids']) == 28
             assert any(x[0] == 'has_data' for x in data['metadata'])
             assert not data['classes']
-    
+
     def test_toggle_class_id(self):
         with self.app.test_request_context():
             app = self.app.test_client()

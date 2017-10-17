@@ -17,9 +17,12 @@ def powspec(signal, signal_is_fft=False):
     For computing the frequency resolution or the relative frequencies array,
     see :func:`stream2segment.analysis.dfreq` and :func:`stream2segment.analysis.freqs`,
     respectively
+
     :param signal: the time-series input signal (numeric array)
     :param signal_is_fft: boolean (default:False). If True, the signal is already a Fft of some
     signal. Otherwise, :func:`stream2segment.analysis.fft`(signal) will be computed first
+
+    :return: numpy array representing the signal power spectrum
     """
     return np.square(ampspec(signal, signal_is_fft))
 
@@ -29,9 +32,12 @@ def ampspec(signal, signal_is_fft=False):
     For computing the frequency resolution or the relative frequencies array,
     see :func:`stream2segment.analysis.dfreq` and :func:`stream2segment.analysis.freqs`,
     respectively
+
     :param signal: the time-series input signal (numeric array)
     :param signal_is_fft: boolean (default:False). If True, the signal is already a Fft of some
     signal. Otherwise, :func:`stream2segment.analysis.fft`(signal) will be computed first
+
+    :return: numpy array representing the signal amplitude spectrum
     """
     return np.abs(fft(signal) if not signal_is_fft else signal)
 
@@ -40,17 +46,22 @@ def fft(signal):
     """Returns the discrete fft (fast Fourier transform) of a REAL signal.
     see :func:`stream2segment.analysis.dfreq` and :func:`stream2segment.analysis.freqs`,
     respectively
+
     :param signal: the time-series input signal (numeric array)
     :param signal_is_fft: boolean (default:False). If True, the signal is already a Fft of some
     signal. Otherwise, :func:`stream2segment.analysis.fft`(signal) will be computed first
+
+    :return: numpy array representing the signal Fast-Fourier transform
     """
     return np.fft.rfft(signal)
 
 
 def dfreq(time_signal, delta_t):
     """Returns the frequency resolution (in Hertz) of a real fft applied on `time_signal`
+
     :param time_signal: numpy array or numeric list: the time-domain signal (time-series)
     :param delta_t: `time_signal` sampling period, in seconds
+
     :return: the frequency resolution df (in Hertz) of a real fft applied on `time_signal`
     """
     return 1 / (len(time_signal) * delta_t)
@@ -63,8 +74,10 @@ def freqs(time_signal, delta_t):
         L = floor(1 + len(time_signal) / 2.0)
         return [0, deltaF, ..., (i-1) * deltaF, ..., (L-1) * deltaF]
     ```
+
     :param time_signal: numpy array or numeric list: the time-domain signal (time-series)
     :param delta_t (float): `time_signal` sampling period (in seconds)
+
     :return: the numpy array of the frequencies of a real fft applied on `time_signal`
     """
     try:
@@ -80,8 +93,13 @@ def linspace(start, delta, num):
     """Returns an evenly spaced array of values, convenient for building e.g. arrays of
     frequencies, given the fft's frequency resolution `delta`. Equivalent to:
     `numpy.linspace(start, start + delta * num, num, endpoint=False)`
+
+    :param start: numeric, the first element of the returned array
+    :param delta: numeric, the distance between points of the returned array
+    :param num: integer, the length of the returned array
+
     :return: A numpy array of evenly spaced `num` numbers starting from `start`,
-    with resolution=`delta` (distance between two consecutive points).
+        with resolution=`delta` (distance between two consecutive points).
     """
     return np.linspace(start, start + delta * num, num, endpoint=False)
 
@@ -91,6 +109,7 @@ def snr(signal, noise, signals_form='', fmin=None, fmax=None, delta_signal=1.,
     """Returns the signal to noise ratio (SNR) of `signal` over `noise`. If required, runs `fft`
     before computing the SNR, and/or computes the SNR in a special
     frequency band [`fmin`, `fmax`] only
+
     :param signal: a numpy array denoting the divisor of the snr
     :param noise: a numpy array denoting the dividend of the snr
     :param signals_form: tells this function what the given signals are. If:
@@ -102,23 +121,22 @@ def snr(signal, noise, signals_form='', fmin=None, fmax=None, delta_signal=1.,
         - any other value: then the signals are time series, their power spectra will be
           computed before returning the snr
     :param fmin: None or float: the start frequency of the interval where to compute the snr.
-    None (the default) will set a left-unbounded interval. If `fmin=fmax=None` then no frequency
-    interval will be set (compute the snr on all frequencies)
+        None (the default) will set a left-unbounded interval. If `fmin=fmax=None` then no
+        frequency interval will be set (compute the snr on all frequencies)
     :param fmax: None or float: the end frequency of the interval where to compute the snr.
-    None (the default) will set a right-unbounded interval. If `fmin=fmax=None` then no frequency
-    interval will be set (compute the snr on all frequencies)
-    :param delta_signal: float (ignored if `fmin=fmax=None`): the sampling interval of `signal`:
-         - in Herz, if `signal` is a frequency domain array (`signals_form` in
-           `['pow', 'dft', 'fft', 'amp']`)
-         - in seconds, otherwise
-    :param delta_noise: float (ignored if `fmin=fmax=None`): the sampling interval of `noise`:
-        - in Herz, if `noise` is a frequency domain array (`signals_form` in
-          `['pow', 'dft', 'fft', 'amp']`)
-        - in seconds, otherwise
+        None (the default) will set a right-unbounded interval. If `fmin=fmax=None` then no
+        frequency interval will be set (compute the snr on all frequencies)
+    :param delta_signal: float (ignored if `fmin=fmax=None`): the frequency resolution of `signal`,
+        in Herz, if `signals_form` is in ['pow', 'dft', 'fft', 'amp']. Otherwise, the sampling
+        period of `signal`, in seconds
+    :param delta_noise: float (ignored if `fmin=fmax=None`): the frequency resolution of `noise`,
+        in Herz, if `signals_form` is in ['pow', 'dft', 'fft', 'amp']. Otherwise, the sampling
+        period of `noise`, in seconds
     :param nearest_sample: boolean, default False  (ignored if `fmin=fmax=None`):
-    whether or not to take the nearest sample when trimming according to `fmin` and `fmax`, or to
-    take only the samples strictly included in the interval (the default)
+        whether or not to take the nearest sample when trimming according to `fmin` and `fmax`,
+        or to take only the samples strictly included in the interval (the default)
     :param in_db: boolean (False by default): whether to return the SNR in db's or not
+
     :return: the signal-to-noise ratio of two signals
     """
     if signals_form.lower() == 'amp':
@@ -163,14 +181,17 @@ def snr(signal, noise, signals_form='', fmin=None, fmax=None, delta_signal=1.,
 
 def trim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
     """Trims the evenly spaced sampled signal `signal`.
-    :param signal: numpy numeric array denoting the values to trim
-    :param deltax: the distance between two points of signal on the x axis. The unit must be
-    the same as `minx` and `maxx` (e.g., Herz, seconds, etcetera)
-    :param minx: float, the minimum x, in `signal`'s unit (the same as `deltax`)
-    :param maxx: float, the maximum x, in `signal`s unit (the same as `deltax`)
+
+    :param signal: numpy numeric array
+    :param deltax: the distance between two points on `signal`'s domain, in
+        whatever unit the domain is (e.g., Herz, seconds)
+    :param minx: float, the minimum of `signal`'s domain (the same as `deltax`)
+    :param maxx: float, the maximum of `signal`'s domain (the same as `deltax`)
     :param nearest_sample: boolean, default false.  whether or not to take the nearest sample
-    when trimming according to `minx` and `maxx`, or to
-    take only the samples strictly included in the interval (the default)
+        when trimming according to `minx` and `maxx`, or to
+        take only the samples strictly included in the interval (the default)
+
+    :return: a numeric numpy array representing a slice of `signal` in the given x bounds
     """
     if minx is None and maxx is None:
         return signal
@@ -179,9 +200,22 @@ def trim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
 
 
 def argtrim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
-    """Returns the indices of signal such as `signal[i0:i1]` is the slice of signal
-    between (and including) minx and maxx. The returned 2-element tuple might contain `None`s
-    (valid python slice argument to indicate: no bounds)
+    """Returns the indices (i0, i1) such as `signal[i0:i1]` is the slice of signal
+    between (and including) the `signal`'s domain bounds `minx` and `maxx`.
+    The returned 2-element tuple might contain `None`s (valid python slice argument to indicate:
+    no bounds)
+
+    :param signal: numpy numeric array
+    :param deltax: the distance between two points on `signal`'s domain, in
+        whatever unit the domain is (e.g., Herz, seconds)
+    :param minx: float, the minimum of `signal`'s domain (the same as `deltax`)
+    :param maxx: float, the maximum of `signal`'s domain (the same as `deltax`)
+    :param nearest_sample: boolean, default false.  whether or not to take the nearest sample
+        when trimming according to `minx` and `maxx`, or to
+        take only the samples strictly included in the interval (the default)
+
+    :return: a tuple of two numeric values (or None) representing the indices of `signal` where
+        its domain values are `minx` and `maxx`
     """
     idxmin, idxmax = None, None
     if minx is not None:
@@ -195,7 +229,9 @@ def argtrim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
 
 def cumsum(signal, normalize=True):
     """Return the cumulative sum of `signal**2`
+
     :param normalize: if True (the default), normalizes the cumulative in [0,1]
+
     :return: the cumulative sum of the square of `signal`
     """
     ret = np.cumsum(np.square(signal), axis=None, dtype=None, out=None)
@@ -214,15 +250,16 @@ def triangsmooth(array, winlen_ratio):
     If the window overflows the array length, it will be shrunk the necessary amount of points.
     Thus, depending on `wlen_ratio`, the window length increases with the index until a maximum
     is reached. After that, the window length will decrease (set to the maximum available not to
-    overflow).
-    This function always work on a copy of `array`
+    overflow). This function always work on a copy of `array`
+
     :param array: numpy array of values to be smoothed, usually (but not necessarily)
-    frequency-domain values (fft, spectrum, ...)
+        frequency-domain values (fft, spectrum, ...)
     :param winlen_ratio: float in [0.1]: the length of a "branch" of the triangular smoothing
-    window, as a percentage of the current point index. For each point, the window length will be
-    (`2*i*winlen_ratio`). Thus, the higher the index, the higher the window (or, if `array` is a
-    frequency domain array, the higher the frequency, the higher the window). If the window
-    length overflows `array` indices, it will be set to the maximum possible length
+        window, as a percentage of the current point index. For each point, the window length will
+        be (`2*i*winlen_ratio`). Thus, the higher the index, the higher the window (or, if `array`
+         is a frequency domain array, the higher the frequency, the higher the window). If the
+        window length overflows `array` indices, it will be set to the maximum possible length
+
     :return: numpy array of smoothed values"""
     # this function has been converted from matlab code. The code has been vectorized as much as
     # possible, and several redundant math expression related to normalizations (e.g., divide and

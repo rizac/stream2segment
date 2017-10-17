@@ -8,7 +8,7 @@ import os
 from flask import Flask, g
 
 from stream2segment.utils import get_session as s2s_get_session, load_source
-from stream2segment.gui.webapp.plots.core import PlotManager
+from contextlib import contextmanager
 
 
 def get_session(app):
@@ -20,21 +20,21 @@ def get_session(app):
     return g.session
 
 
-def create_app(dbpath, pymodule=None, configdict=None):
+@contextmanager
+def create_app(dbpath):
     """
-        Creates a new app. Note that config_py_file is the stream2segment gui config, not
-        the config passed to Flask `app.config.from_pyfile`. For Flask config, please provide
-        a valid object in `config_object`
+        Function used within a 'with' statement to instantiate stuff on the given app
+        ```
+            with create_app(dburl) as app:
+                ... do stuff on app...
+            return app
+        ```
     """
     # http://flask.pocoo.org/docs/0.12/patterns/appfactories/#basic-factories
     app = Flask(__name__)
     app.config['DATABASE'] = dbpath
-    app.config['PLOTMANAGER'] = PlotManager(pymodule, configdict)
-    app.config['CONFIG.YAML'] = configdict
-    app.config['CONFIG.KEYS'] = ['spectra', 'segment_select', 'segment_orderby']
 
-    from stream2segment.gui.webapp.views import main_page
-    app.register_blueprint(main_page)
+    yield app
 
     @app.teardown_appcontext
     def close_db(error):

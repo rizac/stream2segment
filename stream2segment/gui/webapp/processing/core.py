@@ -1,5 +1,5 @@
 '''
-Core functionalities for the GUI web application
+Core functionalities for the GUI web application (processing)
 
 :date: Jul 31, 2016
 
@@ -20,7 +20,7 @@ from stream2segment.io.db.pd_sql_utils import colnames
 from stream2segment.io.db.models import Segment, Class, Station, Channel, DataCenter, Event,\
     ClassLabelling, Download
 from stream2segment.io.db.queries import query4gui
-from stream2segment.gui.webapp.plots.jsplot import jsontimestamp
+from stream2segment.gui.webapp.processing.plots.jsplot import jsontimestamp
 # from stream2segment.io.db import sqlevalexpr
 from stream2segment.utils.resources import yaml_load_doc, get_templates_fpath
 

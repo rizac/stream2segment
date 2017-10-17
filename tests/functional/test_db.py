@@ -183,20 +183,48 @@ class Test(unittest.TestCase):
         # now delete only nonnull, should return zero:
         assert self.session.query(Station).count() == 0
         
+        self.tst_test_dcanter_netloc()
 
-    def test_dcanter_name(self):
+    def tst_test_dcanter_netloc(self):
         
         dc = DataCenter(station_url='abc')
         assert dc.netloc == 'abc'
+        # this raises cause only when fdsn ws url is supplied (either station_url or
+        # dataselect_url), then the other is addded to
+        with pytest.raises(IntegrityError):
+            self.session.add(dc)
+            self.session.commit()
+        self.session.rollback()
         
+        # this should work:
+        dc1 = DataCenter(station_url='abc', dataselect_url='bce')
+        # add a fdsn also (we should have already one but for safety):
+        dc2 = DataCenter(station_url='http://www.blabla.org/fdsnws/station/1/query')
+        # add them
+        self.session.add_all([dc1, dc2])
+        self.session.commit()
+        # test expression:
+        dcs = self.session.query(DataCenter).all()
+        for d in dcs:
+            dcs_ = self.session.query(DataCenter.id).filter(DataCenter.netloc == d.netloc).all()
+            assert len(dcs_) >= 1
+            assert any(_[0] == d.id for _ in dcs_)
+    
+        # test some other cases:
         dc = DataCenter(station_url='http://www.orfeus-eu.org/fdsnws/station/1/query')
-        assert dc.netloc == 'www.orfeus-eu.org'
+        assert dc.netloc == 'http://www.orfeus-eu.org'
         
-        dc = DataCenter(station_url='http://eida.ethz.ch/fdsnws/station/1/query')
-        assert dc.netloc == 'eida.ethz.ch'
+        dc = DataCenter(station_url='https://eida.ethz.ch/fdsnws/station/1/query')
+        assert dc.netloc == 'https://eida.ethz.ch'
         
-        dc = DataCenter(station_url='http://geofon.gfz-potsdam.de/fdsnws/station/1/query')
-        assert dc.netloc == 'geofon.gfz-potsdam.de'
+        dc = DataCenter(dataselect_url='https://eida.ethz.ch/fdsnws/dataselect/1/query')
+        assert dc.netloc == 'https://eida.ethz.ch'
+        
+        dc = DataCenter(station_url='http://geofon.gfz-potsdam.de/NOFDSNWS/dataselect/1/query')
+        assert dc.netloc == 'http://geofon.gfz-potsdam.de/NOFDSNWS/dataselect/1/query'
+        
+        
+        
     
     # Note that the naming here RUNS this test FIRST!!!
     def test_010_difference_supplying_autoinc_id(self):

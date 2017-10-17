@@ -8,14 +8,20 @@ optimizations
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
+from itertools import chain
+
 from sqlalchemy import func, distinct
 from sqlalchemy.orm import load_only
 from sqlalchemy.orm.util import aliased
-from sqlalchemy.sql.expression import or_, and_
+from sqlalchemy.sql.expression import or_, and_, func, case, text
 from sqlalchemy.orm.session import object_session
+from sqlalchemy.sql.elements import literal_column
+from sqlalchemy.orm import configure_mappers
 
-from stream2segment.io.db.models import Segment, Station, DataCenter, Channel
+from stream2segment.io.db.models import Segment, Station, DataCenter, Channel, Event
 from stream2segment.io.db.sqlevalexpr import exprquery
+from stream2segment.download.utils import get_url_mseed_errorcodes
+from collections import OrderedDict
 
 
 def query4process(session, conditions={}):
@@ -37,9 +43,9 @@ def query4process(session, conditions={}):
 
 
 def query4gui(session, conditions, orderby=None):
-    '''Returns a query yielding the segments ids for the visualization in the GUI according to
-    `conditions` and `orderby`, sorted by default (if orderby is None) by segment's event.time
-    (descending) and then segment's event_distance_deg (ascending)
+    '''Returns a query yielding the segments ids for the visualization in the GUI (processing)
+    according to `conditions` and `orderby`, sorted by default (if orderby is None) by
+    segment's event.time (descending) and then segment's event_distance_deg (ascending)
 
     :param session: the sql-alchemy session
     :param condition: a dict of segment attribute names mapped to a select expression, each
@@ -54,6 +60,83 @@ def query4gui(session, conditions, orderby=None):
         orderby = [('event.time', 'desc'), ('event_distance_deg', 'asc')]
     return exprquery(session.query(Segment.id), conditions=conditions, orderby=orderby,
                      distinct=True)
+
+
+def query4dreport(session, **binexprs2count):
+    '''Returns a query yielding the segments ids for the visualization in the GUI (download
+    report)
+    ''' 
+    # We should get something along the lines of:
+    # SELECT data_centers.id AS data_centers_id,
+    #     stations.id AS stations_id,
+    #     count(segments.id) as csi,
+    #     count(segments.sample_rate != channels.sample_rate) as segid
+    # FROM
+    # data_centers
+    # JOIN stations ON data_centers.id = stations.datacenter_id
+    # JOIN channels on channels.station_id = stations.id
+    # JOIN segments on segments.channel_id = channels.id
+    # GROUP BY stations.id
+
+    def countif(key, binexpr):
+        NULL = literal_column("NULL")
+        return func.count(case([(binexpr, Segment.id)], else_=NULL)).label(key)
+
+    qry = session.query(DataCenter.netloc.label('datacenter_netloc'),  # @UndefinedVariable
+                        Station.id.label('station_id'),
+                        Station.latitude.label('lat'),
+                        Station.longitude.label('lon'),
+                        func.count(Segment.id).label('num_segments'),
+                        *[countif(k, v) for k, v in binexprs2count.items()])
+
+    # ok seems that back referenced relatioships are instanitated only after the first query is
+    # made:
+    # https://stackoverflow.com/questions/14921777/backref-class-attribute
+    # workaround:
+    configure_mappers()
+
+    return qry.join(DataCenter.stations,  # @UndefinedVariable
+                    Station.channels,  # @UndefinedVariable
+                    Channel.segments,  # @UndefinedVariable
+                    ).group_by(DataCenter.id, Station.id)
+
+
+
+def querystationinfo4dreport(session, station_id, **binexprs2count):
+    '''Returns a query yielding the segments ids for the visualization in the GUI (download
+    report)
+    ''' 
+    # We should get something along the lines of:
+    # SELECT data_centers.id AS data_centers_id,
+    #     stations.id AS stations_id,
+    #     count(segments.id) as csi,
+    #     count(segments.sample_rate != channels.sample_rate) as segid
+    # FROM
+    # data_centers
+    # JOIN stations ON data_centers.id = stations.datacenter_id
+    # JOIN channels on channels.station_id = stations.id
+    # JOIN segments on segments.channel_id = channels.id
+    # GROUP BY stations.id
+
+    def countif(key, binexpr):
+        YES = text("'&#10004;'")
+        NO = text("''")
+        return case([(binexpr, YES)], else_=NO).label(key)
+
+    qry = session.query(Segment.id, Segment.seed_identifier,
+                        Segment.event_id,
+                        Segment.start_time, Segment.end_time,
+                        *[countif(k, v) for k, v in binexprs2count.items()])
+
+    # ok seems that back referenced relatioships are instanitated only after the first query is
+    # made:
+    # https://stackoverflow.com/questions/14921777/backref-class-attribute
+    # workaround:
+    configure_mappers()
+
+    return qry.join(Segment.event, Segment.station
+                    ).filter(Station.id == station_id).order_by(Event.time.desc(),
+                                                                Segment.event_distance_deg.asc())
 
 
 def getallcomponents(session, seg_id):

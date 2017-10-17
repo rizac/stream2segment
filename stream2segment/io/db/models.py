@@ -186,30 +186,51 @@ class DataCenter(Base):
     dataselect_url = Column(String, nullable=False)
     organization_name = Column(String, nullable=True)
 
+#     @hybrid_property
+#     def netloc(self):
+#         """Returns the network location of the current datacenter, following urlparse.netloc
+#         This property is only intended for test purposes
+#         """
+#         # we implement our custom function to avoid useless imports
+#         address = self.station_url if self.station_url else self.dataselect_url
+#         if not address:
+#             return ''
+#         address_ = address.lower()
+#         start = 0
+#         if address_.startswith("http://"):
+#             start = 7
+#         elif address_.startswith("https://"):
+#             start = 8
+#         end = address.find("/", start)
+#         if end == -1:
+#             end = None
+#         return address[start:end]
+
     @hybrid_property
     def netloc(self):
-        """Returns the network location of the current datacenter, following urlparse.netloc
-        This property is only intended for test purposes
-        """
-        # we implement our custom function to avoid useless imports
-        address = self.station_url if self.station_url else self.dataselect_url
-        if not address:
-            return ''
-        address_ = address.lower()
-        start = 0
-        if address_.startswith("http://"):
-            start = 7
-        elif address_.startswith("https://"):
-            start = 8
-        end = address.find("/", start)
-        if end == -1:
-            end = None
-        return address[start:end]
+        '''Returns the network location of the given datacenter, if the dataselect_url is
+        fdsn-compliant (has '/fdsnws' in it). Otherwise returns the full dataselect_url'''
+        col = self.dataselect_url if self.dataselect_url is not None else self.station_url
+        substr = "/fdsnws"
+        idx = col.find(substr)
+        return col[:idx] if idx > -1 else col
+
+    @netloc.expression
+    def netloc(cls):  # @NoSelf
+        '''Returns the network location of the given datacenter, if the dataselect_url is
+        fdsn-compliant (has '/fdsnws' in it). Otherwise returns the full dataselect_url'''
+        col = cls.dataselect_url
+        substr = "/fdsnws"
+        return case([(func.strpos(col, substr) > 0, func.left(col, func.strpos(col, substr) - 1))],
+                    else_=col)
 
     __table_args__ = (
                       UniqueConstraint('station_url', 'dataselect_url',
                                        name='sta_data_uc'),
                      )
+
+
+# global var defining the substring to search for returning the network location
 
 
 # standard decorator style for event listener. Note: we cannot implement validators otherwise

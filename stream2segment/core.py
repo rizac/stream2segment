@@ -39,7 +39,7 @@ import shutil
 import yaml
 
 from stream2segment.utils.log import configlog4download, configlog4processing,\
-    elapsedtime2logger_when_finished, configlog4stdout
+    elapsedtime2logger_when_finished
 # from stream2segment.download.utils import run_instance
 from stream2segment.utils.resources import version
 from stream2segment.io.db.models import Segment, Download
@@ -51,6 +51,7 @@ from stream2segment.utils.resources import get_templates_fpath, yaml_load, yaml_
     get_templates_fpaths
 from stream2segment import analysis
 from stream2segment.analysis import mseeds
+from stream2segment.gui.main import run_in_browser, create_p_app, create_drep_app
 
 # set root logger if we are executing this module as script, otherwise as module name following
 # logger conventions. Discussion here:
@@ -127,11 +128,14 @@ def process(dburl, pyfile, configfile, outcsvfile, isterminal=False):
     return 0
 
 
-def visualize(dburl, pyfile, configfile):
-    from stream2segment.gui import main as main_gui
-    main_gui.run_in_browser(dburl, pyfile, configfile)
+def visualize_p(dburl, pyfile, configfile):
+    run_in_browser(create_p_app(dburl, pyfile, configfile))
     return 0
 
+
+def visualize_d(dburl):
+    run_in_browser(create_drep_app(dburl))
+    return 0
 
 # def data_aval(dburl, outfile, max_gap_ovlap_ratio=0.5):
 #     from stream2segment.gui.da_report.main import create_da_html
