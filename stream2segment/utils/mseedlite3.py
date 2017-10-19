@@ -545,7 +545,7 @@ def unpack(data, starttime=None, endtime=None):
     :raise MiniseedError if some error is raised, that is 'not' recoverable (e.g., bad file length
     for some record causing all subsequent records to be mis-aligned)
     """
-    outoftime = ValueError("Some data chunks outside requested time bounds")
+    outoftime = ValueError("data chunks found outside requested time bounds")
     # we might use defaultdict, but a dict with the future package is py2-3 compliant
     # e.g., when using dict.items()
     ret_dic = dict()
@@ -554,7 +554,7 @@ def unpack(data, starttime=None, endtime=None):
         value = ret_dic.get(id_, None)
         if value is None:
             # remember, the fields are: bytesio, sample_rate, max_gap_overlap_ratio, error_warning
-            value = [[], None, 0, None]
+            value = [[], None, None, None, None, None]
             ret_dic[id_] = value
 
         if value[0] is None:  # key already existed and has error
@@ -562,8 +562,11 @@ def unpack(data, starttime=None, endtime=None):
 
         if exc is not None:  # key does not exist, data read has error
             value[-1] = exc
-            value[0] = None  # help gc?? anyway, set to None which has different meaning than []
+            value[0] = value[1] = value[2] = value[3] = value[4] = None  # for safety
             continue
+
+        if value[1] is None:  # set sample frequency (only first time)
+            value[1] = float(rec.fsamp)
 
         # check time bounds:
         if starttime is not None:
@@ -584,35 +587,34 @@ def unpack(data, starttime=None, endtime=None):
                 value[-1] = outoftime
                 continue
 
-        if not value[0]:  # set sample frequency (only first time)
-            value[1] = float(rec.fsamp)
-
         value[0].append(rec)
 
-    unpacked_data = {}
     for id_, value in ret_dic.items():
-        if value[-1] is not None and not value[0]:  # value[0] can be None, [] or non-empty list
-            if value[-1] is outoftime:  # convert warning to error
-                value[-1] = ValueError("Data outside requested time bounds")
-            unpacked_data[id_] = (None, None, None, value[-1])
-        else:
-            # get chunks and sort ascending by time
-            chunks = value[0]
-            chunks.sort(key=lambda elm: elm.begin_time)
-            fsamp = value[1]
-            max_gap_overlap_ratio = 0
-            bytesio = BytesIO()
-            for i, record in enumerate(chunks):
-                record.write(bytesio, int(log(record.size) / log(2)))
-                if i == 0:
-                    continue
-                curr_max_gap_ratio = (chunks[i-1].end_time -
-                                      record.begin_time).total_seconds() * fsamp
-                if abs(curr_max_gap_ratio) > abs(max_gap_overlap_ratio):
-                    max_gap_overlap_ratio = curr_max_gap_ratio
+        if value[-1] is not None and value[0] is None:
+            continue
+        chunks = value[0]
+        if not chunks:
+            value[0] = b''
+            continue
+        # get chunks and sort ascending by time
+        chunks.sort(key=lambda elm: elm.begin_time)
+        fsamp = value[1]
+        max_gap_overlap_ratio = 0
+        bytesio = BytesIO()
+        for i, record in enumerate(chunks):
+            record.write(bytesio, int(log(record.size) / log(2)))
+            if i == 0:
+                continue
+            curr_max_gap_ratio = (chunks[i-1].end_time -
+                                  record.begin_time).total_seconds() * fsamp
+            if abs(curr_max_gap_ratio) > abs(max_gap_overlap_ratio):
+                max_gap_overlap_ratio = curr_max_gap_ratio
 
-            bytez = bytesio.getvalue()
-            bytesio.close()
-            unpacked_data[id_] = (bytez, value[1], max_gap_overlap_ratio, value[-1])
+        bytez = bytesio.getvalue()
+        bytesio.close()
+        value[0] = bytez
+        value[2] = max_gap_overlap_ratio
+        value[3] = chunks[0].begin_time
+        value[4] = chunks[-1].end_time
 
-    return unpacked_data
+    return ret_dic

@@ -93,7 +93,7 @@ def test_standard():
     dic = unpack(bytez)
     assert not haserr(dic)
     # assert all max gap ratios are below a certain threshold:
-    assert all(v[-2] < 0.0001 for v in dic.values())
+    assert all(v[2] < 0.0001 for v in dic.values())
     # get the same dict by calling obspy.read:
     obspy_stream = get_stream(bytez)
     s2s_stream = get_s2s_stream(dic)
@@ -115,12 +115,24 @@ def test_standard_timebounds():
     
     start = s2s_stream[0].stats.starttime.datetime
     end = s2s_stream[0].stats.endtime.datetime
+    
+    # assert START times are different: this depends on our miniseedlite3
+    # AND obspy routine. This error seems to propagate to all blockettes cause the max gaps
+    # overlaps are almost zeros, thus this errors propagates with almost the same
+    # quantity to each blockette
+    timediffs = list(max(abs(v[3] - s2s_stream[i].stats.starttime.datetime),
+                         abs(v[4]-s2s_stream[i].stats.endtime.datetime)) for i, v in enumerate(dic.values()))
+    assert all(t > timedelta(seconds=0) for t in timediffs)
+    
+    
     tdelta = (end-start)/2
     
     for times in [(start, start+tdelta), (start+tdelta, end)]:
         dic = unpack(bytez, *times)
         assert all(v[0] and isinstance(v[-1], ValueError) for v in dic.values())
-
+        timediffs2 = list(max(abs(v[3] - s2s_stream[i].stats.starttime.datetime),
+                              abs(v[4]-s2s_stream[i].stats.endtime.datetime)) for i, v in enumerate(dic.values()))
+        assert all(t2 > t1 for t1, t2 in zip(timediffs, timediffs2))
 
 def test_with_gaps_overlaps():
     # Let's change some header. But keeping the ref to the trace id for the record with errors:
@@ -129,7 +141,7 @@ def test_with_gaps_overlaps():
     # get our dicts of trace_id: trace_bytes
     dic = unpack(bytez)
     assert not haserr(dic)
-    assert any(g[-2] < -10 for g in dic.values())  # overlaps
+    assert any(g[2] < -10 for g in dic.values())  # overlaps
     # get the same dict by calling obspy.read:
     obspy_stream = get_stream(bytez)
     s2s_stream = get_s2s_stream(dic)
@@ -154,7 +166,7 @@ def test_change_last_byte():
     # get our dicts of trace_id: trace_bytes
     dic = unpack( bytez[:-1] + b'a')
     assert not haserr(dic)
-    assert all(g[-2] < 0.0001 for g in dic.values())
+    assert all(g[2] < 0.0001 for g in dic.values())
 
     obspy_stream = get_stream(bytez)
     s2s_stream = get_s2s_stream(dic)
@@ -172,7 +184,7 @@ def test_change_header_change_id():
     # erros is not empty but has the trace id 'aa.aaaaa.aa.aaa'. What is that?
     # is the id we created by modyfing the bytes above
     assert haserr(dic)
-    assert all(g[-2] < 0.0001 for g in dic.values() if g[-2] is not None)
+    assert all(g[2] < 0.0001 for g in dic.values() if g[-2] is not None)
 
     obspy_stream = get_stream(bytez)
     s2s_stream = get_s2s_stream(dic)
@@ -188,7 +200,7 @@ def test_change_header_keep_id():
     # erros is not empty but has the trace id 'aa.aaaaa.aa.aaa'. What is that?
     # is the id we created by modyfing the bytes above
     assert haserr(dic)
-    assert all(g[-2] < 0.0001 for g in dic.values() if g[-2] is not None)
+    assert all(g[2] < 0.0001 for g in dic.values() if g[-2] is not None)
 
     obspy_stream = get_stream(bytez)
     s2s_stream = get_s2s_stream(dic)

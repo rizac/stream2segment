@@ -1156,9 +1156,9 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         
         assert len(df) == (len(channels_df)-1) *len(events_df)
         # assert channel outside time bounds was in:
-        assert not channels_df[channels_df[Segment.start_time.key] == datetime(2019,1,1)].empty
+        assert not channels_df[channels_df[Segment.requested_start.key] == datetime(2019,1,1)].empty
         # we need to get the channel id from channels_df cause in df we removed unnecessary columns (including start end time)
-        ch_id = channels_df[channels_df[Segment.start_time.key] == datetime(2019,1,1)][Channel.id.key].iloc[0]
+        ch_id = channels_df[channels_df[Segment.requested_start.key] == datetime(2019,1,1)][Channel.id.key].iloc[0]
         # old Channel.id.key is Segment.channel_id.key in df:
         assert df[df[Segment.channel_id.key] == ch_id].empty
         
@@ -1644,7 +1644,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # get columns from db which we are interested on to check
         cols = [Segment.id, Segment.channel_id, Segment.datacenter_id,
                 Segment.download_status_code, Segment.max_gap_overlap_ratio, \
-                Segment.sample_rate, Segment.data_identifier, Segment.data, Segment.download_id, Segment.start_time, Segment.end_time,
+                Segment.sample_rate, Segment.data_identifier, Segment.data, Segment.download_id,
+                Segment.requested_start, Segment.requested_end,
                 ]
         db_segments_df = dbquery2df(self.session.query(*cols))
         assert Segment.download_id.key in db_segments_df.columns

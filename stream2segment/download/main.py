@@ -786,8 +786,8 @@ def prepare_for_download(session, segments_df, wtimespan, retry_no_code, retry_u
     # dataframe columns that we need:
     SEG_EVID = Segment.event_id.key
     SEG_ATIME = Segment.arrival_time.key
-    SEG_STIME = Segment.start_time.key
-    SEG_ETIME = Segment.end_time.key
+    SEG_STIME = Segment.requested_start.key
+    SEG_ETIME = Segment.requested_end.key
     SEG_CHID = Segment.channel_id.key
     SEG_ID = Segment.id.key
     SEG_DSC = Segment.download_status_code.key
@@ -804,8 +804,8 @@ def prepare_for_download(session, segments_df, wtimespan, retry_no_code, retry_u
     # segments have to be re-downloaded, if any
 
     # query relevant data into data frame:
-    db_seg_df = dbquery2df(session.query(Segment.id, Segment.channel_id, Segment.start_time,
-                                         Segment.end_time, Segment.download_status_code,
+    db_seg_df = dbquery2df(session.query(Segment.id, Segment.channel_id, Segment.requested_start,
+                                         Segment.requested_end, Segment.download_status_code,
                                          Segment.event_id))
 
     # set the boolean array telling whether we need to retry db_seg_df elements (those already
@@ -888,8 +888,8 @@ def get_seg_request(segments_df, datacenter_url, chaid2mseedid_dict):
     """returns a Request object from the given segments_df"""
     # For convenience and readability, define once the mapped column names representing the
     # dataframe columns that we need:
-    SEG_STIME = Segment.start_time.key
-    SEG_ETIME = Segment.end_time.key
+    SEG_STIME = Segment.requested_start.key
+    SEG_ETIME = Segment.requested_end.key
     CHA_ID = Segment.channel_id.key
 
     stime = segments_df[SEG_STIME].iloc[0].isoformat()
@@ -915,8 +915,8 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
     DC_ID = DataCenter.id.key
     DC_DSURL = DataCenter.dataselect_url.key
     SEG_ID = Segment.id.key
-    SEG_STIME = Segment.start_time.key
-    SEG_ETIME = Segment.end_time.key
+    SEG_STIME = Segment.requested_start.key
+    SEG_ETIME = Segment.requested_end.key
     SEG_DATA = Segment.data.key
     SEG_DSCODE = Segment.download_status_code.key
     SEG_DATAID = Segment.data_identifier.key
@@ -945,8 +945,8 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
 
     cols2update = [Segment.download_id, Segment.data, Segment.sample_rate,
                    Segment.max_gap_overlap_ratio, Segment.data_identifier,
-                   Segment.download_status_code, Segment.start_time, Segment.arrival_time,
-                   Segment.end_time]
+                   Segment.download_status_code, Segment.requested_start, Segment.arrival_time,
+                   Segment.requested_end]
     segmanager = DbManager(session, Segment.id, cols2update,
                            db_bufsize, [SEG_ID, SEG_CHAID, SEG_STIME, SEG_ETIME, SEG_DCID])
 

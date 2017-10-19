@@ -358,6 +358,8 @@ class Segment(Base):
     start_time = Column(DateTime, nullable=False)
     arrival_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
+    requested_start = Column(DateTime, nullable=False)
+    requested_end = Column(DateTime, nullable=False)
     sample_rate = Column(Float)
     max_gap_overlap_ratio = Column(Float)
     download_id = Column(Integer, ForeignKey("downloads.id"), nullable=False)
