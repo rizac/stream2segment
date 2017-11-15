@@ -503,7 +503,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         # and so on for the second, third. If the line below fails, check that maybe it's not
         # the case and we should be less strict. Actually, we will be less strict, 
         # turns out the check is undeterministic Comment out:
-#         first_segments_df = segments_df.groupby(['datacenter_id', 'start_time', 'end_time'], sort=False).first()
+#         first_segments_df = segments_df.groupby(['datacenter_id', 'request_start', 'request_end'], sort=False).first()
         assert self.session.query(Segment).count()  == 3  # len(first_segments_df)
         # assert 
         assert self.session.query(Channel).count() == 12
@@ -619,7 +619,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         assert mock_updatedf.called
         assert not mock_insertdf_napkeys.called
         
-        URLERROR, MSEEDERROR = get_url_mseed_errorcodes()
+        URLERROR, MSEEDERROR, TIMEBOUNDS_ERROR = get_url_mseed_errorcodes()
         
         assert len(dfres2) == len(dfres1)
         assert len(self.session.query(Download.id).all()) == runs + 1

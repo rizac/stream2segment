@@ -97,7 +97,7 @@ def ForeignKey(*pos, **kwa):
     `onupdate='CASCADE'` and `ondelete='CASCADE'` if the two keyword argument are missing in `kwa`.
     If this behavior needs to be modified for some column in the future,
     just provide the arguments in the constructor as one would do with sqlalchemy ForeignKey class
-    E.g.: column = Column(..., ForeignKey(..., onupdate='SET NULL',...), nullable=True)
+    E.g.: column = Column(..., ForeignKey(..., onupdate='SET NULL',...), nullable=False)
     """
     if 'onupdate' not in kwa:
         kwa['onupdate'] = 'CASCADE'
@@ -184,7 +184,7 @@ class DataCenter(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)  # pylint:disable=invalid-name
     station_url = Column(String, nullable=False)  # if you change attr, see BELOW!
     dataselect_url = Column(String, nullable=False)
-    organization_name = Column(String, nullable=True)
+    organization_name = Column(String)
 
     @hybrid_property
     def netloc(self):
@@ -354,15 +354,15 @@ class Segment(Base):
     data_identifier = Column(String)
     event_distance_deg = Column(Float, nullable=False)
     data = Column(LargeBinary)
-    download_status_code = Column(Integer, nullable=True)
-    start_time = Column(DateTime, nullable=False)
+    download_status_code = Column(Integer)
+    start_time = Column(DateTime)
     arrival_time = Column(DateTime, nullable=False)
-    end_time = Column(DateTime, nullable=False)
-    requested_start = Column(DateTime, nullable=False)
-    requested_end = Column(DateTime, nullable=False)
+    end_time = Column(DateTime)
     sample_rate = Column(Float)
     max_gap_overlap_ratio = Column(Float)
     download_id = Column(Integer, ForeignKey("downloads.id"), nullable=False)
+    request_start = Column(DateTime, nullable=False)
+    request_end = Column(DateTime, nullable=False)
 
     # DEFINE HYBRID PROPERTIES. ACTUALY, WE ARE JUST INTERESTED IN HYBRID CLASSMETHODS FOR
     # QUERYING, BUT IT SEEMS THERE IS NO WAY TO DEFINE THEM WITHOUT DEFINING THE INSTANCE METHOD
@@ -457,6 +457,6 @@ class ClassLabelling(Base):
     segment_id = Column(Integer, ForeignKey("segments.id"), nullable=False)
     class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
     is_hand_labelled = Column(Boolean, server_default="1")  # Note: "TRUE" fails in sqlite!
-    annotator = Column(String, nullable=True)
+    annotator = Column(String)
 
     __table_args__ = (UniqueConstraint('segment_id', 'class_id', name='seg_class_uc'),)

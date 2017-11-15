@@ -480,8 +480,11 @@ def locations2degrees(lat1, lon1, lat2, lon2):
 
 
 def get_url_mseed_errorcodes():
-    """returns the error codes for general url exceptions and mseed errors, respectively"""
-    return (-1, -2)
+    """returns the tuple (-1, -2, -3) where:
+    -1 denotes general url exceptions during download,
+    -2 denotes mseed data errors while reading downloaded data, and
+    -3 denotes discarded out-of-time bounds records while reading downloaded data"""
+    return (-1, -2, -3)
 
 
 def eidarsiter(responsetext):

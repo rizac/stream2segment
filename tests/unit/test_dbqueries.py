@@ -170,8 +170,8 @@ class Test(unittest.TestCase):
         self.session.commit()
         
         
-        args = dict(start_time=datetime.utcnow(),
-                     end_time=datetime.utcnow(),
+        args = dict(request_start=datetime.utcnow(),
+                     request_end=datetime.utcnow(),
                      event_distance_deg=9,
                      arrival_time=datetime.utcnow(),
                      data=b'',

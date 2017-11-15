@@ -1156,9 +1156,9 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         
         assert len(df) == (len(channels_df)-1) *len(events_df)
         # assert channel outside time bounds was in:
-        assert not channels_df[channels_df[Segment.requested_start.key] == datetime(2019,1,1)].empty
+        assert not channels_df[channels_df[Station.start_time.key] == datetime(2019,1,1)].empty
         # we need to get the channel id from channels_df cause in df we removed unnecessary columns (including start end time)
-        ch_id = channels_df[channels_df[Segment.requested_start.key] == datetime(2019,1,1)][Channel.id.key].iloc[0]
+        ch_id = channels_df[channels_df[Station.start_time.key] == datetime(2019,1,1)][Channel.id.key].iloc[0]
         # old Channel.id.key is Segment.channel_id.key in df:
         assert df[df[Segment.channel_id.key] == ch_id].empty
         
@@ -1298,12 +1298,15 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert not Segment.id.key in segments_df.columns
         assert not Segment.download_id.key in segments_df.columns
         orig_seg_df = segments_df.copy()
-        segments_df = prepare_for_download(self.session, orig_seg_df, wtimespan,
-                                           retry_no_code=True,
-                                           retry_url_errors=True,
-                                           retry_mseed_errors=True,
-                                           retry_4xx=True,
-                                           retry_5xx=True)
+        segments_df, request_timebounds_need_update = \
+            prepare_for_download(self.session, orig_seg_df, wtimespan,
+                                 retry_no_code=True,
+                                 retry_url_errors=True,
+                                 retry_mseed_errors=True,
+                                 retry_4xx=True,
+                                 retry_5xx=True)
+        assert request_timebounds_need_update is False
+
 # segments_df: (not really the real dataframe, some columns are removed but relevant data is ok):
 #    channel_id  datacenter_id network station location channel  event_distance_deg  event_id            arrival_time          start_time            end_time
 # 0  1           1              GE      FLT1             HHE     0.0                 1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12
@@ -1342,7 +1345,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
         # mock an already downloaded segment.
         # Set the first five to have a particular download status code
-        urlerr, mseederr = get_url_mseed_errorcodes()
+        urlerr, mseederr, timeboundserr = get_url_mseed_errorcodes()
         downloadstatuscodes = [None, urlerr, mseederr, 413, 505]
         for i, download_status_code in enumerate(downloadstatuscodes):
             dic = segments_df.iloc[i].to_dict()
@@ -1375,26 +1378,30 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # set the num of instances to download anyway. Their number is the not saved ones, i.e.:
         to_download_anyway = len(segments_df) - len(downloadstatuscodes)
         for c in product([True, False], [True, False], [True, False], [True, False], [True, False]):
-            s_df = prepare_for_download(self.session, orig_seg_df, wtimespan,
-                                           retry_no_code=c[0],
-                                           retry_url_errors=c[1],
-                                           retry_mseed_errors=c[2],
-                                           retry_4xx=c[3],
-                                           retry_5xx=c[4])
+            s_df, request_timebounds_need_update = \
+                prepare_for_download(self.session, orig_seg_df, wtimespan,
+                                     retry_no_code=c[0],
+                                     retry_url_errors=c[1],
+                                     retry_mseed_errors=c[2],
+                                     retry_4xx=c[3],
+                                     retry_5xx=c[4])
             to_download_in_this_case = sum(c)  # count the True's (bool sum works in python) 
             assert len(s_df) == to_download_anyway +  to_download_in_this_case
+            assert request_timebounds_need_update is False
 
         # now change the window time span and see that everything is to be downloaded again:
         # do it for any retry combinations, as it should ALWAYS return "everything has to be re-downloaded"
         wtimespan[1] += 5
         for c in product([True, False], [True, False], [True, False], [True, False], [True, False]):
-            s_df = prepare_for_download(self.session, orig_seg_df, wtimespan,
-                                           retry_no_code=c[0],
-                                           retry_url_errors=c[1],
-                                           retry_mseed_errors=c[2],
-                                           retry_4xx=c[3],
-                                           retry_5xx=c[4])
+            s_df, request_timebounds_need_update = \
+                prepare_for_download(self.session, orig_seg_df, wtimespan,
+                                     retry_no_code=c[0],
+                                     retry_url_errors=c[1],
+                                     retry_mseed_errors=c[2],
+                                     retry_4xx=c[3],
+                                     retry_5xx=c[4])
             assert len(s_df) == len(orig_seg_df)
+            assert request_timebounds_need_update is True  # because we changed wtimespan
         # this hol
 
 
@@ -1482,19 +1489,22 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert not Segment.id.key in segments_df.columns
         assert not Segment.download_id.key in segments_df.columns
         orig_seg_df = segments_df.copy()
-        segments_df = prepare_for_download(self.session, orig_seg_df, wtimespan,
-                                           retry_no_code=True,
-                                           retry_url_errors=True,
-                                           retry_mseed_errors=True,
-                                           retry_4xx=True,
-                                           retry_5xx=True)
+        segments_df, request_timebounds_need_update = \
+            prepare_for_download(self.session, orig_seg_df, wtimespan,
+                                 retry_no_code=True,
+                                 retry_url_errors=True,
+                                 retry_mseed_errors=True,
+                                 retry_4xx=True,
+                                 retry_5xx=True)
         
+        assert request_timebounds_need_update is False
+
         logmsg = self.log_msg()
         # the dupes should be the number of segments divided by the events set (2) which are
         # very close
         expected_dupes = len(segments_df) / len(events_df)
         assert ("%d suspicious duplicated segments found" % expected_dupes) in logmsg
-        g = 9
+
     
     def download_save_segments(self, url_read_side_effect, *a, **kw):
         self.setup_urlopen(self._seg_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
@@ -1589,12 +1599,13 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         wtimespan = [1,2]
         expected = len(segments_df)  # no segment on db, we should have all segments to download
         orig_segments_df = segments_df.copy()
-        segments_df = prepare_for_download(self.session, orig_segments_df, wtimespan,
-                                           retry_no_code=True,
-                                           retry_url_errors=True,
-                                           retry_mseed_errors=True,
-                                           retry_4xx=True,
-                                           retry_5xx=True)
+        segments_df, request_timebounds_need_update = \
+            prepare_for_download(self.session, orig_segments_df, wtimespan,
+                                 retry_no_code=True,
+                                 retry_url_errors=True,
+                                 retry_mseed_errors=True,
+                                 retry_4xx=True,
+                                 retry_5xx=True)
         
 # segments_df
 # COLUMNS:
@@ -1638,14 +1649,16 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         urlread_sideeffect = [self._seg_data, 413, self._seg_data[:2], 413,
                               '', self._seg_data_gaps, self._seg_data_gaps, URLError("++urlerror++"), 500, 413]
         # Let's go:
-        ztatz = self.download_save_segments(urlread_sideeffect, self.session, segments_df, datacenters_df, 
+        ztatz = self.download_save_segments(urlread_sideeffect, self.session, segments_df,
+                                            datacenters_df, 
                                             chaid2mseedid,
-                                            self.run.id, 1,2,3, db_bufsize=self.db_buf_size)
+                                            self.run.id, request_timebounds_need_update,
+                                            1,2,3, db_bufsize=self.db_buf_size)
         # get columns from db which we are interested on to check
         cols = [Segment.id, Segment.channel_id, Segment.datacenter_id,
                 Segment.download_status_code, Segment.max_gap_overlap_ratio, \
                 Segment.sample_rate, Segment.data_identifier, Segment.data, Segment.download_id,
-                Segment.requested_start, Segment.requested_end,
+                Segment.request_start, Segment.request_end,
                 ]
         db_segments_df = dbquery2df(self.session.query(*cols))
         assert Segment.download_id.key in db_segments_df.columns
@@ -1730,13 +1743,16 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         
         
         # now mock retry:
-        segments_df = prepare_for_download(self.session, orig_segments_df, wtimespan,
-                                           retry_no_code=True,
-                                           retry_url_errors=True,
-                                           retry_mseed_errors=True,
-                                           retry_4xx=True,
-                                           retry_5xx=True)
+        segments_df, request_timebounds_need_update = \
+            prepare_for_download(self.session, orig_segments_df, wtimespan,
+                                 retry_no_code=True,
+                                 retry_url_errors=True,
+                                 retry_mseed_errors=True,
+                                 retry_4xx=True,
+                                 retry_5xx=True)
         
+        assert request_timebounds_need_update is False
+
         COL = Segment.download_status_code.key
         mask = (db_segments_df[COL] >= 400) | pd.isnull(db_segments_df[COL]) \
             | (db_segments_df[COL].isin([URLERR_CODE, MSEEDERR_CODE]))
@@ -1748,7 +1764,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # Let's go:
         ztatz = self.download_save_segments(urlread_sideeffect, self.session, segments_df, datacenters_df,
                                             chaid2mseedid,
-                                            self.run.id, 1,2,3, db_bufsize=self.db_buf_size)
+                                            self.run.id, request_timebounds_need_update,
+                                            1,2,3, db_bufsize=self.db_buf_size)
         # get columns from db which we are interested on to check
         cols = [Segment.download_status_code, Segment.channel_id]
         db_segments_df = dbquery2df(self.session.query(*cols))
