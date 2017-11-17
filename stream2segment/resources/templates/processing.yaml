@@ -31,7 +31,7 @@
 # capabilities of sql select statement. We first recall the segment attributes, which are:
 # 
 # ================================= ================================================
-# attribute                         python type
+# attribute                         python type and description (if any)
 # ================================= ================================================
 # id                                int
 # event_distance_deg                float (distance between the segment's station and the event, in degrees)
@@ -45,7 +45,11 @@
 #                                   denote client errors, values >=500 server errors, -1  
 #                                   indicates a general download error - e.g. no Internet
 #                                   connection, -2 that the waveform data is corrupted,  
-#                                   and finally None denotes a general unknown error not 
+#                                   -200 a successful download where some waveform data has
+#                                   been discarded because outside the requested time span,
+#                                   -204 a successful download where no data has been saved
+#                                   because all response data was outside the requested time
+#                                   span, and finally None denotes a general unknown error not 
 #                                   in the previous categories)                          
 # segment.max_gap_overlap_ratio     float (the maximum length of all gaps and overlaps
 #                                   found in the waveform data, *in number of points*.

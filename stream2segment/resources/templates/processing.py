@@ -129,7 +129,7 @@ segment attributes:
 -------------------
 
 ========================================= ================================================
-attribute                                 python type
+attribute                                 python type and description (if any)
 ========================================= ================================================
 segment.id                                int
 segment.event_distance_deg                float (distance between the segment's station and
@@ -144,8 +144,12 @@ segment.download_status_code              int (typically, values between 200 and
 \                                         denote client errors, values >=500 server errors, -1
 \                                         indicates a general download error - e.g. no Internet
 \                                         connection, -2 that the waveform data is corrupted,
-\                                         and finally None denotes a general unknown error not
-\                                         in the previous categories)
+\                                         -200 a successful download where some waveform data has
+\                                         been discarded because outside the requested time span,
+\                                         -204 a successful download where no data has been saved
+\                                         because all response data was outside the requested time
+\                                         span, and finally None denotes a general unknown error
+\                                         not in the previous categories)
 segment.max_gap_overlap_ratio             float (the maximum length of all gaps and overlaps
 \                                         found in the waveform data, *in number of points*.
 \                                         If the value is positive, the max is a gap. If negative,

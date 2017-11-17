@@ -480,13 +480,15 @@ def locations2degrees(lat1, lon1, lat2, lon2):
 
 
 def custom_download_codes():
-    """returns the tuple (-1, -2, -204, -200) where each number represents a custom download code
-    not included in the HTTP standard status codes:
-    * -1 denotes general url exceptions
+    """returns the tuple (url_err, mseed_err, timespan_err, timespan_warn), i.e. the tuple
+    (-1, -2, -204, -200) where each number represents a custom download code
+    not included in the standard HTTP status codes:
+    * -1 denotes general url exceptions (e.g. no internet conenction)
     * -2 denotes mseed data errors while reading downloaded data, and
-    * -204 denotes a timespan error: all response is out of time with respect to the reqeuest's time-span
-    * -200 denotes a timespan warning: some response data was out of time with respect to the request's time-span
-         (only the data intersecting with the time span has been saved)
+    * -204 denotes a timespan error: all response is out of time with respect to the reqeuest's
+      time-span
+    * -200 denotes a timespan warning: some response data was out of time with respect to the
+      request's time-span (only the data intersecting with the time span has been saved)
     """
     return (-1, -2, -204, -200)
 
