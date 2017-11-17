@@ -17,12 +17,12 @@ from obspy.io.mseed.core import _read_mseed
 from io import BytesIO
 
 
-
-
 _mrb = {}
+
+
 def mock_response_inbytes(with_gaps=False):
     global _mrb
-    name =  "IA.BAKI..BHZ.D.2016.004.head" if with_gaps else "GE.FLT1..HH?.mseed" 
+    name = "IA.BAKI..BHZ.D.2016.004.head" if with_gaps else "GE.FLT1..HH?.mseed" 
     filename = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", name)
     if _mrb.get(name, None) is None:
         with open(filename, 'rb') as opn:
@@ -30,13 +30,8 @@ def mock_response_inbytes(with_gaps=False):
     return _mrb[name]
 
 
-
 def get_stream(bytez):
-    # global _sd
-    #if _sd is None:
     return read(BytesIO(bytez))
-#     _sd = {x.get_id(): x for x in stream}
-#     return _sd
 
 
 def get_s2s_stream(dicread):

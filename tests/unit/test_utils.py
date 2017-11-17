@@ -127,9 +127,10 @@ def test_secure_dburl(input, expected_result):
 ### IMPORTANT=======================================================================================
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
+@pytest.mark.skip(reason="fails if run from within n eclipse because of cryptic bytes vs string propblem")
 @patch("stream2segment.utils.Nop", side_effect=lambda *a, **v: Nop(*a, **v))
 @patch("stream2segment.utils.click_progressbar", side_effect=lambda *a, **v: progressbar(*a, **v))
-def tst_progressbar(mock_pbar, mock_nop):
+def test_progressbar(mock_pbar, mock_nop):
     '''this test has problems with eclipse'''
     N = 5
     with get_progressbar(False) as bar:  # no-op
@@ -162,8 +163,10 @@ def tst_progressbar(mock_pbar, mock_nop):
     assert mock_nop.call_count == 4
     assert mock_pbar.call_count == 1
 
+
 # same as above, but we run for safety the real classes (not mocked)
-def tst_progressbar_functional():
+@pytest.mark.skip(reason="fails if run from within n eclipse because of cryptic bytes vs string propblem")
+def test_progressbar_functional():
     '''this test has problems with eclipse'''
     N = 5
     with get_progressbar(False) as bar:  # no-op

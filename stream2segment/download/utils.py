@@ -479,12 +479,16 @@ def locations2degrees(lat1, lon1, lat2, lon2):
     return gd
 
 
-def get_url_mseed_errorcodes():
-    """returns the tuple (-1, -2, -3) where:
-    -1 denotes general url exceptions during download,
-    -2 denotes mseed data errors while reading downloaded data, and
-    -3 denotes discarded out-of-time bounds records while reading downloaded data"""
-    return (-1, -2, -3)
+def custom_download_codes():
+    """returns the tuple (-1, -2, -204, -200) where each number represents a custom download code
+    not included in the HTTP standard status codes:
+    * -1 denotes general url exceptions
+    * -2 denotes mseed data errors while reading downloaded data, and
+    * -204 denotes a timespan error: all response is out of time with respect to the reqeuest's time-span
+    * -200 denotes a timespan warning: some response data was out of time with respect to the request's time-span
+         (only the data intersecting with the time span has been saved)
+    """
+    return (-1, -2, -204, -200)
 
 
 def eidarsiter(responsetext):

@@ -60,7 +60,7 @@ from logging import StreamHandler
 import logging
 from io import BytesIO
 import urllib.request, urllib.error, urllib.parse
-from stream2segment.download.utils import get_url_mseed_errorcodes 
+from stream2segment.download.utils import custom_download_codes 
 from stream2segment.utils.mseedlite3 import MSeedError, unpack
 import threading
 from stream2segment.utils.url import read_async
@@ -562,8 +562,8 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
         assert dcslen == len(self.session.query(DataCenter).all())
         
 
-    # @patch('stream2segment.download.main.urljoin', return_value='a')
-    def tst_get_dcs_postdata(self):  # , mock_urljoin):
+    @patch('stream2segment.download.main.urljoin', side_effect = lambda *a, **v: original_urljoin(*a, **v))
+    def test_get_dcs_postdata(self, mock_urljoin):  # , mock_urljoin):
         '''test fetching datacenters eida, iris, custom url and test that postdata is what we
         expected (which is eida/iris/whatever independent)'''
         # this is the output when using eida as service:
@@ -579,33 +579,57 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
 
         for channels, starttime, endtime in product([['HH?'], ['HH?', 'BH?'], None], [None, d0],
                                                     [None, d1]):
+            mock_urljoin.reset_mock()
             # normal fdsn service ("https://mocked_domain/fdsnws/station/1/query")
-            data, post_data, _ = self.get_datacenters_df(urlread_sideeffect, self.session,
+            data, eida_validator = self.get_datacenters_df(urlread_sideeffect, self.session,
                                                            "https://mock/fdsnws/station/1/query",
                                                            self.routing_service,
                                                            channels, starttime, endtime,
                                                            db_bufsize=self.db_buf_size)
-            assert post_data ==  '* * * %s %s %s' % \
-                (",".join(channels) if channels else "*", starttime.isoformat() if starttime else "*",
-                 endtime.isoformat() if endtime else "*")
+            assert eida_validator is None
+            assert not mock_urljoin.called
             
             # iris:
-            data, post_data, _ = self.get_datacenters_df(urlread_sideeffect, self.session, "iris",
+            mock_urljoin.reset_mock()
+            data, eida_validator = self.get_datacenters_df(urlread_sideeffect, self.session, "iris",
                                                        self.routing_service,
                                                        channels, starttime, endtime,
                                                        db_bufsize=self.db_buf_size)
-            assert post_data ==  '* * * %s %s %s' % \
-                (",".join(channels) if channels else "*", starttime.isoformat() if starttime else "*",
-                 endtime.isoformat() if endtime else "*")
+            assert eida_validator is None
+            assert not mock_urljoin.called
             
             # eida:
-            data, post_data, _ = self.get_datacenters_df(urlread_sideeffect, self.session, "eida",
+            mock_urljoin.reset_mock()
+            data, eida_validator = self.get_datacenters_df(urlread_sideeffect, self.session, "eida",
                                                    self.routing_service,
                                                    channels, starttime, endtime,
                                                    db_bufsize=self.db_buf_size)
-            assert post_data ==  '* * * %s %s %s' % \
-                (",".join(channels) if channels else "*", starttime.isoformat() if starttime else "*",
-                 endtime.isoformat() if endtime else "*")
+            
+            geofon_id = data[data[DataCenter.station_url.key] == 'http://geofon.gfz-potsdam.de/fdsnws/station/1/query'].iloc[0].id
+            resif_id = data[data[DataCenter.station_url.key] == 'http://ws.resif.fr/fdsnws/station/1/query'].iloc[0].id
+            
+            j= mock_urljoin.call_args_list
+            assert len(j) == 1
+            call_ = j[0]
+            args = call_[0]
+            kwargs = call_[1]
+            assert len(args) == 1
+            assert args[0] == 'http://rz-vm258.gfz-potsdam.de/eidaws/routing/1/query'
+            assert kwargs['service'] == 'dataselect'
+            assert kwargs['format'] == 'post'
+            if channels:
+                assert kwargs['channel'] == ','.join(channels)
+            else:
+                assert 'channel' not in kwargs
+            if starttime:
+                assert kwargs['start'] == starttime.isoformat()
+            else:
+                assert 'start' not in kwargs
+            if endtime:
+                assert kwargs['end'] == endtime.isoformat()
+            else:
+                assert 'end' not in kwargs
+            
     
     # @patch('stream2segment.download.main.urljoin', return_value='a')
     def test_get_dcs_routingerror(self):  # , mock_urljoin):
@@ -704,7 +728,7 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
     #                max_thread_workers, timeout, blocksize, db_bufsize,
     #                show_progress=False):
      
-    def tst_get_channels_df(self):
+    def test_get_channels_df(self):
         urlread_sideeffect = """1|2|3|4|5|6|7|8|9|10|11|12|13
 20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 01:45:30.300000|44.96|15.35|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|3.6|EMSC|CROATIA
@@ -1304,7 +1328,9 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                  retry_url_errors=True,
                                  retry_mseed_errors=True,
                                  retry_4xx=True,
-                                 retry_5xx=True)
+                                 retry_5xx=True,
+                                 retry_timespan_errors=True, 
+                                 retry_timespan_warnings=True)
         assert request_timebounds_need_update is False
 
 # segments_df: (not really the real dataframe, some columns are removed but relevant data is ok):
@@ -1344,9 +1370,9 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert all(x[0] is None for x in self.session.query(Segment.data).all())
 
         # mock an already downloaded segment.
-        # Set the first five to have a particular download status code
-        urlerr, mseederr, timeboundserr = get_url_mseed_errorcodes()
-        downloadstatuscodes = [None, urlerr, mseederr, 413, 505]
+        # Set the first 7 to have a particular download status code
+        urlerr, mseederr, outtime_err, outtime_warn = custom_download_codes()
+        downloadstatuscodes = [None, urlerr, mseederr, 413, 505, outtime_err, outtime_warn]
         for i, download_status_code in enumerate(downloadstatuscodes):
             dic = segments_df.iloc[i].to_dict()
             dic['download_status_code'] = download_status_code
@@ -1377,14 +1403,17 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # instance (not on the db). Assure all work:
         # set the num of instances to download anyway. Their number is the not saved ones, i.e.:
         to_download_anyway = len(segments_df) - len(downloadstatuscodes)
-        for c in product([True, False], [True, False], [True, False], [True, False], [True, False]):
+        for c in product([True, False], [True, False], [True, False], [True, False], [True, False],
+                         [True, False], [True, False]):
             s_df, request_timebounds_need_update = \
                 prepare_for_download(self.session, orig_seg_df, wtimespan,
                                      retry_no_code=c[0],
                                      retry_url_errors=c[1],
                                      retry_mseed_errors=c[2],
                                      retry_4xx=c[3],
-                                     retry_5xx=c[4])
+                                     retry_5xx=c[4],
+                                     retry_timespan_errors=c[5],
+                                     retry_timespan_warnings=c[6])
             to_download_in_this_case = sum(c)  # count the True's (bool sum works in python) 
             assert len(s_df) == to_download_anyway +  to_download_in_this_case
             assert request_timebounds_need_update is False
@@ -1392,14 +1421,17 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # now change the window time span and see that everything is to be downloaded again:
         # do it for any retry combinations, as it should ALWAYS return "everything has to be re-downloaded"
         wtimespan[1] += 5
-        for c in product([True, False], [True, False], [True, False], [True, False], [True, False]):
+        for c in product([True, False], [True, False], [True, False], [True, False], [True, False],
+                         [True, False], [True, False]):
             s_df, request_timebounds_need_update = \
                 prepare_for_download(self.session, orig_seg_df, wtimespan,
                                      retry_no_code=c[0],
                                      retry_url_errors=c[1],
                                      retry_mseed_errors=c[2],
                                      retry_4xx=c[3],
-                                     retry_5xx=c[4])
+                                     retry_5xx=c[4],
+                                     retry_timespan_errors=c[5],
+                                     retry_timespan_warnings=c[6])
             assert len(s_df) == len(orig_seg_df)
             assert request_timebounds_need_update is True  # because we changed wtimespan
         # this hol
@@ -1495,7 +1527,9 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                  retry_url_errors=True,
                                  retry_mseed_errors=True,
                                  retry_4xx=True,
-                                 retry_5xx=True)
+                                 retry_5xx=True,
+                                 retry_timespan_errors=True, 
+                                 retry_timespan_warnings=True)
         
         assert request_timebounds_need_update is False
 
@@ -1513,9 +1547,11 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     @patch("stream2segment.download.main.mseedunpack")
     @patch("stream2segment.download.main.insertdf_napkeys")
     @patch("stream2segment.download.main.updatedf")
-    def tst_download_save_segments(self, mock_updatedf, mock_insertdf_napkeys, mseed_unpack):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
+    def test_download_save_segments(self, mock_updatedf, mock_insertdf_napkeys, mseed_unpack):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
         # prepare:
-        mseed_unpack.side_effect = lambda *a, **v: mseedlite3.unpack(*a, **v)
+        # mseed unpack takes no starttime and endtime arguments, so that 
+        # we do not discard any correct chunk
+        mseed_unpack.side_effect = lambda *a, **v: mseedlite3.unpack(a[0])
         mock_insertdf_napkeys.side_effect = lambda *a, **v: insertdf_napkeys(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
         
@@ -1605,7 +1641,9 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                  retry_url_errors=True,
                                  retry_mseed_errors=True,
                                  retry_4xx=True,
-                                 retry_5xx=True)
+                                 retry_5xx=True,
+                                 retry_timespan_errors=True, 
+                                 retry_timespan_warnings=True)
         
 # segments_df
 # COLUMNS:
@@ -1658,7 +1696,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         cols = [Segment.id, Segment.channel_id, Segment.datacenter_id,
                 Segment.download_status_code, Segment.max_gap_overlap_ratio, \
                 Segment.sample_rate, Segment.data_identifier, Segment.data, Segment.download_id,
-                Segment.request_start, Segment.request_end,
+                Segment.request_start, Segment.request_end, Segment.start_time, Segment.end_time
                 ]
         db_segments_df = dbquery2df(self.session.query(*cols))
         assert Segment.download_id.key in db_segments_df.columns
@@ -1667,6 +1705,10 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # change data column otherwise we cannot display db_segments_df. When there is data just print "data"
         db_segments_df.loc[(~pd.isnull(db_segments_df[Segment.data.key])) &
                            (db_segments_df[Segment.data.key].str.len() > 0), Segment.data.key] = b'data' 
+
+        # assert we have 4 segments with "data" properly set:
+        assert len(db_segments_df.loc[(~pd.isnull(db_segments_df[Segment.data.key])) &
+                           (db_segments_df[Segment.data.key].str.len() > 0), Segment.data.key]) == 4
 
         # re-sort db_segments_df to match the segments_df:
         ret = []
@@ -1694,6 +1736,10 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert len(ztatz) == len(datacenters_df)
         assert len(db_segments_df) == len(segments_df)
         assert mock_updatedf.call_count == 0
+        
+        dsc = db_segments_df[Segment.download_status_code.key]
+        exp_dsc = np.array( [200,200,200, 200, np.nan, 200, -2,-2,-2, -1, 500, 413])
+        assert ((dsc == exp_dsc) | (np.isnan(dsc) & np.isnan(exp_dsc))).all()
         # as we have 12 segments and a buf size of self.db_buf_size(=1, but it might change in the
         # future), this below is two
         # it might change if we changed the buf size in the future
@@ -1722,7 +1768,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert pd.isnull(db_segments_df.iloc[6:][COL]).all()
         
         # assert downdload status code is consistent
-        URLERR_CODE, MSEEDERR_CODE = get_url_mseed_errorcodes()
+        URLERR_CODE, MSEEDERR_CODE, OUTTIME_ERR, OUTTIME_WARN = custom_download_codes()
+
         # also this asserts that we grouped for dc starttime endtime
         COL = Segment.download_status_code.key
         assert (db_segments_df.iloc[:4][COL] == 200).all()
@@ -1734,11 +1781,10 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert (db_segments_df.iloc[11][COL] == 413).all()
         
         # assert gaps are only in the given position
-        URLERR_CODE, MSEEDERR_CODE = get_url_mseed_errorcodes()
         COL = Segment.max_gap_overlap_ratio.key
         assert (db_segments_df.iloc[:3][COL] < 0.01).all()
         assert pd.isnull(db_segments_df.iloc[3:5][COL]).all()
-        assert (db_segments_df.iloc[5][COL] < -10).all()
+        assert (db_segments_df.iloc[5][COL] == 20).all()
         assert pd.isnull(db_segments_df.iloc[6:][COL]).all()
         
         
@@ -1749,7 +1795,9 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                  retry_url_errors=True,
                                  retry_mseed_errors=True,
                                  retry_4xx=True,
-                                 retry_5xx=True)
+                                 retry_5xx=True,
+                                 retry_timespan_errors=True, 
+                                 retry_timespan_warnings=True)
         
         assert request_timebounds_need_update is False
 
@@ -1800,3 +1848,260 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         
         
         assert mock_insertdf_napkeys.call_count == 0
+        
+        
+    @patch("stream2segment.download.main.mseedunpack")
+    @patch("stream2segment.download.main.insertdf_napkeys")
+    @patch("stream2segment.download.main.updatedf")
+    def test_download_save_segments_timebounds(self, mock_updatedf, mock_insertdf_napkeys, mseed_unpack):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
+        # prepare:
+        # mseed unpack takes no starttime and endtime arguments, so that 
+        mseed_unpack.side_effect = lambda *a, **v: mseedlite3.unpack(*a, **v)
+        mock_insertdf_napkeys.side_effect = lambda *a, **v: insertdf_napkeys(*a, **v)
+        mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
+        
+        # mock event response: it's the same as self._evt_urlread_sideeffect but modify the dates
+        # as NOW. This means, any segment downloaded later will
+        # be out-of-bound
+        utcnow = datetime.utcnow()
+        utcnow_iso = utcnow.isoformat().replace("T", " ")
+        urlread_sideeffect = """#EventID | Time | Latitude | Longitude | Depth/km | Author | Catalog | Contributor | ContributorID | MagType | Magnitude | MagAuthor | EventLocationName
+20160508_0000129|%s|1|1|60.0|AZER|EMSC-RTS|AZER|505483|ml|3|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
+20160508_0000004|%s|90|90|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|4|EMSC|CROATIA
+""" % (utcnow_iso, utcnow_iso)
+        events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", db_bufsize=self.db_buf_size)
+        # restore urlread_side_effect:
+        urlread_sideeffect = None
+        channels = None
+        datacenters_df, eidavalidator = \
+            self.get_datacenters_df(urlread_sideeffect, self.session, self.service,
+                                    self.routing_service, channels, db_bufsize=self.db_buf_size)                                      
+        channels_df = self.get_channels_df(urlread_sideeffect, self.session,
+                                                       datacenters_df,
+                                                       eidavalidator,
+                                                       channels, None, None,
+                                                       10, None, None, -1, self.db_buf_size
+                                               )
+        assert len(channels_df) == 12  # just to be sure. If failing, we might have changed the class default
+    # events_df
+#                  id  magnitude  latitude  longitude  depth_km  time  
+# 0  20160508_0000129        3.0       1.0        1.0      60.0  2016-05-08 05:17:11.500
+# 1  20160508_0000004        4.0       2.0        2.0       2.0  2016-05-08 01:45:30.300 
+
+# channels_df (index not shown):
+# columns:
+# id  station_id  latitude  longitude  datacenter_id start_time end_time network station location channel
+# data (not aligned with columns):
+# 1   1  1.0   1.0   1 2003-01-01 NaT  GE  FLT1    HHE
+# 2   1  1.0   1.0   1 2003-01-01 NaT  GE  FLT1    HHN
+# 3   1  1.0   1.0   1 2003-01-01 NaT  GE  FLT1    HHZ
+# 4   2  90.0  90.0  1 2009-01-01 NaT  n1  s       c1 
+# 5   2  90.0  90.0  1 2009-01-01 NaT  n1  s       c2 
+# 6   2  90.0  90.0  1 2009-01-01 NaT  n1  s       c3 
+# 7   3  1.0   1.0   2 2003-01-01 NaT  IA  BAKI    BHE
+# 8   3  1.0   1.0   2 2003-01-01 NaT  IA  BAKI    BHN
+# 9   3  1.0   1.0   2 2003-01-01 NaT  IA  BAKI    BHZ
+# 10  4  90.0  90.0  2 2009-01-01 NaT  n2  s       c1 
+# 11  4  90.0  90.0  2 2009-01-01 NaT  n2  s       c2 
+# 12  4  90.0  90.0  2 2009-01-01 NaT  n2  s       c3
+
+        assert all(_ in channels_df.columns for _ in [Station.network.key, Station.station.key,
+                                                      Channel.location.key, Channel.channel.key])
+        chaid2mseedid = chaid2mseedid_dict(channels_df)
+        # check that we removed the columns:
+        assert not any(_ in channels_df.columns for _ in [Station.network.key, Station.station.key,
+                                                      Channel.location.key, Channel.channel.key])
+        
+        # take all segments:
+        # use minmag and maxmag
+        ttable = self.ttable()
+        segments_df = merge_events_stations(events_df, channels_df, minmag=10, maxmag=10,
+                                   minmag_radius=10, maxmag_radius=10, tttable=ttable)
+        
+        assert len(pd.unique(segments_df['arrival_time'])) == 2
+        
+        h = 9
+    
+    
+        
+# segments_df (index not shown). Note that 
+# cid sid did n   s    l  c    ed   event_id          depth_km                time  <- LAST TWO ARE Event related columns that will be removed after arrival_time calculations
+# 1   1   1   GE  FLT1    HHE  0.0  20160508_0000129  60.0 2016-05-08 05:17:11.500
+# 2   1   1   GE  FLT1    HHN  0.0  20160508_0000129  60.0 2016-05-08 05:17:11.500
+# 3   1   1   GE  FLT1    HHZ  0.0  20160508_0000129  60.0 2016-05-08 05:17:11.500
+# 7   3   2   IA  BAKI    BHE  0.0  20160508_0000129  60.0 2016-05-08 05:17:11.500
+# 8   3   2   IA  BAKI    BHN  0.0  20160508_0000129  60.0 2016-05-08 05:17:11.500
+# 9   3   2   IA  BAKI    BHZ  0.0  20160508_0000129  60.0 2016-05-08 05:17:11.500
+# 4   2   1   n1  s       c1   0.0  20160508_0000004  2.0  2016-05-08 01:45:30.300
+# 5   2   1   n1  s       c2   0.0  20160508_0000004  2.0  2016-05-08 01:45:30.300
+# 6   2   1   n1  s       c3   0.0  20160508_0000004  2.0  2016-05-08 01:45:30.300
+# 10  4   2   n2  s       c1   0.0  20160508_0000004  2.0  2016-05-08 01:45:30.300
+# 11  4   2   n2  s       c2   0.0  20160508_0000004  2.0  2016-05-08 01:45:30.300
+# 12  4   2   n2  s       c3   0.0  20160508_0000004  2.0  2016-05-08 01:45:30.300
+
+# LEGEND:
+# cid = channel_id
+# sid = station_id
+# scid = datacenter_id
+# n, s, l, c = network, station, location, channel
+# ed = event_distance_deg
+
+
+        wtimespan = [1,2]  # in minutes
+        expected = len(segments_df)  # no segment on db, we should have all segments to download
+        orig_segments_df = segments_df.copy()
+        segments_df, request_timebounds_need_update = \
+            prepare_for_download(self.session, orig_segments_df, wtimespan,
+                                 retry_no_code=True,
+                                 retry_url_errors=True,
+                                 retry_mseed_errors=True,
+                                 retry_4xx=True,
+                                 retry_5xx=True,
+                                 retry_timespan_errors=True, 
+                                 retry_timespan_warnings=True)
+        
+# segments_df
+# COLUMNS:
+# channel_id  datacenter_id network station location channel event_distance_deg event_id arrival_time start_time end_time id download_status_code run_id
+# DATA (not aligned with columns):
+#               channel_id  datacenter_id network station location channel  event_distance_deg  event_id            arrival_time          start_time            end_time    id download_status_code  run_id
+# GE.FLT1..HHE  1           1              GE      FLT1             HHE     0.0                 1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12  None  None                 1     
+# GE.FLT1..HHN  2           1              GE      FLT1             HHN     0.0                 1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12  None  None                 1     
+# GE.FLT1..HHZ  3           1              GE      FLT1             HHZ     0.0                 1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12  None  None                 1     
+# IA.BAKI..BHE  7           2              IA      BAKI             BHE     0.0                 1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12  None  None                 1     
+# IA.BAKI..BHN  8           2              IA      BAKI             BHN     0.0                 1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12  None  None                 1     
+# IA.BAKI..BHZ  9           2              IA      BAKI             BHZ     0.0                 1        2016-05-08 05:17:12.500 2016-05-08 05:16:12 2016-05-08 05:19:12  None  None                 1     
+# n1.s..c1      4           1              n1      s                c1      0.0                 2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31  None  None                 1     
+# n1.s..c2      5           1              n1      s                c2      0.0                 2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31  None  None                 1     
+# n1.s..c3      6           1              n1      s                c3      0.0                 2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31  None  None                 1     
+# n2.s..c1      10          2              n2      s                c1      0.0                 2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31  None  None                 1     
+# n2.s..c2      11          2              n2      s                c2      0.0                 2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31  None  None                 1     
+# n2.s..c3      12          2              n2      s                c3      0.0                 2        2016-05-08 01:45:31.300 2016-05-08 01:44:31 2016-05-08 01:47:31  None  None                 1     
+        
+        # self._segdata is the folder file of a "valid" 3-channel miniseed
+        # The channels are: 
+        # Thus, no match will be found and all segments will be written with a None
+        # download status code
+
+        
+        # setup urlread: first three rows: ok
+        # rows[3:6]: 413, retry them
+        # rows[6:9]: malformed_data
+        # rows[9:12] 413, retry them
+        # then retry:
+        # rows[3]: empty_data
+        # rows[4]: data_with_gaps (but seed_id should notmatch)
+        # rows[5]: data_with_gaps (seed_id should notmatch)
+        # rows[9]: URLError
+        # rows[10]: Http 500 error
+        # rows[11]: 413
+        
+        # NOTE THAT THIS RELIES ON THE FACT THAT THREADS ARE EXECUTED IN THE ORDER OF THE DATAFRAME
+        # WHICH SEEMS TO BE THE CASE AS THERE IS ONE SINGLE PROCESS
+        # self._seg_data[:2] is a way to mock data corrupted
+        urlread_sideeffect = [self._seg_data, 413, self._seg_data[:2], 413,
+                              '', self._seg_data_gaps, self._seg_data_gaps, URLError("++urlerror++"), 500, 413]
+        
+        # Let's go:
+        ztatz = self.download_save_segments(urlread_sideeffect, self.session, segments_df,
+                                            datacenters_df, 
+                                            chaid2mseedid,
+                                            self.run.id, request_timebounds_need_update,
+                                            1,2,3, db_bufsize=self.db_buf_size)
+        # get columns from db which we are interested on to check
+        cols = [Segment.id, Segment.channel_id, Segment.datacenter_id,
+                Segment.download_status_code, Segment.max_gap_overlap_ratio, \
+                Segment.sample_rate, Segment.data_identifier, Segment.data, Segment.download_id,
+                Segment.request_start, Segment.request_end, Segment.start_time, Segment.end_time
+                ]
+        db_segments_df = dbquery2df(self.session.query(*cols))
+        assert Segment.download_id.key in db_segments_df.columns
+        
+        URLERR_CODE, MSEEDERR_CODE, OUTTIME_ERR, OUTTIME_WARN = custom_download_codes()
+        # assert no segment has data (time out of bounds):
+        assert len(db_segments_df.loc[(~pd.isnull(db_segments_df[Segment.data.key])) &
+                           (db_segments_df[Segment.data.key].str.len() > 0), Segment.data.key]) == 0
+        # assert the number of "correctly" downloaded segments, i.e. with data (4) has now
+        # code = TIMEBOUND_ERR
+        assert len(db_segments_df[db_segments_df[Segment.download_status_code.key] == OUTTIME_ERR]) == 4
+        
+        # re-sort db_segments_df to match the segments_df:
+        ret = []
+        for cha in segments_df[Segment.channel_id.key]:
+            ret.append(db_segments_df[db_segments_df[Segment.channel_id.key] == cha])
+        db_segments_df = pd.concat(ret, axis=0)
+
+# db_segments_df:
+#    id  channel_id  datacenter_id  download_status_code  max_gap_ovlap_ratio  sample_rate data_identifier  data  run_id          start_time            end_time
+# 0  1   1           1              -3                    0.0001               100.0        GE.FLT1..HHE    b''   1      2016-05-08 05:16:12 2016-05-08 05:19:12
+# 1  2   2           1              -3                    0.0001               100.0        GE.FLT1..HHN    b''   1      2016-05-08 05:16:12 2016-05-08 05:19:12
+# 2  3   3           1              -3                    0.0001               100.0        GE.FLT1..HHZ    b''   1      2016-05-08 05:16:12 2016-05-08 05:19:12
+# 6  7   7           2              200.0                 NaN                  NaN          None                  1      2016-05-08 05:16:12 2016-05-08 05:19:12
+# 7  8   8           2              NaN                   NaN                  NaN          None            None  1      2016-05-08 05:16:12 2016-05-08 05:19:12
+# 8  9   9           2              -3                 20.0                 20.0         IA.BAKI..BHZ    b''   1      2016-05-08 05:16:12 2016-05-08 05:19:12
+# 3  4   4           1             -2.0                   NaN                  NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
+# 4  5   5           1             -2.0                   NaN                  NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
+# 5  6   6           1             -2.0                   NaN                  NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
+# 9  10  10          2              -1.0                  NaN                  NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
+# 10 11  11          2              500.0                 NaN                  NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
+# 11 12  12          2              413.0                 NaN                  NaN          None            None  1      2016-05-08 01:44:31 2016-05-08 01:47:31
+
+
+ 
+        # now modify the first row time bounds:
+        # first we need to assign the database id to our segments_df, to prevent
+        # db contraint error when writing to db:
+        # `download_save_segments` below needs toi UPDATE the segments and it does it by checking if an 
+        # id is present
+        # check that the channel_ids align:
+        assert (segments_df[Segment.channel_id.key].values == db_segments_df[Segment.channel_id.key].values).all()
+        # so that we can simply do this:
+        segments_df[Segment.id.key] = db_segments_df[Segment.id.key]
+        
+        # first read the miniseed:
+        stream = read(BytesIO(self._seg_data))
+        tstart = stream[0].stats.starttime.datetime
+        tend = stream[0].stats.endtime.datetime
+        segments_df.loc[segments_df[Segment.channel_id.key]==1, Segment.request_start.key] = tstart
+        segments_df.loc[segments_df[Segment.channel_id.key]==1, Segment.request_end.key] = tstart + (tend-tstart)/2
+        
+        segments_df.loc[segments_df[Segment.channel_id.key]==2, Segment.request_start.key] = tstart
+        segments_df.loc[segments_df[Segment.channel_id.key]==2, Segment.request_end.key] = tend
+        
+        # build a segments_df of the three segments belonging to the same channel:
+        new_segments_df = segments_df.loc[segments_df[Segment.channel_id.key].isin([1,2,3]), :]
+        # change urlread_side_effect to provide, for the first three segments, the same
+        # sequence of bytes. The sequence actually is OK, but in the first case it will be PARTIALLY saved
+        # in the second case TOTALLY, and in the thrid case NOT AT ALL:
+        urlread_sideeffect = [self._seg_data, self._seg_data, self._seg_data]
+        ztatz = self.download_save_segments(urlread_sideeffect, self.session, new_segments_df,
+                                            datacenters_df, 
+                                            chaid2mseedid,
+                                            self.run.id, request_timebounds_need_update,
+                                            1,2,3, db_bufsize=self.db_buf_size)
+        db_segments_df = dbquery2df(self.session.query(*cols))
+        # re-sort db_segments_df to match the segments_df:
+        ret = [db_segments_df[db_segments_df[Segment.channel_id.key] == cha]
+               for cha in segments_df[Segment.channel_id.key]]
+        db_segments_df = pd.concat(ret, axis=0)
+        
+        # assert the 1st segment whose time range has been modified has data, BUT download_status_code still TIMEBOUNDS_ERROR
+        df__ = db_segments_df.loc[db_segments_df[Segment.channel_id.key]==1, :]
+        assert len(df__) == 1
+        row__ = df__.iloc[0]
+        assert row__[Segment.download_status_code.key] == OUTTIME_WARN
+        assert len(row__[Segment.data.key]) > 0
+        
+        # assert the 2nd segment whose time range has been modified has data, AND download_status_code 200 (ok)
+        df__ = db_segments_df.loc[db_segments_df[Segment.channel_id.key]==2, :]
+        assert len(df__) == 1
+        row__ = df__.iloc[0]
+        assert row__[Segment.download_status_code.key] == 200
+        assert len(row__[Segment.data.key]) > 0
+        
+         # assert the 3rd segment whose time range has NOT been modified has no data, AND download_status_code is still TIMEBOUNDS_ERROR
+        df__ = db_segments_df.loc[db_segments_df[Segment.channel_id.key]==3, :]
+        assert len(df__) == 1
+        row__ = df__.iloc[0]
+        assert row__[Segment.download_status_code.key] == OUTTIME_ERR
+        assert len(row__[Segment.data.key]) == 0

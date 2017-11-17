@@ -60,7 +60,7 @@ from logging import StreamHandler
 import logging
 from io import BytesIO
 import urllib.request, urllib.error, urllib.parse
-from stream2segment.download.utils import get_url_mseed_errorcodes
+from stream2segment.download.utils import custom_download_codes
 from stream2segment.utils.mseedlite3 import MSeedError, unpack
 import threading
 from stream2segment.utils.url import read_async
@@ -513,6 +513,80 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         # has not affected further writing operations. To do this quickly, assert that
         # all run.log have something written in (not null, not empty)
         assert self.session.query(withdata(Download.log)).count() == self.session.query(Download).count()
+
+
+    @patch('stream2segment.download.main.get_events_df')
+    @patch('stream2segment.download.main.get_datacenters_df')
+    @patch('stream2segment.download.main.get_channels_df')
+    @patch('stream2segment.download.main.save_inventories')
+    @patch('stream2segment.download.main.download_save_segments')
+    @patch('stream2segment.download.main.mseedunpack')
+    @patch('stream2segment.download.main.insertdf_napkeys')
+    @patch('stream2segment.download.main.updatedf')
+    def test_cmdline_outofbounds(self, mock_updatedf, mock_insertdf_napkeys, mock_mseed_unpack,
+                     mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
+                    mock_get_datacenters_df, mock_get_events_df):
+        
+        mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
+        mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
+        mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
+        mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
+        mock_download_save_segments.side_effect = lambda *a, **v: self.download_save_segments(None, *a, **v)
+        mock_mseed_unpack.side_effect = lambda *a, **v: unpack(*a, **v)
+        mock_insertdf_napkeys.side_effect = lambda *a, **v: insertdf_napkeys(*a, **v)
+        mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
+        # prevlen = len(self.session.query(Segment).all())
+     
+        # The run table is populated with a run_id in the constructor of this class
+        # for checking run_ids, store here the number of runs we have in the table:
+        runs = len(self.session.query(Download.id).all())
+
+
+
+        runner = CliRunner()
+        result = runner.invoke(main , ['d',
+                                       '-c', self.configfile,
+                                        '--dburl', self.dburi,
+                                       '--start', '2016-05-08T00:00:00',
+                                       '--end', '2016-05-08T9:00:00'])
+        if result.exception:
+            print("EXCEPTION")
+            print("=========")
+            print("")
+            import traceback
+            traceback.print_exception(*result.exc_info)
+            print(result.output)
+            print("")
+            print("=========")
+            assert False
+            return
+        
+        assert len(self.session.query(Download.id).all()) == runs + 1
+        runs += 1
+        segments = self.session.query(Segment).all()
+        assert len(segments) == 12
+        segments = self.session.query(Segment).filter(Segment.has_data).all()
+        assert len(segments) == 0  # all out of bounds
+        
+        assert len(self.session.query(Station).filter(Station.has_inventory).all()) == 0
+        
+        assert not mock_updatedf.called
+        assert mock_insertdf_napkeys.called
+        
+        dfres1 = dbquery2df(self.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
+                                               Segment.event_id,
+                                         Segment.download_status_code, Segment.data,
+                                         Segment.max_gap_overlap_ratio, Segment.download_id,
+                                         Segment.sample_rate, Segment.data_identifier))
+        dfres1.sort_values(by=Segment.id.key, inplace=True)  # for easier visual compare
+        dfres1.reset_index(drop=True, inplace=True)  # we need to normalize indices for comparison later
+        # just change the value of the bytes so that we can better 
+        # visually inspect dataframe under clipse, in case:
+        dfres1.loc[(~pd.isnull(dfres1[Segment.data.key])) & (dfres1[Segment.data.key].str.len()>0),
+                  Segment.data.key] = b'data'
+        # assert the segments we should have data for are actually out-of-time-bounds
+        _, _, TBOUND_ERRCODE, _ = custom_download_codes()
+        assert len(dfres1[dfres1[Segment.download_status_code.key] == TBOUND_ERRCODE]) == 4
         
              
     @patch('stream2segment.download.main.get_events_df')
@@ -532,7 +606,8 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
         mock_download_save_segments.side_effect = lambda *a, **v: self.download_save_segments(None, *a, **v)
-        mock_mseed_unpack.side_effect = lambda *a, **v: unpack(*a, **v)
+        # mseed unpack is mocked by accepting only first arg (so that time bounds are not considered)
+        mock_mseed_unpack.side_effect = lambda *a, **v: unpack(a[0])
         mock_insertdf_napkeys.side_effect = lambda *a, **v: insertdf_napkeys(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
         # prevlen = len(self.session.query(Segment).all())
@@ -619,7 +694,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         assert mock_updatedf.called
         assert not mock_insertdf_napkeys.called
         
-        URLERROR, MSEEDERROR, TIMEBOUNDS_ERROR = get_url_mseed_errorcodes()
+        URLERROR, MSEEDERROR, OUTTIME_ERR, OUTTIME_WARN = custom_download_codes()
         
         assert len(dfres2) == len(dfres1)
         assert len(self.session.query(Download.id).all()) == runs + 1

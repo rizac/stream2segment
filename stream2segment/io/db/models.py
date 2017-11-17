@@ -400,7 +400,7 @@ class Segment(Base):
     def seed_identifier(cls):  # @NoSelf
         '''returns data_identifier if the latter is not None, else net.sta.loc.cha by querying the
         relative channel and station'''
-        # wow that was tough. To know what we are doing in 'sel' below, please look:
+        # Needed note: To know what we are doing in 'sel' below, please look:
         # http://docs.sqlalchemy.org/en/latest/orm/extensions/hybrid.html#correlated-subquery-relationship-hybrid
         # Notes
         # - we use limit(1) cause we might get more than one
