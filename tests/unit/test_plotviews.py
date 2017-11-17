@@ -204,13 +204,9 @@ class Test(unittest.TestCase):
                 arrival_time = (obspy_trace.stats.starttime + (obspy_trace.stats.endtime - obspy_trace.stats.starttime)/2).datetime
                 end_time = obspy_trace.stats.endtime.datetime
             
-            if not isinstance(start_time, datetime) or not isinstance(arrival_time, datetime) \
-                or not isinstance(end_time, datetime):
-                asd = 9
-            
-            seg = Segment(start_time = start_time,
+            seg = Segment(request_start = start_time,
                           arrival_time = arrival_time,
-                          end_time = end_time,
+                          request_end = end_time,
                           data = mseed,
                           data_identifier = seedid,
                           event_distance_deg = val,

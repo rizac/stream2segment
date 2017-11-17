@@ -151,12 +151,14 @@ def main():
 @click.option('-r3', '--retry_no_code', is_flag=True, default=None)
 @click.option('-r4', '--retry_4xx', is_flag=True, default=None)
 @click.option('-r5', '--retry_5xx', is_flag=True, default=None)
+@click.option('-r6', '--retry_timespan_errors', is_flag=True, default=None)
+@click.option('-r7', '--retry_timespan_warnings', is_flag=True, default=None)
 @click.option('-i', '--inventory', is_flag=True, default=None)
 @click.argument('eventws_query_args', nargs=-1, type=click.UNPROCESSED,
                 callback=clickutils.proc_eventws_args)
 def d(configfile, dburl, eventws, start, end, dataws, min_sample_rate, traveltimes_model,
       wtimespan, retry_no_code, retry_url_errors, retry_mseed_errors, retry_4xx, retry_5xx,
-      inventory, eventws_query_args):
+      retry_timespan_errors, retry_timespan_warnings, inventory, eventws_query_args):
     """Efficiently download waveform data segments and relative events, stations and channels
     metadata into a specified database for further processing or visual inspection in a
     browser. The -c option (required) sets the defaults for all other options below, which are

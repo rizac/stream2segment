@@ -7,10 +7,11 @@ from __future__ import print_function, division
 
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import object
+from builtins import object, dict
 
 import datetime
 import struct
+from math import log
 from io import BytesIO
 
 # from future import standard_library
@@ -66,29 +67,42 @@ class EndOfData(Exception):
 
 
 class MSeedError(Exception):
-    """."""
-
-    pass
+    """Custom mseed exception"""
+    def __init__(self, message, record_id=None):
+        # Call the base class constructor with the parameters it needs
+        super(MSeedError, self).__init__(message)
+        # Now for your custom code...
+        self._record_id = record_id
 
 
 class MSeedNoData(MSeedError):
-    """."""
-
+    """Mseed exception indicating no miniseed data. Left from seiscomp implementation,
+       not used here"""
     pass
+
+
+# class MSeedHeaderError(MSeedError):
+#     """."""
+#     def __init__(self):
+#         super(MSeedHeaderError, self).__init__("unexpected end of header")
 
 
 class Record(object):
     """Mini-SEED record."""
 
-    def __init__(self, src):
-        """Create a Mini-SEED record from a file handle or a bitstream."""
-        if (type(src) == bytes):
-            fd = BytesIO(src)
-        elif hasattr(src, "read"):
-            fd = src
-        else:
-            raise TypeError("argument is neither bytes nor a file object")
+    @staticmethod
+    def fromfile(filepath):
+        with open(filepath, 'rb') as _opn:
+            return Record(_opn)
 
+    @staticmethod
+    def frombytes(bytesdata):
+        return Record(BytesIO(bytesdata))
+
+    def __init__(self, fd):
+        """Create a Mini-SEED record from a file handle or a bitstream.
+        :param fd: any object (File descriptor, BytesIO) with a 'read' attribute
+        """
         # self.header = ""
         self.header = bytes()
         fixhead = fd.read(_FIXHEAD_LEN)
@@ -106,18 +120,20 @@ class Record(object):
             self.time_correction, self.__pdata, self.__pblk) = \
             struct.unpack(">6scx5s2s3s2s2H3Bx2H2h4Bl2H", fixhead)
 
+        self._record_id = _get_id(net, sta, loc, cha)
+
         self.header += fixhead
 
         if ((self.rectype != b'D') and (self.rectype != b'R') and
                 (self.rectype != b'Q') and (self.rectype != b'M')):
             fd.read(_MAX_RECLEN - _FIXHEAD_LEN)
-            raise MSeedNoData("non-data record")
+            raise MSeedNoData("non-data record", self._record_id)
 
         if ((self.__pdata < _FIXHEAD_LEN) or (self.__pdata >= _MAX_RECLEN) or
                 ((self.__pblk != 0) and ((self.__pblk < _FIXHEAD_LEN) or
                  (self.__pblk >= self.__pdata)))):
             fd.read(_MAX_RECLEN - _FIXHEAD_LEN)
-            raise MSeedError("invalid pointers")
+            raise MSeedError("invalid pointers", self._record_id)
 
         if (self.__pblk == 0):
             blklen = 0
@@ -126,7 +142,7 @@ class Record(object):
             gaplen = self.__pblk - _FIXHEAD_LEN
             gap = fd.read(gaplen)
             if (len(gap) < gaplen):
-                raise MSeedError("unexpected end of data")
+                raise MSeedError("unexpected end of data", self._record_id)
 
             self.header += gap
 
@@ -146,7 +162,7 @@ class Record(object):
             blkhead = fd.read(_BLKHEAD_LEN)
             if len(blkhead) < _BLKHEAD_LEN:
                 raise MSeedError("unexpected end of blockettes at %s" %
-                                 pos + len(blkhead))
+                                 pos + len(blkhead), self._record_id)
 
             (blktype, nextblk) = struct.unpack(">2H", blkhead)
             self.header += blkhead
@@ -156,7 +172,7 @@ class Record(object):
                 blk1000 = fd.read(_BLK1000_LEN)
                 if len(blk1000) < _BLK1000_LEN:
                     raise MSeedError("unexpected end of blockettes at %s" %
-                                     pos + len(blk1000))
+                                     pos + len(blk1000), self._record_id)
 
                 (self.encoding, self.byteorder, rec_len_exp) = \
                     struct.unpack(">3Bx", blk1000)
@@ -169,7 +185,7 @@ class Record(object):
                 blk1001 = fd.read(_BLK1001_LEN)
                 if (len(blk1001) < _BLK1001_LEN):
                     raise MSeedError("unexpected end of blockettes at %s" %
-                                     pos + len(blk1001))
+                                     pos + len(blk1001), self._record_id)
 
                 (self.time_quality, micros, self.nframes) = \
                     struct.unpack(">BbxB", blk1001)
@@ -183,23 +199,23 @@ class Record(object):
                 break
 
             if nextblk < self.__pblk + pos or nextblk >= self.__pdata:
-                raise MSeedError("invalid pointers")
+                raise MSeedError("invalid pointers", self._record_id)
 
             gaplen = nextblk - (self.__pblk + pos)
             gap = fd.read(gaplen)
             if (len(gap) < gaplen):
-                raise MSeedError("unexpected end of data")
+                raise MSeedError("unexpected end of data", self._record_id)
 
             self.header += gap
             pos += gaplen
 
         if (pos > blklen):
-            raise MSeedError("corrupt record")
+            raise MSeedError("corrupt record", self._record_id)
 
         gaplen = self.__pdata - len(self.header)
         gap = fd.read(gaplen)
         if (len(gap) < gaplen):
-            raise MSeedError("unexpected end of data")
+            raise MSeedError("unexpected end of data", self._record_id)
 
         self.header += gap
         pos += gaplen
@@ -226,7 +242,7 @@ class Record(object):
             self.samprate_num = 0
             self.samprate_denom = 1
 
-        self.fsamp = float(self.samprate_num) / float(self.samprate_denom)
+        self.fsamp = self.samprate_num / self.samprate_denom
 
         # quick fix to avoid exception from datetime
         if (bt_second > 59):
@@ -244,27 +260,25 @@ class Record(object):
                 datetime.timedelta(microseconds=bt_tms*100+micros)
 
             if ((self.nsamp != 0) and (self.fsamp != 0)):
-                msAux = 1000000 * self.nsamp / self.fsamp
-                self.end_time = self.begin_time + \
-                    datetime.timedelta(microseconds=msAux)
+                msAux = 1000000 * (self.nsamp - 1) / self.fsamp
+                self.end_time = self.begin_time + datetime.timedelta(microseconds=msAux)
             else:
                 self.end_time = self.begin_time
 
         except ValueError as e:
-            # print("tms = " + str(bt_tms) + ", micros = " + str(micros))
-            raise MSeedError("invalid time: %s" % str(e))
+            raise MSeedError("invalid time: %s" % str(e), self._record_id)
 
         self.size = 1 << rec_len_exp
         if ((self.size < len(self.header)) or (self.size > _MAX_RECLEN)):
-            raise MSeedError("invalid record size")
+            raise MSeedError("invalid record size", self._record_id)
 
         datalen = self.size - self.__pdata
         self.data = fd.read(datalen)
         if len(self.data) < datalen:
-            raise MSeedError("unexpected end of data")
+            raise MSeedError("unexpected end of data", self._record_id)
 
         if len(self.header) + len(self.data) != self.size:
-            raise MSeedError("internal error")
+            raise MSeedError("internal error", self._record_id)
 
         (self.X0, self.Xn) = struct.unpack(">ll", self.data[4:12])
 
@@ -339,22 +353,22 @@ class Record(object):
                 i += 64
                 self.nframes += 1
 
-    def merge(self, rec):
-        """Caller is expected to check for contiguity of data.
-
-        Check if rec.nframes * 64 <= len(data)?
-        """
-        (self.Xn,) = struct.unpack(">l", rec.data[8:12])
-        self.data += rec.data[:rec.nframes * 64]
-        self.nframes += rec.nframes
-        self.nsamp += rec.nsamp
-        self.size = len(self.header) + len(self.data)
-        self.end_time = rec.end_time
+#     def merge(self, rec):
+#         """Caller is expected to check for contiguity of data.
+# 
+#         Check if rec.nframes * 64 <= len(data)?
+#         """
+#         (self.Xn,) = struct.unpack(">l", rec.data[8:12])
+#         self.data += rec.data[:rec.nframes * 64]
+#         self.nframes += rec.nframes
+#         self.nsamp += rec.nsamp
+#         self.size = len(self.header) + len(self.data)
+#         self.end_time = rec.end_time
 
     def write(self, fd, rec_len_exp):
         """Write the record to an already opened file."""
         if (self.size > (1 << rec_len_exp)):
-            raise MSeedError("record is larger than requested write size")
+            raise MSeedError("record is larger than requested write size", self._record_id)
 
         recno_str = bytes(b"%06d" % (self.recno,))
         sta = bytes(b"%-5.5s" % (self.sta,))
@@ -406,35 +420,6 @@ class Record(object):
 
 
 class Input(object):
-    """Iterate over the available Mini-SEED records."""
-
-    def __init__(self, fd):
-        """Create the iterable from the file handle passed as parameter."""
-        self.__fd = fd
-
-    def __iter__(self):
-        """Define the iterator."""
-        while True:
-            try:
-                yield Record(self.__fd)
-
-            except EndOfData:
-                raise StopIteration
-
-            except MSeedNoData:
-                pass
-
-            except MSeedError as e:
-                print(str(e))
-
-# added methods which unpacks a miniSeed into its components:
-# you can remove the lines below if you do not want this functionality in this package
-
-from math import log  # @IgnorePep8
-from collections import defaultdict  # @IgnorePep8
-
-
-class Input2(object):
     """Iterate over the available Mini-SEED records. Keeps track of record ids in case of errors
     on a single mseed"""
 
@@ -452,43 +437,26 @@ class Input2(object):
         self.__fd = fd
 
     def __iter__(self):
-        """Define the iterator. Yields the tuple (id, Record, error), one of which is None
-        (but not both). In case error!=None, record is a string identifying the
-        trace "network.station.location.channel"
+        """Define the iterator. Yields the tuple (Record, is_exc). Record is the record read
+        (if is_exc is False) or the MiniseedError raised (is_exc = True). In any case,
+        the Record object has the attribute
+        ```_record_id = "[network].[station].[location].[channel]" != None```
+        This method raises for any kind of non-MiniseedError exception, or for MiniseedError
+        occurred during header reading, i.e. for which the exception attribute "_record_id" would
+        be None.
         """
-        pos = self.__fd.tell()  # store the starting position
         while True:
             try:
                 rec = Record(self.__fd)
-                yield (_get_id(rec.net, rec.sta, rec.loc, rec.cha), rec, None)
-
+                yield rec, False
             except EndOfData:
                 raise StopIteration
-
-            # we want to treat MseedNoData (=Non-mseed data, not empty data) as normal exception:
-#             except MSeedNoData:
-#                 # update pos:
-#                 pos = self.__fd.tell()  # store the starting position
-#                 pass
-
             except MSeedError as e:
-                if str(e) != 'unexpected end of header':
-                    # store my position now
-                    mypos = self.__fd.tell()
-                    # back to the position we where before this Record read
-                    self.__fd.seek(pos)
-                    # read header and try to guess net.sta.loc.cha:
-                    (recno_str, rectype, sta, loc, cha, net, bt_year,  # @UnusedVariable
-                     bt_doy, bt_hour,  bt_minute, bt_second, bt_tms, nsamp,  # @UnusedVariable
-                     sr_factor,  sr_mult, aflgs, cflgs, qflgs, __num_blk,  # @UnusedVariable
-                     time_correction, __pdata,  # @UnusedVariable
-                     __pblk) = struct.unpack(">6scx5s2s3s2s2H3Bx2H2h4Bl2H",
-                                             self.__fd.read(_FIXHEAD_LEN))
-                    # restore back the position we are:
-                    self.__fd.seek(mypos)
-                    yield (_get_id(net, sta, loc, cha), None, e)
-                else:
+                if e._record_id is None:  # header errror, cannot guess id
                     raise
+                yield e, True
+            except Exception:
+                raise
 
 
 def _get_id(n, s, l, c):
@@ -497,77 +465,131 @@ def _get_id(n, s, l, c):
     return (b"%s.%s.%s.%s" % (n.strip(), s.strip(), l.strip(), c.strip())).decode('utf8')
 
 
-def unpack(data):
+def unpack(data, starttime=None, endtime=None):
     """
     Unpacks data into its "traces" (time series). Returns a dict where keys are the seed id as
     strings:
     "network.station.location.channel"
     mapped to a tuple
     ```
-    (data, sample_rate, max_gap_overlap_ratio, error)
+    (is_err, bytes_or_exc, s_rate, max_gap_overlap_ratio, start_time, end_time,
+        out_of_bounds_chunks_found)
     ```
-    whose elements are:
-    - the data in bytes read (can be None)
-    - the sample rate (float)
-    - the max gap ratio as a ratio of max_gap / delta_time (delta_time = 1/sample_rate)
-    - the error (MiniSeedError)
-    If the error is None, the first three fields are non-None, and vice-versa
-    This method assures that:
+    where:
+    exc is the exception raised while reading the miniseed (or None)
+    data is the bytes data of the miniseed (if exc is None) or None (if exc is not None)
+    s_rate* is the sample rate (float)
+    max_gap_overlap_ratio* is a float indicating the maximum gap (positive) or overlap (negative)
+        found between all miniseed records. If zero, no gaps/ overlaps where found
+    start_time*: (datetime) the miniseed start time (time of the first sample)
+    end_time*: (datetime) the miniseed end_time (time of the last sample)
+    out_of_bounds_chunks_found*: boolean, if either `starttime` or `endtime` are provided, reutrns
+        True if some records of `data` where out-of-bounds and thus where discarded (not returned
+        in `bytes`)
+
+    * rely on these values only if `exc=None`. Otherwise, these values are None:
+      so basically the user should check first and handle the error, and otherwise
+      handle `data` and all other elements
+
+    When no error occurs (exc=None) this method assures that:
     ```
-    Stream(obspy.read(data))
+    Stream(obspy.read(BytesIO(data)))
     ```
     and
     ```
-    Stream([obspy.read(d[0])[0] for d in unpack(data).itervalues()])
+    Stream([obspy.read(BytesIO(d[0]))[0] for d in unpack(data).values()])
     ```
     return the same object
     :param data: the bytes (or str in python2) representing waveform data as, e.g., returned from
     a query response
-    :return: a dictionarry of keys (tuples `(network, station location, channel)`) mapped to the
-    tuple representing the record read: (data, sample_rate, max_gap_overlap_ratio, error)
-    :raise MiniseedError if some error is raised, that is 'not' recoverable (e.g., bad file length
-    for some record causing all subsequent records to be mis-aligned)
+    :param starttime: the *expected* starttime (`datetime` object) or None (do not check for time
+    bounds): if not None, all records completely before this value will not be returned.
+    :param endtime: the *expected* endtime (`datetime` object) or None (do not check for time
+    bounds): if not None, all records completely after this value will not be returned
+    :return: a dictionary of keys (tuples `(network, station location, channel)`) mapped to the
+    tuple representing the record read
+    :raise MiniseedError if some error is raised, that is 'not' recoverable (e.g., header error, or
+     bad file length for some record causing all subsequent records to be mis-aligned)
     """
-    # don't bother initializing keys if do not exist: use defaultdict:
-    # remember, the fields are: bytesio, sample_rate, max_gap_overlap_ratio, last_endtime, error
-    ret_dic = defaultdict(lambda: [[], None, 0, None, None])
-    input_ = Input2(data)
-    for id_, rec, exc in input_:
-        value = ret_dic[id_]
-        if value[-1] is not None:  # key already existed and has error
+    # we might use defaultdict, but a dict with the future package is py2-3 compliant
+    # e.g., when using dict.items()
+    ret_dic = dict()
+    for rec, is_exc in Input(data):
+        id_ = rec._record_id
+        value = ret_dic.get(id_, None)
+        if value is None:
+            # list fields are:
+            #     exc (Exception or Npne)
+            #     data (list of Records) or Exception (if is_exc is True)
+            #     sample_rate (float),
+            #     max_gap_overlap_ratio (float),
+            #     starttime (datetime),
+            #     endtime (datetime),
+            #     out_of_time_chunks_found (boolean)
+            # we populate in this first loop only the first two and the last item
+            ret_dic[id_] = value = [None, [], None, None, None, None, False]
+        elif value[0] is not None:  # is an exception, continue
             continue
-        if exc is not None:  # key does not exist, data read has error
-            value[-1] = exc
-            value[0] = []  # help gc??
+
+        if is_exc:
+            value[0] = rec
+            value[1] = None  # help gc?
             continue
 
-        if not value[0]:  # set sample frequency (only first time)
-            value[1] = float(rec.fsamp)
+        # check time bounds, and discard if chunk COMPLETELY out-of bound:
+        if (starttime is not None and starttime > rec.end_time) or \
+                (endtime is not None and endtime < rec.begin_time):
+            value[-1] = True
+            continue
 
-        value[0].append(rec)
+        value[1].append(rec)
 
-    unpacked_data = {}
     for id_, value in ret_dic.items():
-        if value[-1] is not None:
-            unpacked_data[id_] = (None, None, None, value[-1])
-        else:
-            # get chunks and sort ascending by time
-            chunks = value[0]
-            chunks.sort(key=lambda elm: elm.begin_time)
-            fsamp = value[1]
-            max_gap_overlap_ratio = 0
-            bytesio = BytesIO()
-            for i, record in enumerate(chunks):
-                record.write(bytesio, int(log(record.size) / log(2)))
-                if i == 0:
-                    continue
-                curr_max_gap_ratio = (chunks[i-1].end_time -
-                                      record.begin_time).total_seconds() * fsamp
-                if abs(curr_max_gap_ratio) > abs(max_gap_overlap_ratio):
-                    max_gap_overlap_ratio = curr_max_gap_ratio
+        if value[0] is not None:  # exception, do not process the list
+            continue
+        records = value[1]
+        if not records:
+            value[1] = b''
+            continue
+        # get records and sort ascending by time
+        records.sort(key=lambda elm: elm.begin_time)
+        fsamp = None
+        max_gap_overlap_ratio = 0
+        bytesio = BytesIO()
+        for i, record in enumerate(records):
+            record.write(bytesio, int(log(record.size) / log(2)))
+            if i == 0:
+                fsamp = record.fsamp  # assign only first time
+                continue
+            elif record.fsamp != fsamp:
+                value[0], value[1] = MSeedError("records sample rate mismatch") ,None
+                break
+            # curr_max_gap_ratio = distance between end_time of this chunk and begin_time of
+            # next chunk.
+            # curr_max_gap_ratio is in number of samples, thus curr_max_gap_ratio *= fsamp.
+            # If curr_max_gap_ratio == 1, then no gaps. If > 1, possible gaps,
+            # if < 1 possible overlaps. Subtract 1 as we want 0 for no gaps/overlaps,
+            # >0 for possible gaps, and <0 for possible overlaps:
+            curr_max_gap_ratio = \
+                (record.begin_time - records[i-1].end_time).total_seconds() * fsamp - 1
+            if abs(curr_max_gap_ratio) > abs(max_gap_overlap_ratio):
+                max_gap_overlap_ratio = curr_max_gap_ratio
 
+        if value[0] is None:  # no exception (need further check for mismatching fsamp)
             bytez = bytesio.getvalue()
             bytesio.close()
-            unpacked_data[id_] = (bytez, value[1], max_gap_overlap_ratio, None)
+            # list fields are:
+            #     exc (Exception or Npne)
+            #     data (list of Records) or Exception (if is_exc is True)
+            #     sample_rate (float),
+            #     max_gap_overlap_ratio (float),
+            #     starttime (datetime),
+            #     endtime (datetime),
+            #     out_of_time_chunks_found (boolean)
+            value[1] = bytez
+            value[2] = fsamp
+            value[3] = max_gap_overlap_ratio
+            value[4] = records[0].begin_time
+            value[5] = records[-1].end_time
 
-    return unpacked_data
+    return ret_dic

@@ -32,6 +32,14 @@ retry_4xx: false
 # Try to dowonload again already saved segments whose response returned a status code in the
 # 500-599 range (Server errors)
 retry_5xx: true
+# Try to download again already saved segments whose response was Ok but returned all chunks of data (records)
+# outside the requested time span (see 'wtimespan' for details). Segments of this type have no data
+# saved (empty)
+retry_timespan_errors: true
+# Try to download again already saved segments whose response was Ok but returned some chunks of data (records)
+# outside the requested time span (see 'wtimespan' for details). Segments of this type have at least one byte
+# of data saved (the records inside the request timespan)
+retry_timespan_warnings: false
 
 # Set if station inventories should be downloaded. 
 # If true, inventory data (xml format) will be saved for each station whithout inventory data

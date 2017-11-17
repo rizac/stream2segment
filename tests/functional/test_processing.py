@@ -136,13 +136,13 @@ class DB(object):
         # build two segments without data:
         # empty segment
         data['data'] = b''
-        data['start_time'] += timedelta(seconds=1)  # avoid unique constraint
+        data['request_start'] += timedelta(seconds=1)  # avoid unique constraint
         sg4 = models.Segment(channel_id=c_none.id, datacenter_id=d.id, event_id=e4.id, download_id=r.id,
                              event_distance_deg=45, **data)
 
         # null segment
         data['data'] = None
-        data['start_time'] += timedelta(seconds=2)  # avoid unique constraint
+        data['request_start'] += timedelta(seconds=2)  # avoid unique constraint
         sg5 = models.Segment(channel_id=c_none.id, datacenter_id=d.id, event_id=e5.id, download_id=r.id,
                              event_distance_deg=45, **data)
 
@@ -242,6 +242,8 @@ class Test(unittest.TestCase):
 
     @staticmethod
     def read_stream_raw(file_name):
+        '''returns a dict to be passed as argument for creating new Segment(s), by reading
+        an existing miniseed'''
         stream=read(Test.get_file(file_name))
 
         start_time = stream[0].stats.starttime
@@ -251,8 +253,8 @@ class Test(unittest.TestCase):
         return dict(
         data = Test.read_data_raw(file_name),
         arrival_time = (start_time + old_div((end_time - start_time),3)).datetime,
-        start_time = start_time.datetime,
-        end_time = end_time.datetime,
+        request_start = start_time.datetime,
+        request_end = end_time.datetime,
         sample_rate=stream[0].stats.sampling_rate
         )
 

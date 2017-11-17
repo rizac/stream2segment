@@ -566,11 +566,11 @@ class Test(unittest.TestCase):
         
 #         c, added = add_or_get2(self.session, c)
 #
-        seg = Segment(start_time=datetime.utcnow(),
-                             end_time=datetime.utcnow(),
-                             event_distance_deg=9,
-                             arrival_time=datetime.utcnow(),
-                             data=b'')
+        seg = Segment(request_start=datetime.utcnow(),
+                      request_end=datetime.utcnow(),
+                      event_distance_deg=9,
+                      arrival_time=datetime.utcnow(),
+                      data=b'')
 
         self.session.add(seg)
 
@@ -639,13 +639,13 @@ class Test(unittest.TestCase):
         seg__1 = COPY(seg)
         # make it unique
         seg__1.id=None
-        seg__1.end_time += timedelta(seconds=1)
+        seg__1.request_end += timedelta(seconds=1)
         seg__1.event_id = e2.id
 
         seg__2 = COPY(seg)
         # make it unique
         seg__2.id=None
-        seg__2.end_time += timedelta(seconds=2)
+        seg__2.request_end += timedelta(seconds=2)
         seg__2.event_id = e3.id
         
         self.session.add_all([seg__1, seg__2])
@@ -697,7 +697,7 @@ class Test(unittest.TestCase):
         # Add a new segment. We cannot do like this
         # (http://stackoverflow.com/questions/14636192/sqlalchemy-modification-of-detached-object):
         seg.id += 1110
-        seg.start_time += timedelta(seconds=-25)  # this is just to avoid unique constraints
+        seg.request_start += timedelta(seconds=-25)  # this is just to avoid unique constraints
         self.session.add(seg)
         self.session.commit()
         # a new segment wasn't added. Try:
@@ -709,7 +709,7 @@ class Test(unittest.TestCase):
         # (see link above)
         seg_ = COPY(seg)
         seg_.id = None  # autoincremented
-        seg_.end_time += timedelta(seconds=1) # safe unique constraints
+        seg_.request_end += timedelta(seconds=1) # safe unique constraints
         seg.event_id = e4.id
         self.session.add(seg_)
         self.session.commit()
@@ -871,25 +871,7 @@ class Test(unittest.TestCase):
         
         ss2 = self.session.query(Segment.id).filter(Segment.seed_identifier == s2_seed_id).all()
         assert len(ss2) >= 1
-        assert any(_[0] == s2.id for _ in ss2)
-        
-#         sss = self.session.query(Segment).all()
-#         # assert no segment has duplicates (since we built it when we still had the constraint
-#         # unique ch_id, start_time, end_time
-#         assert not all(s.num_duplicates for s in sss)
-#         # assert all have the same id:
-#         assert all(s.channel_id==sss[0].channel_id for s in sss)
-#         # now make the first two with the same time-bounds:
-#         stime = datetime.utcnow()
-#         etime = stime + timedelta(seconds=120)
-#         sss[0].start_time = sss[0].start_time = stime
-#         sss[1].end_time = sss[1].end_time = etime
-#         self.session.commit()
-#         # make a tuple of expected dupes:
-#         id_dupes = (sss[0].id, sss[1].id)
-        # query and check:
-
-        
+        assert any(_[0] == s2.id for _ in ss2)      
         
         
     def tst_get_cols(self, seg):
@@ -912,7 +894,7 @@ class Test(unittest.TestCase):
         c = list(colnames(seg.__class__, fkey=True))
         assert len(c) == 4
 
-        expected_nullables = 5
+        expected_nullables = 7
         c = list(colnames(seg.__class__, nullable=True))
         assert len(c) == expected_nullables
 
@@ -920,76 +902,6 @@ class Test(unittest.TestCase):
         c = list(colnames(seg.__class__, nullable=False))
         assert len(c) == clen -  expected_nullables
 
-        # check changing segment and segment id and see if the other gets updated
-
-        # what happens if we change segment_id?
-#         pro.segment_id = seg2.id
-#         assert pro.segment_id != seg2.id and pro.segment.id == seg1.id
-#         self.session.flush()
-#         self.session.commit()
-# #         d=9
-#         
-#         # this does not raise error, it just updates seg.channel_id
-#         seg = Segment()
-#         seg.channel = c
-#         self.session.flush()
-#         assert seg.channel_id == c.id
-#         # we would have troubles doing this (there are null fields in seg):
-#         with pytest.raises(IntegrityError):
-#             self.session.commit()
-#         self.session.rollback()
-#         f = 9
-#         e.segments.append(seg)
-#         self.session.flush()
-#         c.segments.append(seg)
-#         self.session.flush()
-
-
-#         id = '__abcdefghilmnopq'
-#         utcnow = datetime.datetime.utcnow()
-#         e = Event(id=id, time=utcnow)
-# 
-#         e, added = add_or_get2(self.session, e)
-#         
-#         s = Station(network='sdf', station='_', latitude=90, longitude=-45)
-#         
-#         s, added = add_or_get2(self.session, s, flush=True)
-#         
-#         c = Channel(location= 'tyu', channel='rty')
-#         
-#         s.channels.append(c)
-#         self.session.flush()
-#         c, added = add_or_get2(self.session, c)
-#         
-#         seg = Segment(start_time=datetime.datetime.utcnow(),
-#                              end_time=datetime.datetime.utcnow(),
-#                              event_distance_deg=9,
-#                              arrival_time=datetime.datetime.utcnow(),
-#                              data=b'')
-# 
-#         self.session.flush()
-#         e.segments.append(seg)
-#         self.session.flush()
-#         c.segments.append(seg)
-#         self.session.flush()
-        
-#     def test_toattrdict(self):
-#         
-#         c = Channel(location='l', channel='c')
-#         
-#         adict = c.toattrdict()
-#         assert 'id' not in adict and 'station_id' not in adict
-#         
-#         adict = c.toattrdict(primary_keys=True)
-#         assert 'id' in adict and 'station_id' not in adict
-#         
-#         adict = c.toattrdict(foreign_keys=True)
-#         assert 'id' not in adict and 'station_id' in adict
-#         
-#         adict = c.toattrdict(primary_keys=True, foreign_keys=True)
-#         assert 'id' in adict and 'station_id' in adict
-        
-        
         
     def test_harmonize_columns(self):
 

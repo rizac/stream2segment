@@ -121,8 +121,8 @@ class Test(unittest.TestCase):
         # segment 1, with two class labels 'a' and 'b'
         seg1 = Segment(event_id=event1.id, channel_id=cha3.id, datacenter_id=dcen.id,
                               event_distance_deg=5, download_id=run.id, 
-                              arrival_time = datetime.utcnow(), start_time = datetime.utcnow(),
-                              end_time=datetime.utcnow())
+                              arrival_time = datetime.utcnow(), request_start = datetime.utcnow(),
+                              request_end=datetime.utcnow())
         
         sess.add(seg1)
         sess.commit()
@@ -144,8 +144,8 @@ class Test(unittest.TestCase):
         # segment 2, with one class label 'a'
         seg2 = Segment(event_id=event1.id, channel_id=cha2.id, datacenter_id=dcen.id,
                               event_distance_deg=6.6, download_id=run.id, 
-                              arrival_time = datetime.utcnow(), start_time = datetime.utcnow(),
-                              end_time=datetime.utcnow())
+                              arrival_time = datetime.utcnow(), request_start = datetime.utcnow(),
+                              request_end=datetime.utcnow())
         
         sess.add(seg2)
         sess.commit()
@@ -158,8 +158,8 @@ class Test(unittest.TestCase):
         # segment 3, no class label 'a' (and with data attr, useful later)
         seg3 = Segment(event_id=event1.id, channel_id=cha1.id, datacenter_id=dcen.id,
                               event_distance_deg=7, download_id=run.id, data=b'data',
-                              arrival_time = datetime.utcnow(), start_time = datetime.utcnow(),
-                              end_time=datetime.utcnow())
+                              arrival_time = datetime.utcnow(), request_start = datetime.utcnow(),
+                              request_end=datetime.utcnow())
         sess.add(seg3)
         sess.commit()
         

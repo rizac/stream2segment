@@ -220,9 +220,9 @@ class Test(unittest.TestCase):
                 val = int(c.location[:2])
                 mseed = data_gaps_merged if "gap_merged" in c.location else \
                     data_err if "err" in c.location else data_gaps_unmerged if 'gap_unmerged' in c.location else data_ok
-                seg = Segment(start_time=ev.time + timedelta(seconds=val),
+                seg = Segment(request_start=ev.time + timedelta(seconds=val),
                               arrival_time=ev.time + timedelta(seconds=2 * val),
-                              end_time=ev.time + timedelta(seconds=5 * val),
+                              request_end=ev.time + timedelta(seconds=5 * val),
                               data=mseed,
                               data_identifier=obspy_trace.get_id() if mseed == data_ok else None,
                               event_distance_deg=val,
