@@ -25,11 +25,11 @@ from stream2segment.io.db.queries import query4gui, query4dreport, querystationi
 # from stream2segment.io.db import sqlevalexpr
 from stream2segment.utils.resources import yaml_load_doc, get_templates_fpath
 
-from stream2segment.download.utils import get_url_mseed_errorcodes
+from stream2segment.download.utils import custom_download_codes
 
 
 def _getlabels(max_gap_overlap=(-0.5, 0.5)):
-    urlexc, mseedexc = get_url_mseed_errorcodes()
+    urlexc, mseedexc, time_err, time_warn = custom_download_codes()
     c_empty = Segment.data.isnot(None) & (func.length(Segment.data) == 0)
     # sql between includes endpoints
     no_gaps = Segment.max_gap_overlap_ratio.between(max_gap_overlap[0], max_gap_overlap[1])
@@ -39,17 +39,22 @@ def _getlabels(max_gap_overlap=(-0.5, 0.5)):
     return OrderedDict([['no code', (True, Segment.download_status_code.is_(None))],
                         ['url error', (True, Segment.download_status_code == urlexc)],
                         ['mseed error', (True, Segment.download_status_code == mseedexc)],
-                        ['4xx HTTP status code', (True, (Segment.download_status_code >= 400) &
-                                                  (Segment.download_status_code < 500))],
-                        ['5xx HTTP status code', (True, Segment.download_status_code >= 500)],
-                        ['empty data', (True, c_empty)],
+                        ['4xx HTTP code', (True, (Segment.download_status_code >= 400) &
+                                                 (Segment.download_status_code < 500))],
+                        ['5xx HTTP code', (True, Segment.download_status_code >= 500)],
+                        ['empty data', (True, c_empty & ~
+                                        (Segment.download_status_code == time_err))],
                         ['gaps/overlaps', (True, c_gaps)],
-                        ['channel sample != data sample rate', (False, c_srate_mismatch)],
-                       ])
+                        ['sample rate mismatch (channel vs. data)', (False, c_srate_mismatch)],
+                        ['data completely out of request\'s time span',
+                         (True, (Segment.download_status_code == time_err))],
+                        ['data partially out of request\'s time span',
+                         (False, (Segment.download_status_code == time_warn))]
+                        ])
 
 
 def selectablelabels():
-    return [(k, v[0]) for k, v in _getlabels().items()]
+    return [(k, v[0], 0) for k, v in _getlabels().items()]
 
 
 def binexprs2count():

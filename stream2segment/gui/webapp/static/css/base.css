@@ -40,3 +40,8 @@ div.flex.h-container > .center, div.flex.v-container .center{
 label {
     font-weight: normal !important;
 }
+
+.disabled{
+	color: #ccc;
+	cursor: not-allowed;
+}

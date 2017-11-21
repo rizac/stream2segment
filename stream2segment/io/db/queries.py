@@ -20,7 +20,7 @@ from sqlalchemy.orm import configure_mappers
 
 from stream2segment.io.db.models import Segment, Station, DataCenter, Channel, Event
 from stream2segment.io.db.sqlevalexpr import exprquery
-from stream2segment.download.utils import get_url_mseed_errorcodes
+from stream2segment.download.utils import custom_download_codes
 from collections import OrderedDict
 
 
@@ -82,14 +82,14 @@ def query4dreport(session, **binexprs2count):
         NULL = literal_column("NULL")
         return func.count(case([(binexpr, Segment.id)], else_=NULL)).label(key)
 
-    qry = session.query(DataCenter.netloc.label('datacenter_netloc'),  # @UndefinedVariable
+    qry = session.query(DataCenter.id.label('dc_id'),  # @UndefinedVariable
                         Station.id.label('station_id'),
                         Station.latitude.label('lat'),
                         Station.longitude.label('lon'),
                         func.count(Segment.id).label('num_segments'),
                         *[countif(k, v) for k, v in binexprs2count.items()])
 
-    # ok seems that back referenced relatioships are instanitated only after the first query is
+    # ok seems that back referenced relationships are instantiated only after the first query is
     # made:
     # https://stackoverflow.com/questions/14921777/backref-class-attribute
     # workaround:
@@ -99,7 +99,6 @@ def query4dreport(session, **binexprs2count):
                     Station.channels,  # @UndefinedVariable
                     Channel.segments,  # @UndefinedVariable
                     ).group_by(DataCenter.id, Station.id)
-
 
 
 def querystationinfo4dreport(session, station_id, **binexprs2count):

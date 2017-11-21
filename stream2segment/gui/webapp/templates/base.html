@@ -19,19 +19,19 @@ http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-m
 
 {% if use_leaflet or use_esrileaflet %}
 	<!-- Leaflet -->
-	<link rel="stylesheet" href="https://unpkg.com/leaflet@1.1.0/dist/leaflet.css" />
-	<script src="https://unpkg.com/leaflet@1.1.0/dist/leaflet.js"></script>
+	<link rel="stylesheet" href="https://unpkg.com/leaflet@1.2.0/dist/leaflet.css" />
+	<script src="https://unpkg.com/leaflet@1.2.0/dist/leaflet.js"></script>
 	<!-- FALLBACK -->
-	<script>window.L || document.write('<script src="static/js/leaflet.1.1.0/leaflet.js"><\/script>' +
-			'\n' + '<link rel="stylesheet" href="static/js/leaflet.1.1.0/leaflet.css"><\/link>')</script>
+	<script>window.L || document.write('<script src="static/js/leaflet.1.2.0/leaflet.js"><\/script>' +
+			'\n' + '<link rel="stylesheet" href="static/js/leaflet.1.2.0/leaflet.css"><\/link>')</script>
 {% endif %}
 
 {% if use_esrileaflet %}
 	<!-- Load Esri Leaflet from CDN -->
-	<script src="https://unpkg.com/esri-leaflet@2.0.8"></script>
+	<script src="https://unpkg.com/esri-leaflet@2.1.1"></script>
 	<!-- FALLBACK
 	 just looked at source code: https://unpkg.com/esri-leaflet@2.0.8/dist/esri-leaflet-debug.js -->
-	<script>window.L.esri || document.write('<script src="static/js/esri-leaflet.2.0.8.min.js"><\/script>')</script>
+	<script>(window.L && window.L.esri) || document.write('<script src="static/js/esri-leaflet.2.1.1.js"><\/script>')</script>
 {% endif %}
 
 <script type="text/javascript">

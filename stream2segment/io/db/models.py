@@ -26,6 +26,7 @@ from sqlalchemy import (
     # BigInteger,
     UniqueConstraint,
     event)
+from sqlalchemy.sql.expression import FunctionElement
 from sqlalchemy.sql.expression import func, text, case, null, select, join, alias, exists, and_
 # from sqlalchemy.orm.mapper import validates
 # from sqlalchemy.orm.attributes import InstrumentedAttribute
@@ -33,10 +34,63 @@ from sqlalchemy.inspection import inspect
 from sqlalchemy.ext.hybrid import hybrid_property, hybrid_method
 from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.orm.util import aliased
+from sqlalchemy.ext.compiler import compiles
 
 _Base = declarative_base()
 
 from sqlalchemy.engine import Engine  # @IgnorePep8
+
+
+# making standard functions. These functions are not standard across sql dialects (sqlite and postgres)
+# and thus need to be standardized here
+# For info see: http://docs.sqlalchemy.org/en/latest/core/compiler.html#further-examples
+class strpos(FunctionElement):
+    name = 'strpos'
+    type = Integer()
+
+
+@compiles(strpos)
+def standard_strpos(element, compiler, **kw):
+    '''delegates strpos to the strpos db function'''
+    return compiler.visit_function(element)  # func.strpos(compiler.process(element.clauses))
+
+
+@compiles(strpos, 'sqlite')
+def sqlite_strpos(element, compiler, **kw):
+    return "instr(%s)" % compiler.process(element.clauses)
+    # return func.instr(compiler.process(element.clauses))
+
+
+class concat(FunctionElement):
+    name = 'concat'
+    type = String()
+
+
+@compiles(concat)
+def standard_concat(element, compiler, **kw):
+    return compiler.visit_function(element)  # func.strpos(compiler.process(element.clauses))
+
+
+@compiles(concat, 'sqlite')
+def sqlite_concat(element, compiler, **kw):
+    return " || ".join(compiler.process(c) for c in element.clauses)
+
+
+class duration_sec(FunctionElement):
+    name = 'duration_sec'
+    type = Float()
+
+
+@compiles(duration_sec)
+def standard_duration_sec(element, compiler, **kw):
+    clauses = [compiler.process(c) for c in element.clauses]
+    return func.epoch(func.age(clauses[1], clauses[0]))
+
+
+@compiles(duration_sec, 'sqlite')
+def sqlite_duration_sec(element, compiler, **kw):
+    clauses = [compiler.process(c) for c in element.clauses]
+    return "strftime('%f',{}) - strftime('%f',{})".format(clauses[1], clauses[0])
 
 
 def withdata(model_column):
@@ -221,7 +275,7 @@ class DataCenter(Base):
         fdsn-compliant (has '/fdsnws' in it). Otherwise returns the full dataselect_url'''
         col = cls.dataselect_url
         substr = "/fdsnws"
-        return case([(func.strpos(col, substr) > 0, func.left(col, func.strpos(col, substr) - 1))],
+        return case([(strpos(col, substr) > 2, func.substr(col, 1, strpos(col, substr) - 1))],
                     else_=col)
 
     __table_args__ = (
@@ -329,7 +383,7 @@ class Channel(Base):
         '''returns the sql expression returning the first letter of the channel field,
         or NULL if the latter has not length 3'''
         # return an sql expression matching the last char or None if not three letter channel
-        return case([(func.length(cls.channel) == 3, func.left(cls.channel, 1))], else_=null())
+        return case([(func.length(cls.channel) == 3, func.substr(cls.channel, 1, 1))], else_=null())
 
     @hybrid_property
     def instrument_code(self):
@@ -353,7 +407,7 @@ class Channel(Base):
         '''returns the sql expression returning the third letter of the channel field,
         or NULL if the latter has not length 3'''
         # return an sql expression matching the last char or None if not three letter channel
-        return case([(func.length(cls.channel) == 3, func.right(cls.channel, 1))], else_=null())
+        return case([(func.length(cls.channel) == 3, func.substr(cls.channel, 3, 1))], else_=null())
 
     __table_args__ = (
                       UniqueConstraint('station_id', 'location', 'channel',
@@ -387,6 +441,14 @@ class Segment(Base):
 
     # DEFINE HYBRID PROPERTIES. ACTUALY, WE ARE JUST INTERESTED IN HYBRID CLASSMETHODS FOR
     # QUERYING, BUT IT SEEMS THERE IS NO WAY TO DEFINE THEM WITHOUT DEFINING THE INSTANCE METHOD
+    @hybrid_property
+    def duration_sec(self):
+        return (self.end_time - self.start_time).total_seconds()
+
+    @duration_sec.expression
+    def duration_sec(cls):  # @NoSelf
+        return duration_sec(cls.start_time, cls.end_time)
+
     @hybrid_property
     def has_data(self):
         return bool(self.data)
@@ -431,7 +493,7 @@ class Segment(Base):
         # - the label(...) at the end makes all the difference. The doc is, as always, unclear
         # http://docs.sqlalchemy.org/en/latest/core/sqlelement.html#sqlalchemy.sql.expression.label
         dot = text("'.'")
-        sel = select([func.concat(Station.network, dot, Station.station, dot,
+        sel = select([concat(Station.network, dot, Station.station, dot,
                                   Channel.location, dot, Channel.channel)]).\
             where((Channel.id == cls.channel_id) & (Station.id == Channel.station_id)).limit(1).\
             label('seedidentifier')

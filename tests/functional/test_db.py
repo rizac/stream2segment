@@ -187,6 +187,9 @@ class Test(unittest.TestCase):
 
     def tst_test_dcanter_netloc(self):
         
+        # return  # NETLOC IS NOT ANYMORE IMPLEMENTED!!!
+     
+    
         dc = DataCenter(station_url='abc')
         assert dc.netloc == 'abc'
         # this raises cause only when fdsn ws url is supplied (either station_url or
@@ -873,6 +876,24 @@ class Test(unittest.TestCase):
         assert len(ss2) >= 1
         assert any(_[0] == s2.id for _ in ss2)      
         
+        
+        # modify start_time and end_time and test duration_sec
+        data = self.session.query(Segment.id, Segment.start_time, Segment.end_time).all()
+        id = data[0][0]
+        seg = self.session.query(Segment).filter(Segment.id == id).first()
+        seg.start_time = seg.request_start
+        seg.end_time = seg.request_end
+        self.session.commit()
+        assert seg.duration_sec == (seg.request_end-seg.request_start).total_seconds()
+        
+        # duration in sec suffers rounding problems, moreover, sqlite seems to return milliseconds
+        # as most fine resolution thus let's check is within the requested
+        # microseconds:
+        condition = (Segment.duration_sec >= seg.duration_sec-0.0005) & \
+            (Segment.duration_sec <= seg.duration_sec+0.0005)
+        segs = self.session.query(Segment).filter(condition).all()
+        assert len(segs) == 1
+        assert segs[0].id == id
         
     def tst_get_cols(self, seg):
         

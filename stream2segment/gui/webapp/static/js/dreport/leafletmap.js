@@ -20,15 +20,50 @@ legend.onAdd = function (map) {
 
 legend.addTo(map);
 
+// store baseLayer and control (clickable legend with the data-centers) in global vars
+// maybe not ideal, but we did not find out a better way. See updateMap for info on this object
+var _leafletData = null;
+
 function updateMap(data, selLabels){
-	
-	var baseLayer = L.esri.basemapLayer("Oceans").addTo(map);
-	var layerControl = L.control.layers().addTo(map);
-	// start the map in South-East England
-	//map.setView(new L.LatLng(51.3, 0.7),9);
-	
+	/**
+	 * Updates the map with the given data and the given selected labels
+	 * If the map is already in-place, avoids re-creating layers
+	 * but remove its elements (stations) and adds them again. 
+	 * 
+	 * :param data: a list of lists, as received from the server. Each element is a station, each
+	 * station element is its data (lat, lon, datacenter, number of segments falling in any of the selLabels categories, ...)
+	 * :param selLabels: an array of arrays e1, ..., eN: each element ei is an array holding: the label name,
+	 * the label selection state (ture, false), and the number of segments falling in this category identified by the label
+	 */
+	var fitBounds = false;
+	if(!_leafletData){
+		L.esri.basemapLayer("Oceans").addTo(map);
+		L.esri.basemapLayer("OceansLabels").addTo(map).setZIndex(-1);
+//		_baseLayers = {"Oceans": _defaultLayer, 
+//                	   "Streets": L.esri.basemapLayer("Streets"), 
+//                       "Topographic": L.esri.basemapLayer("Topographic"), 
+//                       "ShadedRelief": L.esri.basemapLayer("ShadedReliefLabels"), 
+//                       "Terrain": L.esri.basemapLayer("TerrainLabels"),
+//                       "Imagery": L.esri.basemapLayer("ImageryLabels")};
+		
+//		_leafletData = {'baseLayers': [L.esri.basemapLayer("Streets").addTo(map), 
+//		                               L.esri.basemapLayer("Oceans").addTo(map), 
+//		                               L.esri.basemapLayer("Topographic").addTo(map), 
+//		                               L.esri.basemapLayer("ShadedRelief").addTo(map), 
+//		                               L.esri.basemapLayer("Terrain").addTo(map),
+//		                               L.esri.basemapLayer("Oceans").addTo(map)],
+//		                               // the base layer (not used for the moment)
+		_leafletData = {'control': L.control.layers().addTo(map),  // the control (legend with datacenters checkboxes)
+						'dcLayerGroup': {}  // a dict of datacenters names (or id) strings mapped to the relativel
+						//leaflet LayerGroup object
+		};
+		fitBounds = true;
+	}
 	
 	var compute = function(array){
+		/**
+		 * returns a dict representing array, which is an element of the data argument passed to this function
+		 */
 		var ret = {'total':0, 'malformed':0};
 		array.forEach(function(value, index){
 			if (index == 0){
@@ -49,7 +84,7 @@ function updateMap(data, selLabels){
 	}
 
 	var dcens = {}; //stores layers to checkbox stations of a single datacenter
-	var markers = [];  // used only for zoom
+	var fitBoundMarkers = [];  // used only for zoom. It's a collection of ALL markers we will create
 	var floor = Math.floor; //this actually returns an int (at least, something whose str value is with no dots)s
 	data.forEach(function(array, index){
 		var dic = compute(array);
@@ -70,7 +105,6 @@ function updateMap(data, selLabels){
 		//console.log(gb);
 		
 		var fillColor = "rgb(255, " + gb + "," + gb +")";
-		// var hasWE = (warns != undefined || errs != undefined) ? true : false;
 		var color = '#999999';
 		var circle = L.circleMarker([lat, lon], {
 		    color: color,
@@ -83,201 +117,47 @@ function updateMap(data, selLabels){
 
 		circle.bindPopup("");
 		
-		// we bind popup content on mouse click (defer for speed):
+		// we bind popup content on mouse click (defer for speed). We delegate the angular scope
+		// for that, as we will handle therein the post request to get station info
 		circle.on('click', function(){
 			getScope().setPopupContent(dic.staid, circle);
 			circle.openPopup();
 		});
 		
 		dc.markers.push(circle);
-		markers.push(circle);
-	});
-	
-	// we did not find any better solution than redrawing each layer
-	map.eachLayer(function (layer) {
-		if (layer == baseLayer){
-			return;
-		}
-		map.removeLayer(layer);
-		layerControl.removeLayer(layer);
+		//if (fitBounds){
+			fitBoundMarkers.push(circle);
+		//}
 	});
 
+	var layerControl = _leafletData['control'];
+	var dcLayerGroup = _leafletData['dcLayerGroup'];
+	var doc = document;
+	var DCID_PREFIX = "_dcen_";
 	for (var dcen in dcens){
 		var val = dcens[dcen];
-		var lg = L.layerGroup(val.markers);
 		var title = dcen +  "  - Ok: " + val.ok + " of " + val.total + " (" + Math.round((100*val.ok)/val.total)+ "%)"; 
-		//var title = dcen +  "  - total: " + val.total +", ok: " + val.ok +" (" + Math.round((100*val.ok)/val.total)+ "%)"; 
-		layerControl.addOverlay(lg, title);
-		lg.addTo(map);
+		if (dcen in dcLayerGroup){
+			var layerGroup = dcLayerGroup[dcen];
+			layerGroup.clearLayers(); // clear all markers of the layer group (clearLayers is misleading)
+			val.markers.forEach(function(elm){layerGroup.addLayer(elm);});
+			// update title (text) for the relative control with the new percentages:
+			doc.getElementById(DCID_PREFIX+dcen).innerHTML = title;  // here we should set the new title
+		}else{
+			layerGroup = L.layerGroup(val.markers).addTo(map);
+			//this is a way to retrieve the object associated with the control's datacenter checkbox woithout
+			// storing it in any variable: add HTML instead of plain text:
+			layerControl.addOverlay(layerGroup, "<span class='btn btn-default' id='"+DCID_PREFIX+dcen+"'>" +  title + "</span>");
+			dcLayerGroup[dcen] = layerGroup;
+		}
 	}
 	
-	// https://stackoverflow.com/questions/16845614/zoom-to-fit-all-markers-in-mapbox-or-leaflet
-	var group = new L.featureGroup(markers);
-	map.fitBounds(group.getBounds());
+	fitBoundMarkers.forEach(function(elm){elm.bringToFront();});
 	
-	/*
-	map.fitBounds([
-    [44.11217, 0.3363],
-    [59.42283, 20.267]
-	]);
-
-	
-	function unpack(station, errors){
-		// errors is eiother ERRORS or WARNINGS, both dicts keyed with station names
-		var element = errors[station];
-		// element is a dict (object) with numeric keys mapped to arrays denoting the mseeds
-		// concerned. The keys are numeric for performance reasons (loading and creating smaller htmls)
-		// the error/warning name is columns[key], the mseed concerned are element[key]
-		
-		var columns = DATA.columns;
-		//unpacks warnings / errors returning [num_errors_warnings, div_content]
-		var ret = "<table>";
-		var count = 0;
-		for (var key in element){
-			var mseeds = element[key];
-			count += mseeds.length;
-			ret += "<tr><td colspan=2>" + columns[key] + "(" + mseeds.length +" mseeds)</td></tr>";
-			mseeds.forEach(function(elm, index){
-				// each element is an array of:
-				// [location, channel, start date, start time, end date, end time, db id]
-			    // this is optimized in that end date might be empty (same as start date)
-			  	var ch_id = station + "." + elm[0] + "." + elm[1];
-			  	var timerange = elm[4] ? elm[2] + " " + elm[3] + " to " + elm[4] + " " + elm[5] : elm[2] + ", " + elm[3] + " to " + elm[5];
-			  	var dbId = elm[6];
-				ret += "<tr><td style='text-align:right'>"+ (index+1) +"</td><td>" + ch_id + " [" + timerange + "] (db id=" + dbId + ")</td></tr>";
-			});
-			ret += "";
-		}
-		if (count == 0){
-			ret = "none";
-		}else{
-			ret +="</table>";
-		}
-		return [count, ret];
-	};
-	
-	function getPopupContent(stationIndex){
-		var d = DATA;
-		var station = d.index[stationIndex];
-		var vals = d.data[stationIndex];
-		var lat = vals[0];
-		var lon = vals[1];
-		var total = vals[2];
-		var dc_ = DATACENTERS;
-		var dcen = dc_[vals[3]];
-
-		var w_ = WARNINGS;
-		var e_ = ERRORS;
-		var warnings_ = unpack(station, w_);
-		var errors_ = unpack(station, e_);
-		
-		var infostr = "<table class='info'>"+
-			"<tr><td>Station:</td><td>" + station + "</td></tr>" +
-			"<tr class='border-top'><td>lat</td><td>"+ lat + "</td></tr>"+
-			"<tr><td>lon</td><td>"+ lon + "</td></tr>" +
-			"<tr><td>d.c.</td><td>"+ dcen + "</td></tr>" +
-			"<tr class='border-top'><td>miniSeeds</td><td>" + total + "</td></tr>" +
-			//"<tr><td>ok</td><td>" + ok + "</td></tr>" +
-			"<tr><td>errors</td><td>" + errors_[0] + "</td></tr>" +
-			"<tr><td>warnings</td><td>" + warnings_[0] + "</td></tr>" +
-			"</table>";
-		
-		infostr += "<div class='info'><div style='color:#e40000'>errors:</div>" + errors_[1] + "</div>";
-		infostr += "<div class='info'><div style='color:#0000e4'>warnings:</div>" + warnings_[1] + "</div>";
-		return infostr;
-	};
-
-	function drawMap(){
-		var domLevels = document.querySelectorAll("input[type=checkbox].warnerr");
-		var levels = {};
-		for (var i=0; i < domLevels.length; i++){
-			levels[domLevels[i].getAttribute('data-type')] = domLevels[i].checked;
-		}
-		
-		var d = DATA;
-		var cols = d.columns;
-		
-		var dc_ = DATACENTERS;
-		var dcens = {}; //stores layers to checkbox stations of a single datacenter
-		//var we = {}; //stores layers to checkbox stations with given error/warning
-		var _MARKERS = window._MARKERS || [];
-		var isFirstDraw = window._MARKERS ? false : true;
-		var toInt = parseInt;  // allocate once (speeds up?)
-		d.index.forEach(function(station, index){
-			var vals = d.data[index];
-			var lat = vals[0];
-			var lon = vals[1];
-			var total = vals[2];
-			var dcen = dc_[vals[3]];
-			var malformed = 0;
-			// calculate ok's based on the selected levels:
-			for (var i=4; i < DATA.columns.length; i++){
-				if (!levels[DATA.columns[i]]){
-					continue;
-				}
-				malformed += vals[i];
-			}
-			var ok = total - malformed;
-			if (! (dcen in dcens)){
-				dcens[dcen] = {'markers': [], 'total':0, 'ok':0};
-			}
-			var dc = dcens[dcen];
-			dc.total += total;
-			dc.ok += ok;
-			var gb = toInt(0.5 + 255 * (1 - (total == 0 ? 0 : ok/total)));
-			//console.log(gb);
-			
-			var fillColor = "rgb(255, " + gb + "," + gb +")";
-			// var hasWE = (warns != undefined || errs != undefined) ? true : false;
-			var color = '#999999';
-			var circle = L.circleMarker([lat, lon], {
-			    color: color,
-			    opacity: 1,
-			    weight: 1,
-			    fillColor: fillColor,
-			    fillOpacity: 1,
-			    radius: 6
-			});
-
-			circle.bindPopup("");
-			
-			// we bind popup content on mouse click (defer for speed):
-			circle.on('click', function(){
-				circle.setPopupContent(getPopupContent(index));
-				//circle.openPopup();
-			});
-			
-			dc.markers.push(circle);
-		});
-		
-		// we did not find any better solution than redrawing each layer
-		map.eachLayer(function (layer) {
-			if (layer == baseLayer){
-				return;
-			}
-   		 	map.removeLayer(layer);
-   		 	layerControl.removeLayer(layer);
-		});
-
-		for (var dcen in dcens){
-			var val = dcens[dcen];
-			var lg = L.layerGroup(val.markers);
-			var title = dcen + "  - total: " + val.total +", ok: " + val.ok +" (" + Math.round((100*val.ok)/val.total)+ "%)"; 
-			layerControl.addOverlay(lg, title);
-			lg.addTo(map);
-		}
-	
-	};	
-
-	var DATA = {{stations}};
-	var WARNINGS = {{warnings}};
-	var ERRORS = {{errors}};
-	var DATACENTERS = {{datacenters}};
-	
-	var DATA = {{stations}};  //dict of {dc_id: sta_id: [[seg_id, download_s_code, max_gap_o_ratio, sample_rate!=cha_s_rate]
-	var WARNINGS = {{warnings}};
-	var ERRORS = {{errors}};
-	var DATACENTERS = {{datacenters}};
-
-	drawMap();*/
+	// fit bounds and set stuff only if initializing:
+	if(fitBounds){
+		// https://stackoverflow.com/questions/16845614/zoom-to-fit-all-markers-in-mapbox-or-leaflet
+		var group = new L.featureGroup(fitBoundMarkers);
+		map.fitBounds(group.getBounds());
+	}
 }

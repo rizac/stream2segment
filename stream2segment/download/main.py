@@ -860,8 +860,7 @@ def prepare_for_download(session, segments_df, wtimespan, retry_no_code, retry_u
     # arrays which might be faster (and less memory consuming after unused memory is released)
     segments_df = segments_df[segments_df[SEG_RETRY]].copy()
     if oldlen != len(segments_df):
-        reason = ", ".join("%s=%s" % (k, str(v)) for k, v in locals().items()
-                           if k.startswith("retry_"))
+        reason = "already downloaded, no retry"
         logger.info(MSG("%d segments discarded", reason), oldlen-len(segments_df))
 
     if empty(segments_df):
