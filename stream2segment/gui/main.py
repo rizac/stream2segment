@@ -22,8 +22,7 @@ from stream2segment.gui.webapp.processing.plots.core import PlotManager
 def create_p_app(dbpath, pyfile, configfile):
     """
         Creates a new app for processing. Note that config_py_file is the stream2segment gui
-        config, not the config passed to Flask `app.config.from_pyfile`. For Flask config, please
-        provide a valid object in `config_object`
+        config, not the config passed to Flask `app.config.from_pyfile`.
     """
     pymodule = load_source(pyfile)
     configdict = yaml_load(configfile)

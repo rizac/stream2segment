@@ -32,7 +32,7 @@ from stream2segment.io.db.queries import getallcomponents
 from obspy.core.stream import read, Stream
 from stream2segment.utils import load_source
 from stream2segment.utils.resources import yaml_load
-from stream2segment.gui.webapp.plots.core import PlotManager
+from stream2segment.gui.webapp.processing.plots.core import PlotManager
 from mock.mock import patch
 
 from stream2segment.utils.postdownload import get_inventory as original_get_inventory, get_stream as original_get_stream

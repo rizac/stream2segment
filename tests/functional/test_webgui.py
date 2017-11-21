@@ -31,10 +31,11 @@ from stream2segment.io.db.queries import getallcomponents
 from obspy.core.stream import read
 from stream2segment.utils import load_source
 from stream2segment.utils.resources import yaml_load
-from stream2segment.gui.webapp.plots.core import PlotManager
+from stream2segment.gui.webapp.processing.plots.core import PlotManager
 from obspy.io.stationtxt.core import all_components
 from mock.mock import patch
-from stream2segment.gui.webapp import create_app, get_session
+from stream2segment.gui.webapp import get_session
+from stream2segment.gui.main import create_p_app
 import json
 import tempfile
 import shutil
@@ -66,16 +67,16 @@ class Test(unittest.TestCase):
         # create a Session
         # self.session = Session()
         
-        self.pymodule = load_source(os.path.join(os.path.dirname(__file__), '..', '..',
+        self.pyfile = os.path.join(os.path.dirname(__file__), '..', '..',
                                                  'stream2segment',
                                                   'resources', 'templates',
-                                               'processing.py'))
-        self.config = yaml_load(os.path.join(os.path.dirname(__file__), '..', '..',
+                                               'processing.py')
+        self.configfile = os.path.join(os.path.dirname(__file__), '..', '..',
                                              'stream2segment',
                                                   'resources', 'templates',
-                                               'processing.yaml'))
+                                               'processing.yaml')
         
-        self.app = create_app(url, self.pymodule, self.config)
+        self.app = create_p_app(url, self.pyfile, self.configfile)
         
         self.initdb()
         

@@ -886,7 +886,7 @@ class Test(unittest.TestCase):
         self.session.commit()
         assert seg.duration_sec == (seg.request_end-seg.request_start).total_seconds()
         
-        # duration in sec suffers rounding problems, moreover, sqlite seems to return milliseconds
+        # duration in sec might suffers rounding problems, moreover, sqlite seems to return milliseconds
         # as most fine resolution thus let's check is within the requested
         # microseconds:
         condition = (Segment.duration_sec >= seg.duration_sec-0.0005) & \

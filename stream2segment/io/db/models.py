@@ -84,7 +84,7 @@ class duration_sec(FunctionElement):
 @compiles(duration_sec)
 def standard_duration_sec(element, compiler, **kw):
     clauses = [compiler.process(c) for c in element.clauses]
-    return func.epoch(func.age(clauses[1], clauses[0]))
+    return "EXTRACT(EPOCH FROM AGE(%s, %s))" % (clauses[1], clauses[0])
 
 
 @compiles(duration_sec, 'sqlite')

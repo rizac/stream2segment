@@ -22,7 +22,7 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.inspection import inspect
 from datetime import datetime, timedelta
 from sqlalchemy.orm.session import object_session
-from stream2segment.io.db.sqlevalexpr import exprquery, get_condition
+from stream2segment.io.db.sqlevalexpr import exprquery, binexpr
 from stream2segment.io.db.models import ClassLabelling, Class, Segment, Station, Channel,\
     Event, DataCenter, Download, WebService
 from sqlalchemy.sql.expression import desc
@@ -360,40 +360,40 @@ class Test(unittest.TestCase):
         from stream2segment.io.db.models import Segment, Event, Station, Channel
 
         c = Segment.arrival_time
-        cond = get_condition(c, "=2016-01-01T00:03:04")
+        cond = binexpr(c, "=2016-01-01T00:03:04")
         assert str(cond) == "segments.arrival_time = :arrival_time_1"
     
-        cond = get_condition(c, "!=2016-01-01T00:03:04")
+        cond = binexpr(c, "!=2016-01-01T00:03:04")
         assert str(cond) == "segments.arrival_time != :arrival_time_1"
     
-        cond = get_condition(c, ">=2016-01-01T00:03:04")
+        cond = binexpr(c, ">=2016-01-01T00:03:04")
         assert str(cond) == "segments.arrival_time >= :arrival_time_1"
         
-        cond = get_condition(c, "<=2016-01-01T00:03:04")
+        cond = binexpr(c, "<=2016-01-01T00:03:04")
         assert str(cond) == "segments.arrival_time <= :arrival_time_1"
         
-        cond = get_condition(c, ">2016-01-01T00:03:04")
+        cond = binexpr(c, ">2016-01-01T00:03:04")
         assert str(cond) == "segments.arrival_time > :arrival_time_1"
         
-        cond = get_condition(c, "<2016-01-01T00:03:04")
+        cond = binexpr(c, "<2016-01-01T00:03:04")
         assert str(cond) == "segments.arrival_time < :arrival_time_1"
         
         with pytest.raises(ValueError):
-            cond = get_condition(c, "2016-01-01T00:03:04, 2017-01-01")
+            cond = binexpr(c, "2016-01-01T00:03:04, 2017-01-01")
         
-        cond = get_condition(c, "2016-01-01T00:03:04 2017-01-01")
+        cond = binexpr(c, "2016-01-01T00:03:04 2017-01-01")
         assert str(cond) == "segments.arrival_time IN (:arrival_time_1, :arrival_time_2)"
         
-        cond = get_condition(c, "[2016-01-01T00:03:04 2017-01-01]")
+        cond = binexpr(c, "[2016-01-01T00:03:04 2017-01-01]")
         assert str(cond) == "segments.arrival_time BETWEEN :arrival_time_1 AND :arrival_time_2"
         
-        cond = get_condition(c, "(2016-01-01T00:03:04 2017-01-01]")
+        cond = binexpr(c, "(2016-01-01T00:03:04 2017-01-01]")
         assert str(cond) == "segments.arrival_time BETWEEN :arrival_time_1 AND :arrival_time_2 AND segments.arrival_time != :arrival_time_3"
         
-        cond = get_condition(c, "[2016-01-01T00:03:04 2017-01-01)")
+        cond = binexpr(c, "[2016-01-01T00:03:04 2017-01-01)")
         assert str(cond) == "segments.arrival_time BETWEEN :arrival_time_1 AND :arrival_time_2 AND segments.arrival_time != :arrival_time_3"
         
-        cond = get_condition(c, "(2016-01-01T00:03:04 2017-01-01)")
+        cond = binexpr(c, "(2016-01-01T00:03:04 2017-01-01)")
         assert str(cond) == "segments.arrival_time BETWEEN :arrival_time_1 AND :arrival_time_2 AND segments.arrival_time != :arrival_time_3 AND segments.arrival_time != :arrival_time_4"
         
     
