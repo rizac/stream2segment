@@ -895,6 +895,11 @@ class Test(unittest.TestCase):
         assert len(segs) == 1
         assert segs[0].id == id
         
+        assert len(self.session.query(Segment).filter(Segment.duration_sec == None).all()) == \
+            len(self.session.query(Segment).all()) -1
+
+
+        
     def tst_get_cols(self, seg):
         
         clen = len(seg.__class__.__table__.columns)

@@ -553,6 +553,23 @@ def unpack(data, starttime=None, endtime=None):
             continue
         # get records and sort ascending by time
         records.sort(key=lambda elm: elm.begin_time)
+        # check now if bounds have to be trimmed. This is more efficient as we check only boundaries
+        i, j = 0, 0
+        for rec in records:
+            if starttime > rec.end_time:
+                i += 1
+            else:
+                if i:
+                    records = records[i:]  # so that in case it's empty, we avoid the loop below
+                break
+        for rec in reversed(records):
+            if endtime < rec.begin_time:
+                j -= 1
+            else:
+                if j:
+                    records = records[:j]
+                break
+
         fsamp = None
         max_gap_overlap_ratio = 0
         bytesio = BytesIO()
