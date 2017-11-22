@@ -355,7 +355,7 @@ class Record(object):
 
 #     def merge(self, rec):
 #         """Caller is expected to check for contiguity of data.
-# 
+#
 #         Check if rec.nframes * 64 <= len(data)?
 #         """
 #         (self.Xn,) = struct.unpack(">l", rec.data[8:12])
@@ -579,7 +579,7 @@ def unpack(data, starttime=None, endtime=None):
                 fsamp = record.fsamp  # assign only first time
                 continue
             elif record.fsamp != fsamp:
-                value[0], value[1] = MSeedError("records sample rate mismatch") ,None
+                value[0], value[1] = MSeedError("records sample rate mismatch"), None
                 break
             # curr_max_gap_ratio = distance between end_time of this chunk and begin_time of
             # next chunk.

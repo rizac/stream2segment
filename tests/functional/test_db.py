@@ -889,17 +889,95 @@ class Test(unittest.TestCase):
         # duration in sec might suffers rounding problems, moreover, sqlite seems to return milliseconds
         # as most fine resolution thus let's check is within the requested
         # microseconds:
-        condition = (Segment.duration_sec >= seg.duration_sec-0.0005) & \
-            (Segment.duration_sec <= seg.duration_sec+0.0005)
+        DELTA_ERR = 1e-3
+        condition = (Segment.duration_sec >= seg.duration_sec-DELTA_ERR/2) & \
+            (Segment.duration_sec <= seg.duration_sec+DELTA_ERR/2)
         segs = self.session.query(Segment).filter(condition).all()
         assert len(segs) == 1
         assert segs[0].id == id
         
         assert len(self.session.query(Segment).filter(Segment.duration_sec == None).all()) == \
             len(self.session.query(Segment).all()) -1
-
-
+            
+            
+        condition = (Segment.missing_data_sec <= DELTA_ERR)
+        assert seg.missing_data_sec == 0
+        segs = self.session.query(Segment).filter(condition).all()
+        assert len(segs) == 1
+        assert segs[0].id == id
+        assert len(self.session.query(Segment).filter(Segment.duration_sec == None).all()) == \
+            len(self.session.query(Segment).all()) -1
+            
         
+        condition = (Segment.missing_data_ratio <= DELTA_ERR)
+        assert seg.missing_data_ratio == 0
+        segs = self.session.query(Segment).filter(condition).all()
+        assert len(segs) == 1
+        assert segs[0].id == id
+        assert len(self.session.query(Segment).filter(Segment.duration_sec == None).all()) == \
+            len(self.session.query(Segment).all()) -1
+
+        # now mock downloaded time span being twice the request time span:
+        seg.start_time = seg.request_start
+        seg.end_time += seg.request_end - seg.request_start
+        self.session.commit()
+        
+        # assert object is obeying to our requirements
+        assert seg.duration_sec == (seg.end_time-seg.start_time).total_seconds()
+        assert seg.missing_data_sec == -(seg.request_end-seg.request_start).total_seconds()
+        assert seg.missing_data_ratio == -1.0  # -100% missing data means: we got twice the data
+        
+        condition = (Segment.missing_data_sec <= DELTA_ERR)
+        segs = self.session.query(Segment).filter(condition).all()
+        assert len(segs) == 1
+        condition = (Segment.missing_data_sec <= seg.missing_data_sec + DELTA_ERR)
+        segs = self.session.query(Segment).filter(condition).all()
+        assert segs[0].id == id
+        assert len(self.session.query(Segment).filter(Segment.duration_sec == None).all()) == \
+            len(self.session.query(Segment).all()) -1
+            
+        
+        condition = (Segment.missing_data_ratio <= DELTA_ERR)
+        segs = self.session.query(Segment).filter(condition).all()
+        assert len(segs) == 1
+        condition = (Segment.missing_data_ratio <= seg.missing_data_ratio+ DELTA_ERR)
+        segs = self.session.query(Segment).filter(condition).all()
+        assert len(segs) == 1
+        assert segs[0].id == id
+        assert len(self.session.query(Segment).filter(Segment.duration_sec == None).all()) == \
+            len(self.session.query(Segment).all()) -1
+            
+        # now mock downloaded time span being half of the request time span:
+        seg.request_start = seg.start_time
+        seg.request_end = seg.end_time + (seg.end_time - seg.start_time)
+        self.session.commit()
+        
+        # assert object is obeying to our requirements
+        assert seg.duration_sec == (seg.end_time-seg.start_time).total_seconds()
+        assert seg.missing_data_ratio == 0.5
+        assert seg.missing_data_sec == (seg.end_time - seg.start_time).total_seconds()
+        
+        condition = (Segment.missing_data_sec <= DELTA_ERR)
+        segs = self.session.query(Segment).filter(condition).all()
+        assert len(segs) == 0
+        condition = (Segment.missing_data_sec <= seg.missing_data_sec + DELTA_ERR)
+        segs = self.session.query(Segment).filter(condition).all()
+        assert segs[0].id == id
+        assert len(self.session.query(Segment).filter(Segment.duration_sec == None).all()) == \
+            len(self.session.query(Segment).all()) -1
+            
+        
+        condition = (Segment.missing_data_ratio <= DELTA_ERR)
+        segs = self.session.query(Segment).filter(condition).all()
+        assert len(segs) == 0
+        condition = (Segment.missing_data_ratio <= seg.missing_data_ratio + DELTA_ERR)
+        segs = self.session.query(Segment).filter(condition).all()
+        assert len(segs) == 1
+        assert segs[0].id == id
+        assert len(self.session.query(Segment).filter(Segment.duration_sec == None).all()) == \
+            len(self.session.query(Segment).all()) -1
+
+
     def tst_get_cols(self, seg):
         
         clen = len(seg.__class__.__table__.columns)

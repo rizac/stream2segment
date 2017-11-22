@@ -83,14 +83,53 @@ class duration_sec(FunctionElement):
 
 @compiles(duration_sec)
 def standard_duration_sec(element, compiler, **kw):
-    clauses = [compiler.process(c) for c in element.clauses]
-    return "EXTRACT(EPOCH FROM AGE(%s, %s))" % (clauses[1], clauses[0])
+    starttime, endtime = [compiler.process(c) for c in element.clauses]
+    return "EXTRACT(EPOCH FROM AGE(%s, %s))" % (endtime, starttime)
 
 
 @compiles(duration_sec, 'sqlite')
 def sqlite_duration_sec(element, compiler, **kw):
-    clauses = [compiler.process(c) for c in element.clauses]
-    return "strftime('%f',{}) - strftime('%f',{})".format(clauses[1], clauses[0])
+    starttime, endtime = [compiler.process(c) for c in element.clauses]
+    return "strftime('%f',{}) - strftime('%f',{})".format(endtime, starttime)
+
+
+class missing_data_sec(FunctionElement):
+    name = 'missing_data_sec'
+    type = Float()
+
+
+@compiles(missing_data_sec)
+def standard_missing_data_sec(element, compiler, **kw):
+    start, end, request_start, request_end = [compiler.process(c) for c in element.clauses]
+    return "EXTRACT(EPOCH FROM AGE(%s, %s)) - EXTRACT(EPOCH FROM AGE(%s, %s))" % \
+        (request_end, request_start, end, start)
+
+
+@compiles(missing_data_sec, 'sqlite')
+def sqlite_missing_data_sec(element, compiler, **kw):
+    start, end, request_start, request_end = [compiler.process(c) for c in element.clauses]
+    return "(strftime('%f',{}) - strftime('%f',{})) - (strftime('%f',{}) - strftime('%f',{}))".\
+        format(request_end, request_start, end, start)
+
+
+class missing_data_ratio(FunctionElement):
+    name = 'missing_data_ratio'
+    type = Float()
+
+
+@compiles(missing_data_ratio)
+def standard_missing_data_ratio(element, compiler, **kw):
+    start, end, request_start, request_end = [compiler.process(c) for c in element.clauses]
+    return "1.0 - (EXTRACT(EPOCH FROM AGE(%s, %s)) / EXTRACT(EPOCH FROM AGE(%s, %s)))" % \
+        (end, start, request_end, request_start)
+
+
+@compiles(missing_data_ratio, 'sqlite')
+def sqlite_missing_data_ratio(element, compiler, **kw):
+    start, end, request_start, request_end = [compiler.process(c) for c in element.clauses]
+    return ("1.0 - ((strftime('%f',{}) - strftime('%f',{})) "
+            "/ (strftime('%f',{}) - strftime('%f',{})))").format(end, start, request_end,
+                                                                 request_start)
 
 
 def withdata(model_column):
@@ -450,6 +489,24 @@ class Segment(Base):
         return duration_sec(cls.start_time, cls.end_time)
 
     @hybrid_property
+    def missing_data_sec(self):
+        return (self.request_end - self.request_start).total_seconds() - \
+            (self.end_time - self.start_time).total_seconds()
+
+    @missing_data_sec.expression
+    def missing_data_sec(cls):  # @NoSelf
+        return missing_data_sec(cls.start_time, cls.end_time, cls.request_start, cls.request_end)
+
+    @hybrid_property
+    def missing_data_ratio(self):
+        return 1.0 - ((self.end_time - self.start_time).total_seconds() /
+                      (self.request_end - self.request_start).total_seconds())
+
+    @missing_data_ratio.expression
+    def missing_data_ratio(cls):  # @NoSelf
+        return missing_data_ratio(cls.start_time, cls.end_time, cls.request_start, cls.request_end)
+
+    @hybrid_property
     def has_data(self):
         return bool(self.data)
 
@@ -494,7 +551,7 @@ class Segment(Base):
         # http://docs.sqlalchemy.org/en/latest/core/sqlelement.html#sqlalchemy.sql.expression.label
         dot = text("'.'")
         sel = select([concat(Station.network, dot, Station.station, dot,
-                                  Channel.location, dot, Channel.channel)]).\
+                             Channel.location, dot, Channel.channel)]).\
             where((Channel.id == cls.channel_id) & (Station.id == Channel.station_id)).limit(1).\
             label('seedidentifier')
         return case([(cls.data_identifier.isnot(None), cls.data_identifier)],
