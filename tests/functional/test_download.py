@@ -576,7 +576,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         dfres1 = dbquery2df(self.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
                                                Segment.event_id,
                                          Segment.download_status_code, Segment.data,
-                                         Segment.max_gap_overlap_ratio, Segment.download_id,
+                                         Segment.maxgap_numsamples, Segment.download_id,
                                          Segment.sample_rate, Segment.data_identifier))
         dfres1.sort_values(by=Segment.id.key, inplace=True)  # for easier visual compare
         dfres1.reset_index(drop=True, inplace=True)  # we need to normalize indices for comparison later
@@ -651,7 +651,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         dfres1 = dbquery2df(self.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
                                                Segment.event_id,
                                          Segment.download_status_code, Segment.data,
-                                         Segment.max_gap_overlap_ratio, Segment.download_id,
+                                         Segment.maxgap_numsamples, Segment.download_id,
                                          Segment.sample_rate, Segment.data_identifier))
         dfres1.sort_values(by=Segment.id.key, inplace=True)  # for easier visual compare
         dfres1.reset_index(drop=True, inplace=True)  # we need to normalize indices for comparison later
@@ -682,7 +682,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         dfres2 = dbquery2df(self.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
                                                Segment.event_id,
                                          Segment.download_status_code, Segment.data,
-                                         Segment.max_gap_overlap_ratio, Segment.download_id,
+                                         Segment.maxgap_numsamples, Segment.download_id,
                                          Segment.sample_rate, Segment.data_identifier))
         dfres2.sort_values(by=Segment.id.key, inplace=True)  # for easier visual compare
         dfres2.reset_index(drop=True, inplace=True)  # we need to normalize indices for comparison later

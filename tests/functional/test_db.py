@@ -978,6 +978,13 @@ class Test(unittest.TestCase):
             len(self.session.query(Segment).all()) -1
 
 
+        segs = self.session.query(Segment).all()
+        for s in segs:
+            dist_km = s.event_distance_km
+            zegs = self.session.query(Segment).filter(Segment.event_distance_km == dist_km).all()
+            assert any(s.id == z.id for z in zegs)
+                
+
     def tst_get_cols(self, seg):
         
         clen = len(seg.__class__.__table__.columns)

@@ -32,7 +32,7 @@ def _getlabels(max_gap_overlap=(-0.5, 0.5)):
     urlexc, mseedexc, time_err, time_warn = custom_download_codes()
     c_empty = Segment.data.isnot(None) & (func.length(Segment.data) == 0)
     # sql between includes endpoints
-    no_gaps = Segment.max_gap_overlap_ratio.between(max_gap_overlap[0], max_gap_overlap[1])
+    no_gaps = Segment.maxgap_numsamples.between(max_gap_overlap[0], max_gap_overlap[1])
     c_data = Segment.has_data == True  # @IgnorePep8
     c_gaps = c_data & ~no_gaps
     c_srate_mismatch = c_data & no_gaps & (Segment.sample_rate != Channel.sample_rate)

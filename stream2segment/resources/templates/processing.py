@@ -131,15 +131,40 @@ segment attributes:
 ========================================= ================================================
 attribute                                 python type and description (if any)
 ========================================= ================================================
-segment.id                                int
-segment.event_distance_deg                float (distance between the segment's station and
-\                                         the event, in degrees)
-segment.start_time                        datetime.datetime
+segment.id                                int: segment (unique) db id
+segment.event_distance_deg                float: distance between the segment's station and
+\                                         the event, in degrees
+segment.event_distance_km                 float: distance between the segment's station and
+\                                         the event, in km, assuming a perfectly spherical earth
+\                                         with a radius of 6371 km
+segment.start_time                        datetime.datetime: the waveform data start time
 segment.arrival_time                      datetime.datetime
-segment.end_time                          datetime.datetime
-segment.sample_rate                       float (as written in the segment's waveform data,
-\                                         it might differ from segment.channel.sample_rate)
-segment.download_status_code              int (typically, values between 200 and 399 denote
+segment.end_time                          datetime.datetime: the waveform data end time
+segment.request_start                     datetime.datetime: the requested start time of the data
+segment.request_end                       datetime.datetime: the requested end time of the data
+segment.duration_sec                      float: the waveform data duration, in seconds
+segment.missing_data_sec                  float: the number of seconds of missing data, with respect
+\                                         to the request time window. E.g. if we requested 5
+\                                         minutes of data and we got 4 minutes, then
+\                                         missing_data_sec=60; if we got 6 minutes, then
+\                                         missing_data_sec=-60. This attribute is particularly
+\                                         useful in the config to select only well formed data and
+\                                         speed up the processing, e.g.: missing_data_sec: '< 120'
+segment.missing_data_ratio                float: the portion of missing data, with respect
+\                                         to the request time window. E.g. if we requested 5
+\                                         minutes of data and we got 4 minutes, then
+\                                         missing_data_ratio=0.2 (20%); if we got 6 minutes, then
+\                                         missing_data_ratio=-0.2. This attribute is particularly
+\                                         useful in the config to select only well formed data and
+\                                         speed up the processing, e.g.: missing_data_ratio: '< 0.5'
+segment.has_data                          boolean: tells if the segment has data saved (at least
+\                                         one byte of data). This attribute useful in the config to
+\                                         select only well formed data and speed up the processing,
+\                                         e.g. has_data: 'true'.
+segment.sample_rate                       float: the waveform data sample rate.
+\                                         It might differ from the segment channel's sample_rate
+segment.download_status_code              int: the download code (extends HTTP status codes).
+\                                         Typically, values between 200 and 399 denote
 \                                         successful download. Values >=400 and lower than 500
 \                                         denote client errors, values >=500 server errors, -1
 \                                         indicates a general download error - e.g. no Internet
@@ -149,39 +174,35 @@ segment.download_status_code              int (typically, values between 200 and
 \                                         -204 a successful download where no data has been saved
 \                                         because all response data was outside the requested time
 \                                         span, and finally None denotes a general unknown error
-\                                         not in the previous categories)
-segment.max_gap_overlap_ratio             float (the maximum length of all gaps and overlaps
-\                                         found in the waveform data, *in number of points*.
+\                                         not in the previous categories
+segment.maxgap_numsamples                 float: the maximum gap found in the waveform data, in
+\                                         in number of points.
 \                                         If the value is positive, the max is a gap. If negative,
 \                                         it's an overlap. If zero, no gaps/overlaps were found.
-\                                         If gaps/overlaps are a concern, use this attribute
-\                                         to speed up the processing by discarding malformed data.
-\                                         Note that this number is the ratio between the waveform
-\                                         data's max gap/overlap and its sampling period
-\                                         (both in seconds). Thus, non-zero float values
+\                                         This attribute is particularly useful in the config to
+\                                         select only well formed data and speed up the processing,
+\                                         e.g.: maxgap_numsamples: '[-0.5, 0.5]'.
+\                                         This number is a float because it is the ratio between
+\                                         the waveform data's max gap/overlap and its sampling
+\                                         period (both in seconds). Thus, non-zero float values
 \                                         in (-1, 1) are difficult to interpret: a rule of thumb
-\                                         is to select segments whose max_gap_overlap_ratio
-\                                         is in the interval [-0.5, 0.5] and perform a check for
+\                                         is to consider a segment with gaps/overlaps when this
+\                                         attribute's absolute value exceeds 0.5. The user can
+\                                         always perform a check in the processing for
 \                                         safety, e.g., via `len(segment.stream())` or
 \                                         `segment.stream().get_gaps()`)
-segment.data_identifier                   str (the seed identifier in the typical format
+segment.data_identifier                   str: the seed identifier in the typical format
 \                                         'Network.Station.Location.Channel' as read from the data.
 \                                         It might be null if the data is empty or null because of
-\                                         a download error. See also 'segment.meed_identifier')
-segment.data                              bytes (you don't generally need to access this
-\                                         attribute which is also time-comsuming to fetch. It is
-\                                         the raw data for building `stream()`)
-segment.seed_identifier                   str (the seed identifier in the typical format
+\                                         a download error. See also 'segment.meed_identifier'
+segment.seed_identifier                   str: the seed identifier in the typical format
 \                                         'Network.Station.Location.Channel': it is the same as
 \                                         'segment.data_identifier', but it is assured not to be,
 \                                         null, as the segment meta-data is used if needed: in this
-\                                         case the query might perform more poorly at the SQL level)
-segment.has_data                          boolean (this attribute is particularly useful to discard
-\                                         immediately - thus more efficiently -
-\                                         segments which are generally not suitable for processing.
-\                                         Segment might not have data because of a download error
-\                                         or an empty response generally with download status
-\                                         code = 204)
+\                                         case the query might perform more poorly at the SQL level
+segment.data                              bytes: the waveform (raw) data. You don't generally need
+\                                         to access this attribute which is also time-comsuming
+\                                         to fetch. Used by `segment.stream()`
 ----------------------------------------- ------------------------------------------------
 segment.event                             object (attributes below)
 segment.event.id                          int
@@ -210,10 +231,10 @@ segment.channel.scale                     float
 segment.channel.scale_freq                float
 segment.channel.scale_units               str
 segment.channel.sample_rate               float
-segment.channel.band_code                 str (the first letter of channel.channel)
-segment.channel.instrument_code           str (the second letter of channel.channel)
-segment.channel.orientation_code          str (the third letter of channel.channel)
-segment.channel.station                   object (same as segment.station, see below)
+segment.channel.band_code                 str: the first letter of channel.channel
+segment.channel.instrument_code           str: the second letter of channel.channel
+segment.channel.orientation_code          str: the third letter of channel.channel
+segment.channel.station                   object: same as segment.station (see below)
 ----------------------------------------- ------------------------------------------------
 segment.station                           object (attributes below)
 segment.station.id                        int
@@ -225,11 +246,15 @@ segment.station.elevation                 float
 segment.station.site_name                 str
 segment.station.start_time                datetime.datetime
 segment.station.end_time                  datetime.datetime
-segment.station.inventory_xml             bytes* (you don't generally need to access this
-\                                         attribute which is also time-comsuming to fetch. It is
-\                                         the raw data for building `inventory()`)
-segment.station.has_inventory             boolean (whether or not inventory_xml has data saved.
-\                                         avoids loading segments whose inventory is n/a)
+segment.station.inventory_xml             bytes. The station invencotry (raw) data. You don't
+\                                         generally need to access this attribute which is also
+\                                         time-comsuming to fetch. Used by `segment.inventory()`
+segment.station.has_inventory             boolean: tells if the segment's station inventory has
+\                                         data saved (at least one byte of data).
+\                                         This attribute useful in the config to select only 
+\                                         segments with inventory downloaded and speed up the
+\                                         processing,
+\                                         e.g. has_inventory: 'true'.
 segment.station.datacenter                object (same as segment.datacenter, see below)
 ----------------------------------------- ------------------------------------------------
 segment.datacenter                        object (attributes below)
@@ -241,10 +266,10 @@ segment.datacenter.organization_name      str
 segment.download                          object (attributes below): the download execution
 segment.download.id                       int
 segment.download.run_time                 datetime.datetime
-segment.download.log                      str  (you don't generally need to access this
+segment.download.log                      str: The log text of the segment's download execution.
+\                                         You don't generally need to access this
 \                                         attribute which is also time-comsuming to fetch.
-\                                         It is the log text written during download,
-\                                         useful for debugging / inspection)
+\                                         Useful for advanced debugging / inspection
 segment.download.warnings                 int
 segment.download.errors                   int
 segment.download.config                   str

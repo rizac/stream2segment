@@ -1694,7 +1694,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                             1,2,3, db_bufsize=self.db_buf_size)
         # get columns from db which we are interested on to check
         cols = [Segment.id, Segment.channel_id, Segment.datacenter_id,
-                Segment.download_status_code, Segment.max_gap_overlap_ratio, \
+                Segment.download_status_code, Segment.maxgap_numsamples, \
                 Segment.sample_rate, Segment.data_identifier, Segment.data, Segment.download_id,
                 Segment.request_start, Segment.request_end, Segment.start_time, Segment.end_time
                 ]
@@ -1781,7 +1781,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert (db_segments_df.iloc[11][COL] == 413).all()
         
         # assert gaps are only in the given position
-        COL = Segment.max_gap_overlap_ratio.key
+        COL = Segment.maxgap_numsamples.key
         assert (db_segments_df.iloc[:3][COL] < 0.01).all()
         assert pd.isnull(db_segments_df.iloc[3:5][COL]).all()
         assert (db_segments_df.iloc[5][COL] == 20).all()
@@ -2010,7 +2010,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                             1,2,3, db_bufsize=self.db_buf_size)
         # get columns from db which we are interested on to check
         cols = [Segment.id, Segment.channel_id, Segment.datacenter_id,
-                Segment.download_status_code, Segment.max_gap_overlap_ratio, \
+                Segment.download_status_code, Segment.maxgap_numsamples, \
                 Segment.sample_rate, Segment.data_identifier, Segment.data, Segment.download_id,
                 Segment.request_start, Segment.request_end, Segment.start_time, Segment.end_time
                 ]

@@ -132,6 +132,17 @@ def sqlite_missing_data_ratio(element, compiler, **kw):
                                                                  request_start)
 
 
+class deg2km(FunctionElement):
+    name = 'deg2km'
+    type = Float()
+
+
+@compiles(deg2km)
+def standard_deg2km(element, compiler, **kw):
+    deg = compiler.process(list(element.clauses)[0])
+    return "%s * (2.0 * 6371 * 3.14159265359 / 360.0)" % deg
+
+
 def withdata(model_column):
     """Returns a filter argument for returning instances with values of
     `model_column` NOT *empty* nor *null*. `model_column` type must be STRING or BLOB
@@ -473,13 +484,21 @@ class Segment(Base):
     arrival_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime)
     sample_rate = Column(Float)
-    max_gap_overlap_ratio = Column(Float)
+    maxgap_numsamples = Column(Float)
     download_id = Column(Integer, ForeignKey("downloads.id"), nullable=False)
     request_start = Column(DateTime, nullable=False)
     request_end = Column(DateTime, nullable=False)
 
     # DEFINE HYBRID PROPERTIES. ACTUALY, WE ARE JUST INTERESTED IN HYBRID CLASSMETHODS FOR
     # QUERYING, BUT IT SEEMS THERE IS NO WAY TO DEFINE THEM WITHOUT DEFINING THE INSTANCE METHOD
+    @hybrid_property
+    def event_distance_km(self):
+        return self.event_distance_deg * (2.0 * 6371 * 3.14159265359 / 360.0)
+
+    @event_distance_km.expression
+    def event_distance_km(cls):  # @NoSelf
+        return deg2km(cls.event_distance_deg)
+
     @hybrid_property
     def duration_sec(self):
         return (self.end_time - self.start_time).total_seconds()
