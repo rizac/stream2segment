@@ -791,7 +791,7 @@ def prepare_for_download(session, segments_df, wtimespan, retry_no_code, retry_u
     SEG_END = Segment.request_end.key
     SEG_CHID = Segment.channel_id.key
     SEG_ID = Segment.id.key
-    SEG_DSC = Segment.download_status_code.key
+    SEG_DSC = Segment.download_code.key
     SEG_RETRY = "__do.download__"
 
     URLERR_CODE, MSEEDERR_CODE, OUTTIME_ERR, OUTTIME_WARN = custom_download_codes()
@@ -806,7 +806,7 @@ def prepare_for_download(session, segments_df, wtimespan, retry_no_code, retry_u
 
     # query relevant data into data frame:
     db_seg_df = dbquery2df(session.query(Segment.id, Segment.channel_id, Segment.request_start,
-                                         Segment.request_end, Segment.download_status_code,
+                                         Segment.request_end, Segment.download_code,
                                          Segment.event_id))
 
     # set the boolean array telling whether we need to retry db_seg_df elements (those already
@@ -928,7 +928,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
     SEG_STIME = Segment.start_time.key
     SEG_ETIME = Segment.end_time.key
     SEG_DATA = Segment.data.key
-    SEG_DSCODE = Segment.download_status_code.key
+    SEG_DSCODE = Segment.download_code.key
     SEG_DATAID = Segment.data_identifier.key
     SEG_MGAP = Segment.maxgap_numsamples.key
     SEG_SRATE = Segment.sample_rate.key
@@ -960,7 +960,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
 
     cols2update = [Segment.download_id, Segment.data, Segment.sample_rate,
                    Segment.maxgap_numsamples, Segment.data_identifier,
-                   Segment.download_status_code, Segment.start_time, Segment.end_time]
+                   Segment.download_code, Segment.start_time, Segment.end_time]
     if update_request_timebounds:
         cols2update += [Segment.request_start, Segment.arrival_time, Segment.request_end]
     segmanager = DbManager(session, Segment.id, cols2update,

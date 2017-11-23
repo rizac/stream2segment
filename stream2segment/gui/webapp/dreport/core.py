@@ -36,20 +36,20 @@ def _getlabels(max_gap_overlap=(-0.5, 0.5)):
     c_data = Segment.has_data == True  # @IgnorePep8
     c_gaps = c_data & ~no_gaps
     c_srate_mismatch = c_data & no_gaps & (Segment.sample_rate != Channel.sample_rate)
-    return OrderedDict([['no code', (True, Segment.download_status_code.is_(None))],
-                        ['url error', (True, Segment.download_status_code == urlexc)],
-                        ['mseed error', (True, Segment.download_status_code == mseedexc)],
-                        ['4xx HTTP code', (True, (Segment.download_status_code >= 400) &
-                                                 (Segment.download_status_code < 500))],
-                        ['5xx HTTP code', (True, Segment.download_status_code >= 500)],
+    return OrderedDict([['no code', (True, Segment.download_code.is_(None))],
+                        ['url error', (True, Segment.download_code == urlexc)],
+                        ['mseed error', (True, Segment.download_code == mseedexc)],
+                        ['4xx HTTP code', (True, (Segment.download_code >= 400) &
+                                                 (Segment.download_code < 500))],
+                        ['5xx HTTP code', (True, Segment.download_code >= 500)],
                         ['empty data', (True, c_empty & ~
-                                        (Segment.download_status_code == time_err))],
+                                        (Segment.download_code == time_err))],
                         ['gaps/overlaps', (True, c_gaps)],
                         ['sample rate mismatch (channel vs. data)', (False, c_srate_mismatch)],
                         ['data completely out of request\'s time span',
-                         (True, (Segment.download_status_code == time_err))],
+                         (True, (Segment.download_code == time_err))],
                         ['data partially out of request\'s time span',
-                         (False, (Segment.download_status_code == time_warn))]
+                         (False, (Segment.download_code == time_warn))]
                         ])
 
 

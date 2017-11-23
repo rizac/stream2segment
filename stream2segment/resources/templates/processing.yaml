@@ -66,7 +66,7 @@
 #                                   e.g. has_data: 'true'.
 # sample_rate                       float: the waveform data sample rate.
 #                                   It might differ from the segment channel's sample_rate
-# download_status_code              int: the download code (extends HTTP status codes).
+# download_code                     int: the download code (extends HTTP status codes).
 #                                   Typically, values between 200 and 399 denote
 #                                   successful download. Values >=400 and lower than 500
 #                                   denote client errors, values >=500 server errors, -1
@@ -209,6 +209,7 @@
 segment_select:
   has_data: 'true'
   maxgap_numsamples: '[-0.5, 0.5]'
+  missing_data_ratio: '<0.5'
   # id: '<300'
   # event.time: "(2014-01-01T00:00:00, 2014-12-31T23:59:59)"
   # event.latitude: "[24, 70]"

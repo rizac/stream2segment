@@ -479,7 +479,7 @@ class Segment(Base):
     data_identifier = Column(String)
     event_distance_deg = Column(Float, nullable=False)
     data = Column(LargeBinary)
-    download_status_code = Column(Integer)
+    download_code = Column(Integer)
     start_time = Column(DateTime)
     arrival_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime)

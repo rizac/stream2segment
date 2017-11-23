@@ -1366,7 +1366,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert len(segments_df) == expected
         # assert len(self.session.query(Segment.id).all()) == len(segments_df)
         
-        assert all(x[0] is None for x in self.session.query(Segment.download_status_code).all())
+        assert all(x[0] is None for x in self.session.query(Segment.download_code).all())
         assert all(x[0] is None for x in self.session.query(Segment.data).all())
 
         # mock an already downloaded segment.
@@ -1694,7 +1694,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                             1,2,3, db_bufsize=self.db_buf_size)
         # get columns from db which we are interested on to check
         cols = [Segment.id, Segment.channel_id, Segment.datacenter_id,
-                Segment.download_status_code, Segment.maxgap_numsamples, \
+                Segment.download_code, Segment.maxgap_numsamples, \
                 Segment.sample_rate, Segment.data_identifier, Segment.data, Segment.download_id,
                 Segment.request_start, Segment.request_end, Segment.start_time, Segment.end_time
                 ]
@@ -1737,7 +1737,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert len(db_segments_df) == len(segments_df)
         assert mock_updatedf.call_count == 0
         
-        dsc = db_segments_df[Segment.download_status_code.key]
+        dsc = db_segments_df[Segment.download_code.key]
         exp_dsc = np.array( [200,200,200, 200, np.nan, 200, -2,-2,-2, -1, 500, 413])
         assert ((dsc == exp_dsc) | (np.isnan(dsc) & np.isnan(exp_dsc))).all()
         # as we have 12 segments and a buf size of self.db_buf_size(=1, but it might change in the
@@ -1771,7 +1771,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         URLERR_CODE, MSEEDERR_CODE, OUTTIME_ERR, OUTTIME_WARN = custom_download_codes()
 
         # also this asserts that we grouped for dc starttime endtime
-        COL = Segment.download_status_code.key
+        COL = Segment.download_code.key
         assert (db_segments_df.iloc[:4][COL] == 200).all()
         assert pd.isnull(db_segments_df.iloc[4:5][COL]).all()
         assert (db_segments_df.iloc[5:6][COL] == 200).all()
@@ -1801,7 +1801,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         
         assert request_timebounds_need_update is False
 
-        COL = Segment.download_status_code.key
+        COL = Segment.download_code.key
         mask = (db_segments_df[COL] >= 400) | pd.isnull(db_segments_df[COL]) \
             | (db_segments_df[COL].isin([URLERR_CODE, MSEEDERR_CODE]))
         assert len(segments_df) == len(db_segments_df[mask])
@@ -1815,7 +1815,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                             self.run.id, request_timebounds_need_update,
                                             1,2,3, db_bufsize=self.db_buf_size)
         # get columns from db which we are interested on to check
-        cols = [Segment.download_status_code, Segment.channel_id]
+        cols = [Segment.download_code, Segment.channel_id]
         db_segments_df = dbquery2df(self.session.query(*cols))
         
         # change data column otherwise we cannot display db_segments_df. When there is data just print "data"
@@ -2010,7 +2010,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                             1,2,3, db_bufsize=self.db_buf_size)
         # get columns from db which we are interested on to check
         cols = [Segment.id, Segment.channel_id, Segment.datacenter_id,
-                Segment.download_status_code, Segment.maxgap_numsamples, \
+                Segment.download_code, Segment.maxgap_numsamples, \
                 Segment.sample_rate, Segment.data_identifier, Segment.data, Segment.download_id,
                 Segment.request_start, Segment.request_end, Segment.start_time, Segment.end_time
                 ]
@@ -2023,7 +2023,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                            (db_segments_df[Segment.data.key].str.len() > 0), Segment.data.key]) == 0
         # assert the number of "correctly" downloaded segments, i.e. with data (4) has now
         # code = TIMEBOUND_ERR
-        assert len(db_segments_df[db_segments_df[Segment.download_status_code.key] == OUTTIME_ERR]) == 4
+        assert len(db_segments_df[db_segments_df[Segment.download_code.key] == OUTTIME_ERR]) == 4
         
         # re-sort db_segments_df to match the segments_df:
         ret = []
@@ -2089,19 +2089,19 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         df__ = db_segments_df.loc[db_segments_df[Segment.channel_id.key]==1, :]
         assert len(df__) == 1
         row__ = df__.iloc[0]
-        assert row__[Segment.download_status_code.key] == OUTTIME_WARN
+        assert row__[Segment.download_code.key] == OUTTIME_WARN
         assert len(row__[Segment.data.key]) > 0
         
         # assert the 2nd segment whose time range has been modified has data, AND download_status_code 200 (ok)
         df__ = db_segments_df.loc[db_segments_df[Segment.channel_id.key]==2, :]
         assert len(df__) == 1
         row__ = df__.iloc[0]
-        assert row__[Segment.download_status_code.key] == 200
+        assert row__[Segment.download_code.key] == 200
         assert len(row__[Segment.data.key]) > 0
         
          # assert the 3rd segment whose time range has NOT been modified has no data, AND download_status_code is still TIMEBOUNDS_ERROR
         df__ = db_segments_df.loc[db_segments_df[Segment.channel_id.key]==3, :]
         assert len(df__) == 1
         row__ = df__.iloc[0]
-        assert row__[Segment.download_status_code.key] == OUTTIME_ERR
+        assert row__[Segment.download_code.key] == OUTTIME_ERR
         assert len(row__[Segment.data.key]) == 0

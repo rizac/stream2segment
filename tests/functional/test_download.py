@@ -575,7 +575,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         
         dfres1 = dbquery2df(self.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
                                                Segment.event_id,
-                                         Segment.download_status_code, Segment.data,
+                                         Segment.download_code, Segment.data,
                                          Segment.maxgap_numsamples, Segment.download_id,
                                          Segment.sample_rate, Segment.data_identifier))
         dfres1.sort_values(by=Segment.id.key, inplace=True)  # for easier visual compare
@@ -586,7 +586,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
                   Segment.data.key] = b'data'
         # assert the segments we should have data for are actually out-of-time-bounds
         _, _, TBOUND_ERRCODE, _ = custom_download_codes()
-        assert len(dfres1[dfres1[Segment.download_status_code.key] == TBOUND_ERRCODE]) == 4
+        assert len(dfres1[dfres1[Segment.download_code.key] == TBOUND_ERRCODE]) == 4
         
              
     @patch('stream2segment.download.main.get_events_df')
@@ -650,7 +650,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         
         dfres1 = dbquery2df(self.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
                                                Segment.event_id,
-                                         Segment.download_status_code, Segment.data,
+                                         Segment.download_code, Segment.data,
                                          Segment.maxgap_numsamples, Segment.download_id,
                                          Segment.sample_rate, Segment.data_identifier))
         dfres1.sort_values(by=Segment.id.key, inplace=True)  # for easier visual compare
@@ -681,7 +681,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         
         dfres2 = dbquery2df(self.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
                                                Segment.event_id,
-                                         Segment.download_status_code, Segment.data,
+                                         Segment.download_code, Segment.data,
                                          Segment.maxgap_numsamples, Segment.download_id,
                                          Segment.sample_rate, Segment.data_identifier))
         dfres2.sort_values(by=Segment.id.key, inplace=True)  # for easier visual compare
@@ -701,11 +701,11 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         runs += 1
         # asssert we changed the download status code for segments which should be retried
         # WARNING: THIS TEST COULD FAIL IF WE CHANGE THE DEFAULTS. CHANGE `mask` IN CASE
-        mask = dfres1[Segment.download_status_code.key].between(500, 599.999, inclusive=True) | \
-                      (dfres1[Segment.download_status_code.key] == URLERROR) | \
-                      pd.isnull(dfres1[Segment.download_status_code.key])
+        mask = dfres1[Segment.download_code.key].between(500, 599.999, inclusive=True) | \
+                      (dfres1[Segment.download_code.key] == URLERROR) | \
+                      pd.isnull(dfres1[Segment.download_code.key])
         retried = dfres2.loc[mask, :]
-        assert (retried[Segment.download_status_code.key] == 413).all()
+        assert (retried[Segment.download_code.key] == 413).all()
         # asssert we changed the run_id for segments which should be retried
         # WARNING: THIS TEST COULD FAIL IF WE CHANGE THE DEFAULTS. CHANGE THE `mask` IN CASE
         assert (retried[Segment.download_id.key] > dfres1.loc[retried.index, Segment.download_id.key]).all()

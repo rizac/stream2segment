@@ -163,7 +163,7 @@ segment.has_data                          boolean: tells if the segment has data
 \                                         e.g. has_data: 'true'.
 segment.sample_rate                       float: the waveform data sample rate.
 \                                         It might differ from the segment channel's sample_rate
-segment.download_status_code              int: the download code (extends HTTP status codes).
+segment.download_code                     int: the download code (extends HTTP status codes).
 \                                         Typically, values between 200 and 399 denote
 \                                         successful download. Values >=400 and lower than 500
 \                                         denote client errors, values >=500 server errors, -1
