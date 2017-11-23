@@ -547,7 +547,7 @@ class Segment(Base):
         if not ids:
             return any_()
         else:
-            return any_(Class.id.isin_(ids))
+            return any_(Class.id.in_(ids))
 
     @hybrid_property
     def seed_identifier(self):

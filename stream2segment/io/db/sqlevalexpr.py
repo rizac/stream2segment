@@ -25,7 +25,7 @@ def exprquery(sa_query, conditions, orderby=None, distinct=None):
     Enhance the given sql-alchemy query `sa_query` with conditions
     and ordering given in form of (string) expression, returning a new sql alchemy query.
     Joins are automatically added inside this method, if needed.
-    Columns (and relationships, if any) are extracted from `conditions` keys (strings)
+    Columns (and relationships, if any) are extracted from the string keys of `conditions`
     by detecting the reference model class from `sa_query` first column
     (`sa_query.column_descriptions[0]`): thus **pay attention to the argument order of sa_query**.
     The returned query is a valid sql-alchemy query and can be further manipulated
@@ -83,7 +83,7 @@ def exprquery(sa_query, conditions, orderby=None, distinct=None):
 
     :param sa_query: any sql-alchemy query object
     :param conditions: a dict of string columns mapped to **strings** expression, e.g.
-    "column2": "[1, 45]" or "column1": "true" (not the boolean True)
+    "column2": "[1, 45]" or "column1": "true" (note: string, not the boolean True)
     A string column is an expression denoting an attribute of the reference model class
     and can include relationships.
     Example: if the reference model tablename is 'mymodel', then a string column 'name'
@@ -107,7 +107,7 @@ def exprquery(sa_query, conditions, orderby=None, distinct=None):
     If `sa_query` already contains joins, the join is not added again, and sql-alchemy issues
     a warning 'SAWarning: Pathed join target' (currently in `sqlalchemy.orm.query.py:2105`).
     """
-    # get the table model from the query
+    # get the table model from the query's FIRST column description
     model = sa_query.column_descriptions[0]['entity']
     parsed_conditions = []
     joins = set()  # relationships have an hash, this assures no duplicates

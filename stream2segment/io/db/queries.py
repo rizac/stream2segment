@@ -65,7 +65,7 @@ def query4gui(session, conditions, orderby=None):
 def query4dreport(session, **binexprs2count):
     '''Returns a query yielding the segments ids for the visualization in the GUI (download
     report)
-    ''' 
+    '''
     # We should get something along the lines of:
     # SELECT data_centers.id AS data_centers_id,
     #     stations.id AS stations_id,

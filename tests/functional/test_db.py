@@ -26,6 +26,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm.session import object_session
 from sqlalchemy.sql.expression import func, bindparam
 import time
+from stream2segment.io.db.sqlevalexpr import exprquery
 
 class Test(unittest.TestCase):
     
@@ -817,6 +818,9 @@ class Test(unittest.TestCase):
         # NOTe however that join returns dupes:
         qry1 = sorted([x[0] for x in self.session.query(Segment.id).join(Segment.classes).filter(Segment.has_class()).all()])
         qry2 = sorted([x[0] for x in self.session.query(Segment.id).filter(Segment.has_class()).all()])
+        
+        
+        exprquery(self.session.query(Segment), {"classes.id": '2'})
         
         assert len(qry1) ==3
         assert len(qry2) == 2
