@@ -12,14 +12,13 @@
 # paths will be considered relative to the config file they are written in.
 # If not sqlite, the syntax is:
 # dialect+driver://username:password@host:port/database
-# (e.g.: 'postgresql://smith:Hw_6,9@hh21.unibo.org/s2s_db')
+# (e.g.: 'postgresql://smith:Hw_6,@mymachine.example.org/mydb')
 # (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)
 dburl: 'sqlite:////path/to/my/db.sqlite'
 
 # Try to dowonload again already saved segments without a download status code (NULL).
 # This indicates a failed download for any reason not included in the others listed here (e.g.,
-# when queries for several channels like 'HH?' are made, the Response status code is '200: Ok' but
-# not all expected channels segments are returned)
+# when a response returns only some of all requested segments, missing segments will have this code)
 retry_no_code: true
 # Try to dowonload again already saved segments whose response could not be retrieved because of a
 # general url error (e.g., no internet connection)
@@ -41,9 +40,10 @@ retry_timespan_errors: true
 # of data saved (the records inside the request timespan)
 retry_timespan_warnings: false
 
-# Set if station inventories should be downloaded. 
-# If true, inventory data (xml format) will be saved for each station whithout inventory data
-# and at least one downloaded segment with downloaded data.
+# Set if station inventories (xml format) should be downloaded. 
+# If true, after segment's data download, the inventory data will be downloaded for
+# each station without an inventory yet and with at least one
+# downloaded non-empty segment on the database
 # You can always fetch and save inventories later during processing, if required
 inventory: true
 
@@ -75,7 +75,7 @@ eventws_query_args:
   mindepth: 1
   maxdepth: 50
 
-# data-select web service to use (url). It should be fdsn-ws compliant, so that the relative
+# data-select web service to use (url). It should be fdsn compliant, so that the relative
 # station url can be retrieved automatically. You can also type two special values, "iris" and
 # "eida". The former is just a shortcut for the iris data-select url, the latter will automatically
 # fetch all eida datacenters and their urls

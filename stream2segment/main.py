@@ -34,6 +34,7 @@ from stream2segment.utils import tounicode, get_session, strptime,\
     indent, secure_dburl
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, yaml_load_doc,\
     get_templates_fpaths
+from stream2segment.gui.main import create_p_app, run_in_browser, create_d_app
 
 
 # set root logger if we are executing this module as script, otherwise as module name following
@@ -128,7 +129,7 @@ class clickutils(object):
 # main functionalities:
 
 
-def download(isterminal=False, **yaml_dict):
+def _download(isterminal=False, **yaml_dict):
     """
         Downloads the given segment providing a set of keyword arguments to match those of the
         config file (see confi.example.yaml for details)
@@ -177,7 +178,7 @@ def download(isterminal=False, **yaml_dict):
     return 0
 
 
-def process(dburl, pyfile, configfile, outcsvfile, isterminal=False):
+def _process(dburl, pyfile, configfile, outcsvfile, isterminal=False):
     """
         Process the segment saved in the db and saves the results into a csv file
         :param processing: a dict as load from the config
@@ -194,9 +195,13 @@ def process(dburl, pyfile, configfile, outcsvfile, isterminal=False):
     return 0
 
 
-def visualize(dburl, pyfile, configfile):
-    from stream2segment.gui import main as main_gui
-    main_gui.run_in_browser(dburl, pyfile, configfile)
+def visualize_p(dburl, pyfile, configfile):
+    run_in_browser(create_p_app(dburl, pyfile, configfile))
+    return 0
+
+
+def visualize_d(dburl):
+    run_in_browser(create_d_app(dburl))
     return 0
 
 
@@ -332,13 +337,12 @@ def main():
 @click.option('-i', '--inventory', is_flag=True, default=None)
 @click.argument('eventws_query_args', nargs=-1, type=click.UNPROCESSED,
                 callback=clickutils.proc_eventws_args)
-def d(configfile, dburl, eventws, start, end, dataws, min_sample_rate, traveltimes_model,
-      wtimespan, retry_no_code, retry_url_errors, retry_mseed_errors, retry_4xx, retry_5xx,
-      retry_timespan_errors, retry_timespan_warnings, inventory, eventws_query_args):
-    """Efficiently download waveform data segments and relative events, stations and channels
-    metadata into a specified database for further processing or visual inspection in a
-    browser. The -c option (required) sets the defaults for all other options below, which are
-    optional.
+def download(configfile, dburl, eventws, start, end, dataws, min_sample_rate, traveltimes_model,
+             wtimespan, retry_no_code, retry_url_errors, retry_mseed_errors, retry_4xx, retry_5xx,
+             retry_timespan_errors, retry_timespan_warnings, inventory, eventws_query_args):
+    """Download waveform data segments with quality metadata and relative events, stations and
+    channels metadata into a specified database.
+    The -c option (required) sets the defaults for all other options below, which are optional.
     The argument 'eventws_query_args' is an optional list of space separated key and values to be
     passed to the event web service query (example: minmag 5.5 minlon 34.5). All FDSN query
     arguments are valid except 'start', 'end' (set them via -t0 and -t1) and 'format'
@@ -351,10 +355,20 @@ def d(configfile, dburl, eventws, start, end, dataws, min_sample_rate, traveltim
         # function does not affect integer values in the config. Thus we need to set it here:
         cfg_dict['start'] = clickutils.valid_date(cfg_dict['start'])
         cfg_dict['end'] = clickutils.valid_date(cfg_dict['end'])
-        ret = download(isterminal=True, **cfg_dict)
+        ret = _download(isterminal=True, **cfg_dict)
         sys.exit(ret)
     except KeyboardInterrupt:  # this except avoids printing traceback
         sys.exit(1)  # exit with 1 as normal python exceptions
+
+
+@main.command(short_help='Show an an interactive map in a browser with downloaded data quality '
+                         'metrics on a per-station basis')
+@click.option('-d', '--dburl', callback=clickutils.extract_dburl_if_yaml,
+              help="%s.\n%s" % (clickutils.DEFAULTDOC['dburl'], clickutils.DBURLDOC_SUFFIX))
+def showdownload(dburl):
+    """Show an an interactive map in a browser with downloaded data quality metrics
+       on a per-station basis"""
+    visualize_d(dburl)
 
 
 @main.command(short_help='Process downloaded waveform data segments',
@@ -383,17 +397,17 @@ def d(configfile, dburl, eventws, start, end, dataws, min_sample_rate, traveltim
                    "Optional: defaults to '%s' when missing" % default_funcname(),
               )  # do not set default='main', so that we can test when arg is missing or not
 @click.argument('outfile')
-def p(dburl, configfile, pyfile, funcname, outfile):
+def process(dburl, configfile, pyfile, funcname, outfile):
     """Process downloaded waveform data segments via a custom python file and a configuration
     file"""
     try:
-        process(dburl, pyfile+":"+funcname if funcname else pyfile, configfile, outfile,
-                isterminal=True)
+        _process(dburl, pyfile+":"+funcname if funcname else pyfile, configfile, outfile,
+                 isterminal=True)
     except KeyboardInterrupt:  # this except avoids printing traceback
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@main.command(short_help='Visualize downloaded waveform data segments in a browser',
+@main.command(short_help='Show raw and processed downloaded waveform\'s plots in a browser',
               context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', callback=clickutils.extract_dburl_if_yaml,
               help="%s.\n%s" % (clickutils.DEFAULTDOC['dburl'], clickutils.DBURLDOC_SUFFIX))
@@ -412,28 +426,15 @@ def p(dburl, configfile, pyfile, funcname, outfile):
               required=True  # type click.Path checks the existence only if option is provided.
               # Don't set required = True with eager=True: it suppresses --help
               )
-def v(dburl, configfile, pyfile):
+def showprocess(dburl, configfile, pyfile):
     """Visualize downloaded waveform data segments in a browser"""
-    visualize(dburl, pyfile, configfile)
-
-
-# @main.command(short_help='Create a data availability html file showing downloaded data '
-#                          'quality on a map')
-# @click.option('-d', '--dburl', callback=clickutils.set_dburl, is_eager=True)
-# @click.option('-m', '--max_gap_ovlap_ratio', help="""Sets the maximum gap/overlap ratio.
-# Mark segments has 'corrupted' because of gaps/overlaps if they exceed this threshold.
-# Defaults to 0.5 (half of the segment sampling frequency)""", default=0.5)
-# @click.argument('outfile')
-# def a(dburl, max_gap_ovlap_ratio, outfile):
-#     """Creates a data availability html file, where the user can interactively inspect the
-#     quality of the waveform data downloaded"""
-#     data_aval(dburl, outfile, max_gap_ovlap_ratio)
+    visualize_p(dburl, pyfile, configfile)
 
 
 @main.command(short_help='Create template/config files in a specified directory',
               context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.argument('outdir')
-def t(outdir):
+def init(outdir):
     """Creates template/config files which can be inspected and edited for launching download,
     processing and visualization. OUTDIR will be created if it does not exist
     """

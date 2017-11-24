@@ -35,7 +35,7 @@ def create_p_app(dbpath, pyfile, configfile):
     return app
 
 
-def create_drep_app(dbpath):
+def create_d_app(dbpath):
     """
         Creates a new app for the download report. Note that config_py_file is the stream2segment
         gui config, not the config passed to Flask `app.config.from_pyfile`. For Flask config,
