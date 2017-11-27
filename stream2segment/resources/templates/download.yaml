@@ -16,29 +16,26 @@
 # (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)
 dburl: 'sqlite:////path/to/my/db.sqlite'
 
-# Try to dowonload again already saved segments without a download status code (NULL).
-# This indicates a failed download for any reason not included in the others listed here (e.g.,
-# when a response returns only some of all requested segments, missing segments will have this code)
-retry_no_code: true
-# Try to dowonload again already saved segments whose response could not be retrieved because of a
-# general url error (e.g., no internet connection)
-retry_url_errors: true
-# Try to dowonload again already saved segments whose response was successful but with corrupted / malformed data
-retry_mseed_errors: false
-# Try to dowonload again already saved segments whose response returned a status code in the
-# 400-499 range (Client errors)
-retry_4xx: false
-# Try to dowonload again already saved segments whose response returned a status code in the
-# 500-599 range (Server errors)
-retry_5xx: true
-# Try to download again already saved segments whose response was Ok but returned all chunks of data (records)
-# outside the requested time span (see 'wtimespan' for details). Segments of this type have no data
-# saved (empty)
-retry_timespan_errors: true
-# Try to download again already saved segments whose response was Ok but returned some chunks of data (records)
-# outside the requested time span (see 'wtimespan' for details). Segments of this type have at least one byte
-# of data saved (the records inside the request timespan)
-retry_timespan_warnings: false
+# Try to dowonload again already saved segments with no waveform data because not found
+# in the response. This is NOT the case when the server returns no data with an appropriate
+# 'No Content' message, but when a successful response ('OK') does not contain, after reading its bytes,
+# the expected segment data. For instance, a multi-segment request might return some but not all requested segments.
+retry_seg_not_found: true
+# Try to dowonload again already saved segments with no waveform data because because of a
+# general url error (e.g., no internet connection, timeout, ...)
+retry_url_err: true
+# Try to dowonload again already saved segments with no waveform data because the response data was
+# not readable as MiniSeed
+retry_mseed_err: false
+# Try to dowonload again already saved segments with no waveform data because of a client error
+# (response code in [400,499])
+retry_client_err: false
+# Try to dowonload again already saved segments with no waveform data because of a server error
+# (response code in [500,599])
+retry_server_err: true
+# Try to download again already saved segments with no waveform data because the response data
+# was completely outside the requested time span (see 'timespan' for details)
+retry_timespan_err: true
 
 # Set if station inventories (xml format) should be downloaded. 
 # If true, after segment's data download, the inventory data will be downloaded for
@@ -53,11 +50,11 @@ inventory: true
 #######################
 
 # Limit to events (and datacenters) on or after the specified start time. Specify a date or date-time in iso-format
-# or a non-negative integer to denote the number of days before today at midnight.
+# or an integer >=0 to denote the number of days before today at midnight.
 # Example: start=1 and end=0 => fetch events occurred yesterday
 start: 2006-01-01T00:00:00
 # Limit to events (and datacenters) on or before the specified end time. Specify a date or date-time in iso-format
-# or a non-negative integer to denote the number of days before today at midnight.
+# or an integer >=0 to denote the number of days before today at midnight.
 # Example: start=1 and end=0 => fetch events occurred yesterday
 end: 2016-12-25T00:00:00
 
@@ -120,7 +117,7 @@ min_sample_rate: 60
 # The model to be used to asses the travel times of a wave from
 # the event location to each station location. For each segment, the arrival time (travel
 # time + event time) will be the pivot whereby the user sets up the download time window
-# (see also 'wtimespan').
+# (see also 'timespan').
 # A model is internally a 2- or 3-dimensional grid
 # of pre-computed travel time points coupled with an highly efficient
 # algoritm which returns interpolated travel time values. From experiments comparing the algorithm
@@ -133,12 +130,13 @@ min_sample_rate: 60
 # iasp91_tts+: iasp91 model pre-computed for all tts+ phases (S wave arrivals)
 traveltimes_model: 'ak135_ttp+'
 
-# The segments time window to download: specify two positive floats denoting the 
+# The segment's data time window to download: specify two positive floats denoting the 
 # minutes to account for before and after the calculated arrival time.
-# Note that 3.5 means 3 minutes 30 seconds, so 3 minutes and 1 second should be 3.01666666, but you
-# should never need such a fine resolution. Note that all segment time windows will be rounded
+# Note that 3.5 means 3 minutes 30 seconds, 3.1 means 3 minutes and 6 seconds, and so on:
+# whereas this is not straightforward, there should be never the need to specify resolutions finer
+# than half a minute; in any case all segment time windows will be rounded
 # to the closest second to avoid floating point errors when checking for already existing segments
-wtimespan:
+timespan:
  - 1.0 # start time of the waveform segment to download, in minutes *before* the previously calculated arrival time.
  - 3.0 # end time of the waveform segment to download, in minutes *after* the previously calculated arrival time
 
@@ -169,7 +167,7 @@ advanced_settings:
  # Increasing this number to speed up db IO operations. Keep in mind that if any item in the buffer
  # cannot be inserted or updated (e.g., integrity errors), all subsequent buffer items will also be discarded.
  # If you want to be sure that only items that cannot be inserted/updated are discarded,
- # set it to 1, although for massive downloads it might cost hours of download more
+ # set it to 1, although for massive downloads it might be inefficient
  db_buf_size: 20
 
 

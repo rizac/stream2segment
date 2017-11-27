@@ -32,7 +32,7 @@ from sqlalchemy.engine import create_engine
 from stream2segment.io.db.models import Base, Event, Class, WebService, DataCenter, fdsn_urls
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from stream2segment.main import main, closing
+from stream2segment.main import closing
 from click.testing import CliRunner
 # from stream2segment.s2sio.db.pd_sql_utils import df2dbiter, get_col_names
 import pandas as pd
@@ -1324,13 +1324,13 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         orig_seg_df = segments_df.copy()
         segments_df, request_timebounds_need_update = \
             prepare_for_download(self.session, orig_seg_df, wtimespan,
-                                 retry_no_code=True,
-                                 retry_url_errors=True,
-                                 retry_mseed_errors=True,
-                                 retry_4xx=True,
-                                 retry_5xx=True,
-                                 retry_timespan_errors=True, 
-                                 retry_timespan_warnings=True)
+                                 retry_seg_not_found=True,
+                                 retry_url_err=True,
+                                 retry_mseed_err=True,
+                                 retry_client_err=True,
+                                 retry_server_err=True,
+                                 retry_timespan_err=True, 
+                                 retry_timespan_warn=True)
         assert request_timebounds_need_update is False
 
 # segments_df: (not really the real dataframe, some columns are removed but relevant data is ok):
@@ -1373,9 +1373,9 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # Set the first 7 to have a particular download status code
         urlerr, mseederr, outtime_err, outtime_warn = custom_download_codes()
         downloadstatuscodes = [None, urlerr, mseederr, 413, 505, outtime_err, outtime_warn]
-        for i, download_status_code in enumerate(downloadstatuscodes):
+        for i, download_code in enumerate(downloadstatuscodes):
             dic = segments_df.iloc[i].to_dict()
-            dic['download_status_code'] = download_status_code
+            dic['download_code'] = download_code
             dic['download_id'] = self.run.id
             # hack for deleting unused columns:
             for col in [Station.network.key, Station.station.key,
@@ -1407,13 +1407,13 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                          [True, False], [True, False]):
             s_df, request_timebounds_need_update = \
                 prepare_for_download(self.session, orig_seg_df, wtimespan,
-                                     retry_no_code=c[0],
-                                     retry_url_errors=c[1],
-                                     retry_mseed_errors=c[2],
-                                     retry_4xx=c[3],
-                                     retry_5xx=c[4],
-                                     retry_timespan_errors=c[5],
-                                     retry_timespan_warnings=c[6])
+                                     retry_seg_not_found=c[0],
+                                     retry_url_err=c[1],
+                                     retry_mseed_err=c[2],
+                                     retry_client_err=c[3],
+                                     retry_server_err=c[4],
+                                     retry_timespan_err=c[5],
+                                     retry_timespan_warn=c[6])
             to_download_in_this_case = sum(c)  # count the True's (bool sum works in python) 
             assert len(s_df) == to_download_anyway +  to_download_in_this_case
             assert request_timebounds_need_update is False
@@ -1425,13 +1425,13 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                          [True, False], [True, False]):
             s_df, request_timebounds_need_update = \
                 prepare_for_download(self.session, orig_seg_df, wtimespan,
-                                     retry_no_code=c[0],
-                                     retry_url_errors=c[1],
-                                     retry_mseed_errors=c[2],
-                                     retry_4xx=c[3],
-                                     retry_5xx=c[4],
-                                     retry_timespan_errors=c[5],
-                                     retry_timespan_warnings=c[6])
+                                     retry_seg_not_found=c[0],
+                                     retry_url_err=c[1],
+                                     retry_mseed_err=c[2],
+                                     retry_client_err=c[3],
+                                     retry_server_err=c[4],
+                                     retry_timespan_err=c[5],
+                                     retry_timespan_warn=c[6])
             assert len(s_df) == len(orig_seg_df)
             assert request_timebounds_need_update is True  # because we changed wtimespan
         # this hol
@@ -1523,13 +1523,13 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         orig_seg_df = segments_df.copy()
         segments_df, request_timebounds_need_update = \
             prepare_for_download(self.session, orig_seg_df, wtimespan,
-                                 retry_no_code=True,
-                                 retry_url_errors=True,
-                                 retry_mseed_errors=True,
-                                 retry_4xx=True,
-                                 retry_5xx=True,
-                                 retry_timespan_errors=True, 
-                                 retry_timespan_warnings=True)
+                                 retry_seg_not_found=True,
+                                 retry_url_err=True,
+                                 retry_mseed_err=True,
+                                 retry_client_err=True,
+                                 retry_server_err=True,
+                                 retry_timespan_err=True, 
+                                 retry_timespan_warn=True)
         
         assert request_timebounds_need_update is False
 
@@ -1637,13 +1637,13 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         orig_segments_df = segments_df.copy()
         segments_df, request_timebounds_need_update = \
             prepare_for_download(self.session, orig_segments_df, wtimespan,
-                                 retry_no_code=True,
-                                 retry_url_errors=True,
-                                 retry_mseed_errors=True,
-                                 retry_4xx=True,
-                                 retry_5xx=True,
-                                 retry_timespan_errors=True, 
-                                 retry_timespan_warnings=True)
+                                 retry_seg_not_found=True,
+                                 retry_url_err=True,
+                                 retry_mseed_err=True,
+                                 retry_client_err=True,
+                                 retry_server_err=True,
+                                 retry_timespan_err=True, 
+                                 retry_timespan_warn=True)
         
 # segments_df
 # COLUMNS:
@@ -1791,13 +1791,13 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # now mock retry:
         segments_df, request_timebounds_need_update = \
             prepare_for_download(self.session, orig_segments_df, wtimespan,
-                                 retry_no_code=True,
-                                 retry_url_errors=True,
-                                 retry_mseed_errors=True,
-                                 retry_4xx=True,
-                                 retry_5xx=True,
-                                 retry_timespan_errors=True, 
-                                 retry_timespan_warnings=True)
+                                 retry_seg_not_found=True,
+                                 retry_url_err=True,
+                                 retry_mseed_err=True,
+                                 retry_client_err=True,
+                                 retry_server_err=True,
+                                 retry_timespan_err=True, 
+                                 retry_timespan_warn=True)
         
         assert request_timebounds_need_update is False
 
@@ -1952,13 +1952,13 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         orig_segments_df = segments_df.copy()
         segments_df, request_timebounds_need_update = \
             prepare_for_download(self.session, orig_segments_df, wtimespan,
-                                 retry_no_code=True,
-                                 retry_url_errors=True,
-                                 retry_mseed_errors=True,
-                                 retry_4xx=True,
-                                 retry_5xx=True,
-                                 retry_timespan_errors=True, 
-                                 retry_timespan_warnings=True)
+                                 retry_seg_not_found=True,
+                                 retry_url_err=True,
+                                 retry_mseed_err=True,
+                                 retry_client_err=True,
+                                 retry_server_err=True,
+                                 retry_timespan_err=True, 
+                                 retry_timespan_warn=True)
         
 # segments_df
 # COLUMNS:

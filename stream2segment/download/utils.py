@@ -16,7 +16,7 @@ from builtins import zip, range
 import re
 from datetime import timedelta, datetime
 import dateutil
-from itertools import count
+from itertools import count, chain
 from collections import defaultdict
 
 import numpy as np
@@ -28,6 +28,10 @@ from stream2segment.io.db.pd_sql_utils import harmonize_columns,\
     harmonize_rows, colnames, dbquery2df
 from stream2segment.utils.url import urlread, URLException
 from stream2segment.utils import urljoin, strconvert
+
+from future.standard_library import install_aliases
+install_aliases()
+from http.client import responses  # @UnresolvedImport @IgnorePep8
 
 
 def get_events_list(eventws, **args):
@@ -257,185 +261,180 @@ def empty(*obj):
     return obj is None or obj.empty  # (hasattr(obj, 'empty') and obj.empty)
 
 
-class UrlStats(dict):
-    """A subclass of dict to store keys (usually messages, i.e. strings) mapped to their occurrence
-    (integers).
-    When getting a particular key, an instance of this class returns 0 if the key is not found (as
-    `colelctions.defaultdict` does) without raising any exception. When setting or getting a key,
-    `Exception`s are first converted to the string format:
-    ```
-    exception.__class__.__name__+ ": " + str(exception)
-    ```
-    and then handled normally. The name stems from the fact that this class is used to pass either
-    message strings or URL/HTTP/connection errors when querying data.
-    Example:
-    ```
-        s = UrlStats()
-        print s['a']
-        >>> 0
-        s['a'] += 3
-        print s
-        >>> {'a' : 3}
-        s[Exception('a')] = 5
-        print s[Exception('a')]
-        >>> 5
-        print s['Exception: a']
-        >>> 5
-    ```
-    """
-    @staticmethod
-    def re(value):
-        return re.compile("(?<!\\w)%s(?!\\w)" % re.escape(str(value)))
-
-    @staticmethod
-    def convert(key):
-        if isinstance(key, Exception):
-            exc_msg = str(key)
-            # be sure to print the 'reason' or 'code' attribute (if any, and if they are
-            # not already in exc_msg:
-            if hasattr(key, 'code') and not UrlStats.re(key.code).search(exc_msg):
-                # code not already in string (it should be the case in general), add it:
-                exc_msg += " [code=%s]" % str(key.code)
-            elif hasattr(key, 'reason') and not UrlStats.re(key.reason).search(exc_msg):
-                # reason not already in string, add it:
-                exc_msg += " [reason=%s]" % str(key.reason)
-            if not exc_msg.startswith("HTTP Error") or ":" not in exc_msg:
-                # HTTPError usually starts with "HTTP Error", so in that case skip this part:
-                key = "%s: %s" % (key.__class__.__name__, exc_msg)
-            else:
-                key = exc_msg
-        return key
-
-    def __setitem__(self, key, value):
-        super(UrlStats, self).__setitem__(UrlStats.convert(key), value)
-
-    def __missing__(self, key):
-        key = UrlStats.convert(key)
-        return self.get(key, 0)
-
-
-def stats2str(data, fillna=None, transpose=False,
-              lambdarow=None, lambdacol=None, sort=None,
-              totals='all', totals_caption='TOTAL', *args, **kwargs):
-    """
-        Returns a string representation of `data` nicely formatted in a table. The argument `data`
-        is any valid object which can be passed to a pandas.DataFrame as 'data' argument. In the
-        most simple and typical case, it is a dict of string keys K representing the table columns
-        headers** mapped to dicts (or pandas Series) D: {..., K: D, ....}.
-        **(if transpose is True then each dictionary key is the row header, see below)
-        :Example:
+class DownloadStats(defaultdict):
+    ''':ref:`class``defaultdict` subclass which holds statistics of a download.
+        Keys of this dict are the domains (string), and values are `defaultdict`s of
+        download codes keys (int) mapped to their occurrences. Typical usage is to add data and
+        then print the overall statistics:
         ```
-        stats2str(data={
-                        'col1': {'a': 9, 'b': 3},
-                        'col2': pd.Series({'a': -1, 'c': 0})
-                       })
-        # result (note missing values filled with zero and totals calculated by default):
-                col1  col2  total
-        a         9    -1      8
-        b         3     0      3
-        c         0     0      0
-        total    12    -1     11
-        :param data: numpy ndarray (structured or homogeneous), dict, or DataFrame
-        Dict can contain Series, arrays, constants, or list-like objects. The data to display
-        If dict containing sub-dicts D, each D will be
-        displayed in columns, and `data.keys()` K will be the column names. In this case, the union
-        U of each D key will populate the row headers. If transpose=True, the table/DataFrame will
-        be transposed, thus columns become rows, and viceversa (see below). The cell table value
-        of a key found in a certain D and missing in another D will be displayed as nan in the
-        latter and can be customized with `fillna` (see below)
-        :param transpose: if False (the default) nothing happens. If true, before any further
-        processing the table/DataFrame will be transposed, thus columns become rows, and viceversa
-        :param fillna: (any object, default: None) the value used to fill missing values. This
-        method uses internally a pandas DataFrame which will convert the input data into a table,
-        filling by default missing values with NaN's. These NaN's can be converted to a suitable
-        value specified here (e.g., if the table specifies occurrences of the given keys, then a key
-        not found should be 0, and thus fillna=0). If this value is an int (or numpy int),
-        then a further attempt is made to **convert all table data to int**.
-        The same holds if this value is a float (or numpy float), then the data will be converted
-        (if possible) to float (this might result in NaN values which will NOT be converted again
-        according to `fillna`). In any other case, no conversion is made
-        :param lambdarow: (callable or None. Default:None) Function to customize row header(s).
-        If None, this argument is ignored. Otherwise it is a callable which accepts a single
-        argument (each row, usually string) and should return the new value to be displayed
-        :param lambdacol: (callable or None. Default:None) Function to customize column header(s).
-        If None, this argument is ignored. Otherwise it is a callable which accepts a single
-        argument (each column, usually string) and should return the new value to be displayed.
-        **Note**: contrarily to rows, if this function returns a *different* value than the
-        original column, a note is added to the new value and legend will be displayed after the
-        table. The legend will display the note and the full original column value
-        :param sort: string ('col', 'row', 'all' or None) Sorts data headers before displaying.
-        If 'row' or 'all', sorts rows ascending. If 'col' or 'all', sorts column ascending. If any
-        other value, this argument is ignored
-        :param totals: string ('col', 'row', 'all' or None. Default: 'all'). Display totals
-        (sum along table axis). If 'row' or 'all', display totals for each row (adding a further
-        column with header `totals_caption`. If 'col' or 'all', display totals for each column
-        (adding a further row with header `totals_caption`). If `sort` is enabled, this does not
-        affect the totals (which will be always displayed as last row or column). This argument
-        forces data numeric conversion, thus NaN's might appear and must be handled beforehand by
-        the user.
-        :param totals_caption: string, default: 'TOTAL'. Caption for the row or column displaying
-        totals. Ignored if `totals` is not in ('row', 'col' or 'all')
-        :param args: additional position arguments pased to `pandas.DataFrame.to_string`
-        :param kwargs: additional keyword arguments pased to `pandas.DataFrame.to_string`
-    """
-    dframe = pd.DataFrame(data=data)
-    if dframe.empty:
-        return ""
-    # replace NaNs (for columns not shared) with zeros, and convert to int
-    if fillna is not None:
-        dframe.fillna(fillna, inplace=True)
-        if type(fillna) in (int, np.int8, np.int16, np.int32, np.int64):
-            try:
-                dframe = dframe.astype(int)
-            except ValueError:  # we do not have NaN's, but what if we have other kind of data? skip
-                pass
-        elif type(fillna) in (float, np.float16, np.float32, np.float64, np.float128):
-            try:
-                dframe = dframe.astype(float)
-            except ValueError:  # we do not have NaN's, but what if we have other kind of data? skip
-                pass
+            d = DownloadStats()
+            d['domain.org'][200] += 4
+            d['domain2.org2'][413] = 4
+            print(str(d))
+        ```
+    '''
+    def __init__(self):
+        '''initializes a new instance'''
+        # apparently, using defaultdict(int) is slightly faster than collections.Count
+        super(DownloadStats, self).__init__(lambda: defaultdict(int))
 
-    if transpose:
-        dframe = dframe.T
+    def normalizecodes(self):
+        '''normalizes all values (defaultdict) of this object casting keys to int, and merging
+          their values if an int key is present.
+          Useful if the codes provided are also instance of `str`'''
+        for val in self.values():
+            for key in list(val.keys()):
+                try:
+                    intkey = int(key)
+                    if intkey != key:  # e.g. key is str. False if jey is int or np.int
+                        val[intkey] += val.pop(key)
+                except Exception:
+                    pass
+        return self
 
-    if hasattr(lambdarow, "__call__"):
-        dframe.index = dframe.index.map(lambdarow)
+    def __str__(self):
+        '''prints a nicely formatted table with the statistics of the download. Returns the
+        empty string if this object is empty'''
+        resp = dict(responses)
+        customcodes = custom_download_codes()
+        URLERR, MSEEDERR, OUTTIMEERR, OUTTIMEWARN = customcodes
+        resp[URLERR] = 'Url Error'
+        resp[MSEEDERR] = 'MSeed Error'
+        resp[OUTTIMEERR] = 'Time Span Error'
+        resp[OUTTIMEWARN] = 'OK Partially Saved'
+        resp[None] = 'Segment Not Found'
 
-    columndetails = []
-    if hasattr(lambdacol, "__call__"):
-        new_columns = dframe.columns.map(lambdacol).tolist()
-        counter = 1
-        for new, old, i in zip(new_columns, dframe.columns, count()):
-            if old != new:
-                columndetails.append("[%d] %s" % (counter, old))
-                new_columns[i] = "%s[%d]" % (new, counter)
-                counter += 1
-        if columndetails:
-            dframe.columns = new_columns
+        # create a set of unique codes:
+        colset = set((k for dic in self.values() for k in dic))
+        if not colset:
+            return ""
 
-    if sort in ('col', 'all'):
-        dframe.sort_index(axis=1, inplace=True)
-    if sort in ('row', 'all'):
-        dframe.sort_index(axis=0, inplace=True)
+        # create a list of sorted codes. First 200, then OUTTIMEWARN, then
+        # all HTTP codes sorted naturally, then unkwnown codes, then Null
 
-    if totals in ('row', 'all', 'col'):
-        # convert to numeric so that sum returns the correct number of rows/columns
-        # (with NaNs in case)
-        dframe = dframe.apply(pd.to_numeric, errors='coerce', axis=0)  # axis should be irrelevant
-        if totals in ('row', 'all'):
-            # append a row with sum:
-            dframe.loc[totals_caption] = dframe.sum(axis=0)
-        if totals in ('col', 'all'):
-            # append a column with sums:
-            dframe[totals_caption] = dframe.sum(axis=1)
+        # assure a minimum val between all codes: custom and 0-600 (standard http codes):
+        minval = min(min(min(customcodes), 0), 600)
+        maxval = max(max(max(customcodes), 0), 600)
 
-    ret = dframe.to_string(*args, **kwargs)
+        def sortkey(key):
+            '''sorts an integer key. 200Ok comes first, then OUTTIMEWARN, Then all other ints
+            sorted "normally". At the end all non-int key values, and as really last None's'''
+            if key is None:
+                return maxval+2
+            elif key == 200:
+                return minval-2
+            elif key == OUTTIMEWARN:
+                return minval-1
+            else:
+                try:
+                    return int(key)
+                except:
+                    return maxval+1
 
-    if columndetails:
-        legendtitle = "Detailed column headers:"
-        ret = "%s\n%s\n%s\n%s" % (ret, "-"*len(legendtitle), legendtitle, "\n".join(columndetails))
+        columns = sorted(colset, key=sortkey)
 
-    return ret
+        # create data matrix
+        data = []
+        rows = []
+        colindex = {c: i for i, c in enumerate(columns)}
+        for row, dic in self.items():
+            if not dic:
+                continue
+            rows.append(row)
+            datarow = [0]*len(columns)
+            data.append(datarow)
+            for key, value in dic.items():
+                datarow[colindex[key]] = value
+
+        if not rows:
+            return ""
+
+        # create dataframe of the data. Columns will be set later
+        d = pd.DataFrame(index=rows, data=data)
+        d.loc["TOTAL"] = d.sum(axis=0)
+        # add last column. Note that by default  (we did not specified it) columns are integers:
+        # it is important to provide the same type for any new column
+        d[len(d.columns)] = d.sum(axis=1)
+
+        # Set columns and legend. Columns should take the min available space, so stack them
+        # in rows via a word wrap. Unfortunately, pandas does not allow this, so we need to create
+        # a top dataframe with our col headers. Mopreover, add the legend to be displayed at the
+        # bottom after the whole dataframe for non standard http codes
+        columns_df = pd.DataFrame(columns=d.columns)
+        legend = []
+        colwidths = d.iloc[-1].astype(str).str.len().tolist()
+
+        def codetype2str(code):
+            code = int(code / 100)
+            if code == 1:
+                return "Informational response"
+            elif code == 2:
+                return "Success"
+            elif code == 3:
+                return "Redirection"
+            elif code == 4:
+                return "Client error"
+            elif code == 5:
+                return "Server error"
+            else:
+                return "Unknown status"
+
+        for i, c in enumerate(chain(columns, ['TOTAL'])):
+            if i < len(columns):  # last column is the total string, not a response code
+                code = c
+                if c not in resp:
+                    c = "Unknown %s" % str(c)
+                    legend.append("%s: Non-standard response, unknown message (code=%s)" %
+                                  (str(c), str(code)))
+                else:
+                    c = resp[c]
+                    if code == URLERR:
+                        legend.append("%s: Generic Url error (e.g., timeout, no internet "
+                                      "connection, ...)" % str(c))
+                    elif code == MSEEDERR:
+                        legend.append("%s: Response OK, but data cannot be read as "
+                                      "MiniSeed" % str(c))
+                    elif code == OUTTIMEERR:
+                        legend.append("%s: Response OK, but data completely outside "
+                                      "requested time span " % str(c))
+                    elif code == OUTTIMEWARN:
+                        legend.append("%s: Response OK, data saved partially: some received "
+                                      "data chunks where completely outside requested time "
+                                      "span" % str(c))
+                    elif code is None:
+                        legend.append("%s: Response OK, but segment data not found "
+                                      "(e.g., after a multi-segment request)" % str(c))
+                    else:
+                        legend.append("%s: Standard response message indicating %s (code=%d)" %
+                                      (str(c), codetype2str(code), code))
+            rows = [_ for _ in c.split(" ") if _.strip()]
+            rows_to_insert = len(rows) - len(columns_df)
+            if rows_to_insert > 0:
+                emptyrows = pd.DataFrame(index=['']*rows_to_insert,
+                                         columns=d.columns,
+                                         data=[['']*len(columns_df.columns)]*rows_to_insert)
+                columns_df = pd.concat((emptyrows, columns_df))
+            # calculate colmax:
+            colmax = max(len(c) for c in rows)
+            if colmax > colwidths[i]:
+                colwidths[i] = colmax
+            # align every row left:
+            columns_df.iloc[len(columns_df)-len(rows):, i] = \
+                [("{:<%d}" % colwidths[i]).format(r) for r in rows]
+
+        # create column header by setting the same number of rows for each column:
+        # create separator lines:
+        maxindexwidth = d.index.astype(str).str.len().max()
+        linesep_df = pd.DataFrame(data=[["-" * cw for cw in colwidths]],
+                                  index=['-' * maxindexwidth])
+        d = pd.concat((columns_df, linesep_df, d))
+
+        with pd.option_context('max_colwidth', 50):
+            ret = d.to_string(na_rep='0', justify='right', header=False)
+        if legend:
+            legend = ["\n\nCOLUMNS DETAILS:"] + legend
+            ret += "\n - ".join(legend)
+        return ret
 
 
 def locations2degrees(lat1, lon1, lat2, lon2):

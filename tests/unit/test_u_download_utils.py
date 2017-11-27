@@ -19,8 +19,8 @@ from mock import Mock
 from datetime import datetime, timedelta
 from io import StringIO
 import stream2segment
-from stream2segment.download.utils import get_search_radius, UrlStats,\
-    stats2str, locations2degrees as s2sloc2deg, EidaValidator
+from stream2segment.download.utils import get_search_radius,\
+    locations2degrees as s2sloc2deg, EidaValidator, custom_download_codes, DownloadStats
 from obspy.geodetics.base import locations2degrees  as obspyloc2deg
 import numpy as np
 import pandas as pd
@@ -87,127 +87,330 @@ def test_get_search_radius(mag, minmag_maxmag_minradius_maxradius, expected_val)
 
 def test_stats_table():
     
-    class MyExc(Exception):
-         def __init__(self, message, code=None, reason=None):
-             self.message = message
-             if code:
-                 self.code = code
-             if reason:
-                 self.reason = reason
-        
-         def __str__(self, *args, **kwargs):
-             return self.message
+    urlerr, mseederr, tbound_err, tbound_warn = custom_download_codes()
+    seg_not_found = None
     
-    s = UrlStats()
-    s['error 1'] += 5
-    assert s['error 1'] == 5
-
-    s[MyExc('e')] += 4
-    assert s['MyExc: e'] == 4
-
-    s[MyExc('e', 500)] += 0
-    assert 'MyExc: e [code=500]' in list(s.keys()) and s['MyExc: e [code=500]'] == 0
-
-    assert len(s) == 3
-
-    # add a new myexc in which code is already present in message. Check that key string is
-    # correctly formatted
-    s[MyExc('e(500)', 500)] += 0
-    assert 'MyExc: e(500)' in list(s.keys()) and s['MyExc: e(500)'] == 0
+    d = DownloadStats()
+    assert str(d) == ""
     
-     # add a new myexc in which code is NOT already present in message. Check that key string is
-    # correctly formatted
-    s[MyExc('e(5000)', 500)] += 0
-    assert 'MyExc: e(5000) [code=500]' in list(s.keys()) and s['MyExc: e(5000) [code=500]'] == 0
-
-    # now build a stats table
-    ret = stats2str(data={'col1': s}, totals_caption='total')  # by def is TOTAL
-    expected = """                           col1  total
-MyExc: e                      4      4
-MyExc: e [code=500]           0      0
-MyExc: e(500)                 0      0
-MyExc: e(5000) [code=500]     0      0
-error 1                       5      5
-total                         9      9"""
-    assert eq(ret, expected)
-
-
-    # append new data, with new rows and a new column
-    dic = {'a': 6, 'b': 15}
-    ret = stats2str(data={'col1': s, 'col2': dic}, totals_caption='total')  # by def is TOTAL
-    expected = u"""                               col1  col2  total
-MyExc: e                      4     0      4
-MyExc: e [code=500]           0     0      0
-MyExc: e(500)                 0     0      0
-MyExc: e(5000) [code=500]     0     0      0
-a                             0     6      6
-b                             0    15     15
-error 1                       5     0      5
-total                         9    21     30"""
-
-# no fillna, thus:
-    assert not eq(ret, expected)
-
-# this is what to expect:
-    expected = """                            col1  col2  total
-MyExc: e                    4.0   NaN    4.0
-MyExc: e [code=500]         0.0   NaN    0.0
-MyExc: e(500)               0.0   NaN    0.0
-MyExc: e(5000) [code=500]   0.0   NaN    0.0
-a                           NaN   6.0    6.0
-b                           NaN  15.0   15.0
-error 1                     5.0   NaN    5.0
-total                       9.0  21.0   30.0"""
-    assert eq(ret, expected)
+    d['geofon'][200] += 5
     
+    assert str(d) == """
+        OK  TOTAL
+------  --  -----
+geofon   5      5
+TOTAL    5      5
 
-    # append new data, with new rows and a new column, filling na with zeros
-    dic = {'a': 6, 'b': 15}
-    ret = stats2str(data={'col1': s, 'col2': dic}, totals_caption='total')  # by def is TOTAL
-    expected = """                           col1  col2  total
-MyExc: e                      4     0      4
-MyExc: e [code=500]           0     0      0
-MyExc: e(500)                 0     0      0
-MyExc: e(5000) [code=500]     0     0      0
-a                             0     6      6
-b                             0    15     15
-error 1                       5     0      5
-total                         9    21     30"""
-    assert not eq(ret, expected)
+COLUMNS DETAILS:
+ - OK: Standard response message indicating Success (code=200)"""[1:]
     
+    d['geofon']['200'] += 100
+    
+    assert str(d) == """
+            Unknown       
+        OK  200      TOTAL
+------  --  -------  -----
+geofon   5      100    105
+TOTAL    5      100    105
 
-    # again: we should provide fillna=0
-    ret = stats2str(fillna=0, data={'col1': s, 'col2': dic}, totals_caption='total')  # by def is TOTAL
-    assert eq(ret, expected)
+COLUMNS DETAILS:
+ - OK: Standard response message indicating Success (code=200)
+ - Unknown 200: Non-standard response, unknown message (code=200)"""[1:]
+    
+    d.normalizecodes()
+    
+    assert str(d) == """
+        OK   TOTAL
+------  ---  -----
+geofon  105    105
+TOTAL   105    105
 
-    # set on data, with some rows and some new column
-    dic = {'x': 56, 'MyExc: e(500)': -34}
-    ret = stats2str(data={'col1': s, 'col2': dic}, fillna=0, totals_caption='total')  # by def is TOTAL
-    expected = """                           col1  col2  total
-MyExc: e                      4     0      4
-MyExc: e [code=500]           0     0      0
-MyExc: e(500)                 0   -34    -34
-MyExc: e(5000) [code=500]     0     0      0
-error 1                       5     0      5
-x                             0    56     56
-total                         9    22     31"""
-    assert eq(ret, expected)
+COLUMNS DETAILS:
+ - OK: Standard response message indicating Success (code=200)"""[1:]
+    
+    d['geofon'][413] += 5
+    
+    assert str(d) == """
+             Request       
+             Entity        
+             Too           
+        OK   Large    TOTAL
+------  ---  -------  -----
+geofon  105        5    110
+TOTAL   105        5    110
 
-    # same as above, but set transpose = True
-    dic = {'x': 56, 'MyExc: e(500)': -34}
-    ret = stats2str(fillna=0, data={'col1': s, 'col2': dic}, transpose=True, totals_caption='total')  # by def is TOTAL
-    expected = """       MyExc: e  MyExc: e [code=500]  MyExc: e(500)  MyExc: e(5000) [code=500]  error 1   x  total
-col1          4                    0              0                          0        5   0      9
-col2          0                    0            -34                          0        0  56     22
-total         4                    0            -34                          0        5  56     31"""
-    assert eq(ret, expected)
+COLUMNS DETAILS:
+ - OK: Standard response message indicating Success (code=200)
+ - Request Entity Too Large: Standard response message indicating Client error (code=413)"""[1:]
+    
+    d['geofon'][urlerr] += 3
+    
+    assert str(d) == """
+                    Request       
+                    Entity        
+             Url    Too           
+        OK   Error  Large    TOTAL
+------  ---  -----  -------  -----
+geofon  105      3        5    113
+TOTAL   105      3        5    113
 
-    import pandas as pd
-    ret = stats2str(data={
-                          'col1': {'a': 9, 'b': 3},
-                          'col2': pd.Series({'a': -1, 'c': 0})
-                          })
-    h = 9
+COLUMNS DETAILS:
+ - OK: Standard response message indicating Success (code=200)
+ - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
+ - Request Entity Too Large: Standard response message indicating Client error (code=413)"""[1:]
+    
+    d['geofon'][mseederr] += 11
+    
+    assert str(d) == """
+                           Request       
+                           Entity        
+             MSeed  Url    Too           
+        OK   Error  Error  Large    TOTAL
+------  ---  -----  -----  -------  -----
+geofon  105     11      3        5    124
+TOTAL   105     11      3        5    124
+
+COLUMNS DETAILS:
+ - OK: Standard response message indicating Success (code=200)
+ - MSeed Error: Response OK, but data cannot be read as MiniSeed
+ - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
+ - Request Entity Too Large: Standard response message indicating Client error (code=413)"""[1:]
+   
+    d['eida'][tbound_err] += 3
+    
+    assert str(d) == """
+                                  Request       
+             Time                 Entity        
+             Span   MSeed  Url    Too           
+        OK   Error  Error  Error  Large    TOTAL
+------  ---  -----  -----  -----  -------  -----
+geofon  105      0     11      3        5    124
+eida      0      3      0      0        0      3
+TOTAL   105      3     11      3        5    127
+
+COLUMNS DETAILS:
+ - OK: Standard response message indicating Success (code=200)
+ - Time Span Error: Response OK, but data completely outside requested time span 
+ - MSeed Error: Response OK, but data cannot be read as MiniSeed
+ - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
+ - Request Entity Too Large: Standard response message indicating Client error (code=413)"""[1:]
+   
+    d['eida'][tbound_warn] += 0
+    
+    assert str(d) == """
+                                             Request       
+             OK         Time                 Entity        
+             Partially  Span   MSeed  Url    Too           
+        OK   Saved      Error  Error  Error  Large    TOTAL
+------  ---  ---------  -----  -----  -----  -------  -----
+geofon  105          0      0     11      3        5    124
+eida      0          0      3      0      0        0      3
+TOTAL   105          0      3     11      3        5    127
+
+COLUMNS DETAILS:
+ - OK: Standard response message indicating Success (code=200)
+ - OK Partially Saved: Response OK, data saved partially: some received data chunks where completely outside requested time span
+ - Time Span Error: Response OK, but data completely outside requested time span 
+ - MSeed Error: Response OK, but data cannot be read as MiniSeed
+ - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
+ - Request Entity Too Large: Standard response message indicating Client error (code=413)"""[1:]
+    
+    d['eida'][tbound_warn] += 6
+    
+    assert str(d) == """
+                                             Request       
+             OK         Time                 Entity        
+             Partially  Span   MSeed  Url    Too           
+        OK   Saved      Error  Error  Error  Large    TOTAL
+------  ---  ---------  -----  -----  -----  -------  -----
+geofon  105          0      0     11      3        5    124
+eida      0          6      3      0      0        0      9
+TOTAL   105          6      3     11      3        5    133
+
+COLUMNS DETAILS:
+ - OK: Standard response message indicating Success (code=200)
+ - OK Partially Saved: Response OK, data saved partially: some received data chunks where completely outside requested time span
+ - Time Span Error: Response OK, but data completely outside requested time span 
+ - MSeed Error: Response OK, but data cannot be read as MiniSeed
+ - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
+ - Request Entity Too Large: Standard response message indicating Client error (code=413)"""[1:]
+   
+    d['geofon'][500] += 1
+    
+    assert str(d) == """
+                                             Request                 
+             OK         Time                 Entity   Internal       
+             Partially  Span   MSeed  Url    Too      Server         
+        OK   Saved      Error  Error  Error  Large    Error     TOTAL
+------  ---  ---------  -----  -----  -----  -------  --------  -----
+geofon  105          0      0     11      3        5         1    125
+eida      0          6      3      0      0        0         0      9
+TOTAL   105          6      3     11      3        5         1    134
+
+COLUMNS DETAILS:
+ - OK: Standard response message indicating Success (code=200)
+ - OK Partially Saved: Response OK, data saved partially: some received data chunks where completely outside requested time span
+ - Time Span Error: Response OK, but data completely outside requested time span 
+ - MSeed Error: Response OK, but data cannot be read as MiniSeed
+ - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
+ - Request Entity Too Large: Standard response message indicating Client error (code=413)
+ - Internal Server Error: Standard response message indicating Server error (code=500)"""[1:]
+    
+    
+    d['eida'][300] += 3
+    
+    assert str(d) == """
+                                                       Request                 
+             OK         Time                           Entity   Internal       
+             Partially  Span   MSeed  Url    Multiple  Too      Server         
+        OK   Saved      Error  Error  Error  Choices   Large    Error     TOTAL
+------  ---  ---------  -----  -----  -----  --------  -------  --------  -----
+geofon  105          0      0     11      3         0        5         1    125
+eida      0          6      3      0      0         3        0         0     12
+TOTAL   105          6      3     11      3         3        5         1    137
+
+COLUMNS DETAILS:
+ - OK: Standard response message indicating Success (code=200)
+ - OK Partially Saved: Response OK, data saved partially: some received data chunks where completely outside requested time span
+ - Time Span Error: Response OK, but data completely outside requested time span 
+ - MSeed Error: Response OK, but data cannot be read as MiniSeed
+ - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
+ - Multiple Choices: Standard response message indicating Redirection (code=300)
+ - Request Entity Too Large: Standard response message indicating Client error (code=413)
+ - Internal Server Error: Standard response message indicating Server error (code=500)"""[1:]
+    
+     
+    d['geofon'][599] += 3
+    
+    assert str(d) == """
+                                                       Request                          
+             OK         Time                           Entity   Internal                
+             Partially  Span   MSeed  Url    Multiple  Too      Server    Unknown       
+        OK   Saved      Error  Error  Error  Choices   Large    Error     599      TOTAL
+------  ---  ---------  -----  -----  -----  --------  -------  --------  -------  -----
+geofon  105          0      0     11      3         0        5         1        3    128
+eida      0          6      3      0      0         3        0         0        0     12
+TOTAL   105          6      3     11      3         3        5         1        3    140
+
+COLUMNS DETAILS:
+ - OK: Standard response message indicating Success (code=200)
+ - OK Partially Saved: Response OK, data saved partially: some received data chunks where completely outside requested time span
+ - Time Span Error: Response OK, but data completely outside requested time span 
+ - MSeed Error: Response OK, but data cannot be read as MiniSeed
+ - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
+ - Multiple Choices: Standard response message indicating Redirection (code=300)
+ - Request Entity Too Large: Standard response message indicating Client error (code=413)
+ - Internal Server Error: Standard response message indicating Server error (code=500)
+ - Unknown 599: Non-standard response, unknown message (code=599)"""[1:]
+    
+    d['eida'][204] += 3
+    
+    assert str(d) == """
+                                                                Request                          
+             OK         Time                                    Entity   Internal                
+             Partially  Span   MSeed  Url    No       Multiple  Too      Server    Unknown       
+        OK   Saved      Error  Error  Error  Content  Choices   Large    Error     599      TOTAL
+------  ---  ---------  -----  -----  -----  -------  --------  -------  --------  -------  -----
+geofon  105          0      0     11      3        0         0        5         1        3    128
+eida      0          6      3      0      0        3         3        0         0        0     15
+TOTAL   105          6      3     11      3        3         3        5         1        3    143
+
+COLUMNS DETAILS:
+ - OK: Standard response message indicating Success (code=200)
+ - OK Partially Saved: Response OK, data saved partially: some received data chunks where completely outside requested time span
+ - Time Span Error: Response OK, but data completely outside requested time span 
+ - MSeed Error: Response OK, but data cannot be read as MiniSeed
+ - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
+ - No Content: Standard response message indicating Success (code=204)
+ - Multiple Choices: Standard response message indicating Redirection (code=300)
+ - Request Entity Too Large: Standard response message indicating Client error (code=413)
+ - Internal Server Error: Standard response message indicating Server error (code=500)
+ - Unknown 599: Non-standard response, unknown message (code=599)"""[1:]
+    
+    
+    d['what'][seg_not_found] += 0
+    
+    assert str(d) == """
+                                                                Request                                   
+             OK         Time                                    Entity   Internal           Segment       
+             Partially  Span   MSeed  Url    No       Multiple  Too      Server    Unknown  Not           
+        OK   Saved      Error  Error  Error  Content  Choices   Large    Error     599      Found    TOTAL
+------  ---  ---------  -----  -----  -----  -------  --------  -------  --------  -------  -------  -----
+geofon  105          0      0     11      3        0         0        5         1        3        0    128
+eida      0          6      3      0      0        3         3        0         0        0        0     15
+what      0          0      0      0      0        0         0        0         0        0        0      0
+TOTAL   105          6      3     11      3        3         3        5         1        3        0    143
+
+COLUMNS DETAILS:
+ - OK: Standard response message indicating Success (code=200)
+ - OK Partially Saved: Response OK, data saved partially: some received data chunks where completely outside requested time span
+ - Time Span Error: Response OK, but data completely outside requested time span 
+ - MSeed Error: Response OK, but data cannot be read as MiniSeed
+ - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
+ - No Content: Standard response message indicating Success (code=204)
+ - Multiple Choices: Standard response message indicating Redirection (code=300)
+ - Request Entity Too Large: Standard response message indicating Client error (code=413)
+ - Internal Server Error: Standard response message indicating Server error (code=500)
+ - Unknown 599: Non-standard response, unknown message (code=599)
+ - Segment Not Found: Response OK, but segment data not found (e.g., after a multi-segment request)"""[1:]
+    
+    
+    d['geofon'][413] += 33030000
+    
+    assert str(d) == """
+                                                                Request                                       
+             OK         Time                                    Entity    Internal           Segment          
+             Partially  Span   MSeed  Url    No       Multiple  Too       Server    Unknown  Not              
+        OK   Saved      Error  Error  Error  Content  Choices   Large     Error     599      Found    TOTAL   
+------  ---  ---------  -----  -----  -----  -------  --------  --------  --------  -------  -------  --------
+geofon  105          0      0     11      3        0         0  33030005         1        3        0  33030128
+eida      0          6      3      0      0        3         3         0         0        0        0        15
+what      0          0      0      0      0        0         0         0         0        0        0         0
+TOTAL   105          6      3     11      3        3         3  33030005         1        3        0  33030143
+
+COLUMNS DETAILS:
+ - OK: Standard response message indicating Success (code=200)
+ - OK Partially Saved: Response OK, data saved partially: some received data chunks where completely outside requested time span
+ - Time Span Error: Response OK, but data completely outside requested time span 
+ - MSeed Error: Response OK, but data cannot be read as MiniSeed
+ - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
+ - No Content: Standard response message indicating Success (code=204)
+ - Multiple Choices: Standard response message indicating Redirection (code=300)
+ - Request Entity Too Large: Standard response message indicating Client error (code=413)
+ - Internal Server Error: Standard response message indicating Server error (code=500)
+ - Unknown 599: Non-standard response, unknown message (code=599)
+ - Segment Not Found: Response OK, but segment data not found (e.g., after a multi-segment request)"""[1:]
+
+    d['what'][100] -= 8  # try a negative one. It should work
+    
+    assert str(d) == """
+                                                                          Request                                       
+             OK         Time                                              Entity    Internal           Segment          
+             Partially  Span   MSeed  Url              No       Multiple  Too       Server    Unknown  Not              
+        OK   Saved      Error  Error  Error  Continue  Content  Choices   Large     Error     599      Found    TOTAL   
+------  ---  ---------  -----  -----  -----  --------  -------  --------  --------  --------  -------  -------  --------
+geofon  105          0      0     11      3         0        0         0  33030005         1        3        0  33030128
+eida      0          6      3      0      0         0        3         3         0         0        0        0        15
+what      0          0      0      0      0        -8        0         0         0         0        0        0        -8
+TOTAL   105          6      3     11      3        -8        3         3  33030005         1        3        0  33030135
+
+COLUMNS DETAILS:
+ - OK: Standard response message indicating Success (code=200)
+ - OK Partially Saved: Response OK, data saved partially: some received data chunks where completely outside requested time span
+ - Time Span Error: Response OK, but data completely outside requested time span 
+ - MSeed Error: Response OK, but data cannot be read as MiniSeed
+ - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
+ - Continue: Standard response message indicating Informational response (code=100)
+ - No Content: Standard response message indicating Success (code=204)
+ - Multiple Choices: Standard response message indicating Redirection (code=300)
+ - Request Entity Too Large: Standard response message indicating Client error (code=413)
+ - Internal Server Error: Standard response message indicating Server error (code=500)
+ - Unknown 599: Non-standard response, unknown message (code=599)
+ - Segment Not Found: Response OK, but segment data not found (e.g., after a multi-segment request)"""[1:]
+
+   
+
+
     
 
 

@@ -23,7 +23,8 @@ from sqlalchemy.orm.session import sessionmaker
 from stream2segment.io.db import models
 from urllib.error import URLError
 from click.testing import CliRunner
-from stream2segment.main import main, closing
+from stream2segment.main import closing
+from stream2segment.cli import cli
 import tempfile
 from stream2segment.io.db.models import Base, Event, Class, Station, WebService, Segment, withdata
 import csv
@@ -413,7 +414,7 @@ class Test(unittest.TestCase):
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             pyfile, conffile = self.get_processing_files()
-            result = runner.invoke(main, ['p', '--dburl', self.dburi,
+            result = runner.invoke(cli, ['process', '--dburl', self.dburi,
                                    '-p', pyfile, '-c', conffile, file.name])
 
             if result.exception:
@@ -474,7 +475,7 @@ class Test(unittest.TestCase):
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             pyfile, conffile = self.get_processing_files()
-            result = runner.invoke(main, ['p', '--dburl', self.dburi,
+            result = runner.invoke(cli, ['process', '--dburl', self.dburi,
                                    '-p', pyfile, '-c', conffile, file.name])
 
             if result.exception:
@@ -542,7 +543,7 @@ class Test(unittest.TestCase):
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             pyfile, conffile = self.get_processing_files()
-            result = runner.invoke(main, ['p', '--dburl', self.dburi,
+            result = runner.invoke(cli, ['process', '--dburl', self.dburi,
                                    '-p', pyfile, '-c', conffile, file.name])
 
             if result.exception:
@@ -602,7 +603,7 @@ class Test(unittest.TestCase):
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             pyfile, conffile = self.get_processing_files()
             
-            result = runner.invoke(main, ['p', '--dburl', self.dburi,
+            result = runner.invoke(cli, ['process', '--dburl', self.dburi,
                                    '-p', pyfile,
                                    '-c', conffile,
                                    file.name])
@@ -671,7 +672,7 @@ class Test(unittest.TestCase):
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             pyfile, conffile = self.get_processing_files()
             
-            result = runner.invoke(main, ['p', '--dburl', self.dburi,
+            result = runner.invoke(cli, ['process', '--dburl', self.dburi,
                                    '-p', pyfile,
                                    '-c', conffile,
                                    file.name])
@@ -743,7 +744,7 @@ def main(segment, config):""")
                 pyfile2.write(cont2.encode('utf8'))
                 pyfile2.seek(0)
 
-                result = runner.invoke(main, ['p', '--dburl', self.dburi,
+                result = runner.invoke(cli, ['process', '--dburl', self.dburi,
                                               '-p', pyfile2.name, '-f', "main_retlist",
                                               '-c', conffile,
                                               file.name])
@@ -792,7 +793,7 @@ def main(segment, config):""")
                 pyfile2.write(content.encode('utf8'))
                 pyfile2.seek(0)
 
-                result = runner.invoke(main, ['p', '--dburl', self.dburi,
+                result = runner.invoke(cli, ['process', '--dburl', self.dburi,
                                               '-p', pyfile2.name, '-f', "main_retlist",
                                               '-c', conffile,
                                               file.name])
@@ -840,7 +841,7 @@ def main(""")
                 tmpfile.write(content.encode('utf8'))
                 tmpfile.seek(0)
                 
-                result = runner.invoke(main, ['p', '--dburl', self.dburi,
+                result = runner.invoke(cli, ['process', '--dburl', self.dburi,
                                               '-p', tmpfile.name, '-f', "main_typeerr",
                                               '-c', conffile,
                                               file.name])
@@ -879,7 +880,7 @@ def main(""")
                 tmpfile.write(content.encode('utf8'))
                 tmpfile.seek(0)
                 
-                result = runner.invoke(main, ['p', '--dburl', self.dburi,
+                result = runner.invoke(cli, ['process', '--dburl', self.dburi,
                                               '-p', tmpfile.name, '-f', "main_typeerr",
                                               '-c', conffile,
                                               file.name])

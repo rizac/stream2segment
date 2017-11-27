@@ -27,7 +27,7 @@ from stream2segment.io.db.models import Event, DataCenter, Segment, Station, Cha
 from stream2segment.io.db.pd_sql_utils import dfrowiter, mergeupdate,\
     dbquery2df, syncdf, insertdf_napkeys, updatedf
 from stream2segment.download.utils import empty, urljoin, response2df, normalize_fdsn_dframe,\
-    get_search_radius, UrlStats, stats2str,\
+    get_search_radius, DownloadStats,\
     get_events_list, locations2degrees, custom_download_codes, eidarsiter, EidaValidator
 from stream2segment.utils import strconvert, get_progressbar
 from stream2segment.utils.mseedlite3 import MSeedError, unpack as mseedunpack
@@ -771,9 +771,14 @@ def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius,
     return ret
 
 
-def prepare_for_download(session, segments_df, wtimespan, retry_no_code, retry_url_errors,
-                         retry_mseed_errors, retry_4xx, retry_5xx, retry_timespan_errors,
-                         retry_timespan_warnings):
+# session, segments_df, timespan, retry_seg_not_found,
+#                                  retry_url_err, retry_mseed_err, retry_client_err,
+#                                  retry_server_err, retry_timespan_err,
+#                                  retry_timespan_warnings=False
+
+def prepare_for_download(session, segments_df, timespan, retry_seg_not_found, retry_url_err,
+                         retry_mseed_err, retry_client_err, retry_server_err, retry_timespan_err,
+                         retry_timespan_warn=False):
     """
         Drops the segments which are already present on the database and updates the primary
         keys for those not present (adding them to the db).
@@ -812,19 +817,19 @@ def prepare_for_download(session, segments_df, wtimespan, retry_no_code, retry_u
     # set the boolean array telling whether we need to retry db_seg_df elements (those already
     # downloaded)
     mask = False
-    if retry_no_code:
+    if retry_seg_not_found:
         mask |= pd.isnull(db_seg_df[SEG_DSC])
-    if retry_url_errors:
+    if retry_url_err:
         mask |= db_seg_df[SEG_DSC] == URLERR_CODE
-    if retry_mseed_errors:
+    if retry_mseed_err:
         mask |= db_seg_df[SEG_DSC] == MSEEDERR_CODE
-    if retry_4xx:
+    if retry_client_err:
         mask |= db_seg_df[SEG_DSC].between(400, 499.9999, inclusive=True)
-    if retry_5xx:
+    if retry_server_err:
         mask |= db_seg_df[SEG_DSC].between(500, 599.9999, inclusive=True)
-    if retry_timespan_errors:
+    if retry_timespan_err:
         mask |= db_seg_df[SEG_DSC] == OUTTIME_ERR
-    if retry_timespan_warnings:
+    if retry_timespan_warn:
         mask |= db_seg_df[SEG_DSC] == OUTTIME_WARN
 
     db_seg_df[SEG_RETRY] = mask
@@ -843,7 +848,7 @@ def prepare_for_download(session, segments_df, wtimespan, retry_no_code, retry_u
     # those not NaT mean the segment has already been downloaded (same (channelid, eventid))
     # Now, for those non-NaT segments, set retry=True if the OLD time bounds are different
     # than the new ones (tstart, tend).
-    td0, td1 = timedelta(minutes=wtimespan[0]), timedelta(minutes=wtimespan[1])
+    td0, td1 = timedelta(minutes=timespan[0]), timedelta(minutes=timespan[1])
     tstart, tend = (segments_df[SEG_ATIME] - td0).dt.round('s'), \
         (segments_df[SEG_ATIME] + td1).dt.round('s')
     retry_requests_timebounds = pd.notnull(segments_df[SEG_START]) & \
@@ -949,12 +954,9 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
     SEG_COLNAMES = list(segvals.keys())
     # define default error codes:
     URLERR_CODE, MSEEDERR_CODE, OUTTIME_ERR, OUTTIME_WARN = custom_download_codes()
-    msg_outtime_warns = ("Response (code: 200, OK) returned some records completely outside of "
-                         "request's time window. Waveform data partially saved to database")
-    msg_outtime_errs = ("Response (code: 200, OK) returned all records completely outside of "
-                        "request's time window. Waveform data not saved to database")
+    SEG_NOT_FOUND = None
 
-    stats = defaultdict(lambda: UrlStats())
+    stats = DownloadStats()
 
     datcen_id2url = datacenters_df.set_index([DC_ID])[DC_DSURL].to_dict()
 
@@ -1047,7 +1049,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                     # via station and channel joins in case)
                     df.loc[:, SEG_DATA] = b''
                     df.loc[:, SEG_DSCODE] = code
-                    stats[url]["%d: %s" % (code, msg)] += len(df)
+                    stats[url][code] += len(df)
                 else:
                     try:
                         starttime = groupkeys_tuple[requeststart_index]
@@ -1075,7 +1077,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                                 # set only the code field.
                                 # Use set_value as it's faster for single elements
                                 df.set_value(idxval, SEG_DSCODE, MSEEDERR_CODE)
-                                stats[url][err] += 1
+                                stats[url][MSEEDERR_CODE] += 1
                                 errors += 1
                             else:
                                 if outoftime is True:
@@ -1104,28 +1106,25 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                                 df.set_value(idxval, SEG_DATA, data)
 
                         if oks:
-                            stats[url]["%d: %s" % (code, msg)] += oks
+                            stats[url][code] += oks
                         if outtime_errs:
-                            stats[url]["%d: %s" % (code, msg_outtime_errs)] += outtime_errs
+                            stats[url][code] += outtime_errs
                         if outtime_warns:
-                            stats[url]["%d: %s" % (code, msg_outtime_warns)] += outtime_warns
+                            stats[url][code] += outtime_warns
 
                         unknowns = len(df) - oks - errors - outtime_errs - outtime_warns
                         if unknowns > 0:
-                            stats[url]["No code: Expected segment data not found in "
-                                       "Response(code=%d). "
-                                       "Segment download status code set to NULL"
-                                       % code] += unknowns
+                            stats[url][SEG_NOT_FOUND] += unknowns
                     except MSeedError as mseedexc:
                         code = MSEEDERR_CODE
                         exc = mseedexc
-                    except Exception as unknown_exc:
-                        code = None
-                        exc = unknown_exc
+#                     except Exception as unknown_exc:
+#                         code = None
+#                         exc = unknown_exc
 
                 if exc is not None:
                     df.loc[:, SEG_DSCODE] = code
-                    stats[url][exc] += len(df)
+                    stats[url][code] += len(df)
                     logger.warning(MSG("Unable to get waveform data", exc, request))
 
                 segmanager.add(df)
@@ -1142,6 +1141,8 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                 segments_df = pd.DataFrame()
 
     segmanager.close()  # flush remaining stuff to insert / update, if any, and prints info
+
+    stats.normalizecodes()  # this makes potential string code merge into int codes
     return stats
 
 
@@ -1283,31 +1284,10 @@ class DbManager(object):
         dblog(self.table, new, ntot - new, upd, utot - upd)
 
 
-def print_stats(stats_dict, datacenters_df):
-    # STATS PRINTING:
-    # define functions to represent stats:
-    def rfunc(row):
-        """function for modifying each row display"""
-        url_ = datacenters_df[datacenters_df[DataCenter.id.key] ==
-                              row][DataCenter.station_url.key].iloc[0]
-        return urlparse(url_).netloc
-
-    def cfunc(col):
-        """function for modifying each col display"""
-        return col if col.find(":") < 0 else col[:col.find(":")]
-
-    logger.info("Summary of web service responses for waveform segments:\n%s" %
-                (stats2str(stats_dict, fillna=0, transpose=True, lambdacol=cfunc, sort='col') or
-                 "(Nothing to show)"))
-
-
 def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
-        search_radius,
-        channels, min_sample_rate, inventory,
-        wtimespan, retry_no_code, retry_url_errors, retry_mseed_errors, retry_4xx, retry_5xx,
-        retry_timespan_errors, retry_timespan_warnings,
-        traveltimes_model,
-        advanced_settings, isterminal=False):
+        search_radius, channels, min_sample_rate, inventory, timespan,
+        retry_seg_not_found, retry_url_err, retry_mseed_err, retry_client_err, retry_server_err,
+        retry_timespan_err, traveltimes_model, advanced_settings, isterminal=False):
     """
         Downloads waveforms related to events to a specific path. FIXME: improve doc
     """
@@ -1392,9 +1372,10 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
     exit_code = 0
     try:
         segments_df, request_timebounds_need_update = \
-            prepare_for_download(session, segments_df, wtimespan, retry_no_code,
-                                 retry_url_errors, retry_mseed_errors, retry_4xx,
-                                 retry_5xx, retry_timespan_errors, retry_timespan_warnings)
+            prepare_for_download(session, segments_df, timespan, retry_seg_not_found,
+                                 retry_url_err, retry_mseed_err, retry_client_err,
+                                 retry_server_err, retry_timespan_err,
+                                 retry_timespan_warn=False)
 
         # download_save_segments raises a QuitDownload if there is no data, so if we are here
         # segments_df is not empty
@@ -1417,7 +1398,10 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
         del segments_df  # help gc?
         session.close()  # frees memory?
         logger.info("")
-        print_stats(d_stats, datacenters_df)
+        logger.info(("** Segments download summary **\n"
+                     "Number of segments per data-center (rows) and response "
+                     "status (columns):\n%s") %
+                    str(d_stats) or "Nothing to show")
 
     except QuitDownload as dexc:
         # we are here if:

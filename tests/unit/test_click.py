@@ -5,9 +5,10 @@ Created on May 23, 2017
 '''
 import unittest
 from click.testing import CliRunner
-from stream2segment.main import main
+from stream2segment.cli import cli
 from mock.mock import patch
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
+from stream2segment.main import init as orig_init
 from tempfile import NamedTemporaryFile
 import yaml
 from contextlib import contextmanager
@@ -54,7 +55,7 @@ def test_click_download(mock_download):
     runner = CliRunner()
     # test normal case and arguments.
     with download_setup("download.yaml") as (conffile, yamldic):
-        result = runner.invoke(main, ['d', '-c', conffile])
+        result = runner.invoke(cli, ['download', '-c', conffile])
         dic = mock_download.call_args_list[0][1]
         assert dic['start'] == yamldic['start']
         assert dic['end'] == yamldic['end']
@@ -64,7 +65,7 @@ def test_click_download(mock_download):
         # test by supplying an argument it is overridden
         mock_download.reset_mock()
         newdate = yamldic['start'] + timedelta(seconds=1)
-        result = runner.invoke(main, ['d', '-c', conffile, '--start', newdate])
+        result = runner.invoke(cli, ['download', '-c', conffile, '--start', newdate])
         dic = mock_download.call_args_list[0][1]
         assert dic['start'] == newdate
         assert dic['end'] == yamldic['end']
@@ -73,7 +74,7 @@ def test_click_download(mock_download):
 
         # test by supplying the same argument as string instead of datetime (use end instead of start this time)
         mock_download.reset_mock()
-        result = runner.invoke(main, ['d', '-c', conffile, '--end', newdate.isoformat()])
+        result = runner.invoke(cli, ['download', '-c', conffile, '--end', newdate.isoformat()])
         dic = mock_download.call_args_list[0][1]
         assert dic['end'] == newdate
         assert dic['start'] == yamldic['start']
@@ -83,7 +84,7 @@ def test_click_download(mock_download):
     # test start and end given as integers
     with download_setup("download.yaml", start=1, end=0) as (conffile, yamldic):
         mock_download.reset_mock()
-        result = runner.invoke(main, ['d', '-c', conffile])
+        result = runner.invoke(cli, ['download', '-c', conffile])
         dic = mock_download.call_args_list[0][1]
         d = datetime.utcnow()
         startd = datetime(d.year, d.month, d.day) - timedelta(days=1)
@@ -96,20 +97,20 @@ def test_click_download(mock_download):
     # test removing an item in the config.yaml this item is not passed to download func
     with download_setup("download.yaml", inventory=None) as (conffile, yamldic):
         mock_download.reset_mock()
-        result = runner.invoke(main, ['d', '-c', conffile])
+        result = runner.invoke(cli, ['download', '-c', conffile])
         dic = mock_download.call_args_list[0][1]
         assert not 'inventory' in dic
 
     # test with an unknown argument
     with download_setup("download.yaml", inventory=None) as (conffile, yamldic):
         mock_download.reset_mock()
-        result = runner.invoke(main, ['d', '--wtf_is_this_argument_#$%TGDAGRHNBGAWEtqevt3t', 5])
+        result = runner.invoke(cli, ['download', '--wtf_is_this_argument_#$%TGDAGRHNBGAWEtqevt3t', 5])
         assert result.exit_code != 0
         assert not mock_download.called
 
 
     mock_download.reset_mock()
-    result = runner.invoke(main, ['d', '--help'])
+    result = runner.invoke(cli, ['download', '--help'])
     assert result.exit_code == 0
     assert not mock_download.called
 
@@ -123,39 +124,39 @@ def test_click_process(mock_process):
 
     # test no dburl supplied
     mock_process.reset_mock()
-    result = runner.invoke(main, ['p', '-c', conffile, '-p', pyfile, 'c'])
+    result = runner.invoke(cli, ['process', '-c', conffile, '-p', pyfile, 'c'])
     assert "Missing option" in result.output
     assert result.exc_info
     
     # test dburl supplied
     mock_process.reset_mock()
-    result = runner.invoke(main, ['p', '-d', 'd', '-c', conffile, '-p', pyfile, 'c'])
+    result = runner.invoke(cli, ['process', '-d', 'd', '-c', conffile, '-p', pyfile, 'c'])
     lst = list(mock_process.call_args_list[0][0])
     assert lst == ['d', pyfile, conffile, 'c']
     assert result.exit_code == 0
     
     # test dburl supplied via config
     mock_process.reset_mock()
-    result = runner.invoke(main, ['p', '-d', d_conffile , '-c', conffile, '-p', pyfile, 'c'])
+    result = runner.invoke(cli, ['process', '-d', d_conffile , '-c', conffile, '-p', pyfile, 'c'])
     lst = list(mock_process.call_args_list[0][0])
     assert lst == [yaml_load(d_conffile)['dburl'], pyfile, conffile, 'c']
     assert result.exit_code == 0
 
     # test an error in params: -dburl instead of --dburl:
     mock_process.reset_mock()
-    result = runner.invoke(main, ['p', '-dburl', d_conffile , '-c', conffile, '-p', pyfile, 'c'])
+    result = runner.invoke(cli, ['process', '-dburl', d_conffile , '-c', conffile, '-p', pyfile, 'c'])
     assert not mock_process.called
     assert result.exit_code != 0
 
     # assert help works:
     mock_process.reset_mock()
-    result = runner.invoke(main, ['p', '--help'])
+    result = runner.invoke(cli, ['process', '--help'])
     assert not mock_process.called
     assert result.exit_code == 0
 
 
-@patch("stream2segment.main.visualize", return_value=0)
-def test_click_visualize(mock_visualize):
+@patch("stream2segment.main.show", return_value=0)
+def test_click_show(mock_visualize):
     runner = CliRunner()
     d_conffile = get_templates_fpath("download.yaml")
     conffile = get_templates_fpath("processing.yaml")
@@ -163,40 +164,40 @@ def test_click_visualize(mock_visualize):
 
     # test no dburl supplied
     mock_visualize.reset_mock()
-    result = runner.invoke(main, ['v', '-c', conffile, '-p', pyfile])
+    result = runner.invoke(cli, ['show', '-c', conffile, '-p', pyfile])
     assert "Missing option" in result.output
     assert result.exc_info
     
     # test dburl supplied
     mock_visualize.reset_mock()
-    result = runner.invoke(main, ['v', '-d', 'd', '-c', conffile, '-p', pyfile])
+    result = runner.invoke(cli, ['show', '-d', 'd', '-c', conffile, '-p', pyfile])
     lst = list(mock_visualize.call_args_list[0][0])
     assert lst == ['d', pyfile, conffile]
     assert result.exit_code == 0
     
     # test dburl supplied via config
     mock_visualize.reset_mock()
-    result = runner.invoke(main, ['v', '-d', d_conffile , '-c', conffile, '-p', pyfile])
+    result = runner.invoke(cli, ['show', '-d', d_conffile , '-c', conffile, '-p', pyfile])
     lst = list(mock_visualize.call_args_list[0][0])
     assert lst == [yaml_load(d_conffile)['dburl'], pyfile, conffile]
     assert result.exit_code == 0
 
     # test an error in params: -dburl instead of --dburl:
     mock_visualize.reset_mock()
-    result = runner.invoke(main, ['v', '-dburl', d_conffile , '-c', conffile, '-p', pyfile])
+    result = runner.invoke(cli, ['show', '-dburl', d_conffile , '-c', conffile, '-p', pyfile])
     assert not mock_visualize.called
     assert result.exit_code != 0
 
     # assert help works:
     mock_visualize.reset_mock()
-    result = runner.invoke(main, ['v', '--help'])
+    result = runner.invoke(cli, ['show', '--help'])
     assert not mock_visualize.called
     assert result.exit_code == 0
 
-from stream2segment.main import create_templates as orig_ct
+
 @patch("stream2segment.main.shutil.copy2")
 @patch("stream2segment.main.os.path.isfile")
-@patch("stream2segment.main.create_templates", side_effect = lambda outdir, prompt, *files: orig_ct(outdir, False, *files))
+@patch("stream2segment.main.init", side_effect = lambda outdir, prompt, *files: orig_init(outdir, False, *files))
 def test_click_template(mock_create_templates, mock_isfile, mock_copy2):
     mock_isfile.side_effect = lambda *a, **v: True
 
@@ -205,7 +206,7 @@ def test_click_template(mock_create_templates, mock_isfile, mock_copy2):
 
         # a REALLY STUPID TEST. WE SHOULD ASSERT MORE STUFF.
         # btw: how to check click prompt?? is there a way?
-        result = runner.invoke(main, ['t', 'abc'])
+        result = runner.invoke(cli, ['init', 'abc'])
         # FIXME: check how to mock os.path.isfile properly. This doesnot work:
         # assert mock_isfile.call_count == 5
         assert result.exit_code == 0
@@ -214,7 +215,7 @@ def test_click_template(mock_create_templates, mock_isfile, mock_copy2):
         mock_create_templates.reset_mock()
         mock_isfile.reset_mock()
         mock_copy2.reset_mock()
-        result = runner.invoke(main, ['t', '--help'])
+        result = runner.invoke(cli, ['init', '--help'])
         assert not mock_create_templates.called
         assert result.exit_code == 0
 
@@ -225,7 +226,7 @@ def test_click_template_realcopy():
 
     runner = CliRunner()
     with runner.isolated_filesystem() as mydir:
-        result = runner.invoke(main, ['t', mydir])
+        result = runner.invoke(cli, ['init', mydir])
         filez = os.listdir(mydir)
         assert "download.yaml" in filez
         assert "processing.yaml" in filez
@@ -238,36 +239,40 @@ def test_click_template_realcopy():
     assert result.exit_code == 0
 
 # THIS HAS TO BE IMPLEMENTED (if we set the datareport html in place)
-@patch("stream2segment.main.data_aval", return_value=0)
-def tst_click_dataaval(mock_da):
+@patch("stream2segment.main.show_download_report", return_value=0)
+def test_click_dataaval(mock_da):
     runner = CliRunner()
     # test normal case and arguments.
     mock_da.reset_mock()
     with download_setup("download.yaml") as (conffile, yamldic):
-        result = runner.invoke(main, ['a', '-d', 'dburl', 'outfile'])
+        result = runner.invoke(cli, ['utils', 'download-report', '-d', 'dburl'])
         lst = list(mock_da.call_args_list[0][0])
-        assert lst == ['dburl', 'outfile', 0.5]
+        assert lst == ['dburl']
         assert result.exit_code == 0
 
-    # test wrong arg.
-    mock_da.reset_mock()
-    with download_setup("download.yaml") as (conffile, yamldic):
-        result = runner.invoke(main, ['a', '-d', 'dburl', 'outfile', '-mm', 0.5])
-        assert not mock_da.called
-#         assert lst == ['dburl', 'outfile']
-        assert result.exit_code != 0
+    # assert help works
+    result = runner.invoke(cli, ['utils', 'download-report', '--help'])
+    assert result.exit_code == 0
 
     # test wrong arg.
-    mock_da.reset_mock()
-    with download_setup("download.yaml") as (conffile, yamldic):
-        result = runner.invoke(main, ['a', '--dburl', 'dburl', 'outfile', '-m', 0.4])
-        lst = list(mock_da.call_args_list[0][0])
-        assert lst == ['dburl', 'outfile', 0.4]
-        assert result.exit_code == 0
+#     mock_da.reset_mock()
+#     with download_setup("download.yaml") as (conffile, yamldic):
+#         result = runner.invoke(cli, ['utils', 'download-report', 'dburl', 'outfile', '-mm', 0.5])
+#         assert not mock_da.called
+# #         assert lst == ['dburl', 'outfile']
+#         assert result.exit_code != 0
+
+    # test wrong arg.
+#     mock_da.reset_mock()
+#     with download_setup("download.yaml") as (conffile, yamldic):
+#         result = runner.invoke(cli, ['a', '--dburl', 'dburl', 'outfile', '-m', 0.4])
+#         lst = list(mock_da.call_args_list[0][0])
+#         assert lst == ['dburl', 'outfile', 0.4]
+#         assert result.exit_code == 0
 
     # assert help works:
     mock_da.reset_mock()
-    result = runner.invoke(main, ['a', '--help'])
+    result = runner.invoke(cli, ['utils', 'download-report', '--help'])
     assert not mock_da.called
     assert result.exit_code == 0
 
