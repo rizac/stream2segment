@@ -35,8 +35,8 @@ from stream2segment.download.main import run as run_download
 from stream2segment.utils import tounicode, get_session, indent, secure_dburl
 from stream2segment.utils.resources import get_templates_fpaths
 from stream2segment.gui.main import create_p_app, run_in_browser, create_d_app
-from stream2segment import analysis
-from stream2segment.analysis import mseeds
+from stream2segment.mathutils import arrays
+from stream2segment.mathutils import mseeds
 from stream2segment.utils import strconvert, iterfuncs
 
 
@@ -199,7 +199,7 @@ def closing(dburl, scoped=False, close_logger=True, close_session=True):
 
 def helpmathiter(type, filter):  # @ReservedAssignment
     # print("%s\n\n%s" % (analysis.__doc__, mseeds.__doc__))  # @UndefinedVariable
-    itr = [analysis] if type == 'numpy' else [mseeds] if 'type' == 'obspy' else [analysis, mseeds]
+    itr = [arrays] if type == 'numpy' else [mseeds] if 'type' == 'obspy' else [arrays, mseeds]
     reg = re.compile(strconvert.wild2re(filter))
     for pymodule in itr:
         module_doc_printed = False

@@ -22,15 +22,13 @@ from datetime import timedelta
 from itertools import count
 
 import numpy as np
-from click import progressbar, option as clickoption, command as clickcommand
-# from click.exceptions import BadParameter
-# from click import IntRange
-
 from obspy.geodetics.base import degrees2kilometers
 from obspy.taup.utils import get_phase_names
 from obspy.taup.helper_classes import SlownessModelError
 from obspy.taup.tau_model import TauModel
 from obspy.taup.taup_time import TauPTime
+
+from stream2segment.utils import get_progressbar
 
 
 # global vars
@@ -389,26 +387,10 @@ def computetts(model, sourcedepths, receiverdepths, distances, tts_matrix, phase
     print("%d points to compute for each array" % pts2computepercol)
     print("%d total points to compute" % pts2compute)
 
-    # dummy progressabr if isterminal is False:
-    class Dummypbar(object):
-
-        def update(self, *a, **kw):
-            pass  # ignore the data
-
-        def __enter__(self, *a, **kw):
-            return self
-
-        def __exit__(self, *a, **kw):
-            pass
-
     pool = Pool()
-    with Dummypbar() if not isterminal else progressbar(length=pts2compute) as bar:
+    with get_progressbar(isterminal, length=pts2compute) as bar:
         _tts_matrix = min_traveltimes(model, sourcedepths, receiverdepths, distances[_mask],
                                       phases, callback=lambda: bar.update(1))
-#         for sd, rd, tts in izip(sourcedepths, receiverdepths, tts_matrix):
-#             for i in indices:
-#                 pool.apply_async(min_traveltime, (model, sd, rd, distances[i]),
-#                                  callback=mp_callback(i, tts, bar if isterminal else None))
         pool.close()
         pool.join()
 
@@ -479,72 +461,3 @@ def _filepath(fileout, model, phases):
     if os.path.isdir(fileout):
         fileout = os.path.join(fileout, model + "_" + "_".join(phases))
     return fileout
-
-
-@clickcommand(short_help='Creates via obspy routines a travel time table, i.e. a grid of points '
-              'in a 3-D space, where each point is '
-              'associated to pre-computed travel times arrays. Stores the '
-              'resulting file as .npz compressed numpy format. The resulting file, opened with '
-              'the dedicated program class, allows to compute approximate travel times in a '
-              '*much* faster way than using obspy routines directly')
-@clickoption('-o', '--output', required=True,
-             help=('The output file. If directory, the file name will be automatically '
-                   'created inside the directory. Otherwise must denote a valid writable '
-                   'file name. The extension .npz will be added automatically'))
-@clickoption("-m", "--model", required=True,
-             help="the model name, e.g. iasp91, ak135, ..")
-@clickoption('-p', '--phases', multiple=True,  required=True,
-             help=("The phases used, e.g. ttp+, tts+. Can be typed multiple times, e.g."
-                   "-m P -m p"))
-@clickoption('-t', '--tt_errtol', type=float, required=True,
-             help=('The error tolerance (in seconds). The algorithm will try to store grid points '
-                   'whose distance is close to this value. Decrease this value to increase '
-                   'precision, increase this value to increase the execution speed'))
-@clickoption('-s', '--maxsourcedepth', type=float, default=DEFAULT_SD_MAX, show_default=True,
-             help=('Optional: the maximum source depth (in km) used for the grid generation. '
-                   'When loaded, the relative model can calculate travel times for source depths '
-                   'lower or equal to this value'))
-@clickoption('-r', '--maxreceiverdepth', type=float, default=DEFAULT_RD_MAX, show_default=True,
-             help=('Optional: the maximum receiver depth (in km) used for the grid generation. '
-                   'When loaded, the relative model can calculate travel times for receiver '
-                   'depths lower or equal to this value. Note that setting this value '
-                   'greater than zero might lead to numerical problems, e.g. times not '
-                   'monotonically increasing with distances, especially for short distances '
-                   'around the source'))
-@clickoption('-d', '--maxdistance', type=float, default=DEFAULT_DIST_MAX,  show_default=True,
-             help=('Optional: the maximum distance (in degrees) used for the grid generation. '
-                   'When loaded, the relative model can calculate travel times for receiver '
-                   'depths lower or equal to this value'))
-@clickoption('-P', '--pwavevelocity', type=float, default=DEFAULT_PWAVEVELOCITY, show_default=True,
-             help=('Optional: the P-wave velocity (in km/sec), if the calculation of the P-waves '
-                   'is required according to the argument `phases` (otherwise ignored). '
-                   'As the grid points (in degree) of the distances axis '
-                   'cannot be optimized, a fixed step S is set for which it holds: '
-                   '`min(travel_times(D+step))-min(travel_times(D)) <= tt_errtol` for any point '
-                   'D of the grid. The P-wave velocity is needed to asses such a step '
-                   '(for info, see: '
-                   'http://rallen.berkeley.edu/teaching/F04_GEO302_PhysChemEarth/Lectures/HellfrichWood2001.pdf)'))  # @IgnorePep8
-@clickoption('-S', '--swavevelocity', type=float, default=DEFAULT_SWAVEVELOCITY,  show_default=True,
-             help=('Optional: the S-wave velocity (in km/sec), if the calculation of the S-waves '
-                   '*only* is required, according to the argument `phases` (otherwise ignored). '
-                   'As the grid points (in degree) of the distances axis '
-                   'cannot be optimized, a fixed step S is set for which it holds: '
-                   '`min(travel_times(D+step))-min(travel_times(D)) <= tt_errtol` for any point '
-                   'D of the grid. If the calculation of the P-waves is also needed according to '
-                   'the argument `phases` , the p-wave velocity value will be used and this '
-                   'argument will be ignored. (for info, see: '
-                   '(http://rallen.berkeley.edu/teaching/F04_GEO302_PhysChemEarth/Lectures/HellfrichWood2001.pdf)'))  # @IgnorePep8
-def run(output, model, phases, tt_errtol, maxsourcedepth, maxreceiverdepth, maxdistance,
-        pwavevelocity, swavevelocity):
-    try:
-        output = _filepath(output, model, phases)
-        computeall(output, model, tt_errtol, phases, maxsourcedepth, maxreceiverdepth, maxdistance,
-                   pwavevelocity, swavevelocity, isterminal=True)
-        sys.exit(0)
-    except Exception as exc:
-        print("ERROR: %s" % str(exc))
-        sys.exit(1)
-
-if __name__ == '__main__':
-    run()  # pylint: disable=E1120
-

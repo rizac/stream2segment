@@ -12,7 +12,7 @@ from builtins import map, next, zip, range, object
 import sys
 import os
 import logging
-from collections import defaultdict, OrderedDict
+from collections import OrderedDict
 from datetime import timedelta, datetime
 from itertools import cycle
 
@@ -24,18 +24,18 @@ import psutil
 from stream2segment.utils.url import urlread, read_async as original_read_async, URLException
 from stream2segment.io.db.models import Event, DataCenter, Segment, Station, Channel, \
     WebService, fdsn_urls
-from stream2segment.io.db.pd_sql_utils import dfrowiter, mergeupdate,\
-    dbquery2df, syncdf, insertdf_napkeys, updatedf
-from stream2segment.download.utils import empty, urljoin, response2df, normalize_fdsn_dframe,\
-    get_search_radius, DownloadStats,\
-    get_events_list, locations2degrees, custom_download_codes, eidarsiter, EidaValidator
+from stream2segment.io.db.pd_sql_utils import dfrowiter, mergeupdate, dbquery2df, syncdf, \
+    insertdf_napkeys, updatedf
+from stream2segment.download.utils import empty, urljoin, response2df, normalize_fdsn_dframe, \
+    get_search_radius, DownloadStats, get_events_list, locations2degrees, custom_download_codes, \
+    eidarsiter, EidaValidator
 from stream2segment.utils import strconvert, get_progressbar
 from stream2segment.utils.mseedlite3 import MSeedError, unpack as mseedunpack
 from stream2segment.utils.msgs import MSG
 # from stream2segment.utils.resources import get_ws_fpath, yaml_load
 from stream2segment.io.utils import dumps_inv
 from stream2segment.io.db.queries import query4inventorydownload
-from stream2segment.download.traveltimes.ttloader import TTTable
+from stream2segment.traveltimes.ttloader import TTTable
 from stream2segment.utils.resources import get_ttable_fpath
 
 # make the following(s) behave like python3 counterparts if running from python2.7.x

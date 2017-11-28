@@ -40,6 +40,7 @@ from stream2segment import main
 from stream2segment.process.main import default_funcname
 from stream2segment.utils import strptime
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, yaml_load_doc
+from stream2segment.traveltimes import ttcreator
 
 
 class clickutils(object):
@@ -307,8 +308,9 @@ def dareport(dburl):
 @click.option("-t", "--type", type=click.Choice(['numpy', 'obspy', 'all']), default='all',
               show_default=True,
               help="Show help only for the function matching the given type. Numpy indicates "
-                    "functions operating on numpy arrays (module `stream2segment.analysis`). "
-                    "Obspy (module `stream2segment.analysis.mseeds`) those operating on obspy "
+                    "functions operating on numpy arrays "
+                    "(module `stream2segment.mathutils.arrays`). "
+                    "Obspy (module `stream2segment.mathutils.mseeds`) those operating on obspy "
                     "Traces, most of which are simply the numpy counterparts defined for Trace "
                     "objects")
 @click.option("-f", "--filter", default='*', show_default=True,
@@ -317,6 +319,76 @@ def dareport(dburl):
 def functions(type, filter):  # @ReservedAssignment
     for line in main.helpmathiter(type, filter):
         print(line)
+
+
+@utils.command(short_help='Creates via obspy routines a travel time table, i.e. a grid of points '
+               'in a 3-D space, where each point is '
+               'associated to pre-computed travel times arrays. Stores the '
+               'resulting file as .npz compressed numpy format. The resulting file, opened with '
+               'the dedicated program class, allows to compute approximate travel times in a '
+               '*much* faster way than using obspy routines directly')
+@click.option('-o', '--output', required=True,
+              help=('The output file. If directory, the file name will be automatically '
+                    'created inside the directory. Otherwise must denote a valid writable '
+                    'file name. The extension .npz will be added automatically'))
+@click.option("-m", "--model", required=True,
+              help="the model name, e.g. iasp91, ak135, ..")
+@click.option('-p', '--phases', multiple=True,  required=True,
+              help=("The phases used, e.g. ttp+, tts+. Can be typed multiple times, e.g."
+                   "-m P -m p"))
+@click.option('-t', '--tt_errtol', type=float, required=True,
+              help=('The error tolerance (in seconds). The algorithm will try to store grid points '
+                    'whose distance is close to this value. Decrease this value to increase '
+                    'precision, increase this value to increase the execution speed'))
+@click.option('-s', '--maxsourcedepth', type=float, default=ttcreator.DEFAULT_SD_MAX,
+              show_default=True,
+              help=('Optional: the maximum source depth (in km) used for the grid generation. '
+                    'When loaded, the relative model can calculate travel times for source depths '
+                    'lower or equal to this value'))
+@click.option('-r', '--maxreceiverdepth', type=float, default=ttcreator.DEFAULT_RD_MAX,
+              show_default=True,
+              help=('Optional: the maximum receiver depth (in km) used for the grid generation. '
+                    'When loaded, the relative model can calculate travel times for receiver '
+                    'depths lower or equal to this value. Note that setting this value '
+                    'greater than zero might lead to numerical problems, e.g. times not '
+                    'monotonically increasing with distances, especially for short distances '
+                    'around the source'))
+@click.option('-d', '--maxdistance', type=float, default=ttcreator.DEFAULT_DIST_MAX,
+              show_default=True,
+              help=('Optional: the maximum distance (in degrees) used for the grid generation. '
+                    'When loaded, the relative model can calculate travel times for receiver '
+                    'depths lower or equal to this value'))
+@click.option('-P', '--pwavevelocity', type=float, default=ttcreator.DEFAULT_PWAVEVELOCITY,
+              show_default=True,
+              help=('Optional: the P-wave velocity (in km/sec), if the calculation of the P-waves '
+                    'is required according to the argument `phases` (otherwise ignored). '
+                    'As the grid points (in degree) of the distances axis '
+                    'cannot be optimized, a fixed step S is set for which it holds: '
+                    '`min(travel_times(D+step))-min(travel_times(D)) <= tt_errtol` for any point '
+                    'D of the grid. The P-wave velocity is needed to asses such a step '
+                    '(for info, see: '
+                    'http://rallen.berkeley.edu/teaching/F04_GEO302_PhysChemEarth/Lectures/HellfrichWood2001.pdf)'))  # @IgnorePep8
+@click.option('-S', '--swavevelocity', type=float, default=ttcreator.DEFAULT_SWAVEVELOCITY,
+              show_default=True,
+              help=('Optional: the S-wave velocity (in km/sec), if the calculation of the S-waves '
+                    '*only* is required, according to the argument `phases` (otherwise ignored). '
+                    'As the grid points (in degree) of the distances axis '
+                    'cannot be optimized, a fixed step S is set for which it holds: '
+                    '`min(travel_times(D+step))-min(travel_times(D)) <= tt_errtol` for any point '
+                    'D of the grid. If the calculation of the P-waves is also needed according to '
+                    'the argument `phases` , the p-wave velocity value will be used and this '
+                    'argument will be ignored. (for info, see: '
+                    '(http://rallen.berkeley.edu/teaching/F04_GEO302_PhysChemEarth/Lectures/HellfrichWood2001.pdf)'))  # @IgnorePep8
+def ttcreate(output, model, phases, tt_errtol, maxsourcedepth, maxreceiverdepth, maxdistance,
+             pwavevelocity, swavevelocity):
+    try:
+        output = ttcreator._filepath(output, model, phases)
+        ttcreator.computeall(output, model, tt_errtol, phases, maxsourcedepth, maxreceiverdepth,
+                             maxdistance, pwavevelocity, swavevelocity, isterminal=True)
+        sys.exit(0)
+    except Exception as exc:
+        print("ERROR: %s" % str(exc))
+        sys.exit(1)
 
 
 if __name__ == '__main__':

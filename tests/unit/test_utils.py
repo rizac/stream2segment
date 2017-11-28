@@ -17,7 +17,7 @@ import pytest
 from urllib.error import URLError, HTTPError
 import socket
 import mock
-from stream2segment.utils import secure_dburl, get_progressbar, Nop
+from stream2segment.utils import secure_dburl, get_progressbar, Nop, strconvert
 from io import BytesIO
 from click.termui import progressbar
 
@@ -36,6 +36,44 @@ DEFAULT_TIMEOUT = socket._GLOBAL_DEFAULT_TIMEOUT
 # 
 #     def testName(self):
 #         pass
+
+
+def test_strconvert():
+    strings =       ["%", "_", "*", "?", ".*", "."]
+    
+    # sql 2 wildcard
+    expected =  ["*", "?", "*", "?", ".*", "."] 
+    for a, exp in zip(strings, expected):
+        assert strconvert.sql2wild(a) == exp
+        assert strconvert.sql2wild(a+a) == exp+exp
+        assert strconvert.sql2wild("a"+a) == "a"+exp
+        assert strconvert.sql2wild(a+"a") == exp+"a"
+        
+    # wildcard 2 sql
+    expected =  ["%", "_", "%", "_", ".%", "."] 
+    for a, exp in zip(strings, expected):
+        assert strconvert.wild2sql(a) == exp
+        assert strconvert.wild2sql(a+a) == exp+exp
+        assert strconvert.wild2sql("a"+a) == "a"+exp
+        assert strconvert.wild2sql(a+"a") == exp+"a"
+
+    # sql 2 regex
+    expected =  [".*", ".", "\\*", "\\?", "\\.\\*", "\\."]
+    for a, exp in zip(strings, expected):
+        assert strconvert.sql2re(a) == exp
+        assert strconvert.sql2re(a+a) == exp+exp
+        assert strconvert.sql2re("a"+a) == "a"+exp
+        assert strconvert.sql2re(a+"a") == exp+"a"
+        
+    # wild 2 regex    
+    expected =  ["\\%", "_", ".*", ".", "\\..*", "\\."]
+    for a, exp in zip(strings, expected):
+        assert strconvert.wild2re(a) == exp
+        assert strconvert.wild2re(a+a) == exp+exp
+        assert strconvert.wild2re("a"+a) == "a"+exp
+        assert strconvert.wild2re(a+"a") == exp+"a"
+    
+
 
 @patch('stream2segment.utils.url.urllib.request.urlopen')
 def test_utils_url_read(mock_urlopen):  # mock_ul_urlopen, mock_ul_request, mock_ul):

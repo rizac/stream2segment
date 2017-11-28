@@ -6,17 +6,20 @@ Created on Sep 4, 2017
 from __future__ import division
 from future import standard_library
 standard_library.install_aliases()
+
+from stream2segment.cli import ttcreate
 from builtins import zip
 from builtins import str
 from past.utils import old_div
 import numpy as np
 from os.path import dirname, join, isfile
 import unittest
-from stream2segment.download.traveltimes.ttloader import TTTable
+from stream2segment.traveltimes.ttloader import TTTable
+from stream2segment.traveltimes import ttcreator
 # from stream2segment.download.utils import get_min_travel_time
 from click.testing import CliRunner
 import os
-from stream2segment.download.traveltimes.ttcreator import _filepath, StepIterator, min_traveltimes,\
+from stream2segment.traveltimes.ttcreator import _filepath, StepIterator, min_traveltimes,\
     min_traveltime
 
 
@@ -53,31 +56,41 @@ class Test(unittest.TestCase):
     def tearDown(self):
         pass
 
-    # this test was debugged once to inspect the data but since then it's parameters
-    # have been modified in order to make it faster (table creation takes quite long time)
-    # So it might be more refined, for the moment we actually just check that the file is created
+    # the test below might be refined and assert more stuff
+    # (it has ahowever been debugged once to test everything worked fine)
     def test_ttcreator(self):
-        from stream2segment.download.traveltimes import ttcreator
+        
         runner = CliRunner()
         with runner.isolated_filesystem():
             mydir = os.getcwd()
-            result = runner.invoke(ttcreator.run, catch_exceptions=True)
+            result = runner.invoke(ttcreate, catch_exceptions=True)
             assert result.exit_code != 0
 
             phase = 'ttp'  # NOTE: by setting e.g. just 'P' we do NOT make it faster, cause
             # some numbers might be nan and thus the iteration is slower
             # try to make ttp which should be faster than ttp+ and most likely without
             # nans that are not in ttp+
-            result = runner.invoke(ttcreator.run, ['-o', mydir, '-m', 'iasp91', '-t', 10, '-p',
+            result = runner.invoke(ttcreate, ['-o', mydir, '-m', 'iasp91', '-t', 10, '-p',
                                                    phase, '-s', 51.3, '-r', 2, '-d', 34.3],
                                    catch_exceptions=False)
             assert result.exit_code == 0
             assert os.path.isfile(_filepath(mydir, 'iasp91', [phase]) + ".npz")
             # fixme: we should load the file and assert something...
 
+
+    # the test below might be refined and assert more stuff
+    # (it has ahowever been debugged once to test everything worked fine)
+    def test_ttcreator_tts(self):
+        
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            mydir = os.getcwd()
+            result = runner.invoke(ttcreate, catch_exceptions=True)
+            assert result.exit_code != 0
+
             # test with no receiver depths (set to 0)
             phase = 'tts'
-            result = runner.invoke(ttcreator.run, ['-o', mydir, '-m', 'ak135', '-t', 10, '-p',
+            result = runner.invoke(ttcreate, ['-o', mydir, '-m', 'ak135', '-t', 10, '-p',
                                                    phase, '-s', 51.3, '-r', 0 , '-d', 34.3],
                                    catch_exceptions=False)
             assert result.exit_code == 0

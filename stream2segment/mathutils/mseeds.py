@@ -1,7 +1,7 @@
 '''
 Math utilities for `obspy.Trace` objects.
 
-This package wraps many functions of the `analysis` module (working on `numpy` arrays)
+This package wraps many functions of the `arrays` module (working on `numpy` arrays)
 defining their counterparts for `Trace` objects
 
 Remember that all functions processing and returning `Trace`s, e.g.:
@@ -21,10 +21,12 @@ from __future__ import division
 
 import numpy as np
 
-from obspy.core import Stream, Trace, UTCDateTime  # , Stats
+from obspy.core import Trace, UTCDateTime  # , Stats
+
 # from obspy import read_inventory
-from stream2segment.analysis import fft as _fft, ampspec as _ampspec, powspec as _powspec,\
-    cumsum as _cumsum, dfreq, freqs
+from stream2segment.mathutils.arrays import fft as _fft, ampspec as _ampspec, powspec as _powspec,\
+    cumsum as _cumsum, dfreq, freqs, ResponseSpectrum as _ResponseSpectrum, \
+    NewmarkBeta as _NewmarkBeta, NigamJennings as _NigamJennings
 
 
 __all__ = ['bandpass', 'maxabs', 'cumsum', 'cumtimes', 'fft', 'ampspec', 'powspec', 'ampratio',
@@ -129,7 +131,7 @@ def cumsum(trace):
 def cumtimes(mi_trace, *percentages):
     """Calculates the time(s) where `mi_trace` reaches the given percentage(s) of the total signal.
     **`mi_trace.data` need to be monotonically increasing**, e.g., as resulting from
-    :func:`stream2segment.analysis.mseeds.cumsum`
+    :func:`stream2segment.mathutils.mseeds.cumsum`
 
     :param mi_trace: a monotonically increasing trace
     :param percentages: the precentages to be calculated, e.g. 0.05, 0.95 (5% and 95%)
@@ -191,7 +193,7 @@ def fft(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_ty
 def ampspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',
             return_freqs=False):
     """Computes the amplitude spectrum of the given trace.
-    See :func:`stream2segment.analysis.mseeds.fft` for info (this function does exactly the same,
+    See :func:`stream2segment.mathutils.mseeds.fft` for info (this function does exactly the same,
     it only returns the amplitude spectrum as second element - i.e., the modulus of the fft)"""
     _, dft = fft(trace, starttime, endtime, taper_max_percentage, taper_type, return_freqs)
     return _, _ampspec(dft, signal_is_fft=True)
@@ -200,7 +202,7 @@ def ampspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, tape
 def powspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',
             return_freqs=False):
     """Computes the power spectrum of the given trace.
-    See :func:`stream2segment.analysis.mseeds.fft` for info (this function does exactly the same,
+    See :func:`stream2segment.mathutils.mseeds.fft` for info (this function does exactly the same,
     it only returns the power spectrum as second element - i.e., the square of the fft)"""
     _, dft = fft(trace, starttime, endtime, taper_max_percentage, taper_type, return_freqs)
     return _, _powspec(dft, signal_is_fft=True)
@@ -248,3 +250,39 @@ def utcdatetime(time, return_if_none=None):
     if not isinstance(time, UTCDateTime):
         time = return_if_none if time is None else UTCDateTime(time)
     return time
+
+
+class ResponseSpectrum(_ResponseSpectrum):
+    '''
+    Base abstract Class to implement a response spectrum calculation for :class:`obspy.Trace`s
+    '''
+    def __init__(self, acc_trace, periods, damping=0.05, units="cm/s/s"):
+        '''RemoveResponse base class operating on :class:`obspy.Trace`s. When not documented,
+        parameters are the same of :class:`stream2segment.mathutils.arrays.ResponseSpectrum`
+
+        :param acc_trace: a Trace in acceleration units, obtained via, e.g.:
+            ```
+                acc_trace = trace.remove_response(..., output="ACC", ...)
+            ```
+        '''
+        super(ResponseSpectrum, self).__init__(acc_trace.data, acc_trace.stats.delta,
+                                               periods, damping, units)
+
+
+class NigamJennings(ResponseSpectrum, _NigamJennings):
+    """
+    Evaluate the response spectrum using the algorithm of Nigam & Jennings
+    (1969) on for :class:`obspy.Trace`s objects.
+    In general this is faster than the classical Newmark-Beta method, and
+    can provide estimates of the spectra at frequencies higher than that
+    of the sampling frequency.
+    """
+    pass
+
+
+class NewmarkBeta(ResponseSpectrum, _NewmarkBeta):
+    '''
+    Evaluates the response spectrum using the Newmark-Beta methodology
+    for :class:`obspy.Trace`s objects.
+    '''
+    pass

@@ -65,11 +65,10 @@ from stream2segment.utils.mseedlite3 import MSeedError, unpack
 import threading
 from stream2segment.utils.url import read_async
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_ttable_fpath
-from stream2segment.download.traveltimes.ttloader import TTTable
+from stream2segment.traveltimes.ttloader import TTTable
 from stream2segment.download.utils import urljoin as original_urljoin
 
-# when debugging, I want the full dataframe with to_string(), not truncated
-pd.set_option('display.max_colwidth', -1)
+
 
 # hard-coding the responses messages here:
 responses = {
@@ -142,6 +141,9 @@ class Test(unittest.TestCase):
 
     @staticmethod
     def cleanup(me):
+        if hasattr(me, "_pd_display_maxcolwidth"):
+            pd.set_option('display.max_colwidth', me._pd_display_maxcolwidth)
+
         engine, session, handler, patchers = me.engine, me.session, me.handler, me.patchers
         if me.engine:
             if me.session:
@@ -176,6 +178,12 @@ class Test(unittest.TestCase):
         return str(self.engine.url).startswith("postgresql://")
 
     def setUp(self):
+        # when debugging, I want the full dataframe with to_string(), not truncated
+        # NOTE: this messes up right alignment of numbers in DownloadStats (see utils.py)
+        # FIRST, remember current settings and restore them in cleanup:
+        self._pd_display_maxcolwidth = pd.get_option('display.max_colwidth')
+        pd.set_option('display.max_colwidth', -1)
+        
         url = os.getenv("DB_URL", "sqlite:///:memory:")
 
         from sqlalchemy import create_engine

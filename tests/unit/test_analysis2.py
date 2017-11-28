@@ -14,8 +14,8 @@ from numpy import true_divide as np_true_divide
 from obspy.core.stream import read as o_read
 from io import BytesIO
 import os
-from stream2segment.analysis.mseeds import fft
-from stream2segment.analysis import ampspec, triangsmooth, snr, dfreq, freqs, powspec
+from stream2segment.mathutils.mseeds import fft
+from stream2segment.mathutils.arrays import ampspec, triangsmooth, snr, dfreq, freqs, powspec
 
 import pytest
 from mock.mock import patch, Mock
@@ -43,7 +43,7 @@ class Test(unittest.TestCase):
 # we mock np.true_divide ASSUMING IT's ONY CALLED WITHIN snr!!
 # IF we change in the future (we shouldn't), then be aware that the call check might differ!
 # impoortant: we must import np.true_divide at module level to avoid recursion problems:
-@patch("stream2segment.analysis.np.true_divide", side_effect=lambda *a, **v: np_true_divide(*a, **v))
+@patch("stream2segment.mathutils.arrays.np.true_divide", side_effect=lambda *a, **v: np_true_divide(*a, **v))
 def test_snr(mock_np_true_divide):
 
     signal = np.array([0,1,2,3,4,5,6])

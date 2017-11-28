@@ -93,38 +93,79 @@ def iterfuncs(pymodule):
 
 
 class strconvert(object):
-
+    ''' String conversion utilities from sql-LIKE operator's wildcards, Filesystem's wildcards, and
+    regular expressions'''
     @staticmethod
     def sql2wild(text):
         """
-        :return: a string by replacing in `text` all sql 'like' wildcards ('%', '_') with text
-        search equivalent ('*', '?')
+        Returns a new string from `text` by replacing all sql-LIKE-operator's wildcard characters
+        ('sql') with their filesystem's counterparts ('wild'):
+
+        === ==== === ===============================
+        sql wild re  meaning
+        === ==== === ===============================
+        %   *    .*  matches zero or more characters
+        _   ?    .   matches exactly one character
+        === ==== === ===============================
+
+        :return: string. This function does not support escaping, i.e. it
+        converts also escaped characters, if any.
         """
         return text.replace("%", "*").replace("_", "?")
 
     @staticmethod
     def wild2sql(text):
         """
-        :return: a string by replacing in `text` all text search wildcards ('*', '?') with
-        sql 'like' equivalent ('%', '_')
+        Returns a new string from `text` by replacing all filesystem's wildcard characters ('wild')
+        with their sql-LIKE-operator's counterparts ('sql'):
+
+        === ==== === ===============================
+        sql wild re  meaning
+        === ==== === ===============================
+        %   *    .*  matches zero or more characters
+        _   ?    .   matches exactly one character
+        === ==== === ===============================
+
+        :return: string. This function does not support escaping, i.e. it
+        converts also escaped characters, if any.
         """
         return text.replace("*", "%").replace("?", "_")
 
     @staticmethod
     def wild2re(text):
         """
-        :return: a string by replacing in `text` all text search wildcards ('*', '?') with
-        regular expression equivalent ('.*', '.')
+        Returns a new string from `text` by replacing all filesystem's wildcard characters ('wild')
+        with their regular expression's counterparts ('re'):
+
+        === ==== === ===============================
+        sql wild re  meaning
+        === ==== === ===============================
+        %   *    .*  matches zero or more characters
+        _   ?    .   matches exactly one character
+        === ==== === ===============================
+
+        :return: string. This function does not support escaping, i.e. it
+        converts also escaped characters, if any.
         """
         return re.escape(text).replace(r"\*", ".*").replace(r"\?", ".")
 
     @staticmethod
-    def sqld2re(text):
+    def sql2re(text):
         """
-        :return: a string by replacing in `text` all sql 'like' wildcards ('%', '_') with
-        regular expression equivalent ('.*', '.')
+        Returns a new string from `text` by replacing all sql-LIKE-operator's wildcard characters
+        ('sql') with their regular expression's counterparts ('re'):
+
+        === ==== === ===============================
+        sql wild re  meaning
+        === ==== === ===============================
+        %   *    .*  matches zero or more characters
+        _   ?    .   matches exactly one character
+        === ==== === ===============================
+
+        :return: string. This function does not support escaping, i.e. it
+        converts also escaped characters, if any.
         """
-        return re.escape(text).replace(r"\%", ".*").replace(r"\_", ".")
+        return re.escape(text).replace(r"\%", ".*").replace("_", ".")
 
 
 def tounicode(bytestr, decoding='utf-8'):
@@ -334,12 +375,3 @@ def urljoin(*urlpath, **query_args):
     # http://stackoverflow.com/questions/1793261/how-to-join-components-of-a-path-when-you-are-constructing-a-url-in-python
     return "{}?{}".format('/'.join(url.strip('/') for url in urlpath),
                           "&".join("{}={}".format(k, v) for k, v in query_args.items()))
-
-
-
-# def printfunc(isterminal=False):
-#     """Returns the print function if isterminal is True else a no-op function"""
-#     if isterminal:
-#         return print
-#     else:
-#         return lambda *a, **v: None

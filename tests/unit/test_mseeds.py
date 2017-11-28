@@ -14,16 +14,14 @@ import re
 import argparse
 from io import BytesIO
 import numpy as np
-from stream2segment.analysis import fft as orig_fft, linspace
-from stream2segment.analysis import snr as orig_snr
-from stream2segment.analysis import powspec as orig_powspec
+from stream2segment.mathutils.arrays import fft as orig_fft, linspace, \
+    snr as orig_snr, powspec as orig_powspec
 
 
-from stream2segment.analysis.mseeds import fft , bandpass, dfreq, maxabs,\
+from stream2segment.mathutils.mseeds import fft , bandpass, dfreq, maxabs,\
     timeof
 # from stream2segment.io.utils import loads, dumps
-# from stream2segment.analysis.mseeds import _IO_FORMAT_FFT, _IO_FORMAT_STREAM, _IO_FORMAT_TIME,\
-#     _IO_FORMAT_TRACE
+
 from obspy.core.inventory import read_inventory
 from obspy.core import read as obspy_read
 from obspy.core import Trace, Stream
@@ -38,7 +36,7 @@ from itertools import count
                          ([1, 2, 3, 4], 4, 3),
                          ([1, 2, 3], 3, 2),
                          ])
-@mock.patch('stream2segment.analysis.mseeds._fft', side_effect=lambda *a, **k: orig_fft(*a, **k))
+@mock.patch('stream2segment.mathutils.mseeds._fft', side_effect=lambda *a, **k: orig_fft(*a, **k))
 def test_fft(mock_mseed_fft, arr, arr_len_after_trim, fft_npts):
     t = Trace(np.array(arr))
     df, f = fft(t)
@@ -66,21 +64,6 @@ def test_linspace(start, delta, num):
     else:
         expected = np.linspace(start, space[-1], num, endpoint=True)
         assert (space==expected).all()
-# @mock.patch('stream2segment.analysis.mseeds._snr', side_effect=lambda *a, **k: orig_snr(*a, **k))
-# @mock.patch('stream2segment.analysis.powspec', side_effect=lambda *a, **k: orig_powspec(*a, **k))
-# def test_snr(mock_powspec, mock_analysis_snr):
-#     trace = get_data()['mseed'][0]
-#     res = snr(trace, trace, fmin=10, fmax=100.34)
-#     assert res == 1
-#     assert mock_powspec.call_count == 2  # one for each trace
-#     assert len(mock_analysis_snr.call_args_list) ==1
-#     assert mock_analysis_snr.call_args_list[0][1]['fmin'] == 10
-#     assert mock_analysis_snr.call_args_list[0][1]['fmax'] == 100.34
-#     assert mock_analysis_snr.call_args_list[0][1]['delta_signal'] == trace.stats.delta
-#     assert mock_analysis_snr.call_args_list[0][1]['delta_noise'] == trace.stats.delta
-#     
-#     
-#     h = 9
     
     
 def test_bandpass():
@@ -95,22 +78,6 @@ def test_bandpass():
     
     h = 9
 
-# @pytest.mark.parametrize('inv_output',
-#                           ['ACC', 'VEL', 'DISP'])
-# def test_read_dumps(_data, inv_output):
-# 
-# 
-#     # do NOT provide the format, it should complain:
-#     with pytest.raises(ValueError):
-#         d = dumps(data)
-# 
-#     # Now not anymore:
-#     for f in [_IO_FORMAT_FFT, _IO_FORMAT_STREAM, _IO_FORMAT_TIME, _IO_FORMAT_TRACE]:
-#         dmp = dumps(data, f)
-#         ret_obj = loads(dmp)
-#         _data = ret_obj.data if hasattr(ret_obj, "data") else ret_obj.traces[0].data
-#         assert all(_data == data)
-#         h = 9
 
 __dd = None
 

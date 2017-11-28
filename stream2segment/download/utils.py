@@ -430,7 +430,11 @@ class DownloadStats(defaultdict):
         d = pd.concat((columns_df, linesep_df, d))
 
         with pd.option_context('max_colwidth', 50):
+            # creating to_string needs max_colwidth as its default (50), otherwise, numbers
+            # are left-aligned (just noticed from failing tests. impossible to understand why.
+            # Btw, note that d has all dtypes = object, because mixes numeric and string values)
             ret = d.to_string(na_rep='0', justify='right', header=False)
+
         if legend:
             legend = ["\n\nCOLUMNS DETAILS:"] + legend
             ret += "\n - ".join(legend)

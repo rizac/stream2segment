@@ -33,7 +33,7 @@ from stream2segment.io.utils import loads_inv, dumps_inv
 from stream2segment.utils.url import urlread
 from stream2segment.utils import urljoin
 from stream2segment.io.db.models import Segment, Station
-from stream2segment.analysis.mseeds import cumsum, cumtimes
+from stream2segment.mathutils.mseeds import cumsum, cumtimes
 from sqlalchemy.orm.exc import UnmappedInstanceError
 
 
