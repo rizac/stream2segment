@@ -7,9 +7,9 @@ import unittest
 
 import numpy as np
 
-from stream2segment.mathutils.arrays import NewmarkBeta as _NewmarkBeta, \
+from stream2segment.math.arrays import NewmarkBeta as _NewmarkBeta, \
     NigamJennings as _NigamJennings, ResponseSpectrum as _ResponseSpectrum
-from stream2segment.mathutils.mseeds import NewmarkBeta, NigamJennings, ResponseSpectrum
+from stream2segment.math.traces import NewmarkBeta, NigamJennings, ResponseSpectrum
 import pytest
 from obspy.core.trace import Trace
 
@@ -33,18 +33,16 @@ class Test(unittest.TestCase):
     def testName(self):
         pass
 
-
     def test_abstract(self):
         accel, periods, deltat = self.accel, self.periods, self.deltat
-        
+
         with pytest.raises(NotImplementedError):
             _ResponseSpectrum(accel, deltat, periods).evaluate()
-        
+
         with pytest.raises(NotImplementedError):
             ResponseSpectrum(self.trace, periods).evaluate()
-        
-        
-    def test_arrays_mseeds_response_spectra(self):
+
+    def test_arrays_traces_response_spectra(self):
         '''this test just assures everything goes right without errors'''
         # FIXME: implement better tests!!!
         accel, periods, deltat = self.accel, self.periods, self.deltat

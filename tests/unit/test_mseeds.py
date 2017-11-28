@@ -14,11 +14,11 @@ import re
 import argparse
 from io import BytesIO
 import numpy as np
-from stream2segment.mathutils.arrays import fft as orig_fft, linspace, \
+from stream2segment.math.arrays import fft as orig_fft, linspace, \
     snr as orig_snr, powspec as orig_powspec
 
 
-from stream2segment.mathutils.mseeds import fft , bandpass, dfreq, maxabs,\
+from stream2segment.math.traces import fft , bandpass, dfreq, maxabs,\
     timeof
 # from stream2segment.io.utils import loads, dumps
 
@@ -36,7 +36,7 @@ from itertools import count
                          ([1, 2, 3, 4], 4, 3),
                          ([1, 2, 3], 3, 2),
                          ])
-@mock.patch('stream2segment.mathutils.mseeds._fft', side_effect=lambda *a, **k: orig_fft(*a, **k))
+@mock.patch('stream2segment.math.traces._fft', side_effect=lambda *a, **k: orig_fft(*a, **k))
 def test_fft(mock_mseed_fft, arr, arr_len_after_trim, fft_npts):
     t = Trace(np.array(arr))
     df, f = fft(t)

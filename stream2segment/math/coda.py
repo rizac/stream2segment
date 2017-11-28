@@ -76,9 +76,6 @@ def analyze_coda(trace, fm=6, cycle=10, noise_level=16, Lw=50, noise_duration=5,
         Return the correlation coefficient of the coda part of the signal : the onset of the coda
         is selected as the maximum amplitude time and the coda duration is Lw.
 
-        NOTE: this function accepts also streams objects (see @stream_compliant decorator in
-        stream2segments.mseeds)
-
         :param trace: an obspy.core.Trace object
         :return: a list of tuples of the form:
         (slope_start_time, slope, intercept, R, pvalue, stderr)

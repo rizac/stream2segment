@@ -309,8 +309,8 @@ def dareport(dburl):
               show_default=True,
               help="Show help only for the function matching the given type. Numpy indicates "
                     "functions operating on numpy arrays "
-                    "(module `stream2segment.mathutils.arrays`). "
-                    "Obspy (module `stream2segment.mathutils.mseeds`) those operating on obspy "
+                    "(module `stream2segment.math.arrays`). "
+                    "Obspy (module `stream2segment.math.traces`) those operating on obspy "
                     "Traces, most of which are simply the numpy counterparts defined for Trace "
                     "objects")
 @click.option("-f", "--filter", default='*', show_default=True,
@@ -335,7 +335,7 @@ def functions(type, filter):  # @ReservedAssignment
               help="the model name, e.g. iasp91, ak135, ..")
 @click.option('-p', '--phases', multiple=True,  required=True,
               help=("The phases used, e.g. ttp+, tts+. Can be typed multiple times, e.g."
-                   "-m P -m p"))
+                    "-m P -m p"))
 @click.option('-t', '--tt_errtol', type=float, required=True,
               help=('The error tolerance (in seconds). The algorithm will try to store grid points '
                     'whose distance is close to this value. Decrease this value to increase '

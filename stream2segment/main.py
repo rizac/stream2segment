@@ -35,8 +35,7 @@ from stream2segment.download.main import run as run_download
 from stream2segment.utils import tounicode, get_session, indent, secure_dburl
 from stream2segment.utils.resources import get_templates_fpaths
 from stream2segment.gui.main import create_p_app, run_in_browser, create_d_app
-from stream2segment.mathutils import arrays
-from stream2segment.mathutils import mseeds
+from stream2segment import math as s2s_math
 from stream2segment.utils import strconvert, iterfuncs
 
 
@@ -198,8 +197,18 @@ def closing(dburl, scoped=False, close_logger=True, close_session=True):
 
 
 def helpmathiter(type, filter):  # @ReservedAssignment
-    # print("%s\n\n%s" % (analysis.__doc__, mseeds.__doc__))  # @UndefinedVariable
-    itr = [arrays] if type == 'numpy' else [mseeds] if 'type' == 'obspy' else [arrays, mseeds]
+    '''iterator yielding the doc-string of :module:`stream2segment.math.arrays` or
+    :module:`stream2segment.math.traces`
+
+    :param type: select the module: 'numpy' for doc of :module:`stream2segment.math.arrays`,
+    'obspy' for the doc of :module:`stream2segment.math.traces`, 'all' for both
+
+    :param filter: a filter (with wildcard expressions allowed) to filter by function name
+
+    :return: doc-string for all matching functions and classes
+    '''
+    itr = [s2s_math.arrays] if type == 'numpy' else [s2s_math.traces] if 'type' == 'obspy' else \
+        [s2s_math.arrays, s2s_math.traces]
     reg = re.compile(strconvert.wild2re(filter))
     for pymodule in itr:
         module_doc_printed = False
