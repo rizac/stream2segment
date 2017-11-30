@@ -193,6 +193,7 @@ def init(outdir):
 @click.option('-t', '--traveltimes_model')
 @click.option('-w', '--timespan', nargs=2, type=float)
 # note below: default=None lets us know that the flag is missing and use the config file values
+@click.option('-u', '--update_metadata', is_flag=True, default=None)
 @click.option('-r1', '--retry_url_err', is_flag=True, default=None)
 @click.option('-r2', '--retry_mseed_err', is_flag=True, default=None)
 @click.option('-r3', '--retry_seg_not_found', is_flag=True, default=None)
@@ -203,8 +204,8 @@ def init(outdir):
 @click.argument('eventws_query_args', nargs=-1, type=click.UNPROCESSED,
                 callback=clickutils.proc_eventws_args)
 def download(configfile, dburl, eventws, start, end, dataws, min_sample_rate, traveltimes_model,
-             timespan, retry_url_err, retry_mseed_err, retry_seg_not_found, retry_client_err,
-             retry_server_err, retry_timespan_err, inventory, eventws_query_args):
+             timespan, update_metadata, retry_url_err, retry_mseed_err, retry_seg_not_found,
+             retry_client_err, retry_server_err, retry_timespan_err, inventory, eventws_query_args):
     """Download waveform data segments with quality metadata and relative events, stations and
     channels metadata into a specified database.
     The -c option (required) sets the defaults for all other options below, which are optional.

@@ -55,7 +55,7 @@ from obspy.taup.helper_classes import TauModelError
 # from stream2segment.main import logger as main_logger
 from sqlalchemy.sql.expression import func
 from stream2segment.utils import get_session, mseedlite3
-from stream2segment.io.db.pd_sql_utils import dbquery2df, insertdf_napkeys, updatedf
+from stream2segment.io.db.pd_sql_utils import dbquery2df, insertdf, updatedf
 from logging import StreamHandler
 import logging
 from io import BytesIO
@@ -391,14 +391,12 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         
         
         data = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", db_bufsize=self.db_buf_size)
-        # assert only three events were successfully saved to db (two have same id) 
-        assert len(self.session.query(Event).all()) == len(pd.unique(data['id'])) == 3
-        # AND data to save has length 3: (we skipped last or next-to-last cause they are dupes)
-        assert len(data) == 3
-        # assert mock_urlread.call_args[0] == (mock_query.return_value, )
-        
-        # now download again, with an url error:
-        
+        # assert only first two events events were successfully saved 
+        assert len(self.session.query(Event).all()) == len(pd.unique(data['id'])) == 2
+        # AND data to save has length 2:
+        assert len(data) == 2
+
+        # now download again, with an url error:        
         urlread_sideeffect = [413, """1|2|3|4|5|6|7|8|9|10|11|12|13
 20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 01:45:30.300000|44.96|15.35|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|3.6|EMSC|CROATIA
@@ -408,12 +406,11 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 """, URLError('blabla23___')]
         
         data = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", db_bufsize=self.db_buf_size)
-        # assert nothing new has added:
-        assert len(self.session.query(Event).all()) == len(pd.unique(data['id'])) == 3
-        # AND data to save has length 3: (we skipped last or next-to-last cause they are dupes)
-        assert len(data) == 3
-        # assert mock_urlread.call_args[0] == (mock_query.return_value, )
-        
+        # assert we got the same result as above:
+        assert len(self.session.query(Event).all()) == len(pd.unique(data['id'])) == 2
+        assert len(data) == 2
+        # and since first response is 413, that having split the request into two, the
+        # second response is our URLError (we could test it better, anyway):
         assert "blabla23___" in self.log_msg()
         
 
@@ -732,7 +729,7 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
         return get_channels_df(*a, **kw)
     # get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
     #                channels, starttime, endtime,
-    #                min_sample_rate,
+    #                min_sample_rate, update,
     #                max_thread_workers, timeout, blocksize, db_bufsize,
     #                show_progress=False):
      
@@ -753,6 +750,9 @@ UP ARJ * * 2013-08-01T00:00:00 2017-04-25
 http://ws.resif.fr/fdsnws/dataselect/1/query
 ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
 """
+        # we tried to add two events with the same id, check we printed out the msg:
+        assert "Duplicated instances violate db constraint" in self.log_msg()
+        
         channels = None
         datacenters_df, eidavalidator = \
             self.get_datacenters_df(urlread_sideeffect, self.session, None, self.routing_service,
@@ -783,8 +783,8 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
             _ = self.get_channels_df(URLError('urlerror_wat'), self.session,
                                                            datacenters_df,
                                                            eidavalidator,
-                                                           channels, None, None,
-                                                           100, None, None, -1, self.db_buf_size)
+                                                           channels, None, None, 100,
+                                                           False, None, None, -1, self.db_buf_size)
         assert 'urlerror_wat' in self.log_msg()
         assert "Unable to fetch stations" in self.log_msg()
         assert "Fetching stations from database for 2 (of 2) data-center(s)" in self.log_msg()
@@ -805,8 +805,8 @@ BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
                 _ = self.get_channels_df(URLError('urlerror_wat'), self.session,
                                                            datacenters_df,
                                                            eidavalidator,
-                                                           c, s, e,
-                                                           100, None, None, -1, self.db_buf_size)
+                                                           c, s, e, 100,
+                                                           False, None, None, -1, self.db_buf_size)
                 
                 c_ = '*' if c is None else ",".join(c).encode()
                 s_ = '*' if st is None else st.isoformat().encode()
@@ -823,8 +823,8 @@ level=channel
         cha_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        eidavalidator,
-                                                       channels, None, None,
-                                                       90, None, None, -1, self.db_buf_size
+                                                       channels, None, None, 90,
+                                                       False, None, None, -1, self.db_buf_size
                                                )
         # assert we have a message for discarding the response data
         # (first arg of urlread):
@@ -859,8 +859,8 @@ level=channel
         cha_df2 = self.get_channels_df(URLError('urlerror_wat'), self.session,
                                                            datacenters_df,
                                                            eidavalidator,
-                                                           channels, datetime(2020, 1, 1), None,
-                                                           100, None, None, -1, self.db_buf_size)
+                                                           channels, datetime(2020, 1, 1), None, 100,
+                                                           False, None, None, -1, self.db_buf_size)
 
         # Note that min sample rate = 100 and a starttime which should return 3 channels: 
         assert len(cha_df2) == 3
@@ -870,8 +870,8 @@ level=channel
         cha_df2 = self.get_channels_df(socket.timeout(), self.session,
                                                            datacenters_df,
                                                            eidavalidator,
-                                                           channels, None, None,
-                                                           100, None, None, -1, self.db_buf_size)
+                                                           channels, None, None, 100,
+                                                           False, None, None, -1, self.db_buf_size)
         assert 'timeout' in self.log_msg()
         assert "Fetching stations from database for 2 (of 2) data-center(s)" in self.log_msg()
 
@@ -881,8 +881,8 @@ level=channel
         cha_df3 = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        eidavalidator,
-                                                       channels, None, None,
-                                                       100, None, None, -1, self.db_buf_size)
+                                                       channels, None, None, 100,
+                                                       False, None, None, -1, self.db_buf_size)
         assert len(cha_df3) == len(cha_df)-2
         assert "2 channel(s) discarded (sample rate < 100 Hz)" in self.log_msg()
         
@@ -900,8 +900,8 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
         cha_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        eidavalidator,
-                                                       ['B??'], None, None,
-                                                       10, None, None, -1, self.db_buf_size)
+                                                       ['B??'], None, None, 10,
+                                                       False, None, None, -1, self.db_buf_size)
         assert len(cha_df) == 2
         
         # test channels and startime + entimes provided when querying the db (postdata None)
@@ -955,8 +955,8 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
                 cha_df = self.get_channels_df(socket.timeout(), self.session,
                                               datacenters_df.loc[datacenters_df[DataCenter.id.key] == 2],
                                               eidavalidator,
-                                              c, s, e,
-                                              m, None, None, -1, self.db_buf_size)
+                                              c, s, e, m,
+                                              False, None, None, -1, self.db_buf_size)
                 assert len(cha_df) == expected_length
             except QuitDownload as qd:
                 assert expected_length == 0
@@ -983,8 +983,8 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
         # (we would have got the same by passing None as 'channel' argument)
         cha_df_ = self.get_channels_df(urlread_sideeffect2, self.session,
                                                          datacenters_df, eidavalidator,
-                                                         ['???'], None, None,
-                                                         10, None, None, -1, self.db_buf_size
+                                                         ['???'], None, None, 10,
+                                                         False, None, None, -1, self.db_buf_size
                                                        )
         
         # we should have the channel with network 'U' to the first datacenter
@@ -1068,8 +1068,8 @@ YY|yy||DEL|3|4|6|0|0|0|OK: channel check done cause it's dupe: matches    |8|0.1
         cha_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        eidavalidator,
-                                                       channels, None, None,
-                                                       10, None, None, -1, self.db_buf_size)
+                                                       channels, None, None, 10,
+                                                       False, None, None, -1, self.db_buf_size)
         # if u want to check what has been taken, issue in the debugger:
         # str(dbquery2df(self.session.query(Channel.id, Station.network, Station.station, Channel.channel, Channel.station_id, Station.datacenter_id).join(Station)))
         csd = dbquery2df(self.session.query(Channel.sensor_description))
@@ -1082,8 +1082,8 @@ YY|yy||DEL|3|4|6|0|0|0|OK: channel check done cause it's dupe: matches    |8|0.1
         cha_df2 = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        None,
-                                                       channels, None, None,
-                                                       10, None, None, -1, self.db_buf_size)
+                                                       channels, None, None, 10,
+                                                       False, None, None, -1, self.db_buf_size)
         
         # assert that we get the same result as when eidavalidator is None:
         assert cha_df2.equals(cha_df)
@@ -1095,8 +1095,8 @@ YY|yy||DEL|3|4|6|0|0|0|OK: channel check done cause it's dupe: matches    |8|0.1
         cha_df3 = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        eidavalidator,
-                                                       channels, None, None,
-                                                       10, None, None, -1, self.db_buf_size)
+                                                       channels, None, None, 10,
+                                                       False, None, None, -1, self.db_buf_size)
         # we tested visually that everything is ok visually by issuing a 
         # str(dbquery2df(self.session.query(Channel.id, Station.network, Station.station, Channel.channel, Channel.station_id, Station.datacenter_id).join(Station)))
         #, we might add some more specific assert here
@@ -1106,10 +1106,13 @@ YY|yy||DEL|3|4|6|0|0|0|OK: channel check done cause it's dupe: matches    |8|0.1
         cha_df4 = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        None,
-                                                       channels, None, None,
-                                                       10, None, None, -1, self.db_buf_size)
+                                                       channels, None, None, 10,
+                                                       False, None, None, -1, self.db_buf_size)
         
-        assert cha_df3.equals(cha_df4)
+        assert not cha_df3.equals(cha_df4)  # WHY?? cause they are not sorted, we might have
+        # updated some portion of dataframe and inserted the rest on dbmanager.close, or the other way around
+        # sort them by id, reset dataframes indices... and they should be the same:
+        assert cha_df3.sort_values(by=['id']).reset_index(drop=True).equals(cha_df4.sort_values(by=['id']).reset_index(drop=True))
 # FIXME: test save inventories!!!!
 
     def ttable(self, modelname=None):
@@ -1151,8 +1154,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         channels_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        eidavalidator,
-                                                       channels, None, None,
-                                                       10, None, None, -1, self.db_buf_size
+                                                       channels, None, None, 10,
+                                                       False, None, None, -1, self.db_buf_size
                                                )
         
         assert len(channels_df) == 5
@@ -1261,8 +1264,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         channels_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        eidavalidator,
-                                                       channels, None, None,
-                                                       100, None, None, -1, self.db_buf_size
+                                                       channels, None, None, 100,
+                                                       False, None, None, -1, self.db_buf_size
                                                )
         assert len(channels_df) == 12  # just to be sure. If failing, we might have changed the class default
     # events_df
@@ -1460,8 +1463,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         channels_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        eidavalidator,
-                                                       channels, None, None,
-                                                       100, None, None, -1, self.db_buf_size
+                                                       channels, None, None, 100,
+                                                       False, None, None, -1, self.db_buf_size
                                                )
         assert len(channels_df) == 12  # just to be sure. If failing, we might have changed the class default
     # events_df
@@ -1553,14 +1556,14 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         return download_save_segments(*a, **kw)
     
     @patch("stream2segment.download.main.mseedunpack")
-    @patch("stream2segment.download.main.insertdf_napkeys")
-    @patch("stream2segment.download.main.updatedf")
-    def test_download_save_segments(self, mock_updatedf, mock_insertdf_napkeys, mseed_unpack):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
+    @patch("stream2segment.io.db.pd_sql_utils.insertdf")
+    @patch("stream2segment.io.db.pd_sql_utils.updatedf")
+    def test_download_save_segments(self, mock_updatedf, mock_insertdf, mseed_unpack):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
         # prepare:
         # mseed unpack takes no starttime and endtime arguments, so that 
         # we do not discard any correct chunk
         mseed_unpack.side_effect = lambda *a, **v: mseedlite3.unpack(a[0])
-        mock_insertdf_napkeys.side_effect = lambda *a, **v: insertdf_napkeys(*a, **v)
+        mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
         
         urlread_sideeffect = None  # use defaults from class
@@ -1572,8 +1575,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         channels_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        eidavalidator,
-                                                       channels, None, None,
-                                                       10, None, None, -1, self.db_buf_size
+                                                       channels, None, None, 10,
+                                                       False, None, None, -1, self.db_buf_size
                                                )
         assert len(channels_df) == 12  # just to be sure. If failing, we might have changed the class default
     # events_df
@@ -1752,20 +1755,20 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # future), this below is two
         # it might change if we changed the buf size in the future
         
-        # test that we correctly called mock_insertdf_napkeys. Note that we assume that the
-        # latter is called ONLY inside download.main.DbManager. To test that, as the number of stuff
+        # test that we correctly called mock_insertdf. Note that we assume that the
+        # latter is called ONLY inside DbManager. To test that, as the number of stuff
         # to be added (length of the dataframes) varies, we need to implement a counter here:
-        mock_insertdf_napkeys_call_count = 0
+        mock_insertdf_call_count = 0
         _bufzise = 0
-        for c in mock_insertdf_napkeys.call_args_list:
+        for c in mock_insertdf.call_args_list:
             c_args =  c[0]
             df_ = c_args[0]
             _bufzise += len(df_)
             if _bufzise >= self.db_buf_size:
-                mock_insertdf_napkeys_call_count += 1
+                mock_insertdf_call_count += 1
                 _bufzise = 0
         
-        assert mock_insertdf_napkeys.call_count == mock_insertdf_napkeys_call_count
+        assert mock_insertdf.call_count == mock_insertdf_call_count
         
         # assert data is consistent
         COL = Segment.data.key
@@ -1816,7 +1819,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         
         urlread_sideeffect = [413]
         mock_updatedf.reset_mock()
-        mock_insertdf_napkeys.reset_mock()
+        mock_insertdf.reset_mock()
         # Let's go:
         ztatz = self.download_save_segments(urlread_sideeffect, self.session, segments_df, datacenters_df,
                                             chaid2mseedid,
@@ -1855,17 +1858,17 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert mock_updatedf.call_count == mock_updatedf_call_count
         
         
-        assert mock_insertdf_napkeys.call_count == 0
+        assert mock_insertdf.call_count == 0
         
         
     @patch("stream2segment.download.main.mseedunpack")
-    @patch("stream2segment.download.main.insertdf_napkeys")
-    @patch("stream2segment.download.main.updatedf")
-    def test_download_save_segments_timebounds(self, mock_updatedf, mock_insertdf_napkeys, mseed_unpack):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
+    @patch("stream2segment.io.db.pd_sql_utils.insertdf")
+    @patch("stream2segment.io.db.pd_sql_utils.updatedf")
+    def test_download_save_segments_timebounds(self, mock_updatedf, mock_insertdf, mseed_unpack):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
         # prepare:
         # mseed unpack takes no starttime and endtime arguments, so that 
         mseed_unpack.side_effect = lambda *a, **v: mseedlite3.unpack(*a, **v)
-        mock_insertdf_napkeys.side_effect = lambda *a, **v: insertdf_napkeys(*a, **v)
+        mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
         
         # mock event response: it's the same as self._evt_urlread_sideeffect but modify the dates
@@ -1887,8 +1890,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         channels_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        eidavalidator,
-                                                       channels, None, None,
-                                                       10, None, None, -1, self.db_buf_size
+                                                       channels, None, None, 10,
+                                                       False, None, None, -1, self.db_buf_size
                                                )
         assert len(channels_df) == 12  # just to be sure. If failing, we might have changed the class default
     # events_df

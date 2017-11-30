@@ -56,7 +56,7 @@ from obspy.taup.helper_classes import TauModelError
 # from stream2segment.main import logger as main_logger
 from sqlalchemy.sql.expression import func
 from stream2segment.utils import get_session, mseedlite3
-from stream2segment.io.db.pd_sql_utils import dbquery2df, insertdf_napkeys, updatedf
+from stream2segment.io.db.pd_sql_utils import dbquery2df, insertdf, updatedf
 from logging import StreamHandler
 import logging
 from io import BytesIO
@@ -432,11 +432,11 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     @patch('stream2segment.download.main.save_inventories')
     @patch('stream2segment.download.main.download_save_segments')
     @patch('stream2segment.download.main.mseedunpack')
-    @patch('stream2segment.download.main.insertdf_napkeys')
+    @patch('stream2segment.download.main.syncdf_insertdf')
     @patch('stream2segment.download.main.updatedf')
-    def test_cmdline_dberr(self, mock_updatedf, mock_insertdf_napkeys, mock_mseed_unpack,
-                     mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
-                    mock_get_datacenters_df, mock_get_events_df, mock_autoinc_db):
+    def test_cmdline_dberr(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
+                           mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
+                           mock_get_datacenters_df, mock_get_events_df, mock_autoinc_db):
         
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
@@ -444,7 +444,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
         mock_download_save_segments.side_effect = lambda *a, **v: self.download_save_segments(None, *a, **v)
         mock_mseed_unpack.side_effect = lambda *a, **v: unpack(*a, **v)
-        mock_insertdf_napkeys.side_effect = lambda *a, **v: insertdf_napkeys(*a, **v)
+        mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
         # prevlen = len(self.session.query(Segment).all())
      
@@ -522,11 +522,11 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
     @patch('stream2segment.download.main.save_inventories')
     @patch('stream2segment.download.main.download_save_segments')
     @patch('stream2segment.download.main.mseedunpack')
-    @patch('stream2segment.download.main.insertdf_napkeys')
+    @patch('stream2segment.download.main.insertdf')
     @patch('stream2segment.download.main.updatedf')
-    def test_cmdline_outofbounds(self, mock_updatedf, mock_insertdf_napkeys, mock_mseed_unpack,
-                     mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
-                    mock_get_datacenters_df, mock_get_events_df):
+    def test_cmdline_outofbounds(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
+                                 mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
+                                 mock_get_datacenters_df, mock_get_events_df):
         
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
@@ -534,7 +534,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
         mock_download_save_segments.side_effect = lambda *a, **v: self.download_save_segments(None, *a, **v)
         mock_mseed_unpack.side_effect = lambda *a, **v: unpack(*a, **v)
-        mock_insertdf_napkeys.side_effect = lambda *a, **v: insertdf_napkeys(*a, **v)
+        mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
         # prevlen = len(self.session.query(Segment).all())
      
@@ -596,11 +596,11 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
     @patch('stream2segment.download.main.save_inventories')
     @patch('stream2segment.download.main.download_save_segments')
     @patch('stream2segment.download.main.mseedunpack')
-    @patch('stream2segment.download.main.insertdf_napkeys')
+    @patch('stream2segment.download.main.insertdf')
     @patch('stream2segment.download.main.updatedf')
-    def test_cmdline(self, mock_updatedf, mock_insertdf_napkeys, mock_mseed_unpack,
+    def test_cmdline(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                      mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
-                    mock_get_datacenters_df, mock_get_events_df):
+                     mock_get_datacenters_df, mock_get_events_df):
         
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
@@ -609,7 +609,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         mock_download_save_segments.side_effect = lambda *a, **v: self.download_save_segments(None, *a, **v)
         # mseed unpack is mocked by accepting only first arg (so that time bounds are not considered)
         mock_mseed_unpack.side_effect = lambda *a, **v: unpack(a[0])
-        mock_insertdf_napkeys.side_effect = lambda *a, **v: insertdf_napkeys(*a, **v)
+        mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
         # prevlen = len(self.session.query(Segment).all())
      

@@ -37,10 +37,14 @@ retry_server_err: true
 # was completely outside the requested time span (see 'timespan' for details)
 retry_timespan_err: true
 
-# Set if station inventories (xml format) should be downloaded. 
-# If true, after segment's data download, the inventory data will be downloaded for
-# each station without an inventory yet and with at least one
-# downloaded non-empty segment on the database
+# whether or not to update segments metadata (stations, channels and station inventories,
+# if inventories should be downloaded)
+update_metadata: false
+
+# Set if station inventories (xml format) should be downloaded.
+# If true, inventories will be downloaded for all station that have at least one non-empty segment saved:
+# if the user selected not to update the metadata, already saved inventories will not be downloaded,
+# otherwise they will be downloaded anyway, updating existing inventories, if any
 # You can always fetch and save inventories later during processing, if required
 inventory: true
 

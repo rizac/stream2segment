@@ -24,8 +24,8 @@ import psutil
 from stream2segment.utils.url import urlread, read_async as original_read_async, URLException
 from stream2segment.io.db.models import Event, DataCenter, Segment, Station, Channel, \
     WebService, fdsn_urls
-from stream2segment.io.db.pd_sql_utils import dfrowiter, mergeupdate, dbquery2df, syncdf, \
-    insertdf_napkeys, updatedf
+from stream2segment.io.db.pd_sql_utils import dfrowiter, mergeupdate, dbquery2df, DbManager,\
+    fetchsetpkeys, syncdf
 from stream2segment.download.utils import empty, urljoin, response2df, normalize_fdsn_dframe, \
     get_search_radius, DownloadStats, get_events_list, locations2degrees, custom_download_codes, \
     eidarsiter, EidaValidator
@@ -141,26 +141,35 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
             yield result
 
 
-def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_size=10,
+def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update_cols=False,
+             buf_size=10,
              drop_duplicates=True, return_df=True, cols_to_print_on_err=None):
     """Calls `syncdf` and writes to the logger before returning the
     new dataframe. Raises `QuitDownload` if the returned dataframe is empty (no row saved)"""
-    oldlen = len(dataframe)
-    df, new = syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, buf_size,
-                     drop_duplicates, return_df,
-                     onerr=None if not cols_to_print_on_err else handledbexc(cols_to_print_on_err))
+
+    oninsert_err_callback = handledbexc(cols_to_print_on_err, update=False)
+    onupdate_err_callback = handledbexc(cols_to_print_on_err, update=True)
+    onduplicates_callback = oninsert_err_callback
+
+    inserted, not_inserted, updated, not_updated, df = \
+        syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update_cols,
+               buf_size, drop_duplicates,
+               onduplicates_callback, oninsert_err_callback, onupdate_err_callback)
+
     table = autoincrement_pkey_col.class_
     if empty(df):
         raise QuitDownload(Exception(MSG("No row saved to table '%s'" % table.__tablename__,
-                                         "unknown error, check database connection")))
-    discarded = oldlen - len(df)
-    dblog(table, new, discarded)
+                                         "unknown error, check log for details and db connection")))
+    dblog(table, inserted, not_inserted, updated, not_updated)
     return df
 
 
 def handledbexc(cols_to_print_on_err, update=False):
     """Returns a **function** to be passed to pd_sql_utils functions when inserting/ updating
     the db. Basically, it prints to log"""
+    if not cols_to_print_on_err:
+        return None
+
     def hde(dataframe, exception):
         if not empty(dataframe):
             try:
@@ -191,7 +200,7 @@ def logwarn_dataframe(dataframe, msg, cols_to_print_on_err, max_row_count=30):
     logger.warning(msg)
 
 
-def dblog(table, inserted, not_inserted, updated=-1, not_updated=-1):
+def dblog(table, inserted, not_inserted, updated=0, not_updated=0):
     """Prints to log the result of a database wrtie operation.
     Use this function to harmonize the message format and make it more readable in log or
     terminal"""
@@ -199,7 +208,7 @@ def dblog(table, inserted, not_inserted, updated=-1, not_updated=-1):
     def item(num):
         return "row" if num == 1 else "rows"
     _header = "Db table '%s'" % table.__tablename__
-    _errmsg = "sql error (e.g., null constr., unique constr.)"
+    _errmsg = "sql error (e.g., null constraint, unique constraint)"
     _noerrmsg = "no sql errors"
 
     if inserted or not_inserted:
@@ -245,7 +254,7 @@ def get_events_df(session, eventws_url, db_bufsize, **args):
     if eventws_id is None:  # write url to table
         data = [("event", eventws_url)]
         df = pd.DataFrame(data, columns=[WebService.type.key, WebService.url.key])
-        df = dbsyncdf(df, session, [WebService.url], WebService.id, db_bufsize)
+        df = dbsyncdf(df, session, [WebService.url], WebService.id, buf_size=db_bufsize)
         eventws_id = df.iloc[0][WebService.id.key]
 
     url = urljoin(eventws_url, format='text', **args)
@@ -277,7 +286,7 @@ def get_events_df(session, eventws_url, db_bufsize, **args):
     events_df = pd.concat(ret, axis=0, ignore_index=True, copy=False)
     events_df[Event.webservice_id.key] = eventws_id
     events_df = dbsyncdf(events_df, session,
-                         [Event.eventid, Event.webservice_id], Event.id, db_bufsize,
+                         [Event.eventid, Event.webservice_id], Event.id, buf_size=db_bufsize,
                          cols_to_print_on_err=[Event.eventid.key])
 
     # try to release memory for unused columns (FIXME: NEEDS TO BE TESTED)
@@ -409,7 +418,7 @@ def get_eida_datacenters_df(session, routing_service_url, channels, starttime=No
 
 def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
                     channels, starttime, endtime,
-                    min_sample_rate,
+                    min_sample_rate, update,
                     max_thread_workers, timeout, blocksize, db_bufsize,
                     show_progress=False):
     """Returns a dataframe representing a query to the eida services (or the internal db
@@ -486,7 +495,8 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
 
         try:
             # this raises QuitDownload if we cannot save any element:
-            web_cha_df = save_stations_and_channels(session, web_cha_df, eidavalidator, db_bufsize)
+            web_cha_df = save_stations_and_channels(session, web_cha_df, eidavalidator, update,
+                                                    db_bufsize)
         except QuitDownload as qexc:
             if db_cha_df.empty:
                 raise
@@ -542,7 +552,7 @@ def get_channels_df_from_db(session, datacenters_df, channels, starttime, endtim
     return dbquery2df(qry)
 
 
-def save_stations_and_channels(session, channels_df, eidavalidator, db_bufsize):
+def save_stations_and_channels(session, channels_df, eidavalidator, update, db_bufsize):
     """
         Saves to db channels (and their stations) and returns a dataframe with only channels saved
         The returned data frame will have the column 'id' (`Station.id`) renamed to
@@ -603,7 +613,7 @@ def save_stations_and_channels(session, channels_df, eidavalidator, db_bufsize):
 
     # remember: dbsyncdf raises a QuitDownload, so no need to check for empty(dataframe)
     sta_df = dbsyncdf(sta_df, session, [Station.network, Station.station, Station.start_time],
-                      Station.id, db_bufsize, drop_duplicates=False,
+                      Station.id, update, buf_size=db_bufsize, drop_duplicates=False,
                       cols_to_print_on_err=STA_ERRCOLS)
     # sta_df will have the STA_ID columns, channels_df not: set it from the former to the latter:
     channels_df = mergeupdate(channels_df, sta_df, [STA_NET, STA_STA, STA_STIME, STA_DCID],
@@ -622,7 +632,7 @@ def save_stations_and_channels(session, channels_df, eidavalidator, db_bufsize):
     # add channels to db:
     channels_df = dbsyncdf(channels_df, session,
                            [Channel.station_id, Channel.location, Channel.channel],
-                           Channel.id, db_bufsize, drop_duplicates=False,
+                           Channel.id, update, buf_size=db_bufsize, drop_duplicates=False,
                            cols_to_print_on_err=CHA_ERRCOLS)
     return channels_df
 
@@ -965,8 +975,12 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
                    Segment.download_code, Segment.start_time, Segment.end_time]
     if update_request_timebounds:
         cols2update += [Segment.request_start, Segment.arrival_time, Segment.request_end]
+
+    cols_to_log_on_err = [SEG_ID, SEG_CHAID, SEG_START, SEG_END, SEG_DCID]
     segmanager = DbManager(session, Segment.id, cols2update,
-                           db_bufsize, [SEG_ID, SEG_CHAID, SEG_START, SEG_END, SEG_DCID])
+                           db_bufsize, return_df=False,
+                           oninsert_err_callback=handledbexc(cols_to_log_on_err, update=False),
+                           onupdate_err_callback=handledbexc(cols_to_log_on_err, update=True))
 
     # define the groupsby columns
     # remember that segments_df has columns:
@@ -1164,9 +1178,14 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
     _msg = "Unable to save inventory (station id=%d)"
 
     downloaded, errors, empty = 0, 0, 0
-    dbmanager = DbManager(session, Station.id, [Station.inventory_xml], db_bufsize,
-                          [Station.id.key, Station.network.key, Station.station.key,
-                           Station.start_time.key])
+    cols_to_log_on_err = [Station.id.key, Station.network.key, Station.station.key,
+                          Station.start_time.key]
+    dbmanager = DbManager(session, Station.id, [Station.inventory_xml],
+                          update_cols=[Station.inventory_xml],
+                          bufsize=db_bufsize,
+                          oninsert_err_callback=handledbexc(cols_to_log_on_err, update=False),
+                          onupdate_err_callback=handledbexc(cols_to_log_on_err, update=True))
+
     with get_progressbar(show_progress, length=len(stations_df)) as bar:
         iterable = zip(stations_df[Station.id.key],
                        stations_df[DataCenter.station_url.key],
@@ -1202,90 +1221,90 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
     dbmanager.close()
 
 
-class DbManager(object):
-    """Class managing the insertion of table rows into db. As insertion/updates should
-    be happening during download for not losing data in case of unexpected error, this class
-    manages the buffer size for the insertion/ updates on the db"""
-
-    def __init__(self, session, id_col, update_cols, bufsize,
-                 cols_to_print_on_err):
-        self.info = [0, 0, 0, 0]  # new, total_new, updated, updated_new
-        self.inserts = []
-        self.updates = []
-        self.bufsize = bufsize
-        self._num2insert = 0
-        self._num2update = 0
-        self.session = session
-        self.id_col = id_col
-        self.update_cols = update_cols
-        self.table = id_col.class_
-        self.cols_to_print_on_err = cols_to_print_on_err
-
-    def add(self, df):
-        bufsize = self.bufsize
-        mask = pd.isnull(df[self.id_col.key])
-        if mask.any():
-            if mask.all():
-                dfinsert = df
-                dfupdate = None
-            else:
-                dfinsert = df[mask]
-                dfupdate = df[~mask]
-        else:
-            dfinsert = None
-            dfupdate = df
-
-        if dfinsert is not None:
-            self.inserts.append(dfinsert)
-            self._num2insert += len(dfinsert)
-            if self._num2insert >= bufsize:
-                self.insert()
-
-        if dfupdate is not None:
-            self.updates.append(dfupdate)
-            self._num2update += len(dfupdate)
-            if self._num2update >= bufsize:
-                self.update()
-
-    def insert(self):
-        df = pd.concat(self.inserts, axis=0, ignore_index=True, copy=False, verify_integrity=False)
-        total, new = insertdf_napkeys(df, self.session, self.id_col, len(df), return_df=False,
-                                      onerr=handledbexc(self.cols_to_print_on_err))
-        info = self.info
-        info[0] += new
-        info[1] += total
-        # cleanup:
-        self._num2insert = 0
-        self.inserts = []
-
-    def update(self):
-        df = pd.concat(self.updates, axis=0, ignore_index=True, copy=False, verify_integrity=False)
-        total = len(df)
-        updated = updatedf(df, self.session, self.id_col, self.update_cols, total, return_df=False,
-                           onerr=handledbexc(self.cols_to_print_on_err, True))
-        info = self.info
-        info[2] += updated
-        info[3] += total
-        # cleanup:
-        self._num2update = 0
-        self.updates = []
-
-    def flush(self):
-        """flushes remaining stuff to insert/ update, if any"""
-        if self.inserts:
-            self.insert()
-        if self.updates:
-            self.update()
-
-    def close(self):
-        """flushes remaining stuff to insert/ update, if any, prints to log updates and inserts"""
-        self.flush()
-        new, ntot, upd, utot = self.info
-        dblog(self.table, new, ntot - new, upd, utot - upd)
+# class DbManager(object):
+#     """Class managing the insertion of table rows into db. As insertion/updates should
+#     be happening during download for not losing data in case of unexpected error, this class
+#     manages the buffer size for the insertion/ updates on the db"""
+# 
+#     def __init__(self, session, id_col, update_cols, bufsize,
+#                  cols_to_print_on_err):
+#         self.info = [0, 0, 0, 0]  # new, total_new, updated, updated_new
+#         self.inserts = []
+#         self.updates = []
+#         self.bufsize = bufsize
+#         self._num2insert = 0
+#         self._num2update = 0
+#         self.session = session
+#         self.id_col = id_col
+#         self.update_cols = update_cols
+#         self.table = id_col.class_
+#         self.cols_to_print_on_err = cols_to_print_on_err
+# 
+#     def add(self, df):
+#         bufsize = self.bufsize
+#         mask = pd.isnull(df[self.id_col.key])
+#         if mask.any():
+#             if mask.all():
+#                 dfinsert = df
+#                 dfupdate = None
+#             else:
+#                 dfinsert = df[mask]
+#                 dfupdate = df[~mask]
+#         else:
+#             dfinsert = None
+#             dfupdate = df
+# 
+#         if dfinsert is not None:
+#             self.inserts.append(dfinsert)
+#             self._num2insert += len(dfinsert)
+#             if self._num2insert >= bufsize:
+#                 self.insert()
+# 
+#         if dfupdate is not None:
+#             self.updates.append(dfupdate)
+#             self._num2update += len(dfupdate)
+#             if self._num2update >= bufsize:
+#                 self.update()
+# 
+#     def insert(self):
+#         df = pd.concat(self.inserts, axis=0, ignore_index=True, copy=False, verify_integrity=False)
+#         total, new = syncdf_insert_na_pkeys(df, self.session, self.id_col, len(df), return_df=False,
+#                                       onerr=handledbexc(self.cols_to_print_on_err))
+#         info = self.info
+#         info[0] += new
+#         info[1] += total
+#         # cleanup:
+#         self._num2insert = 0
+#         self.inserts = []
+# 
+#     def update(self):
+#         df = pd.concat(self.updates, axis=0, ignore_index=True, copy=False, verify_integrity=False)
+#         total = len(df)
+#         updated = updatedf(df, self.session, self.id_col, self.update_cols, total, return_df=False,
+#                            onerr=handledbexc(self.cols_to_print_on_err, True))
+#         info = self.info
+#         info[2] += updated
+#         info[3] += total
+#         # cleanup:
+#         self._num2update = 0
+#         self.updates = []
+# 
+#     def flush(self):
+#         """flushes remaining stuff to insert/ update, if any"""
+#         if self.inserts:
+#             self.insert()
+#         if self.updates:
+#             self.update()
+# 
+#     def close(self):
+#         """flushes remaining stuff to insert/ update, if any, prints to log updates and inserts"""
+#         self.flush()
+#         new, ntot, upd, utot = self.info
+#         dblog(self.table, new, ntot - new, upd, utot - upd)
 
 
 def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
-        search_radius, channels, min_sample_rate, inventory, timespan,
+        search_radius, channels, min_sample_rate, update_metadata, inventory, timespan,
         retry_seg_not_found, retry_url_err, retry_mseed_err, retry_client_err, retry_server_err,
         retry_timespan_err, traveltimes_model, advanced_settings, isterminal=False):
     """
@@ -1343,7 +1362,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
     try:
         channels_df = get_channels_df(session, datacenters_df, eidavalidator,
                                       channels, start, end,
-                                      min_sample_rate,
+                                      min_sample_rate, update_metadata,
                                       advanced_settings['max_thread_workers'],
                                       advanced_settings['s_timeout'],
                                       advanced_settings['download_blocksize'], dbbufsize,
@@ -1424,7 +1443,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
         # for those stations with empty inventory_xml
         # AND at least one segment non empty/null
         # Download inventories for those stations only
-        sta_df = dbquery2df(query4inventorydownload(session))
+        sta_df = dbquery2df(query4inventorydownload(session, update_metadata))
         # stations = session.query(Station).filter(~withdata(Station.inventory_xml)).all()
         if empty(sta_df):
             stepinfo("Skipping: No station inventory to download")

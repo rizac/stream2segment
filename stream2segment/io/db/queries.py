@@ -165,7 +165,7 @@ def getallcomponents(session, seg_id):
         filter(or_(Segment.id == seg_id, and_(*conditions)))
 
 
-def query4inventorydownload(session):
+def query4inventorydownload(session, force_update):
     '''Returns a query yielding the stations which do not have inventories xml
     and have at least one segment with data.
 
@@ -174,7 +174,13 @@ def query4inventorydownload(session):
     ```(Station.id, Station.network, Station.station, DataCenter.station_url,
         Station.start_time, Station.end_time)```
     '''
-    return session.query(Station.id, Station.network, Station.station, DataCenter.station_url,
-                         Station.start_time, Station.end_time).join(Station.datacenter).\
-        filter((~Station.has_inventory) &
-               (Station.segments.any(Segment.has_data)))  # @UndefinedVariable
+    qry = session.query(Station.id, Station.network, Station.station, DataCenter.station_url,
+                        Station.start_time, Station.end_time).join(Station.datacenter)
+
+    if force_update:
+        qry = qry.filter(Station.segments.any(Segment.has_data))  # @UndefinedVariable
+    else:
+        qry = qry.filter((~Station.has_inventory) &
+                         (Station.segments.any(Segment.has_data)))  # @UndefinedVariable
+
+    return qry
