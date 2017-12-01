@@ -13,7 +13,7 @@ from sqlalchemy.orm.scoping import scoped_session
 import pandas as pd
 from sqlalchemy import Column, Integer, String,  create_engine, Binary, DateTime
 from stream2segment.io.db.pd_sql_utils import fetchsetpkeys, insertdf, _get_max, syncdf,\
-    mergeupdate, updatedf
+    mergeupdate, updatedf, dbquery2df, DbManager
 from datetime import datetime
 import numpy as np
 
@@ -21,6 +21,9 @@ from sqlalchemy.sql.expression import bindparam
 import os
 import psutil
 from sqlalchemy.sql import default_comparator
+from mock import patch
+import math
+from sqlalchemy.exc import SQLAlchemyError
 
 Base = declarative_base()
 
@@ -86,144 +89,6 @@ class Test(unittest.TestCase):
             self.session.add(customer)
         self.session.commit()
 
-    
-    def test_insertdf_double_single_matching_col(self):
-        self.init_db([{'id':1}, {'id':2}, {'id':3}])
-        
-        
-        # add the same ids as we have on the table. Assert nothing is added, d is returned as it is:
-        d = pd.DataFrame([{'id':1, 'name': 'a'}, {'id':2, 'name': 'b'}, {'id':3, 'name': 'c'}])
-        dlen = len(d)
-         
-        newd, new = insertdf(d, self.session, [Customer.id])
-        assert dlen - len(newd) == 0
-        assert new == 0
-        assert dlen == len(newd)
-
-        # add the same ids as we have on the table, with dupes id.
-        d = pd.DataFrame([{'id': 3, 'name': 'a'}, {'id':2, 'name': 'b'}, {'id':3, 'name': 'c'}])
-        dlen = len(d)
-        newd, new = insertdf(d, self.session, [Customer.id], drop_duplicates=False)
-        # discarded is still 0, as we consider first and third instance the same
-        assert dlen - len(newd) == 0
-        assert new == 0
-        assert len(newd) == dlen
-        
-        # As above, but with default drop_dupes=True discarded is now 1 (the second duplicate: {'id':3, 'name': 'c'})
-        d = pd.DataFrame([{'id': 3, 'name': 'a'}, {'id':2, 'name': 'b'}, {'id':3, 'name': 'c'}])
-        dlen = len(d)
-        newd, new = insertdf(d, self.session, [Customer.id])
-        # discarded is still 0, as we consider first and third instance the same
-        assert dlen - len(newd) == 1
-        assert new == 0
-        assert len(newd) == dlen - 1
-        
-        # add the a new id (4). Assert one is added, d is returned as it is:
-        d = pd.DataFrame([{'id':4, 'name': 'a'}, {'id':2, 'name': 'b'}, {'id':3, 'name': 'c'}])
-        dlen = len(d)
-        newd, new = insertdf(d, self.session, [Customer.id])
-        assert dlen - len(newd) == 0
-        assert new == 1
-        assert dlen == len(newd)
-        
-        # raise an error: duplicated ids:
-        d = pd.DataFrame([{'id':45, 'name': 'a'}, {'id':45, 'name': 'b'}, {'id':3, 'name': 'c'}])
-        
-        dlen = len(d)
-        newd, new = insertdf(d, self.session, [Customer.id])
-        discarded = dlen - len(newd)
-        assert discarded == 1
-        assert new == 1
-        assert dlen == len(newd) + discarded
-
-
-
-    def test_insertdf_double_matching_cols(self):
-
-        d2006 = datetime(2006, 1, 1)
-        d2007 = datetime(2007, 12, 31)
-        d2008 = datetime(2008, 3, 14)
-        d2009 = datetime(2009, 9, 25)
-
-        self.init_db([{'id': 1, 'time': d2006}, {'id': 2, 'time': d2007}, {'id': 3, 'time': d2008}])
-
-        # add the same ids as we have on the table. Assert nothing is added, d is returned as it is:
-        d = pd.DataFrame([{'id': 1, 'time': d2006}, {'id': 2, 'time': d2007}, {'id': 3, 'time': d2008}])
-        dlen = len(d)
-        newd, new = insertdf(d, self.session, [Customer.id, Customer.time])
-        assert dlen - len(newd) == 0
-        assert new == 0
-        assert dlen == len(newd)
-
-
-        # add a wrong entry {'id': 1, 'time': d2009}: the tuple (id, time) is not present on the
-        # db BUT it violates id unique constraint: 
-        d = pd.DataFrame([{'id': 1, 'time': d2009}, {'id': 2, 'time': d2007}, {'id': 3, 'time': d2008}])
-        dlen = len(d)
-        newd, new = insertdf(d, self.session, [Customer.id, Customer.time])
-        assert dlen - len(newd) == 1
-        assert new == 0
-        assert len(newd) == dlen - 1
-
-        # add a wrong entry {'id': 1, 'time': d2009} and a good one {'id': 22, 'time': d2009},
-        # but as the wrong entry
-        # is before the good one and in the same buffer chunk, the second is not 
-        # added too: THAT's NOT TRUE AS WE WILL SHOW IJ THE NEXT TRY (SEE BELOW)
-        d = pd.DataFrame([{'id': 1, 'time': d2009}, {'id': 22, 'time': d2009}, {'id': 3, 'time': d2008}])
-        dlen = len(d)
-        newd, new = insertdf(d, self.session, [Customer.id, Customer.time])
-        assert dlen - len(newd) == 2
-        assert new == 0
-        assert len(newd) == dlen - 2
-
-
-        # NEXT TRY:
-        # add a good entry {'id': 23, 'time': d2009} and a wrong one {'id': 1, 'time': d2009},
-        # now at least the good entry is added because it's BEFORE the wrong one: NOT TRUE,
-        # NOTHING IS ADDED
-        d = pd.DataFrame([{'id': 23, 'time': d2009}, {'id': 1, 'time': d2009}, {'id': 3, 'time': d2008}])
-        dlen = len(d)
-        newd, new = insertdf(d, self.session, [Customer.id, Customer.time])
-        # THIS IS FALSE (COMMENTED OUT):
-#         assert dlen - len(newd) == 1
-#         assert new == 1
-#         assert len(newd) == dlen - 1
-        # NOW THIS IS TRUE:
-        assert dlen - len(newd) == 2
-        assert new == 0
-        assert len(newd) == dlen - 2
-
-        # add a wrong entry {'id': 1, 'time': d2009} and a good one {'id': 22, 'time': d2009},
-        # with buf_size=1 the second is added (they are not in the same buf chunk)
-        d = pd.DataFrame([{'id': 1, 'time': d2009}, {'id': 22, 'time': d2009}, {'id': 3, 'time': d2008}])
-        dlen = len(d)
-        newd, new = insertdf(d, self.session, [Customer.id, Customer.time], buf_size=1)
-        assert dlen - len(newd) == 1
-        assert new == 1
-        assert len(newd) == dlen - 1
-
-        # add a new good entry {'id': 411, 'time': d2009}, the other three already added
-        # again, note that second and last entry are all added cause dupes are not checked for
-        # we should issue a drop_duplicates first
-        d = pd.DataFrame([{'id': 411, 'time': d2009}, {'id': 22, 'time': d2009},
-                          {'id': 3, 'time': d2008}, {'id': 22, 'time': d2009}])
-        
-        dlen = len(d)
-        newd, new = insertdf(d, self.session, [Customer.id, Customer.time], drop_duplicates=False)
-        assert dlen - len(newd) == 0
-        assert new == 1
-        assert len(newd) == dlen
-        
-        # Same as above, but now we drop duplicates (the default):
-        d = pd.DataFrame([{'id': 411, 'time': d2009}, {'id': 22, 'time': d2009},
-                          {'id': 3, 'time': d2008}, {'id': 22, 'time': d2009}])
-        
-        dlen = len(d)
-        newd, new = insertdf(d, self.session, [Customer.id, Customer.time], drop_duplicates=True)
-        assert dlen - len(newd) == 1  # the second {'id': 22, 'time': d2009} is discarded
-        assert new == 0  # nothing is added (as new)
-        assert len(newd) == dlen -1
-
     def test_fetchsetpkeys_(self):
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
@@ -234,6 +99,8 @@ class Test(unittest.TestCase):
         d2 = fetchsetpkeys(d, self.session, [Customer.name], Customer.id)
         expected_ids = [1, 1, np.nan]
         assert array_equal(d2['id'], expected_ids)
+        #note: dtype has changed to accomodate nans:
+        assert d2['id'].dtype == np.float64
         
     def test_fetchsetpkeys_2(self):
         d2006 = datetime(2006, 1, 1)
@@ -245,6 +112,8 @@ class Test(unittest.TestCase):
         d2 = fetchsetpkeys(d, self.session, [Customer.name], Customer.id)
         expected_ids = [1,2,np.nan]
         assert array_equal(d2['id'], expected_ids)
+        #note: dtype has changed to accomodate nans:
+        assert d2['id'].dtype == np.float64
         
     def test_fetchsetpkeys_3(self):
         d2006 = datetime(2006, 1, 1)
@@ -259,7 +128,8 @@ class Test(unittest.TestCase):
         d2 = fetchsetpkeys(d, self.session, [Customer.name, Customer.time], Customer.id)
         expected_ids = [3,np.nan,np.nan,3,1]
         assert array_equal(d2['id'], expected_ids)
-        # assert pd.isnull(d2.loc[d2['name'] == 'd']['id']).all()
+        #note: dtype has changed to accomodate nans:
+        assert d2['id'].dtype == np.float64
         
     def test_fetchsetpkeys_4(self):
         d2006 = datetime(2006, 1, 1)
@@ -274,100 +144,491 @@ class Test(unittest.TestCase):
         d2 = fetchsetpkeys(d, self.session, [Customer.name, Customer.time], Customer.id)
         expected_ids = [3,45, 45, 3, 1]
         assert array_equal(d2['id'], expected_ids)
-        
-    
-    def test_syncdf(self):
+        #note: dtype has changed even if ids are not nans:
+        assert d2['id'].dtype == np.float64
+
+    def test_fetchsetpkeys_dtypes(self):
+        '''tests when fetchsetpkeys changes dtype to float for an id of type INTEGER
+        Basically: when any row instance has no match on the db (at least one row)
+        '''
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
         d2009 = datetime(2009, 9, 25)
-        self.init_db([{'id':1, 'name':'a', 'time': d2006}, {'id':2, 'name':'a', 'time': d2008},
-                      {'id':3, 'name':'a', 'time': None}])
-        mxx = _get_max(self.session, Customer.id)
-        # expected_ids should be [3, mxx+1, mxx+2, 3, 1]
-        # but dataframe 1st item and 4th item are the same, the second will be dropped, thus:
-        expected_ids = [3, mxx+1, mxx+2, 1]
+        self.init_db([{'id': 1, 'name': 'a', 'time': d2006},
+                      {'id': 2, 'name': 'a', 'time': d2008},
+                      {'id': 3, 'name': 'a', 'time': None}])
+
+        # 3 CASES WHEN d['id'] IS GIVEN:
+        # ------------------------------
+        # d has ALL instance mapped to db rows:
+        d = pd.DataFrame([{'id': 1, 'name': 'a', 'time': None}])
+        d2 = fetchsetpkeys(d, self.session, [Customer.name, Customer.time], Customer.id)
+        assert d2['id'].dtype == np.int64
+        # d has NO instances mapped to db rows:
+        d = pd.DataFrame([{'id': 1, 'name': 'axz', 'time': None}])
+        d2 = fetchsetpkeys(d, self.session, [Customer.name, Customer.time], Customer.id)
+        assert d2['id'].dtype == np.float64
+        # d has SOME instance mapped to db ros, SOME not:
+        d = pd.DataFrame([{'id': 1, 'name': 'a', 'time': None},
+                          {'id': 1, 'name': 'axz', 'time': None}])
+        d2 = fetchsetpkeys(d, self.session, [Customer.name, Customer.time], Customer.id)
+        assert d2['id'].dtype == np.float64
+
+        # 3 CASES WHEN d['id'] IS NOT GIVEN:
+        # ------------------------------
+        # d has ALL instance mapped to db rows:
+        d = pd.DataFrame([{'name': 'a', 'time': None}])
+        d2 = fetchsetpkeys(d, self.session, [Customer.name, Customer.time], Customer.id)
+        assert d2['id'].dtype == np.int64
+        # d has NO instances mapped to db rows:
+        d = pd.DataFrame([{'name': 'axz', 'time': None}])
+        d2 = fetchsetpkeys(d, self.session, [Customer.name, Customer.time], Customer.id)
+        assert d2['id'].dtype == np.float64
+        # d has SOME instance mapped to db ros, SOME not:
+        d = pd.DataFrame([{'name': 'a', 'time': None},
+                          {'name': 'axz', 'time': None}])
+        d2 = fetchsetpkeys(d, self.session, [Customer.name, Customer.time], Customer.id)
+        assert d2['id'].dtype == np.float64
+
+    @patch('stream2segment.io.db.pd_sql_utils.insertdf', side_effect=insertdf)
+    @patch('stream2segment.io.db.pd_sql_utils.updatedf', side_effect=updatedf)
+    def test_dbmanager_callcounts(self, mock_updatedf, mock_insertdf):
+        d2006 = datetime(2006, 1, 1)
+        d2007 = datetime(2007, 12, 31)
+        d2008 = datetime(2008, 3, 14)
+        d2009 = datetime(2009, 9, 25)
+        self.init_db([{'id': 1, 'name': 'a', 'time': d2006}, {'id': 2, 'name': 'a', 'time': d2008},
+                      {'id': 3, 'name': 'a', 'time': None}])
+
         d = pd.DataFrame([{'name': 'a', 'time': None}, {'name': 'b', 'time': d2006},
-                          {'name': 'c', 'time': d2009}, { 'name': 'a', 'time': None},
+                          {'name': 'c', 'time': d2009}, {'name': 'a', 'time': None},
                           {'name': 'a', 'time': d2006}])
-        d2, new = syncdf(d, self.session, [Customer.name, Customer.time], Customer.id)
+        db = DbManager(self.session, Customer.id, update=False, buf_size=10)
+        d[Customer.id.key] = np.nan  # must be set when using dbmanager
+        # contrarily to syncdf, all instances will be added
+        # we do not have constraints thus a new id will be set for all of them
+        for i in range(len(d)):
+            db.add(d.iloc[i:i+1,:])
+        _, inserted, not_inserted, updated, not_updated = db.close()
+        assert (inserted, not_inserted, updated, not_updated) == (len(d), 0, 0, 0)
+        assert mock_insertdf.call_count == 1  # != inserted
+        assert mock_updatedf.call_count == 0
         
+        
+        mock_insertdf.reset_mock()
+        mock_updatedf.reset_mock()
+        d = pd.DataFrame([{'name': 'a', 'time': None}, {'name': 'b', 'time': d2006},
+                          {'name': 'c', 'time': d2009}, {'name': 'a', 'time': None},
+                          {'name': 'a', 'time': d2006}])
+        db = DbManager(self.session, Customer.id, update=False, buf_size=1)
+        d[Customer.id.key] = np.nan  # must be set when using dbmanager
+        # contrarily to syncdf, all instances will be added
+        for i in range(len(d)):
+            db.add(d.iloc[i:i+1,:])
+        _, inserted, not_inserted, updated, not_updated = db.close()
+        assert (inserted, not_inserted, updated, not_updated) == (len(d), 0, 0, 0)
+        assert mock_insertdf.call_count == len(d)  # == inserted (buf_size=1)
+        assert mock_updatedf.call_count == 0
+        
+        # now update:
+        mock_insertdf.reset_mock()
+        mock_updatedf.reset_mock()
+        d = dbquery2df(self.session.query(Customer.id, Customer.name, Customer.time))
+        # {'name': 'a', 'time': None} will be dropped (drop duplicates is True by default)
+        # from the other three elements, the other three will be updated
+        db = DbManager(self.session, Customer.id, update=True, buf_size=10)
+        for i in range(len(d)):
+            db.add(d.iloc[i:i+1,:])
+        _, inserted, not_inserted, updated, not_updated = db.close()
+        assert (inserted, not_inserted, updated, not_updated) == (0, 0, len(d), 0)
+        assert mock_insertdf.call_count == 0
+        assert mock_updatedf.call_count == int(math.ceil(len(d) / 10.0))  # != inserted
+        
+        # now update with buf_size=1
+        mock_insertdf.reset_mock()
+        mock_updatedf.reset_mock()
+        d = dbquery2df(self.session.query(Customer.id, Customer.name, Customer.time))
+        # {'name': 'a', 'time': None} will be dropped (drop duplicates is True by default)
+        # from the other three elements, the other three will be updated
+        db = DbManager(self.session, Customer.id, update=True, buf_size=1)
+        for i in range(len(d)):
+            db.add(d.iloc[i:i+1,:])
+        _, inserted, not_inserted, updated, not_updated = db.close()
+        assert (inserted, not_inserted, updated, not_updated) == (0, 0, len(d), 0)
+        assert mock_insertdf.call_count == 0
+        assert mock_updatedf.call_count == len(d)  # == inserted (buf_size=1)
+
+    @patch('stream2segment.io.db.pd_sql_utils.insertdf', side_effect=insertdf)
+    @patch('stream2segment.io.db.pd_sql_utils.updatedf', side_effect=updatedf)
+    def test_syncdf_several_combinations_constraints(self, mock_updatedf, mock_insertdf):
+        dt = datetime(2006, 1, 1, 12, 31, 7, 456789)
+        EXISTING_ID = 1
+        db_df = [{'id': EXISTING_ID, 'name': 'a', 'time': None}]
+        dfs = [
+                # non existing, violates constraint (name NULL):
+                pd.DataFrame([{'name': None, 'time': None}]),
+                # existing, violates constraint (name NULL):
+                pd.DataFrame([{'id': 1, 'name': None, 'time': None}]),
+                # non existing, violates constraint (name NULL) and non existing (OK)
+                pd.DataFrame([{'name': None, 'time': None}, {'name': 'x', 'time': None}]),
+                # existing, violates constraint (name NULL)  and non existing (OK)
+                pd.DataFrame([{'id': 1, 'name': None, 'time': None}, {'name': 'x', 'time': None}]),
+                # non existing, violates constraint (name NULL) and existing (OK)
+                pd.DataFrame([{'name': None, 'time': None}, {'name': 'a', 'time': None}]),
+                # existing, violates constraint (name NULL)  and existing (OK)
+                pd.DataFrame([{'id': 1, 'name': None, 'time': None}, {'name': 'a', 'time': None}]),
+            ]
+
+        # stupid hack to access these vars from within functions below
+        # Python 3 has better ways, we still need python2 compatibility:
+        inserterr_callcount = [0]
+        updateerr_callcount = [0]
+        
+        def onerri(dataframe, exc):
+            assert isinstance(dataframe, pd.DataFrame)
+            assert isinstance(exc, SQLAlchemyError)
+            inserterr_callcount[0] += 1
+        
+        def onerru(dataframe, exc):
+            assert isinstance(dataframe, pd.DataFrame)
+            assert isinstance(exc, SQLAlchemyError)
+            updateerr_callcount[0] += 1
+
+        for update in [True]:
+            for buf_size in [1]:
+                for i, d in enumerate(dfs):
+                    # re-initialize db every time:
+                    inserterr_callcount[0] = 0
+                    updateerr_callcount[0] = 0
+                    self.session.query(Customer).delete()
+                    self.init_db(db_df)
+                    assert len(self.session.query(Customer.id).all()) == len(db_df)
+    
+                    inserted, not_inserted, updated, not_updated, d2 = \
+                        syncdf(d.copy(), self.session, [Customer.name, Customer.time], Customer.id,
+                               buf_size=buf_size, update=update, oninsert_err_callback=onerri,
+                               onupdate_err_callback=onerru)
+    
+                    if not_inserted:
+                        assert inserterr_callcount[0] > 0
+                    else:
+                        assert inserterr_callcount[0] == 0
+                    if not_updated:
+                        assert updateerr_callcount[0] > 0
+                    else:
+                        assert updateerr_callcount[0] == 0
+                    
+                    # SYNC 1 ROW WHICH DOES NOT EXIST AND VIOLATES CONSTRAINTS
+                    if i == 0:
+                        assert (inserted, not_inserted, updated, not_updated) == (0, 1, 0, 0)
+                        assert len(d2) == 0
+    
+                    # SYNC 1 ROW WHICH EXISTS AND VIOLATES CONSTRAINTS
+                    elif i == 1:
+                        if update:
+                            assert (inserted, not_inserted, updated, not_updated) == (0, 0, 0, 1)
+                            assert len(d2) == 0
+                        else:
+                            assert (inserted, not_inserted, updated, not_updated) == (0, 0, 0, 0)
+                            assert len(d2) == 1 and d2['id'].iloc[0] == EXISTING_ID
+
+                    # SYNC 2 ROWS: ONE DOES NOT EXIST (AND VIOLATES COSNTRAINTS), THE OTHER DOES NOT EXIST (AND IS OK)
+                    elif i == 2:
+                        if buf_size != 1:
+                            # bad instances fall in the same chunk and thus are not inserted
+                            assert (inserted, not_inserted, updated, not_updated) == (0, 2, 0, 0)
+                            assert len(d2) == 0
+                        else:
+                            # bad instances fall NOT in the same chunk and thus are not inserted
+                            assert (inserted, not_inserted, updated, not_updated) == (1, 1, 0, 0)
+                            # the only instance has not EXISTING_ID+1 (that was discarded) but EXISTING_ID+2:
+                            assert len(d2) == 1 and d2['id'].iloc[0] == EXISTING_ID+2
+    
+                    # SYNC 2 ROWS: ONE EXISTS (AND VIOLATES COSNTRAINTS), THE OTHER DOES NOT EXIST (AND IS OK)
+                    elif i == 3:
+                        if update:
+                            assert (inserted, not_inserted, updated, not_updated) == (1, 0, 0, 1)
+                            assert len(d2) == 1 and d2['id'].iloc[0] == EXISTING_ID + 1
+                        else:
+                            assert (inserted, not_inserted, updated, not_updated) == (1, 0, 0, 0)
+                            assert len(d2) == 2 and sorted(d2['id'].values.tolist()) == [EXISTING_ID, EXISTING_ID+1]
+
+                    # SYNC 2 ROWS: ONE DOES NOT EXIST (AND VIOLATES COSNTRAINTS), THE OTHER EXISTS (AND IS OK)
+                    elif i == 4:
+                        if update:
+                            assert (inserted, not_inserted, updated, not_updated) == (0, 1, 1, 0)
+                        else:
+                            assert (inserted, not_inserted, updated, not_updated) == (0, 1, 0, 0)
+                        assert len(d2) == 1 and d2['id'].iloc[0] == EXISTING_ID
+    
+                    # SYNC 2 ROWS: ONE EXISTS (AND VIOLATES COSNTRAINTS), THE OTHER EXISTS (AND IS OK)
+                    elif i == 5:
+                        if update:
+                            if buf_size != 1:
+                                # both not updated (same update chunk, which fails):
+                                assert (inserted, not_inserted, updated, not_updated) == (0, 0, 0, 2)
+                                assert len(d2) == 0
+                            else:
+                                # the first updated, the second not
+                                assert (inserted, not_inserted, updated, not_updated) == (0, 0, 1, 1)
+                                assert len(d2) == 1 and d2['id'].iloc[0] == EXISTING_ID
+                        else:
+                            assert (inserted, not_inserted, updated, not_updated) == (0, 0, 0, 0)
+                            assert len(d2) == 2 and sorted(d2['id'].values.tolist()) == [EXISTING_ID, EXISTING_ID]
+        
+   
+
+    @patch('stream2segment.io.db.pd_sql_utils.insertdf', side_effect=insertdf)
+    @patch('stream2segment.io.db.pd_sql_utils.updatedf', side_effect=updatedf)
+    def test_syncdf_several_combinations(self, mock_updatedf, mock_insertdf):
+        dt = datetime(2006, 1, 1, 12, 31, 7, 456789)
+        EXISTING_ID = 1
+        db_df = [{'id': EXISTING_ID, 'name': 'a', 'time': None}]
+        dfs = [
+                # all rows existing:
+                pd.DataFrame([{'name': 'a', 'time': None}]),
+                # no row existing:
+                pd.DataFrame([{'name': 'b', 'time': None}]),
+                # some exist, some not
+                pd.DataFrame([{'name': 'a', 'time': None}, {'name': 'b', 'time': dt}]),
+                # some exist (inserted twice), some not:
+                pd.DataFrame([{'name': 'a', 'time': None}, {'name': 'a', 'time': None}, {'name': 'b', 'time': dt}]),
+                # some exust, some note (inserted twice):
+                pd.DataFrame([{'name': 'a', 'time': None}, {'name': 'b', 'time': dt}, {'name': 'b', 'time': dt}]),
+            ]
+
+        for drop_dup in [True, False]:
+            for update in [True, False]:
+                for i, d in enumerate(dfs):
+                    # re-initialize db every time:
+                    self.session.query(Customer).delete()
+                    self.init_db(db_df)
+                    assert len(self.session.query(Customer.id).all()) == len(db_df)
+
+                    inserted, not_inserted, updated, not_updated, d2 = \
+                        syncdf(d.copy(), self.session, [Customer.name, Customer.time], Customer.id,
+                               drop_duplicates=drop_dup, update=update)
+
+                    # SYNC 1 ROW WHICH EXISTS ON THE DB
+                    if i == 0:
+                        if update:
+                            assert (inserted, not_inserted, updated, not_updated) == (0, 0, 1, 0)
+                        else:
+                            assert (inserted, not_inserted, updated, not_updated) == (0, 0, 0, 0)
+                        assert len(d2) == 1 and d2['id'].iloc[0] == EXISTING_ID
+
+                    # SYNC 1 ROW WHICH DOES NOT EXIST ON THE DB
+                    elif i == 1:
+                        assert (inserted, not_inserted, updated, not_updated) == (1, 0, 0, 0)
+                        assert len(d2) == 1 and d2['id'].iloc[0] == EXISTING_ID + 1
+
+                    # SYNC 2 ROWS: ONE EXISTS ON THE DB THE OTHER NOT
+                    elif i == 2:
+                        if update:
+                            assert (inserted, not_inserted, updated, not_updated) == (1, 0, 1, 0)
+                        else:
+                            assert (inserted, not_inserted, updated, not_updated) == (1, 0, 0, 0)                            
+                        assert len(d2) == 2 and sorted(d2['id'].values.tolist()) == [EXISTING_ID, EXISTING_ID+1]
+
+                    # SYNC 3 ROWS: TWO EXISTS AND ARE THE SAME (DUPLICATED), THE OTHER DOES NOT EXIST ON THE DB
+                    elif i == 3:
+                        if drop_dup is True:
+                            # rows duplicates  will be dropped,
+                            # it remains only the already existing row, thus this is the same as no row existing (i==1)
+                            assert (inserted, not_inserted, updated, not_updated) == (1, 0, 0, 0)
+                            assert len(d2) == 1 and d2['id'].iloc[0] == EXISTING_ID + 1
+                        else:
+                            if update:
+                                # rows duplicates will NOT be dropped, They exist, hence, their id will be
+                                # fetched and
+                                # they will NOT be inserted, thus they will be updated.
+                                # The other row will be inserted, thus will be updated
+                                assert (inserted, not_inserted, updated, not_updated) == (1, 0, 2, 0)
+                            else:
+                                # rows duplicates will NOT be dropped, Their id will be fetched and
+                                # they will NOT be inserted. The other row will be inserted
+                                assert (inserted, not_inserted, updated, not_updated) == (1, 0, 0, 0)
+
+                            assert len(d2) == 3 and sorted(d2['id'].values.tolist()) == [EXISTING_ID, EXISTING_ID, EXISTING_ID+1]
+
+                    # SYNC 3 ROWS: ONE EXIST ON THE DB, TWO DO NOT EXISTS AND ARE THE SAME (DUPLICATED)
+                    elif i == 4:
+                        if drop_dup is True:
+                            if update:
+                                # rows duplicates will be dropped,
+                                # it remains only the already existing row, thus this is the same as all row existing (i==0)
+                                assert (inserted, not_inserted, updated, not_updated) == (0, 0, 1, 0)
+                            else:
+                                # rows duplicates will be dropped,
+                                # it remains only the already existing row, thus this is the same as all row existing (i==0)
+                                assert (inserted, not_inserted, updated, not_updated) == (0, 0, 0, 0)
+                            assert len(d2) == 1 and d2['id'].iloc[0] == EXISTING_ID
+                        else:
+                            if update:
+                                # rows duplicates will NOT be dropped. They do not exist, hence their id
+                                # will not be fetched thus it will be assigned incrementally.
+                                # The other row will be updated (it exists)
+                                assert (inserted, not_inserted, updated, not_updated) == (2, 0, 1, 0)
+                            else:
+                                # rows duplicates will NOT be dropped, Their id will not be fetched thus
+                                # it will be assigned incrementally
+                                assert (inserted, not_inserted, updated, not_updated) == (2, 0, 0, 0)
+                            assert len(d2) == 3 and sorted(d2['id'].values.tolist()) == [EXISTING_ID, EXISTING_ID+1, EXISTING_ID+2]
+
+
+    # syncdf TESTS BELOW MIGHT BE REDUNDANT (THEY WERE OLD TESTS ADAPTED BUT I GUESS WE TEST SEVERAL TIMES
+    # EITHER NON IMPORTANT STUFF OR STUFF ALREADY TESTED ABOVE)
+
+    @patch('stream2segment.io.db.pd_sql_utils.insertdf', side_effect=insertdf)
+    @patch('stream2segment.io.db.pd_sql_utils.updatedf', side_effect=updatedf)
+    def test_syncdf(self, mock_updatedf, mock_insertdf):
+        d2006 = datetime(2006, 1, 1)
+        d2007 = datetime(2007, 12, 31)
+        d2008 = datetime(2008, 3, 14)
+        d2009 = datetime(2009, 9, 25)
+        self.init_db([{'id': 1, 'name': 'a', 'time': d2006}, {'id': 2, 'name': 'a', 'time': d2008},
+                      {'id': 3, 'name': 'a', 'time': None}])
+        mxx = _get_max(self.session, Customer.id)
+
+        d = pd.DataFrame([{'name': 'a', 'time': None}, {'name': 'b', 'time': d2006},
+                          {'name': 'c', 'time': d2009}, {'name': 'a', 'time': None},
+                          {'name': 'a', 'time': d2006}])
+        # {'name': 'a', 'time': None} will be dropped (drop duplicates is True by default)
+        # from the other three elements, the last is already existing and will not be added
+        # the other two will have an autoincremented id:
+        expected_ids = [1, mxx+1, mxx+2]
+        inserted, not_inserted, updated, not_updated, d2 = \
+            syncdf(d, self.session, [Customer.name, Customer.time], Customer.id)
+
         assert array_equal(d2['id'], expected_ids)
-    
+        assert inserted == len(d2)-1  # assert one is already existing
+        assert updated == not_updated == 0
+        assert mock_insertdf.call_count == 1
+
+        # not try with update=True. Pass the dataframe d and change the name to 'x' for all rows
+        d.loc[:, ['name']] = 'x'
+        # Drop duplicates is still true, so duplicates under [Customer.name, Customer.time]
+        # will be dropped: This means only {'name': 'x', 'time': d2009}
+        # (previously {'name': 'c', 'time': d2009}) will be inserted
+        inserted, not_inserted, updated, not_updated, d2 = \
+            syncdf(d, self.session, [Customer.name, Customer.time], Customer.id, update=['name'])
+        assert array_equal(d2['id'], [6])
+        assert inserted == 1  # assert one is already existing
+        assert updated == not_updated == 0
+
+        # same as above, but fetch data from the db:
+        d = dbquery2df(self.session.query(Customer.id, Customer.name, Customer.time))
+        # assert we do not have instances with 'x':
+        dbase = dbquery2df(self.session.query(Customer.id, Customer.name, Customer.time).filter(Customer.name == 'x'))
+        d.loc[:, ['name']] = 'x'
+        inserted, not_inserted, updated, not_updated, d2 = \
+            syncdf(d, self.session, [Customer.name, Customer.time], Customer.id, update=['name'])
+        # assert we returned all excpected instances
+        assert d.drop_duplicates(subset=['name', 'time'], keep=False).equals(d2)
+        # assert returned values
+        assert (inserted, not_inserted, updated, not_updated) == (0, 0, 2, 0)
+        # assert on the db we have the previously marked instances with 'x', PLUS the
+        # added now
+        dbase2 = dbquery2df(self.session.query(Customer.id, Customer.name, Customer.time).filter(Customer.name == 'x'))
+        # and now assert it:
+        oldids_with_x_as_name = dbase['id'].values.tolist()
+        newids_with_x_as_name = d2['id'].values.tolist()
+        currentids_with_x_as_name = dbase2['id'].values.tolist()
+        assert sorted(oldids_with_x_as_name+newids_with_x_as_name) == sorted(currentids_with_x_as_name)
+
+        # same as above, but with drop_duplicates=False
+        d = dbquery2df(self.session.query(Customer.id, Customer.name, Customer.time))
+        # assert we do not have instances with 'x':
+        dbase = dbquery2df(self.session.query(Customer.id, Customer.name, Customer.time).filter(Customer.name == 'w'))
+        d.loc[:, ['name']] = 'w'
+        inserted, not_inserted, updated, not_updated, d2 = \
+            syncdf(d, self.session, [Customer.name, Customer.time], Customer.id, update=['name'],
+                   drop_duplicates=False)
+        # we should have the same result of the database, as we updated ALL instances:
+        # BUT: fetchsetpkeys changed to float the dtype of id, so:
+        assert not d.equals(d2)
+        # this should work
+        d['id'] = d['id'].astype(int)
+        assert d.equals(d2)
+        # assert returned values
+        assert (inserted, not_inserted, updated, not_updated) == (0, 0, len(d), 0)
+
+
     def test_syncdf_2(self):
-        """Same as above but the second non-existing item is conflicting with the first added"""
+        """Same as `test_syncdf` but the second non-existing item is conflicting with the first added"""
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
         d2009 = datetime(2009, 9, 25)
         mxx = _get_max(self.session, Customer.id)
-        self.init_db([{'id':1, 'name':'a', 'time': d2006}, {'id':2, 'name':'a', 'time': d2008},
-                      {'id':3, 'name':'a', 'time': None}])
+        self.init_db([{'id': 1, 'name': 'a', 'time': d2006}, {'id': 2, 'name': 'a', 'time': d2008},
+                      {'id': 3, 'name': 'a', 'time': None}])
         mxx = _get_max(self.session, Customer.id)
         d = pd.DataFrame([{'name': 'a', 'time': None}, {'name': 'b', 'time': d2006},
-                          {'name': 'b', 'time': d2006}, { 'name': 'a', 'time': None},
+                          {'name': 'b', 'time': d2006}, {'name': 'a', 'time': None},
                           {'name': 'a', 'time': d2006}])
-# d is:
-#           name       time   id
-#         0    a        NaT  3.0
-#         1    b 2006-01-01  NaN
-#         2    b 2006-01-01  NaN
-#         3    a        NaT  3.0
-#         4    a 2006-01-01  1.0
-        d2, new = syncdf(d, self.session, [Customer.name, Customer.time], Customer.id)
+        # {'name': 'a', 'time': None} will be dropped (drop duplicates is True by default)
+        # from the other three elements, the last is already existing and will not be added
+        # the other two have a conflict and will be dropped as duplicates as well:
+        expected_ids = [1]
+        inserted, not_inserted, updated, not_updated, d2 = \
+            syncdf(d, self.session, [Customer.name, Customer.time], Customer.id)
 # d2 should be:
 #           name       time   id
 #         0    a        NaT  3.0
 #         1    b 2006-01-01  4.0
 #         4    a 2006-01-01  1.0
-        assert array_equal(d2['id'], [3, mxx+1, 1])
+        assert array_equal(d2['id'], expected_ids)
+        assert inserted == len(d2)-1  # assert one is already existing
 
     def test_syncdf_2_no_drop_dupes(self):
+        """Same as `test_syncdf_2` but with drop duplicates False"""
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
         d2009 = datetime(2009, 9, 25)
         mxx = _get_max(self.session, Customer.id)
-        self.init_db([{'id':1, 'name':'a', 'time': d2006}, {'id':2, 'name':'a', 'time': d2008},
-                      {'id':3, 'name':'a', 'time': None}])
+        self.init_db([{'id': 1, 'name': 'a', 'time': d2006}, {'id': 2, 'name': 'a', 'time': d2008},
+                      {'id': 3, 'name': 'a', 'time': None}])
         mxx = _get_max(self.session, Customer.id)
         d = pd.DataFrame([{'name': 'a', 'time': None}, {'name': 'b', 'time': d2006},
-                          {'name': 'b', 'time': d2006}, { 'name': 'a', 'time': None},
+                          {'name': 'b', 'time': d2006}, {'name': 'a', 'time': None},
                           {'name': 'a', 'time': d2006}])
-# d is:
-#           name       time  (id)
-#         0    a        NaT  3.0
-#         1    b 2006-01-01  NaN
-#         2    b 2006-01-01  NaN
-#         3    a        NaT  3.0
-#         4    a 2006-01-01  1.0
-        d2, new = syncdf(d, self.session, [Customer.name, Customer.time], Customer.id,
-                                  drop_duplicates=False)
-# d2 should be:
-#           name       time   id
-#         0    a        NaT  3.0
-#         1    b 2006-01-01  4.0
-#         2    b 2006-01-01  5.0
-#         3    a        NaT  3.0
-#         4    a 2006-01-01  1.0
-        assert array_equal(d2['id'], [3, mxx+1, mxx+2, 3, 1])
+        # {'name': 'a', 'time': None} will NOT be dropped (drop duplicates is False here)
+        # thus when fetching the pkey 'id' they will both have 3 (see above)
+        #  {'name': 'b', 'time': d2006} will NOT be dropped as well and they will have two
+        # different ids cause they do not have counterparts saved on the db
+        # {'name': 'a', 'time': d2006} will have the 'id' 1 (see above):
+        inserted, not_inserted, updated, not_updated, d2 = \
+            syncdf(d, self.session, [Customer.name, Customer.time], Customer.id,
+                   drop_duplicates=False)
+        # the returned dataframe, as it does NOT update, has the instances with already set id
+        # first (these instances are those who should be updated) and then the rest, so it's like this: 
+        assert array_equal(d2['id'], [3, 3, 1, mxx+1, mxx+2])
         
     def test_syncdf_3(self):
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
         d2009 = datetime(2009, 9, 25)
-        self.init_db([{'id':1, 'name':'a', 'time': d2006}, {'id':2, 'name':'a', 'time': d2008},
-                      {'id':3, 'name':'a', 'time': None}])
-        d = pd.DataFrame([{'id':45, 'name': 'a', 'time': None}, {'id':45, 'name': 'b', 'time': d2006},
-                          {'id':45, 'name': 'c', 'time': d2009}, {'id':45, 'name': 'a', 'time': None},
-                          {'id':45, 'name': 'a', 'time': d2006}])
-        d2, new = syncdf(d, self.session, [Customer.name, Customer.time], Customer.id)
+        self.init_db([{'id': 1, 'name': 'a', 'time': d2006}, {'id': 2, 'name': 'a', 'time': d2008},
+                      {'id': 3, 'name': 'a', 'time': None}])
+        d = pd.DataFrame([{'id': 45, 'name': 'a', 'time': None}, {'id': 45, 'name': 'b', 'time': d2006},
+                          {'id': 45, 'name': 'c', 'time': d2009}, {'id': 45, 'name': 'a', 'time': None},
+                          {'id': 45, 'name': 'a', 'time': d2006}])
+        # we have these already existing instances: 1st, fourth, last instances
+        # first and fourth are duplicates, so as drop duplicates is True, so they will be REMOVED
+        # We remain with the other three: first, 2nd and third. AS update is false, they will always
+        # be returned:
+        
+        inserted, not_inserted, updated, not_updated, d2 = \
+            syncdf(d, self.session, [Customer.name, Customer.time], Customer.id)
         # Note that in this case {'id':45, 'name': 'b', 'time': d2006}, and
         # {'id':45, 'name': 'c', 'time': d2009} are still valid and in d2 cause they don't have
         # matching on the table => their id is not updated and they don't have null id =>
         # they id is not set
-        expected_ids = [3, 45, 45, 1]
+        expected_ids = [45, 45, 1]
         assert array_equal(d2['id'], expected_ids)
     
 
@@ -476,51 +737,6 @@ class Test(unittest.TestCase):
         g = 9
 
 
-    def test_updatedf_(self):
-        d2006 = datetime(2006, 1, 1)
-        d2007 = datetime(2007, 12, 31)
-        d2008 = datetime(2008, 3, 14)
-        d2009 = datetime(2009, 9, 25)
-        self.init_db([{'id':1, 'name':'a'}, {'id':2, 'name':'b'}, {'id':3, 'name': "c"}])
-        d = pd.DataFrame([{'id':1, 'name': 'x'}, {'id':2, 'name': 'x'}, {'id':3, 'name': 'x'}])
-        d2 = updatedf(d, self.session, Customer.id, [Customer.name])
-        assert array_equal(d2['id'], [1,2,3])
-        assert ([x[0] for x in self.session.query(Customer.name).all()] == d2['name']).all()
-        assert len(d2) == 3
-
-    def test_updatedf_nullcontraint_violation(self):
-        d2006 = datetime(2006, 1, 1)
-        d2007 = datetime(2007, 12, 31)
-        d2008 = datetime(2008, 3, 14)
-        d2009 = datetime(2009, 9, 25)
-        self.init_db([{'id': 1, 'name': 'a'}, {'id':2, 'name':'b'}, {'id':3, 'name': "c"}])
-        # first item violates a non-null constraint
-        d = pd.DataFrame([{'id':1, 'name': None}, {'id':2, 'name': 'x'}, {'id':3, 'name': 'x'}])
-        d2 = updatedf(d, self.session, Customer.id, [Customer.name])
-        assert d2.empty
-        # comment out the "assert..." below, as it
-        # is already proven by d2.empty above, and moreover issues an sqlalchemy warning
-        # assert not self.session.query(Customer.name).filter(Customer.id.in_(d2['id'].values)).all()
-       
-
-    def test_updatedf_nullcontraint_violation2(self):
-        d2006 = datetime(2006, 1, 1)
-        d2007 = datetime(2007, 12, 31)
-        d2008 = datetime(2008, 3, 14)
-        d2009 = datetime(2009, 9, 25)
-        self.init_db([{'id':1, 'name':'a'}, {'id':2, 'name':'b'}, {'id':3, 'name': "c"}])
-        # third item violates a non-null constraint
-        d = pd.DataFrame([{'id':1, 'name': 'x'}, {'id':2, 'name': 'x'}, {'id':3, 'name': None}])
-        d2 = updatedf(d, self.session, Customer.id, [Customer.name])
-        
-        # IT IS NOT TRUE THAT THE FIRST ITEMS ARE UPLOADED, ACTUALLY THIS IS FALSE (COMMENTED OUT):
-#         assert array_equal(d2['id'], [1,2])
-#         assert sorted([x[0] for x in self.session.query(Customer.name).all()]) == ['c', 'x', 'x']
-        # THIS IS TRUE (AS THE FUNCTION ABOVE):
-        assert d2.empty
-        # comment out the "assert..." below, as it
-        # is already proven by d2.empty above, and moreover issues an sqlalchemy warning
-        # assert not self.session.query(Customer.name).filter(Customer.id.in_(d2['id'].values)).all()
 
 
     def tst_assert_perfs(self):

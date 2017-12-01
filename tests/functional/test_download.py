@@ -208,7 +208,6 @@ class Test(unittest.TestCase):
         self.mock_closing.side_effect = clsing
         
         # this mocks yaml_load and sets inventory to False, as tests rely on that
-        # this mocks closing to actually NOT close the session (we will do it here):
         self.patcher_yl = patch('stream2segment.cli.yaml_load')
         self.mock_yaml_load = self.patcher_yl.start()
         def yload(*a, **v):
@@ -432,8 +431,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     @patch('stream2segment.download.main.save_inventories')
     @patch('stream2segment.download.main.download_save_segments')
     @patch('stream2segment.download.main.mseedunpack')
-    @patch('stream2segment.download.main.syncdf_insertdf')
-    @patch('stream2segment.download.main.updatedf')
+    @patch('stream2segment.io.db.pd_sql_utils.insertdf')
+    @patch('stream2segment.io.db.pd_sql_utils.updatedf')
     def test_cmdline_dberr(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                            mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
                            mock_get_datacenters_df, mock_get_events_df, mock_autoinc_db):
@@ -444,30 +443,26 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
         mock_download_save_segments.side_effect = lambda *a, **v: self.download_save_segments(None, *a, **v)
         mock_mseed_unpack.side_effect = lambda *a, **v: unpack(*a, **v)
-        mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
+        # mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
+        mock_autoinc_db.side_effect = lambda *a, **v: _get_db_autoinc_col_max(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
         # prevlen = len(self.session.query(Segment).all())
      
         # The run table is populated with a run_id in the constructor of this class
         # for checking run_ids, store here the number of runs we have in the table:
         runs = len(self.session.query(Download.id).all())
-
-
-        # first thing to check is that, when we have a db error, channels and stations are correctly
-        # written.
-        # this calls the original function whihc returns the autoincrement col BUT
-        # with -1 we should actually mess up things so elements are not written
-        # maybe except the first one which is zero
-        # BUT ONLY FOR SEGMENTS!
-        def _mapkey(session, column):
-            ret = _get_db_autoinc_col_max(session, column)
+        
+        # mock insertdf to mess-up the ids so that we can check db errors
+        def insdf(*a, **v):
+            a = list(a)
+            df = a[0]
+            column = a[2]
             if column.class_ == Segment:
-                ret = 0  # this should make the first bulk of segments writtable
-                # but from the next one on failing. Not really a deterministic way to know
-                # how many we wrote, but it's already something
-            return ret
+                df[Segment.id.key] = np.arange(len(df), dtype=int) + 1
+            return insertdf(*a, **v)
+        mock_insertdf.side_effect = insdf
                 
-        mock_autoinc_db.side_effect = _mapkey
+        
         
         runner = CliRunner()
         result = runner.invoke(cli , ['download',
@@ -522,8 +517,8 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
     @patch('stream2segment.download.main.save_inventories')
     @patch('stream2segment.download.main.download_save_segments')
     @patch('stream2segment.download.main.mseedunpack')
-    @patch('stream2segment.download.main.insertdf')
-    @patch('stream2segment.download.main.updatedf')
+    @patch('stream2segment.io.db.pd_sql_utils.insertdf')
+    @patch('stream2segment.io.db.pd_sql_utils.updatedf')
     def test_cmdline_outofbounds(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                                  mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
                                  mock_get_datacenters_df, mock_get_events_df):
@@ -572,7 +567,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         assert len(self.session.query(Station).filter(Station.has_inventory).all()) == 0
         
         assert not mock_updatedf.called
-        assert mock_insertdf_napkeys.called
+        assert mock_insertdf.called
         
         dfres1 = dbquery2df(self.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
                                                Segment.event_id,
@@ -596,8 +591,8 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
     @patch('stream2segment.download.main.save_inventories')
     @patch('stream2segment.download.main.download_save_segments')
     @patch('stream2segment.download.main.mseedunpack')
-    @patch('stream2segment.download.main.insertdf')
-    @patch('stream2segment.download.main.updatedf')
+    @patch('stream2segment.io.db.pd_sql_utils.insertdf')
+    @patch('stream2segment.io.db.pd_sql_utils.updatedf')
     def test_cmdline(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                      mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
                      mock_get_datacenters_df, mock_get_events_df):
@@ -647,7 +642,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         assert len(self.session.query(Station).filter(Station.has_inventory).all()) == 0
         
         assert not mock_updatedf.called
-        assert mock_insertdf_napkeys.called
+        assert mock_insertdf.called
         
         dfres1 = dbquery2df(self.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
                                                Segment.event_id,
@@ -670,7 +665,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         # WARNING: THIS TEST COULD FAIL IF WE CHANGE THE DEFAULTS. CHANGE `mask` IN CASE
         mock_download_save_segments.reset_mock()
         mock_updatedf.reset_mock()
-        mock_insertdf_napkeys.reset_mock()
+        mock_insertdf.reset_mock()
         self._seg_urlread_sideeffect = [413]
         idx = len(self.log_msg())
         runner = CliRunner()
@@ -693,7 +688,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
                   Segment.data.key] = b'data'
         
         assert mock_updatedf.called
-        assert not mock_insertdf_napkeys.called
+        assert not mock_insertdf.called
         
         URLERROR, MSEEDERROR, OUTTIME_ERR, OUTTIME_WARN = custom_download_codes()
         
@@ -701,7 +696,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         assert len(self.session.query(Download.id).all()) == runs + 1
         runs += 1
         # asssert we changed the download status code for segments which should be retried
-        # WARNING: THIS TEST COULD FAIL IF WE CHANGE THE DEFAULTS. CHANGE `mask` IN CASE
+        # WARNING: THIS TEST COULD FAIL IF WE CHANGE THE DEFAULTS. CHANGE `mask` here below IN CASE
         mask = dfres1[Segment.download_code.key].between(500, 599.999, inclusive=True) | \
                       (dfres1[Segment.download_code.key] == URLERROR) | \
                       pd.isnull(dfres1[Segment.download_code.key])
@@ -957,12 +952,73 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         assert seed_redownloaded[Segment.datacenter_id.key] != seed_to_redownload[Segment.datacenter_id.key]
 
         # restore default:
-        self._sta_urlread_sideeffect =  oldst_se
-
-
-
-
+        self._sta_urlread_sideeffect =  oldst_se   
         
+        # test update flag:
+        
+        
+        
+        # first change some values on the db, so that we can MOCK that the next download
+        # has some metadata changed:
+        sta1 = self.session.query(Station).filter(Station.has_inventory == False).first()
+        sta_inv = self.session.query(Station).filter(Station.has_inventory == True).first()
+        sta_inv_id = sta_inv.id
+        cha = self.session.query(Channel).filter(Channel.id ==1).first()
+        new_elevation = sta1.elevation + 5
+        new_sitename = 'wow!!!!!!!!!!!--------------------'
+        new_srate = 0
+        new_sta_inv = b'abc------------------------'
+        sta1.elevation= new_elevation
+        sta_inv.site_name = new_sitename
+        cha.sample_rate = new_srate
+        sta_inv.inventory_xml = new_sta_inv
+        self.session.commit()
+        
+        # assure some data is returned from inventoriy url:
+        inv_urlread_ret_val = self._get_inv()
+        mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(inv_urlread_ret_val, *a, **v)
+    
+        # run without flag update on:
+        result = runner.invoke(cli , ['download', '-c', self.configfile,
+                                      # '--update_metadata',
+                                       '--dburl', self.dburi,
+                                       '--start', '2016-05-08T00:00:00',
+                                       '--end', '2016-05-08T9:00:00', '--inventory'])
+        assert result.exit_code == 0
+        
+        # update_metadata False: assert nothing has been updated:
+        assert self.session.query(Station).filter(Station.elevation == new_elevation).first()
+        assert self.session.query(Station).filter(Station.site_name == new_sitename).first()
+        assert self.session.query(Channel).filter(Channel.sample_rate == new_srate).first()
+        # assert segment without inventory has still No inventory:
+        assert self.session.query(Station).filter(Station.id == sta_inv_id).first().inventory_xml == new_sta_inv
+        
+        # NOW UPDATE METADATA
+        
+        result = runner.invoke(cli , ['download', '-c', self.configfile,
+                                       '--update_metadata',
+                                       '--dburl', self.dburi,
+                                       '--start', '2016-05-08T00:00:00',
+                                       '--end', '2016-05-08T9:00:00', '--inventory'])
+        assert result.exit_code == 0
+        
+        # assert that we overwritten the values set above, so we
+        assert not self.session.query(Station).filter(Station.elevation == new_elevation).first()
+        assert not self.session.query(Channel).filter(Channel.sample_rate == new_srate).first()
+        # assert sta_inv has inventory re-downloaded:
+        # assert segment without inventory has inventory:
+        assert self.session.query(Station).filter(Station.id == sta_inv_id).first().inventory_xml != new_sta_inv
+        # and now this:
+        assert self.session.query(Station).filter(Station.site_name == new_sitename).first()
+        # WHY? because site_name has been implemented for compatibility when the query level=station
+        # is done. When querying level=channel (as we do) site_name is not returned (FDSN weird behaviour?)
+        # so THAT attribute, and that only, is stille the old one
+        
+        
+        # ------------------------------------------------------------------------
+        # NOTE: THIS LAST TEST DELETES ALL SEGMENTS THUS EXECUTE IT AT THE REAL END
+        # -----------------------------------------------------------------------
+               
         # test a type error in the url_segment_side effect
         self.session.query(Segment).delete()
         assert len(self.session.query(Segment).all()) == 0
@@ -984,4 +1040,5 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
             print("DID NOT RAISE!!")
             assert False
         self._seg_urlread_sideeffect = suse  # restore default
+     
         

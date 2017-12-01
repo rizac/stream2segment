@@ -25,7 +25,7 @@ from stream2segment.utils.url import urlread, read_async as original_read_async,
 from stream2segment.io.db.models import Event, DataCenter, Segment, Station, Channel, \
     WebService, fdsn_urls
 from stream2segment.io.db.pd_sql_utils import dfrowiter, mergeupdate, dbquery2df, DbManager,\
-    fetchsetpkeys, syncdf
+    syncdf, shared_colnames
 from stream2segment.download.utils import empty, urljoin, response2df, normalize_fdsn_dframe, \
     get_search_radius, DownloadStats, get_events_list, locations2degrees, custom_download_codes, \
     eidarsiter, EidaValidator
@@ -141,7 +141,7 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
             yield result
 
 
-def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update_cols=False,
+def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=False,
              buf_size=10,
              drop_duplicates=True, return_df=True, cols_to_print_on_err=None):
     """Calls `syncdf` and writes to the logger before returning the
@@ -152,7 +152,7 @@ def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, updat
     onduplicates_callback = oninsert_err_callback
 
     inserted, not_inserted, updated, not_updated, df = \
-        syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update_cols,
+        syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update,
                buf_size, drop_duplicates,
                onduplicates_callback, oninsert_err_callback, onupdate_err_callback)
 
@@ -612,8 +612,13 @@ def save_stations_and_channels(session, channels_df, eidavalidator, update, db_b
             sta_df = sta_df.loc[~sta_df.index.isin(sta_df_dupes.index)]
 
     # remember: dbsyncdf raises a QuitDownload, so no need to check for empty(dataframe)
+    # also, if update is True, for stations only it must NOT update inventories HERE (handled later)
+    _update_stations = update
+    if _update_stations:
+        _update_stations = [_ for _ in shared_colnames(Station, sta_df, pkey=False)
+                            if _ != Station.inventory_xml.key]
     sta_df = dbsyncdf(sta_df, session, [Station.network, Station.station, Station.start_time],
-                      Station.id, update, buf_size=db_bufsize, drop_duplicates=False,
+                      Station.id, _update_stations, buf_size=db_bufsize, drop_duplicates=False,
                       cols_to_print_on_err=STA_ERRCOLS)
     # sta_df will have the STA_ID columns, channels_df not: set it from the former to the latter:
     channels_df = mergeupdate(channels_df, sta_df, [STA_NET, STA_STA, STA_STIME, STA_DCID],
@@ -739,7 +744,7 @@ def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius,
             # (match along column CHA_STAID shared between the reletive dataframes). Set values
             # only for channels whose stations are within radius (stations_df[condition]):
             cha_df = mergeupdate(channels_df, stations_df[condition], [CHA_STAID], [SEG_EVDIST],
-                                 drop_df_new_duplicates=False)  # dupes already dropped
+                                 drop_other_df_duplicates=False)  # dupes already dropped
             # drop channels which are not related to station within radius:
             cha_df = cha_df.dropna(subset=[SEG_EVDIST], inplace=False)
             cha_df.is_copy = False  # avoid SettingWithCopyWarning...
@@ -977,7 +982,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
         cols2update += [Segment.request_start, Segment.arrival_time, Segment.request_end]
 
     cols_to_log_on_err = [SEG_ID, SEG_CHAID, SEG_START, SEG_END, SEG_DCID]
-    segmanager = DbManager(session, Segment.id, cols2update,
+    segmanager = DbManager(session, Segment.id, [k.key for k in cols2update],
                            db_bufsize, return_df=False,
                            oninsert_err_callback=handledbexc(cols_to_log_on_err, update=False),
                            onupdate_err_callback=handledbexc(cols_to_log_on_err, update=True))
@@ -1180,9 +1185,9 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
     downloaded, errors, empty = 0, 0, 0
     cols_to_log_on_err = [Station.id.key, Station.network.key, Station.station.key,
                           Station.start_time.key]
-    dbmanager = DbManager(session, Station.id, [Station.inventory_xml],
-                          update_cols=[Station.inventory_xml],
-                          bufsize=db_bufsize,
+    dbmanager = DbManager(session, Station.id,
+                          update=[Station.inventory_xml.key],
+                          buf_size=db_bufsize,
                           oninsert_err_callback=handledbexc(cols_to_log_on_err, update=False),
                           onupdate_err_callback=handledbexc(cols_to_log_on_err, update=True))
 

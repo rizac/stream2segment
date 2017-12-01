@@ -31,7 +31,8 @@ from builtins import range
 
 # Returns a list over dictionary values (and keys)
 # with the same list-like behaviour on Py2.7 as on Py3:
-from future.utils import listvalues, iterkeys
+# (scroll at the end of imports for other custom implementations of iterkeys and listkeys)
+from future.utils import listvalues
 
 
 from datetime import datetime, date
@@ -58,6 +59,25 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 # from sqlalchemy.engine import create_engine
 from sqlalchemy.inspection import inspect
 from sqlalchemy.sql.expression import func, bindparam
+
+# future package implements a iterkeys which checks if the attribute iterkeys is defined on a dict.
+# This looks inefficient. Moreover it lacks a listkeys function. Let's implement both here:
+try:
+    dict.iteritems
+except AttributeError:
+    # Python 3
+    def listkeys(d):
+        return list(d.keys())
+
+    def iterkeys(d):
+        return d.keys()
+else:
+    # Python 2
+    def listkeys(d):
+        return d.keys()
+
+    def iterkeys(d):
+        return d.iterkeys()
 
 
 def _get_dtype(sqltype):
@@ -342,11 +362,12 @@ def _get_max(session, numeric_column):
 
 
 def dbquery2df(query):
-    """Returns a query result as a set of tuples where each tuple value is the db row values
-    according to columns
-    :param session: sqlalchemy session
-    :param columns: a list of ORM instance columns
-    :param query_filter: optional filter to be apoplied to the query, defaults to None (no filter)
+    """Returns a query result as a dataframe 
+    :param query: sqlalchemy query. IT MUST BE GIVEN WITH ALL COLUMNS OF INTEREST SEPARATED, e.g.:
+        ```session.query(Table.columna, Table.column_b)```
+        and not:
+        ```session.query(Table)```
+        this method has been tested for queries from a single table with no joins
     """
     colnames = [c['name'] for c in query.column_descriptions]
     return pd.DataFrame(columns=colnames, data=query.all())
@@ -455,11 +476,22 @@ def dbquery2df(query):
 #                                   return_df, on_insert_err)
 
 
-def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update_cols=False,
+def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=False,
            buf_size=10, drop_duplicates=True, onduplicates_callback=None,
            oninsert_err_callback=None, onupdate_err_callback=None):
     """Calls `syncdf` and writes to the logger before returning the
-    new dataframe. Raises `QuitDownload` if the returned dataframe is empty (no row saved)"""
+    new dataframe. Raises `QuitDownload` if the returned dataframe is empty (no row saved)
+
+    :param update: boolean or list of strings. Whether to update or not:
+
+    - If True, all shared columns between dataframes and table model will be updated
+      (except id_col): the shared columns are calculated only the first time a dataframe is
+      added to this object.
+    - If list of STRINGS, then the columns which matching
+      names are updated only (the string name of id_col should not be in the list)
+    - If False (or, in general falsy, so None works): do not update
+
+    """
 
     if drop_duplicates:
         dupes_mask = dataframe.duplicated(subset=[k.key for k in matching_columns], keep=False)
@@ -472,21 +504,15 @@ def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update_
 
     dframe_with_pkeys = fetchsetpkeys(dataframe, session, matching_columns, autoincrement_pkey_col)
     d = DbManager(session, autoincrement_pkey_col,
-                  update_cols, buf_size, return_df=True,
+                  update, buf_size, return_df=True,
                   oninsert_err_callback=oninsert_err_callback,
                   onupdate_err_callback=onupdate_err_callback)
     d.add(dframe_with_pkeys)
     table, inserted, not_inserted, updated, not_updated = d.close()
-
-    dataframe = d.dataframe
-    # now cast to integer cause we might have had float(s) for dframe_with_pkeys, as pandas
-    # uses float if we have NA
-    # Actually, be more general: take the dtype and cast
-    col_type = _get_dtype(autoincrement_pkey_col.type)
-    col_name = autoincrement_pkey_col.key
-    if dataframe[col_name].dtype != col_type:
-        dataframe[col_name] = \
-            dataframe[col_name].astype(col_type, copy=False)
+    # since we called fetchsetpkeys, we might have integer values casted to float
+    # we could not cast prreviously because dframe_with_pkeys might have had NaN's, now
+    # we are sure that d.dataframe does not have NaN's anymore
+    dataframe = _cast_column(d.dataframe, autoincrement_pkey_col)
 
     return inserted, not_inserted, updated, not_updated, dataframe
 
@@ -510,46 +536,38 @@ class DbManager(object):
         table, inserted, not_inserted, updated, not_updated = d.close()
     ```
 
-    And when we want to update/insert (synchronize) a dataframe in one shot, and retrieve the
-    synchronized dataframe with all rows existing/inserted/updated
-
-    ```
-        dataframe = fetchsetpkeys(...)  # to get primary keys from db
-        # drop duplicates if needed...
-        d = DbManager(..., return_df=True)  # this makes insertion / updates slower
-        # add stuff:
-        d.add(dataframe)
-        d.close()
-        # get the dataframe:
-        d.dataframe
-    ```
-
      mode. As insertion/updates should
     be happening during download for not losing data in case of unexpected error, this class
     manages the buffer size for the insertion/ updates on the db"""
 
-    def __init__(self, session, id_col, update_cols, bufsize, return_df=False,
+    def __init__(self, session, id_col, update, buf_size, return_df=False,
                  oninsert_err_callback=None, onupdate_err_callback=None):
         '''
 
-        :param update_cols: True: updates dataframes which have a non-Na id_col. This will update
-        all columns which are not id_col and are not primary keys. False: do not update dataframes
-        which have non-Na id_col. List of columns: update only those columns for dataframes which
-        have non-na id_col values
+        :param update: boolean or list of strings. Whether to update or not:
+
+            - If True, all shared columns between dataframes and table model will be updated
+              (except id_col): the shared columns are calculated only the first time a dataframe is
+              added to this object.
+            - If list of STRINGS, then the columns which matching
+              names are updated only (the string name of id_col should not be in the list)
+            - If False (or, in general falsy, so None works): do not update
+
         '''
         self.info = [0, 0, 0, 0]  # inserted, total_to_insert, updated, total_to_update
         self.inserts = []
         self.updates = []
-        self.bufsize = bufsize
-        self._num2insert = 0
-        self._num2update = 0
+        self.buf_size = buf_size
         self.session = session
         self.id_col = id_col
-        self.update_cols = update_cols  # columns to update, or boolean
-        self.insert_cols = None  # columns to insert, will be populated at the first insert only
+        self.colnames2update = update  # True or a list of strings. True: update all shared columns
+        self.colnames2insert = None  # will be populated at the 1st insert only
         self.table = id_col.class_
         self.return_df = return_df
         self.dfs = []
+        self._toinsert_count = 0
+        self._toupdate_count = 0
+        self._max = _get_max(session, id_col)
         self.oninsert_err_callback = oninsert_err_callback
         self.onupdate_err_callback = onupdate_err_callback
 
@@ -557,78 +575,108 @@ class DbManager(object):
         '''
         :param df: the dataframe. It MUST have self.id_col.key as column, either NA or non-NA
         '''
-        bufsize = self.bufsize
+        bufsize = self.buf_size
         mask = pd.isnull(df[self.id_col.key])
         dfinsert, dfupdate = None, None
-        if not mask.all():
-            if self.update_cols is not False:
-                dfupdate = df[~mask]
-            elif self.return_df:
-                self.dfs.append(df[~mask])
+        if not mask.all():  # some elements have non-na id, thus they SHOULD be updated
 
-            if mask.any():
+            all2update = not mask.any()
+
+            if self.colnames2update:
+                dfupdate = df if all2update else df[~mask]
+            elif self.return_df:
+                self.dfs.append(df if all2update else df[~mask])
+
+            if not all2update:
                 dfinsert = df[mask]
+
         else:
             dfinsert = df
 
         if dfinsert is not None:
-            if self.insert_cols is None:
-                self.insert_cols = list(shared_colnames(self.table, dfinsert))
-            self.inserts.append(dfinsert)
-            self._num2insert += len(dfinsert)
-            if self._num2insert >= bufsize:
-                self.insert()
+            newinserts = len(dfinsert)
+            if newinserts:
+                self.inserts.append(dfinsert)
+                total_inserts_count = self._toinsert_count + newinserts
+                if total_inserts_count >= bufsize:
+                    self.insert(bufsize)  # will reset self._toinsert_count to 0
+                else:
+                    self._toinsert_count = total_inserts_count
 
         if dfupdate is not None:
-            if self.update_cols is True:
-                self.update_cols = list(getattr(self.table, cname)
-                                        for cname in shared_colnames(self.table, dfupdate,
-                                                                     pkey=False)
-                                        if cname != self.id_col.key)
-            self.updates.append(dfupdate)
-            self._num2update += len(dfupdate)
-            if self._num2update >= bufsize:
-                self.update()
+            newupdates = len(dfupdate)
+            if newupdates:
+                self.updates.append(dfupdate)
+                total_updates_count = self._toupdate_count + newupdates
+                if total_updates_count >= bufsize:
+                    self.update(bufsize)  # will reset self._toupdate_count to 0
+                else:
+                    self._toupdate_count = total_updates_count
 
     @property
     def dataframe(self):
+        '''returns the dataframe of all inserted / updated / existing instances (rows)
+        Note that if id_col passed in the constructor is of type int, it might be of type float
+        Use _cast_column in case, the returned dataframe[id_col.key] is assured NOT to have NaNs
+        Raises if self.return_df is False
+        '''
         if not self.return_df:
             raise ValueError('return_df is False')
         dfs = self.dfs
         return pd.DataFrame() if not dfs else \
-            pd.concat(dfs, axis=0, ignore_index=True, copy=False,
+            pd.concat(dfs, axis=0, ignore_index=False, copy=False,
                       verify_integrity=False)
 
-    def insert(self):
-        df = pd.concat(self.inserts, axis=0, ignore_index=True, copy=False, verify_integrity=False)
+    def insert(self, buf_size=None):
+        inserts = self.inserts
+        df = inserts[0] if len(inserts) == 1 else \
+            pd.concat(inserts, axis=0, ignore_index=True, copy=False, verify_integrity=False)
         session = self.session
         id_col = self.id_col
         df.is_copy = False
-        set_pkeys(session, id_col, df)
-
+        df = set_pkeys(df, session, id_col, overwrite=True, max=self._max)
+        insert_cols = self.colnames2insert
+        if insert_cols is None:
+            insert_cols = self.colnames2insert = _get_shared_colnames(self.table, df)
+        total = len(df)
+        self._max += total
+        if buf_size is None:
+            buf_size = min(self.buf_size, self._toinsert_count)
         return_df = self.return_df
-        new, total, df = insertdf(df, session, [id_col], self.insert_cols,  # [id_col] is ignored
-                                  buf_size=len(df), query_first=False,
-                                  drop_duplicates=False, return_df=return_df,
-                                  onerr=self.oninsert_err_callback)
-
-#         syncdf_insert_na_pkeys(df, self.session, self.id_col, self.insert_cols,
-#                                                 len(df), return_df=return_df,
-#                                                 onerr=self.oninsert_err_callback)
+        # note below: on insert, if df[id_col] is float and id_col is sql INTEGER, it should
+        # be a problem onpostgres cause it complains if id's are not strict integers (sp e.g.
+        # 6.0 is NOT a valid id). THIS IS NOT A PROBLEM as `set_pkeys` above casts it for us
+        # if we were to update on where clause=id_col, that would not be a problem as it
+        # seems to work without casts (probably because it's a comparison, not an insert)
+        new, df = insertdf(df, session, id_col, insert_cols, buf_size=buf_size,
+                           check_pkeycol=False, return_df=return_df,
+                           onerr=self.oninsert_err_callback)
         if return_df:
             self.dfs.append(df)
         info = self.info
         info[0] += new
         info[1] += total
         # cleanup:
-        self._num2insert = 0
-        self.inserts = []
+        self._toinsert_count = 0
+        self.inserts = []  # this is faster in py3 than del inserts[:] (=del self.inserts[:])
 
-    def update(self):
-        df = pd.concat(self.updates, axis=0, ignore_index=True, copy=False, verify_integrity=False)
+    def update(self, buf_size=None):
+        updates = self.updates
+        df = updates[0] if len(updates) == 1 else \
+            pd.concat(updates, axis=0, ignore_index=True, copy=False, verify_integrity=False)
+        if buf_size is None:
+            buf_size = min(self.buf_size, self._toupdate_count)
+        id_col = self.id_col
+        update_cols = self.colnames2update
+        if update_cols is True:
+            update_cols = self.colnames2update = _get_shared_colnames(self.table, df, id_col)
         total = len(df)
         return_df = self.return_df
-        updated, df = updatedf(df, self.session, self.id_col, self.update_cols, total,
+        # note below: on update, if df[id_col] is float and id_col is sql INTEGER, it should
+        # not be a problem cause id_col is used in a where clause and compares correctly
+        # if we were to insert id_col, that would be a problem in postgres (e.g. 6.0 is invalid,
+        # 6 is required. sqlite is not that strict)
+        updated, df = updatedf(df, self.session, id_col, update_cols, buf_size=buf_size,
                                return_df=return_df, onerr=self.onupdate_err_callback)
         if return_df:
             self.dfs.append(df)
@@ -636,8 +684,8 @@ class DbManager(object):
         info[2] += updated
         info[3] += total
         # cleanup:
-        self._num2update = 0
-        self.updates = []
+        self._toupdate_count = 0
+        self.updates = []  # this is faster in py3 than del inserts[:] (=del self.inserts[:])
 
     def flush(self):
         """flushes remaining stuff to insert/ update, if any"""
@@ -656,78 +704,138 @@ class DbManager(object):
 #         dblog(self.table, new, ntot - new, upd, utot - upd)
 
 
-def syncdf_insert_na_pkeys(dataframe, session, autoincrement_pkey_col, colnames2insert=None,
-                           buf_size=10, return_df=True,
-                           onerr=None):
-    """
-    Synchronizes `dataframe` with its matching db table T, inserting only rows where the value of
-    A=`autoincrement_pkey_col` is NA. If A is not a column of `dataframe`, all rows are inserted.
-    A's dtype will be set to the appropriate type according to the sql `autoincrement_pkey_col.type`
-    (presumably, integer)
+# def syncdf_insert_na_pkeys(dataframe, session, autoincrement_pkey_col, colnames2insert=None,
+#                            buf_size=10, return_df=True,
+#                            onerr=None):
+#     """
+#     Synchronizes `dataframe` with its matching db table T, inserting only rows where the value of
+#     A=`autoincrement_pkey_col` is NA. If A is not a column of `dataframe`, all rows are inserted.
+#     A's dtype will be set to the appropriate type according to the sql `autoincrement_pkey_col.type`
+#     (presumably, integer)
+# 
+#     Returns the tuple `(d, total, new)` where:
+# 
+#     * new: the number of rows of `dataframe` which where newly added
+#     * total: the number of `dataframe` rows with a corresponding row in T (>=`new`)
+#     * d: None if return_df=False. Otherwise, it is `dataframe` with only rows with a corresponding
+#       row in T (either because `autoincrement_pkey_col` is not NA or because the row has been
+#       successfully inserted on T). `d` will surely have A among its columns (A.key to be precise)
+# 
+#     `return_df=False` is in most cases faster, use it if you do not need a database-synchronized
+#     version of `dataframe`
+# 
+#     The remainder of the documentation is the same as `syncdf`, so please see there for details
+#     """
+#     dtmp = None
+#     df_pkey_col = autoincrement_pkey_col.key
+#     dframe_with_pkeys = dataframe
+#     df_has_pkey = df_pkey_col in dataframe.columns
+#     if df_has_pkey:
+#         mask = pd.isnull(dframe_with_pkeys[df_pkey_col])
+#         dtmp = dframe_with_pkeys[mask]
+#         dtmp.is_copy = False  # avoid pandas SettingWithCopyWarning, we are trying to modify dtmp
+#         # modifications will not affect dframe_with_pkeys but we are aware of it
+#     else:
+#         dtmp = dframe_with_pkeys
+# 
+#     new, total, ret_df = 0, len(dtmp), dtmp if return_df else None
+#     if total:  # there is something to sync
+#         max_pkey = _get_max(session, autoincrement_pkey_col) + 1
+#         new_pkeys = np.arange(max_pkey, max_pkey+total, dtype=int)
+#         dtmp[df_pkey_col] = new_pkeys
+#         new, total, ret_df = insertdf(dtmp, session, [autoincrement_pkey_col], colnames2insert,
+#                                       buf_size, query_first=False, drop_duplicates=False,
+#                                       return_df=return_df, onerr=onerr)
+#         if return_df:
+#             if df_has_pkey:
+#                 # in this case, dframe_with_pkeys is NOT ret_df, and we need to
+#                 # assign back the pkayes
+#                 dframe_with_pkeys.loc[ret_df.index, df_pkey_col] = ret_df[df_pkey_col]
+#                 dframe_with_pkeys = dframe_with_pkeys.dropna(subset=[df_pkey_col])  # for safety
+#                 # now cast to integer cause we might have had float(s)
+#                 # Actually, be more general: take the dtype and cast
+#                 col_type = _get_dtype(autoincrement_pkey_col.type)
+#                 if dframe_with_pkeys[df_pkey_col].dtype != col_type:
+#                     dframe_with_pkeys[df_pkey_col] = \
+#                         dframe_with_pkeys[df_pkey_col].astype(col_type, copy=False)
+#                 ret_df = dframe_with_pkeys
+# 
+#     return new, total, ret_df
 
-    Returns the tuple `(d, total, new)` where:
 
-    * new: the number of rows of `dataframe` which where newly added
-    * total: the number of `dataframe` rows with a corresponding row in T (>=`new`)
-    * d: None if return_df=False. Otherwise, it is `dataframe` with only rows with a corresponding
-      row in T (either because `autoincrement_pkey_col` is not NA or because the row has been
-      successfully inserted on T). `d` will surely have A among its columns (A.key to be precise)
-
-    `return_df=False` is in most cases faster, use it if you do not need a database-synchronized
-    version of `dataframe`
-
-    The remainder of the documentation is the same as `syncdf`, so please see there for details
-    """
-    dtmp = None
-    df_pkey_col = autoincrement_pkey_col.key
-    dframe_with_pkeys = dataframe
-    df_has_pkey = df_pkey_col in dataframe.columns
-    if df_has_pkey:
-        mask = pd.isnull(dframe_with_pkeys[df_pkey_col])
-        dtmp = dframe_with_pkeys[mask]
-        dtmp.is_copy = False  # avoid pandas SettingWithCopyWarning, we are trying to modify dtmp
-        # modifications will not affect dframe_with_pkeys but we are aware of it
-    else:
-        dtmp = dframe_with_pkeys
-
-    new, total, ret_df = 0, len(dtmp), dtmp if return_df else None
-    if total:  # there is something to sync
-        max_pkey = _get_max(session, autoincrement_pkey_col) + 1
-        new_pkeys = np.arange(max_pkey, max_pkey+total, dtype=int)
-        dtmp[df_pkey_col] = new_pkeys
-        new, total, ret_df = insertdf(dtmp, session, [autoincrement_pkey_col], colnames2insert,
-                                      buf_size, query_first=False, drop_duplicates=False,
-                                      return_df=return_df, onerr=onerr)
-        if return_df:
-            if df_has_pkey:
-                # in this case, dframe_with_pkeys is NOT ret_df, and we need to
-                # assign back the pkayes
-                dframe_with_pkeys.loc[ret_df.index, df_pkey_col] = ret_df[df_pkey_col]
-                dframe_with_pkeys = dframe_with_pkeys.dropna(subset=[df_pkey_col])  # for safety
-                # now cast to integer cause we might have had float(s)
-                # Actually, be more general: take the dtype and cast
-                col_type = _get_dtype(autoincrement_pkey_col.type)
-                if dframe_with_pkeys[df_pkey_col].dtype != col_type:
-                    dframe_with_pkeys[df_pkey_col] = \
-                        dframe_with_pkeys[df_pkey_col].astype(col_type, copy=False)
-                ret_df = dframe_with_pkeys
-
-    return new, total, ret_df
+def _get_shared_colnames(table_model, dataframe, where_col=None):
+    '''Returns a list of shared column names between table_model and dataframe. If where_col
+    is not None, it will be excluded from the returned list (where_col is assumed to be a
+    column used in the where clause of an update and thus it should not be included in the
+    columns to update)'''
+    shared_colnames_gen = shared_colnames(table_model, dataframe)
+    if where_col is not None:
+        wherecolname = where_col.key
+        shared_colnames_gen = (cname for cname in shared_colnames_gen if cname != wherecolname)
+    return list(shared_colnames_gen)
 
 
-def set_pkeys(session, autoincrement_pkey_col, dataframe):
-    '''Sets the primary keys as column for dataframe. Does not care if dataframe has already
-    the column: if not present, it will be added. If present, it will be overridden. Note that
-    in this latter case if the dtype of the column is float, it will be float although
-    autorincrement_pkey_col is supposed to be of type int'''
-    max_pkey = _get_max(session, autoincrement_pkey_col) + 1
+def set_pkeys(dataframe, session, autoincrement_pkey_col, overwrite=False,
+              max=None):  # @ReservedAssignment
+    '''Sets the primary key as column of `dataframe` with increasing numbers, starting from the
+    maximum found on the database Table, plus 1, or `max` + 1, if `max` is not None
+    (providing a max is faster as it does not query the db).
+    The database Table is retrieved as the table mapped by the model of `autoincrement_pkey_col`
+    Regardless of whether dataframe has the column or not,
+    `dataframe` will have the column with name `autoincrement_pkey_col.key` (of type int) after
+    this call.
+
+    :param session: an sql-alchemy session object
+    :param autoincrement_pkey_col: an ORM column of some model mapped to an sql table. The
+    column, as the name says, must be a primary key with auto-increment.
+    **The column MUST be of sql type INTEGER, otherwise this method should not be used**
+    dataframe[A] will have dtype int64, which is fine as we replace (or add) **all** the row values.
+    Note that if we replaced only partially some values, then dataframe[A] might still hold the old
+    dtype (e.g., float) which **would be bad** as some db (e.g., postgres) are strict and will issue
+    an `sqlalchemy.exc.DataError` if inserting/updating a non-nan/non-int value
+    (e.g., 6.0 instead of 6)
+    :param dataframe: the dataframe with values to be inserted/updated/deleted from the table
+    mapped by `autoincrement_pkey_col`
+    '''
+    max_pkey = (_get_max(session, autoincrement_pkey_col) if max is None else max) + 1
+    pkeyname = autoincrement_pkey_col.key
+    if not overwrite:
+        if pkeyname in dataframe:
+            mask = pd.isnull(dataframe[pkeyname])
+            nacount = mask.sum()
+            if nacount != len(dataframe):
+                dataframe.iloc[mask: pkeyname] = np.arange(max_pkey, max_pkey+nacount, dtype=int)
+                # cast values if we modified only SOME row values of dataframe[pkeyname]
+                # This is why we might have had floats (because we had na) and now we still have
+                # floats (postgres complains if we add 6.0 instead of 6!)
+                return _cast_column(dataframe, autoincrement_pkey_col)
+
+    # if we are here, either we want to set all values of dataframe[pkeyname],
+    # or pkeyname is not a column of dataframe,
+    # or all dataframe[pkeyname] are na
+    # In ALL these cases pandas changes the dtype, so the cast is not needed
     new_pkeys = np.arange(max_pkey, max_pkey+len(dataframe), dtype=int)
-    dataframe[autoincrement_pkey_col.key] = new_pkeys
+    dataframe[pkeyname] = new_pkeys
+    return dataframe
 
 
-def insertdf(dataframe, session, matching_columns, colnames2insert=None,
-             buf_size=10, query_first=True,
-             drop_duplicates=True, return_df=True,
+def _cast_column(dataframe, sql_column):
+    '''casts the dataframe column mapped to `sql_column` to the python type mapped to
+    `sql_column`'s sql type.
+    dataframe[sql_column.key] MUST be a valid column in dataframe, and must have values
+    castable (e.g., non-NAN's in case of int's - the usual case as sql_column is often a primary
+    key).
+    :return: dataframe with the column casted
+    '''
+    col_type = _get_dtype(sql_column.type)
+    pkeyname = sql_column.key
+    if dataframe[pkeyname].dtype != col_type:
+        dataframe[pkeyname] = dataframe[pkeyname].astype(col_type, copy=False)
+    return dataframe
+
+
+def insertdf(dataframe, session, autoincrement_pkey_col, colnames2insert=None,
+             buf_size=10, check_pkeycol=True, return_df=True,
              onerr=None):
     """
     Efficiently inserts row of `dataframe` to the corresponding database table T. Rows found on
@@ -736,55 +844,50 @@ def insertdf(dataframe, session, matching_columns, colnames2insert=None,
     Returns the tuple `new, total, df` where:
 
     * new: is the number of new rows inserted
-    * total: is the total number of rows of `dataframe` with an existing row on the database
-      (`new` + already existing)
-    * df is the returned db-sybchronized dataframe, whose number of rows = `total`,
-      or None if return_df=False,
+    * df is the pandas DataFrame with same columns as `dataframe` and only
+        rows that are db-sybchronized (`new`s + already existing). `len(df) = new`.
+        If return_df=False, this argument is None
 
     `return_df=False` is in most cases faster, use it if you do not need a database-synchronized
     version of `dataframe`
 
+    :param dataframe: a pandas dataframe
+    :param session: the sql-alchemy session
+    :param matching_columns: a list of ORM model columns to be matched against the db table rows, to
+    retrieve already existing rows on both the table and the dataframe. These rows will not be
+    inserted again. If `query_first=False` and `drop_duplicates=False`, this argument is
+    only used to retrieve the mapped db table (by looking at the ORM model of the first column)
+    :param colnames2insert: a list of columns to be inserted. None will default to all
+    `dataframe` columns. This latter case might be more time consuming if
+    this method is called several times
     :param query_first: boolean (defaults to True): queries T for rows already present. If this
     argument is False no skip is done, i.e. for all rows of `dataframe` the function will
     attempt to add them to T. **Set to False to speed up the function as long as you are sure no
     row of `dataframe` violates any T constraint**
+    :param check_pkeycol: True will check intelligently pkeycol, adding only na values. False
+    will skip the check (faster, but pkeys must have already been correctly set)
 
     The remainder of the documentation is the same as `syncdf`, so please see there for details
     """
     if dataframe.empty:
-        return (0, 0, dataframe if return_df else None)
+        return (0, dataframe if return_df else None)
 
     buf_size = max(buf_size, 1)
     buf = {}
-    existing_keys = None
-    if drop_duplicates or query_first:
-        matching_colnames = [c.key for c in matching_columns]
-        if drop_duplicates:
-            dataframe.drop_duplicates(subset=matching_colnames, inplace=True)
-        if query_first:
-            existing_keys = _dbquery2set(session, matching_columns)
 
-    table_model = matching_columns[0].class_
-    # allocate all primary keys for the given model
+    if check_pkeycol:
+        set_pkeys(dataframe, session, autoincrement_pkey_col, overwrite=False, max=None)
 
+    table_model = autoincrement_pkey_col.class_
     if colnames2insert is None:
-        colnames2insert = list(shared_colnames(table_model, dataframe))
+        colnames2insert = _get_shared_colnames(table_model, dataframe)
+
     last = len(dataframe) - 1
-    existing = 0
     not_inserted = 0
     indices_discarded = []
 
     for i, rowdict in enumerate(dfrowiter(dataframe, colnames2insert)):
-        if existing_keys:
-            rowtup = tuple(rowdict[col] for col in matching_colnames)
-            if rowtup not in existing_keys:
-                # _tup2idx[rowtup] = i
-                buf[i] = rowdict
-            else:
-                existing += 1
-        else:
-            buf[i] = rowdict
-
+        buf[i] = rowdict
         if len(buf) == buf_size or (i == last and buf):
             try:
                 session.connection().execute(table_model.__table__.insert(), listvalues(buf))
@@ -793,14 +896,13 @@ def insertdf(dataframe, session, matching_columns, colnames2insert=None,
                 session.rollback()
                 not_inserted += len(buf)
                 if onerr is not None:
-                    onerr(dataframe.iloc[iterkeys(buf)], sa_exc)
+                    onerr(dataframe.iloc[listkeys(buf)], sa_exc)
                 if return_df:
                     indices_discarded.extend(iterkeys(buf))
 
             buf.clear()
 
-    new = len(dataframe) - not_inserted - existing
-    total = len(dataframe) - not_inserted
+    new = len(dataframe) - not_inserted
     ret_df = None
     if return_df:
         ret_df = dataframe
@@ -813,10 +915,10 @@ def insertdf(dataframe, session, matching_columns, colnames2insert=None,
                                   invert=True)
                 ret_df = dataframe.iloc[indices]
 
-    return new, total, ret_df
+    return new, ret_df
 
 
-def updatedf(dataframe, session, where_col, update_columns, buf_size=10, return_df=True,
+def updatedf(dataframe, session, where_col, colnames2update=None, buf_size=10, return_df=True,
              onerr=None):
     """
     Efficiently updates row of `dataframe` to the corresponding database table T.
@@ -831,6 +933,10 @@ def updatedf(dataframe, session, where_col, update_columns, buf_size=10, return_
     * d is None if return_df = None, otherwise the sub-set of `dataframe` with only updated rows.
       Its length is 'updated'
 
+    :param colnames2update: a list of columns to be updated. None will default to all
+    `dataframe` columns EXCEPT `where_col`. This latter case might be more time consuming if
+    this method is called several times
+
     `return_df=False` is in most cases faster, use it if you do not need a database-synchronized
     version of `dataframe`
 
@@ -840,18 +946,21 @@ def updatedf(dataframe, session, where_col, update_columns, buf_size=10, return_
         return (0, dataframe if return_df else None)
 
     table_model = where_col.class_
-    shared_columns = update_columns + [where_col]
-    shared_cnames = [c.key for c in shared_columns]
+    if colnames2update is None:
+        colnames2update = _get_shared_colnames(table_model, dataframe, where_col)
+
+    where_col_name = where_col.key
+    shared_cnames = [where_col_name] + colnames2update
     # find a col not present for where_col. Otherwise error is raised:
     # bindparam() name where_col.key is reserved for automatic usage in the VALUES or SET clause
     # of this  insert/update statement.   Please use a name other than column name when using
     # bindparam() with insert() or update() (for example, 'b_id').
-    where_col_bindname = where_col.key + "_"
-    while where_col_bindname in shared_cnames:
+    where_col_bindname = where_col_name + "_"
+    while where_col_bindname in shared_cnames:  # assure unicity
         where_col_bindname += "_"
     stmt = table_model.__table__.update().\
         where(where_col == bindparam(where_col_bindname)).\
-        values({c.key: bindparam(c.key) for c in update_columns})
+        values({c: bindparam(c) for c in colnames2update})
     buf = {}
     last = len(dataframe) - 1
     indices_discarded = []
@@ -859,7 +968,7 @@ def updatedf(dataframe, session, where_col, update_columns, buf_size=10, return_
 
     for i, rowdict in enumerate(dfrowiter(dataframe, shared_cnames)):
         # replace the where column:
-        rowdict[where_col_bindname] = rowdict.pop(where_col.key)
+        rowdict[where_col_bindname] = rowdict.pop(where_col_name)
         buf[i] = rowdict
         if len(buf) == buf_size or (i == last and buf):
             try:
@@ -869,7 +978,7 @@ def updatedf(dataframe, session, where_col, update_columns, buf_size=10, return_
                 session.rollback()
                 not_updated += len(buf)
                 if onerr is not None:
-                    onerr(dataframe.iloc[iterkeys(buf)], sa_exc)
+                    onerr(dataframe.iloc[listkeys(buf)], sa_exc)
                 if return_df:
                     indices_discarded.extend(iterkeys(buf))
 
@@ -891,31 +1000,31 @@ def updatedf(dataframe, session, where_col, update_columns, buf_size=10, return_
     return updated, ret_df
 
 
-def _existing_insts(tuple_instances, session, columns):
-    """returns a sub-set (python `set`) of only `tuple_instances` existing on the db
-    :param tuple_instances: a list of instances, each represented by a tuple of values. For each
-    tuple, the ith element is the value of the i-th column in `columns`
-    :param session: sql-alchemy session
-    :param columns: ORM columns. The i-th value in each tuple of `tuple_instances` must be the
-    value of the i-th column of `columns`
-    :return: a python set of tuples, sub-set of `set(tuple_instances)`
-    """
-    exprs = [and_(*[col == v for col, v in zip(columns, tup)]) for tup in tuple_instances]
-    # 2. Get those elements and add them, if saved to the db
-    existing_inst = _dbquery2set(session, columns, or_(*exprs)) if exprs else set()
-    return existing_inst & set(tuple_instances)
-
-
-def _dbquery2set(session, columns, query_filter=None):
-    """Returns a query result as a set of tuples where each tuple value is the db row values
-    according to columns
-    :param session: sqlalchemy session
-    :param columns: a list of ORM instance columns
-    :param query_filter: optional filter to be apoplied to the query, defaults to None (no filter)
-    """
-    qry = session.query(*columns) if query_filter is None else \
-        session.query(*columns).filter(query_filter)
-    return set(tuple(x) for x in qry)
+# def _existing_insts(tuple_instances, session, columns):
+#     """returns a sub-set (python `set`) of only `tuple_instances` existing on the db
+#     :param tuple_instances: a list of instances, each represented by a tuple of values. For each
+#     tuple, the ith element is the value of the i-th column in `columns`
+#     :param session: sql-alchemy session
+#     :param columns: ORM columns. The i-th value in each tuple of `tuple_instances` must be the
+#     value of the i-th column of `columns`
+#     :return: a python set of tuples, sub-set of `set(tuple_instances)`
+#     """
+#     exprs = [and_(*[col == v for col, v in zip(columns, tup)]) for tup in tuple_instances]
+#     # 2. Get those elements and add them, if saved to the db
+#     existing_inst = _dbquery2set(session, columns, or_(*exprs)) if exprs else set()
+#     return existing_inst & set(tuple_instances)
+# 
+# 
+# def _dbquery2set(session, columns, query_filter=None):
+#     """Returns a query result as a set of tuples where each tuple value is the db row values
+#     according to columns
+#     :param session: sqlalchemy session
+#     :param columns: a list of ORM instance columns
+#     :param query_filter: optional filter to be apoplied to the query, defaults to None (no filter)
+#     """
+#     qry = session.query(*columns) if query_filter is None else \
+#         session.query(*columns).filter(query_filter)
+#     return set(tuple(x) for x in qry)
 
 
 def fetchsetpkeys(dataframe, session, matching_columns, pkey_col):
@@ -925,6 +1034,8 @@ def fetchsetpkeys(dataframe, session, matching_columns, pkey_col):
     NOTE: As pkey_col should be of sql type INTEGER, the returning dataframe[pkey_col.key]'s
     dtype might be float to accomodate NaN's, if any. Note that postgres is strict and will issue
     an `sqlalchemy.exc.DataError` if inserting/updating a non-nan value (e.g., 6.0 instead of 6)
+    The cast cannot be done here as the column might have nan's not convertible to int.
+    For casting, see :function:`_cast_column`.
 
     :param dataframe: a pandas dataframe
     :param session: an sql-alchemy session
@@ -960,41 +1071,43 @@ def fetchsetpkeys(dataframe, session, matching_columns, pkey_col):
     return mergeupdate(dataframe, df_new, [c.key for c in matching_columns], [pkey_col.key], False)
 
 
-def mergeupdate(df_old, df_new, matching_columns, set_columns, drop_df_new_duplicates=True):
+def mergeupdate(dataframe, other_df, matching_columns, set_columns, drop_other_df_duplicates=True):
     """
         Kind-of pandas.DataFrame update: sets
-        `df_old[set_columns]` = `df_new[set_columns]`
-        for those row where `df_old[matching_columns]` = `df_new[matching_columns]` only.
-        `df_new` **should** have unique rows under `matching columns` (see argument
-        `drop_df_new_duplicates`)
-        :param df_old: the pandas DataFrame whose values should be replaced
-        :param df_new: the pandas DataFrame which should set the new values to `df_old`
+        `dataframe[set_columns]` = `other_df[set_columns]`
+        for those row where `dataframe[matching_columns]` = `other_df[matching_columns]` only.
+        `other_df` **should** have unique rows under `matching columns` (see argument
+        `drop_other_df_duplicates`)
+        :param dataframe: the pandas DataFrame whose values should be replaced
+        :param other_df: the pandas DataFrame which should set the new values to `dataframe`
         :param matching_columns: list of strings: the columns to be checked for matches. They must
         be shared between both data frames
-        :param set_columns: list of strings denoting the column to be set from `df_new` to
-        `df_old` for those rows matching under `matching_cols`
-        :param drop_df_new_duplicates: If True (the default) drops duplicates of `df_new` under
-        `matching_columns` before updating `df_old`
+        :param set_columns: list of strings denoting the column to be set from `other_df` to
+        `dataframe` for those rows matching under `matching_cols`
+        :param drop_other_df_duplicates: If True (the default) drops ALL duplicates of `other_df`
+        under `matching_columns` before updating `dataframe`. If 'first', drops duplicates except
+        for the first occurrence. if 'last' drops duplicates except for the last occurrence.
     """
-#     if df_new.empty or df_old.empty:  # for safety (avoid useless calculations)
-#         return df_old
+#     if other_df.empty or dataframe.empty:  # for safety (avoid useless calculations)
+#         return dataframe
 
-    if drop_df_new_duplicates:
-        df_new = df_new.drop_duplicates(subset=matching_columns)
+    if drop_other_df_duplicates:
+        keep = False if drop_other_df_duplicates is True else drop_other_df_duplicates
+        other_df = other_df.drop_duplicates(subset=matching_columns, keep=keep)
 
-    # use df_new[matching_columns + set_columns] only for relevant columns
+    # use other_df[matching_columns + set_columns] only for relevant columns
     # (should speed up merging?):
-    mergedf = df_old.merge(df_new[matching_columns + set_columns], how='left',
-                           on=list(matching_columns), indicator=True)
+    mergedf = dataframe.merge(other_df[matching_columns + set_columns], how='left',
+                              on=list(matching_columns), indicator=True)
 
     # set values of new_df by means of the _merge column created via the arg indicator=True above:
     # _merge is in ('both', 'right_only', 'left_only'). We should never have 'right_only because of
     # the how='left' above. Skip checking for the moment
     for col in set_columns:
-        if col not in df_old:
+        if col not in dataframe:
             ser = mergedf[col].values
         else:
             ser = np.where(mergedf['_merge'] == 'both', mergedf[col+"_y"], mergedf[col+"_x"])
-        df_old[col] = ser
+        dataframe[col] = ser
 
-    return df_old
+    return dataframe
