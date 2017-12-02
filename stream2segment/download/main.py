@@ -205,40 +205,24 @@ def dblog(table, inserted, not_inserted, updated=0, not_updated=0):
     Use this function to harmonize the message format and make it more readable in log or
     terminal"""
 
-    def item(num):
-        return "row" if num == 1 else "rows"
     _header = "Db table '%s'" % table.__tablename__
-    _errmsg = "sql error (e.g., null constraint, unique constraint)"
-    _noerrmsg = "no sql errors"
-
-    if inserted or not_inserted:
-        if not_inserted:
-            msgs = ["%d new %s inserted, %d discarded", _errmsg]
-            args = [inserted, item(inserted), not_inserted]
-        else:
-            msgs = ["%d new %s inserted", _noerrmsg]
-            args = [inserted, item(inserted)]
+    if not inserted and not not_inserted and not updated and not not_updated:
+        logger.info("%s: no new row to insert, no row to update", _header)
     else:
-        msgs = ["no new %s to insert" % item(1), ""]
-        args = []
+        def log(ok, notok, okstr, nookstr):
+            if not ok and not notok:
+                return
+            _errmsg = "sql errors"
+            _noerrmsg = "no sql error"
+            msg = okstr % (ok, "row" if ok == 1 else "rows")
+            infomsg = _noerrmsg
+            if notok:
+                msg += nookstr % notok
+                infomsg = _errmsg
+            logger.info(MSG("%s: %s" % (_header, msg), infomsg))
 
-    logger.info(MSG("%s: %s" % (_header, msgs[0]), msgs[1]), *args)
-
-    if updated == -1 and not_updated == -1:  # do not log if we did not updated stuff
-        return
-
-    if updated or not_updated:
-        if not_updated:
-            msgs = ["%d %s updated, %d discarded", _errmsg]
-            args = [updated, item(updated), not_updated]
-        else:
-            msgs = ["%d %s updated", _noerrmsg]
-            args = [updated, item(updated)]
-    else:
-        msgs = ["no %s to update" % item(1), ""]
-        args = []
-
-    logger.info(MSG("%s: %s" % (_header, msgs[0]), msgs[1]), *args)
+        log(inserted, not_inserted, "%d new %s inserted", ", %d discarded")
+        log(updated, not_updated, "%d %s updated", ", %d discarded")
 
 
 def get_events_df(session, eventws_url, db_bufsize, **args):
@@ -971,11 +955,6 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
 
     datcen_id2url = datacenters_df.set_index([DC_ID])[DC_DSURL].to_dict()
 
-#     cols2update = [Segment.download_id, Segment.data, Segment.sample_rate,
-#                    Segment.maxgap_numsamples, Segment.data_identifier,
-#                    Segment.download_code, Segment.start_time, Segment.end_time]
-#     if update_request_timebounds:
-#         cols2update += [Segment.request_start, Segment.arrival_time, Segment.request_end]
     colnames2update = [SEG_DOWNLID, SEG_DATA, SEG_SRATE, SEG_MGAP, SEG_DATAID, SEG_DSCODE,
                        SEG_STIME, SEG_ETIME]
     if update_request_timebounds:

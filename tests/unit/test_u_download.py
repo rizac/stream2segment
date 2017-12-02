@@ -39,7 +39,7 @@ import pandas as pd
 from stream2segment.download.main import get_events_df, get_datacenters_df, \
     logger as query_logger, get_channels_df, merge_events_stations, \
     prepare_for_download, download_save_segments, \
-    QuitDownload, chaid2mseedid_dict
+    QuitDownload, chaid2mseedid_dict, dblog
 # ,\
 #     get_fdsn_channels_df, save_stations_and_channels, get_dists_and_times, set_saved_dist_and_times,\
 #     download_segments, drop_already_downloaded, set_download_urls, save_segments
@@ -373,6 +373,38 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 #         
         self.mock_urlopen.side_effect = cycle(retvals)
         
+        
+    def test_dblog(self):
+        dblog(Station, 0, 0, 0, 0)
+        s = self.log_msg()
+        assert "Db table 'stations': no new row to insert, no row to update" in s
+        dblog(Station, 0, 0, 0, 1)
+        s = self.log_msg()
+        assert "Db table 'stations': 0 rows updated, 1 discarded (sql errors)" in s
+        dblog(Station, 0, 1, 0, 1)
+        s = self.log_msg()
+        assert """Db table 'stations': 0 new rows inserted, 1 discarded (sql errors)
+Db table 'stations': 0 rows updated, 1 discarded (sql errors)""" in s
+        dblog(Station, 0, 1, 0, 0)
+        s = self.log_msg()
+        assert "Db table 'stations': 0 new rows inserted, 1 discarded (sql errors)" in s
+        dblog(Station, 1, 5, 4, 1)
+        s = self.log_msg()
+        assert """Db table 'stations': 1 new row inserted, 5 discarded (sql errors)
+Db table 'stations': 4 rows updated, 1 discarded (sql errors)""" in s
+        dblog(Station, 3, 0, 4, 1)
+        s = self.log_msg()
+        assert """Db table 'stations': 3 new rows inserted (no sql error)
+Db table 'stations': 4 rows updated, 1 discarded (sql errors)""" in s
+        dblog(Station, 3, 5, 1, 0)
+        s = self.log_msg()
+        assert """Db table 'stations': 3 new rows inserted, 5 discarded (sql errors)
+Db table 'stations': 1 row updated (no sql error)""" in s
+        dblog(Station, 3, 0, 4, 0)
+        s = self.log_msg()
+        assert """Db table 'stations': 3 new rows inserted (no sql error)
+Db table 'stations': 4 rows updated (no sql error)""" in s
+        h = 9
 
     def get_events_df(self, url_read_side_effect, *a, **v):
         self.setup_urlopen(self._evt_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
