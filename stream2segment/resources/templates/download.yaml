@@ -37,8 +37,9 @@ retry_server_err: true
 # was completely outside the requested time span (see 'timespan' for details)
 retry_timespan_err: true
 
-# whether or not to update segments metadata (stations, channels and station inventories,
-# if inventories should be downloaded)
+# whether or not to update segments metadata, i.e. if an already saved station/channel will
+# write again its data (overwriting existing data). Otherwise,
+# all already saved stations and channels will not be updated
 update_metadata: false
 
 # Set if station inventories (xml format) should be downloaded.
