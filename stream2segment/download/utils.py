@@ -24,7 +24,7 @@ import pandas as pd
 from sqlalchemy.orm.session import object_session
 
 from stream2segment.io.db.models import Event, Station, Channel, DataCenter, fdsn_urls
-from stream2segment.io.db.pd_sql_utils import harmonize_columns,\
+from stream2segment.io.db.pdsql import harmonize_columns,\
     harmonize_rows, colnames, dbquery2df
 from stream2segment.utils.url import urlread, URLException
 from stream2segment.utils import urljoin, strconvert

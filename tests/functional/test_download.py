@@ -35,7 +35,6 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from stream2segment.main import closing
 from stream2segment.cli import cli
 from click.testing import CliRunner
-# from stream2segment.s2sio.db.pd_sql_utils import df2dbiter, get_col_names
 import pandas as pd
 from stream2segment.download.main import get_events_df, get_datacenters_df, \
 get_channels_df, merge_events_stations, \
@@ -56,7 +55,7 @@ from obspy.taup.helper_classes import TauModelError
 # from stream2segment.main import logger as main_logger
 from sqlalchemy.sql.expression import func
 from stream2segment.utils import get_session, mseedlite3
-from stream2segment.io.db.pd_sql_utils import dbquery2df, insertdf, updatedf
+from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf,  _get_max as _get_db_autoinc_col_max
 from logging import StreamHandler
 import logging
 from io import BytesIO
@@ -67,7 +66,7 @@ import threading
 from stream2segment.utils.url import read_async
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
 from stream2segment.utils.log import configlog4download
-from stream2segment.io.db.pd_sql_utils import _get_max as _get_db_autoinc_col_max
+
 
 # when debugging, I want the full dataframe with to_string(), not truncated
 pd.set_option('display.max_colwidth', -1)
@@ -424,15 +423,15 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             return opn_.read()
 
 
-    @patch('stream2segment.io.db.pd_sql_utils._get_max')
+    @patch('stream2segment.io.db.pdsql._get_max')
     @patch('stream2segment.download.main.get_events_df')
     @patch('stream2segment.download.main.get_datacenters_df')
     @patch('stream2segment.download.main.get_channels_df')
     @patch('stream2segment.download.main.save_inventories')
     @patch('stream2segment.download.main.download_save_segments')
     @patch('stream2segment.download.main.mseedunpack')
-    @patch('stream2segment.io.db.pd_sql_utils.insertdf')
-    @patch('stream2segment.io.db.pd_sql_utils.updatedf')
+    @patch('stream2segment.io.db.pdsql.insertdf')
+    @patch('stream2segment.io.db.pdsql.updatedf')
     def test_cmdline_dberr(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                            mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
                            mock_get_datacenters_df, mock_get_events_df, mock_autoinc_db):
@@ -517,8 +516,8 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
     @patch('stream2segment.download.main.save_inventories')
     @patch('stream2segment.download.main.download_save_segments')
     @patch('stream2segment.download.main.mseedunpack')
-    @patch('stream2segment.io.db.pd_sql_utils.insertdf')
-    @patch('stream2segment.io.db.pd_sql_utils.updatedf')
+    @patch('stream2segment.io.db.pdsql.insertdf')
+    @patch('stream2segment.io.db.pdsql.updatedf')
     def test_cmdline_outofbounds(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                                  mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
                                  mock_get_datacenters_df, mock_get_events_df):
@@ -591,8 +590,8 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
     @patch('stream2segment.download.main.save_inventories')
     @patch('stream2segment.download.main.download_save_segments')
     @patch('stream2segment.download.main.mseedunpack')
-    @patch('stream2segment.io.db.pd_sql_utils.insertdf')
-    @patch('stream2segment.io.db.pd_sql_utils.updatedf')
+    @patch('stream2segment.io.db.pdsql.insertdf')
+    @patch('stream2segment.io.db.pdsql.updatedf')
     def test_cmdline(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                      mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
                      mock_get_datacenters_df, mock_get_events_df):

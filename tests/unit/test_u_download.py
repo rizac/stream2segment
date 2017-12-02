@@ -34,7 +34,7 @@ from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from stream2segment.main import closing
 from click.testing import CliRunner
-# from stream2segment.s2sio.db.pd_sql_utils import df2dbiter, get_col_names
+
 import pandas as pd
 from stream2segment.download.main import get_events_df, get_datacenters_df, \
     logger as query_logger, get_channels_df, merge_events_stations, \
@@ -55,7 +55,7 @@ from obspy.taup.helper_classes import TauModelError
 # from stream2segment.main import logger as main_logger
 from sqlalchemy.sql.expression import func
 from stream2segment.utils import get_session, mseedlite3
-from stream2segment.io.db.pd_sql_utils import dbquery2df, insertdf, updatedf
+from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf
 from logging import StreamHandler
 import logging
 from io import BytesIO
@@ -1556,8 +1556,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         return download_save_segments(*a, **kw)
     
     @patch("stream2segment.download.main.mseedunpack")
-    @patch("stream2segment.io.db.pd_sql_utils.insertdf")
-    @patch("stream2segment.io.db.pd_sql_utils.updatedf")
+    @patch("stream2segment.io.db.pdsql.insertdf")
+    @patch("stream2segment.io.db.pdsql.updatedf")
     def test_download_save_segments(self, mock_updatedf, mock_insertdf, mseed_unpack):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
         # prepare:
         # mseed unpack takes no starttime and endtime arguments, so that 
@@ -1862,8 +1862,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         
         
     @patch("stream2segment.download.main.mseedunpack")
-    @patch("stream2segment.io.db.pd_sql_utils.insertdf")
-    @patch("stream2segment.io.db.pd_sql_utils.updatedf")
+    @patch("stream2segment.io.db.pdsql.insertdf")
+    @patch("stream2segment.io.db.pdsql.updatedf")
     def test_download_save_segments_timebounds(self, mock_updatedf, mock_insertdf, mseed_unpack):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
         # prepare:
         # mseed unpack takes no starttime and endtime arguments, so that 

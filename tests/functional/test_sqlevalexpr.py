@@ -14,7 +14,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 import pandas as pd
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError, InvalidRequestError, ProgrammingError
-from stream2segment.io.db.pd_sql_utils import _harmonize_columns, harmonize_columns,\
+from stream2segment.io.db.pdsql import _harmonize_columns, harmonize_columns,\
     harmonize_rows, colnames, dbquery2df
 from stream2segment.io.utils import dumps_inv, loads_inv
 from sqlalchemy.orm.exc import FlushError

@@ -24,7 +24,7 @@ import psutil
 from stream2segment.utils.url import urlread, read_async as original_read_async, URLException
 from stream2segment.io.db.models import Event, DataCenter, Segment, Station, Channel, \
     WebService, fdsn_urls
-from stream2segment.io.db.pd_sql_utils import dfrowiter, mergeupdate, dbquery2df, DbManager,\
+from stream2segment.io.db.pdsql import dfrowiter, mergeupdate, dbquery2df, DbManager,\
     syncdf, shared_colnames
 from stream2segment.download.utils import empty, urljoin, response2df, normalize_fdsn_dframe, \
     get_search_radius, DownloadStats, get_events_list, locations2degrees, custom_download_codes, \
@@ -165,7 +165,7 @@ def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, updat
 
 
 def handledbexc(cols_to_print_on_err, update=False):
-    """Returns a **function** to be passed to pd_sql_utils functions when inserting/ updating
+    """Returns a **function** to be passed to pdsql functions when inserting/ updating
     the db. Basically, it prints to log"""
     if not cols_to_print_on_err:
         return None
@@ -786,11 +786,6 @@ def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius,
     return ret
 
 
-# session, segments_df, timespan, retry_seg_not_found,
-#                                  retry_url_err, retry_mseed_err, retry_client_err,
-#                                  retry_server_err, retry_timespan_err,
-#                                  retry_timespan_warnings=False
-
 def prepare_for_download(session, segments_df, timespan, retry_seg_not_found, retry_url_err,
                          retry_mseed_err, retry_client_err, retry_server_err, retry_timespan_err,
                          retry_timespan_warn=False):
@@ -953,6 +948,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
     SEG_MGAP = Segment.maxgap_numsamples.key
     SEG_SRATE = Segment.sample_rate.key
     SEG_DOWNLID = Segment.download_id.key
+    SEG_ATIME = Segment.arrival_time.key
 
     # set once the dict of column names mapped to their default values.
     # Set nan to let pandas understand it's numeric. None I don't know how it is converted
@@ -975,14 +971,18 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid_d
 
     datcen_id2url = datacenters_df.set_index([DC_ID])[DC_DSURL].to_dict()
 
-    cols2update = [Segment.download_id, Segment.data, Segment.sample_rate,
-                   Segment.maxgap_numsamples, Segment.data_identifier,
-                   Segment.download_code, Segment.start_time, Segment.end_time]
+#     cols2update = [Segment.download_id, Segment.data, Segment.sample_rate,
+#                    Segment.maxgap_numsamples, Segment.data_identifier,
+#                    Segment.download_code, Segment.start_time, Segment.end_time]
+#     if update_request_timebounds:
+#         cols2update += [Segment.request_start, Segment.arrival_time, Segment.request_end]
+    colnames2update = [SEG_DOWNLID, SEG_DATA, SEG_SRATE, SEG_MGAP, SEG_DATAID, SEG_DSCODE,
+                       SEG_STIME, SEG_ETIME]
     if update_request_timebounds:
-        cols2update += [Segment.request_start, Segment.arrival_time, Segment.request_end]
+        colnames2update += [SEG_START, SEG_ATIME, SEG_END]
 
     cols_to_log_on_err = [SEG_ID, SEG_CHAID, SEG_START, SEG_END, SEG_DCID]
-    segmanager = DbManager(session, Segment.id, [k.key for k in cols2update],
+    segmanager = DbManager(session, Segment.id, colnames2update,
                            db_bufsize, return_df=False,
                            oninsert_err_callback=handledbexc(cols_to_log_on_err, update=False),
                            onupdate_err_callback=handledbexc(cols_to_log_on_err, update=True))
@@ -1224,88 +1224,6 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
                  "- not downloaded %6d (client/server errors)") %
                 (downloaded, empty, errors))
     dbmanager.close()
-
-
-# class DbManager(object):
-#     """Class managing the insertion of table rows into db. As insertion/updates should
-#     be happening during download for not losing data in case of unexpected error, this class
-#     manages the buffer size for the insertion/ updates on the db"""
-# 
-#     def __init__(self, session, id_col, update_cols, bufsize,
-#                  cols_to_print_on_err):
-#         self.info = [0, 0, 0, 0]  # new, total_new, updated, updated_new
-#         self.inserts = []
-#         self.updates = []
-#         self.bufsize = bufsize
-#         self._num2insert = 0
-#         self._num2update = 0
-#         self.session = session
-#         self.id_col = id_col
-#         self.update_cols = update_cols
-#         self.table = id_col.class_
-#         self.cols_to_print_on_err = cols_to_print_on_err
-# 
-#     def add(self, df):
-#         bufsize = self.bufsize
-#         mask = pd.isnull(df[self.id_col.key])
-#         if mask.any():
-#             if mask.all():
-#                 dfinsert = df
-#                 dfupdate = None
-#             else:
-#                 dfinsert = df[mask]
-#                 dfupdate = df[~mask]
-#         else:
-#             dfinsert = None
-#             dfupdate = df
-# 
-#         if dfinsert is not None:
-#             self.inserts.append(dfinsert)
-#             self._num2insert += len(dfinsert)
-#             if self._num2insert >= bufsize:
-#                 self.insert()
-# 
-#         if dfupdate is not None:
-#             self.updates.append(dfupdate)
-#             self._num2update += len(dfupdate)
-#             if self._num2update >= bufsize:
-#                 self.update()
-# 
-#     def insert(self):
-#         df = pd.concat(self.inserts, axis=0, ignore_index=True, copy=False, verify_integrity=False)
-#         total, new = syncdf_insert_na_pkeys(df, self.session, self.id_col, len(df), return_df=False,
-#                                       onerr=handledbexc(self.cols_to_print_on_err))
-#         info = self.info
-#         info[0] += new
-#         info[1] += total
-#         # cleanup:
-#         self._num2insert = 0
-#         self.inserts = []
-# 
-#     def update(self):
-#         df = pd.concat(self.updates, axis=0, ignore_index=True, copy=False, verify_integrity=False)
-#         total = len(df)
-#         updated = updatedf(df, self.session, self.id_col, self.update_cols, total, return_df=False,
-#                            onerr=handledbexc(self.cols_to_print_on_err, True))
-#         info = self.info
-#         info[2] += updated
-#         info[3] += total
-#         # cleanup:
-#         self._num2update = 0
-#         self.updates = []
-# 
-#     def flush(self):
-#         """flushes remaining stuff to insert/ update, if any"""
-#         if self.inserts:
-#             self.insert()
-#         if self.updates:
-#             self.update()
-# 
-#     def close(self):
-#         """flushes remaining stuff to insert/ update, if any, prints to log updates and inserts"""
-#         self.flush()
-#         new, ntot, upd, utot = self.info
-#         dblog(self.table, new, ntot - new, upd, utot - upd)
 
 
 def run(session, download_id, eventws, start, end, dataws, eventws_query_args,

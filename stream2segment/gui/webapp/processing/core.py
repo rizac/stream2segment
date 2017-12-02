@@ -16,7 +16,7 @@ from itertools import cycle
 from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
 
-from stream2segment.io.db.pd_sql_utils import colnames
+from stream2segment.io.db.pdsql import colnames
 from stream2segment.io.db.models import Segment, Class, Station, Channel, DataCenter, Event,\
     ClassLabelling, Download
 from stream2segment.io.db.queries import query4gui
