@@ -19,8 +19,9 @@ from mock import Mock
 from datetime import datetime, timedelta
 from io import StringIO
 import stream2segment
-from stream2segment.download.utils import get_search_radius,\
-    locations2degrees as s2sloc2deg, EidaValidator, custom_download_codes, DownloadStats
+from stream2segment.download.modules.stationsearch import locations2degrees as s2sloc2deg, get_search_radius
+from stream2segment.download.modules.datacenters import EidaValidator
+from stream2segment.download.utils import custom_download_codes, DownloadStats
 from obspy.geodetics.base import locations2degrees  as obspyloc2deg
 import numpy as np
 import pandas as pd

@@ -13,100 +13,201 @@ from __future__ import division
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import zip, range
 
-import re
-from datetime import timedelta, datetime
-import dateutil
-from itertools import count, chain
+
+import logging
+import os
+from itertools import chain, cycle
 from collections import defaultdict
 
-import numpy as np
 import pandas as pd
-from sqlalchemy.orm.session import object_session
+import psutil
 
-from stream2segment.io.db.models import Event, Station, Channel, DataCenter, fdsn_urls
+from stream2segment.io.db.models import Event, Station, Channel
 from stream2segment.io.db.pdsql import harmonize_columns,\
-    harmonize_rows, colnames, dbquery2df
-from stream2segment.utils.url import urlread, URLException
-from stream2segment.utils import urljoin, strconvert
+    harmonize_rows, colnames, syncdf
+from stream2segment.utils.url import read_async as original_read_async
+from stream2segment.utils.msgs import MSG
 
 from future.standard_library import install_aliases
 install_aliases()
 from http.client import responses  # @UnresolvedImport @IgnorePep8
 
 
-def get_events_list(eventws, **args):
-    """Returns a list of tuples (raw_data, status, url_string) elements from an eventws query
-    The list is due to the fact that entities too large are split into subqueries
-    rasw_data's can be None in case of URLExceptions (the message tells what happened in case)
-    :raise: ValueError if the query cannot be firhter splitted (max difference between start and
-    end time : 1 second)
+# logger: do not use logging.getLogger(__name__) but point to stream2segment.download.logger:
+# this way we preserve the logging namespace hierarchy
+# (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial) when calling logging
+# functions of stream2segment.download.utils:
+from stream2segment.download import logger  # @IgnorePep8
+
+
+class QuitDownload(Exception):
     """
-    url = urljoin(eventws, format='text', **args)
-    arr = []
-    try:
-        raw_data, code, msg = urlread(url, decode='utf8', raise_http_err=False)
-        if code == 413:  # payload too large (formerly: request entity too large)
-            start = dateutil.parser.parse(args.get('start', datetime(1970, 1, 1).isoformat()))
-            end = dateutil.parser.parse(args.get('end', datetime.utcnow().isoformat()))
-            total_seconds_diff = (end-start).total_seconds() / 2
-            if total_seconds_diff < 1:
-                raise ValueError("%d: %s (maximum recursion reached: time window < 1 sec)" %
-                                 (code, msg))
-                # arr.append((None, "Cannot futher split start and end time", url))
-            else:
-                dtime = timedelta(seconds=int(total_seconds_diff))
-                bounds = [start.isoformat(), (start+dtime).isoformat(), end.isoformat()]
-                arr.extend(get_events_list(eventws, **dict(args, start=bounds[0], end=bounds[1])))
-                arr.extend(get_events_list(eventws, **dict(args, start=bounds[1], end=bounds[2])))
-        else:
-            arr = [(raw_data, msg, url)]
-    except URLException as exc:
-        arr = [(None, str(exc.exc), url)]
-    except:
-        raise
-    return arr
+    This is an exception that should be raised from the functions of this package, when their OUTPUT
+    dataframe is empty and thus would prevent the continuation of the program.
 
+    There are two causes for having empty data(frame). In both cases, the program should exit,
+    but the behavior should be different:
 
-def get_search_radius(mag, minmag, maxmag, minmag_radius, maxmag_radius):
-    """From a given magnitude, determines and returns the max radius (in degrees).
-        Given minmag_radius and maxmag_radius and minmag and maxmag (FIXME: TO BE CALIBRATED!),
-        this function returns D from the f below:
+    - There is no data because of a download error (no data fetched):
+      the program should `log.error` the message and return nonzero. From the function
+      that raises it, the QuitDownload object should be:
 
-                      |
-        maxmag_radius +                oooooooooooo
-                      |              o
-                      |            o
-                      |          o
-        minmag_radius + oooooooo
-                      |
-                      ---------+-------+------------
-                            minmag     maxmag
+      ```raise QuitDownload(Exception(...))```
 
-    :return: the max radius (in degrees)
-    :param mag: (numeric or list or numbers/numpy.array) the magnitude
-    :param minmag: (int, float) the minimum magnitude
-    :param maxmag: (int, float) the maximum magnitude
-    :param minmag_radius: (int, float) the radius for `min_mag` (in degrees)
-    :param maxmag_radius: (int, float) the radius for `max_mag` (in degrees)
-    :return: a scalar if mag is scalar, or an numpy.array
+    - There is no data because of current settings (e.g., no channels with sample rate >=
+      config sample rate, all segments already downloaded with current retry settings):
+      the program should `log.info` the message and return zero. From the function
+      that raises the it, the QuitDownload object should be:
+
+      ```raise QuitDownload(string_message)```
+
+    The method '_iserror' of any `QuitDownload` object tells the user if the object has been built
+    for indicating a download error (first case).
+
+    Note that in both cases the string messages need most likely to be built with the `MSG`
+    function for harmonizing the message outputs.
+    (Note also that with the current settings defined in stream2segment/main,
+    `log.info` and `log.error` both print also to `stdout`, `log.warning` and `log.debug` do not).
     """
-    mag = np.asarray(mag)  # do NOT copies data for existing arrays
-    isscalar = not mag.shape
-    if isscalar:
-        mag = np.array(mag, ndmin=1)  # copies data, assures an array of dim=1
+    def __init__(self, exc_or_msg):
+        """Creates a new QuitDownload instance
+        :param exc_or_msg: if Exception, then this object will log.error in the `log()` method
+        and return a nonzero exit code (error), otherwise (if string) this object will log.info
+        inthere and return 0
+        """
+        super(QuitDownload, self).__init__(str(exc_or_msg))
+        self._iserror = isinstance(exc_or_msg, Exception)
 
-    if minmag == maxmag:
-        dist = np.array(mag)
-        dist[mag < minmag] = minmag_radius
-        dist[mag > minmag] = maxmag_radius
-        dist[mag == minmag] = np.true_divide(minmag_radius+maxmag_radius, 2)
+
+def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
+               decode=None, raise_http_err=True, timeout=None, max_mem_consumption=90,
+               **kwargs):
+    """Wrapper around read_async defined in url which raises a QuitDownload in case of MemoryError
+    :param max_mem_consumption: a value in (0, 100] denoting the threshold in % of the
+    total memory after which the program should raise. This should return as fast as possible
+    consuming the less memory possible, and assuring the quit-download message will be sent to
+    the logger
+    """
+    # split the two cases, a little nit more verbose but hopefully it's faster when
+    # max_mem_consumption is higher than zero...
+    if max_mem_consumption > 0 and max_mem_consumption < 100:
+        check_mem_step = 10
+        process = psutil.Process(os.getpid())
+        for result, check_mem_val in zip(original_read_async(iterable, urlkey, max_workers,
+                                                             blocksize, decode,
+                                                             raise_http_err, timeout, **kwargs),
+                                         cycle(range(check_mem_step))):
+            yield result
+            if check_mem_val == 0:
+                mem_percent = process.memory_percent()
+                if mem_percent > max_mem_consumption:
+                    raise QuitDownload(MemoryError(("Memory overflow: %.2f%% (used) > "
+                                                    "%.2f%% (threshold)") %
+                                                   (mem_percent, max_mem_consumption)))
     else:
-        dist = minmag_radius + \
-            np.true_divide(maxmag_radius - minmag_radius, maxmag - minmag) * (mag - minmag)
-        dist[dist < minmag_radius] = minmag_radius
-        dist[dist > maxmag_radius] = maxmag_radius
+        for result in original_read_async(iterable, urlkey, max_workers, blocksize, decode,
+                                          raise_http_err, timeout, **kwargs):
+            yield result
 
-    return dist[0] if isscalar else dist
+
+def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=False,
+             buf_size=10, drop_duplicates=True, return_df=True, cols_to_print_on_err=None):
+    """Calls `syncdf` and writes to the logger before returning the
+    new dataframe. Raises `QuitDownload` if the returned dataframe is empty (no row saved)"""
+
+    oninsert_err_callback = handledbexc(cols_to_print_on_err, update=False)
+    onupdate_err_callback = handledbexc(cols_to_print_on_err, update=True)
+    onduplicates_callback = oninsert_err_callback
+
+    inserted, not_inserted, updated, not_updated, df = \
+        syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update,
+               buf_size, drop_duplicates,
+               onduplicates_callback, oninsert_err_callback, onupdate_err_callback)
+
+    table = autoincrement_pkey_col.class_
+    if empty(df):
+        raise QuitDownload(Exception(MSG("No row saved to table '%s'" % table.__tablename__,
+                                         "unknown error, check log for details and db connection")))
+    dblog(table, inserted, not_inserted, updated, not_updated)
+    return df
+
+
+def handledbexc(cols_to_print_on_err, update=False):
+    """Returns a **function** to be passed to pdsql functions when inserting/ updating
+    the db. Basically, it prints to log"""
+    if not cols_to_print_on_err:
+        return None
+
+    def hde(dataframe, exception):
+        if not empty(dataframe):
+            try:
+                # if sql-alchemy exception, try to guess the orig atrribute which represents
+                # the wrapped exception
+                # http://docs.sqlalchemy.org/en/latest/core/exceptions.html
+                errmsg = str(exception.orig)
+            except AttributeError:
+                # just use the string representation of exception
+                errmsg = str(exception)
+            len_df = len(dataframe)
+            msg = MSG("%d database rows not %s" % (len_df, "updated" if update else "inserted"),
+                      errmsg)
+            logwarn_dataframe(dataframe, msg, cols_to_print_on_err)
+    return hde
+
+
+def logwarn_dataframe(dataframe, msg, cols_to_print_on_err, max_row_count=30):
+    '''prints (using log.warning) the current dataframe. Does not check if dataframe is empty'''
+    len_df = len(dataframe)
+    if len_df > max_row_count:
+        footer = "\n... (showing first %d rows only)" % max_row_count
+        dataframe = dataframe.iloc[:max_row_count]
+    else:
+        footer = ""
+    msg = "{}:\n{}{}".format(msg, dataframe.to_string(columns=cols_to_print_on_err,
+                                                      index=False), footer)
+    logger.warning(msg)
+
+
+def dblog(table, inserted, not_inserted, updated=0, not_updated=0):
+    """Prints to log the result of a database wrtie operation.
+    Use this function to harmonize the message format and make it more readable in log or terminal
+    """
+    _header = "Db table '%s'" % table.__tablename__
+    if not inserted and not not_inserted and not updated and not not_updated:
+        logger.info("%s: no new row to insert, no row to update", _header)
+    else:
+        def dolog(ok, notok, okstr, nookstr):
+            if not ok and not notok:
+                return
+            _errmsg = "sql errors"
+            _noerrmsg = "no sql error"
+            msg = okstr % (ok, "row" if ok == 1 else "rows")
+            infomsg = _noerrmsg
+            if notok:
+                msg += nookstr % notok
+                infomsg = _errmsg
+            logger.info(MSG("%s: %s" % (_header, msg), infomsg))
+
+        dolog(inserted, not_inserted, "%d new %s inserted", ", %d discarded")
+        dolog(updated, not_updated, "%d %s updated", ", %d discarded")
+
+
+def response2normalizeddf(url, raw_data, dbmodel_key):
+    """Returns a normalized and harmonized dataframe from raw_data. dbmodel_key can be 'event'
+    'station' or 'channel'. Raises ValueError if the resulting dataframe is empty or if
+    a ValueError is raised from sub-functions
+    :param url: url (string) or `Request` object. Used only to log the specified
+    url in case of wranings
+    """
+
+    dframe = response2df(raw_data)
+    oldlen, dframe = len(dframe), normalize_fdsn_dframe(dframe, dbmodel_key)
+    # stations_df surely not empty:
+    if oldlen > len(dframe):
+        logger.warning(MSG("%d row(s) discarded",
+                           "malformed server response data, e.g. NaN's", url),
+                       oldlen - len(dframe))
+    return dframe
 
 
 def response2df(response_data, strip_cells=True):
@@ -441,47 +542,6 @@ class DownloadStats(defaultdict):
         return ret
 
 
-def locations2degrees(lat1, lon1, lat2, lon2):
-    """
-    Same as obspy `locations2degree` but works with numpy arrays
-
-    From the doc:
-    Convenience function to calculate the great circle distance between two
-    points on a spherical Earth.
-
-    This method uses the Vincenty formula in the special case of a spherical
-    Earth. For more accurate values use the geodesic distance calculations of
-    geopy (https://github.com/geopy/geopy).
-
-    :type lat1: numpy numeric array
-    :param lat1: Latitude(s) of point 1 in degrees
-    :type lon1: numpy numeric array
-    :param lon1: Longitude(s) of point 1 in degrees
-    :type lat2: numpy numeric array
-    :param lat2: Latitude(s) of point 2 in degrees
-    :type lon2: numpy numeric array
-    :param lon2: Longitude(s) of point 2 in degrees
-    :rtype: numpy numeric array
-    :return: Distance in degrees as a floating point number.
-
-    """
-    # Convert to radians.
-    lat1 = np.radians(np.asarray(lat1))
-    lat2 = np.radians(np.asarray(lat2))
-    lon1 = np.radians(np.asarray(lon1))
-    lon2 = np.radians(np.asarray(lon2))
-    long_diff = lon2 - lon1
-    gd = np.degrees(
-        np.arctan2(
-            np.sqrt((
-                np.cos(lat2) * np.sin(long_diff)) ** 2 +
-                (np.cos(lat1) * np.sin(lat2) - np.sin(lat1) *
-                    np.cos(lat2) * np.cos(long_diff)) ** 2),
-            np.sin(lat1) * np.sin(lat2) + np.cos(lat1) * np.cos(lat2) *
-            np.cos(long_diff)))
-    return gd
-
-
 def custom_download_codes():
     """returns the tuple (url_err, mseed_err, timespan_err, timespan_warn), i.e. the tuple
     (-1, -2, -204, -200) where each number represents a custom download code
@@ -494,97 +554,3 @@ def custom_download_codes():
       request's time-span (only the data intersecting with the time span has been saved)
     """
     return (-1, -2, -204, -200)
-
-
-def eidarsiter(responsetext):
-    """iterator yielding the tuple (url, postdata) for each datacenter found in responsetext
-    :param responsetext: the eida routing service response text
-    """
-    # not really pythonic code, but I enjoyed avoiding copying strings and creating lists
-    # so this iterator is most likely really low memory consuming
-    start = 0
-    textlen = len(responsetext)
-    while start < textlen:
-        end = responsetext.find("\n\n", start)
-        if end < 0:
-            end = textlen
-        mid = responsetext.find("\n", start, end)  # note: now we set a new value to idx
-        if mid > -1:
-            url, postdata = responsetext[start:mid].strip(), responsetext[mid:end].strip()
-            if url and postdata:
-                yield url, postdata
-        start = end + 2
-
-
-class EidaValidator(object):
-    '''Class for validating stations duplicates according to the eida routing service
-    response text'''
-    def __init__(self, datacenters_df, responsetext):
-        """Initializes a validator. You can then call `isin` to check if a station is valid
-        :param datacenters_df: a dataframe representing the datacenters read from the eida
-        routing service
-        :param responsetext: the plain response text from the eida routing service
-        """
-        self.dic = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(lambda:
-                                                                                           set()))))
-        reg = re.compile("^(\\S+) (\\S+) (\\S+) (\\S+) .*$",
-                         re.MULTILINE)  # @UndefinedVariable
-        for url, postdata in eidarsiter(responsetext):
-            _ = datacenters_df[datacenters_df[DataCenter.dataselect_url.key] == url]
-            if _.empty:
-                _ = datacenters_df[datacenters_df[DataCenter.station_url.key] == url]
-            if len(_) != 1:
-                continue
-            dc_id = _[DataCenter.id.key].iloc[0]
-            for match in reg.finditer(postdata):
-                try:
-                    net, sta, loc, cha = \
-                        match.group(1), match.group(2), match.group(3), match.group(4)
-                except IndexError:
-                    continue
-                self.add(dc_id, net, sta, loc, cha)
-
-    @staticmethod
-    def _tore(wild_str):
-        if wild_str == '--':
-            wild_str = ''
-        return re.compile("^%s$" % strconvert.wild2re(wild_str))
-
-    def add(self, dc_id, net, sta, loc, cha):
-        """adds the tuple datacenter id, network station location channels to the internal dic
-        :param dc_id: integer
-        :param net: string, the network name
-        :param sta: string, the station name. Special cases: '*' (match all), "--" (empty)
-        :param sta: string, the location name. Special cases: '*' (match all), "--" (empty)
-        :param cha: string, the channel (can contain wildcards like '*' or '?'). Special cases:
-                    '*' (match all)
-        """
-        self.dic[dc_id][net][self._tore(sta)][self._tore(loc)].add(self._tore(cha))
-
-    @staticmethod
-    def _get(regexiterable, key, return_bool=False):
-        for regex in regexiterable:
-            if regex.match(key):
-                return True if return_bool else regexiterable[regex]
-        return False if return_bool else None
-
-    def isin(self, dc_id, net, sta, loc, cha):
-        """Returns a boolean (or a list of booleans) telling if the tuple arguments:
-        ```(dc_id, net, sta, loc, cha)```
-        match any of the eida response lines of text.
-        Returns a list of boolean if the arguments are iterable (not including strings)
-        Returns numpy.array if return_np = True
-        """
-        # dc_id - > {net_re -> //}
-        stadic = self.dic.get(dc_id, {}).get(net, None)
-        if stadic is None:
-            return False
-        # sta_re - > {loc_re -> //}
-        locdic = self._get(stadic, sta)
-        if locdic is None:
-            return False
-        # loc_re - > set(cha_re,..)
-        chaset = self._get(locdic, loc)
-        if chaset is None:
-            return False
-        return self._get(chaset, cha, return_bool=True)

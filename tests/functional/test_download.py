@@ -36,6 +36,7 @@ from stream2segment.main import closing
 from stream2segment.cli import cli
 from click.testing import CliRunner
 import pandas as pd
+
 from stream2segment.download.main import get_events_df, get_datacenters_df, \
 get_channels_df, merge_events_stations, \
     prepare_for_download, download_save_segments, save_inventories
@@ -219,7 +220,7 @@ class Test(unittest.TestCase):
         self.mock_yaml_load.side_effect = yload
         
         # mock threadpoolexecutor to run one instance at a time, so we get deterministic results:
-        self.patcher23 = patch('stream2segment.download.main.original_read_async')
+        self.patcher23 = patch('stream2segment.download.utils.original_read_async')
         self.mock_read_async = self.patcher23.start()
 #         def readasync(iterable, ondone, *a, **v):
 #             ret = list(iterable)
@@ -414,7 +415,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     
     def save_inventories(self, url_read_side_effect, *a, **v):
         self.setup_urlopen(self._get_inv() if url_read_side_effect is None else url_read_side_effect)
-        save_inventories(*a, **v)
+        return save_inventories(*a, **v)
 
     
     def _get_inv(self):
@@ -429,7 +430,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     @patch('stream2segment.download.main.get_channels_df')
     @patch('stream2segment.download.main.save_inventories')
     @patch('stream2segment.download.main.download_save_segments')
-    @patch('stream2segment.download.main.mseedunpack')
+    @patch('stream2segment.download.modules.segments.mseedunpack')
     @patch('stream2segment.io.db.pdsql.insertdf')
     @patch('stream2segment.io.db.pdsql.updatedf')
     def test_cmdline_dberr(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
@@ -515,7 +516,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
     @patch('stream2segment.download.main.get_channels_df')
     @patch('stream2segment.download.main.save_inventories')
     @patch('stream2segment.download.main.download_save_segments')
-    @patch('stream2segment.download.main.mseedunpack')
+    @patch('stream2segment.download.modules.segments.mseedunpack')
     @patch('stream2segment.io.db.pdsql.insertdf')
     @patch('stream2segment.io.db.pdsql.updatedf')
     def test_cmdline_outofbounds(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
@@ -589,7 +590,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
     @patch('stream2segment.download.main.get_channels_df')
     @patch('stream2segment.download.main.save_inventories')
     @patch('stream2segment.download.main.download_save_segments')
-    @patch('stream2segment.download.main.mseedunpack')
+    @patch('stream2segment.download.modules.segments.mseedunpack')
     @patch('stream2segment.io.db.pdsql.insertdf')
     @patch('stream2segment.io.db.pdsql.updatedf')
     def test_cmdline(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,

@@ -36,10 +36,13 @@ from stream2segment.main import closing
 from click.testing import CliRunner
 
 import pandas as pd
-from stream2segment.download.main import get_events_df, get_datacenters_df, \
-    logger as query_logger, get_channels_df, merge_events_stations, \
-    prepare_for_download, download_save_segments, \
-    QuitDownload, chaid2mseedid_dict, dblog
+from stream2segment.download.modules.events import get_events_df
+from stream2segment.download.modules.datacenters import get_datacenters_df
+from stream2segment.download.modules.channels import get_channels_df
+from stream2segment.download.modules.stationsearch import merge_events_stations
+from stream2segment.download.modules.segments import prepare_for_download, download_save_segments,\
+    chaid2mseedid_dict
+from stream2segment.download.utils import QuitDownload
 # ,\
 #     get_fdsn_channels_df, save_stations_and_channels, get_dists_and_times, set_saved_dist_and_times,\
 #     download_segments, drop_already_downloaded, set_download_urls, save_segments
@@ -66,7 +69,8 @@ import threading
 from stream2segment.utils.url import read_async
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_ttable_fpath
 from stream2segment.traveltimes.ttloader import TTTable
-from stream2segment.download.utils import urljoin as original_urljoin
+from stream2segment.download.utils import dblog
+from stream2segment.utils import urljoin as original_urljoin
 
 
 
@@ -136,6 +140,10 @@ responses = {
           'The gateway server did not receive a timely response'),
     505: ('HTTP Version Not Supported', 'Cannot fulfill request.'),
     }
+
+import logging
+
+query_logger = logger = logging.getLogger("stream2segment")
 
 class Test(unittest.TestCase):
 
@@ -218,7 +226,7 @@ class Test(unittest.TestCase):
         
         
         # mock threadpoolexecutor to run one instance at a time, so we get deterministic results:
-        self.patcher23 = patch('stream2segment.download.main.read_async')
+        self.patcher23 = patch('stream2segment.download.utils.read_async')
         self.mock_read_async = self.patcher23.start()
         def readasync(iterable, *a, **v):
             # make readasync deterministic by returning the order of iterable
@@ -411,7 +419,7 @@ Db table 'stations': 4 rows updated (no sql error)""" in s
         return get_events_df(*a, **v)
         
 
-    @patch('stream2segment.download.main.urljoin', return_value='a')
+    @patch('stream2segment.download.modules.events.urljoin', return_value='a')
     def test_get_events(self, mock_query):
         urlread_sideeffect = ["""1|2|3|4|5|6|7|8|9|10|11|12|13
 20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
@@ -446,7 +454,7 @@ Db table 'stations': 4 rows updated (no sql error)""" in s
         assert "blabla23___" in self.log_msg()
         
 
-    @patch('stream2segment.download.main.urljoin', return_value='a')
+    @patch('stream2segment.download.modules.events.urljoin', return_value='a')
     def test_get_events_toomany_requests_raises(self, mock_query): # FIXME: implement it!
         
         urlread_sideeffect = [413, """1|2|3|4|5|6|7|8|9|10|11|12|13
@@ -473,16 +481,7 @@ Db table 'stations': 4 rows updated (no sql error)""" in s
         assert len(self.session.query(Event).all()) == 0
         
 
-#     @patch('stream2segment.download.main.urljoin', return_value='a')
-#     @patch('stream2segment.download.main.dbsync')
-#     def test_get_events_eventws_not_saved(self, mock_dbsync, mock_query): # FIXME: implement it!
-#         urlread_sideeffect = [413]  # this is useless, we test stuff which raises before it
-#         
-#         # now we want to return all times 413, and see that we raise a ValueError:
-#         
-#         mock_dbsync.reset_mock()
-#         mock_dbsync.side_effect = lambda *a, **v: dbsync(*a, **v)
-    @patch('stream2segment.download.main.urljoin', return_value='a')
+    @patch('stream2segment.download.modules.events.urljoin', return_value='a')
     def test_get_events_eventws_not_saved(self, mock_query): # FIXME: implement it!
         urlread_sideeffect = [413]  # this is useless, we test stuff which raises before it
 
@@ -527,7 +526,7 @@ Db table 'stations': 4 rows updated (no sql error)""" in s
 #     channels, starttime=None, endtime=None, 
 #     db_bufsize=None)
     
-    @patch('stream2segment.download.main.urljoin', return_value='a')
+    @patch('stream2segment.download.modules.datacenters.urljoin', return_value='a')
     def test_get_dcs_general(self, mock_urljoin):
         '''test fetching datacenters eida, iris, custom url'''
         # this is the output when using eida as service:
@@ -599,7 +598,7 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
         assert dcslen == len(self.session.query(DataCenter).all())
         
 
-    @patch('stream2segment.download.main.urljoin', side_effect = lambda *a, **v: original_urljoin(*a, **v))
+    @patch('stream2segment.download.modules.datacenters.urljoin', side_effect = lambda *a, **v: original_urljoin(*a, **v))
     def test_get_dcs_postdata(self, mock_urljoin):  # , mock_urljoin):
         '''test fetching datacenters eida, iris, custom url and test that postdata is what we
         expected (which is eida/iris/whatever independent)'''
@@ -668,7 +667,6 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
                 assert 'end' not in kwargs
             
     
-    # @patch('stream2segment.download.main.urljoin', return_value='a')
     def test_get_dcs_routingerror(self):  # , mock_urljoin):
         '''test fetching datacenters eida, iris, custom url'''
         # this is the output when using eida as service:
@@ -1587,7 +1585,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         self.setup_urlopen(self._seg_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
         return download_save_segments(*a, **kw)
     
-    @patch("stream2segment.download.main.mseedunpack")
+    @patch("stream2segment.download.modules.segments.mseedunpack")
     @patch("stream2segment.io.db.pdsql.insertdf")
     @patch("stream2segment.io.db.pdsql.updatedf")
     def test_download_save_segments(self, mock_updatedf, mock_insertdf, mseed_unpack):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
@@ -1893,7 +1891,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert mock_insertdf.call_count == 0
         
         
-    @patch("stream2segment.download.main.mseedunpack")
+    @patch("stream2segment.download.modules.segments.mseedunpack")
     @patch("stream2segment.io.db.pdsql.insertdf")
     @patch("stream2segment.io.db.pdsql.updatedf")
     def test_download_save_segments_timebounds(self, mock_updatedf, mock_insertdf, mseed_unpack):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):

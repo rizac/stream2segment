@@ -132,6 +132,11 @@ def configlog4download(logger, db_session, download_id, isterminal):
     """configs for download and returns the handler used to store the log to the db
     and to a tmp file. The file is accessible via logger..baseFilename
     """
+    # https://docs.python.org/2/howto/logging.html#optimization:
+    logging._srcfile = None
+    logging.logThreads = 0
+    logging.logProcesses = 0
+    # FIXME above: move elsewhere (maybe restoring defaults?)
     logger.setLevel(logging.INFO)  # necessary to forward to handlers
     # custom StreamHandler: count errors and warnings:
     dbstream_handler = DbStreamHandler(db_session, download_id)
