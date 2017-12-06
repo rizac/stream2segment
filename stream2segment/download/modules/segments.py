@@ -179,12 +179,12 @@ def prepare_for_download(session, segments_df, timespan, retry_seg_not_found, re
     seg_dupes_mask = segments_df.duplicated(subset=[SEG_CHID, SEG_START, SEG_END], keep=False)
     if seg_dupes_mask.any():
         seg_dupes = segments_df[seg_dupes_mask]
-        logger.info(MSG("%d suspicious duplicated segments found:\n"
-                        "any of these segment has by definition at least another segment\n"
-                        "with the same channel_id, request_start and request_end.\n"
-                        "Cause: two or more events with different id's arriving to the same\n"
-                        "channel at the same date and time (rounded to the nearest second).\n"
-                        "(all these segments will anyway be written to the database)."),
+        logger.info(MSG("%d suspiciously duplicated segments found:\n"
+                        "this is due to different events arriving at the same station's channel\n"
+                        "at the same exact date and time (rounded to the nearest second).\n"
+                        "Probably, the same event has been returned with different id(s)\n"
+                        "by the event web service, but this is not checked for: \n"
+                        "all suspiciously duplicated segments will be written to the database."),
                     len(seg_dupes))
         logwarn_dataframe(seg_dupes.sort_values(by=[SEG_CHID, SEG_START, SEG_END]),
                           "Suspicious duplicated segments",
