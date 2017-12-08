@@ -111,17 +111,20 @@ def segmentclass4process(func):
         # no problem)
         return get_sn_windows(self._config, self.arrival_time, self.stream())
 
-    def segments_on_other_orientations(self):
-        seg_other_orientations = getattr(self, "_other_orientations", None)
-        if seg_other_orientations is None:
-            segs = self.dbsession().query(Segment).join(Segment.channel).\
+    def _query_to_other_orientations(self, *query_args):
+        return self.dbsession().query(*query_args).join(Segment.channel).\
                 filter((Segment.id != self.id) & (Segment.event_id == self.event_id) &
                        (Channel.station_id == self.channel.station_id) &
                        (Channel.location == self.channel.location) &
                        (Channel.band_code == self.channel.band_code) &
-                       (Channel.instrument_code == self.channel.instrument_code)).all()
+                       (Channel.instrument_code == self.channel.instrument_code))
+
+    def segments_on_other_orientations(self):
+        seg_other_orientations = getattr(self, "_other_orientations", None)
+        if seg_other_orientations is None:
+            segs = self._query_on_other_orientations(Segment).all()
             seg_other_orientations = self._other_orientations = segs
-            # assign also to other segments:
+            # assign also to other segments:y
             for seg in segs:
                 seg._other_orientations = [s for s in segs if s.id != seg.id] + [self]
 
@@ -136,6 +139,7 @@ def segmentclass4process(func):
             Segment.sn_windows = sn_windows
             Segment.segments_on_other_orientations = segments_on_other_orientations
             Segment.dbsession = lambda self: object_session(self)
+            Segment._query_to_other_orientations = _query_to_other_orientations
 
         try:
             return func(*args, **kwargs)
@@ -148,6 +152,7 @@ def segmentclass4process(func):
                 del Segment.sn_windows
                 del Segment.dbsession
                 del Segment.segments_on_other_orientations
+                del Segment._query_to_other_orientations
 
     return wrapper
 

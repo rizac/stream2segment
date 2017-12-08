@@ -26,8 +26,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm.session import object_session
 from sqlalchemy.sql.expression import func, bindparam
 import time
-
-from stream2segment.io.db.queries import getallcomponents
+from stream2segment.process.utils import segmentclass4process
 
 class Test(unittest.TestCase):
     
@@ -142,6 +141,7 @@ class Test(unittest.TestCase):
                     start_time=d)
         self.session.add(s)
 
+    @segmentclass4process
     def test_query4gui(self):
         s = self.session.query(Station).first()
         e = self.session.query(Event).first()
@@ -190,7 +190,10 @@ class Test(unittest.TestCase):
 
         for leng, segment in zip(expected_lengths, segments):
             # do query for GUI:
-            assert getallcomponents(self.session, segment.id).count() == leng
+            if  leng == 4:
+                dfg = 9
+            assert segment._query_to_other_orientations(Segment.id).count() == leng
+            # assert getallcomponents(self.session, segment.id).count() == leng
 
 
 if __name__ == "__main__":

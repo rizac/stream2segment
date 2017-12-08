@@ -27,7 +27,6 @@ from sqlalchemy.orm.session import object_session
 from sqlalchemy.sql.expression import func, bindparam, and_
 import time
 from itertools import product
-from stream2segment.io.db.queries import getallcomponents
 from obspy.core.stream import read
 from stream2segment.utils import load_source
 from stream2segment.utils.resources import yaml_load

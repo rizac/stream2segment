@@ -17,12 +17,17 @@ from collections import OrderedDict
 from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import load_only
+from sqlalchemy import func, distinct
+from sqlalchemy.orm import load_only
+from sqlalchemy.orm.util import aliased
+from sqlalchemy.sql.expression import or_, and_, func, case, text
+from sqlalchemy.orm.session import object_session
+from sqlalchemy.sql.elements import literal_column
+from sqlalchemy.orm import configure_mappers
 
 from stream2segment.io.db.pdsql import colnames
 from stream2segment.io.db.models import Segment, Class, Station, Channel, DataCenter, Event,\
     ClassLabelling, Download
-from stream2segment.io.db.queries import query4gui, query4dreport, querystationinfo4dreport
-# from stream2segment.io.db import sqlevalexpr
 from stream2segment.utils.resources import yaml_load_doc, get_templates_fpath
 
 from stream2segment.download.utils import custom_download_codes
@@ -77,3 +82,79 @@ def get_station_data(session, station_id, selectedLabels):
 
     query = querystationinfo4dreport(session, station_id, **binexprs)
     return query.all()
+
+
+def query4dreport(session, **binexprs2count):
+    '''Returns a query yielding the segments ids for the visualization in the GUI (download
+    report)
+    '''
+    # We should get something along the lines of:
+    # SELECT data_centers.id AS data_centers_id,
+    #     stations.id AS stations_id,
+    #     count(segments.id) as csi,
+    #     count(segments.sample_rate != channels.sample_rate) as segid
+    # FROM
+    # data_centers
+    # JOIN stations ON data_centers.id = stations.datacenter_id
+    # JOIN channels on channels.station_id = stations.id
+    # JOIN segments on segments.channel_id = channels.id
+    # GROUP BY stations.id
+
+    def countif(key, binexpr):
+        NULL = literal_column("NULL")
+        return func.count(case([(binexpr, Segment.id)], else_=NULL)).label(key)
+
+    qry = session.query(DataCenter.id.label('dc_id'),  # @UndefinedVariable
+                        Station.id.label('station_id'),
+                        Station.latitude.label('lat'),
+                        Station.longitude.label('lon'),
+                        func.count(Segment.id).label('num_segments'),
+                        *[countif(k, v) for k, v in binexprs2count.items()])
+
+    # ok seems that back referenced relationships are instantiated only after the first query is
+    # made:
+    # https://stackoverflow.com/questions/14921777/backref-class-attribute
+    # workaround:
+    configure_mappers()
+
+    return qry.join(DataCenter.stations,  # @UndefinedVariable
+                    Station.channels,  # @UndefinedVariable
+                    Channel.segments,  # @UndefinedVariable
+                    ).group_by(DataCenter.id, Station.id)
+
+
+def querystationinfo4dreport(session, station_id, **binexprs2count):
+    '''Returns a query yielding the segments ids for the visualization in the GUI (download
+    report)
+    '''
+    # We should get something along the lines of:
+    # SELECT data_centers.id AS data_centers_id,
+    #     stations.id AS stations_id,
+    #     count(segments.id) as csi,
+    #     count(segments.sample_rate != channels.sample_rate) as segid
+    # FROM
+    # data_centers
+    # JOIN stations ON data_centers.id = stations.datacenter_id
+    # JOIN channels on channels.station_id = stations.id
+    # JOIN segments on segments.channel_id = channels.id
+    # GROUP BY stations.id
+
+    def countif(key, binexpr):
+        YES = text("'&#10004;'")
+        NO = text("''")
+        return case([(binexpr, YES)], else_=NO).label(key)
+
+    qry = session.query(Segment.id, Segment.seed_identifier,
+                        Segment.event_id,
+                        Segment.start_time, Segment.end_time,
+                        *[countif(k, v) for k, v in binexprs2count.items()])
+
+    # ok seems that back referenced relatioships are instanitated only after the first query is
+    # made:
+    # https://stackoverflow.com/questions/14921777/backref-class-attribute
+    # workaround:
+    configure_mappers()
+
+    return qry.join(Segment.event, Segment.station
+                    ).filter(Station.id == station_id).order_by(Event.time.desc(),
+                                                                Segment.event_distance_deg.asc())

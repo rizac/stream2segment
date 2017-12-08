@@ -833,7 +833,7 @@ class Test(unittest.TestCase):
         
         # Thus: we have basically 3 types of query:
         # stations with data: use query, not hybrid attrs (in download.main)
-        # segments with data, stations with inventory data: use hybrid attrs (in process.main)
+        # segments with data, stations with inventory data: use hybrid attrs (in process.core)
         # segments with classes: any, none: use query, not hybrid attrs (in gui)
         
         

@@ -91,3 +91,24 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
 
     dbmanager.close()
     return downloaded, empty, errors
+
+
+def query4inventorydownload(session, force_update):
+    '''Returns a query yielding the stations which do not have inventories xml
+    and have at least one segment with data.
+
+    :param session: the sql-alchemy session
+    :return: a query yielding the tuples:
+    ```(Station.id, Station.network, Station.station, DataCenter.station_url,
+        Station.start_time, Station.end_time)```
+    '''
+    qry = session.query(Station.id, Station.network, Station.station, DataCenter.station_url,
+                        Station.start_time, Station.end_time).join(Station.datacenter)
+
+    if force_update:
+        qry = qry.filter(Station.segments.any(Segment.has_data))  # @UndefinedVariable
+    else:
+        qry = qry.filter((~Station.has_inventory) &
+                         (Station.segments.any(Segment.has_data)))  # @UndefinedVariable
+
+    return qry

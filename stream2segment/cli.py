@@ -37,7 +37,7 @@ import click
 from click.exceptions import BadParameter, ClickException, MissingParameter
 
 from stream2segment import main
-from stream2segment.process.main import default_funcname
+from stream2segment.process.core import default_funcname
 from stream2segment.utils import strptime
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, yaml_load_doc
 from stream2segment.traveltimes import ttcreator

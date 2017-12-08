@@ -1,0 +1,275 @@
+'''
+Main module for the segment processing and .csv output
+
+Created on Feb 2, 2017
+
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
+'''
+from __future__ import print_function
+
+# future direct imports (needs future package installed, otherwise remove):
+# (http://python-future.org/imports.html#explicit-imports)
+from builtins import (ascii, chr, dict, filter, hex, input,
+                      int, map, next, oct, open, pow, range, round,
+                      super, zip)
+
+# iterating over dictionary keys with the same set-like behaviour on Py2.7 as on Py3:
+# from future.utils import viewkeys
+
+# this can not apparently be fixed with the future package:
+# The problem is io.StringIO accepts unicodes in python2 and strings in python3:
+try:
+    from cStringIO import StringIO  # python2.x
+except ImportError:
+    from io import StringIO
+
+import os
+import sys
+import logging
+from contextlib import contextmanager
+import warnings
+import re
+import traceback
+
+import numpy as np
+
+from sqlalchemy import func
+from sqlalchemy.orm import load_only
+
+from stream2segment.process.utils import segmentclass4process
+from stream2segment.io.db.sqlevalexpr import exprquery
+from stream2segment.utils import get_progressbar, load_source, secure_dburl
+from stream2segment.utils.resources import yaml_load
+from stream2segment.io.db.models import Segment, Station, Event, Channel
+
+
+logger = logging.getLogger(__name__)
+
+
+# THE FUNCTION BELOW REDIRECTS STANDARD ERROR/OUTPUT FROM EXTERNAL PROGRAM
+# http://stackoverflow.com/questions/5081657/how-do-i-prevent-a-c-shared-library-to-print-on-stdout-in-python
+# there's a second one easier to understand but does not restore old std/err stdout
+# Added comments from
+# http://stackoverflow.com/questions/8804893/redirect-stdout-from-python-for-c-calls
+@contextmanager
+def redirect(src=sys.stdout, dst=os.devnull):
+    '''
+    import os
+
+    with stdout_redirected(to=filename):
+        print("from Python")
+        os.system("echo non-Python applications are also supported")
+    '''
+
+    # some tools (e.g., pytest) change sys.stderr. In that case, we do want this
+    # function to yield and return without changing anything:
+    try:
+        file_desc = src.fileno()
+    except (AttributeError, OSError) as _:
+        yield
+        return
+
+    # # assert that Python and C stdio write using the same file descriptor
+    # assert libc.fileno(ctypes.c_void_p.in_dll(libc, "stdout")) == file_desc == 1
+
+    def _redirect_stderr(to):
+        sys.stderr.close()  # + implicit flush()
+        os.dup2(to.fileno(), file_desc)  # file_desc writes to 'to' file
+        sys.stderr = os.fdopen(file_desc, 'w')  # Python writes to file_desc
+
+    def _redirect_stdout(to):
+        sys.stdout.close()  # + implicit flush()
+        os.dup2(to.fileno(), file_desc)  # file_desc writes to 'to' file
+        sys.stdout = os.fdopen(file_desc, 'w')  # Python writes to file_desc
+
+    _redirect_ = _redirect_stderr if src is sys.stderr else _redirect_stdout
+
+    with os.fdopen(os.dup(file_desc), 'w') as old_:
+        with open(dst, 'w') as fopen:
+            _redirect_(to=fopen)
+        try:
+            yield  # allow code to be run with the redirected stdout/err
+        finally:
+            # restore stdout. buffering and flags such as CLOEXEC may be different:
+            _redirect_(to=old_)
+
+
+def default_funcname():
+    '''returns 'main', the default function name for processing, when such a name is not given'''
+    return 'main'
+
+
+def load_proc_cfg(configsourcefile):
+    """Returns the dict represetning the processing yaml file"""
+    # After refactoring, this function simply calls the default "yaml to dict" function (yaml_load)
+    # leave it here for testing purposes (mock)
+    return yaml_load(configsourcefile)
+
+
+@segmentclass4process
+def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=False):
+    reg = re.compile("^(.*):([a-zA-Z_][a-zA-Z_0-9]*)$")
+    m = reg.match(pysourcefile)
+    if m and m.groups():
+        pysourcefile = m.groups()[0]
+        funcname = m.groups()[1]
+    else:
+        funcname = default_funcname()
+
+    try:
+        pyfunc = load_source(pysourcefile).__dict__[funcname]
+    except Exception as exc:
+        msg = "Error while importing '%s' from '%s': %s" % (funcname, pysourcefile, str(exc))
+        logger.critical(msg)
+        return 0
+
+    try:
+        config = {} if configsourcefile is None else load_proc_cfg(configsourcefile)
+    except Exception as exc:
+        msg = "Error while reading config file '%s': %s" % (configsourcefile,  str(exc))
+        logger.critical(msg)
+        return 0
+
+    # suppress obspy warnings. Doing process-wise is more feasible FIXME: do it?
+    warnings.filterwarnings("default")  # https://docs.python.org/2/library/warnings.html#the-warnings-filter @IgnorePep8
+    s = StringIO()
+    logger_handler = logging.StreamHandler(s)
+    logger_handler.setLevel(logging.WARNING)
+    logging.captureWarnings(True)
+    warnings_logger = logging.getLogger("py.warnings")
+    warnings_logger.addHandler(logger_handler)
+    logger.info("Executing '%s' in '%s'", funcname, pysourcefile)
+    logger.info("Input database: '%s", secure_dburl(str(session.bind.engine.url)))
+    logger.info("Config. file: %s", str(configsourcefile))
+
+    # multiprocess with sessions is a mess. Among other problems, we should not share any
+    # session-related operation with the same session object across different multiprocesses.
+    # Is it worth to create a new session each time? not for the moment
+
+    # clear the session and expunge all every clear_session_step iterations:
+    # (set a multiple of three might be in sync with other orientations, which is 3):
+    clear_session_step = 60
+    # and the incremental index:
+    idx = 0
+
+    logger.info("Fetching segments to process, please wait...")
+
+    # the query is always loaded in memory, see:
+    # https://stackoverflow.com/questions/11769366/why-is-sqlalchemy-insert-with-sqlite-25-times-slower-than-using-sqlite3-directly/11769768#11769768
+    # thus we load it as np.array to save memory:
+    seg_sta_ids = np.array(query4process(session, config.get('segment_select', {})).all(),
+                           dtype=int)
+    # get total segment length:
+    seg_len = seg_sta_ids.shape[0]
+
+    def stationssaved():
+        return session.query(func.count(Station.id)).filter(Station.has_inventory==True).scalar()  # @IgnorePep8
+    stasaved = stationssaved()
+    # purge session (needed or not, for safety):
+    session.expunge_all()
+    session.close()
+
+    logger.info("%d segments found to process", seg_len)
+
+    Segment._config = config
+    segment = None
+    last_inventory = None
+    last_inventory_stationid = None
+    done, skipped, skipped_error = 0, 0, 0
+
+    with redirect(sys.stderr):
+        with get_progressbar(show_progress, length=seg_len) as pbar:
+            try:
+                for row in seg_sta_ids:  # zip(seg_sta_ids, cycle(range(clear_session_step))):
+                    idx += 1  # we might use
+                    seg_id, sta_id = row.tolist()
+                    # check if we already loaded a segment from a previous segment's orientations:
+                    other_orients_list = getattr(segment, "_other_orientations", [])
+                    segment = None
+                    for sg in other_orients_list:
+                        if sg.id == seg_id:
+                            segment = sg
+                            break
+                    already_computed_inventory = None \
+                        if (last_inventory_stationid is None or last_inventory_stationid != sta_id)\
+                        else last_inventory
+                    if segment is None:
+                        # if segment is None, it wasn't got from an already computed segment
+                        # whose other orientations where requested. Thus we can clear the session
+                        if idx >= clear_session_step:
+                            session.expunge_all()
+                            session.close()
+                            idx = 0
+                        segment = session.query(Segment).filter(Segment.id == seg_id).\
+                            options(load_only(Segment.id)).first()
+                    segment._inventory = already_computed_inventory
+                    try:
+                        array = pyfunc(segment, config)
+                        if array is not None:
+                            ondone(segment, array)
+                            done += 1
+                        else:
+                            skipped += 1
+                    except (ImportError, NameError, AttributeError, SyntaxError, TypeError) as _:
+                        raise  # sys.exc_info()
+                    except Exception as generr:
+                        logger.warning("segment (id=%d): %s", seg_id, str(generr))
+                        skipped_error += 1
+                    # check if we loaded the inventory and set it as last computed
+                    # do do this, little hack: check if the "private" field is defined:
+                    if segment._inventory is not None:
+                        last_inventory = segment._inventory
+                        last_inventory_stationid = sta_id
+                    pbar.update(1)
+            except:
+                err_msg = traceback.format_exc()
+                logger.critical(err_msg)
+                return 0
+
+    captured_warnings = s.getvalue()
+    if captured_warnings:
+        logger.info("(external warnings captured, please see log for details)")
+        logger.info("")
+        logger.warning("Captured external warnings:")
+        logger.warning("%s", captured_warnings)
+        logger.warning("(only the first occurrence of an external warning for each location where "
+                       "the warning is issued is reported. Because of maintainability and "
+                       "performance potential issues, the segment id which originated "
+                       "these warnings cannot be shown. However, in most cases the process "
+                       "completed successfully, and if you want to check the correctness of the "
+                       "data please check the results)")
+
+    logging.captureWarnings(False)  # form the docs the redirection of warnings to the logging
+    # system will stop, and warnings will be redirected to their original destinations
+    # (i.e. those in effect before captureWarnings(True) was called).
+
+    # get stations with data and inform the user if any new has been saved:
+    stasaved2 = stationssaved()
+    if stasaved2 > stasaved:
+        logger.info("station inventories saved: %d", (stasaved2-stasaved))
+
+    logger.info("%d of %d segments successfully processed\n" % (done, seg_len))
+    logger.info("%d of %d segments skipped without messages\n" % (skipped, seg_len))
+    logger.info("%d of %d segments skipped with message "
+                "(check log or details)\n" % (skipped_error, seg_len))
+
+
+def query4process(session, conditions={}):
+    '''Returns a query yielding the the segments ids (and their stations ids) for the processing.
+    The returned tuples are sorted by station id, event id, channel location and channel's channel
+
+    :param session: the sql-alchemy session
+    :param condition: a dict of segment attribute names mapped to a select expression, each
+    identifying a filter (sql WHERE clause). See `:ref:sqlevalexpr.py`. Can be empty (no filter)
+
+    :return: a query yielding the tuples: ```(Segment.id, Segment.station.id)```
+    '''
+    # Note: without the join below, rows would be duplicated
+    qry = session.query(Segment.id, Station.id).\
+        join(Segment.station, Segment.event, Segment.channel).\
+        order_by(Station.id, Event.id, Channel.location, Channel.channel)
+    # Now parse selection:
+    if conditions:
+        # parse user defined conditions (as dict of key:value <=> "column": "expr")
+        qry = exprquery(qry, conditions=conditions, orderby=None, distinct=True)
+    return qry

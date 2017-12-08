@@ -14,7 +14,6 @@ import logging
 
 import psutil
 
-from stream2segment.io.db.queries import query4inventorydownload
 from stream2segment.io.db.pdsql import dbquery2df
 from stream2segment.traveltimes.ttloader import TTTable
 from stream2segment.utils.resources import get_ttable_fpath
@@ -25,7 +24,7 @@ from stream2segment.download.modules.channels import get_channels_df
 from stream2segment.download.modules.stationsearch import merge_events_stations
 from stream2segment.download.modules.segments import prepare_for_download, download_save_segments,\
     chaid2mseedid_dict
-from stream2segment.download.modules.stations import save_inventories
+from stream2segment.download.modules.stations import save_inventories, query4inventorydownload
 
 
 logger = logging.getLogger(__name__)

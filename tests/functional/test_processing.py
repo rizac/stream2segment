@@ -31,11 +31,11 @@ from stream2segment.main import closing
 from stream2segment.cli import cli
 from stream2segment.io.db.models import Base, Event, Station, WebService, Segment,\
     Channel, Download, DataCenter
-from stream2segment.process.main import load_proc_cfg
+from stream2segment.process.core import load_proc_cfg
 from stream2segment import process
 from stream2segment.utils.resources import get_templates_fpaths
 from stream2segment.process.utils import get_inventory_url, save_inventory as original_saveinv
-from stream2segment.process.main import query4process
+from stream2segment.process.core import query4process
 
 from future import standard_library
 from stream2segment.process.utils import segmentclass4process
@@ -427,7 +427,7 @@ class Test(unittest.TestCase):
     # as by default withdata is True in segment_select, then we process only the last three
     #
     # Here a simple test for a processing file returning dict. Save inventory and check it's saved
-    @mock.patch('stream2segment.process.main.load_proc_cfg')
+    @mock.patch('stream2segment.process.core.load_proc_cfg')
     def test_simple_run_retDict_saveinv(self, mock_load_cfg):
         '''test a case where save inventory is True, and that we saved inventories'''
         # set values which will override the yaml config in templates folder:
@@ -485,7 +485,7 @@ class Test(unittest.TestCase):
         assert self.session.query(Station).\
             filter(Station.id == station_id_whose_inventory_is_saved).first().inventory_xml
 
-    @mock.patch('stream2segment.process.main.load_proc_cfg')
+    @mock.patch('stream2segment.process.core.load_proc_cfg')
     def test_simple_run_retDict_saveinv_high_snr_threshold(self, mock_load_cfg):
         '''same as `test_simple_run_retDict_saveinv` above
         but with a very high snr threshold'''
@@ -554,7 +554,7 @@ class Test(unittest.TestCase):
     #
     # Here a simple test for a processing file returning dict. Don't save inventory and check it's
     # not saved
-    @mock.patch('stream2segment.process.main.load_proc_cfg')
+    @mock.patch('stream2segment.process.core.load_proc_cfg')
     def test_simple_run_retDict_dontsaveinv(self, mock_load_cfg):
         '''same as `test_simple_run_retDict_saveinv` above
          but with a 0 snr threshold and do not save inventories'''
@@ -610,7 +610,7 @@ class Test(unittest.TestCase):
     #
     # Here a simple test for a processing NO file. We implement a filter that excludes the only
     # processed file using associated stations lat and lon. 
-    @mock.patch('stream2segment.process.main.load_proc_cfg')
+    @mock.patch('stream2segment.process.core.load_proc_cfg')
     def test_simple_run_retDict_seg_select_empty_and_err_segments(self, mock_load_cfg):
         '''test that segment selection works'''
         # set values which will override the yaml config in templates folder:
@@ -679,7 +679,7 @@ class Test(unittest.TestCase):
     #
     # Here a simple test for a processing NO file. We implement a filter that excludes the only
     # processed file using associated stations lat and lon. 
-    @mock.patch('stream2segment.process.main.load_proc_cfg')
+    @mock.patch('stream2segment.process.core.load_proc_cfg')
     def test_simple_run_retDict_seg_select_only_one_err_segment(self, mock_load_cfg):
         '''test that segment selection works (2)'''
         # set values which will override the yaml config in templates folder:
@@ -742,7 +742,7 @@ class Test(unittest.TestCase):
     # as by default withdata is True in segment_select, then we process only the last three
     #
     # Here a simple test for a processing file returning list. Just check it works
-    @mock.patch('stream2segment.process.main.load_proc_cfg')
+    @mock.patch('stream2segment.process.core.load_proc_cfg')
     def test_simple_run_ret_list(self, mock_load_cfg):
         '''test processing returning list, and also when we specify a different main function'''
         # set values which will override the yaml config in templates folder:
@@ -800,7 +800,7 @@ def main(segment, config):""")
                     logtext = self.read_and_remove(file.name+".log")
                     assert len(logtext) > 0
 
-    @mock.patch('stream2segment.process.main.load_proc_cfg')
+    @mock.patch('stream2segment.process.core.load_proc_cfg')
     def test_wrong_pyfile(self, mock_load_cfg):
         '''test processing when supplying a wrong python file (not py extension, this seem
         to raise when impoerting it in python3)'''
@@ -842,7 +842,7 @@ def main(segment, config):""")
                     logtext = self.read_and_remove(file.name+".log")
                     assert "Error while importing 'main_retlist'" in logtext
 
-    @mock.patch('stream2segment.process.main.load_proc_cfg')
+    @mock.patch('stream2segment.process.core.load_proc_cfg')
     def test_simple_run_codeerror(self, mock_load_cfg):
         '''test processing type error(wrong argumens)'''
         # set values which will override the yaml config in templates folder:

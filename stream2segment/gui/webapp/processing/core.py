@@ -19,10 +19,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from stream2segment.io.db.pdsql import colnames
 from stream2segment.io.db.models import Segment, Class, Station, Channel, DataCenter, Event,\
     ClassLabelling, Download
-from stream2segment.io.db.queries import query4gui
 from stream2segment.gui.webapp.processing.plots.jsplot import jsontimestamp
 # from stream2segment.io.db import sqlevalexpr
 from stream2segment.utils.resources import yaml_load_doc, get_templates_fpath
+from stream2segment.io.db.sqlevalexpr import exprquery
 
 
 NPTS_WIDE = 900  # FIXME: automatic retrieve by means of Segment class relationships?
@@ -41,6 +41,26 @@ def get_segments(session, conditions, orderby, metadata, classes):
     return {'segment_ids': [seg[0] for seg in qry],
             'classes': classes,
             'metadata': _metadata}
+
+
+def query4gui(session, conditions, orderby=None):
+    '''Returns a query yielding the segments ids for the visualization in the GUI (processing)
+    according to `conditions` and `orderby`, sorted by default (if orderby is None) by
+    segment's event.time (descending) and then segment's event_distance_deg (ascending)
+
+    :param session: the sql-alchemy session
+    :param condition: a dict of segment attribute names mapped to a select expression, each
+    identifying a filter (sql WHERE clause). See `:ref:sqlevalexpr.py`. Can be empty (no filter)
+    :param orderby: if None, defaults to segment's event.time (descending) and then
+    segment's event_distance_deg (ascending). Otherwise, a list of tuples, where the first
+    tuple element is a segment attribute (in string format) and the second element is either 'asc'
+    (ascending) or 'desc' (descending)
+    :return: a query yielding the tuples: ```(Segment.id)```
+    '''
+    if orderby is None:
+        orderby = [('event.time', 'desc'), ('event_distance_deg', 'asc')]
+    return exprquery(session.query(Segment.id), conditions=conditions, orderby=orderby,
+                     distinct=True)
 
 
 def get_metadata(session, seg_id=None):

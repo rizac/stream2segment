@@ -34,7 +34,6 @@ from itertools import cycle, chain
 from obspy.core import Stream, Trace
 
 from stream2segment.io.db.models import Channel, Segment, Station
-from stream2segment.io.db.queries import getallcomponents
 from stream2segment.utils import iterfuncs
 from stream2segment.gui.webapp.processing.plots.jsplot import Plot
 from stream2segment.process.utils import segmentclass4process
@@ -339,6 +338,7 @@ class PlotManager(LimitedSizeDict):
             ret = "Error getting function doc:\n%s" % str(exc)
         return ret
 
+    @segmentclass4process
     def get_plots(self, session, seg_id, plot_indices, preprocessed=False,
                   all_components_in_segment_plot=False):
         """Returns the plots representing the trace of the segment `seg_id` (more precisely,
@@ -364,11 +364,17 @@ class PlotManager(LimitedSizeDict):
             plots[index_of_main_plot] = plots[index_of_main_plot].merge(*other_comp_plots)
         return plots
 
+    @segmentclass4process
     def _getsegplotlist(self, session, seg_id, preprocessed=False):
         segplotlist, p_segplotlist = self.get(seg_id, [None, None])
 
         if segplotlist is None:
-            segids = set(_[0] for _ in getallcomponents(session, seg_id))
+            # get ids from the segment class "private" method. Maybe not highly efficient, we should
+            # see what we might cache or not and check SqlAlchemy stuff
+            seg = session.query(Segment).filter(Segment.id == seg_id).first()
+            segids = set([_[0] for _ in seg._query_to_other_orientations(Segment.id)] + [seg_id])
+            # segids =
+            # segids = set(_[0] for _ in getallcomponents(session, seg_id))
             for segid in segids:
                 tmp = SegmentPlotList(segid, self.functions, segids - set([segid]))
                 self[segid] = [tmp, None]
