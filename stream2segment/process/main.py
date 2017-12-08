@@ -15,6 +15,9 @@ from builtins import (ascii, chr, dict, filter, hex, input,
 
 # iterating over dictionary keys with the same set-like behaviour on Py2.7 as on Py3:
 from future.utils import viewkeys
+from stream2segment.process.utils import segmentclass4process
+from sqlalchemy.orm import load_only
+from stream2segment.io.db.sqlevalexpr import exprquery
 
 # this can not apparently be fixed with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
@@ -39,9 +42,7 @@ from sqlalchemy import func
 
 from stream2segment.utils import get_progressbar, load_source, secure_dburl
 from stream2segment.utils.resources import yaml_load
-from stream2segment.io.db.models import Segment, Station
-from stream2segment.utils.postdownload import SegmentWrapper
-from stream2segment.io.db.queries import query4process
+from stream2segment.io.db.models import Segment, Station, Event, Channel
 
 
 logger = logging.getLogger(__name__)
@@ -107,6 +108,7 @@ def load_proc_cfg(configsourcefile):
     return yaml_load(configsourcefile)
 
 
+@segmentclass4process
 def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=False):
     reg = re.compile("^(.*):([a-zA-Z_][a-zA-Z_0-9]*)$")
     m = reg.match(pysourcefile)
@@ -144,16 +146,19 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
 
     # multiprocess with sessions is a mess. Among other problems, we should not share any
     # session-related operation with the same session object across different multiprocesses.
-    # Is it worth to create a new session each time? not for the moment 
+    # Is it worth to create a new session each time? not for the moment
 
-    # clear the session every clear_session_step iterations:
-    clear_session_step = 10
+    # clear the session and expunge all every clear_session_step iterations:
+    # (set a multiple of three might be in sync with other orientations, which is 3):
+    clear_session_step = 60
+    # and the incremental index:
+    idx = 0
 
     logger.info("Fetching segments to process, please wait...")
 
     # the query is always loaded in memory, see:
     # https://stackoverflow.com/questions/11769366/why-is-sqlalchemy-insert-with-sqlite-25-times-slower-than-using-sqlite3-directly/11769768#11769768
-    # thus we load it as np.array to save memory and we discard the session later:
+    # thus we load it as np.array to save memory:
     seg_sta_ids = np.array(query4process(session, config.get('segment_select', {})).all(),
                            dtype=int)
     # get total segment length:
@@ -168,7 +173,8 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
 
     logger.info("%d segments found to process", seg_len)
 
-    segwrapper = SegmentWrapper(config=config)
+    Segment._config = config
+    segment = None
     last_inventory = None
     last_inventory_stationid = None
     done, skipped, skipped_error = 0, 0, 0
@@ -176,17 +182,33 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
     with redirect(sys.stderr):
         with get_progressbar(show_progress, length=seg_len) as pbar:
             try:
-                for row, idx in zip(seg_sta_ids, cycle(range(clear_session_step))):
+                for row in seg_sta_ids:  # zip(seg_sta_ids, cycle(range(clear_session_step))):
+                    idx += 1  # we might use
                     seg_id, sta_id = row.tolist()
+                    # check if we already loaded a segment from a previous segment's orientations:
+                    other_orients_list = getattr(segment, "_other_orientations", [])
+                    segment = None
+                    for sg in other_orients_list:
+                        if sg.id == seg_id:
+                            segment = sg
+                            break
                     already_computed_inventory = None \
                         if (last_inventory_stationid is None or last_inventory_stationid != sta_id)\
                         else last_inventory
-                    segwrapper.reinit(session, seg_id,
-                                      inventory=already_computed_inventory)
+                    if segment is None:
+                        # if segment is None, it wasn't got from an already computed segment
+                        # whose other orientations where requested. Thus we can clear the session
+                        if idx >= clear_session_step:
+                            session.expunge_all()
+                            session.close()
+                            idx = 0
+                        segment = session.query(Segment).filter(Segment.id == seg_id).\
+                            options(load_only(Segment.id)).first()
+                    segment._inventory = already_computed_inventory
                     try:
-                        array = pyfunc(segwrapper, config)
+                        array = pyfunc(segment, config)
                         if array is not None:
-                            ondone(segwrapper, array)
+                            ondone(segment, array)
                             done += 1
                         else:
                             skipped += 1
@@ -197,13 +219,10 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
                         skipped_error += 1
                     # check if we loaded the inventory and set it as last computed
                     # do do this, little hack: check if the "private" field is defined:
-                    if segwrapper._SegmentWrapper__inv is not None:
-                        last_inventory = segwrapper._SegmentWrapper__inv
+                    if segment._inventory is not None:
+                        last_inventory = segment._inventory
                         last_inventory_stationid = sta_id
                     pbar.update(1)
-                    if idx == 0:
-                        session.expunge_all()
-                        session.close()
             except:
                 err_msg = traceback.format_exc()
                 logger.critical(err_msg)
@@ -282,3 +301,24 @@ def to_csv(outcsvfile, session, pysourcefile, configsourcefile, isterminal):
             # flush_num[0] += 1
 
         run(session, pysourcefile, ondone, configsourcefile, isterminal)
+
+
+def query4process(session, conditions={}):
+    '''Returns a query yielding the the segments ids (and their stations ids) for the processing.
+    The returned tuples are sorted by station id, event id, channel location and channel's channel
+
+    :param session: the sql-alchemy session
+    :param condition: a dict of segment attribute names mapped to a select expression, each
+    identifying a filter (sql WHERE clause). See `:ref:sqlevalexpr.py`. Can be empty (no filter)
+
+    :return: a query yielding the tuples: ```(Segment.id, Segment.station.id)```
+    '''
+    # Note: without the join below, rows would be duplicated
+    qry = session.query(Segment.id, Station.id).\
+        join(Segment.station, Segment.event, Segment.channel).\
+        order_by(Station.id, Event.id, Channel.location, Channel.channel)
+    # Now parse selection:
+    if conditions:
+        # parse user defined conditions (as dict of key:value <=> "column": "expr")
+        qry = exprquery(qry, conditions=conditions, orderby=None, distinct=True)
+    return qry

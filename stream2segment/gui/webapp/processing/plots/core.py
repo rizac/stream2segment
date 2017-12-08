@@ -28,15 +28,17 @@ from __future__ import division
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import zip, range, object, dict
 
+from collections import OrderedDict
 from itertools import cycle, chain
 
 from obspy.core import Stream, Trace
 
 from stream2segment.io.db.models import Channel, Segment, Station
 from stream2segment.io.db.queries import getallcomponents
-from stream2segment.utils.postdownload import SegmentWrapper, InventoryCache, LimitedSizeDict
 from stream2segment.utils import iterfuncs
 from stream2segment.gui.webapp.processing.plots.jsplot import Plot
+from stream2segment.process.utils import segmentclass4process
+from sqlalchemy.orm import load_only
 
 
 class SegmentPlotList(list):
@@ -88,6 +90,7 @@ class SegmentPlotList(list):
                 continue
             self[i] = None
 
+    @segmentclass4process
     def get_plots(self, session, plot_indices, inv_cache, config):
         '''
         Returns the `Plot`s representing the the custom functions of
@@ -116,6 +119,7 @@ class SegmentPlotList(list):
             ret.append(self[i])
         return ret
 
+    @segmentclass4process
     def get_plot(self, func, session, invcache, config, func_name=None):
         '''Executes the given function on the given trace
         This function should be called by *all* functions returning a Plot object
@@ -174,6 +178,7 @@ class SegmentPlotList(list):
             plt.title = "%s%s%s" % (title_prefix, sep, func_name)
         return plt
 
+    @segmentclass4process
     def exec_func(self, func, session, invcache, config):
         '''Executes the given function on the given segment identified by seg_id
            Returns the function result (or exception) after updating self, if needed.
@@ -182,49 +187,105 @@ class SegmentPlotList(list):
         seg_id = self.segment_id
         stream = self.data.get('stream', None)
         inventory = invcache.get(seg_id, None)
-        segwrapper = SegmentWrapper(config).reinit(session, seg_id,
-                                                   stream=stream,
-                                                   inventory=inventory)
+
+        segment = session.query(Segment).filter(Segment.id == seg_id).\
+            options(load_only(Segment.id)).first()
+        segment._stream = stream
+        segment._inventory = inventory
+
+#         segwrapper = SegmentWrapper(config).reinit(session, seg_id,
+#                                                    stream=stream,
+#                                                    inventory=inventory)
 
         try:
-            return func(segwrapper, config)
+            return func(segment, config)
         finally:
             # set back values if needed, even if we had exceptions.
             # Any of these values might be also an exception. Call the
             # 'private' attribute cause the relative method, if exists, most likely raises
             # the exception, it does not return it
             if stream is None:
-                self.data['stream'] = segwrapper._SegmentWrapper__stream  # might be exc, or None
+                self.data['stream'] = segment._stream  # might be exc, or None
             sn_windows = self.data.get('sn_windows', None)
             if sn_windows is None:
                 try:
-                    self.data['sn_windows'] = segwrapper.sn_windows()
+                    self.data['sn_windows'] = segment.sn_windows()
                 except Exception as exc:
                     self.data['sn_windows'] = exc
-                    
-            if self.data.get('sn_windows', None) is None:
-                sdf = 9
+
             # allocate the segment if we need to set the title (might be None):
-            segment = segwrapper._SegmentWrapper__segment
-            if inventory is None and segment is not None:
-                invcache[segment] = segwrapper._SegmentWrapper__inv  # might be exc, or None
+            if inventory is None:
+                invcache[segment] = segment._inventory  # might be exc, or None
             if not self.data.get('plot_title_prefix', None):
                 title = None
-                if isinstance(segwrapper._SegmentWrapper__stream, Stream):
-                    title = segwrapper._SegmentWrapper__stream[0].get_id()
-                    for trace in segwrapper._SegmentWrapper__stream:
+                if isinstance(segment._stream, Stream):
+                    title = segment._stream[0].get_id()
+                    for trace in segment._stream:
                         if trace.get_id() != title:
                             title = None
                             break
-                if title is None and isinstance(segment, Segment):
-                    title = segment.seed_identifier
                 if title is None:
-                    _ = session.query(Segment).filter(Segment.id == seg_id).first()
-                    if _:
-                        title = _.seed_identifier
+                    title = segment.seed_identifier
                 if title is not None:
                     # try to get it from the stream. Otherwise, get it from the segment
                     self.data['plot_title_prefix'] = title
+
+
+class LimitedSizeDict(OrderedDict):
+    def __init__(self, *args, **kwds):
+        self.size_limit = kwds.pop("size_limit", None)
+        super(LimitedSizeDict, self).__init__(*args, **kwds)
+        self._check_size_limit()
+
+    def __setitem__(self, key, value):
+        super(LimitedSizeDict, self).__setitem__(key, value)
+        self._check_size_limit()
+
+    def update(self, *args, **kwargs):  # python2 compatibility (python3 calls __setitem__)
+        if args:
+            if len(args) > 1:
+                raise TypeError("update expected at most 1 arguments, got %d" % len(args))
+            other = dict(args[0])
+            for key in other:
+                super(LimitedSizeDict, self).__setitem__(key, other[key])
+        for key in kwargs:
+            super(LimitedSizeDict, self).__setitem__(key, kwargs[key])
+        self._check_size_limit()
+
+    def setdefault(self, key, value=None):  # python2 compatibility (python3 calls __setitem__)
+        if key not in self:
+            self[key] = value
+        return self[key]
+
+    def _check_size_limit(self):
+        if self.size_limit is not None:
+            while len(self) > self.size_limit:
+                self._popitem_size_limit()
+
+    def _popitem_size_limit(self):
+        return self.popitem(last=False)
+
+
+class InventoryCache(LimitedSizeDict):
+
+    def __init__(self, size_limit=30):
+        super(InventoryCache, self).__init__(size_limit=size_limit)
+        self._segid2staid = dict()
+
+    def __setitem__(self, segment, inventory_or_exception):
+        if inventory_or_exception is None:
+            return
+        super(InventoryCache, self).__setitem__(segment.station.id, inventory_or_exception)
+        self._segid2staid[segment.id] = segment.station.id
+
+    def __getitem__(self, segment_id):
+        inventory = None
+        staid = self._segid2staid.get(segment_id, None)
+        if staid is not None:
+            inventory = super(InventoryCache, self).get(staid, None)
+            if inventory is None:  # expired, remove the key:
+                self._segid2staid.pop(segment_id)
+        return inventory
 
 
 class PlotManager(LimitedSizeDict):

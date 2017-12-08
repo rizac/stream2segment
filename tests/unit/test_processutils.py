@@ -6,7 +6,7 @@ Created on Oct 7, 2017
 import unittest
 import os
 from obspy.core.stream import read
-from stream2segment.utils.postdownload import get_stream
+from stream2segment.process.utils import get_stream
 from mock import patch
 from io import BytesIO
 import pytest

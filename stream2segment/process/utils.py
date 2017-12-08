@@ -24,6 +24,7 @@ from collections import OrderedDict
 from io import BytesIO
 
 from sqlalchemy.orm.session import object_session
+from sqlalchemy.orm.exc import UnmappedInstanceError
 from sqlalchemy.exc import SQLAlchemyError
 from obspy.core.utcdatetime import UTCDateTime
 from obspy.core.stream import _read, Stream
@@ -32,9 +33,8 @@ from obspy.core.trace import Trace
 from stream2segment.io.utils import loads_inv, dumps_inv
 from stream2segment.utils.url import urlread
 from stream2segment.utils import urljoin
-from stream2segment.io.db.models import Segment, Station
+from stream2segment.io.db.models import Segment, Station, Channel
 from stream2segment.math.traces import cumsum, cumtimes
-from sqlalchemy.orm.exc import UnmappedInstanceError
 
 
 def raiseifreturnsexception(func):
@@ -49,7 +49,8 @@ def raiseifreturnsexception(func):
 
 
 class gui(object):
-    "decorators for the processing.py file"
+    """decorators for the processing.py file for making function displayed on the gui
+    (Graphical User Interface)"""
 
     @staticmethod
     def preprocess(func):
@@ -70,61 +71,35 @@ class gui(object):
         return func
 
 
-class SegmentWrapper(object):
-
-    def __init__(self, config={}):
-        self.__config = config
-
-    def reinit(self, session, segment_id, stream=None, inventory=None,
-               **kwargs):
-        # Mandatory attributes:
-        self.__session = session
-        self.__segment_id = segment_id
-        self.__segment = None
-        self.__stream = stream
-        self.__inv = inventory
-        # Custom attributes. If they are used or not inside the methods, is up to the
-        # implementation (for the moment, none of them is used unless it overrides one of the
-        # previous mandatory attributes):
-        for name, value in viewitems(kwargs):
-            setattr(self, "__%s" % name, value)
-        return self
-
-    @property
-    @raiseifreturnsexception
-    def __getseg(self):
-        if self.__segment is None:
-            try:
-                self.__segment = self.__session.query(Segment).\
-                    filter(Segment.id == self.__segment_id).one()
-            except Exception as exc:
-                self.__segment = exc
-        return self.__segment
+def segmentclass4process(func):
+    """decorator that temporarily adds to a Segment obspy methods for processing"""
 
     @raiseifreturnsexception
     def stream(self):
-        if self.__stream is None:
+        stream = getattr(self, "_stream", None)
+        if stream is None:
             try:
-                self.__stream = get_stream(self)
+                stream = self._stream = get_stream(self)
             except Exception as exc:
-                self.__stream = Exception("MiniSeed error: %s" %
-                                          (str(exc) or str(exc.__class__.__name__)))
+                stream = self._stream = Exception("MiniSeed error: %s" %
+                                                  (str(exc) or str(exc.__class__.__name__)))
 
-        return self.__stream
+        return stream
 
     @raiseifreturnsexception
     def inventory(self):
-        if self.__inv is None:
+        inventory = getattr(self, "_inventory", None)
+        if inventory is None:
             try:
-                save_station_inventory = self.__config['save_inventory']
+                save_station_inventory = self._config['save_inventory']
             except:
                 save_station_inventory = False
             try:
-                self.__inv = get_inventory(self.station, save_station_inventory)
+                inventory = self._inventory = get_inventory(self.station, save_station_inventory)
             except Exception as exc:
-                self.__inv = Exception("Station inventory (xml) error: %s" %
-                                       (str(exc) or str(exc.__class__.__name__)))
-        return self.__inv
+                inventory = self._inventory = Exception("Station inventory (xml) error: %s" %
+                                                        (str(exc) or str(exc.__class__.__name__)))
+        return inventory
 
     def sn_windows(self):
         '''returns the tuples (start, end), (start, end) where the first list is the signal
@@ -134,10 +109,47 @@ class SegmentWrapper(object):
         # hard to know when a recalculation is needed (this is particularly important when
         # bounds relative to the cumulative sum are given, if an interval was given there would be
         # no problem)
-        return get_sn_windows(self.__config, self.arrival_time, self.stream())
+        return get_sn_windows(self._config, self.arrival_time, self.stream())
 
-    def __getattr__(self, name):
-        return getattr(self._SegmentWrapper__getseg, name)
+    def segments_on_other_orientations(self):
+        seg_other_orientations = getattr(self, "_other_orientations", None)
+        if seg_other_orientations is None:
+            segs = self.dbsession().query(Segment).join(Segment.channel).\
+                filter((Segment.id != self.id) & (Segment.event_id == self.event_id) &
+                       (Channel.station_id == self.channel.station_id) &
+                       (Channel.location == self.channel.location) &
+                       (Channel.band_code == self.channel.band_code) &
+                       (Channel.instrument_code == self.channel.instrument_code)).all()
+            seg_other_orientations = self._other_orientations = segs
+            # assign also to other segments:
+            for seg in segs:
+                seg._other_orientations = [s for s in segs if s.id != seg.id] + [self]
+
+        return seg_other_orientations
+
+    def wrapper(*args, **kwargs):
+        already_wrapped = hasattr(Segment, "_config")
+        if not already_wrapped:
+            Segment._config = {}
+            Segment.stream = stream
+            Segment.inventory = inventory
+            Segment.sn_windows = sn_windows
+            Segment.segments_on_other_orientations = segments_on_other_orientations
+            Segment.dbsession = lambda self: object_session(self)
+
+        try:
+            return func(*args, **kwargs)
+        finally:
+            if not already_wrapped:
+                # delete attached attributes:
+                del Segment._config
+                del Segment.stream
+                del Segment.inventory
+                del Segment.sn_windows
+                del Segment.dbsession
+                del Segment.segments_on_other_orientations
+
+    return wrapper
 
 
 def get_sn_windows(config, a_time, stream):

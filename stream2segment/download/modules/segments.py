@@ -12,7 +12,7 @@ from builtins import map, next, zip, range, object
 from datetime import timedelta
 import sys
 from collections import OrderedDict
-import logging
+# import logging
 
 import numpy as np
 import pandas as pd
@@ -20,10 +20,10 @@ import pandas as pd
 from stream2segment.io.db.models import DataCenter, Station, Channel, Segment
 from stream2segment.download.utils import read_async, empty, QuitDownload,\
     handledbexc, custom_download_codes, logwarn_dataframe, DownloadStats
+from stream2segment.download.modules.mseedlite import MSeedError, unpack as mseedunpack
 from stream2segment.utils.msgs import MSG
 from stream2segment.utils import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, mergeupdate, DbManager
-from stream2segment.utils.mseedlite3 import MSeedError, unpack as mseedunpack
 
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#aliased-imports):

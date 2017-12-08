@@ -57,14 +57,13 @@ from obspy.taup.helper_classes import TauModelError
 
 # from stream2segment.main import logger as main_logger
 from sqlalchemy.sql.expression import func
-from stream2segment.utils import get_session, mseedlite3
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf
 from logging import StreamHandler
 import logging
 from io import BytesIO
 import urllib.request, urllib.error, urllib.parse
 from stream2segment.download.utils import custom_download_codes 
-from stream2segment.utils.mseedlite3 import MSeedError, unpack
+from stream2segment.download.modules.mseedlite import MSeedError, unpack
 import threading
 from stream2segment.utils.url import read_async
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_ttable_fpath
@@ -1578,7 +1577,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # the dupes should be the number of segments divided by the events set (2) which are
         # very close
         expected_dupes = len(segments_df) / len(events_df)
-        assert ("%d suspicious duplicated segments found" % expected_dupes) in logmsg
+        assert ("%d suspiciously duplicated segments found" % expected_dupes) in logmsg
 
     
     def download_save_segments(self, url_read_side_effect, *a, **kw):
@@ -1592,7 +1591,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # prepare:
         # mseed unpack takes no starttime and endtime arguments, so that 
         # we do not discard any correct chunk
-        mseed_unpack.side_effect = lambda *a, **v: mseedlite3.unpack(a[0])
+        mseed_unpack.side_effect = lambda *a, **v: unpack(a[0])
         mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
         
@@ -1897,7 +1896,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     def test_download_save_segments_timebounds(self, mock_updatedf, mock_insertdf, mseed_unpack):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
         # prepare:
         # mseed unpack takes no starttime and endtime arguments, so that 
-        mseed_unpack.side_effect = lambda *a, **v: mseedlite3.unpack(*a, **v)
+        mseed_unpack.side_effect = lambda *a, **v: unpack(*a, **v)
         mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
         

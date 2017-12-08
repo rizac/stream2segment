@@ -9,7 +9,7 @@ from obspy.core.stream import read, Stream
 # from cStringIO import StringIO
 from math import log
 from collections import defaultdict
-from stream2segment.utils.mseedlite3 import unpack, _FIXHEAD_LEN, MSeedError, Input
+from stream2segment.download.modules.mseedlite import unpack, _FIXHEAD_LEN, MSeedError, Input
 import pytest
 import numpy as np
 from obspy.core.trace import Trace

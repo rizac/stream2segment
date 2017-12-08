@@ -24,22 +24,22 @@ from stream2segment.download.utils import custom_download_codes
 from collections import OrderedDict
 
 
-def query4process(session, conditions={}):
-    '''Returns a query yielding the the segments ids (and their stations ids) for the processing.
-
-    :param session: the sql-alchemy session
-    :param condition: a dict of segment attribute names mapped to a select expression, each
-    identifying a filter (sql WHERE clause). See `:ref:sqlevalexpr.py`. Can be empty (no filter)
-
-    :return: a query yielding the tuples: ```(Segment.id, Segment.station.id)```
-    '''
-    # Note: without the join below, rows would be duplicated
-    qry = session.query(Segment.id, Station.id).join(Segment.station).order_by(Station.id)
-    # Now parse selection:
-    if conditions:
-        # parse user defined conditions (as dict of key:value <=> "column": "expr")
-        qry = exprquery(qry, conditions=conditions, orderby=None, distinct=True)
-    return qry
+# def query4process(session, conditions={}):
+#     '''Returns a query yielding the the segments ids (and their stations ids) for the processing.
+# 
+#     :param session: the sql-alchemy session
+#     :param condition: a dict of segment attribute names mapped to a select expression, each
+#     identifying a filter (sql WHERE clause). See `:ref:sqlevalexpr.py`. Can be empty (no filter)
+# 
+#     :return: a query yielding the tuples: ```(Segment.id, Segment.station.id)```
+#     '''
+#     # Note: without the join below, rows would be duplicated
+#     qry = session.query(Segment.id, Station.id).join(Segment.station).order_by(Station.id)
+#     # Now parse selection:
+#     if conditions:
+#         # parse user defined conditions (as dict of key:value <=> "column": "expr")
+#         qry = exprquery(qry, conditions=conditions, orderby=None, distinct=True)
+#     return qry
 
 
 def query4gui(session, conditions, orderby=None):

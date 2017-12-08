@@ -55,14 +55,13 @@ from obspy.taup.helper_classes import TauModelError
 
 # from stream2segment.main import logger as main_logger
 from sqlalchemy.sql.expression import func
-from stream2segment.utils import get_session, mseedlite3
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf,  _get_max as _get_db_autoinc_col_max
 from logging import StreamHandler
 import logging
 from io import BytesIO
 import urllib.request, urllib.error, urllib.parse
 from stream2segment.download.utils import custom_download_codes
-from stream2segment.utils.mseedlite3 import MSeedError, unpack
+from stream2segment.download.modules.mseedlite import MSeedError, unpack
 import threading
 from stream2segment.utils.url import read_async
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
