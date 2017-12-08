@@ -17,12 +17,13 @@ from scipy.integrate import cumtrapz
 def powspec(signal, signal_is_fft=False):
     """Returns the power spectrum of a REAL signal.
     For computing the frequency resolution or the relative frequencies array,
-    see :func:`stream2segment.math.arrays.dfreq` and :func:`stream2segment.math.arrays.freqs`,
-    respectively
+    see :func:`stream2segment.process.math.ndarrays.dfreq` and
+    :func:`stream2segment.process.math.ndarrays.freqs`, respectively
 
     :param signal: the time-series input signal (numeric array)
     :param signal_is_fft: boolean (default:False). If True, the signal is already a Fft of some
-    signal. Otherwise, :func:`stream2segment.math.arrays.fft`(signal) will be computed first
+        signal. Otherwise, :func:`stream2segment.process.math.ndarrays.fft`(signal)
+        will be computed first
 
     :return: numpy array representing the signal power spectrum
     """
@@ -32,12 +33,13 @@ def powspec(signal, signal_is_fft=False):
 def ampspec(signal, signal_is_fft=False):
     """Returns the amplitude spectrum of a REAL signal.
     For computing the frequency resolution or the relative frequencies array,
-    see :func:`stream2segment.math.arrays.dfreq` and :func:`stream2segment.math.arrays.freqs`,
-    respectively
+    see :func:`stream2segment.process.math.ndarrays.dfreq` and
+    :func:`stream2segment.process.math.ndarrays.freqs`, respectively
 
     :param signal: the time-series input signal (numeric array)
     :param signal_is_fft: boolean (default:False). If True, the signal is already a Fft of some
-    signal. Otherwise, :func:`stream2segment.math.arrays.fft`(signal) will be computed first
+        signal. Otherwise, :func:`stream2segment.process.math.ndarrays.fft`(signal)
+        will be computed first
 
     :return: numpy array representing the signal amplitude spectrum
     """
@@ -46,12 +48,13 @@ def ampspec(signal, signal_is_fft=False):
 
 def fft(signal):
     """Returns the discrete fft (fast Fourier transform) of a REAL signal.
-    see :func:`stream2segment.math.arrays.dfreq` and :func:`stream2segment.math.arrays.freqs`,
-    respectively
+    see :func:`stream2segment.process.math.ndarrays.dfreq` and
+    :func:`stream2segment.process.math.ndarrays.freqs`, respectively
 
     :param signal: the time-series input signal (numeric array)
     :param signal_is_fft: boolean (default:False). If True, the signal is already a Fft of some
-    signal. Otherwise, :func:`stream2segment.math.arrays.fft`(signal) will be computed first
+        signal. Otherwise, :func:`stream2segment.process.math.ndarrays.fft`(signal)
+        will be computed first
 
     :return: numpy array representing the signal Fast-Fourier transform
     """

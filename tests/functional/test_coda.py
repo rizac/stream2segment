@@ -6,7 +6,7 @@ Created on Jul 25, 2016
 import unittest
 import os
 from obspy import read as obspy_read
-from stream2segment.math import coda as coda_module
+from stream2segment.process.math import coda as coda_module
 
 class Test(unittest.TestCase):
 

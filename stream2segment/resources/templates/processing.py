@@ -310,10 +310,10 @@ from obspy.geodetics import degrees2kilometers as d2km
 from stream2segment.process.utils import gui
 # strem2segment functions for processing obspy Traces. This is just a list of possible functions
 # to show how to import them:
-from stream2segment.math.traces import ampratio, bandpass, cumsum,\
+from stream2segment.process.math.traces import ampratio, bandpass, cumsum,\
     cumtimes, fft, maxabs, utcdatetime, ampspec, powspec, timeof
 # stream2segment function for processing numpy arrays:
-from stream2segment.math.arrays import triangsmooth, snr, linspace
+from stream2segment.process.math.ndarrays import triangsmooth, snr, linspace
 
 
 def assert1trace(stream):
@@ -342,7 +342,8 @@ def main(segment, config):
         it should be a file named $FILE.yaml)
       - $OUTPUT is the csv file where data (one row per segment) will to be saved
 
-    For info about possible functions to use, please have a look at `stream2segment.math.traces`
+    For info about possible functions to use, please have a look at
+    `stream2segment.process.math.traces`
     and obviously at `obpsy <https://docs.obspy.org/packages/index.html>`_, in particular:
 
     *  `obspy.core.Stream <https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.html#obspy.core.stream.Stream>_`

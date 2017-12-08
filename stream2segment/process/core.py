@@ -36,7 +36,7 @@ import numpy as np
 from sqlalchemy import func
 from sqlalchemy.orm import load_only
 
-from stream2segment.process.utils import segmentclass4process
+from stream2segment.process.utils import enhancesegmentclass
 from stream2segment.io.db.sqlevalexpr import exprquery
 from stream2segment.utils import get_progressbar, load_source, secure_dburl
 from stream2segment.utils.resources import yaml_load
@@ -106,7 +106,6 @@ def load_proc_cfg(configsourcefile):
     return yaml_load(configsourcefile)
 
 
-@segmentclass4process
 def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=False):
     reg = re.compile("^(.*):([a-zA-Z_][a-zA-Z_0-9]*)$")
     m = reg.match(pysourcefile)
@@ -171,87 +170,89 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
 
     logger.info("%d segments found to process", seg_len)
 
-    Segment._config = config
     segment = None
     last_inventory = None
     last_inventory_stationid = None
     done, skipped, skipped_error = 0, 0, 0
 
-    with redirect(sys.stderr):
-        with get_progressbar(show_progress, length=seg_len) as pbar:
-            try:
-                for row in seg_sta_ids:  # zip(seg_sta_ids, cycle(range(clear_session_step))):
-                    idx += 1  # we might use
-                    seg_id, sta_id = row.tolist()
-                    # check if we already loaded a segment from a previous segment's orientations:
-                    other_orients_list = getattr(segment, "_other_orientations", [])
-                    segment = None
-                    for sg in other_orients_list:
-                        if sg.id == seg_id:
-                            segment = sg
-                            break
-                    already_computed_inventory = None \
-                        if (last_inventory_stationid is None or last_inventory_stationid != sta_id)\
-                        else last_inventory
-                    if segment is None:
-                        # if segment is None, it wasn't got from an already computed segment
-                        # whose other orientations where requested. Thus we can clear the session
-                        if idx >= clear_session_step:
-                            session.expunge_all()
-                            session.close()
-                            idx = 0
-                        segment = session.query(Segment).filter(Segment.id == seg_id).\
-                            options(load_only(Segment.id)).first()
-                    segment._inventory = already_computed_inventory
-                    try:
-                        array = pyfunc(segment, config)
-                        if array is not None:
-                            ondone(segment, array)
-                            done += 1
-                        else:
-                            skipped += 1
-                    except (ImportError, NameError, AttributeError, SyntaxError, TypeError) as _:
-                        raise  # sys.exc_info()
-                    except Exception as generr:
-                        logger.warning("segment (id=%d): %s", seg_id, str(generr))
-                        skipped_error += 1
-                    # check if we loaded the inventory and set it as last computed
-                    # do do this, little hack: check if the "private" field is defined:
-                    if segment._inventory is not None:
-                        last_inventory = segment._inventory
-                        last_inventory_stationid = sta_id
-                    pbar.update(1)
-            except:
-                err_msg = traceback.format_exc()
-                logger.critical(err_msg)
-                return 0
+    with enhancesegmentclass(config):
+        with redirect(sys.stderr):
+            with get_progressbar(show_progress, length=seg_len) as pbar:
+                try:
+                    for row in seg_sta_ids:  # zip(seg_sta_ids, cycle(range(clear_session_step))):
+                        idx += 1  # we might use
+                        seg_id, sta_id = row.tolist()
+                        # check if we already loaded a segment from a previous segment's
+                        # orientations:
+                        other_orients_list = getattr(segment, "_other_orientations", [])
+                        segment = None
+                        for sg in other_orients_list:
+                            if sg.id == seg_id:
+                                segment = sg
+                                break
+                        already_computed_inventory = None \
+                            if (last_inventory_stationid is None or
+                                last_inventory_stationid != sta_id) else last_inventory
+                        if segment is None:
+                            # the segment wasn't got from an already computed segment whose
+                            # other orientations where requested. Thus we can clear the session
+                            if idx >= clear_session_step:
+                                session.expunge_all()
+                                session.close()
+                                idx = 0
+                            segment = session.query(Segment).filter(Segment.id == seg_id).\
+                                options(load_only(Segment.id)).first()
+                        segment._inventory = already_computed_inventory
+                        try:
+                            array = pyfunc(segment, config)
+                            if array is not None:
+                                ondone(segment, array)
+                                done += 1
+                            else:
+                                skipped += 1
+                        except (ImportError, NameError, AttributeError, SyntaxError,
+                                TypeError) as _:
+                            raise  # sys.exc_info()
+                        except Exception as generr:
+                            logger.warning("segment (id=%d): %s", seg_id, str(generr))
+                            skipped_error += 1
+                        # check if we loaded the inventory and set it as last computed
+                        # do do this, little hack: check if the "private" field is defined:
+                        if segment._inventory is not None:
+                            last_inventory = segment._inventory
+                            last_inventory_stationid = sta_id
+                        pbar.update(1)
+                except:
+                    err_msg = traceback.format_exc()
+                    logger.critical(err_msg)
+                    return 0
 
-    captured_warnings = s.getvalue()
-    if captured_warnings:
-        logger.info("(external warnings captured, please see log for details)")
-        logger.info("")
-        logger.warning("Captured external warnings:")
-        logger.warning("%s", captured_warnings)
-        logger.warning("(only the first occurrence of an external warning for each location where "
-                       "the warning is issued is reported. Because of maintainability and "
-                       "performance potential issues, the segment id which originated "
-                       "these warnings cannot be shown. However, in most cases the process "
-                       "completed successfully, and if you want to check the correctness of the "
-                       "data please check the results)")
+        captured_warnings = s.getvalue()
+        if captured_warnings:
+            logger.info("(external warnings captured, please see log for details)")
+            logger.info("")
+            logger.warning("Captured external warnings:")
+            logger.warning("%s", captured_warnings)
+            logger.warning("(only the first occurrence of an external warning for each location "
+                           "where the warning is issued is reported. Because of maintainability "
+                           "and performance potential issues, the segment id which originated "
+                           "these warnings cannot be shown. However, in most cases the process "
+                           "completed successfully, and if you want to check the correctness of "
+                           "the data please check the results)")
 
-    logging.captureWarnings(False)  # form the docs the redirection of warnings to the logging
-    # system will stop, and warnings will be redirected to their original destinations
-    # (i.e. those in effect before captureWarnings(True) was called).
+        logging.captureWarnings(False)  # form the docs the redirection of warnings to the logging
+        # system will stop, and warnings will be redirected to their original destinations
+        # (i.e. those in effect before captureWarnings(True) was called).
 
-    # get stations with data and inform the user if any new has been saved:
-    stasaved2 = stationssaved()
-    if stasaved2 > stasaved:
-        logger.info("station inventories saved: %d", (stasaved2-stasaved))
+        # get stations with data and inform the user if any new has been saved:
+        stasaved2 = stationssaved()
+        if stasaved2 > stasaved:
+            logger.info("station inventories saved: %d", (stasaved2-stasaved))
 
-    logger.info("%d of %d segments successfully processed\n" % (done, seg_len))
-    logger.info("%d of %d segments skipped without messages\n" % (skipped, seg_len))
-    logger.info("%d of %d segments skipped with message "
-                "(check log or details)\n" % (skipped_error, seg_len))
+        logger.info("%d of %d segments successfully processed\n" % (done, seg_len))
+        logger.info("%d of %d segments skipped without messages\n" % (skipped, seg_len))
+        logger.info("%d of %d segments skipped with message "
+                    "(check log or details)\n" % (skipped_error, seg_len))
 
 
 def query4process(session, conditions={}):

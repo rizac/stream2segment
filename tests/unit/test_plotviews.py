@@ -34,7 +34,7 @@ from stream2segment.utils.resources import yaml_load
 from stream2segment.gui.webapp.processing.plots.core import PlotManager
 from mock.mock import patch
 
-from stream2segment.utils.postdownload import get_inventory as original_get_inventory, get_stream as original_get_stream
+from stream2segment.process.utils import get_inventory as original_get_inventory, get_stream as original_get_stream
 from obspy.core.utcdatetime import UTCDateTime
 
 
@@ -260,8 +260,8 @@ class Test(unittest.TestCase):
             n += num
         return n
 
-    @patch('stream2segment.utils.postdownload.get_inventory')
-    @patch('stream2segment.utils.postdownload.get_stream')
+    @patch('stream2segment.process.utils.get_inventory')
+    @patch('stream2segment.process.utils.get_stream')
     def test_view_other_comps(self, mock_get_stream, mock_get_inv):
         
         components_count = {} # group_id -> num expected components
@@ -327,7 +327,8 @@ class Test(unittest.TestCase):
                     # sn_windows are correct:
                     sn_wdw = segplotlist.data['sn_windows']
                     assert len(sn_wdw) == 2
-                    assert all(isinstance(_, UTCDateTime) for _ in list(sn_wdw[0]) + list(sn_wdw[1]))
+                    assert all(isinstance(_, UTCDateTime)
+                               for _ in list(sn_wdw[0]) + list(sn_wdw[1]))
                 # test other stuff:
                 if iserr:
                     assert len("".join(segplotlist[0].warnings))

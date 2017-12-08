@@ -13,7 +13,7 @@ import re
 import argparse
 import numpy as np
 import pandas as pd
-from stream2segment.math.arrays import cumsum, argtrim
+from stream2segment.process.math.ndarrays import cumsum, argtrim
 from scipy.signal import hilbert
 
 
@@ -91,7 +91,7 @@ def test_argtrim(y):
                            ([-2, 3], True, [old_div(4.0,(4+9)), old_div((4+9.0),(4+9))]),
                            ([-2, 3], False, [4, 4+9]),
                            ])
-@mock.patch('stream2segment.math.arrays.np')
+@mock.patch('stream2segment.process.math.ndarrays.np')
 def test_cumsum(mock_np, arr, normalize, expected_result):
     mock_np.cumsum = mock.Mock(side_effect = lambda *a, **k: np.cumsum(*a, **k))
     mock_np.square =  mock.Mock(side_effect = lambda *a, **k: np.square(*a, **k))
@@ -115,7 +115,7 @@ def test_cumsum(mock_np, arr, normalize, expected_result):
 #         assert not mock_np.true_divide.called
 
 
-@mock.patch('stream2segment.math.arrays.np')
+@mock.patch('stream2segment.process.math.ndarrays.np')
 def test_cumsum_errs(mock_np):
     mock_np.cumsum = mock.Mock(side_effect = lambda *a, **k: np.cumsum(*a, **k))
     mock_np.square =  mock.Mock(side_effect = lambda *a, **k: np.square(*a, **k))

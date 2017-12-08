@@ -7,16 +7,14 @@ import unittest
 
 import numpy as np
 
-from stream2segment.math.arrays import NewmarkBeta as _NewmarkBeta, \
+from stream2segment.process.math.ndarrays import NewmarkBeta as _NewmarkBeta, \
     NigamJennings as _NigamJennings, ResponseSpectrum as _ResponseSpectrum
-from stream2segment.math.traces import NewmarkBeta, NigamJennings, ResponseSpectrum
+from stream2segment.process.math.traces import NewmarkBeta, NigamJennings, ResponseSpectrum
 import pytest
 from obspy.core.trace import Trace
 
 
-
 class Test(unittest.TestCase):
-
 
     def setUp(self):
         self.accel = np.array([1, 2, 1, 2, 1, 2])
@@ -25,10 +23,8 @@ class Test(unittest.TestCase):
         self.trace = Trace(data=self.accel, header={'delta': self.deltat})
         pass
 
-
     def tearDown(self):
         pass
-
 
     def testName(self):
         pass
@@ -64,11 +60,8 @@ class Test(unittest.TestCase):
                         assert val1 == val2
                     except ValueError:
                         # arrays, assert allclose:
-                        try:
-                            assert np.allclose(val1, val2, atol=0, equal_nan=True)
-                        except:
-                            h = 9
+                        assert np.allclose(val1, val2, atol=0, equal_nan=True)
 
 if __name__ == "__main__":
-    #import sys;sys.argv = ['', 'Test.testName']
+    # import sys;sys.argv = ['', 'Test.testName']
     unittest.main()

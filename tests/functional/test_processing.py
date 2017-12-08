@@ -38,7 +38,7 @@ from stream2segment.process.utils import get_inventory_url, save_inventory as or
 from stream2segment.process.core import query4process
 
 from future import standard_library
-from stream2segment.process.utils import segmentclass4process
+from stream2segment.process.utils import enhancesegmentclass
 standard_library.install_aliases()
 
 
@@ -340,39 +340,45 @@ class Test(unittest.TestCase):
 # ## ======== ACTUAL TESTS: ================================
 
     @mock.patch('stream2segment.process.utils.save_inventory', side_effect=original_saveinv)
-    @segmentclass4process
     def test_segwrapper(self, mock_saveinv):
 
         segids = query4process(self.session, {}).all()
         prev_staid = None
 
-        for saveinv in [True, False]:
-            prev_staid = None
-            Segment._config = {'save_inventory': saveinv}
-            for (segid, staid) in segids:
-                # mock_get_inventory.reset_mock()
-                # staid = self.session.query(Segment).filter(Segment.id == segid).one().station.id
-                assert prev_staid is None or staid >= prev_staid
-                staequal = prev_staid is not None and staid == prev_staid
-                prev_staid = staid
-                segment = self.session.query(Segment).filter(Segment.id == segid).first()
+        assert not hasattr(Segment, "_config")  # assert we are not in enhanced Segment "mode"
+        with enhancesegmentclass():
+            for saveinv in [True, False]:
+                prev_staid = None
+                assert hasattr(Segment, "_config")  # assert we are still in the with above
+                # we could avoid the with below but we want to test overwrite:
+                with enhancesegmentclass({'save_inventory': saveinv}, overwrite_config=True):
+                    for (segid, staid) in segids:
+                        # mock_get_inventory.reset_mock()
+                        # staid = self.session.query(Segment).filter(Segment.id == segid).one().station.id
+                        assert prev_staid is None or staid >= prev_staid
+                        staequal = prev_staid is not None and staid == prev_staid
+                        prev_staid = staid
+                        segment = self.session.query(Segment).filter(Segment.id == segid).first()
 
-                mock_saveinv.reset_mock()
-                sta_url = get_inventory_url(segment.station)
-                if "=err" in sta_url or "=none" in sta_url:
-                    with pytest.raises(Exception):  # all inventories are None
-                        segment.inventory()
-                    assert not mock_saveinv.called
-                else:
-                    segment.inventory()
-                    if staequal:
-                        assert not mock_saveinv.called
-                    else:
-                        assert mock_saveinv.called == saveinv
-                    assert len(segment.station.inventory_xml) > 0
-                segs = segment.segments_on_other_orientations()
-                # as channel's channel is either 'ok' or 'err' we should never have other components
-                assert len(segs) == 0
+                        mock_saveinv.reset_mock()
+                        sta_url = get_inventory_url(segment.station)
+                        if "=err" in sta_url or "=none" in sta_url:
+                            with pytest.raises(Exception):  # all inventories are None
+                                segment.inventory()
+                            assert not mock_saveinv.called
+                        else:
+                            segment.inventory()
+                            if staequal:
+                                assert not mock_saveinv.called
+                            else:
+                                assert mock_saveinv.called == saveinv
+                            assert len(segment.station.inventory_xml) > 0
+                        segs = segment.segments_on_other_orientations()
+                        # as channel's channel is either 'ok' or 'err' we should never have
+                        # other components
+                        assert len(segs) == 0
+
+        assert not hasattr(Segment, "_config")  # assert we are not in enhanced Segment "mode"
 
         # NOW TEST OTHER ORIENTATION PROPERLY. WE NEED TO ADD WELL FORMED SEGMENTS WITH CHANNELS
         # WHOSE ORIENTATION CAN BE DERIVED:
@@ -401,22 +407,24 @@ class Test(unittest.TestCase):
         # start testing:
         already_calculated_other_orientations = {}
         segids = query4process(self.session, {}).all()
-        for (segid, staid) in segids:
-            segment = self.session.query(Segment).filter(Segment.id == segid).first()
-            segs = segment.segments_on_other_orientations()
-            if segs:
-                assert segment.id in (sg1.id, sg2.id, sg3.id)
-                segs2 = already_calculated_other_orientations.get(segid, None)
-                if segs2:
-                    # check in a bizarre way that we did not query the session:
-                    # the order of segments must be the one assigned in the
-                    # first call of segments_on_other_orientations() which queried the db
-                    # This does not actually assures that we did not query the segment
-                    # again but it's more than a hint
-                    assert all(s1.id == s2.id for s1, s2 in zip(segs, segs2))
-                elif not already_calculated_other_orientations:
-                    already_calculated_other_orientations = {s.id:
-                                                             s._other_orientations for s in segs}
+
+        with enhancesegmentclass():
+            for (segid, staid) in segids:
+                segment = self.session.query(Segment).filter(Segment.id == segid).first()
+                segs = segment.segments_on_other_orientations()
+                if segs:
+                    assert segment.id in (sg1.id, sg2.id, sg3.id)
+                    segs2 = already_calculated_other_orientations.get(segid, None)
+                    if segs2:
+                        # check in a bizarre way that we did not query the session:
+                        # the order of segments must be the one assigned in the
+                        # first call of segments_on_other_orientations() which queried the db
+                        # This does not actually assures that we did not query the segment
+                        # again but it's more than a hint
+                        assert all(s1.id == s2.id for s1, s2 in zip(segs, segs2))
+                    elif not already_calculated_other_orientations:
+                        already_calculated_other_orientations = {s.id:
+                                                                 s._other_orientations for s in segs}
 
     # Recall: we have 5 segments:
     # 2 are empty, out of the remaining three:

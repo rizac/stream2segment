@@ -310,8 +310,8 @@ def dareport(dburl):
               show_default=True,
               help="Show help only for the function matching the given type. Numpy indicates "
                     "functions operating on numpy arrays "
-                    "(module `stream2segment.math.arrays`). "
-                    "Obspy (module `stream2segment.math.traces`) those operating on obspy "
+                    "(module `stream2segment.process.math.ndarrays`). "
+                    "Obspy (module `stream2segment.process.math.traces`) those operating on obspy "
                     "Traces, most of which are simply the numpy counterparts defined for Trace "
                     "objects")
 @click.option("-f", "--filter", default='*', show_default=True,

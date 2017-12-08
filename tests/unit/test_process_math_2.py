@@ -14,16 +14,16 @@ from numpy import true_divide as np_true_divide
 from obspy.core.stream import read as o_read
 from io import BytesIO
 import os
-from stream2segment.math.traces import fft
-from stream2segment.math.arrays import ampspec, triangsmooth, snr, dfreq, freqs, powspec
+from stream2segment.process.math.traces import fft
+from stream2segment.process.math.ndarrays import ampspec, triangsmooth, snr, dfreq, freqs, powspec
 
 import pytest
 from mock.mock import patch, Mock
 from datetime import datetime
 from obspy.core.utcdatetime import UTCDateTime
 
-class Test(unittest.TestCase):
 
+class Test(unittest.TestCase):
 
     def setUp(self):
         with open(os.path.join(os.path.dirname(os.path.dirname(__file__)),"data", "trace_GE.APE.mseed"), 'rb') as opn:
@@ -31,30 +31,32 @@ class Test(unittest.TestCase):
             self.fft = fft(self.mseed)
         pass
 
-
     def tearDown(self):
         pass
 
-
     def tstName(self):
         pass
+
 
 # IMPORTANT READ:
 # we mock np.true_divide ASSUMING IT's ONY CALLED WITHIN snr!!
 # IF we change in the future (we shouldn't), then be aware that the call check might differ!
 # impoortant: we must import np.true_divide at module level to avoid recursion problems:
-@patch("stream2segment.math.arrays.np.true_divide", side_effect=lambda *a, **v: np_true_divide(*a, **v))
+@patch("stream2segment.process.math.ndarrays.np.true_divide",
+       side_effect=lambda *a, **v: np_true_divide(*a, **v))
 def test_snr(mock_np_true_divide):
 
-    signal = np.array([0,1,2,3,4,5,6])
-    noise = np.array([0,1,2,3,4,5,6])
+    signal = np.array([0, 1, 2, 3, 4, 5, 6])
+    noise = np.array([0, 1, 2, 3, 4, 5, 6])
 
     for sf in ('fft', 'dft', 'amp', 'pow', ''):
-        assert snr(signal, noise, signals_form=sf, fmin=None, fmax=None, delta_signal=1, delta_noise=1, in_db=False) == 1
+        assert snr(signal, noise, signals_form=sf, fmin=None, fmax=None, delta_signal=1,
+                   delta_noise=1, in_db=False) == 1
 
-    noise[0]+=1
+    noise[0] += 1
     for sf in ('fft', 'dft', 'amp', 'pow', ''):
-        assert snr(signal, noise, signals_form=sf, fmin=None, fmax=None, delta_signal=1, delta_noise=1, in_db=False) < 1
+        assert snr(signal, noise, signals_form=sf, fmin=None, fmax=None, delta_signal=1,
+                   delta_noise=1, in_db=False) < 1
 
     # assert the snr is one if we take particular frequencies:
     delta_t = 0.01
@@ -68,8 +70,9 @@ def test_snr(mock_np_true_divide):
               delta_noise=delta_t, in_db=False)
     sspec = powspec(signal, False)[1:]
     nspec = powspec(noise, False)[1:]
-    assert (np.sum(sspec) > np.sum(nspec) and res > 1) or (np.sum(sspec) < np.sum(nspec) and res < 1) or \
-        (np.sum(sspec) == np.sum(nspec) and res ==1)
+    assert (np.sum(sspec) > np.sum(nspec) and res > 1) or \
+        (np.sum(sspec) < np.sum(nspec) and res < 1) or \
+        (np.sum(sspec) == np.sum(nspec) and res == 1)
 
     signal[0] += 5
     for sf in ('fft', 'dft', 'amp', 'pow', ''):
@@ -93,8 +96,8 @@ def test_snr(mock_np_true_divide):
         # 1 for normalizing signal
         # thus
         assert len(mock_np_true_divide.call_args_list) == 2
-        # assert that when normalizing the second arg (number of points) is the expected fft number of points
-        # minus 1 cause we set fmin=delta_f (ignore first freq bin)
+        # assert that when normalizing the second arg (number of points) is the expected fft
+        # number of points minus 1 cause we set fmin=delta_f (ignore first freq bin)
         assert mock_np_true_divide.call_args_list[-2][0][1] == expected_leng_s - 1  # signal
         assert mock_np_true_divide.call_args_list[-1][0][1] == expected_leng_n - 1  # noise
 
@@ -113,8 +116,8 @@ def test_snr(mock_np_true_divide):
         # 1 for normalizing signal
         # thus
         assert len(mock_np_true_divide.call_args_list) == 2
-        # assert that when normalizing the second arg (number of points) is the expected fft number of points
-        # minus 1 cause we set fmin=delta_f (ignore first freq bin)
+        # assert that when normalizing the second arg (number of points) is the expected fft
+        # number of points minus 1 cause we set fmin=delta_f (ignore first freq bin)
         assert mock_np_true_divide.call_args_list[-2][0][1] == expected_leng_s  # signal
         assert mock_np_true_divide.call_args_list[-1][0][1] == expected_leng_n  # noise
 
@@ -128,8 +131,8 @@ def test_snr(mock_np_true_divide):
         expected_leng_s = len(signal if sf else freqs(signal, delta_t))
         expected_leng_n = len(noise if sf else freqs(noise, delta_t))
         mock_np_true_divide.reset_mock()
-        # we need to change expected val. If signal is time series, we run the fft and thus we have a
-        # first non-zero point. Otherwise the first point (the only one we take according to fmax)
+        # we need to change expected val. If signal is time series, we run the fft and thus we have
+        # a first non-zero point. Otherwise the first point (the only one we take according to fmax)
         # is zero thus we should have nan
         if not sf:
             assert snr(signal, noise, signals_form=sf, fmin=None, fmax=delta_f, delta_signal=delta,
@@ -137,8 +140,8 @@ def test_snr(mock_np_true_divide):
         else:
             np.isnan(snr(signal, noise, signals_form=sf, fmin=None, fmax=delta_f,
                          delta_signal=delta, delta_noise=delta, in_db=False)).all()
-        # assert when normalizing we called a slice of signal and noise with the first element removed due
-        # to the choice of delta_f and delta
+        # assert when normalizing we called a slice of signal and noise with the first element
+        # removed due to the choice of delta_f and delta
         signal_call = mock_np_true_divide.call_args_list[-2][0]
         noise_call = mock_np_true_divide.call_args_list[-1][0]
         assert signal_call[1] == 2  # fmax removes all BUT first 2 frequencies
@@ -184,14 +187,16 @@ def test_triangsmooth():
     # test a smooth function. take a parabola
     win_ratio = 0.04
     smooth = triangsmooth(np.array(data), winlen_ratio=win_ratio)
-    assert all([smooth[i]<=max(data[i-1:i+2]) and smooth[i]>=min(data[i-1:i+2]) for i in range(1, len(data)-1)])
-    assert np.allclose(smooth, triangsmooth0(np.array(data), win_ratio), rtol=1e-05, atol=1e-08, equal_nan=True)
-
+    assert all([smooth[i] <= max(data[i-1:i+2]) and smooth[i] >= min(data[i-1:i+2])
+                for i in range(1, len(data)-1)])
+    assert np.allclose(smooth, triangsmooth0(np.array(data), win_ratio), rtol=1e-05, atol=1e-08,
+                       equal_nan=True)
 
     data = [x**2 for x in range(115)]
     smooth = triangsmooth(np.array(data), winlen_ratio=win_ratio)
     assert np.allclose(smooth, data, rtol=1e-03, atol=1e-08, equal_nan=True)
-    assert np.allclose(smooth, triangsmooth0(np.array(data), win_ratio), rtol=1e-05, atol=1e-08, equal_nan=True)
+    assert np.allclose(smooth, triangsmooth0(np.array(data), win_ratio), rtol=1e-05, atol=1e-08,
+                       equal_nan=True)
 
 
 def triangsmooth0(spectrum, alpha):
@@ -224,14 +229,9 @@ def triangsmooth0(spectrum, alpha):
         tri = (1 - np.abs(np.true_divide(np.arange(2*n + 1) - n, n)))
         idxs = np.argwhere(npts == n)
         spec_slices = spectrum[idxs-n + np.arange(2*n+1)]
-        spectrum_[idxs.flatten()] = old_div(np.sum(tri * spec_slices, axis=1),np.sum(tri))
+        spectrum_[idxs.flatten()] = old_div(np.sum(tri * spec_slices, axis=1), np.sum(tri))
 
     return spectrum_
-
-
-
-
-
 
 
 if __name__ == "__main__":

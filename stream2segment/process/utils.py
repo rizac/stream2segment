@@ -34,7 +34,8 @@ from stream2segment.io.utils import loads_inv, dumps_inv
 from stream2segment.utils.url import urlread
 from stream2segment.utils import urljoin
 from stream2segment.io.db.models import Segment, Station, Channel
-from stream2segment.math.traces import cumsum, cumtimes
+from stream2segment.process.math.traces import cumsum, cumtimes
+from contextlib import contextmanager
 
 
 def raiseifreturnsexception(func):
@@ -71,90 +72,114 @@ class gui(object):
         return func
 
 
-def segmentclass4process(func):
-    """decorator that temporarily adds to a Segment obspy methods for processing"""
+@contextmanager
+def enhancesegmentclass(config_dict=None, overwrite_config=False):
+    """contextmanager to be used in a with statement with a custom config dict.
+    The contextmanager temporarily adds to a Segment obspy methods for processing.
 
-    @raiseifreturnsexception
-    def stream(self):
-        stream = getattr(self, "_stream", None)
-        if stream is None:
-            try:
-                stream = self._stream = get_stream(self)
-            except Exception as exc:
-                stream = self._stream = Exception("MiniSeed error: %s" %
-                                                  (str(exc) or str(exc.__class__.__name__)))
+    You can use this contextmanager in nested with statements, the methods are not added twice
+    and will be removed after the last contextmanager (the first issued) will exit
 
-        return stream
+    Usage:
 
-    @raiseifreturnsexception
-    def inventory(self):
-        inventory = getattr(self, "_inventory", None)
-        if inventory is None:
-            try:
-                save_station_inventory = self._config['save_inventory']
-            except:
-                save_station_inventory = False
-            try:
-                inventory = self._inventory = get_inventory(self.station, save_station_inventory)
-            except Exception as exc:
-                inventory = self._inventory = Exception("Station inventory (xml) error: %s" %
-                                                        (str(exc) or str(exc.__class__.__name__)))
-        return inventory
+    ```
+    with enhancesegmentclass(config_dict):
+        ... code here ...
+        # now Segment class is enhanced anymore (class methods and attributes added):
+        # segment.stream()
+        # segment.segments_on_other_orientations()
+        # segment.inventory()
+        # segment.sn_windows()  # if config_dict has the properly configured keys
+    # now Segment class is not enhanced anymore (class methods and attributes removed)
+    ```
 
-    def sn_windows(self):
-        '''returns the tuples (start, end), (start, end) where the first list is the signal
-        window, and the second is the noise window. All elements are UtcDateTime's
-        '''
-        # No cache for this variable, as we might modify the segment stream in-place thus it's
-        # hard to know when a recalculation is needed (this is particularly important when
-        # bounds relative to the cumulative sum are given, if an interval was given there would be
-        # no problem)
-        return get_sn_windows(self._config, self.arrival_time, self.stream())
+    :param config_dict: the configuration dictionary. Usually from a yaml file
+    :param overwrite_config: if True, the new config overrides the previously set
+        `Segment._config` one, if any
+    """
 
-    def _query_to_other_orientations(self, *query_args):
-        return self.dbsession().query(*query_args).join(Segment.channel).\
-                filter((Segment.id != self.id) & (Segment.event_id == self.event_id) &
-                       (Channel.station_id == self.channel.station_id) &
-                       (Channel.location == self.channel.location) &
-                       (Channel.band_code == self.channel.band_code) &
-                       (Channel.instrument_code == self.channel.instrument_code))
+    already_enhanced = hasattr(Segment, "_config")
+    if already_enhanced:
+        if overwrite_config:
+            Segment._config = config_dict or {}
+        yield
+    else:
+        @raiseifreturnsexception
+        def stream(self):
+            stream = getattr(self, "_stream", None)
+            if stream is None:
+                try:
+                    stream = self._stream = get_stream(self)
+                except Exception as exc:
+                    stream = self._stream = Exception("MiniSeed error: %s" %
+                                                      (str(exc) or str(exc.__class__.__name__)))
 
-    def segments_on_other_orientations(self):
-        seg_other_orientations = getattr(self, "_other_orientations", None)
-        if seg_other_orientations is None:
-            segs = self._query_on_other_orientations(Segment).all()
-            seg_other_orientations = self._other_orientations = segs
-            # assign also to other segments:y
-            for seg in segs:
-                seg._other_orientations = [s for s in segs if s.id != seg.id] + [self]
+            return stream
 
-        return seg_other_orientations
+        @raiseifreturnsexception
+        def inventory(self):
+            inventory = getattr(self, "_inventory", None)
+            if inventory is None:
+                try:
+                    save_station_inventory = self._config['save_inventory']
+                except:
+                    save_station_inventory = False
+                try:
+                    inventory = self._inventory = get_inventory(self.station,
+                                                                save_station_inventory)
+                except Exception as exc:
+                    inventory = self._inventory = \
+                        Exception("Station inventory (xml) error: %s" %
+                                  (str(exc) or str(exc.__class__.__name__)))
+            return inventory
 
-    def wrapper(*args, **kwargs):
-        already_wrapped = hasattr(Segment, "_config")
-        if not already_wrapped:
-            Segment._config = {}
-            Segment.stream = stream
-            Segment.inventory = inventory
-            Segment.sn_windows = sn_windows
-            Segment.segments_on_other_orientations = segments_on_other_orientations
-            Segment.dbsession = lambda self: object_session(self)
-            Segment._query_to_other_orientations = _query_to_other_orientations
+        def sn_windows(self):
+            '''returns the tuples (start, end), (start, end) where the first list is the signal
+            window, and the second is the noise window. All elements are UtcDateTime's
+            '''
+            # No cache for this variable, as we might modify the segment stream in-place thus it's
+            # hard to know when a recalculation is needed (this is particularly important when
+            # bounds relative to the cumulative sum are given, if an interval was given there would
+            # be no problem)
+            return get_sn_windows(self._config, self.arrival_time, self.stream())
 
+        def _query_to_other_orientations(self, *query_args):
+            return self.dbsession().query(*query_args).join(Segment.channel).\
+                    filter((Segment.id != self.id) & (Segment.event_id == self.event_id) &
+                           (Channel.station_id == self.channel.station_id) &
+                           (Channel.location == self.channel.location) &
+                           (Channel.band_code == self.channel.band_code) &
+                           (Channel.instrument_code == self.channel.instrument_code))
+
+        def segments_on_other_orientations(self):
+            seg_other_orientations = getattr(self, "_other_orientations", None)
+            if seg_other_orientations is None:
+                segs = self._query_to_other_orientations(Segment).all()
+                seg_other_orientations = self._other_orientations = segs
+                # assign also to other segments:y
+                for seg in segs:
+                    seg._other_orientations = [s for s in segs if s.id != seg.id] + [self]
+
+            return seg_other_orientations
+
+        Segment._config = config_dict or {}
+        Segment.stream = stream
+        Segment.inventory = inventory
+        Segment.sn_windows = sn_windows
+        Segment.segments_on_other_orientations = segments_on_other_orientations
+        Segment.dbsession = lambda self: object_session(self)
+        Segment._query_to_other_orientations = _query_to_other_orientations
         try:
-            return func(*args, **kwargs)
+            yield
         finally:
-            if not already_wrapped:
-                # delete attached attributes:
-                del Segment._config
-                del Segment.stream
-                del Segment.inventory
-                del Segment.sn_windows
-                del Segment.dbsession
-                del Segment.segments_on_other_orientations
-                del Segment._query_to_other_orientations
-
-    return wrapper
+            # delete attached attributes:
+            del Segment._config
+            del Segment.stream
+            del Segment.inventory
+            del Segment.sn_windows
+            del Segment.dbsession
+            del Segment.segments_on_other_orientations
+            del Segment._query_to_other_orientations
 
 
 def get_sn_windows(config, a_time, stream):
@@ -265,60 +290,3 @@ def save_inventory(station, downloaded_bytes_data):
     except SQLAlchemyError:
         object_session(station).rollback()
         raise
-
-
-class LimitedSizeDict(OrderedDict):
-    def __init__(self, *args, **kwds):
-        self.size_limit = kwds.pop("size_limit", None)
-        super(LimitedSizeDict, self).__init__(*args, **kwds)
-        self._check_size_limit()
-
-    def __setitem__(self, key, value):
-        super(LimitedSizeDict, self).__setitem__(key, value)
-        self._check_size_limit()
-
-    def update(self, *args, **kwargs):  # python2 compatibility (python3 calls __setitem__)
-        if args:
-            if len(args) > 1:
-                raise TypeError("update expected at most 1 arguments, got %d" % len(args))
-            other = dict(args[0])
-            for key in other:
-                super(LimitedSizeDict, self).__setitem__(key, other[key])
-        for key in kwargs:
-            super(LimitedSizeDict, self).__setitem__(key, kwargs[key])
-        self._check_size_limit()
-
-    def setdefault(self, key, value=None):  # python2 compatibility (python3 calls __setitem__)
-        if key not in self:
-            self[key] = value
-        return self[key]
-
-    def _check_size_limit(self):
-        if self.size_limit is not None:
-            while len(self) > self.size_limit:
-                self._popitem_size_limit()
-
-    def _popitem_size_limit(self):
-        return self.popitem(last=False)
-
-
-class InventoryCache(LimitedSizeDict):
-
-    def __init__(self, size_limit=30):
-        super(InventoryCache, self).__init__(size_limit=size_limit)
-        self._segid2staid = dict()
-
-    def __setitem__(self, segment, inventory_or_exception):
-        if inventory_or_exception is None:
-            return
-        super(InventoryCache, self).__setitem__(segment.station.id, inventory_or_exception)
-        self._segid2staid[segment.id] = segment.station.id
-
-    def __getitem__(self, segment_id):
-        inventory = None
-        staid = self._segid2staid.get(segment_id, None)
-        if staid is not None:
-            inventory = super(InventoryCache, self).get(staid, None)
-            if inventory is None:  # expired, remove the key:
-                self._segid2staid.pop(segment_id)
-        return inventory

@@ -26,7 +26,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm.session import object_session
 from sqlalchemy.sql.expression import func, bindparam
 import time
-from stream2segment.process.utils import segmentclass4process
+from stream2segment.process.utils import enhancesegmentclass
 
 class Test(unittest.TestCase):
     
@@ -141,7 +141,6 @@ class Test(unittest.TestCase):
                     start_time=d)
         self.session.add(s)
 
-    @segmentclass4process
     def test_query4gui(self):
         s = self.session.query(Station).first()
         e = self.session.query(Event).first()
@@ -187,13 +186,12 @@ class Test(unittest.TestCase):
         self.session.add_all(segments)
         self.session.commit()
 
-
-        for leng, segment in zip(expected_lengths, segments):
-            # do query for GUI:
-            if  leng == 4:
-                dfg = 9
-            assert segment._query_to_other_orientations(Segment.id).count() == leng
-            # assert getallcomponents(self.session, segment.id).count() == leng
+        with enhancesegmentclass():
+            for leng, segment in zip(expected_lengths, segments):
+                # assert the other segments are the expected lengh. Note that leng INCLUDES current
+                # segment whereas _query_to_other_orientations DOES NOT. So compare to leng-1:
+                assert segment._query_to_other_orientations(Segment.id).count() == leng-1
+                # assert getallcomponents(self.session, segment.id).count() == leng
 
 
 if __name__ == "__main__":

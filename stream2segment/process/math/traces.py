@@ -24,8 +24,8 @@ import numpy as np
 from obspy.core import Trace, UTCDateTime  # , Stats
 
 # from obspy import read_inventory
-from stream2segment.math.arrays import fft as _fft, ampspec as _ampspec, powspec as _powspec,\
-    cumsum as _cumsum, dfreq, freqs, ResponseSpectrum as _ResponseSpectrum, \
+from stream2segment.process.math.ndarrays import fft as _fft, ampspec as _ampspec,\
+    powspec as _powspec, cumsum as _cumsum, dfreq, freqs, ResponseSpectrum as _ResponseSpectrum, \
     NewmarkBeta as _NewmarkBeta, NigamJennings as _NigamJennings
 
 
@@ -131,7 +131,7 @@ def cumsum(trace):
 def cumtimes(mi_trace, *percentages):
     """Calculates the time(s) where `mi_trace` reaches the given percentage(s) of the total signal.
     **`mi_trace.data` need to be monotonically increasing**, e.g., as resulting from
-    :func:`stream2segment.math.traces.cumsum`
+    :func:`stream2segment.stream2segment.process.math.traces.cumsum`
 
     :param mi_trace: a monotonically increasing trace
     :param percentages: the precentages to be calculated, e.g. 0.05, 0.95 (5% and 95%)
@@ -193,8 +193,9 @@ def fft(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_ty
 def ampspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',
             return_freqs=False):
     """Computes the amplitude spectrum of the given trace.
-    See :func:`stream2segment.math.traces.fft` for info (this function does exactly the same,
-    it only returns the amplitude spectrum as second element - i.e., the modulus of the fft)"""
+    See :func:`stream2segment.process.math.traces.fft` for info (this function does exactly the
+    same, it only returns the amplitude spectrum as second element - i.e., the modulus of the fft)
+    """
     _, dft = fft(trace, starttime, endtime, taper_max_percentage, taper_type, return_freqs)
     return _, _ampspec(dft, signal_is_fft=True)
 
@@ -202,8 +203,9 @@ def ampspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, tape
 def powspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',
             return_freqs=False):
     """Computes the power spectrum of the given trace.
-    See :func:`stream2segment.math.traces.fft` for info (this function does exactly the same,
-    it only returns the power spectrum as second element - i.e., the square of the fft)"""
+    See :func:`stream2segment.process.math.traces.fft` for info (this function does exactly the
+    same, it only returns the power spectrum as second element - i.e., the square of the fft)
+    """
     _, dft = fft(trace, starttime, endtime, taper_max_percentage, taper_type, return_freqs)
     return _, _powspec(dft, signal_is_fft=True)
 
@@ -258,7 +260,7 @@ class ResponseSpectrum(_ResponseSpectrum):
     '''
     def __init__(self, acc_trace, periods, damping=0.05, units="cm/s/s"):
         '''RemoveResponse base class operating on :class:`obspy.Trace`s. When not documented,
-        parameters are the same of :class:`stream2segment.math.arrays.ResponseSpectrum`
+        parameters are the same of :class:`stream2segment.process.math.ndarrays.ResponseSpectrum`
 
         :param acc_trace: a Trace in acceleration units, obtained via, e.g.:
             ```

@@ -1,0 +1,53 @@
+#!/bin/bash
+
+POSTGRES=""
+
+for var in "$@"
+do
+	if [ ${var} == "--help" ]
+	then
+		echo "runtests [PYTESTARGS]"
+		echo "CALLS: pytest ./tests --ignore=./tests/skip --cov=./stream2segment [PYTESTARGS]"
+		echo 
+		echo "Example:"
+		echo "DB_URL=postgresql://user:password@localhost/s2s_test runtests -x --cov-report=html"
+		echo 
+		echo "Notes: "
+		echo "	DB_URL is a custom url to a database to be used (supported is postgres and sqlite), e.g.:"
+		echo "	if missing, defaults to an in-memory sqlite database"
+		echo "	otherwise, tests requiring a database will ALSO be run on an in-memory sqlite database"
+		exit 0
+	fi
+done
+
+if [ -n "$DB_URL" ]
+then
+	TMP_DB_URL="$DB_URL"
+	unset DB_URL
+	echo Temporarily unset DB_URL="$DB_URL"
+	echo
+	# set color to red:
+	echo -e "\033[0;31mRunning db-tests with in-memory sqlite and -x option (ignoring other pytest arguments, if any):\033[0m"
+	echo
+	pytest -x ./tests/functional/test_db.py
+	pytest -x ./tests/functional/test_download.py
+	pytest -x ./tests/functional/test_processing.py
+	pytest -x ./tests/functional/test_sqlevalexpr.py
+	pytest -x ./tests/functional/test_webgui.py
+	pytest -x ./tests/unit/test_dbqueries.py
+	pytest -x ./tests/unit/test_plotviews.py
+	pytest -x ./tests/unit/test_u_download.py 
+	echo 
+	echo -e "\033[0;31mRunning all tests with postgres:\033[0m"
+	echo DB_URL="$TMP_DB_URL" pytest ./tests --ignore=./tests/skip --cov=./stream2segment "$@"
+	echo
+	DB_URL="$TMP_DB_URL" pytest ./tests --ignore=./tests/skip --cov=./stream2segment "$@"
+else
+	echo
+	echo -e "\033[0;31mRunning all tests with in-memory sqlite:\033[0m"
+	echo COMMAND: pytest ./tests --ignore=./tests/skip --cov=./stream2segment "$@"
+	echo
+	pytest ./tests --ignore=./tests/skip --cov=./stream2segment "$@"
+fi
+
+

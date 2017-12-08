@@ -36,7 +36,7 @@ from obspy.core import Stream, Trace
 from stream2segment.io.db.models import Channel, Segment, Station
 from stream2segment.utils import iterfuncs
 from stream2segment.gui.webapp.processing.plots.jsplot import Plot
-from stream2segment.process.utils import segmentclass4process
+from stream2segment.process.utils import enhancesegmentclass
 from sqlalchemy.orm import load_only
 
 
@@ -89,7 +89,6 @@ class SegmentPlotList(list):
                 continue
             self[i] = None
 
-    @segmentclass4process
     def get_plots(self, session, plot_indices, inv_cache, config):
         '''
         Returns the `Plot`s representing the the custom functions of
@@ -103,131 +102,128 @@ class SegmentPlotList(list):
         (usually 0) is in plot_indices, then the relative plot will show the stream and
         and all other components together
         '''
-        index_of_main_plot = 0  # the index of the function returning the
-        # trace plot (main plot returning the trace as it is)
+        with enhancesegmentclass(config):
+            index_of_main_plot = 0  # the index of the function returning the
+            # trace plot (main plot returning the trace as it is)
 
-        ret = []
-        for i in plot_indices:
-            if self[i] is None:
-                # trace either trace or exception (will be handled by exec_function:
-                # skip calculation and return empty trace with err message)
-                # inv: either trace or exception (will be handled by exec_function:
-                # append err mesage to warnings and proceed to calculation normally)
-                self[i] = self.get_plot(self.functions[i], session, inv_cache,
-                                        config, func_name='' if i == index_of_main_plot else None)
-            ret.append(self[i])
-        return ret
+            ret = []
+            for i in plot_indices:
+                if self[i] is None:
+                    # trace either trace or exception (will be handled by exec_function:
+                    # skip calculation and return empty trace with err message)
+                    # inv: either trace or exception (will be handled by exec_function:
+                    # append err mesage to warnings and proceed to calculation normally)
+                    self[i] = self.get_plot(self.functions[i], session, inv_cache, config,
+                                            func_name='' if i == index_of_main_plot else None)
+                ret.append(self[i])
+            return ret
 
-    @segmentclass4process
     def get_plot(self, func, session, invcache, config, func_name=None):
         '''Executes the given function on the given trace
         This function should be called by *all* functions returning a Plot object
         '''
-        try:
-            funcres = self.exec_func(func, session, invcache, config)
-            if isinstance(funcres, Plot):
-                # this should be called internally when generating main plot:
-                plt = funcres
-            elif isinstance(funcres, Trace):
-                plt = Plot.fromtrace(funcres)
-            elif isinstance(funcres, Stream):
-                plt = Plot.fromstream(funcres)
-            else:
-                labels = cycle([None])
-                if isinstance(funcres, dict):
-                    labels = iter(funcres.keys())
-                    itr = iter(funcres.values())
-                elif type(funcres) == tuple:
-                    itr = [funcres]  # (x0, dx, values, label_optional)
+        with enhancesegmentclass(config):
+            try:
+                funcres = self.exec_func(func, session, invcache, config)
+                if isinstance(funcres, Plot):
+                    # this should be called internally when generating main plot:
+                    plt = funcres
+                elif isinstance(funcres, Trace):
+                    plt = Plot.fromtrace(funcres)
+                elif isinstance(funcres, Stream):
+                    plt = Plot.fromstream(funcres)
                 else:
-                    itr = funcres  # list of mixed types above
-
-                plt = Plot("", "")
-
-                for label, obj in zip(labels, itr):
-                    if isinstance(obj, tuple):
-                        try:
-                            x0, dx, y, label = obj
-                        except ValueError:
-                            try:
-                                x0, dx, y = obj
-                            except ValueError:
-                                raise ValueError(("Cannot create plot from tuple (length=%d): "
-                                                  "Expected (x0, dx, y) or (x0, dx, y, label)"
-                                                  "") % len(obj))
-                        plt.add(x0, dx, y, label)
-                    elif isinstance(obj, Trace):
-                        plt.addtrace(obj, label)
-                    elif isinstance(obj, Stream):
-                        for trace in obj:
-                            plt.addtrace(trace, label)
+                    labels = cycle([None])
+                    if isinstance(funcres, dict):
+                        labels = iter(funcres.keys())
+                        itr = iter(funcres.values())
+                    elif type(funcres) == tuple:
+                        itr = [funcres]  # (x0, dx, values, label_optional)
                     else:
-                        raise ValueError(("Cannot create plot from %s (length=%d): ") %
-                                         str(type(obj)))
+                        itr = funcres  # list of mixed types above
 
-        except Exception as exc:
-            plt = Plot('', warnings=str(exc)).add(0, 1, [])  # add dummy series (empty)
+                    plt = Plot("", "")
 
-        # set title:
-        title_prefix = self.data.get('plot_title_prefix', '')
-        if func_name is None:
-            func_name = getattr(func, "__name__", "")
-        if title_prefix or func_name:
-            sep = " - " if title_prefix and func_name else ''
-            plt.title = "%s%s%s" % (title_prefix, sep, func_name)
-        return plt
+                    for label, obj in zip(labels, itr):
+                        if isinstance(obj, tuple):
+                            try:
+                                x0, dx, y, label = obj
+                            except ValueError:
+                                try:
+                                    x0, dx, y = obj
+                                except ValueError:
+                                    raise ValueError(("Cannot create plot from tuple (length=%d): "
+                                                      "Expected (x0, dx, y) or (x0, dx, y, label)"
+                                                      "") % len(obj))
+                            plt.add(x0, dx, y, label)
+                        elif isinstance(obj, Trace):
+                            plt.addtrace(obj, label)
+                        elif isinstance(obj, Stream):
+                            for trace in obj:
+                                plt.addtrace(trace, label)
+                        else:
+                            raise ValueError(("Cannot create plot from %s (length=%d): ") %
+                                             str(type(obj)))
 
-    @segmentclass4process
+            except Exception as exc:
+                plt = Plot('', warnings=str(exc)).add(0, 1, [])  # add dummy series (empty)
+
+            # set title:
+            title_prefix = self.data.get('plot_title_prefix', '')
+            if func_name is None:
+                func_name = getattr(func, "__name__", "")
+            if title_prefix or func_name:
+                sep = " - " if title_prefix and func_name else ''
+                plt.title = "%s%s%s" % (title_prefix, sep, func_name)
+            return plt
+
     def exec_func(self, func, session, invcache, config):
         '''Executes the given function on the given segment identified by seg_id
            Returns the function result (or exception) after updating self, if needed.
            Raises if func raises
         '''
-        seg_id = self.segment_id
-        stream = self.data.get('stream', None)
-        inventory = invcache.get(seg_id, None)
+        with enhancesegmentclass(config):
+            seg_id = self.segment_id
+            stream = self.data.get('stream', None)
+            inventory = invcache.get(seg_id, None)
 
-        segment = session.query(Segment).filter(Segment.id == seg_id).\
-            options(load_only(Segment.id)).first()
-        segment._stream = stream
-        segment._inventory = inventory
+            segment = session.query(Segment).filter(Segment.id == seg_id).\
+                options(load_only(Segment.id)).first()
+            segment._stream = stream
+            segment._inventory = inventory
 
-#         segwrapper = SegmentWrapper(config).reinit(session, seg_id,
-#                                                    stream=stream,
-#                                                    inventory=inventory)
+            try:
+                return func(segment, config)
+            finally:
+                # set back values if needed, even if we had exceptions.
+                # Any of these values might be also an exception. Call the
+                # 'private' attribute cause the relative method, if exists, most likely raises
+                # the exception, it does not return it
+                if stream is None:
+                    self.data['stream'] = segment._stream  # might be exc, or None
+                sn_windows = self.data.get('sn_windows', None)
+                if sn_windows is None:
+                    try:
+                        self.data['sn_windows'] = segment.sn_windows()
+                    except Exception as exc:
+                        self.data['sn_windows'] = exc
 
-        try:
-            return func(segment, config)
-        finally:
-            # set back values if needed, even if we had exceptions.
-            # Any of these values might be also an exception. Call the
-            # 'private' attribute cause the relative method, if exists, most likely raises
-            # the exception, it does not return it
-            if stream is None:
-                self.data['stream'] = segment._stream  # might be exc, or None
-            sn_windows = self.data.get('sn_windows', None)
-            if sn_windows is None:
-                try:
-                    self.data['sn_windows'] = segment.sn_windows()
-                except Exception as exc:
-                    self.data['sn_windows'] = exc
-
-            # allocate the segment if we need to set the title (might be None):
-            if inventory is None:
-                invcache[segment] = segment._inventory  # might be exc, or None
-            if not self.data.get('plot_title_prefix', None):
-                title = None
-                if isinstance(segment._stream, Stream):
-                    title = segment._stream[0].get_id()
-                    for trace in segment._stream:
-                        if trace.get_id() != title:
-                            title = None
-                            break
-                if title is None:
-                    title = segment.seed_identifier
-                if title is not None:
-                    # try to get it from the stream. Otherwise, get it from the segment
-                    self.data['plot_title_prefix'] = title
+                # allocate the segment if we need to set the title (might be None):
+                if inventory is None:
+                    invcache[segment] = segment._inventory  # might be exc, or None
+                if not self.data.get('plot_title_prefix', None):
+                    title = None
+                    if isinstance(segment._stream, Stream):
+                        title = segment._stream[0].get_id()
+                        for trace in segment._stream:
+                            if trace.get_id() != title:
+                                title = None
+                                break
+                    if title is None:
+                        title = segment.seed_identifier
+                    if title is not None:
+                        # try to get it from the stream. Otherwise, get it from the segment
+                        self.data['plot_title_prefix'] = title
 
 
 class LimitedSizeDict(OrderedDict):
@@ -338,7 +334,6 @@ class PlotManager(LimitedSizeDict):
             ret = "Error getting function doc:\n%s" % str(exc)
         return ret
 
-    @segmentclass4process
     def get_plots(self, session, seg_id, plot_indices, preprocessed=False,
                   all_components_in_segment_plot=False):
         """Returns the plots representing the trace of the segment `seg_id` (more precisely,
@@ -350,62 +345,65 @@ class PlotManager(LimitedSizeDict):
         note that in this case, if `all_components=True` the plot will have also the
         trace(s) of all the other components of the segment `seg_id`, if any.
         """
-        segplotlist = self._getsegplotlist(session, seg_id, preprocessed)
-        plots = segplotlist.get_plots(session, plot_indices, self.inv_cache, self.config)
-        index_of_main_plot = 0
-        if index_of_main_plot in plot_indices and all_components_in_segment_plot:
-            other_comp_plots = []
-            for segid in segplotlist.oc_segment_ids:
-                oc_segplotlist = self._getsegplotlist(session, segid, preprocessed)
-                oc_plot = oc_segplotlist.get_plots(session, [index_of_main_plot], self.inv_cache,
-                                                   self.config)[0]
-                other_comp_plots.append(oc_plot)
-                # get all other components and merge them with the main plot
-            plots[index_of_main_plot] = plots[index_of_main_plot].merge(*other_comp_plots)
-        return plots
+        with enhancesegmentclass(self.config):
+            segplotlist = self._getsegplotlist(session, seg_id, preprocessed)
+            plots = segplotlist.get_plots(session, plot_indices, self.inv_cache, self.config)
+            index_of_main_plot = 0
+            if index_of_main_plot in plot_indices and all_components_in_segment_plot:
+                other_comp_plots = []
+                for segid in segplotlist.oc_segment_ids:
+                    oc_segplotlist = self._getsegplotlist(session, segid, preprocessed)
+                    oc_plot = oc_segplotlist.get_plots(session, [index_of_main_plot],
+                                                       self.inv_cache, self.config)[0]
+                    other_comp_plots.append(oc_plot)
+                    # get all other components and merge them with the main plot
+                plots[index_of_main_plot] = plots[index_of_main_plot].merge(*other_comp_plots)
+            return plots
 
-    @segmentclass4process
     def _getsegplotlist(self, session, seg_id, preprocessed=False):
-        segplotlist, p_segplotlist = self.get(seg_id, [None, None])
+        with enhancesegmentclass(self.config):
+            segplotlist, p_segplotlist = self.get(seg_id, [None, None])
 
-        if segplotlist is None:
-            # get ids from the segment class "private" method. Maybe not highly efficient, we should
-            # see what we might cache or not and check SqlAlchemy stuff
-            seg = session.query(Segment).filter(Segment.id == seg_id).first()
-            segids = set([_[0] for _ in seg._query_to_other_orientations(Segment.id)] + [seg_id])
-            # segids =
-            # segids = set(_[0] for _ in getallcomponents(session, seg_id))
-            for segid in segids:
-                tmp = SegmentPlotList(segid, self.functions, segids - set([segid]))
-                self[segid] = [tmp, None]
-                if seg_id == segid:
-                    segplotlist = tmp
+            if segplotlist is None:
+                # get ids from the segment class "private" method. Maybe not highly efficient,
+                # we should see what we might cache or not and check SqlAlchemy stuff
+                seg = session.query(Segment).filter(Segment.id == seg_id).first()
+                segids = set([_[0]
+                              for _ in seg._query_to_other_orientations(Segment.id)] + [seg_id])
+                # segids =
+                # segids = set(_[0] for _ in getallcomponents(session, seg_id))
+                for segid in segids:
+                    tmp = SegmentPlotList(segid, self.functions, segids - set([segid]))
+                    self[segid] = [tmp, None]
+                    if seg_id == segid:
+                        segplotlist = tmp
 
-        if not preprocessed:
-            return segplotlist
+            if not preprocessed:
+                return segplotlist
 
-        if p_segplotlist is None:
-            # Appliy a pre-process to the given segplotlist,
-            # creating a copy of it and adding to the second element of self.segplotlists
-            for segplotlist in chain([segplotlist],
-                                     (self[_][0] for _ in segplotlist.oc_segment_ids)):
-                stream = None
-                try:
-                    stream = segplotlist.exec_func(self.preprocessfunc, session,
-                                                   self.inv_cache, self.config)
-                    if isinstance(stream, Trace):
-                        stream = Stream([stream])
-                    elif not isinstance(stream, Stream):
-                        raise Exception('pre_process function must return a Trace or Stream object')
-                except Exception as exc:
-                    stream = exc
-                tmp = segplotlist.copy()
-                tmp.data['stream'] = stream
-                self[tmp.segment_id][1] = tmp
-                if tmp.segment_id == seg_id:
-                    p_segplotlist = tmp
+            if p_segplotlist is None:
+                # Appliy a pre-process to the given segplotlist,
+                # creating a copy of it and adding to the second element of self.segplotlists
+                for segplotlist in chain([segplotlist],
+                                         (self[_][0] for _ in segplotlist.oc_segment_ids)):
+                    stream = None
+                    try:
+                        stream = segplotlist.exec_func(self.preprocessfunc, session,
+                                                       self.inv_cache, self.config)
+                        if isinstance(stream, Trace):
+                            stream = Stream([stream])
+                        elif not isinstance(stream, Stream):
+                            raise Exception('pre_process function must return '
+                                            'a Trace or Stream object')
+                    except Exception as exc:
+                        stream = exc
+                    tmp = segplotlist.copy()
+                    tmp.data['stream'] = stream
+                    self[tmp.segment_id][1] = tmp
+                    if tmp.segment_id == seg_id:
+                        p_segplotlist = tmp
 
-        return p_segplotlist
+            return p_segplotlist
 
     def get_data(self, segment_id, key, preprocessed, default_if_missing=None):
         try:
