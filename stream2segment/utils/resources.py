@@ -124,7 +124,7 @@ def yaml_load(filepath, **updates):
     return ret
 
 
-def yaml_load_doc(filepath, varname=None):
+def yaml_load_doc(filepath, varname=None, preserve_newlines=False):
     """Loads the doc from a yaml. The doc is intended to be all *consecutive* commented lines
     (with *no* leading spaces) before each top-level variable (nested variables are not considered).
     If `varname` is None (the default), the returned dict is a defaultdict which returns as
@@ -136,6 +136,9 @@ def yaml_load_doc(filepath, varname=None):
     :param varname: if None, returns a `defaultdict` with all docs (consecutive
     commented lines before) the yaml top-level variables. Otherwise, return the doc for the
     given variable name (string)
+    :param preserve_newlines: boolean. Whether to preserve newlines in comment
+    or not. If False (the default), each variable comment is returned as a single line,
+    concatenating parsed lines with a space
     """
     comments = []
     reg_yaml_var = re.compile("^([^:]+):.*")
@@ -159,7 +162,7 @@ def yaml_load_doc(filepath, varname=None):
                     m = reg_yaml_var.match(line)
                     if m and m.groups():
                         var_name = m.groups()[0]
-                        comment = " ".join(comments)
+                        comment = ("\n" if preserve_newlines else " ").join(comments)
                         docstring = comment.decode('utf8') if isbytes else comment
                         if varname is None:
                             ret[var_name] = docstring

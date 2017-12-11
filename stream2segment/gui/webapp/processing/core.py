@@ -250,10 +250,15 @@ def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components,
             # return always sn_windows, as we already calculated them. IT is better
             # to call this method AFTER get_plots_func defined above
             sn_windows = [sorted([jsontimestamp(x[0]), jsontimestamp(x[1])])
-                          for x in plotmanager.getdata(session, seg_id, 'sn_windows',
-                                                       preprocessed, [])]
+                          for x in plotmanager.get_data(seg_id, 'sn_windows',
+                                                        preprocessed, [])]
         except Exception:
             sn_windows = []
+    else:
+        # load stream data. This does not query the session if the segment is already loaded,
+        # Otherwise, it not query the session again when querying for plot data later
+        index_of_main_plot = 0
+        plotmanager.get_plots(session, seg_id, [index_of_main_plot], False, False)
 
     return {'plots': [p.tojson(z, NPTS_WIDE) for p, z in zip(plots, zooms_)],
             'sn_windows': sn_windows,
@@ -315,10 +320,12 @@ def get_doc(key, plotmanager):
     if key == 'preprocessfunc':
         ret = plotmanager.get_preprocessfunc_doc
     elif key == 'sn_windows':
-        ret = yaml_load_doc(get_templates_fpath("processing.yaml"), "sn_windows")
+        ret = yaml_load_doc(get_templates_fpath("processing.yaml"), "sn_windows", True)
     elif key == 'segment_select':
-        ret = yaml_load_doc(get_templates_fpath("processing.yaml"), "segment_select")
-
+        ret = yaml_load_doc(get_templates_fpath("processing.yaml"), "segment_select", True)
+        # remove the example session cause is misleading from the GUI (double string quotation
+        # is not needed) and redundant (the form should be already self-explanatory):
+        ret = re.sub("\\s+Example:.*$", "", ret, flags=re.DOTALL)
     if not ret:
         ret = "error: documentation N/A"
     return ret.strip()

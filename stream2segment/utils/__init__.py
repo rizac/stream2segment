@@ -28,17 +28,19 @@ from stream2segment.io.db.models import Base
 
 def _getmodulename(pyfilepath):
     '''returns a most likely unique module name for a python source file loaded as a module'''
-    # We need to supply a model nameFirst let's define a module name. What the name does and why is necessary is not well
+    # We need to supply a model name
+    # First let's define a module name. What the name does and why is necessary is not well
     # documented. However, we cannot supply whatever we want for two reasons following
     # python import mechanism (tested in python2):
     # 1. two different `pyfilepath`s must have different `name`s, otherwise when importing the
     # second file the module of the former is actually returned
-    # 2. Names should contain dots, as otherwise a `RuntimeWarning: Parent module ... not found`
-    # is issued
-    # So, make the name equal to the pathname to avoid as much as possible dupes in names, by replacing
-    # pathseps with underscores:
-    return os.path.abspath(os.path.realpath(pyfilepath)).replace(".", "_").\
-        replace(os.path.sep, "_")  # note: os.path.sep returns '/' on mac, os.pathsep returns ':'
+    # 2. Names should NOT contain dots, as otherwise a
+    # `RuntimeWarning: Parent module ... not found` is issued.
+    # So, make the name equal to the pathname to avoid 1. and replace
+    # module and file-path separators with underscores to avoid 2.:
+    return os.path.abspath(os.path.realpath(pyfilepath)).replace(".", "_dot_").\
+        replace(os.path.sep, "_pathsep_")
+    # note above: os.path.sep returns '/' on mac, os.pathsep returns ':'
 
 
 # python 2 and 3 compatible code:

@@ -91,11 +91,14 @@ class SegmentPlotList(list):
 
     def get_plots(self, session, plot_indices, inv_cache, config):
         '''
-        Returns the `Plot`s representing the the custom functions of
-        the segment identified by `seg_id
+        Returns the list of `Plot`s representing the the custom functions of
+        the segment identified by `seg_id. The length of the returned list equals
+        `len(plot_indices)`. The list can be manipulated without affecting the stored internal list,
+        the elements are passed by reference and thus each element modification affects the
+        stored element
         :param seg_id: (integer) a valid segment id (i.e., must be the id of one of the segments
         passed in the constructor)
-        :param inv: (intventory object) an object either inventory or exception
+        :param inv: (inventory object) an object either inventory or exception
         (will be handled by `exec_function`, which is called internally)
         :param config: (dict) the plot config parsed from a user defined yaml file
         :param all_components_on_main_plot: (bool) if True, and the index of the main plot
@@ -306,7 +309,7 @@ class PlotManager(LimitedSizeDict):
             raise Exception("No function decorated with '@gui.sideplot'")
 
         def main_function(segment, config):
-            return Plot.fromstream(segment.stream(), check_same_seedid=True)
+            return Plot.fromstream(segment.stream())
 
         self.preprocessfunc = preprocess_func
 
@@ -350,14 +353,23 @@ class PlotManager(LimitedSizeDict):
             plots = segplotlist.get_plots(session, plot_indices, self.inv_cache, self.config)
             index_of_main_plot = 0
             if index_of_main_plot in plot_indices and all_components_in_segment_plot:
-                other_comp_plots = []
-                for segid in segplotlist.oc_segment_ids:
-                    oc_segplotlist = self._getsegplotlist(session, segid, preprocessed)
-                    oc_plot = oc_segplotlist.get_plots(session, [index_of_main_plot],
-                                                       self.inv_cache, self.config)[0]
-                    other_comp_plots.append(oc_plot)
+                stream0 = segplotlist.data['stream']
+                if isinstance(stream0, Stream):
+                    stream0 = stream0.copy()
+                    title = plots[index_of_main_plot].title
+                    for segid in segplotlist.oc_segment_ids:
+                        oc_segplotlist = self._getsegplotlist(session, segid, preprocessed)
+                        # force calculation of the main plot, which stores also the stream:
+                        # (this will not computed twice if already computed)
+                        _ = oc_segplotlist.get_plots(session, [index_of_main_plot],
+                                                     self.inv_cache, self.config)[0]
+                        _stream = oc_segplotlist.data['stream']
+                        if isinstance(_stream, Stream):
+                            stream0 += _stream
+                        else:
+                            stream0.warnings += _stream.warnings
                     # get all other components and merge them with the main plot
-                plots[index_of_main_plot] = plots[index_of_main_plot].merge(*other_comp_plots)
+                    plots[index_of_main_plot] = Plot.fromstream(stream0, title=title)
             return plots
 
     def _getsegplotlist(self, session, seg_id, preprocessed=False):
@@ -370,8 +382,6 @@ class PlotManager(LimitedSizeDict):
                 seg = session.query(Segment).filter(Segment.id == seg_id).first()
                 segids = set([_[0]
                               for _ in seg._query_to_other_orientations(Segment.id)] + [seg_id])
-                # segids =
-                # segids = set(_[0] for _ in getallcomponents(session, seg_id))
                 for segid in segids:
                     tmp = SegmentPlotList(segid, self.functions, segids - set([segid]))
                     self[segid] = [tmp, None]
@@ -407,7 +417,7 @@ class PlotManager(LimitedSizeDict):
 
     def get_data(self, segment_id, key, preprocessed, default_if_missing=None):
         try:
-            segplotlist = self.segplotlists[segment_id][0 if not preprocessed else 1]
+            segplotlist = self[segment_id][0 if not preprocessed else 1]
         except (KeyError, IndexError):
             return default_if_missing
         return segplotlist.data.get(key, default_if_missing)

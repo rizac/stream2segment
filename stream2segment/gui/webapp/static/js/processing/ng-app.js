@@ -32,7 +32,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	$scope.showAllComponents = false;
 	$scope.classes = [];
 
-	$scope.loading=true;
+	$scope.warnMsg = "Loading...";
 
 	$scope.snColors = ['#2ca02c', '#d62728']  // signal, noise
 	// if more than two lines are present, it's undefined and handled by plotly (not tested)
@@ -63,6 +63,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		$http.post("/get_segments", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
 	        $scope.classes = response.data.classes;
 	        $scope.metadata = response.data.metadata;
+	        $scope.warnMsg = "";
 	        $scope.setSegments(response.data.segment_ids);
 	    });
 	};
@@ -77,9 +78,9 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			}
 		});
 		$scope.selection.errorMsg = "";
-		$scope.loading = true;
+		$scope.warnMsg = "Loading...";
 		$http.post("/get_segments", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
-			$scope.loading = false;
+			$scope.warnMsg = "";
 			segIds = response.data.segment_ids;
 	        if (!segIds || (segIds.length < 1)){
 	        	$scope.selection.errorMsg = "No segment found with given criteria";
@@ -96,6 +97,9 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		$scope.segIds = segmentIds;
 		if ($scope.segIds.length){
 			$scope.segIdx = 0;
+		}else{
+			$scope.warnMsg = "No segment found, please check selection";
+			return;
 		}
         $scope.setSegment($scope.segIdx);
 	};
@@ -117,9 +121,8 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		}
 		
 		var zooms = [];
-		
 		var param = {seg_id: $scope.segIds[index], metadata: true, classes:true, warnings: true};
-		$scope.loading = true;
+		$scope.warnMsg = "Loading...";
 		$http.post("/get_segment", param, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
 			var metadata = response.data.metadata || [];
 			// create segMetadata and set it to $scope.segData.metadata
@@ -143,6 +146,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			$scope.segData.classIds = response.data.classes;  // array of class ids
 			$scope.segData.warnings = response.data.warnings;  // FIXME: need to set it up!
 			// update plots:
+			$scope.warnMsg = "";
 	        $scope.refreshView();
 	    });
 	};
@@ -208,9 +212,9 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		}
 		var zooms = $scope.getAndClearZooms();
 		var param = {seg_id: $scope.segIds[index], pre_processed: $scope.showPreProcessed, zooms:zooms,
-				plot_indices: indices, all_components: $scope.showAllComponents};
+					 plot_indices: indices, all_components: $scope.showAllComponents};
 		// if we changed the results of the sn-windows then send data. Note that we might
-		// be here if we toggled e.g., the per-process checkbox or the 'allComponents' checkbox
+		// be here if we toggled e.g., the pre-process checkbox or the 'allComponents' checkbox
 		// this might be fixed if it's not what we want
 		// NOTE: The value in $scope.snWindows are by default float and array. As soon as
 		// we modify it in the form control, angular sends the string we input in the control
@@ -221,7 +225,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 					signal_window:$scope.snWindows.signal_window.toString()};
 			$scope.snWindows._changed = false;
 		}
-		$scope.loading = true;
+		$scope.warnMsg = "Loading...";
 		// initialize if undefined (as it is the first time we download plots)
 		if (!$scope.segData.plotData){
 			$scope.segData.plotData = new Array($scope.plots.length);
@@ -233,6 +237,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			});
 			$scope.segData.snWindows = response.data['sn_windows'];  // might be empty array
 			// update plots:
+			$scope.warnMsg = "";
 	        $scope.redrawPlots(indices);
 	    });
 	}
@@ -287,6 +292,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	$scope.redrawPlots = function(indices){
 		var plotsData = $scope.segData.plotData;
 		var plotly = $window.Plotly;
+		$scope.warnMsg = "Drawing plots...";
 		for (var i_=0; i_< indices.length; i_++){
 			var i = indices[i_];
 			var div = $scope.plots[i].div;
@@ -387,24 +393,9 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			}
 			div.data = data;
 			plotly.redraw(div);
-			
-			//use animation: (commented: it takes too much)
-//			if (!elements){
-//				continue;
-//			}			
-//			plotly.animate(div, {
-//			    data: elements.map(function(obj,idx){return {opacity: 0.95};}), // [{opacity: 0.95}],
-//			    traces: elements.map(function(obj,idx){return idx;}),
-//			    layout: {}
-//			  }, {
-//			    transition: {
-//			      duration: 500,
-//			      easing: 'cubic-in-out'
-//			    }
-//			  })
-			
+			//Note: using animation takes too much time (in case check online doc)
 		}
-		$scope.loading=false;
+		$scope.warnMsg = "";
 	};
 	
 	$scope.toggleClassLabelForCurrentSegment = function(classId){
@@ -443,38 +434,5 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	};
 	// init our app:
 	$scope.init();
-	
-	// old stuff maybe delete in the future:
-	
-	// we would like to have the click event setting the arrival time shift, but it is buggy
-	// and it works only if we click on a data point (not on the plot)
-//	$scope.plots.on('plotly_click', function(plot, index, plots, eventdata){
-//		if (index != 0 || $scope.segData._arrivalTimestamp === undefined){
-//			return;
-//		}
-//		var aTime = $scope.segData._arrivalTimestamp;
-//		var newATime = Date.parse(eventdata.points[0].x);
-//		$scope.spectraSettings.arrivalTimeDelay = parseFloat(newATime - aTime)/1000;
-//		$scope.spectraSettings._changed = true;
-//		//$scope.refreshView(); // zooms are reset after use, so this redraw normal bounds
-//	});
-	
-	// settings injected in the the main page rendering:
-	// $scope.settings = $window.__SETTINGS;
-	
-
-
-//	$scope.bottomPlotId = 3; // 3 components plot, 4: cumulative plot, 5 on: custom one (if any)
-//	$scope.bottomPlotChanged = function(){
-//		var bpIdx = parseInt($scope.bottomPlotId);
-//		$scope.plots.forEach(function(elm, index){
-//			//set visible if: is main plot or spectra (index < 2)
-//			// visibleIndex is index (normal case)
-//			// visibleIndex refers to the components plots (2 and 3)
-//			var visible = ((index < 2) || (index == bpIdx) || (bpIdx == 3 && index == 2));
-//			elm.visible = visible;
-//		});
-//		$scope.refreshView(bpIdx == 3 ? [2,3] : [bpIdx]);
-//	};
 
 }]);

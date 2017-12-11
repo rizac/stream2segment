@@ -184,48 +184,48 @@ class Test(unittest.TestCase):
         # now delete only nonnull, should return zero:
         assert self.session.query(Station).count() == 0
         
-        self.tst_test_dcanter_netloc()
+        # self.tst_test_dcanter_netloc()
 
-    def tst_test_dcanter_netloc(self):
-        
-        # return  # NETLOC IS NOT ANYMORE IMPLEMENTED!!!
-     
-    
-        dc = DataCenter(station_url='abc')
-        assert dc.netloc == 'abc'
-        # this raises cause only when fdsn ws url is supplied (either station_url or
-        # dataselect_url), then the other is addded to
-        with pytest.raises(IntegrityError):
-            self.session.add(dc)
-            self.session.commit()
-        self.session.rollback()
-        
-        # this should work:
-        dc1 = DataCenter(station_url='abc', dataselect_url='bce')
-        # add a fdsn also (we should have already one but for safety):
-        dc2 = DataCenter(station_url='http://www.blabla.org/fdsnws/station/1/query')
-        # add them
-        self.session.add_all([dc1, dc2])
-        self.session.commit()
-        # test expression:
-        dcs = self.session.query(DataCenter).all()
-        for d in dcs:
-            dcs_ = self.session.query(DataCenter.id).filter(DataCenter.netloc == d.netloc).all()
-            assert len(dcs_) >= 1
-            assert any(_[0] == d.id for _ in dcs_)
-    
-        # test some other cases:
-        dc = DataCenter(station_url='http://www.orfeus-eu.org/fdsnws/station/1/query')
-        assert dc.netloc == 'http://www.orfeus-eu.org'
-        
-        dc = DataCenter(station_url='https://eida.ethz.ch/fdsnws/station/1/query')
-        assert dc.netloc == 'https://eida.ethz.ch'
-        
-        dc = DataCenter(dataselect_url='https://eida.ethz.ch/fdsnws/dataselect/1/query')
-        assert dc.netloc == 'https://eida.ethz.ch'
-        
-        dc = DataCenter(station_url='http://geofon.gfz-potsdam.de/NOFDSNWS/dataselect/1/query')
-        assert dc.netloc == 'http://geofon.gfz-potsdam.de/NOFDSNWS/dataselect/1/query'
+#     def tst_test_dcanter_netloc(self):
+#         
+#         # return  # NETLOC IS NOT ANYMORE IMPLEMENTED!!!
+#      
+#     
+#         dc = DataCenter(station_url='abc')
+#         assert dc.netloc == 'abc'
+#         # this raises cause only when fdsn ws url is supplied (either station_url or
+#         # dataselect_url), then the other is addded to
+#         with pytest.raises(IntegrityError):
+#             self.session.add(dc)
+#             self.session.commit()
+#         self.session.rollback()
+#         
+#         # this should work:
+#         dc1 = DataCenter(station_url='abc', dataselect_url='bce')
+#         # add a fdsn also (we should have already one but for safety):
+#         dc2 = DataCenter(station_url='http://www.blabla.org/fdsnws/station/1/query')
+#         # add them
+#         self.session.add_all([dc1, dc2])
+#         self.session.commit()
+#         # test expression:
+#         dcs = self.session.query(DataCenter).all()
+#         for d in dcs:
+#             dcs_ = self.session.query(DataCenter.id).filter(DataCenter.netloc == d.netloc).all()
+#             assert len(dcs_) >= 1
+#             assert any(_[0] == d.id for _ in dcs_)
+#     
+#         # test some other cases:
+#         dc = DataCenter(station_url='http://www.orfeus-eu.org/fdsnws/station/1/query')
+#         assert dc.netloc == 'http://www.orfeus-eu.org'
+#         
+#         dc = DataCenter(station_url='https://eida.ethz.ch/fdsnws/station/1/query')
+#         assert dc.netloc == 'https://eida.ethz.ch'
+#         
+#         dc = DataCenter(dataselect_url='https://eida.ethz.ch/fdsnws/dataselect/1/query')
+#         assert dc.netloc == 'https://eida.ethz.ch'
+#         
+#         dc = DataCenter(station_url='http://geofon.gfz-potsdam.de/NOFDSNWS/dataselect/1/query')
+#         assert dc.netloc == 'http://geofon.gfz-potsdam.de/NOFDSNWS/dataselect/1/query'
         
         
         
@@ -886,35 +886,34 @@ class Test(unittest.TestCase):
         id = data[0][0]
         seg = self.session.query(Segment).filter(Segment.id == id).first()
         seg.start_time = seg.request_start
+        # seg request_end is 1 second older tahn request_start, too short to properly test
+        # durations. For instance, we erroneusly set %f in strptime in sqlite, which returns the SECONDS PART
+        # of the datetime, not the total SECONDS. We couldn't see any difference, we must see it. Thus:
+        seg.request_end += timedelta(seconds=240.564001)  # 4 minutes 
         seg.end_time = seg.request_end
         self.session.commit()
         assert seg.duration_sec == (seg.request_end-seg.request_start).total_seconds()
         
-        # duration in sec might suffers rounding problems, moreover, sqlite seems to return milliseconds
-        # as most fine resolution thus let's check is within the requested
-        # microseconds:
-        DELTA_ERR = 1e-3
-        condition = (Segment.duration_sec >= seg.duration_sec-DELTA_ERR/2) & \
-            (Segment.duration_sec <= seg.duration_sec+DELTA_ERR/2)
+        # our functions are rounded to millisecond. Thus:
+        expected_duration = round(seg.duration_sec, 3)
+        condition = (Segment.duration_sec == expected_duration)
         segs = self.session.query(Segment).filter(condition).all()
         assert len(segs) == 1
         assert segs[0].id == id
         
         assert len(self.session.query(Segment).filter(Segment.duration_sec == None).all()) == \
             len(self.session.query(Segment).all()) -1
-            
-            
-        condition = (Segment.missing_data_sec <= DELTA_ERR)
+
         assert seg.missing_data_sec == 0
+        condition = (Segment.missing_data_sec == seg.missing_data_sec)
         segs = self.session.query(Segment).filter(condition).all()
         assert len(segs) == 1
         assert segs[0].id == id
         assert len(self.session.query(Segment).filter(Segment.duration_sec == None).all()) == \
             len(self.session.query(Segment).all()) -1
-            
-        
-        condition = (Segment.missing_data_ratio <= DELTA_ERR)
+
         assert seg.missing_data_ratio == 0
+        condition = (Segment.missing_data_ratio == seg.missing_data_ratio)
         segs = self.session.query(Segment).filter(condition).all()
         assert len(segs) == 1
         assert segs[0].id == id
@@ -931,20 +930,25 @@ class Test(unittest.TestCase):
         assert seg.missing_data_sec == -(seg.request_end-seg.request_start).total_seconds()
         assert seg.missing_data_ratio == -1.0  # -100% missing data means: we got twice the data
         
-        condition = (Segment.missing_data_sec <= DELTA_ERR)
+        # our functions are rounded to millisecond. Thus:
+        expected_missing_data_sec = round(seg.missing_data_sec, 3)
+        condition = (Segment.missing_data_sec < expected_missing_data_sec)
+        segs = self.session.query(Segment).filter(condition).all()
+        # test that NULL timespans (which holds for all segments but one) are not returned
+        assert len(segs) == 0
+        condition = (Segment.missing_data_sec == expected_missing_data_sec)
         segs = self.session.query(Segment).filter(condition).all()
         assert len(segs) == 1
-        condition = (Segment.missing_data_sec <= seg.missing_data_sec + DELTA_ERR)
-        segs = self.session.query(Segment).filter(condition).all()
         assert segs[0].id == id
         assert len(self.session.query(Segment).filter(Segment.duration_sec == None).all()) == \
             len(self.session.query(Segment).all()) -1
             
         
-        condition = (Segment.missing_data_ratio <= DELTA_ERR)
+        condition = (Segment.missing_data_ratio < seg.missing_data_ratio)
         segs = self.session.query(Segment).filter(condition).all()
-        assert len(segs) == 1
-        condition = (Segment.missing_data_ratio <= seg.missing_data_ratio+ DELTA_ERR)
+        # test that NULL timespans (which holds for all segments but one) are not returned
+        assert len(segs) == 0
+        condition = (Segment.missing_data_ratio == seg.missing_data_ratio)
         segs = self.session.query(Segment).filter(condition).all()
         assert len(segs) == 1
         assert segs[0].id == id
@@ -961,27 +965,32 @@ class Test(unittest.TestCase):
         assert seg.missing_data_ratio == 0.5
         assert seg.missing_data_sec == (seg.end_time - seg.start_time).total_seconds()
         
-        condition = (Segment.missing_data_sec <= DELTA_ERR)
+        # our functions are rounded to millisecond. Thus:
+        expected_missing_data_sec = round(seg.missing_data_sec, 3)
+        condition = (Segment.missing_data_sec < expected_missing_data_sec)
         segs = self.session.query(Segment).filter(condition).all()
+        # test that NULL timespans (which holds for all segments but one) are not returned
         assert len(segs) == 0
-        condition = (Segment.missing_data_sec <= seg.missing_data_sec + DELTA_ERR)
+        condition = (Segment.missing_data_sec == expected_missing_data_sec)
         segs = self.session.query(Segment).filter(condition).all()
+        assert len(segs) == 1
         assert segs[0].id == id
         assert len(self.session.query(Segment).filter(Segment.duration_sec == None).all()) == \
             len(self.session.query(Segment).all()) -1
             
         
-        condition = (Segment.missing_data_ratio <= DELTA_ERR)
+        condition = (Segment.missing_data_ratio < seg.missing_data_ratio)
         segs = self.session.query(Segment).filter(condition).all()
+        # test that NULL timespans (which holds for all segments but one) are not returned
         assert len(segs) == 0
-        condition = (Segment.missing_data_ratio <= seg.missing_data_ratio + DELTA_ERR)
+        condition = (Segment.missing_data_ratio == seg.missing_data_ratio)
         segs = self.session.query(Segment).filter(condition).all()
         assert len(segs) == 1
         assert segs[0].id == id
         assert len(self.session.query(Segment).filter(Segment.duration_sec == None).all()) == \
             len(self.session.query(Segment).all()) -1
 
-
+        # tst event distance km:
         segs = self.session.query(Segment).all()
         for s in segs:
             dist_km = s.event_distance_km

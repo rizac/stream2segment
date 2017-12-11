@@ -76,6 +76,31 @@ def sqlite_concat(element, compiler, **kw):
     return " || ".join(compiler.process(c) for c in element.clauses)
 
 
+# two utility functions to return the timestamp from a datetime
+def _duration_sqlite(start, end):
+    '''returns the time in seconds since 1970 as floating point for of the
+    soecified argument (a datetime in sqlite format)'''
+    # note: sqlite is bizarre: they have %s: timestamp in SECONDS since 1970, %f seconds only
+    # (with three decimal digits) and %S: seconds part (integer). Thus to have a floating point
+    # value with 3 decimal digits we should do:
+    # return "round(strftime('%s',{}) + strftime('%f',{}) - strftime('%S',{}), 3)".format(dtime)
+    # However, for performance reasons we think it's sufficient to return the seconds, thus
+    # we keep it more simple with the use round at the end
+    # to coerce to float with 3 decimal digits, for safety (yes, round in sqlite returns a float)
+    # and avoid integer divisions when needed but proper floating point arithmentic
+    return ("round(strftime('%s',{1})+strftime('%f',{1})-strftime('%S',{1}) - "
+            "(strftime('%s',{0})+strftime('%f',{0})-strftime('%S',{0})), 3)").format(start, end)
+
+
+def _duration_postgres(start, end):
+    '''returns the time in seconds since 1970 as floating point for of the
+    soecified argument (a datetime in postgres format)'''
+    # Note: we use round at the end
+    # to coerce to float with 3 decimal digits, for safety
+    # and avoid integer divisions when needed but proper floating point arithmentic
+    return "round(EXTRACT(EPOCH FROM ({1}-{0}))::numeric, 3)".format(start, end)
+
+
 class duration_sec(FunctionElement):
     name = 'duration_sec'
     type = Float()
@@ -84,13 +109,13 @@ class duration_sec(FunctionElement):
 @compiles(duration_sec)
 def standard_duration_sec(element, compiler, **kw):
     starttime, endtime = [compiler.process(c) for c in element.clauses]
-    return "EXTRACT(EPOCH FROM AGE(%s, %s))" % (endtime, starttime)
+    return _duration_postgres(starttime, endtime)
 
 
 @compiles(duration_sec, 'sqlite')
 def sqlite_duration_sec(element, compiler, **kw):
     starttime, endtime = [compiler.process(c) for c in element.clauses]
-    return "strftime('%f',{}) - strftime('%f',{})".format(endtime, starttime)
+    return _duration_sqlite(starttime, endtime)
 
 
 class missing_data_sec(FunctionElement):
@@ -101,15 +126,15 @@ class missing_data_sec(FunctionElement):
 @compiles(missing_data_sec)
 def standard_missing_data_sec(element, compiler, **kw):
     start, end, request_start, request_end = [compiler.process(c) for c in element.clauses]
-    return "EXTRACT(EPOCH FROM AGE(%s, %s)) - EXTRACT(EPOCH FROM AGE(%s, %s))" % \
-        (request_end, request_start, end, start)
+    return "({1}) - ({0})".format(_duration_postgres(start, end),
+                                  _duration_postgres(request_start, request_end))
 
 
 @compiles(missing_data_sec, 'sqlite')
 def sqlite_missing_data_sec(element, compiler, **kw):
     start, end, request_start, request_end = [compiler.process(c) for c in element.clauses]
-    return "(strftime('%f',{}) - strftime('%f',{})) - (strftime('%f',{}) - strftime('%f',{}))".\
-        format(request_end, request_start, end, start)
+    return "({1}) - ({0})".format(_duration_sqlite(start, end),
+                                  _duration_sqlite(request_start, request_end))
 
 
 class missing_data_ratio(FunctionElement):
@@ -120,16 +145,15 @@ class missing_data_ratio(FunctionElement):
 @compiles(missing_data_ratio)
 def standard_missing_data_ratio(element, compiler, **kw):
     start, end, request_start, request_end = [compiler.process(c) for c in element.clauses]
-    return "1.0 - (EXTRACT(EPOCH FROM AGE(%s, %s)) / EXTRACT(EPOCH FROM AGE(%s, %s)))" % \
-        (end, start, request_end, request_start)
+    return "1.0 - (({0}) / ({1}))".format(_duration_postgres(start, end),
+                                          _duration_postgres(request_start, request_end))
 
 
 @compiles(missing_data_ratio, 'sqlite')
 def sqlite_missing_data_ratio(element, compiler, **kw):
     start, end, request_start, request_end = [compiler.process(c) for c in element.clauses]
-    return ("1.0 - ((strftime('%f',{}) - strftime('%f',{})) "
-            "/ (strftime('%f',{}) - strftime('%f',{})))").format(end, start, request_end,
-                                                                 request_start)
+    return "1.0 - (({0}) / ({1}))".format(_duration_sqlite(start, end),
+                                          _duration_sqlite(request_start, request_end))
 
 
 class deg2km(FunctionElement):
@@ -141,6 +165,20 @@ class deg2km(FunctionElement):
 def standard_deg2km(element, compiler, **kw):
     deg = compiler.process(list(element.clauses)[0])
     return "%s * (2.0 * 6371 * 3.14159265359 / 360.0)" % deg
+
+
+class substr(FunctionElement):
+    name = 'substr'
+    type = String()
+
+
+@compiles(substr)
+def standard_substr(element, compiler, **kw):
+    clauses = list(element.clauses)
+    column = compiler.process(clauses[0])
+    start = compiler.process(clauses[1])
+    leng = compiler.process(clauses[2])
+    return "substr(%s, %s, %s)" % (column, start, leng)
 
 
 def withdata(model_column):
@@ -290,44 +328,6 @@ class DataCenter(Base):
     dataselect_url = Column(String, nullable=False)
     organization_name = Column(String)
 
-#     @hybrid_property
-#     def netloc(self):
-#         """Returns the network location of the current datacenter, following urlparse.netloc
-#         This property is only intended for test purposes
-#         """
-#         # we implement our custom function to avoid useless imports
-#         address = self.station_url if self.station_url else self.dataselect_url
-#         if not address:
-#             return ''
-#         address_ = address.lower()
-#         start = 0
-#         if address_.startswith("http://"):
-#             start = 7
-#         elif address_.startswith("https://"):
-#             start = 8
-#         end = address.find("/", start)
-#         if end == -1:
-#             end = None
-#         return address[start:end]
-
-    @hybrid_property
-    def netloc(self):
-        '''Returns the network location of the given datacenter, if the dataselect_url is
-        fdsn-compliant (has '/fdsnws' in it). Otherwise returns the full dataselect_url'''
-        col = self.dataselect_url if self.dataselect_url is not None else self.station_url
-        substr = "/fdsnws"
-        idx = col.find(substr)
-        return col[:idx] if idx > -1 else col
-
-    @netloc.expression
-    def netloc(cls):  # @NoSelf
-        '''Returns the network location of the given datacenter, if the dataselect_url is
-        fdsn-compliant (has '/fdsnws' in it). Otherwise returns the full dataselect_url'''
-        col = cls.dataselect_url
-        substr = "/fdsnws"
-        return case([(strpos(col, substr) > 2, func.substr(col, 1, strpos(col, substr) - 1))],
-                    else_=col)
-
     __table_args__ = (
                       UniqueConstraint('station_url', 'dataselect_url',
                                        name='sta_data_uc'),
@@ -426,38 +426,41 @@ class Channel(Base):
     @hybrid_property
     def band_code(self):
         '''returns the first letter of the channel field, or None if the latter has not length 3'''
-        return self.channel[0] if len(self.channel) == 3 else None
+        return self.channel[0] # if len(self.channel) == 3 else None
 
     @band_code.expression
     def band_code(cls):  # @NoSelf
         '''returns the sql expression returning the first letter of the channel field,
         or NULL if the latter has not length 3'''
         # return an sql expression matching the last char or None if not three letter channel
-        return case([(func.length(cls.channel) == 3, func.substr(cls.channel, 1, 1))], else_=null())
+        return substr(cls.channel, 1, 1)
+        # return case([(func.length(cls.channel) == 3, func.substr(cls.channel, 1, 1))], else_=null())
 
     @hybrid_property
     def instrument_code(self):
         '''returns the second letter of the channel field, or None if the latter has not length 3'''
-        return self.channel[1] if len(self.channel) == 3 else None
+        return self.channel[1] # if len(self.channel) == 3 else None
 
     @instrument_code.expression
     def instrument_code(cls):  # @NoSelf
         '''returns the sql expression returning the second letter of the channel field,
         or NULL if the latter has not length 3'''
         # return an sql expression matching the last char or None if not three letter channel
-        return case([(func.length(cls.channel) == 3, func.substr(cls.channel, 2, 1))], else_=null())
+        return substr(cls.channel, 2, 1)
+        # return case([(func.length(cls.channel) == 3, func.substr(cls.channel, 2, 1))], else_=null())
 
     @hybrid_property
     def orientation_code(self):
         '''returns the third letter of the channel field, or None if the latter has not length 3'''
-        return self.channel[2] if len(self.channel) == 3 else None
+        return self.channel[2] # if len(self.channel) == 3 else None
 
     @orientation_code.expression
     def orientation_code(cls):  # @NoSelf
         '''returns the sql expression returning the third letter of the channel field,
         or NULL if the latter has not length 3'''
         # return an sql expression matching the last char or None if not three letter channel
-        return case([(func.length(cls.channel) == 3, func.substr(cls.channel, 3, 1))], else_=null())
+        return substr(cls.channel, 3, 1)
+        #return case([(func.length(cls.channel) == 3, func.substr(cls.channel, 3, 1))], else_=null())
 
     __table_args__ = (
                       UniqueConstraint('station_id', 'location', 'channel',
@@ -501,7 +504,10 @@ class Segment(Base):
 
     @hybrid_property
     def duration_sec(self):
-        return (self.end_time - self.start_time).total_seconds()
+        try:
+            return (self.end_time - self.start_time).total_seconds()
+        except TypeError:  # some None's
+            return None
 
     @duration_sec.expression
     def duration_sec(cls):  # @NoSelf
@@ -509,8 +515,11 @@ class Segment(Base):
 
     @hybrid_property
     def missing_data_sec(self):
-        return (self.request_end - self.request_start).total_seconds() - \
-            (self.end_time - self.start_time).total_seconds()
+        try:
+            return (self.request_end - self.request_start).total_seconds() - \
+                (self.end_time - self.start_time).total_seconds()
+        except TypeError:  # some None's
+            return None
 
     @missing_data_sec.expression
     def missing_data_sec(cls):  # @NoSelf
@@ -518,8 +527,11 @@ class Segment(Base):
 
     @hybrid_property
     def missing_data_ratio(self):
-        return 1.0 - ((self.end_time - self.start_time).total_seconds() /
-                      (self.request_end - self.request_start).total_seconds())
+        try:
+            return 1.0 - ((self.end_time - self.start_time).total_seconds() /
+                          (self.request_end - self.request_start).total_seconds())
+        except TypeError:  # some None's
+            return None
 
     @missing_data_ratio.expression
     def missing_data_ratio(cls):  # @NoSelf
@@ -551,9 +563,12 @@ class Segment(Base):
 
     @hybrid_property
     def seed_identifier(self):
-        return self.data_identifier or \
-            ".".join([self.station.network, self.station.station,
+        try:
+            return self.data_identifier or \
+                ".".join([self.station.network, self.station.station,
                       self.channel.location, self.channel.channel])
+        except (TypeError, AttributeError):
+            return None
 
     @seed_identifier.expression
     def seed_identifier(cls):  # @NoSelf

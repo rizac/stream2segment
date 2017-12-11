@@ -106,17 +106,17 @@ class Plot(object):
                         trace.stats.delta, trace.data,
                         trace.get_id() if label is None else label)
 
-    def merge(self, *plots):
-        '''Merge this Plot with all other plots. Preserves the `warnings` of the current plot
-        discarding potential `warnings` in the other plots
-        :return: A new Plot with all plots series
-        '''
-        ret = Plot(title=self.title, warnings=self.warnings)
-        ret.data = list(self.data)
-        # _warnings = []
-        for p in plots:
-            ret.data.extend(p.data)
-        return ret
+#     def merge(self, *plots):
+#         '''Merge this Plot with all other plots. Preserves the `warnings` of the current plot
+#         discarding potential `warnings` in the other plots
+#         :return: A new Plot with all plots series
+#         '''
+#         ret = Plot(title=self.title, warnings=self.warnings)
+#         ret.data = list(self.data)
+#         # _warnings = []
+#         for p in plots:
+#             ret.data.extend(p.data)
+#         return ret
 
     def tojson(self, xbounds=None, npts=-1):  # this makes the current class json serializable
         '''Returns a json-serializable representation of this Plot. Basically, it returns
@@ -188,20 +188,15 @@ class Plot(object):
         return start, end
 
     @staticmethod
-    def fromstream(stream, title=None, warnings=None, check_same_seedid=False):
+    def fromstream(stream, title=None, warnings=None):
         p = Plot(title, warnings)
-        seedid = None
-        for i, t in enumerate(stream):
-            p.addtrace(t)
-            if i == 0:
-                seedid = t.get_id()
-            elif seedid is not None and seedid != t.get_id():
-                p.warnings += ['Traces with different seed ids in stream']
-                seedid = None
-        if title is None and seedid is not None:
-            p.title = seedid
-            for i, d in enumerate(p.data, 1):  # clear label for all line series (traces):
-                d[-1] = 'chunk %d' % i
+        same_trace = len(set([t.get_id() for t in stream])) == 1
+        for i, t in enumerate(stream, 1):
+            p.addtrace(t, 'chunk %d' % i if same_trace else t.get_id())
+        if title is None and same_trace:
+            p.title = stream[0].get_id()
+        if not warnings and same_trace and len(stream) > 1:
+            p.warnings = ['Gaps/overlaps']
         return p
 
     @staticmethod
