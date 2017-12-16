@@ -120,35 +120,6 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			return; // FIXME: better handling!!!!
 		}
 		$scope.refreshView(undefined, true);
-//		var zooms = [];
-//		var param = {seg_id: $scope.segIds[index], metadata: true, classes:true, warnings: true};
-//		$scope.warnMsg = "Loading...";
-//		$http.post("/get_segment", param, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
-//			var metadata = response.data.metadata || [];
-//			// create segMetadata and set it to $scope.segData.metadata
-//			// the variable has to be parsed in order to order keys and values according to
-//			// our choice:
-//			var segMetadata = {'segment': {}, 'event': {}, 'channel': {}, 'station': {}};
-//			// note that metadata is an array of 2-element arrays: [[key, value], ...]
-//			metadata.forEach(function(elm, index){
-//				var key = elm[0];
-//				var val = elm[1];
-//				var elms = key.split(".");
-//				if (elms.length == 1){
-//					elms = ["segment", elms[0]];
-//				}
-//				if (!(elms[0] in segMetadata)){
-//					segMetadata[elms[0]] = {};
-//				}
-//				segMetadata[elms[0]][elms[1]] = val;
-//			});
-//			$scope.segData.metadata = segMetadata;
-//			$scope.segData.classIds = response.data.classes;  // array of class ids
-//			$scope.segData.warnings = response.data.warnings;  // FIXME: need to set it up!
-//			$scope.warnMsg = "";
-//	        // update plots:
-//			$scope.refreshView();
-//	    });
 	};
 	
 	/** HANDLING ALL EVENTS TOGGLING A PLOT REQUEST **/
@@ -198,8 +169,10 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		$scope.refreshView([0]);
 	}
 	
-	/** THIS FUNCTION GETS THE CURRENT PLOTS. Puts the data in $scope.segData.plotData **/
 	$scope.refreshView = function(indices, refreshMetadata){
+		/**
+		 * Main function that updates the plots and optionally updates the segment metadata
+		 */
 		var index = $scope.segIdx;
 		if (index < 0){
 			return;
@@ -210,12 +183,9 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		var zooms = $scope.getAndClearZooms();
 		var param = {seg_id: $scope.segIds[index], pre_processed: $scope.showPreProcessed, zooms:zooms,
 					 plot_indices: indices, all_components: $scope.showAllComponents};
-		// if we changed the results of the sn-windows then send data. Note that we might
-		// be here if we toggled e.g., the pre-process checkbox or the 'allComponents' checkbox
-		// this might be fixed if it's not what we want
 		// NOTE: The value in $scope.snWindows are by default float and array. As soon as
-		// we modify it in the form control, angular sends the string we input in the control
-		// So to be consistent pass always string with toString(): the server knows we need to
+		// we modify it in the form control, they became strings.
+		// So to be consistent, pass always string with toString(): the server knows we need to
 		// parse them back (server side)
 		if ($scope.snWindows._changed){
 			param.sn_windows = {arrival_time_shift: $scope.snWindows.arrival_time_shift.toString(),

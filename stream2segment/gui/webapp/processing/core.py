@@ -23,7 +23,7 @@ from stream2segment.gui.webapp.processing.plots.jsplot import jsontimestamp
 # from stream2segment.io.db import sqlevalexpr
 from stream2segment.utils.resources import yaml_load_doc, get_templates_fpath
 from stream2segment.io.db.sqlevalexpr import exprquery
-from sqlalchemy.orm.strategy_options import load_only
+from sqlalchemy.orm import load_only
 from stream2segment.process.utils import getseg
 
 
@@ -135,13 +135,12 @@ def get_metadata(session, seg_id=None):
 
 
 def toggle_class_id(session, segment_id, class_id):
-    segment = session.auery(Segment).options(load_only(Segment.id)).first()
+    segment = session.query(Segment).options(load_only(Segment.id)).first()
     clz = segment.classes
     if any(c.id == class_id for c in clz):
         segment.del_classes(class_id)
     else:
         segment.add_classes(class_id)
-
     # re-query the database to be sure:
     return {'classes': get_classes(session),
             'segment_class_ids': get_classes(session, segment_id)}
@@ -161,21 +160,6 @@ def get_classes(session, seg_id=None):
         join(ClassLabelling, ClassLabelling.class_id == Class.id).group_by(Class.id).\
         order_by(Class.id)
     return [{name: val for name, val in zip(colnames, d)} for d in data]
-#     clazzes = session.query(Class).all()
-#     ret = []
-#     colz = list(colnames(Class))
-#     for c in clazzes:
-#         row = {}
-#         for col in colz:
-#             row[col] = getattr(c, col)
-#         # https://stackoverflow.com/questions/14754994/why-is-sqlalchemy-count-much-slower-than-the-raw-query
-#         rowcount = session.query(func.count(ClassLabelling.id)).\
-#             filter(ClassLabelling.class_id == c.id).scalar()
-#         row['count'] = rowcount
-# #         session.query(ClassLabelling).\
-# #             filter(ClassLabelling.class_id == c.id).count()  # FIX COUNT AS FUNC COUNT
-#         ret.append(row)
-#     return ret
 
 
 def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components, preprocessed,

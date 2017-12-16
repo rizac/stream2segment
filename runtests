@@ -10,7 +10,7 @@ do
 		echo "CALLS: pytest ./tests -x --ignore=./tests/skip --cov=./stream2segment [PYTESTARGS]"
 		echo 
 		echo "Example:"
-		echo "DB_URL=postgresql://user:password@localhost/s2s_test runtests -x --cov-report=html"
+		echo "DB_URL=postgresql://user:password@localhost/s2s_test ./runtests --cov-report=html"
 		echo 
 		echo "Notes: "
 		echo "	DB_URL is a custom url to a database to be used (supported is postgres and sqlite)"
