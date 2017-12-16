@@ -23,6 +23,8 @@ from stream2segment.gui.webapp.processing.plots.jsplot import jsontimestamp
 # from stream2segment.io.db import sqlevalexpr
 from stream2segment.utils.resources import yaml_load_doc, get_templates_fpath
 from stream2segment.io.db.sqlevalexpr import exprquery
+from sqlalchemy.orm.strategy_options import load_only
+from stream2segment.process.utils import getseg
 
 
 NPTS_WIDE = 900  # FIXME: automatic retrieve by means of Segment class relationships?
@@ -69,7 +71,7 @@ def get_metadata(session, seg_id=None):
     string representation of the column python type (str, datetime,...), in the latter,
     it is the value of `segment` for that column'''
     if seg_id is not None:
-        segment = session.query(Segment).filter(Segment.id == seg_id).first()
+        segment = getseg(session, seg_id)
         if not segment:
             return []
     else:
@@ -133,43 +135,16 @@ def get_metadata(session, seg_id=None):
 
 
 def toggle_class_id(session, segment_id, class_id):
-    elms = session.query(ClassLabelling).\
-        filter((ClassLabelling.class_id == class_id) &
-               (ClassLabelling.segment_id == segment_id)).all()
-
-    if elms:
-        for elm in elms:
-            session.delete(elm)
+    segment = session.auery(Segment).options(load_only(Segment.id)).first()
+    clz = segment.classes
+    if any(c.id == class_id for c in clz):
+        segment.del_classes(class_id)
     else:
-        sca = ClassLabelling(class_id=class_id, segment_id=segment_id, is_hand_labelled=True)
-        session.add(sca)
-
-    try:
-        session.commit()
-    except SQLAlchemyError as _:
-        session.rollback()
+        segment.add_classes(class_id)
 
     # re-query the database to be sure:
     return {'classes': get_classes(session),
             'segment_class_ids': get_classes(session, segment_id)}
-
-
-def set_classes(session, config):
-    classes = config.get('class_labels', [])
-    if not classes:
-        return
-    # do not add already added classes:
-    clazzes = {c.label: c for c in session.query(Class)}
-    for label, description in classes.items():
-        cla = None
-        if label in clazzes and clazzes[label].description != description:
-            cla = clazzes[label]
-            cla.description = description  # update
-        elif label not in clazzes:
-            cla = Class(label=label, description=description)
-        if cla is not None:
-            session.add(cla)
-    session.commit()
 
 
 def get_classes(session, seg_id=None):
@@ -178,23 +153,29 @@ def get_classes(session, seg_id=None):
     {table_column: row_value}. The dict will have also a "count" attribute
     denoting how many segments have that class set'''
     if seg_id is not None:
-        segment = session.query(Segment).filter(Segment.id == seg_id).first()
-        return [] if not segment else [c.id for c in segment.classes]
-    clazzes = session.query(Class).all()
-    ret = []
-    colz = list(colnames(Class))
-    for c in clazzes:
-        row = {}
-        for col in colz:
-            row[col] = getattr(c, col)
-        # https://stackoverflow.com/questions/14754994/why-is-sqlalchemy-count-much-slower-than-the-raw-query
-        rowcount = session.query(func.count(ClassLabelling.id)).\
-            filter(ClassLabelling.class_id == c.id).scalar()
-        row['count'] = rowcount
-#         session.query(ClassLabelling).\
-#             filter(ClassLabelling.class_id == c.id).count()  # FIX COUNT AS FUNC COUNT
-        ret.append(row)
-    return ret
+        segment = getseg(session, seg_id)
+        return [] if not segment else sorted(c.id for c in segment.classes)
+
+    colnames = [Class.id.key, Class.label.key, 'count']
+    data = session.query(Class.id, Class.label, func.count(ClassLabelling.id).label(colnames[-1])).\
+        join(ClassLabelling, ClassLabelling.class_id == Class.id).group_by(Class.id).\
+        order_by(Class.id)
+    return [{name: val for name, val in zip(colnames, d)} for d in data]
+#     clazzes = session.query(Class).all()
+#     ret = []
+#     colz = list(colnames(Class))
+#     for c in clazzes:
+#         row = {}
+#         for col in colz:
+#             row[col] = getattr(c, col)
+#         # https://stackoverflow.com/questions/14754994/why-is-sqlalchemy-count-much-slower-than-the-raw-query
+#         rowcount = session.query(func.count(ClassLabelling.id)).\
+#             filter(ClassLabelling.class_id == c.id).scalar()
+#         row['count'] = rowcount
+# #         session.query(ClassLabelling).\
+# #             filter(ClassLabelling.class_id == c.id).count()  # FIX COUNT AS FUNC COUNT
+#         ret.append(row)
+#     return ret
 
 
 def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components, preprocessed,
@@ -230,7 +211,6 @@ def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components,
     2-element numeric list: [noise_window_start, noise_window_end],
     [signal_window_start, signal_window_end]
     """
-    # segment = session.query(Segment).filter(Segment.id == seg_id).first()
     plots = []
     zooms_ = parse_zooms(zooms, plot_indices)
     sn_windows = []
@@ -254,11 +234,6 @@ def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components,
                                                         preprocessed, [])]
         except Exception:
             sn_windows = []
-    else:
-        # load stream data. This does not query the session if the segment is already loaded,
-        # Otherwise, it not query the session again when querying for plot data later
-        index_of_main_plot = 0
-        plotmanager.get_plots(session, seg_id, [index_of_main_plot], False, False)
 
     return {'plots': [p.tojson(z, NPTS_WIDE) for p, z in zip(plots, zooms_)],
             'sn_windows': sn_windows,

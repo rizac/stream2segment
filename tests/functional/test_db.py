@@ -506,7 +506,7 @@ class Test(unittest.TestCase):
 #         self.session.rollback()
 
 
-    def test_event_sta_channel_seg(self):
+    def test_eventstachannelseg_hybridatts_colnames(self):
         dc= DataCenter(station_url="345fbgfnyhtgrefs", dataselect_url='edfawrefdc')
         self.session.add(dc)
 
@@ -662,23 +662,23 @@ class Test(unittest.TestCase):
         self.session.add_all(labelings)
         self.session.commit()
 
-        assert not seg.classes.all()
-        assert len(seg__1.classes.all()) == 2
-        assert len(seg__2.classes.all()) == 1
+        assert not seg.classes
+        assert len(seg__1.classes) == 2
+        assert len(seg__2.classes) == 1
         
         # test on update and on delete:
         old_labellings = sorted([labelings[0].class_id, labelings[1].class_id])
-        assert sorted(c.id for c in seg__1.classes.all()) == old_labellings
+        assert sorted(c.id for c in seg__1.classes) == old_labellings
         # NOTE: DOING THIS WITH SQLITE MSUT HAVE PRAGMA foreign key = ON issued
         #THIS IS DONE BY DEFAULT IN py, BUT WATCH OUT!!:
         old_clabel1_id = clabel1.id
         clabel1.id=56
         self.session.commit()
         # this still equal (sqlalachemy updated also labellings)
-        assert sorted(c.id for c in seg__1.classes.all()) == sorted([labelings[0].class_id, labelings[1].class_id])
-        assert sorted(c.id for c in seg__1.classes.all()) != old_labellings
-        assert 56 in [c.id for c in seg__1.classes.all()]
-        assert old_clabel1_id not in [c.id for c in seg__1.classes.all()]
+        assert sorted(c.id for c in seg__1.classes) == sorted([labelings[0].class_id, labelings[1].class_id])
+        assert sorted(c.id for c in seg__1.classes) != old_labellings
+        assert 56 in [c.id for c in seg__1.classes]
+        assert old_clabel1_id not in [c.id for c in seg__1.classes]
 
         # Create a copy of the instance, with same value.
         # We should excpect a UniqueConstraint
@@ -758,34 +758,35 @@ class Test(unittest.TestCase):
         qry = self.session.query(Station).filter(Station.segments.any(flt)).all()
         assert len(qry) == 1
         
-        self.tst_hybrid_atts()
-       
         
-        self.tst_get_cols(seg)
+        ###########################################
+        #
+        # TESTING HYBRID ATTRIBUTES
+        #
+        ###########################################
+        
 
-
-    def tst_hybrid_atts(self):
         # when called from the method above, this is the situation now:
         
         # segments:
-        #       id has_data
-        #  0  1111 False
-        #  1  1112 False
-        #  2     2 True
-        #  3     3 False
+        #       id  has_data 
+        #  0     3     False
+        #  1     4     False
+        #  2     5     False
+        #  3  1112      True
 
         # classes:
-        #      id
-        #  0    5
-        #  1    6
-        #  2    8
-        #  3   56
+        #     id   label
+        #  0   2  class2
+        #  1  56  class1
+        #  
+        #  
         
         # class_labellings:
         #     segment_id  class_id
-        #  0           2         8
-        #  1           2        56
-        #  2           3        56
+        #  0           3         2
+        #  1           3        56
+        #  2           4        56
         
         # test has_data as query argument
         q1 = self.session.query(withdata(Segment.data))
@@ -816,21 +817,47 @@ class Test(unittest.TestCase):
         
         
         # NOTe however that join returns dupes:
-        qry1 = sorted([x[0] for x in self.session.query(Segment.id).join(Segment.classes).filter(Segment.has_class()).all()])
-        qry2 = sorted([x[0] for x in self.session.query(Segment.id).filter(Segment.has_class()).all()])
-        
-        
-        exprquery(self.session.query(Segment), {"classes.id": '2'})
-        
+        qry1 = sorted([x[0] for x in self.session.query(Segment.id).join(Segment.classes).filter(Segment.has_class).all()])
+        qry2 = sorted([x[0] for x in self.session.query(Segment.id).filter(Segment.has_class).all()])
         assert len(qry1) ==3
         assert len(qry2) == 2
-
         # we should do like this
-        qry1b = sorted([x[0] for x in self.session.query(Segment.id).join(Segment.classes).filter(Segment.has_class()).distinct().all()])
-        
+        qry1b = sorted([x[0] for x in self.session.query(Segment.id).join(Segment.classes).filter(Segment.has_class).distinct().all()])
         assert len(qry1b) == 2
         assert qry1b == qry2
+        # test the opposite
+        qry1d = sorted([x[0] for x in self.session.query(Segment.id).filter(~Segment.has_class).all()])
+        qry1e = sorted([x[0] for x in self.session.query(Segment.id).filter(Segment.has_class==False).all()])
+        assert len(qry1d) == len(qry1e) == self.session.query(Segment).count() - len(qry1b)
         
+        assert all(q.has_class for q in self.session.query(Segment).filter(Segment.has_class))
+        assert all(not q.has_class for q in self.session.query(Segment).filter(~Segment.has_class))
+        
+        # Test exprquery with classes (have a look above at the db classes):
+        a = exprquery(self.session.query(Segment.id), {"classes.id": '56'})
+        expected = self.session.query(ClassLabelling.segment_id).filter(ClassLabelling.class_id == 56)
+        assert sorted([_[0] for _ in a]) == sorted([_[0] for _ in expected])
+        
+        a = exprquery(self.session.query(Segment.id), {"classes.id": '[56, 57]'})
+        expected = self.session.query(ClassLabelling.segment_id).filter((ClassLabelling.class_id >= 56) &
+                                                                        (ClassLabelling.class_id <= 57))
+        assert sorted([_[0] for _ in a]) == sorted([_[0] for _ in expected])
+        
+        a = exprquery(self.session.query(Segment.id), {"classes.id": '(56, 57]'}).all()
+        expected = self.session.query(ClassLabelling.segment_id).filter((ClassLabelling.class_id > 56) &
+                                                                        (ClassLabelling.class_id <= 57))
+        assert not a and sorted([_[0] for _ in a]) == sorted([_[0] for _ in expected])
+        
+        a = exprquery(self.session.query(Segment.id), {"classes.label": '"a" "b" "class2"'}).all()
+        expected = [[s.id] for s in self.session.query(Segment) if any(c.label in ("a", "b", "class2") for c in s.classes)]
+        assert sorted([_[0] for _ in a]) == sorted([_[0] for _ in expected])
+
+        a = exprquery(self.session.query(Segment.id), {"classes.label": "null"}).all()
+        expected = [[s.id] for s in self.session.query(Segment) if any(c.label is None for c in s.classes)]
+        assert sorted([_[0] for _ in a]) == sorted([_[0] for _ in expected])
+        
+        # Remember exprequeries do not work withh hybrid methods!!
+
         # Thus: we have basically 3 types of query:
         # stations with data: use query, not hybrid attrs (in download.main)
         # segments with data, stations with inventory data: use hybrid attrs (in process.core)
@@ -996,9 +1023,12 @@ class Test(unittest.TestCase):
             dist_km = s.event_distance_km
             zegs = self.session.query(Segment).filter(Segment.event_distance_km == dist_km).all()
             assert any(s.id == z.id for z in zegs)
-                
 
-    def tst_get_cols(self, seg):
+        #######################################
+        #
+        # TESTING COLNAMES (IN PDSQL module)
+        #
+        #######################################
         
         clen = len(seg.__class__.__table__.columns)
         
@@ -1026,6 +1056,129 @@ class Test(unittest.TestCase):
         c = list(colnames(seg.__class__, nullable=False))
         assert len(c) == clen -  expected_nullables
 
+    
+    def test_optimized_rel_query(self):   
+        '''when processing stuff, we detailed one can access seismic metadata stuff
+        via relationships. This might be highly time consuming because the whole instance
+        is loaded when maybe there is just one attribute to load. We implemented a 'get'
+        method to optimize this, and we want to test it's faster'''
+        
+        # buildup a db first:
+        dc= DataCenter(station_url="345fbgfnyhtgrefs", dataselect_url='edfawrefdc')
+        self.session.add(dc)
+        self.session.commit()
+        utcnow = datetime.utcnow()
+        run = Download(run_time=utcnow)
+        self.session.add(run)
+        ws = WebService(url='webserviceurl')
+        self.session.add(ws)
+        self.session.commit()
+        N = 100
+        id = '__abcdefghilmnopq'
+        events =[Event(eventid=id+str(i), webservice_id=ws.id, time=utcnow+timedelta(seconds=i),
+                  latitude=89.5, longitude=6,
+                         depth_km=7.1, magnitude=56) for i in range(N)]
+        self.session.add_all(events)
+        self.session.commit()
+        d = datetime.utcnow()
+        s = Station(network='sdf', datacenter_id=dc.id, station='_', latitude=90, longitude=-45,
+                    start_time=d)
+        self.session.add(s)
+        c = Channel(location= 'tyu', channel='rty', sample_rate=6)
+        s.channels.append(c)
+        self.session.commit()
+        segs= [Segment(event_id=event.id,
+                          channel_id=c.id,
+                          datacenter_id=dc.id,
+                          download_id=run.id,
+                          request_start=datetime.utcnow(),
+                          request_end=datetime.utcnow(),
+                          event_distance_deg=9,
+                          arrival_time=datetime.utcnow(),
+                          data=b'') for event in events]
+        self.session.add_all(segs)
+        self.session.commit()
+        
+        seg = self.session.query(Segment).first()
+        # test seismic metadata (get)
+        staid, evtm, did = seg.get(Station.id, Event.magnitude, Download.id)
+        assert staid == seg.channel.station_id
+        assert evtm == seg.event.magnitude
+        assert did == seg.download_id
+        
+        # test perfs
+        t = time.time()
+        for i in range(N):
+            staid = seg.station.id
+            evtm = seg.event.id
+            did = seg.download.id
+        t1 = time.time() - t 
+        
+        t = time.time()
+        for i in range(N):
+            staid, evtid, did = seg.get(Station.id, Event.magnitude, Download.id)
+        t2 = time.time() - t 
+        # this is true:
+        assert t1 < t2
+        # WHAT? it's because sql-allchemy caches objects, so requiring to the SAME segment the same
+        # attributes does not need to issue a db query, which our 'get' does. To test properly, we should
+        # create tons of segments. So:
+        t = time.time()
+        for seg in segs:
+            staid = seg.station.id
+            evtm = seg.event.id
+            did = seg.download.id
+            chid = seg.channel.id
+            mgr = seg.maxgap_numsamples
+        t1 = time.time() - t 
+        
+        t = time.time()
+        for seg in segs:
+            staid, evtid, did, chid, mgr = seg.get(Station.id, Event.magnitude, Download.id,
+                                                   Channel.id, Segment.maxgap_numsamples)
+        t2 = time.time() - t 
+        # NOW is true:
+        # assert t1 > t2
+        
+        #####################################
+        #
+        # Testing segment.set/add/del_calsses
+        #
+        #####################################
+        
+        self.session.add_all([Class(id=1, label='class1'), Class(id=2, label='class2')])
+        self.session.commit()
+        
+        assert len(self.session.query(ClassLabelling).all()) == 0
+        
+        # add a class
+        seg = self.session.query(Segment).first()
+        seg.add_classes('class1')
+        assert len(self.session.query(ClassLabelling).all()) == 1
+        assert self.session.query(ClassLabelling).first().segment_id==seg.id
+        assert self.session.query(ClassLabelling).first().class_id==1
+        # add again:
+        seg.add_classes(1, 'class1')
+        assert len(self.session.query(ClassLabelling).all()) == 1
+        assert self.session.query(ClassLabelling).first().segment_id==seg.id
+        assert self.session.query(ClassLabelling).first().class_id==1
+        # set a class
+        seg.set_classes(2)
+        assert len(self.session.query(ClassLabelling).all()) == 1
+        assert self.session.query(ClassLabelling).first().segment_id==seg.id
+        assert self.session.query(ClassLabelling).first().class_id==2
+        # delete a class
+        seg.del_classes(2)
+        assert len(self.session.query(ClassLabelling).all()) == 0
+        # add two classes
+        seg.set_classes(2, 'class2', 'class1')
+        assert len(self.session.query(ClassLabelling).all()) == 2
+        clbls = self.session.query(ClassLabelling).all()
+        assert len(clbls) == 2
+        assert sorted(_.segment_id for _ in clbls)==[seg.id, seg.id]
+        assert sorted(_.class_id for _ in clbls)==[1, 2]
+        
+        
         
     def test_harmonize_columns(self):
 
@@ -1121,12 +1274,15 @@ class Test(unittest.TestCase):
         assert pd.notnull(dfx.loc[0, Event.latitude.key])
         
 
-# ====================================================================================================
-# THE TESTS BELOW ARE ACTUALLY TO GET INSIGHTS ON SQLALCHEMY, or they tests code not existing anymore.
+#############################################################
+#
+# THE TESTS BELOW ARE ACTUALLY TO GET INSIGHTS ON SQLALCHEMY,
+# or they tests code not existing anymore.
 # THUS we do not maintain them anymore and WE CALL THEM TST_*
+#
+#############################################################
 
-
-    def tst_query_get(self):
+    def tst_OLD_query_get(self):
         # query.get() is special in that it provides direct access to the identity map of the owning
         # Session. If the given primary key identifier is present in the local identity map,
         # the object is returned directly from this collection and no SQL is emitted,
@@ -1160,7 +1316,7 @@ class Test(unittest.TestCase):
         assert staq is None
 
 
-    def tst_add_and_flush(self):
+    def tst_OLD_add_and_flush(self):
         # bad event entry (no id):
         e = Event(time = datetime.utcnow(), latitude = 6, longitude=8, depth_km=6,
                          magnitude=56)
@@ -1194,38 +1350,6 @@ class Test(unittest.TestCase):
         
         assert len(self.session.query(Event).all()) == events+1
 
-
-
-    # WHAT DO WE DO HERE BELOW??? test some pandas to_sql and then?
-    # in any case, this method does not test ANY of our code anymore, so skip it        
-    def tst_pd_to_sql(self):
-        dc = DataCenter(station_url='awergedfbvdbfnhfsnsbstndggf ',
-                               dataselect_url='edf')
-        self.session.add(dc)
-        self.session.commit()
-        
-        id = 'abcdefghilmnopq'
-        utcnow = datetime.utcnow()
-        e = Station(id="a.b", network='a', datacenter_id=dc.id, station='b', latitude=56, longitude=78)
-        self.session.add(e)
-        self.session.commit()
-    
-        stacolnames = list(colnames(Station))
-        df = pd.DataFrame(columns=stacolnames, data=[[None for _ in stacolnames]])
-        df.loc[0, 'id'] = id + '.j'
-        df.loc[0, 'network'] = id
-        df.loc[0, 'datacenter_id'] = dc.id
-        df.loc[0, 'station'] = 'j'
-        df.loc[0, 'latitude'] = 43
-        df.loc[0, 'longitude'] = 56.7
-        # df.loc[0, 'datacenter_id'] = dc.id
-        
-        df.to_sql(e.__table__.name, self.engine, if_exists='append', index=False)
-         
-        # same id as above, but check that data exist (i.e., error)
-        df.loc[0, 'id'] = id
-        with pytest.raises(IntegrityError):
-            df.to_sql(e.__table__.name, self.engine, if_exists='append', index=False)
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']

@@ -27,7 +27,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		});
 	};
 	
-	$scope.bottomPlotId = 2;
+	$scope.customPlotId = 2;
 	$scope.showPreProcessed = true;
 	$scope.showAllComponents = false;
 	$scope.classes = [];
@@ -119,36 +119,36 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		if (index < 0){
 			return; // FIXME: better handling!!!!
 		}
-		
-		var zooms = [];
-		var param = {seg_id: $scope.segIds[index], metadata: true, classes:true, warnings: true};
-		$scope.warnMsg = "Loading...";
-		$http.post("/get_segment", param, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
-			var metadata = response.data.metadata || [];
-			// create segMetadata and set it to $scope.segData.metadata
-			// the variable has to be parsed in order to order keys and values according to
-			// our choice:
-			var segMetadata = {'segment': {}, 'event': {}, 'channel': {}, 'station': {}};
-			// note that metadata is an array of 2-element arrays: [[key, value], ...]
-			metadata.forEach(function(elm, index){
-				var key = elm[0];
-				var val = elm[1];
-				var elms = key.split(".");
-				if (elms.length == 1){
-					elms = ["segment", elms[0]];
-				}
-				if (!(elms[0] in segMetadata)){
-					segMetadata[elms[0]] = {};
-				}
-				segMetadata[elms[0]][elms[1]] = val;
-			});
-			$scope.segData.metadata = segMetadata;
-			$scope.segData.classIds = response.data.classes;  // array of class ids
-			$scope.segData.warnings = response.data.warnings;  // FIXME: need to set it up!
-			// update plots:
-			$scope.warnMsg = "";
-	        $scope.refreshView();
-	    });
+		$scope.refreshView(undefined, true);
+//		var zooms = [];
+//		var param = {seg_id: $scope.segIds[index], metadata: true, classes:true, warnings: true};
+//		$scope.warnMsg = "Loading...";
+//		$http.post("/get_segment", param, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
+//			var metadata = response.data.metadata || [];
+//			// create segMetadata and set it to $scope.segData.metadata
+//			// the variable has to be parsed in order to order keys and values according to
+//			// our choice:
+//			var segMetadata = {'segment': {}, 'event': {}, 'channel': {}, 'station': {}};
+//			// note that metadata is an array of 2-element arrays: [[key, value], ...]
+//			metadata.forEach(function(elm, index){
+//				var key = elm[0];
+//				var val = elm[1];
+//				var elms = key.split(".");
+//				if (elms.length == 1){
+//					elms = ["segment", elms[0]];
+//				}
+//				if (!(elms[0] in segMetadata)){
+//					segMetadata[elms[0]] = {};
+//				}
+//				segMetadata[elms[0]][elms[1]] = val;
+//			});
+//			$scope.segData.metadata = segMetadata;
+//			$scope.segData.classIds = response.data.classes;  // array of class ids
+//			$scope.segData.warnings = response.data.warnings;  // FIXME: need to set it up!
+//			$scope.warnMsg = "";
+//	        // update plots:
+//			$scope.refreshView();
+//	    });
 	};
 	
 	/** HANDLING ALL EVENTS TOGGLING A PLOT REQUEST **/
@@ -177,17 +177,14 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	
 	// this function sets the currently visible bottom plots. Note that by default
 	// plots in [0,1] are visible (normal trace + sn-spectra)
-	$scope.bottomPlotChanged = function(){
-		var bpIdx = parseInt($scope.bottomPlotId);
+	$scope.customPlotChanged = function(){
+		var cpIdx = parseInt($scope.customPlotId);
 		$scope.plots.forEach(function(elm, index){
-			//set visible if: is main plot or spectra (index < 2)
-			// visibleIndex is index (normal case)
-			// visibleIndex refers to the components plots (2 and 3)
 			if (index > 1){
-				elm.visible = (index == bpIdx);
+				elm.visible = (index == cpIdx);
 			}
 		});
-		$scope.refreshView();
+		$scope.refreshView([cpIdx]);
 	};
 	
 	$scope.togglePreProcess = function(){
@@ -202,7 +199,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	}
 	
 	/** THIS FUNCTION GETS THE CURRENT PLOTS. Puts the data in $scope.segData.plotData **/
-	$scope.refreshView = function(indices){
+	$scope.refreshView = function(indices, refreshMetadata){
 		var index = $scope.segIdx;
 		if (index < 0){
 			return;
@@ -231,16 +228,50 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			$scope.segData.plotData = new Array($scope.plots.length);
 			$scope.segData.snWindows = [];
 		}
+		if(refreshMetadata){
+			param.metadata = true;
+			param.classes = true
+			param.warnings = true; // NOT USED
+		}
+		
 		$http.post("/get_segment", param, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
 			response.data.plots.forEach(function(elm, idx){
 				$scope.segData.plotData[indices[idx]] = elm;
 			});
 			$scope.segData.snWindows = response.data['sn_windows'];  // might be empty array
+			// update metadata if needed:
+			if (refreshMetadata){
+				$scope._refreshMetadata(response);
+			}
 			// update plots:
 			$scope.warnMsg = "";
 	        $scope.redrawPlots(indices);
 	    });
 	}
+	
+	$scope._refreshMetadata = function(response){
+		var metadata = response.data.metadata || [];
+		// create segMetadata and set it to $scope.segData.metadata
+		// the variable has to be parsed in order to order keys and values according to
+		// our choice:
+		var segMetadata = {'segment': {}, 'event': {}, 'channel': {}, 'station': {}};
+		// note that metadata is an array of 2-element arrays: [[key, value], ...]
+		metadata.forEach(function(elm, index){
+			var key = elm[0];
+			var val = elm[1];
+			var elms = key.split(".");
+			if (elms.length == 1){
+				elms = ["segment", elms[0]];
+			}
+			if (!(elms[0] in segMetadata)){
+				segMetadata[elms[0]] = {};
+			}
+			segMetadata[elms[0]][elms[1]] = val;
+		});
+		$scope.segData.metadata = segMetadata;
+		$scope.segData.classIds = response.data.classes;  // array of class ids
+		$scope.segData.warnings = response.data.warnings;  // FIXME: need to set it up!
+	};
 	
 	/** functions for getting data for the plot query above **/
 	// this function is used for getting the zooms and clearing them:
@@ -402,16 +433,16 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		
 		var param = {class_id: classId, segment_id: $scope.segIds[$scope.segIdx]};
 	    $http.post("/toggle_class_id", param, {headers: {'Content-Type': 'application/json'}}).
-	    success(function(data, status, headers, config) {
-	        $scope.segData.classIds = data.segment_class_ids;
-	        data.classes.forEach(function(elm, index){
-	        	$scope.classes[index]['count'] = elm['count'];  //update count
-	        });
-	      }).
-	      error(function(data, status, headers, config) {
-	        // called asynchronously if an error occurs
-	        // or server returns response with an error status.
-	      });
+		    success(function(data, status, headers, config) {
+		        $scope.segData.classIds = data.segment_class_ids;
+		        data.classes.forEach(function(elm, index){
+		        	$scope.classes[index]['count'] = elm['count'];  //update count
+		        });
+		      }).
+		      error(function(data, status, headers, config) {
+		        // called asynchronously if an error occurs
+		        // or server returns response with an error status.
+		      });
 	};
 	
 	//visibility of some panels

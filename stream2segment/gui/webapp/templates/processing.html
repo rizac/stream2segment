@@ -62,8 +62,8 @@
 						<div>Custom plots</div>
 						{% endraw %}{% for name in userDefinedPlotNames %}
 						<div class="radio">
-							<label><input type="radio" ng-change="bottomPlotChanged()" ng-model="bottomPlotId" value="{{ loop.index0 + 2}}">{{ name }}</label>
-							<span ng-show="bottomPlotId == {{ loop.index0 + 2}}" style='float:right'>&rarr;</span>
+							<label><input type="radio" ng-change="customPlotChanged()" ng-model="customPlotId" value="{{ loop.index0 + 2}}">{{ name }}</label>
+							<span ng-show="customPlotId == {{ loop.index0 + 2}}" style='float:right'>&rarr;</span>
 						</div>
 						{% endfor %}{% raw %}
 					</div>

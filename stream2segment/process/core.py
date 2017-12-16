@@ -36,7 +36,7 @@ import numpy as np
 from sqlalchemy import func
 from sqlalchemy.orm import load_only
 
-from stream2segment.process.utils import enhancesegmentclass
+from stream2segment.process.utils import enhancesegmentclass, set_classes
 from stream2segment.io.db.sqlevalexpr import exprquery
 from stream2segment.utils import get_progressbar, load_source, secure_dburl
 from stream2segment.utils.resources import yaml_load
@@ -145,11 +145,10 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
     # session-related operation with the same session object across different multiprocesses.
     # Is it worth to create a new session each time? not for the moment
 
+    # NOT USED ANYMORE: maybe in the future if we exprience memory problems:
     # clear the session and expunge all every clear_session_step iterations:
     # (set a multiple of three might be in sync with other orientations, which is 3):
-    clear_session_step = 60
-    # and the incremental index:
-    idx = 0
+    # clear_session_step = 60
 
     logger.info("Fetching segments to process, please wait...")
 
@@ -170,39 +169,55 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
 
     logger.info("%d segments found to process", seg_len)
 
-    segment = None
-    last_inventory = None
-    last_inventory_stationid = None
+    # set/update classes, if written in the config, so that we can set instance classes in the
+    # processing, if we want:
+    set_classes(session, config)
+
+    segment = None  # currently processed segment (segment object or None)
+    inventory = None  # currently processed inventory (Inventory object, Exception or None)
+    station_id = None  # currently processed station id (integer)
     done, skipped, skipped_error = 0, 0, 0
+    seg_query = session.query(Segment)  # allocate once (speeds up a bit)
 
     with enhancesegmentclass(config):
         with redirect(sys.stderr):
             with get_progressbar(show_progress, length=seg_len) as pbar:
                 try:
-                    for row in seg_sta_ids:  # zip(seg_sta_ids, cycle(range(clear_session_step))):
-                        idx += 1  # we might use
+                    for row in seg_sta_ids:
                         seg_id, sta_id = row.tolist()
                         # check if we already loaded a segment from a previous segment's
                         # orientations:
-                        other_orients_list = getattr(segment, "_other_orientations", [])
-                        segment = None
-                        for sg in other_orients_list:
-                            if sg.id == seg_id:
-                                segment = sg
-                                break
-                        already_computed_inventory = None \
-                            if (last_inventory_stationid is None or
-                                last_inventory_stationid != sta_id) else last_inventory
+                        if segment is not None:
+                            other_orients_list = getattr(segment, "_other_orientations", [])
+                            for sg in other_orients_list:
+                                if sg.id == seg_id:
+                                    segment = sg
+                                    break
+                            else:
+                                # other orientations not found or not loaded, expunge segment:
+                                # if we are changing the station we are here (not the vice-versa,
+                                # if we are here we might have changed only the segment):
+                                if station_id != sta_id:  # A) are we changing the station?:
+                                    # clear session if we are changing the station:
+                                    # this will clear also channel and segments
+                                    session.expunge_all()
+                                    # this should be enough, but we expunge above for safety
+                                    # session.close()
+                                    # clear inventory ref:
+                                    inventory = None
+                                else:  # B) are we changing the segment?:
+                                    # clear the segment and its components, if any. FIXME: DO WE?
+                                    session.expunge(segment)
+                                    for _ in other_orients_list:
+                                        session.expunge(_)
+                                # force to query segment to the db:
+                                segment = None
                         if segment is None:
-                            # the segment wasn't got from an already computed segment whose
-                            # other orientations where requested. Thus we can clear the session
-                            if idx >= clear_session_step:
-                                session.expunge_all()
-                                session.close()
-                                idx = 0
-                            segment = session.query(Segment).filter(Segment.id == seg_id).\
+                            segment = seg_query.get(seg_id) or \
+                                seg_query.filter(Segment.id == seg_id).\
                                 options(load_only(Segment.id)).first()
-                        segment._inventory = already_computed_inventory
+                        segment._inventory = inventory
+                        station_id = sta_id
                         try:
                             array = pyfunc(segment, config)
                             if array is not None:
@@ -217,10 +232,9 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
                             logger.warning("segment (id=%d): %s", seg_id, str(generr))
                             skipped_error += 1
                         # check if we loaded the inventory and set it as last computed
-                        # do do this, little hack: check if the "private" field is defined:
-                        if segment._inventory is not None:
-                            last_inventory = segment._inventory
-                            last_inventory_stationid = sta_id
+                        # little hack: check if the "private" field is defined:
+                        if inventory is None and segment._inventory is not None:
+                            inventory = segment._inventory
                         pbar.update(1)
                 except:
                     err_msg = traceback.format_exc()

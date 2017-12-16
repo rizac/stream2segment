@@ -36,7 +36,7 @@ from obspy.core import Stream, Trace
 from stream2segment.io.db.models import Channel, Segment, Station
 from stream2segment.utils import iterfuncs
 from stream2segment.gui.webapp.processing.plots.jsplot import Plot
-from stream2segment.process.utils import enhancesegmentclass
+from stream2segment.process.utils import enhancesegmentclass, getseg
 from sqlalchemy.orm import load_only
 
 
@@ -169,7 +169,8 @@ class SegmentPlotList(list):
                                              str(type(obj)))
 
             except Exception as exc:
-                plt = Plot('', warnings=str(exc)).add(0, 1, [])  # add dummy series (empty)
+                # add dummy series (empty):
+                plt = Plot('', warnings="ERROR: %s" % str(exc)).add(0, 1, [])
 
             # set title:
             title_prefix = self.data.get('plot_title_prefix', '')
@@ -190,8 +191,7 @@ class SegmentPlotList(list):
             stream = self.data.get('stream', None)
             inventory = invcache.get(seg_id, None)
 
-            segment = session.query(Segment).filter(Segment.id == seg_id).\
-                options(load_only(Segment.id)).first()
+            segment = getseg(session, seg_id)
             segment._stream = stream
             segment._inventory = inventory
 
@@ -368,7 +368,7 @@ class PlotManager(LimitedSizeDict):
                             stream0 += _stream
                         else:
                             stream0.warnings += _stream.warnings
-                    # get all other components and merge them with the main plot
+                    # get all other orientations (components) and merge them with the main plot:
                     plots[index_of_main_plot] = Plot.fromstream(stream0, title=title)
             return plots
 
@@ -377,9 +377,7 @@ class PlotManager(LimitedSizeDict):
             segplotlist, p_segplotlist = self.get(seg_id, [None, None])
 
             if segplotlist is None:
-                # get ids from the segment class "private" method. Maybe not highly efficient,
-                # we should see what we might cache or not and check SqlAlchemy stuff
-                seg = session.query(Segment).filter(Segment.id == seg_id).first()
+                seg = getseg(session, seg_id)
                 segids = set([_[0]
                               for _ in seg._query_to_other_orientations(Segment.id)] + [seg_id])
                 for segid in segids:
@@ -438,6 +436,7 @@ class PlotManager(LimitedSizeDict):
     def _popitem_size_limit(self):
         '''Called when super._check_size_limit is called. Remove also other components
         segmentPlotList(s)'''
-        _, segplotlist = super(PlotManager, self)._popitem_size_limit()
+        _, item = super(PlotManager, self)._popitem_size_limit()
+        segplotlist = item[0]
         for sid in segplotlist.oc_segment_ids:
             self.pop(sid)

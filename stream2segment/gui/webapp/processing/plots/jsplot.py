@@ -196,7 +196,7 @@ class Plot(object):
         if title is None and same_trace:
             p.title = stream[0].get_id()
         if not warnings and same_trace and len(stream) > 1:
-            p.warnings = ['Gaps/overlaps']
+            p.warnings = ['gaps/overlaps']
         return p
 
     @staticmethod
@@ -205,6 +205,10 @@ class Plot(object):
             title = trace.get_id()
             label = ''
         return Plot(title, warnings).addtrace(trace, label)
+
+    def __str__(self, *args, **kwargs):
+        return "js.Plot('%s')" % (self.title) + "\n%d line-series" % len(self.data) +\
+             "\nis_timeseries: %s" % (self.is_timeseries) + "\nwarnings: " +"\tn".join(self.warnings)
 
 
 def jsontimestamp(utctime, adjust_tzone=True):

@@ -35,6 +35,10 @@ from sqlalchemy.ext.hybrid import hybrid_property, hybrid_method
 from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.orm.util import aliased
 from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.orm.strategy_options import load_only
+from sqlalchemy.orm.session import object_session
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm.attributes import InstrumentedAttribute
 
 _Base = declarative_base()
 
@@ -213,24 +217,40 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
 
 
 class Base(_Base):
+    '''abstract base class. It just provides a normalized each model's string representation
+    and ease the addition of common methods in the future, if any'''
 
     __abstract__ = True
 
     def __str__(self):
         cls = self.__class__
-        ret = [cls.__name__ + ":"]
-        insp = inspect(cls)
-        for colname, col in insp.columns.items():  # Note: returns a list, if perfs are a concern,
-            # we should iterate over the underlying insp.columns._data (but's cumbersome)
-            typ = col.type
-            typ_str = str(typ)
-            try:
-                val = "(not shown)" if type(typ) == LargeBinary else str(getattr(self, colname))
-            except Exception as exc:
-                val = "(not shown: %s)" % str(exc)
-            ret.append("%s %s: %s" % (colname, typ_str, val))
-        for relationship in insp.relationships.keys():  # see note above on insp.columns.items()
-            ret.append("%s: relationship" % relationship)
+        ret = [str(cls.__name__)]
+        # provide a meaningful str representation, but show only loaded attributes
+        # (https://stackoverflow.com/questions/258775/how-to-find-out-if-a-lazy-relation-isnt-loaded-yet-with-sqlalchemy)
+        mapper = inspect(cls)
+        me_dict = self.__dict__
+        loaded_cols, unloaded_cols = 0, 0
+        idx = 1
+        ret.append('')
+        for c in mapper.columns.keys():
+            if c in me_dict:
+                ret.append("  %s: %s" % (c, str(me_dict[c])))
+                loaded_cols += 1
+            else:
+                ret.append("  %s" % c)
+                unloaded_cols += 1
+        ret[idx] = ' columns (%d of %d loaded):' % (loaded_cols, loaded_cols + unloaded_cols)
+        idx = len(ret)
+        ret.append('')
+        loaded_rels, unloaded_rels = 0, 0
+        for r in mapper.relationships.keys():
+            if r in me_dict:
+                ret.append("  %s: `%s` object" % (r, str(me_dict[r].__class__.__name__)))
+                loaded_rels += 1
+            else:
+                ret.append("  %s" % r)
+                unloaded_rels += 1
+        ret[idx] = ' relationships (%d of %d loaded):' % (loaded_rels, loaded_rels + unloaded_rels)
         return "\n".join(ret)
 
 
@@ -545,28 +565,110 @@ class Segment(Base):
     def has_data(cls):  # @NoSelf
         return withdata(cls.data)
 
-    @hybrid_method
-    def has_class(self, *ids):  # this is used only for testing purposes. See test_db
-        if not ids:
-            return self.classes.count() > 0
-        else:
-            _ids = set(ids)
-            return any(c.id in _ids for c in self.classes)
+#     @hybrid_method
+#     def has_class(self, *ids):  # this is used only for testing purposes. See test_db
+#         if not ids:
+#             return self.classes.count() > 0
+#         else:
+#             _ids = set(ids)
+#             return any(c.id in _ids for c in self.classes)
+# 
+#     @has_class.expression
+#     def has_class(cls, *ids):  # @NoSelf  # this is used only for testing purposes. See test_db
+#         any_ = cls.classes.any
+#         if not ids:
+#             return any_()
+#         else:
+#             return any_(Class.id.in_(ids))
+
+    @hybrid_property
+    def has_class(self):
+        return len(self.classes) > 0
 
     @has_class.expression
-    def has_class(cls, *ids):  # @NoSelf  # this is used only for testing purposes. See test_db
-        any_ = cls.classes.any
-        if not ids:
-            return any_()
+    def has_class(cls):  # @NoSelf
+        return cls.classes.any()
+
+    def get(self, *columns):  # DEPRECATED: used for testing
+        '''Gets the values in the relative columns'''
+        qry = object_session(self).query(*columns)  # .select_from(self.__class__)
+        jointables = set(c.class_ for c in columns)
+        if jointables:
+            joins = []
+            model = self.__class__
+            for r in self.__mapper__.relationships.values():
+                if r.mapper.class_ in jointables:
+                    joins.append(getattr(model, r.key))
+            if joins:
+                qry = qry.join(*joins)
+        metadata = qry.filter(Segment.id == self.id).all()
+        if len(metadata) == 1:
+            return metadata[0]
         else:
-            return any_(Class.id.in_(ids))
+            return metadata
+
+    def del_classes(self, *ids_or_labels):
+        self.edit_classes(*ids_or_labels, mode='del')
+
+    def set_classes(self, *ids_or_labels, annotator=None):
+        self.edit_classes(*ids_or_labels, mode='set', annotator=annotator)
+
+    def add_classes(self, *ids_or_labels, annotator=None):
+        self.edit_classes(*ids_or_labels, mode='add', annotator=annotator)
+
+    def edit_classes(self, *ids_or_labels, mode, auto_commit=True, annotator=None):
+        """:param mode: either 'add' 'set' or 'del'"""
+        sess = object_session(self)
+        needs_commit = False
+        ids = set(ids_or_labels)
+        labels = set(_ for _ in ids if type(_) in (bytes, str))
+        ids -= labels
+        if mode == 'set':
+            self.classes[:] = []
+        else:
+            classes = list(self.classes)
+
+        if mode == 'del':
+            for c in classes:
+                if c.id in ids or c.label in labels:
+                    self.classes.remove(c)
+                    needs_commit = True
+            ids = labels = set()  # do not add anything
+        elif mode == 'add':
+            for c in classes:
+                if c.id in ids:
+                    ids.remove(c.id)  # already set, remove it and don't add it again
+                if c.label in labels:
+                    labels.remove(c.label)  # already set, remove it and don't add it again
+        elif mode != 'set':
+            raise TypeError("`mode` argument needs to be in ('add', 'del', 'set'), "
+                            "'%s' supplied" % str(mode))
+
+        if ids or labels:
+            flt1 = None if not ids else Class.id.in_(ids)  # filter on ids, or None
+            flt2 = None if not labels else Class.label.in_(labels)  # filter on labels, or None
+            flt = flt1 if flt2 is None else flt2 if flt1 is None else (flt1 | flt2)
+            classids2add = [_[0] for _ in sess.query(Class.id).filter(flt)]
+            if classids2add:
+                needs_commit = True
+                sess.add_all((ClassLabelling(class_id=cid,
+                                             segment_id=self.id, annotator=annotator,
+                                             is_hand_labelled=annotator or False)
+                              for cid in classids2add))
+
+        if needs_commit and auto_commit:
+            try:
+                sess.commit()
+            except SQLAlchemyError as _:
+                sess.rollback()
+                raise
 
     @hybrid_property
     def seed_identifier(self):
         try:
             return self.data_identifier or \
                 ".".join([self.station.network, self.station.station,
-                      self.channel.location, self.channel.channel])
+                          self.channel.location, self.channel.channel])
         except (TypeError, AttributeError):
             return None
 
@@ -602,11 +704,11 @@ class Segment(Base):
     station = relationship("Station", secondary="channels",  # <-  must be table name in metadata
                            primaryjoin="Segment.channel_id == Channel.id",
                            secondaryjoin="Station.id == Channel.station_id",
-                           viewonly=True, uselist=False,
+                           uselist=False,  # viewonly=True,
                            backref=backref("segments", lazy="dynamic"))
-    classes = relationship("Class", lazy='dynamic',
+    classes = relationship("Class",  # lazy='dynamic', viewonly=True,
                            secondary="class_labellings",  # <-  must be table name in metadata
-                           viewonly=True, backref=backref("segments", lazy="dynamic"))
+                           backref=backref("segments", lazy="dynamic"))
 
     __table_args__ = (
                       UniqueConstraint('channel_id', 'event_id',

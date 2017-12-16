@@ -33,9 +33,25 @@ from obspy.core.trace import Trace
 from stream2segment.io.utils import loads_inv, dumps_inv
 from stream2segment.utils.url import urlread
 from stream2segment.utils import urljoin
-from stream2segment.io.db.models import Segment, Station, Channel
+from stream2segment.io.db.models import Segment, Station, Channel, Class
 from stream2segment.process.math.traces import cumsum, cumtimes
 from contextlib import contextmanager
+from sqlalchemy.orm import load_only
+
+
+def getseg(session, segment_id, cols2load=None):
+    '''Returns the segment identified by id `segment_id` by querying the session and,
+    if not found, by querying the database
+    :param cols2load: if the db has to be queried, specifies a list of columns to load. E.g.:
+    `cols2load=[Segment.id]`
+    '''
+    seg = session.query(Segment).get(segment_id)
+    if seg:
+        return seg
+    query = session.query(Segment).filter(Segment.id == segment_id)
+    if cols2load:
+        query = query.options(load_only(*cols2load))
+    return query.first()
 
 
 def raiseifreturnsexception(func):
@@ -290,3 +306,28 @@ def save_inventory(station, downloaded_bytes_data):
     except SQLAlchemyError:
         object_session(station).rollback()
         raise
+
+
+def set_classes(session, config, commit=True):
+    '''Reads the 'class_labels' dict from the current configuration and stores the
+    relative classes on the db, if such  a dict is found. The dict should be in the form
+    `label:description`.
+    Further addition to the config dict will add new classes based on their
+    labels, or update existing classes description (if the labels is found on the db).
+    Deletion is not possible from the config'''
+    config_classes = config.get('class_labels', [])
+    if not config_classes:
+        return
+    # do not add already added config_classes:
+    needscommit = True  # flag telling if we need commit
+    # seems odd but googling I could not find a better way to infer it from the session
+    db_classes = {c.label: c for c in session.query(Class)}
+    for label, description in config_classes.items():
+        if label in db_classes and db_classes[label].description != description:
+            db_classes[label].description = description  # update
+            needscommit = True
+        elif label not in db_classes:
+            session.add(Class(label=label, description=description))
+            needscommit = True
+    if commit and needscommit:
+        session.commit()

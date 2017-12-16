@@ -338,7 +338,13 @@ class Test(unittest.TestCase):
                 else:
                     assert isinstance(segplotlist.data['stream'], Stream)
                     if "gap_unmerged" in segment.channel.location:
-                        assert "different seed ids" in "".join(segplotlist[0].warnings)    
+                        # assert that traces labels (d[-1]) are displayed with their seed_id. To prove that,
+                        # assert that we didn't named each trace as "chunk1", "cunk2" etcetera:
+                        assert all("chunk" not in d[-1] for d in segplotlist[0].data)    
+                    elif hasgaps:
+                        assert "gaps/overlaps" in "".join(segplotlist[0].warnings)
+                        # assert that we display all traces with "chunk1", "cunk2" etcetera:
+                        assert all("chunk" in d[-1] for d in segplotlist[0].data) 
                     else:
                         assert not len("".join(segplotlist[0].warnings)) 
                     if segplotlist[1] is not None:
@@ -435,7 +441,8 @@ class Test(unittest.TestCase):
             assert self.plotslen(m, preprocessed=True)  # assert no filtering calculated
             # assert we did not calculate other components (all_components=False)
             assert self.computedplotslen(m, s.id, preprocessed, allcomponents=False) == len(idxs)
-            assert self.computedplotslen(m, s.id, preprocessed, allcomponents) == expected_components_count+1
+            # regardless whether allcomponents is true or false, we compute only the main plot
+            assert self.computedplotslen(m, s.id, preprocessed, allcomponents) == len(idxs)  # expected_components_count+1
             # assert SegmentWrapper function calls:
             assert not mock_get_inv.called  # already called
             assert not mock_get_stream.called  # already computed
@@ -463,12 +470,18 @@ class Test(unittest.TestCase):
                     plot, pplot = m[s.id][0][i], m[s.id][1][i]
                     # if idx=1, plot has 1 series (due to error in gaps/overlaps) otherwise matches stream traces count:
                     assert len(plot.data) == 1 if i==1 else len(stream)
-                    if 'gap_unmerged' in s.channel.location:
-                        assert 'different seed ids' in "".join(plot.warnings) if i == 0 \
-                            else 'gaps/overlaps' in pplot.warnings[0]
-                    else:
-                        assert not plot.warnings if i == 0 else \
-                            'gaps/overlaps' in pplot.warnings[0]  # gaps /overlaps are simply shown as lineseries, no warnings
+                    if i != 0:  # we are iterating over the spectra plots
+                        assert "gaps/overlaps" in plot.warnings[0]
+                        assert "gaps/overlaps" in pplot.warnings[0]
+                    elif i == 0:  # we are iterating over the streams plots
+                        if 'gap_unmerged' in s.channel.location:
+                            # assert that we display all traces with their seed_id. To prove that,
+                            # assert that we didn't named each trace as "chunk1", "cunk2" etcetera:
+                            assert all("chunk" not in d[-1] for d in plot.data) 
+                        else:
+                            assert 'gaps/overlaps' in pplot.warnings[0]
+                            # assert that we display all traces with "chunk1", "cunk2" etcetera:
+                            assert all("chunk" in d[-1] for d in plot.data) 
                     assert len(pplot.data) == 1 # only one (fake) trace
                     assert pplot.warnings and 'gaps/overlaps' in pplot.warnings[0]  # gaps /overlaps
             else:

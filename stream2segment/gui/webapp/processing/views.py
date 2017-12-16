@@ -10,6 +10,7 @@ from flask import render_template, request, jsonify, Blueprint, current_app
 from stream2segment.gui.webapp import get_session
 from stream2segment.gui.webapp.processing import core
 from stream2segment.utils import secure_dburl
+from stream2segment.process.utils import set_classes
 
 # http://flask.pocoo.org/docs/0.12/patterns/appfactories/#basic-factories:
 main_page = Blueprint('main_page', __name__, template_folder='templates')
@@ -18,7 +19,7 @@ main_page = Blueprint('main_page', __name__, template_folder='templates')
 @main_page.route("/")
 def main():
     config = current_app.config['CONFIG.YAML']
-    core.set_classes(get_session(current_app), config)
+    set_classes(get_session(current_app), config)
     plotmanager = current_app.config['PLOTMANAGER']
     ud_plotnames = plotmanager.userdefined_plotnames
     keys = ['sn_windows', 'segment_select']

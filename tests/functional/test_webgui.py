@@ -330,23 +330,23 @@ class Test(unittest.TestCase):
             self.session.add(c)
             self.session.commit()
             cid = c.id
-            assert len(segment.classes.all()) == 0
+            assert len(segment.classes) == 0
             rv = app.post("/toggle_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid}),
                                    headers={'Content-Type': 'application/json'})
             data = self.jsonloads(rv.data)
             
-            assert len(segment.classes.all()) == 1
-            assert segment.classes.all()[0].id == cid
+            assert len(segment.classes) == 1
+            assert segment.classes[0].id == cid
             
             # toggle again:
             rv = app.post("/toggle_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid}),
                                    headers={'Content-Type': 'application/json'})
-            assert len(segment.classes.all()) == 0
+            assert len(segment.classes) == 0
             
             # toggle again and run test_get_seg with a class set
             rv = app.post("/toggle_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid}),
                                    headers={'Content-Type': 'application/json'})
-            assert len(segment.classes.all()) == 1
+            assert len(segment.classes) == 1
             self._tst_get_seg(app)
     
     def test_get_seg(self):
