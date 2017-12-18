@@ -258,36 +258,50 @@ class Test(unittest.TestCase):
                          filter(Channel.id>0), {'channel.id': '!=null'}).all()
         
         
-        # test any and none:
-        # Note: contrarily to classes.id specified as interval, which issues a join
-        # in exprquery, 'any' and 'none' issue a less-performant 'exist' at sql level, whcih
-        # DOES NOT PRODUCE DUPLICATES. Check few line below for the duplicate case
-        res1 = exprquery(sess.query(Segment.id), {'classes.id': 'any'},
-                             ['channel.id', 'event_distance_deg']).all()
-        res2 = exprquery(sess.query(Segment.id), {'classes.id': 'none'},
-                     ['channel.id', 'event_distance_deg']).all()
-        res3 = exprquery(sess.query(Segment.id), {'classes': 'any'},
-                     ['channel.id', 'event_distance_deg']).all()
-        res4 = exprquery(sess.query(Segment.id), {'classes': 'none'},
-                     ['channel.id', 'event_distance_deg']).all()
-        assert res1 == res3 and res2 == res4
+        #################################################################################
+        # OLD STUFF VALID WHEN WE IMPLEMENTED 'any' AS POSSIBLE KEYWORD (FEATURE DROPPED)
+        # We leave the comments below because they explain also some sql-alchemy stuff
+        # when querying many-to-many relationships with .any() or .has()
+        #################################################################################
         
-        # classes is a many to many relationship on Segment,
-        # what if we provide a many-to-one (column)? it does not work. From the docs:
-        #     :meth:`~.RelationshipProperty.Comparator.any` is only
-        #     valid for collections, i.e. a :func:`.relationship`
-        #     that has ``uselist=True``.  For scalar references,
-        #     use :meth:`~.RelationshipProperty.Comparator.has`.
-        with pytest.raises(InvalidRequestError):
-            res1 = exprquery(sess.query(Segment.id), {'station.id': 'any'}).all()
-            sess.rollback()  # for safety
-        # what if we provide a normal attribute? it does not work either cause station is 'scalar':
-        with pytest.raises(AttributeError):
-            res2 = exprquery(sess.query(Segment.id), {'id': 'any'}).all()
-            sess.rollback()  # for safety
-        # what if we provide a one-to-many? it works
-        res3 = exprquery(sess.query(Station.id), {'segments': 'any'}).all()
-                             
+#         # test any and none:
+#         # Note: contrarily to classes.id specified as interval, which issues a join
+#         # in exprquery, 'any' and 'none' issue a less-performant 'exist' at sql level, whcih
+#         # DOES NOT PRODUCE DUPLICATES. Check few line below for the duplicate case
+#         res1 = exprquery(sess.query(Segment.id), {'classes.id': 'any'},
+#                              ['channel.id', 'event_distance_deg']).all()
+#         res2 = exprquery(sess.query(Segment.id), {'classes.id': 'none'},
+#                      ['channel.id', 'event_distance_deg']).all()
+#         res3 = exprquery(sess.query(Segment.id), {'classes': 'any'},
+#                      ['channel.id', 'event_distance_deg']).all()
+#         res4 = exprquery(sess.query(Segment.id), {'classes': 'none'},
+#                      ['channel.id', 'event_distance_deg']).all()
+#         assert res1 == res3 and res2 == res4
+#         
+#         # classes is a many to many relationship on Segment,
+#         # what if we provide a many-to-one (column)? it does not work. From the docs:
+#         #     :meth:`~.RelationshipProperty.Comparator.any` is only
+#         #     valid for collections, i.e. a :func:`.relationship`
+#         #     that has ``uselist=True``.  For scalar references,
+#         #     use :meth:`~.RelationshipProperty.Comparator.has`.
+#         with pytest.raises(InvalidRequestError):
+#             res1 = exprquery(sess.query(Segment.id), {'station.id': 'any'}).all()
+#             sess.rollback()  # for safety
+#         # what if we provide a normal attribute? it does not work either cause station is 'scalar':
+#         with pytest.raises(AttributeError):
+#             res2 = exprquery(sess.query(Segment.id), {'id': 'any'}).all()
+#             sess.rollback()  # for safety
+#         # what if we provide a one-to-many? it works
+#         res3 = exprquery(sess.query(Station.id), {'segments': 'any'}).all()
+
+        ####################################
+        # IF YOU RE_IMPLEMENT THE any FUNCTIONALITY, LOOK BLOCK COMMENT ABOVE
+        # The above can now be tested like this:
+        ####################################
+        with pytest.raises(ValueError):
+            exprquery(sess.query(Segment.id), {'classes.id': 'any'},
+                            ['channel.id', 'event_distance_deg']).all()
+
 #         reminder
         # current segments are these:
         # id  channel_id  event_distance_deg  class_id

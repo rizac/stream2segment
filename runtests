@@ -24,10 +24,10 @@ if [ -n "$DB_URL" ]
 then
 	TMP_DB_URL="$DB_URL"
 	unset DB_URL
-	echo Temporarily unset DB_URL="$DB_URL"
 	echo
 	# set color to red:
-	echo -e "\033[0;31mRunning db-tests with in-memory sqlite and -x option (ignoring other pytest arguments, if any):\033[0m"
+	echo -e "\033[1;36mRunning db-tests with in-memory sqlite and -x option (ignoring other pytest arguments, if any):\033[0m"
+	echo Temporarily unset DB_URL="$DB_URL"
 	echo
 	(pytest -x ./tests/functional/test_db.py \
 		./tests/functional/test_download.py \
@@ -38,13 +38,13 @@ then
 		./tests/unit/test_plotviews.py \
 		./tests/unit/test_u_download.py) && \
 		(echo ;\
-		echo -e "\033[0;31mRunning all tests with postgres:\033[0m";\
+		echo -e "\033[1;36mRunning all tests with postgres:\033[0m";\
 		echo DB_URL="$TMP_DB_URL" pytest ./tests --ignore=./tests/skip --cov=./stream2segment "$@";\
 		echo ;\
 		DB_URL="$TMP_DB_URL" pytest -x ./tests --ignore=./tests/skip --cov=./stream2segment "$@")
 else
 	echo
-	echo -e "\033[0;31mRunning all tests with in-memory sqlite:\033[0m"
+	echo -e "\033[1;36mRunning all tests with in-memory sqlite:\033[0m"
 	echo COMMAND: pytest ./tests --ignore=./tests/skip --cov=./stream2segment "$@"
 	echo
 	pytest -x ./tests --ignore=./tests/skip --cov=./stream2segment "$@"
