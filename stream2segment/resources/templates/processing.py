@@ -200,6 +200,8 @@ segment.seed_identifier                   str: the seed identifier in the typica
 \                                         'segment.data_identifier', but it is assured not to be,
 \                                         null, as the segment meta-data is used if needed: in this
 \                                         case the query might perform more poorly at the SQL level
+segment.has_class                         boolean: tells if the segment has (at least one) class
+\                                         assigned
 segment.data                              bytes: the waveform (raw) data. You don't generally need
 \                                         to access this attribute which is also time-comsuming
 \                                         to fetch. Used by `segment.stream()`

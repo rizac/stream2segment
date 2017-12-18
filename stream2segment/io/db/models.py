@@ -7,6 +7,7 @@ Models for the ORM
 '''
 
 import re
+from datetime import datetime
 import sqlite3
 
 from sqlalchemy.ext.declarative import declarative_base
@@ -231,10 +232,22 @@ class Base(_Base):
         me_dict = self.__dict__
         loaded_cols, unloaded_cols = 0, 0
         idx = 1
+        STRBYTES_MAXCHAR = 30
         ret.append('')
         for c in mapper.columns.keys():
             if c in me_dict:
-                ret.append("  %s: %s" % (c, str(me_dict[c])))
+                val = me_dict[c]
+                if type(val) == str and len(val) > STRBYTES_MAXCHAR:
+                    val = val[:STRBYTES_MAXCHAR] + \
+                        " ... (showing first %d characters only)" % STRBYTES_MAXCHAR
+                elif type(val) == bytes and len(val) > STRBYTES_MAXCHAR:
+                    val = val[:STRBYTES_MAXCHAR] + \
+                        b" ... (showing first %d characters only)" % STRBYTES_MAXCHAR
+                elif type(val) == datetime:
+                    val = val.isoformat()
+                else:
+                    val = str(val)
+                ret.append("  %s: %s" % (c, val))
                 loaded_cols += 1
             else:
                 ret.append("  %s" % c)

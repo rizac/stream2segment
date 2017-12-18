@@ -152,34 +152,33 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
 
     logger.info("Fetching segments to process, please wait...")
 
-    # the query is always loaded in memory, see:
-    # https://stackoverflow.com/questions/11769366/why-is-sqlalchemy-insert-with-sqlite-25-times-slower-than-using-sqlite3-directly/11769768#11769768
-    # thus we load it as np.array to save memory:
-    seg_sta_ids = np.array(query4process(session, config.get('segment_select', {})).all(),
-                           dtype=int)
-    # get total segment length:
-    seg_len = seg_sta_ids.shape[0]
-
-    def stationssaved():
-        return session.query(func.count(Station.id)).filter(Station.has_inventory==True).scalar()  # @IgnorePep8
-    stasaved = stationssaved()
-    # purge session (needed or not, for safety):
-    session.expunge_all()
-    session.close()
-
-    logger.info("%d segments found to process", seg_len)
-
-    # set/update classes, if written in the config, so that we can set instance classes in the
-    # processing, if we want:
-    set_classes(session, config)
-
     segment = None  # currently processed segment (segment object or None)
     inventory = None  # currently processed inventory (Inventory object, Exception or None)
     station_id = None  # currently processed station id (integer)
     done, skipped, skipped_error = 0, 0, 0
-    seg_query = session.query(Segment)  # allocate once (speeds up a bit)
 
     with enhancesegmentclass(config):
+
+        # the query is always loaded in memory, see:
+        # https://stackoverflow.com/questions/11769366/why-is-sqlalchemy-insert-with-sqlite-25-times-slower-than-using-sqlite3-directly/11769768#11769768
+        # thus we load it as np.array to save memory:
+        seg_sta_ids = np.array(query4process(session, config.get('segment_select', {})).all(),
+                               dtype=int)
+        # get total segment length:
+        seg_len = seg_sta_ids.shape[0]
+
+        def stationssaved():
+            return session.query(func.count(Station.id)).filter(Station.has_inventory).scalar()  # @IgnorePep8
+        stasaved = stationssaved()
+        # purge session (needed or not, it's for safety):
+        session.expunge_all()
+
+        logger.info("%d segments found to process", seg_len)
+        # set/update classes, if written in the config, so that we can set instance classes in the
+        # processing, if we want:
+        set_classes(session, config)
+        seg_query = session.query(Segment)  # allocate once (speeds up a bit)
+
         with redirect(sys.stderr):
             with get_progressbar(show_progress, length=seg_len) as pbar:
                 try:

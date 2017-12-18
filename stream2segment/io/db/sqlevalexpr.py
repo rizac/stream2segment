@@ -24,10 +24,12 @@ def exprquery(sa_query, conditions, orderby=None, distinct=None):
     """
     Enhance the given sql-alchemy query `sa_query` with conditions
     and ordering given in form of (string) expression, returning a new sql alchemy query.
-    Joins are automatically added inside this method, if needed.
     Columns (and relationships, if any) are extracted from the string keys of `conditions`
     by detecting the reference model class from `sa_query` first column
     (`sa_query.column_descriptions[0]`): thus **pay attention to the argument order of sa_query**.
+    Consqeuently, joins are automatically added inside this method, if needed (if a join is
+    already present, in `sa_query` and should be required by any of `conditions`, it won't be
+    added twice)
     The returned query is a valid sql-alchemy query and can be further manipulated
     **in most cases**: a case when it's not possible is when issuing a `group_by` in `postgres`
     (for info, see
@@ -103,15 +105,16 @@ def exprquery(sa_query, conditions, orderby=None, distinct=None):
 
     [*] Note on auto-added joins: if any given `condition` or `orderby` key refers to
     relationships defined on the reference model class, then necessary joins are appended to
-    `sa_query`.
-    If `sa_query` already contains joins, the join is not added again, and sql-alchemy issues
-    a warning 'SAWarning: Pathed join target' (currently in `sqlalchemy.orm.query.py:2105`).
+    `sa_query`, *unless already present* (this should also avoid the
+    warning 'SAWarning: Pathed join target', currently in `sqlalchemy.orm.query.py:2105`).
     """
     # get the table model from the query's FIRST column description
     model = sa_query.column_descriptions[0]['entity']
     parsed_conditions = []
     joins = set()  # relationships have an hash, this assures no duplicates
-
+    # set already joined tables. We use the private method _join_entities although it's not
+    # documented anywhere (we inspected via eclipse debug to find the method):
+    already_joined_models = set(_.class_ for _ in sa_query._join_entities)
     # if its'an InstrumentedAttribute, use the class
     relations = inspect(model).relationships
 
@@ -121,13 +124,10 @@ def exprquery(sa_query, conditions, orderby=None, distinct=None):
                 # note that expressions MUST be strings
                 continue
             relationship, column = _get_rel_and_column(model, attname, relations)
-            if expression.strip() in ('any', 'none'):  # any or none:
-                condition = relationship.any() if expression.strip() == 'any' \
-                    else ~relationship.any()
-            else:
-                if relationship is not None:
-                    joins.add(relationship)
-                condition = binexpr(column, expression)
+            if relationship is not None and \
+                    get_rel_refmodel(relationship) not in already_joined_models:
+                joins.add(relationship)
+            condition = binexpr(column, expression)
             parsed_conditions.append(condition)
 
     directions = {"asc": asc, "desc": desc}
@@ -140,7 +140,8 @@ def exprquery(sa_query, conditions, orderby=None, distinct=None):
                 column_str, direction = order, "asc"
             directionfunc = directions[direction]
             relationship, column = _get_rel_and_column(model, column_str, relations)
-            if relationship is not None:
+            if relationship is not None and \
+                    get_rel_refmodel(relationship) not in already_joined_models:
                 joins.add(relationship)
             # FIXME: we might also write column.asc() or column.desc()
             orders.append(directionfunc(column))
@@ -166,10 +167,18 @@ def _get_rel_and_column(model, colname, relations=None):
         tmp = getattr(obj, col)
         if col in relations and obj is model:
             rel = tmp
-            obj = relations[col].mapper.class_
+            obj = get_rel_refmodel(relations[col])
         else:
             obj = tmp
     return rel, obj
+
+
+def get_rel_refmodel(relationship):
+    '''returns the relationship's reference table model
+    :param relationship: the InstrumentedAttribute retlative to a relationship. Example. Given
+        a model `model`, and a relationship e.g. `r_name=inspect(model).relationships.keys()[i],
+        then `relationship=getattr(model, r_name)`'''
+    return relationship.mapper.class_
 
 
 def binexpr(column, expr):

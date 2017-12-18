@@ -493,6 +493,95 @@ class Test(unittest.TestCase):
         assert self.session.query(Station).\
             filter(Station.id == station_id_whose_inventory_is_saved).first().inventory_xml
 
+    # Recall: we have 5 segments:
+    # 2 are empty, out of the remaining three:
+    # 1 has errors if its inventory is queried to the db. Out of the other two:
+    # 1 has gaps
+    # 1 has no gaps
+    # Thus we have several levels of selection possible
+    # as by default withdata is True in segment_select, then we process only the last three
+    #
+    # Here a simple test for a processing file returning dict. Save inventory and check it's saved
+    @mock.patch('stream2segment.process.core.load_proc_cfg')
+    def test_simple_run_retDict_saveinv_complex_select(self, mock_load_cfg):
+        '''test a case where we have a more complex select involving joins'''
+        # When we use our exprequery, we might join already joined tables.
+        # previously, we had a
+        # sqlalchemy warning in the log. But this is NOT ANYMORE THE CASE as now we
+        # join only un-joined tables: it turned out that joining already joined tables
+        # issued warnings in some cases, and errors in some other cases.
+        # TEST HERE THAT WE DO NOT HAVE SUCH ERRORS
+        # FIXME: we should investigate why. One possible explanation is that if the joined
+        # table is in the query sql-alchemy issues a warning:
+        # query(Segment,Station).join(Segment.station).join(Segment.station)
+        # whereas if the joined table is not in the query, sql-alchemy issues an error:
+        # query(Segment,Station).join(Segment.event).join(Segment.event)
+        # an already added join is not added twice. as we realised that
+        # joins added multiple times where OK
+
+        # select the event times for the segments with data:
+        etimes = sorted(_[1] for _ in self.session.query(Segment.id, Event.time).\
+                            join(Segment.event).filter(Segment.has_data))
+
+        self.config_overrides = {'save_inventory': True,
+                                 'snr_threshold': 0,
+                                 'segment_select': {'has_data': 'true',
+                                                    'event.time': '<=%s' % (max(etimes).isoformat())}}
+        # the selection above should be the same as the previous test:
+        # test_simple_run_retDict_saveinv,
+        # as segment_select[event.time] includes all segments in segment_select['has_data'],
+        # thus the code is left as it was in the method above
+        mock_load_cfg.side_effect = self.load_proc_cfg
+
+        # query data for testing now as the program will expunge all data from the session
+        # and thus we want to avoid DetachedInstanceError(s):
+        expected_first_row_seg_id = str(self.db.seg1.id)
+        station_id_whose_inventory_is_saved = self.db.sta_ok.id
+
+        # need to reset this global variable: FIXME: better handling?
+        process.main._inventories = {}
+        runner = CliRunner()
+        with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
+            pyfile, conffile = self.get_processing_files()
+            result = runner.invoke(cli, ['process', '--dburl', self.dburi,
+                                   '-p', pyfile, '-c', conffile, file.name])
+
+            if result.exception:
+                import traceback
+                traceback.print_exception(*result.exc_info)
+                print(result.output)
+                assert False
+                return
+
+            # check file has been correctly written:
+            with open(file.name, 'r') as csvfile:
+                spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
+                rowz = 0
+                for row in spamreader:
+                    rowz += 1
+                    if rowz == 2:
+                        assert row[0] == expected_first_row_seg_id
+#                         assert row[1] == self.db.seg1.start_time.isoformat()
+#                         assert row[2] == self.db.seg1.end_time.isoformat()
+                assert rowz == 2
+                logtext = self.read_and_remove(file.name+".log")
+                assert len(logtext) > 0
+
+                # REMEMBER, THIS DOES NOT WORK:
+                # assert mock_url_read.call_count == 2
+                # that's why we tested above by mocking multiprocessing
+                # (there must be some issue with multiprocessing)
+
+        # save_downloaded_inventory True, test that we did save any:
+        assert len(self.session.query(Station).filter(Station.has_inventory).all()) > 0
+
+        # Or alternatively:
+        # test we did save any inventory:
+        stas = self.session.query(Station).all()
+        assert any(s.inventory_xml for s in stas)
+        assert self.session.query(Station).\
+            filter(Station.id == station_id_whose_inventory_is_saved).first().inventory_xml
+
     @mock.patch('stream2segment.process.core.load_proc_cfg')
     def test_simple_run_retDict_saveinv_high_snr_threshold(self, mock_load_cfg):
         '''same as `test_simple_run_retDict_saveinv` above
@@ -666,9 +755,18 @@ class Test(unittest.TestCase):
                 assert rowz == 0
                 logtext = self.read_and_remove(file.name+".log")
                 # as we have joined twice segment with stations (one is done by default, the other
-                # has been set in custom_config['segment_select'] above, we should have this
-                # sqlalchemy msg in the log:
-                assert "SAWarning: Pathed join target" in logtext
+                # has been set in custom_config['segment_select'] above), we should have a
+                # sqlalchemy warning in the log. But this is NOT ANYMORE THE CASE as now we
+                # join only un-joined tables: it turned out that joining already joined tables
+                # issued warnings in some cases, and errors in some other cases.
+                # FIXME: we should investigate why. One possible explanation is that if the joined
+                # table is in the query sql-alchemy issues a warning:
+                # query(Segment,Station).join(Segment.station).join(Segment.station)
+                # whereas if the joined table is not in the query, sql-alchemy issues an error:
+                # query(Segment,Station).join(Segment.event).join(Segment.event)
+                # an already added join is not added twice. as we realised that
+                # joins added multiple times where OK
+                assert "SAWarning: Pathed join target" not in logtext
 
                 # ===================================================================
                 # NOW WE CAN CHECK IF THE URLREAD HAS BEEN CALLED ONCE.
