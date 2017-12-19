@@ -51,9 +51,9 @@ class Test(unittest.TestCase):
         Base.metadata.create_all(self.engine)
 
         # create a configured "Session" class
-        Session = sessionmaker(bind=self.engine)
+        # Session = sessionmaker(bind=self.engine)
         # create a Session
-        self.session = Session()
+        self.session = self.newsession()
         self.initdb()
         self.pymodule = load_source(os.path.join(os.path.dirname(__file__), '..', '..',
                                                  'stream2segment',
@@ -63,8 +63,13 @@ class Test(unittest.TestCase):
                                              'stream2segment',
                                                   'resources', 'templates',
                                                'processing.yaml'))
+    
+    def newsession(self):
+        # create a configured "Session" class
+        Session = sessionmaker(bind=self.engine)
+        # create a Session
+        return Session()
         
-
     @staticmethod
     def cleanup(me):
         if me.engine:
@@ -233,7 +238,8 @@ class Test(unittest.TestCase):
         segplotlists = [plotmanager[seg_id][i]]
         if allcomponents:
             for segid in segplotlists[0].oc_segment_ids:
-                segplotlists.append(plotmanager[segid][i])
+                if plotmanager[segid][i] is not None:  # is preprocessed = True, it might be None
+                    segplotlists.append(plotmanager[segid][i])
         n = 0
         for segplotlist in segplotlists:
             for plot in segplotlist:
@@ -242,21 +248,21 @@ class Test(unittest.TestCase):
         return n
     
     @staticmethod
-    def traceslen(plotmanager, seg_id, preprocessed, allcomponents=False, count_exceptions_as_one_series=True):
+    def traceslen(plotmanager, seg_id, preprocessed, allcomponents=False):
         '''total number of traces to be plot for a given segment
-        count_exceptions_as_one_series means that a stream() raising exception is counted as
-        one series (the default). Otherwise counts as 0
         '''
         i = 1 if preprocessed else 0
         segplotlists = [plotmanager[seg_id][i]]
+        has_components = False
         if allcomponents:
             for segid in segplotlists[0].oc_segment_ids:
                 segplotlists.append(plotmanager[segid][i])
+                has_components = True
         n = 0
         for segplotlist in segplotlists:
             streamorexc = segplotlist.data['stream']
-            num = len(streamorexc) if isinstance(streamorexc, Stream) else 1 \
-                if (isinstance(streamorexc, Exception) and count_exceptions_as_one_series) else 0
+            num = len(streamorexc) if isinstance(streamorexc, Stream) else 0 if \
+                (allcomponents and has_components) else 1
             n += num
         return n
 
@@ -360,6 +366,8 @@ class Test(unittest.TestCase):
             
             expected_components_count = components_count[(s.event_id, s.channel.location)]
 
+            if expected_components_count == 4:
+                ad = 9
             mock_get_stream.reset_mock()
             mock_get_inv.reset_mock()
             mock_get_stream.side_effect = original_get_stream
@@ -371,7 +379,7 @@ class Test(unittest.TestCase):
             plots = m.get_plots(self.session, s.id, idxs, preprocessed, allcomponents)
 #             # assert returned plot has the correct number of time/line-series:
 #             # note that plots[0] might be generated from a stream with gaps
-            assert len(plots[0].data) == self.traceslen(m, s.id, preprocessed, allcomponents, count_exceptions_as_one_series=True)
+            assert len(plots[0].data) == self.traceslen(m, s.id, preprocessed, allcomponents)
             # asssert the returned value match the input:
             assert len(plots) == len(idxs)
             assert not self.plotslen(m, preprocessed=True)  # assert no filtering calculated
@@ -514,6 +522,7 @@ class Test(unittest.TestCase):
             # re-initialize a new PlotManager to assure everything is re-calculated
             # this also sets all cache to None, including m.inv_cache:
             m = PlotManager(self.pymodule, self.config)
+            
             # calculate plots
             idxs = [0, 1]
             m.get_plots(self.session, s.id, idxs, preprocessed=False, all_components_in_segment_plot=True)

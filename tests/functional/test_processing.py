@@ -373,7 +373,7 @@ class Test(unittest.TestCase):
                             else:
                                 assert mock_saveinv.called == saveinv
                             assert len(segment.station.inventory_xml) > 0
-                        segs = segment.segments_on_other_orientations()
+                        segs = segment.other_orientations()
                         # as channel's channel is either 'ok' or 'err' we should never have
                         # other components
                         assert len(segs) == 0
@@ -411,14 +411,14 @@ class Test(unittest.TestCase):
         with enhancesegmentclass():
             for (segid, staid) in segids:
                 segment = self.session.query(Segment).filter(Segment.id == segid).first()
-                segs = segment.segments_on_other_orientations()
+                segs = segment.other_orientations()
                 if segs:
                     assert segment.id in (sg1.id, sg2.id, sg3.id)
                     segs2 = already_calculated_other_orientations.get(segid, None)
                     if segs2:
                         # check in a bizarre way that we did not query the session:
                         # the order of segments must be the one assigned in the
-                        # first call of segments_on_other_orientations() which queried the db
+                        # first call of other_orientations() which queried the db
                         # This does not actually assures that we did not query the segment
                         # again but it's more than a hint
                         assert all(s1.id == s2.id for s1, s2 in zip(segs, segs2))

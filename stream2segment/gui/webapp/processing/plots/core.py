@@ -52,7 +52,7 @@ class SegmentPlotList(list):
     # set here what to set to None when calling invalidate (see __init__ for details):
     _data_to_invalidate = ['sn_windows']
 
-    def __init__(self, segid, functions, other_components_id_list=[]):
+    def __init__(self, segid, functions, other_components_id_list=None):
         """Builds a new SegmentPlotList
         :param functions: functions which must return a `Plot` (or an Plot-convertible object).
         **the first item MUST be `_getme` by default**
@@ -63,7 +63,7 @@ class SegmentPlotList(list):
         self.data = dict(stream=None, plot_title_prefix='',
                          **({k: None for k in self._data_to_invalidate}))
         self.segment_id = segid
-        self.oc_segment_ids = other_components_id_list
+        self.oc_segment_ids = other_components_id_list or []
 
     def copy(self):
         '''copies this SegmentPlotList with empty plots.
@@ -188,11 +188,18 @@ class SegmentPlotList(list):
         '''
         with enhancesegmentclass(config):
             seg_id = self.segment_id
-            stream = self.data.get('stream', None)
-            inventory = invcache.get(seg_id, None)
-
             segment = getseg(session, seg_id)
-            segment._stream = stream
+            # if stream has not been loaded, do it now in order to pass a copy of it to
+            # `func`: this prevents in-place modifications:
+            stream = self.data.get('stream', None)
+            if stream is None:
+                try:
+                    stream = segment.stream()
+                except Exception as exc:
+                    stream = exc
+                self.data['stream'] = stream
+            segment._stream = stream.copy() if isinstance(stream, Stream) else stream
+            inventory = invcache.get(seg_id, None)
             segment._inventory = inventory
 
             try:
@@ -202,18 +209,20 @@ class SegmentPlotList(list):
                 # Any of these values might be also an exception. Call the
                 # 'private' attribute cause the relative method, if exists, most likely raises
                 # the exception, it does not return it
-                if stream is None:
-                    self.data['stream'] = segment._stream  # might be exc, or None
                 sn_windows = self.data.get('sn_windows', None)
                 if sn_windows is None:
                     try:
                         self.data['sn_windows'] = segment.sn_windows()
                     except Exception as exc:
                         self.data['sn_windows'] = exc
-
-                # allocate the segment if we need to set the title (might be None):
                 if inventory is None:
                     invcache[segment] = segment._inventory  # might be exc, or None
+                # reset segment stream to None, for safety: we do not know if it refers
+                # to a pre-processed stream or not, and thus segment._stream needs to be set from
+                # self.data each time we are here. Note that this should not eb a problem as
+                # the web app re-initializes the session each time (thus each segment SHOULD have
+                # no _stream attribute), but for safety we remove it:
+                segment._stream = None
                 if not self.data.get('plot_title_prefix', None):
                     title = None
                     if isinstance(segment._stream, Stream):
@@ -356,6 +365,7 @@ class PlotManager(LimitedSizeDict):
                 stream0 = segplotlist.data['stream']
                 if isinstance(stream0, Stream):
                     stream0 = stream0.copy()
+                    warnings = []
                     title = plots[index_of_main_plot].title
                     for segid in segplotlist.oc_segment_ids:
                         oc_segplotlist = self._getsegplotlist(session, segid, preprocessed)
@@ -367,9 +377,13 @@ class PlotManager(LimitedSizeDict):
                         if isinstance(_stream, Stream):
                             stream0 += _stream
                         else:
-                            stream0.warnings += _stream.warnings
+                            streamid = oc_segplotlist.data.get('plot_title_prefix', '')
+                            if streamid:
+                                streamid = streamid + ": "
+                            warnings += ["%s%s" % (streamid, str(_stream))]
                     # get all other orientations (components) and merge them with the main plot:
-                    plots[index_of_main_plot] = Plot.fromstream(stream0, title=title)
+                    plots[index_of_main_plot] = Plot.fromstream(stream0, title=title,
+                                                                warnings=warnings or None)
             return plots
 
     def _getsegplotlist(self, session, seg_id, preprocessed=False):
@@ -390,26 +404,22 @@ class PlotManager(LimitedSizeDict):
                 return segplotlist
 
             if p_segplotlist is None:
-                # Appliy a pre-process to the given segplotlist,
+                # Apply a pre-process to the given segplotlist,
                 # creating a copy of it and adding to the second element of self.segplotlists
-                for segplotlist in chain([segplotlist],
-                                         (self[_][0] for _ in segplotlist.oc_segment_ids)):
-                    stream = None
-                    try:
-                        stream = segplotlist.exec_func(self.preprocessfunc, session,
-                                                       self.inv_cache, self.config)
-                        if isinstance(stream, Trace):
-                            stream = Stream([stream])
-                        elif not isinstance(stream, Stream):
-                            raise Exception('pre_process function must return '
-                                            'a Trace or Stream object')
-                    except Exception as exc:
-                        stream = exc
-                    tmp = segplotlist.copy()
-                    tmp.data['stream'] = stream
-                    self[tmp.segment_id][1] = tmp
-                    if tmp.segment_id == seg_id:
-                        p_segplotlist = tmp
+                stream = None
+                try:
+                    stream = segplotlist.exec_func(self.preprocessfunc, session,
+                                                   self.inv_cache, self.config)
+                    if isinstance(stream, Trace):
+                        stream = Stream([stream])
+                    elif not isinstance(stream, Stream):
+                        raise Exception('pre_process function must return '
+                                        'a Trace or Stream object')
+                except Exception as exc:
+                    stream = exc
+                p_segplotlist = segplotlist.copy()
+                p_segplotlist.data['stream'] = stream
+                self[seg_id][1] = p_segplotlist
 
             return p_segplotlist
 

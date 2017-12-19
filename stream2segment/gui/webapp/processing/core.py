@@ -278,6 +278,9 @@ def get_doc(key, plotmanager):
     '''
     if key == 'preprocessfunc':
         ret = plotmanager.get_preprocessfunc_doc
+        idx = ret.find("\n\n")
+        if idx > -1:
+            ret = ret[:idx]
     elif key == 'sn_windows':
         ret = yaml_load_doc(get_templates_fpath("processing.yaml"), "sn_windows", True)
     elif key == 'segment_select':

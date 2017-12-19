@@ -103,7 +103,7 @@ def enhancesegmentclass(config_dict=None, overwrite_config=False):
         ... code here ...
         # now Segment class is enhanced anymore (class methods and attributes added):
         # segment.stream()
-        # segment.segments_on_other_orientations()
+        # segment.other_orientations()
         # segment.inventory()
         # segment.sn_windows()  # if config_dict has the properly configured keys
     # now Segment class is not enhanced anymore (class methods and attributes removed)
@@ -167,7 +167,7 @@ def enhancesegmentclass(config_dict=None, overwrite_config=False):
                            (Channel.band_code == self.channel.band_code) &
                            (Channel.instrument_code == self.channel.instrument_code))
 
-        def segments_on_other_orientations(self):
+        def other_orientations(self):
             seg_other_orientations = getattr(self, "_other_orientations", None)
             if seg_other_orientations is None:
                 segs = self._query_to_other_orientations(Segment).all()
@@ -182,7 +182,7 @@ def enhancesegmentclass(config_dict=None, overwrite_config=False):
         Segment.stream = stream
         Segment.inventory = inventory
         Segment.sn_windows = sn_windows
-        Segment.segments_on_other_orientations = segments_on_other_orientations
+        Segment.other_orientations = other_orientations
         Segment.dbsession = lambda self: object_session(self)
         Segment._query_to_other_orientations = _query_to_other_orientations
         try:
@@ -194,7 +194,7 @@ def enhancesegmentclass(config_dict=None, overwrite_config=False):
             del Segment.inventory
             del Segment.sn_windows
             del Segment.dbsession
-            del Segment.segments_on_other_orientations
+            del Segment.other_orientations
             del Segment._query_to_other_orientations
 
 

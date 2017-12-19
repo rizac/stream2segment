@@ -195,8 +195,8 @@ class Plot(object):
             p.addtrace(t, 'chunk %d' % i if same_trace else t.get_id())
         if title is None and same_trace:
             p.title = stream[0].get_id()
-        if not warnings and same_trace and len(stream) > 1:
-            p.warnings = ['gaps/overlaps']
+        if same_trace and len(stream) > 1:
+            p.warnings += ['gaps/overlaps']
         return p
 
     @staticmethod

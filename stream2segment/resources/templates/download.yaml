@@ -37,15 +37,17 @@ retry_server_err: true
 # was completely outside the requested time span (see 'timespan' for details)
 retry_timespan_err: true
 
-# whether or not to update segments metadata, i.e. if an already saved station/channel will
-# write again its data (overwriting existing data). Otherwise,
-# all already saved stations and channels will not be updated
+# whether or not to update segments metadata: when true, all downloaded stations and
+# channels will be saved to the database, overwriting existing data, if needed. When false,
+# only station and channels not found on the databse will be saved.
+# If station inventories have to be downloaded,  when this parameter is true all station inventories
+# with saved segments saved will re-download their inventories
 update_metadata: false
 
 # Set if station inventories (xml format) should be downloaded.
-# If true, inventories will be downloaded for all station that have at least one non-empty segment saved:
-# if the user selected not to update the metadata, already saved inventories will not be downloaded,
-# otherwise they will be downloaded anyway, updating existing inventories, if any
+# If true, inventories will be downloaded for all station that have saved segments with data:
+# 1. if the user selected not to update the metadata, already saved inventories will not be downloaded
+# 2. otherwise, they will be downloaded anyway, updating existing inventories, if any
 # You can always fetch and save inventories later during processing, if required
 inventory: true
 

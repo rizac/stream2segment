@@ -9,10 +9,10 @@ segment plots to be visualized in the web GUI (Graphical user interface).
 This file can be edited and passed to the program commands `s2s v` (visualize) and `s2s p` (process)
 as -p or --pyfile option, together with an associated configuration .yaml file (-c option):
 ```
-    s2s v -p [thisfilepath] -c [configfilepath] ...
-    s2s p -p [thisfilepath] -c [configfilepath] ...
+    s2s show -p [thisfilepath] -c [configfilepath] ...
+    s2s process -p [thisfilepath] -c [configfilepath] ...
 ```
-This module needs to implement few functions which will be described here (for full details,
+This module needs to implement one or more functions which will be described here (for full details,
 look at their doc-string). All these functions must have the same signature:
 ```
     def myfunction(segment, config):
@@ -23,7 +23,7 @@ and `config` is the python dictionary representing the given configuration .yaml
 Processing
 ==========
 
-When invoked via `s2s p ...`, the program will search for a function called "main", e.g.:
+When invoked via `s2s process ...`, the program will search for a function called "main", e.g.:
 ```
 def main(segment, config)
 ```
@@ -33,7 +33,7 @@ in the config) and execute the function, writing its output to the given .csv fi
 Visualization (web GUI)
 =======================
 
-When invoked via `s2s v ...`, the program will search for all functions decorated with
+When invoked via `s2s show ...`, the program will search for all functions decorated with
 "@gui.preprocess", "@gui.sideplot" or "@gui.customplot".
 The function decorated with "@gui.preprocess", e.g.:
 ```
@@ -99,30 +99,42 @@ Each attribute can be considered as segment metadata: it reflects a segment colu
 segment methods:
 ----------------
 
-segment.stream(): the `obspy.Stream` object representing the waveform data
-associated to the segment. Please note that all functions modifying the stream or any of its traces
-in-place **WILL ALSO MODIFY LATER CALLS TO segment.stream()**:
-```
-    s = segment.stream()
-    s_rem_resp = s.remove_response(segment.inventory())
-    # now the traces of s are actually those of s_rem_resp
-    s = segment.stream()
-```
-this is particularly important for the functions decorated for plotting, because any modification
-will affect subsequent plots
+* segment.stream(): the `obspy.Stream` object representing the waveform data
+  associated to the segment. Please remember that many obspy function modify the
+  stream in-place:
+  ```
+      s = segment.stream()
+      s_rem_resp = s.remove_response(segment.inventory())
+      segment.stream() is s  # False!!!
+      segment.stream() is s_rem_resp  # True!!!
+  ```
+  When visualizing plots, where efficiency is less important, each function is executed on a
+  copy of segment.stream(). However, from within `main` performances might be an issue and
+  therefore the user has to handle when to copy the segment's stream or not.
+  For info see:
+  https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.copy.html
 
-segment.sn_windows(): returns the signal and noise time windows:
-(s_start, s_end), (n_start, n_end)
-where all elements are `UTCDateTime`s. The windows are computed according to
-the settings of the associated yaml configuration file: `config['sn_windows']`). Example usage:
-`
-sig_wdw, noise_wdw = segment.sn_windows()
-stream_signal = segment.stream().copy().trim(*sig_wdw, ...)
-`
-If segment's stream has more than one trace, the method raises.
 
-segment.inventory(): the `obspy.core.inventory.inventory.Inventory`. This object is useful e.g.,
-for removing the instrumental response from `segment.stream()`
+* segment.sn_windows(): returns the signal and noise time windows:
+  (s_start, s_end), (n_start, n_end)
+  where all elements are `UTCDateTime`s. The windows are computed according to
+  the settings of the associated yaml configuration file: `config['sn_windows']`). Example usage:
+  `
+  sig_wdw, noise_wdw = segment.sn_windows()
+  stream_signal = segment.stream().copy().trim(*sig_wdw, ...)
+  `
+  If segment's stream has more than one trace, the method raises.
+
+* segment.inventory(): the `obspy.core.inventory.inventory.Inventory`. This object is useful e.g.,
+  for removing the instrumental response from `segment.stream()`
+
+* segment.other_orientations(): returns a list of segments representing this segment
+  but on other orientations. E.g., if this segment refers to a particular event on
+  a channel whose channel code is HHZ, this method returns the segments of the same event on the
+  same channel but with channel codes HHE and HHN.
+
+* segment.dbsession(): WARNING: this is for advanced users experienced with sql-alchemy database
+  session: it is the database session for IO operations to the database
 
 
 segment attributes:
@@ -203,7 +215,7 @@ segment.seed_identifier                   str: the seed identifier in the typica
 segment.has_class                         boolean: tells if the segment has (at least one) class
 \                                         assigned
 segment.data                              bytes: the waveform (raw) data. You don't generally need
-\                                         to access this attribute which is also time-comsuming
+\                                         to access this attribute which is also time-consuming
 \                                         to fetch. Used by `segment.stream()`
 ----------------------------------------- ------------------------------------------------
 segment.event                             object (attributes below)
@@ -248,12 +260,12 @@ segment.station.elevation                 float
 segment.station.site_name                 str
 segment.station.start_time                datetime.datetime
 segment.station.end_time                  datetime.datetime
-segment.station.inventory_xml             bytes. The station invencotry (raw) data. You don't
+segment.station.inventory_xml             bytes. The station inventory (raw) data. You don't
 \                                         generally need to access this attribute which is also
-\                                         time-comsuming to fetch. Used by `segment.inventory()`
+\                                         time-consuming to fetch. Used by `segment.inventory()`
 segment.station.has_inventory             boolean: tells if the segment's station inventory has
 \                                         data saved (at least one byte of data).
-\                                         This attribute useful in the config to select only 
+\                                         This attribute useful in the config to select only
 \                                         segments with inventory downloaded and speed up the
 \                                         processing,
 \                                         e.g. has_inventory: 'true'.
@@ -270,7 +282,7 @@ segment.download.id                       int
 segment.download.run_time                 datetime.datetime
 segment.download.log                      str: The log text of the segment's download execution.
 \                                         You don't generally need to access this
-\                                         attribute which is also time-comsuming to fetch.
+\                                         attribute which is also time-consuming to fetch.
 \                                         Useful for advanced debugging / inspection
 segment.download.warnings                 int
 segment.download.errors                   int
@@ -364,7 +376,7 @@ def main(segment, config):
     will populate the first row header of the resulting csv file, otherwise the csv file
     will have no header. Please be consistent: always return the same type of iterable for
     all segments; if dict, always return the same keys for all dicts; if list, always
-    return the same length, etcetera.
+    return the same length, etc.
     If you want to preserve the order of the dict keys as inserted in the code, use `OrderedDict`
     instead of `dict` or `{}`.
     Please note that the first column of the resulting csv will be *always* the segment id
@@ -399,12 +411,12 @@ def main(segment, config):
         raise ValueError('possibly saturated (amp. ratio exceeds)')
 
     # bandpass the trace, according to the event magnitude.
-    # WARNING: this modifies the segment.stream() permanently!
-    # If you want to preserve the original stream, store trace.copy()
+    # WARNING: For efficiency reasons, this modifies `segment.stream()` permanently!
+    # But this is not a requirement and the user can change this behavior. With the current
+    # implementation, if you want to preserve the original stream, store trace.copy()
     # and later set segment.stream()[0] = trace
     trace = bandpass_remresp(segment, config)
-    # From now on, we want segment.stream() to return the trace just computed:
-    segment.stream()[0] = trace
+    # From now on, segment.stream()[0] will return `trace`
 
     spectra = sn_spectra(segment, config)
     normal_f0, normal_df, normal_spe = spectra['Signal']
@@ -489,24 +501,27 @@ def main(segment, config):
 def bandpass_remresp(segment, config):
     """Applies a pre-process on the given segment waveform by
     filtering the signal and removing the instrumental response.
-    Does not modify the segment's stream or traces in-place. Raises if the segment's stream
-    has more than one trace.
 
     The filter algorithm has the following steps:
-    1. Sets the max frequency to 0.9 of the nyquist freauency (sampling rate /2)
-    (slightly less than nyquist seems to avoid artifacts)
-    2. Offset removal (substract the mean from the signal)
+    1. Sets the max frequency to 0.9 of the Nyquist frequency (sampling rate /2)
+    (slightly less than Nyquist seems to avoid artifacts)
+    2. Offset removal (subtract the mean from the signal)
     3. Tapering
-    4. Pad data with zeros at the END in order to accomodate the filter transient
+    4. Pad data with zeros at the END in order to accommodate the filter transient
     5. Apply bandpass filter, where the lower frequency is set according to the magnitude
     6. Remove padded elements
     7. Remove the instrumental response
 
     IMPORTANT NOTES:
-    - As this function is decorated for the gui visualization, any modification to the segment's
-    Stream or any of its Traces will affect subsequent plots
-    - Being decorated with '@gui.preprocess', this function must return either a Trace or Stream
-    object
+    - Being decorated with '@gui.preprocess', this function:
+      * returns the *base* stream used by all plots whenever the relative check-box is on
+      * must return either a Trace or Stream object
+
+    - In this implementation THIS FUNCTION DOES MODIFY `segment.stream()` IN-PLACE: from within
+      `main`, further calls to `segment.stream()` will return the stream returned by this function.
+      However, MODIFYING THE STREAM IN-PLACE IS NOT A REQUIREMENT AND THE USER CAN CHANGE THIS
+      BEHAVIOUR. In any case, you can use `segment.stream().copy()` before this call to keep the
+      old "raw" stream
 
     :return: a Trace object.
     """
@@ -520,7 +535,7 @@ def bandpass_remresp(segment, config):
     # note: bandpass here below copied the trace! important!
     trace = bandpass(trace, mag2freq(evt.magnitude), freq_max=conf['bandpass_freq_max'],
                      max_nyquist_ratio=conf['bandpass_max_nyquist_ratio'],
-                     corners=conf['bandpass_corners'], copy=True)
+                     corners=conf['bandpass_corners'], copy=False)
     trace.remove_response(inventory=inventory, output=conf['remove_response_output'],
                           water_level=conf['remove_response_water_level'])
     return trace
@@ -673,9 +688,6 @@ def synth_wa(segment, config):
 
     IMPORTANT NOTES:
 
-    - As this function is decorated for the gui visualization, any in-place modification to
-    the segment's Stream or any of its Traces will affect subsequent plots
-
     -Being decorated with '@gui.sideplot' or '@gui.customplot', this function must return
      a numeric sequence y taken at successive equally spaced points in any of these forms:
         - a Trace object
@@ -715,9 +727,6 @@ def derivcum2(segment, config):
 
     IMPORTANT NOTES:
 
-    - As this function is decorated for the gui visualization, any in-place modification to
-    the segment's Stream or any of its Traces will affect subsequent plots
-
     -Being decorated with '@gui.sideplot' or '@gui.customplot', this function must return
      a numeric sequence y taken at successive equally spaced points in any of these forms:
         - a Trace object
@@ -753,9 +762,6 @@ def cumulative(segment, config):
 
     IMPORTANT NOTES:
 
-    - As this function is decorated for the gui visualization, any in-place modification to
-    the segment's Stream or any of its Traces will affect subsequent plots
-
     -Being decorated with '@gui.sideplot' or '@gui.customplot', this function must return
      a numeric sequence y taken at successive equally spaced points in any of these forms:
         - a Trace object
@@ -789,9 +795,6 @@ def sn_spectra(segment, config):
     Does not modify the segment's stream or traces in-place
 
     IMPORTANT NOTES:
-
-    - As this function is decorated for the gui visualization, any in-place modification to
-    the segment's Stream or any of its Traces will affect subsequent plots
 
     -Being decorated with '@gui.sideplot' or '@gui.customplot', this function must return
      a numeric sequence y taken at successive equally spaced points in any of these forms:
