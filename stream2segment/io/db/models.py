@@ -578,22 +578,6 @@ class Segment(Base):
     def has_data(cls):  # @NoSelf
         return withdata(cls.data)
 
-#     @hybrid_method
-#     def has_class(self, *ids):  # this is used only for testing purposes. See test_db
-#         if not ids:
-#             return self.classes.count() > 0
-#         else:
-#             _ids = set(ids)
-#             return any(c.id in _ids for c in self.classes)
-# 
-#     @has_class.expression
-#     def has_class(cls, *ids):  # @NoSelf  # this is used only for testing purposes. See test_db
-#         any_ = cls.classes.any
-#         if not ids:
-#             return any_()
-#         else:
-#             return any_(Class.id.in_(ids))
-
     @hybrid_property
     def has_class(self):
         return len(self.classes) > 0
@@ -666,7 +650,7 @@ class Segment(Base):
                 needs_commit = True
                 sess.add_all((ClassLabelling(class_id=cid,
                                              segment_id=self.id, annotator=annotator,
-                                             is_hand_labelled=annotator or False)
+                                             is_hand_labelled=annotator is not None)
                               for cid in classids2add))
 
         if needs_commit and auto_commit:
@@ -736,6 +720,8 @@ class Class(Base):
     id = Column(Integer, primary_key=True)
     label = Column(String)
     description = Column(String)
+
+    __table_args__ = (UniqueConstraint('label', name='class_label_uc'),)
 
 
 class ClassLabelling(Base):

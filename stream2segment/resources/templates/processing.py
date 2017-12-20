@@ -100,7 +100,7 @@ segment methods:
 ----------------
 
 * segment.stream(): the `obspy.Stream` object representing the waveform data
-  associated to the segment. Please remember that many obspy function modify the
+  associated to the segment. Please remember that many obspy functions modify the
   stream in-place:
   ```
       s = segment.stream()
@@ -109,11 +109,12 @@ segment methods:
       segment.stream() is s_rem_resp  # True!!!
   ```
   When visualizing plots, where efficiency is less important, each function is executed on a
-  copy of segment.stream(). However, from within `main` performances might be an issue and
-  therefore the user has to handle when to copy the segment's stream or not.
-  For info see:
+  copy of segment.stream(). However, from within the `main` function, the user has to handle when
+  to copy the segment's stream or not. For info see:
   https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.copy.html
 
+* segment.inventory(): the `obspy.core.inventory.inventory.Inventory`. This object is useful e.g.,
+  for removing the instrumental response from `segment.stream()`
 
 * segment.sn_windows(): returns the signal and noise time windows:
   (s_start, s_end), (n_start, n_end)
@@ -121,20 +122,34 @@ segment methods:
   the settings of the associated yaml configuration file: `config['sn_windows']`). Example usage:
   `
   sig_wdw, noise_wdw = segment.sn_windows()
+  stream_noise = segment.stream().copy().trim(*noise_wdw, ...)
   stream_signal = segment.stream().copy().trim(*sig_wdw, ...)
   `
   If segment's stream has more than one trace, the method raises.
 
-* segment.inventory(): the `obspy.core.inventory.inventory.Inventory`. This object is useful e.g.,
-  for removing the instrumental response from `segment.stream()`
+* segment.other_orientations(): returns a list of segments representing the same recorded event
+  on other channel's orientations. E.g., if `segment` refers to an event E recorded by a
+  station channel with code 'HHZ', this method returns the segments recorded on 'HHE' and
+  'HHN' (relative to the same event on the same station and location codes).
 
-* segment.other_orientations(): returns a list of segments representing this segment
-  but on other orientations. E.g., if this segment refers to a particular event on
-  a channel whose channel code is HHZ, this method returns the segments of the same event on the
-  same channel but with channel codes HHE and HHN.
+* segment.del_classes(*ids_or_labels): Deletes the given classes of the segment. The argument is
+  a comma-separated list of class labels (string) or class ids (int). As classes are given in the
+  config as a dict of label:description values, usually string labels are passed here.
+  E.g.: `segment.del_classes('class1')`, `segment.del_classes('class1', 'class2', 'class3')`
 
-* segment.dbsession(): WARNING: this is for advanced users experienced with sql-alchemy database
-  session: it is the database session for IO operations to the database
+* segment.set_classes(*ids_or_labels, annotator=None): Sets the given classes on the segment,
+  deleting all already assigned classes, if any. `ids_or_labels` is a comma-separated list of class
+  labels (string) or class ids (int). As classes are given in the config as a dict of
+  label:description values, usually string labels are passed here. `annotator` is a string name
+  which, if given (not None) denotes that the class labelling is a human hand-labelled class
+  assignment (vs. a statistical classifier class assignment).
+  E.g.: `segment.set_classes('class1')`, `segment.set_classes('class1', 'class2', annotator='Jim')`
+
+* segment.add_classes(*ids_or_labels, annotator=None): Same as `segment.set_classes` but already
+  assigned classes will neither be deleted first, nor added again if already assigned
+
+* segment.dbsession(): WARNING: this is for advanced users experienced with Sql-Alchemy library:
+  returns the database session for IO operations with the database
 
 
 segment attributes:
@@ -325,7 +340,7 @@ from stream2segment.process.utils import gui
 # strem2segment functions for processing obspy Traces. This is just a list of possible functions
 # to show how to import them:
 from stream2segment.process.math.traces import ampratio, bandpass, cumsum,\
-    cumtimes, fft, maxabs, utcdatetime, ampspec, powspec, timeof
+    cumtimes, fft, maxabs, utcdatetime, ampspec, powspec, timeof, respspec
 # stream2segment function for processing numpy arrays:
 from stream2segment.process.math.ndarrays import triangsmooth, snr, linspace
 

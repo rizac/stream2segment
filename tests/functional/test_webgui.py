@@ -425,14 +425,14 @@ class Test(unittest.TestCase):
         # assert we have exceptions:
         # FIXME: check why we have to access _app for global vars and not app (see setup method)
         pm = self.app.config['PLOTMANAGER']
-        for segplotlists in pm.values():
-            plots = segplotlists[1]
+        for plotlists in pm.values():
+            plots = plotlists[1]
             if plots is None:  # not calculated, skip
                 continue
             for i in plot_indices:
                 assert "Station inventory (xml) error" in plots[i].warnings[0]
                     
-        # now reset the pre_processed segplotlists:
+        # now reset the pre_processed plotlists:
         pm._pplots = {}
         # set an inventory matching the segments we have:
         # set inventory
@@ -472,8 +472,8 @@ class Test(unittest.TestCase):
 #                     assert "" == p.message
                     
         pm = self.app.config['PLOTMANAGER']
-        for segplotlists in pm.values():
-            plots = segplotlists[1]
+        for plotlists in pm.values():
+            plots = plotlists[1]
             if plots is None:  # not calculated, skip
                 continue
             for i in plot_indices:

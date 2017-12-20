@@ -235,14 +235,14 @@ class Test(unittest.TestCase):
     def computedplotslen(plotmanager, seg_id, preprocessed, allcomponents=False):
         '''total number of non-null plots for a given segment'''
         i = 1 if preprocessed else 0
-        segplotlists = [plotmanager[seg_id][i]]
+        plotlists = [plotmanager[seg_id][i]]
         if allcomponents:
-            for segid in segplotlists[0].oc_segment_ids:
+            for segid in plotlists[0].oc_segment_ids:
                 if plotmanager[segid][i] is not None:  # is preprocessed = True, it might be None
-                    segplotlists.append(plotmanager[segid][i])
+                    plotlists.append(plotmanager[segid][i])
         n = 0
-        for segplotlist in segplotlists:
-            for plot in segplotlist:
+        for plotlist in plotlists:
+            for plot in plotlist:
                 if plot is not None:
                     n += 1
         return n
@@ -252,15 +252,15 @@ class Test(unittest.TestCase):
         '''total number of traces to be plot for a given segment
         '''
         i = 1 if preprocessed else 0
-        segplotlists = [plotmanager[seg_id][i]]
+        plotlists = [plotmanager[seg_id][i]]
         has_components = False
         if allcomponents:
-            for segid in segplotlists[0].oc_segment_ids:
-                segplotlists.append(plotmanager[segid][i])
+            for segid in plotlists[0].oc_segment_ids:
+                plotlists.append(plotmanager[segid][i])
                 has_components = True
         n = 0
-        for segplotlist in segplotlists:
-            streamorexc = segplotlist.data['stream']
+        for plotlist in plotlists:
+            streamorexc = plotlist.data['stream']
             num = len(streamorexc) if isinstance(streamorexc, Stream) else 0 if \
                 (allcomponents and has_components) else 1
             n += num
@@ -282,12 +282,12 @@ class Test(unittest.TestCase):
                 
                 components_count[group_id] = other_comps_count
 
-        def assert_(segplotlist, segment, preprocessed, is_invalidated=False):
+        def assert_(plotlist, segment, preprocessed, is_invalidated=False):
             '''does some assertion
-            :preprocessed: if the segplotlist refers toa  preprocessed segment
-            :is_invalidated: if the segplotlist has been invalidated. Valid only
-            if preprocessed=False (otherwise segplotlist should be None)
-            This is used for checking that segplotlist.data['sn_windows'] is None
+            :preprocessed: if the plotlist refers toa  preprocessed segment
+            :is_invalidated: if the plotlist has been invalidated. Valid only
+            if preprocessed=False (otherwise plotlist should be None)
+            This is used for checking that plotlist.data['sn_windows'] is None
             '''
             # raw:
             # gap: stream: ok, sn_spectra exc, sn_windows: none
@@ -296,68 +296,68 @@ class Test(unittest.TestCase):
             # preprocessed
             iserr = 'err' in segment.channel.location
             hasgaps = 'gap' in segment.channel.location
-            isinverr = isinstance(segplotlist.data['stream'], Exception) and \
-                "inventory" in str(segplotlist.data['stream'])
+            isinverr = isinstance(plotlist.data['stream'], Exception) and \
+                "inventory" in str(plotlist.data['stream'])
             if preprocessed:
                 if iserr or hasgaps or isinverr:
-                    assert len("".join(segplotlist[0].warnings))
-                    assert isinstance(segplotlist.data['stream'], Exception)
+                    assert len("".join(plotlist[0].warnings))
+                    assert isinstance(plotlist.data['stream'], Exception)
                     # if stream has an exception, as we use the stream for the sn_windows, assert
                     # the exception is the same:
-                    assert segplotlist.data['sn_windows'] == segplotlist.data['stream']
-                    if segplotlist[1] is not None:
-                        assert len("".join(segplotlist[1].warnings))
+                    assert plotlist.data['sn_windows'] == plotlist.data['stream']
+                    if plotlist[1] is not None:
+                        assert len("".join(plotlist[1].warnings))
                 else:
-                    assert not len("".join(segplotlist[0].warnings))
-                    assert isinstance(segplotlist.data['stream'], Stream)
+                    assert not len("".join(plotlist[0].warnings))
+                    assert isinstance(plotlist.data['stream'], Stream)
                     # assert sn_windows are correct:
-                    sn_wdw = segplotlist.data['sn_windows']
+                    sn_wdw = plotlist.data['sn_windows']
                     assert len(sn_wdw) == 2
                     assert all(isinstance(_, UTCDateTime) for _ in list(sn_wdw[0]) + list(sn_wdw[1]))
-                    if segplotlist[1] is not None:
-                        assert not len("".join(segplotlist[1].warnings))
+                    if plotlist[1] is not None:
+                        assert not len("".join(plotlist[1].warnings))
             else:
                 # test sn_windows first:
                 if is_invalidated:
-                    assert segplotlist.data['sn_windows'] is None  # reset from invalidation
+                    assert plotlist.data['sn_windows'] is None  # reset from invalidation
                 elif iserr:
-                    assert isinstance(segplotlist.data['sn_windows'], Exception)
+                    assert isinstance(plotlist.data['sn_windows'], Exception)
                     # assert also that it is the same exception raised from stream:
-                    assert segplotlist.data['stream'] == segplotlist.data['sn_windows']
+                    assert plotlist.data['stream'] == plotlist.data['sn_windows']
                 elif 'gap' in segment.channel.location:
                     # sn_windows should raise, as we have more than one trace:
-                    assert isinstance(segplotlist.data['sn_windows'], Exception)
-                    assert "gap" in str(segplotlist.data['sn_windows'])
+                    assert isinstance(plotlist.data['sn_windows'], Exception)
+                    assert "gap" in str(plotlist.data['sn_windows'])
                 else:  # good segment
                     # if the stream is unprocessed, and it was successfully loaded, assert
                     # sn_windows are correct:
-                    sn_wdw = segplotlist.data['sn_windows']
+                    sn_wdw = plotlist.data['sn_windows']
                     assert len(sn_wdw) == 2
                     assert all(isinstance(_, UTCDateTime)
                                for _ in list(sn_wdw[0]) + list(sn_wdw[1]))
                 # test other stuff:
                 if iserr:
-                    assert len("".join(segplotlist[0].warnings))
-                    assert isinstance(segplotlist.data['stream'], Exception)
-                    if segplotlist[1] is not None:
-                        assert len("".join(segplotlist[1].warnings))
+                    assert len("".join(plotlist[0].warnings))
+                    assert isinstance(plotlist.data['stream'], Exception)
+                    if plotlist[1] is not None:
+                        assert len("".join(plotlist[1].warnings))
                 else:
-                    assert isinstance(segplotlist.data['stream'], Stream)
+                    assert isinstance(plotlist.data['stream'], Stream)
                     if "gap_unmerged" in segment.channel.location:
                         # assert that traces labels (d[-1]) are displayed with their seed_id. To prove that,
                         # assert that we didn't named each trace as "chunk1", "cunk2" etcetera:
-                        assert all("chunk" not in d[-1] for d in segplotlist[0].data)    
+                        assert all("chunk" not in d[-1] for d in plotlist[0].data)    
                     elif hasgaps:
-                        assert "gaps/overlaps" in "".join(segplotlist[0].warnings)
+                        assert "gaps/overlaps" in "".join(plotlist[0].warnings)
                         # assert that we display all traces with "chunk1", "cunk2" etcetera:
-                        assert all("chunk" in d[-1] for d in segplotlist[0].data) 
+                        assert all("chunk" in d[-1] for d in plotlist[0].data) 
                     else:
-                        assert not len("".join(segplotlist[0].warnings)) 
-                    if segplotlist[1] is not None:
+                        assert not len("".join(plotlist[0].warnings)) 
+                    if plotlist[1] is not None:
                         if hasgaps:
-                            assert len("".join(segplotlist[1].warnings))
+                            assert len("".join(plotlist[1].warnings))
                         else:
-                            assert not len("".join(segplotlist[1].warnings))
+                            assert not len("".join(plotlist[1].warnings))
             
             
         for s in self.session.query(Segment):

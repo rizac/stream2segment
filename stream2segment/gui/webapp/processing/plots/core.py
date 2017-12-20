@@ -29,15 +29,14 @@ from __future__ import division
 from builtins import zip, range, object, dict
 
 from collections import OrderedDict
-from itertools import cycle, chain
+from itertools import cycle
 
 from obspy.core import Stream, Trace
 
-from stream2segment.io.db.models import Channel, Segment, Station
+from stream2segment.io.db.models import Segment
 from stream2segment.utils import iterfuncs
 from stream2segment.gui.webapp.processing.plots.jsplot import Plot
 from stream2segment.process.utils import enhancesegmentclass, getseg
-from sqlalchemy.orm import load_only
 
 
 class SegmentPlotList(list):
@@ -358,26 +357,26 @@ class PlotManager(LimitedSizeDict):
         trace(s) of all the other components of the segment `seg_id`, if any.
         """
         with enhancesegmentclass(self.config):
-            segplotlist = self._getsegplotlist(session, seg_id, preprocessed)
-            plots = segplotlist.get_plots(session, plot_indices, self.inv_cache, self.config)
+            plotlist = self._getplotlist(session, seg_id, preprocessed)
+            plots = plotlist.get_plots(session, plot_indices, self.inv_cache, self.config)
             index_of_main_plot = 0
             if index_of_main_plot in plot_indices and all_components_in_segment_plot:
-                stream0 = segplotlist.data['stream']
+                stream0 = plotlist.data['stream']
                 if isinstance(stream0, Stream):
                     stream0 = stream0.copy()
                     warnings = []
                     title = plots[index_of_main_plot].title
-                    for segid in segplotlist.oc_segment_ids:
-                        oc_segplotlist = self._getsegplotlist(session, segid, preprocessed)
+                    for segid in plotlist.oc_segment_ids:
+                        oc_plotlist = self._getplotlist(session, segid, preprocessed)
                         # force calculation of the main plot, which stores also the stream:
                         # (this will not computed twice if already computed)
-                        _ = oc_segplotlist.get_plots(session, [index_of_main_plot],
-                                                     self.inv_cache, self.config)[0]
-                        _stream = oc_segplotlist.data['stream']
+                        _ = oc_plotlist.get_plots(session, [index_of_main_plot],
+                                                  self.inv_cache, self.config)[0]
+                        _stream = oc_plotlist.data['stream']
                         if isinstance(_stream, Stream):
                             stream0 += _stream
                         else:
-                            streamid = oc_segplotlist.data.get('plot_title_prefix', '')
+                            streamid = oc_plotlist.data.get('plot_title_prefix', '')
                             if streamid:
                                 streamid = streamid + ": "
                             warnings += ["%s%s" % (streamid, str(_stream))]
@@ -386,11 +385,11 @@ class PlotManager(LimitedSizeDict):
                                                                 warnings=warnings or None)
             return plots
 
-    def _getsegplotlist(self, session, seg_id, preprocessed=False):
+    def _getplotlist(self, session, seg_id, preprocessed=False):
         with enhancesegmentclass(self.config):
-            segplotlist, p_segplotlist = self.get(seg_id, [None, None])
+            plotlist, p_plotlist = self.get(seg_id, [None, None])
 
-            if segplotlist is None:
+            if plotlist is None:
                 seg = getseg(session, seg_id)
                 segids = set([_[0]
                               for _ in seg._query_to_other_orientations(Segment.id)] + [seg_id])
@@ -398,18 +397,18 @@ class PlotManager(LimitedSizeDict):
                     tmp = SegmentPlotList(segid, self.functions, segids - set([segid]))
                     self[segid] = [tmp, None]
                     if seg_id == segid:
-                        segplotlist = tmp
+                        plotlist = tmp
 
             if not preprocessed:
-                return segplotlist
+                return plotlist
 
-            if p_segplotlist is None:
-                # Apply a pre-process to the given segplotlist,
-                # creating a copy of it and adding to the second element of self.segplotlists
+            if p_plotlist is None:
+                # Apply a pre-process to the given plotlist,
+                # creating a copy of it and adding to the second element of self.plotlists
                 stream = None
                 try:
-                    stream = segplotlist.exec_func(self.preprocessfunc, session,
-                                                   self.inv_cache, self.config)
+                    stream = plotlist.exec_func(self.preprocessfunc, session,
+                                                self.inv_cache, self.config)
                     if isinstance(stream, Trace):
                         stream = Stream([stream])
                     elif not isinstance(stream, Stream):
@@ -417,18 +416,18 @@ class PlotManager(LimitedSizeDict):
                                         'a Trace or Stream object')
                 except Exception as exc:
                     stream = exc
-                p_segplotlist = segplotlist.copy()
-                p_segplotlist.data['stream'] = stream
-                self[seg_id][1] = p_segplotlist
+                p_plotlist = plotlist.copy()
+                p_plotlist.data['stream'] = stream
+                self[seg_id][1] = p_plotlist
 
-            return p_segplotlist
+            return p_plotlist
 
     def get_data(self, segment_id, key, preprocessed, default_if_missing=None):
         try:
-            segplotlist = self[segment_id][0 if not preprocessed else 1]
+            plotlist = self[segment_id][0 if not preprocessed else 1]
         except (KeyError, IndexError):
             return default_if_missing
-        return segplotlist.data.get(key, default_if_missing)
+        return plotlist.data.get(key, default_if_missing)
 
     def update_config(self, **values):
         '''updates the current config and invalidates all plotcahce's, so that a query to
@@ -438,7 +437,7 @@ class PlotManager(LimitedSizeDict):
         for v in self.values():
             if v[0] is not None:
                 v[0].invalidate()
-            # pre-processed segplotlist is set to None to force re-calculate all
+            # pre-processed plotlist is set to None to force re-calculate all
             # as we cannot be sure if the main stream (resulting from preprocess func)
             # needed a config value
             v[1] = None
@@ -447,6 +446,6 @@ class PlotManager(LimitedSizeDict):
         '''Called when super._check_size_limit is called. Remove also other components
         segmentPlotList(s)'''
         _, item = super(PlotManager, self)._popitem_size_limit()
-        segplotlist = item[0]
-        for sid in segplotlist.oc_segment_ids:
+        plotlist = item[0]
+        for sid in plotlist.oc_segment_ids:
             self.pop(sid)

@@ -20,6 +20,7 @@ import sys
 import os
 from contextlib import contextmanager
 import shutil
+import inspect
 
 # iterate over dictionary keys without list allocation in both py 2 and 3:
 from future.utils import viewitems
@@ -211,10 +212,21 @@ def helpmathiter(type, filter):  # @ReservedAssignment
     itr = [s2s_math.ndarrays] if type == 'numpy' else [s2s_math.traces] if 'type' == 'obspy' else \
         [s2s_math.ndarrays, s2s_math.traces]
     reg = re.compile(strconvert.wild2re(filter))
+    INDENT = "   "
+
+    def render(string, indent_num=0):
+        '''renders a string stripping newlines at beginning and end and with the intended indent
+        number'''
+        if not indent_num:
+            return string
+        indent = INDENT.join('' for _ in range(indent_num+1))
+        return '\n'.join("%s%s" % (indent, s) for s in
+                         string.replace('\r\n', '\n').split('\n'))
+
     for pymodule in itr:
         module_doc_printed = False
-        for func in iterfuncs(pymodule):
-            if reg.search(func.__name__):
+        for func in iterfuncs(pymodule, False):
+            if func.__name__[0] != '_' and reg.search(func.__name__):
                 if not module_doc_printed:
                     modname = pymodule.__name__
                     yield "=" * len(modname)
@@ -223,22 +235,15 @@ def helpmathiter(type, filter):  # @ReservedAssignment
                     yield pymodule.__doc__
                     module_doc_printed = True
                     yield "-" * len(modname) + "\n"
-                # get func name
-                fname = func.__name__
-                # get arguments:
-                args = func.__code__.co_varnames[:func.__code__.co_argcount]
-                # get defaults:
-                funcdefaults = func.__defaults__ or []
-                # get positional arguments:
-                posargslen = len(args) - len(funcdefaults)
-                # posargs 2 string:
-                strargs = [str(args[i]) for i in range(posargslen)]
-                for i, defval in enumerate(funcdefaults, posargslen):
-                    if isinstance(defval, str):
-                        frmat = "%s='%s'"
-                    else:
-                        frmat = "%s=%s"
-                    strargs.append(frmat % (args[i], str(defval)))
-                yield "%s(%s):" % (fname, ", ".join(strargs))
-                yield "    %s" % func.__doc__.strip()
+                yield "%s%s:" % (func.__name__, inspect.signature(func))
+                yield render(func.__doc__, indent_num=1)
+                if inspect.isclass(func):
+                    for funcname, func in inspect.getmembers(func):
+                        if funcname != "__class__" and not funcname.startswith("_"):
+                            # Consider anything that starts with _ private
+                            # and don't document it
+                            yield "\n"
+                            yield "%s%s%s:" % (INDENT, funcname, inspect.signature(func))
+                            yield render(func.__doc__, indent_num=2)
+
                 yield "\n"

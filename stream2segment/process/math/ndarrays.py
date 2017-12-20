@@ -15,7 +15,8 @@ from scipy.integrate import cumtrapz
 
 
 def powspec(signal, signal_is_fft=False):
-    """Returns the power spectrum of a REAL signal.
+    """
+    Returns the power spectrum of a REAL signal.
     For computing the frequency resolution or the relative frequencies array,
     see :func:`stream2segment.process.math.ndarrays.dfreq` and
     :func:`stream2segment.process.math.ndarrays.freqs`, respectively
@@ -31,7 +32,8 @@ def powspec(signal, signal_is_fft=False):
 
 
 def ampspec(signal, signal_is_fft=False):
-    """Returns the amplitude spectrum of a REAL signal.
+    """
+    Returns the amplitude spectrum of a REAL signal.
     For computing the frequency resolution or the relative frequencies array,
     see :func:`stream2segment.process.math.ndarrays.dfreq` and
     :func:`stream2segment.process.math.ndarrays.freqs`, respectively
@@ -47,7 +49,8 @@ def ampspec(signal, signal_is_fft=False):
 
 
 def fft(signal):
-    """Returns the discrete fft (fast Fourier transform) of a REAL signal.
+    """
+    Returns the discrete fft (fast Fourier transform) of a REAL signal.
     see :func:`stream2segment.process.math.ndarrays.dfreq` and
     :func:`stream2segment.process.math.ndarrays.freqs`, respectively
 
@@ -62,7 +65,8 @@ def fft(signal):
 
 
 def dfreq(time_signal, delta_t):
-    """Returns the frequency resolution (in Hertz) of a real fft applied on `time_signal`
+    """
+    Returns the frequency resolution (in Hertz) of a real fft applied on `time_signal`
 
     :param time_signal: numpy array or numeric list: the time-domain signal (time-series)
     :param delta_t: `time_signal` sampling period, in seconds
@@ -73,7 +77,8 @@ def dfreq(time_signal, delta_t):
 
 
 def freqs(time_signal, delta_t):
-    """Returns the numpy array of the frequencies of a real fft applied on `time_signal`:
+    """
+    Returns the numpy array of the frequencies of a real fft applied on `time_signal`:
     ```
         deltaF = dfreq(time_signal, delta_t)
         L = floor(1 + len(time_signal) / 2.0)
@@ -95,7 +100,8 @@ def freqs(time_signal, delta_t):
 
 
 def linspace(start, delta, num):
-    """Returns an evenly spaced array of values, convenient for building e.g. arrays of
+    """
+    Returns an evenly spaced array of values, convenient for building e.g. arrays of
     frequencies, given the fft's frequency resolution `delta`. Equivalent to:
     `numpy.linspace(start, start + delta * num, num, endpoint=False)`
 
@@ -111,7 +117,8 @@ def linspace(start, delta, num):
 
 def snr(signal, noise, signals_form='', fmin=None, fmax=None, delta_signal=1.,
         delta_noise=1., nearest_sample=False, in_db=False):
-    """Returns the signal to noise ratio (SNR) of `signal` over `noise`. If required, runs `fft`
+    """
+    Returns the signal to noise ratio (SNR) of `signal` over `noise`. If required, runs `fft`
     before computing the SNR, and/or computes the SNR in a special
     frequency band [`fmin`, `fmax`] only
 
@@ -185,7 +192,8 @@ def snr(signal, noise, signals_form='', fmin=None, fmax=None, delta_signal=1.,
 
 
 def trim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
-    """Trims the evenly spaced sampled signal `signal`.
+    """
+    Trims the evenly spaced sampled signal `signal`.
 
     :param signal: numpy numeric array
     :param deltax: the distance between two points on `signal`'s domain, in
@@ -205,7 +213,8 @@ def trim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
 
 
 def argtrim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
-    """Returns the indices (i0, i1) such as `signal[i0:i1]` is the slice of signal
+    """
+    Returns the indices (i0, i1) such as `signal[i0:i1]` is the slice of signal
     between (and including) the `signal`'s domain bounds `minx` and `maxx`.
     The returned 2-element tuple might contain `None`s (valid python slice argument to indicate:
     no bounds)
@@ -233,7 +242,8 @@ def argtrim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
 
 
 def cumsum(signal, normalize=True):
-    """Return the cumulative sum of `signal**2`
+    """
+    Return the cumulative sum of `signal**2`
 
     :param normalize: if True (the default), normalizes the cumulative in [0,1]
 
@@ -249,7 +259,8 @@ def cumsum(signal, normalize=True):
 
 
 def triangsmooth(array, winlen_ratio):
-    """Smoothes `array` by normalizing each point `array[i]` `with triangular window whose
+    """
+    Smoothes `array` by normalizing each point `array[i]` `with triangular window whose
     length is index-dependent, i.e. it increases with the index. For frequency domain `array`s
     (which is the typical use case), the window is therefore frequency-dependent.
     If the window overflows the array length, it will be shrunk the necessary amount of points.
@@ -312,12 +323,12 @@ def triangsmooth(array, winlen_ratio):
 
 
 class ResponseSpectrum(object):
-    '''
+    """
     Base abstract Class to implement a response spectrum calculation
-    '''
+    """
     def __init__(self, acceleration, time_step, periods, damping=0.05,
                  units="cm/s/s"):
-        '''
+        """
         Setup the response spectrum calculator
         :param acceleration: (numpy.ndarray) the acceleration
         :param time_step: the sampling period (delta t) of `acceleration`
@@ -325,11 +336,10 @@ class ResponseSpectrum(object):
         :param damping: float (default=0.05) Fractional coefficient of damping
         :param str units: Units of the `acceleration` {"g", "m/s", "cm/s/s"}, If not
         "cm/s/s", it will be converted to that unit internally before calculations
-
-        '''
+        """
         self.periods = periods
         self.num_per = len(periods)
-        self.acceleration = ResponseSpectrum.convert_accel_units(acceleration, units)
+        self.acceleration = ResponseSpectrum.acc2cms2(acceleration, units)
         self.damping = damping
         self.d_t = time_step
         self.velocity, self.displacement = \
@@ -339,7 +349,7 @@ class ResponseSpectrum(object):
         self.response_spectrum = None
 
     def evaluate(self):
-        '''
+        """
         Evaluates the response spectrum
         :returns:
             Response Spectrum - Dictionary containing all response spectrum
@@ -364,12 +374,12 @@ class ResponseSpectrum(object):
             accel - Acceleration response of Single Degree of Freedom Oscillator
             vel - Velocity response of Single Degree of Freedom Oscillator
             disp - Displacement response of Single Degree of Freedom Oscillator
-        '''
+        """
         raise NotImplementedError("This is an abstract class, you should call sub-classes "
                                   "implementing this method")
 
     @staticmethod
-    def convert_accel_units(acceleration, units):
+    def acc2cms2(acceleration, units):
         """
         Converts acceleration to different units, returning `acceleration` in 'cm/s^2'
         :param acceleration: numpy array denoting the acceleration
@@ -390,7 +400,7 @@ class ResponseSpectrum(object):
     @staticmethod
     def get_velocity_displacement(time_step, acceleration, units="cm/s/s",
                                   velocity=None, displacement=None):
-        '''
+        """
         Returns the velocity and displacement time series using simple integration.
         By providing `velocity` or `displacement` as argument(s), you can speed up
         this function by skipping either or both calculations.
@@ -410,8 +420,8 @@ class ResponseSpectrum(object):
         :returns:
             velocity - Velocity Time series (cm/s)
             displacement - Displacement Time series (cm)
-        '''
-        acceleration = ResponseSpectrum.convert_accel_units(acceleration, units)
+        """
+        acceleration = ResponseSpectrum.acc2cms2(acceleration, units)
         if velocity is None:
             velocity = time_step * cumtrapz(acceleration, initial=0.)
         if displacement is None:
@@ -420,12 +430,12 @@ class ResponseSpectrum(object):
 
 
 class NewmarkBeta(ResponseSpectrum):
-    '''
+    """
     Evaluates the response spectrum using the Newmark-Beta methodology
-    '''
+    """
 
     def evaluate(self):
-        '''
+        """
         Evaluates the response spectrum
         :returns:
             Response Spectrum - Dictionary containing all response spectrum
@@ -450,8 +460,8 @@ class NewmarkBeta(ResponseSpectrum):
             accel - Acceleration response of Single Degree of Freedom Oscillator
             vel - Velocity response of Single Degree of Freedom Oscillator
             disp - Displacement response of Single Degree of Freedom Oscillator
-        '''
-        omega = (2. * np.pi) / self.periods
+        """
+        omega = self.omega  # (2. * np.pi) / self.periods
         cval = self.damping * 2. * omega
         kval = ((2. * np.pi) / self.periods) ** 2.
         # Perform Newmark - Beta integration
@@ -476,7 +486,7 @@ class NewmarkBeta(ResponseSpectrum):
         return self.response_spectrum, time_series, accel, vel, disp
 
     def _newmark_beta(self, omega, cval, kval):
-        '''
+        """
         Newmark-beta integral
         :param numpy.ndarray omega:
             Angular period - (2 * pi) / T
@@ -490,8 +500,7 @@ class NewmarkBeta(ResponseSpectrum):
             vel - Velocity response of a SDOF oscillator
             disp - Displacement response of a SDOF oscillator
             a_t - Acceleration response of a SDOF oscillator
-
-        '''
+        """
         # Pre-allocate arrays
         accel = np.zeros([self.num_steps, self.num_per], dtype=float)
         vel = np.zeros([self.num_steps, self.num_per], dtype=float)
@@ -603,3 +612,57 @@ class NigamJennings(ResponseSpectrum):
             x_v[k, :] = (a_val * const['h1']) - (b_val * const['h2']) - z_4
             x_a[k, :] = (-const['f6'] * x_v[k, :]) - (omega2 * x_d[k, :])
         return x_a, x_v, x_d
+
+
+# define a global variable for use with the function below:
+# note that isinstance(c, type) returns if v is a class but works for new-style classes
+# which as of end 2017 is not anymore a restriction
+_rs = {c.lower(): v for c, v in globals().items() if isinstance(v, type) and
+       issubclass(v, ResponseSpectrum) and v != ResponseSpectrum}
+
+
+def respspec(method, acceleration, time_step, periods, damping=0.05):
+    """
+    Evaluates the response spectrum within a single function
+
+    :param method: a string denoting the method. Currently supported are:
+        'NewmarkBeta' and 'NigamJennings' (`method` is case-insensitive so you can input also
+        lower-case strings). See relative module classes for details. 'NigamJennings' is in
+        general faster than the classical Newmark-Beta method, and can provide estimates of the
+        spectra at frequencies higher than that of the sampling frequency.
+    :param acceleration: (numpy.ndarray) the acceleration
+    :param time_step: the sampling period (delta t) of `acceleration`
+    :param periods: (numpy.ndarray) Spectral periods (s) for calculation
+    :param damping: float (default=0.05) Fractional coefficient of damping
+
+    :returns:
+        Response Spectrum - Dictionary containing all response spectrum
+                            data. All units are derived from the units of `acceleration` and
+                            `time_step`. Use `class`:ResponseSpectrum.acc2cms2 to convert to
+                            cm per second squared, if needed
+            'Time' - Time
+            'Acceleration' - Acceleration Response Spectrum
+            'Velocity' - Velocity Response Spectrum
+            'Displacement' - Displacement Response Spectrum
+            'Pseudo-Velocity' - Pseudo-Velocity Response Spectrum
+            'Pseudo-Acceleration' - Pseudo-Acceleration Response Spectrum
+
+        Time Series - Dictionary containing all time-series data
+            'Time' - Time
+            'Acceleration' - Acceleration time series
+            'Velocity' - Velocity time series
+            'Displacement' - Displacement time series
+            'PGA' - Peak ground acceleration
+            'PGV' - Peak ground velocity
+            'PGD' - Peak ground displacement
+
+        accel - Acceleration response of Single Degree of Freedom Oscillator
+        vel - Velocity response of Single Degree of Freedom Oscillator
+        disp - Displacement response of Single Degree of Freedom Oscillator
+    """
+    try:
+        rs_class = _rs[method.lower()]
+    except KeyError:
+        raise TypeError('Please supply a response spectrum method in %s' %
+                        list(_rs.keys()))
+    return rs_class(acceleration, time_step, periods, damping).evaluate()

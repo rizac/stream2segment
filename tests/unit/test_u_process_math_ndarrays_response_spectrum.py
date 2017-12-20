@@ -7,9 +7,11 @@ import unittest
 
 import numpy as np
 
-from stream2segment.process.math.ndarrays import NewmarkBeta as _NewmarkBeta, \
-    NigamJennings as _NigamJennings, ResponseSpectrum as _ResponseSpectrum
-from stream2segment.process.math.traces import NewmarkBeta, NigamJennings, ResponseSpectrum
+from stream2segment.process.math.ndarrays import ResponseSpectrum as a_ResponseSpectrum
+from stream2segment.process.math.traces import ResponseSpectrum as t_ResponseSpectrum
+
+from stream2segment.process.math.ndarrays import respspec as a_rs
+from stream2segment.process.math.traces import respspec as t_rs
 import pytest
 from obspy.core.trace import Trace
 
@@ -33,20 +35,20 @@ class Test(unittest.TestCase):
         accel, periods, deltat = self.accel, self.periods, self.deltat
 
         with pytest.raises(NotImplementedError):
-            _ResponseSpectrum(accel, deltat, periods).evaluate()
+            a_ResponseSpectrum(accel, deltat, periods).evaluate()
 
         with pytest.raises(NotImplementedError):
-            ResponseSpectrum(self.trace, periods).evaluate()
+            t_ResponseSpectrum(self.trace, periods).evaluate()
 
     def test_arrays_traces_response_spectra(self):
         '''this test just assures everything goes right without errors'''
         # FIXME: implement better tests!!!
         accel, periods, deltat = self.accel, self.periods, self.deltat
 
-        tuple1a = _NewmarkBeta(accel, deltat, periods).evaluate()
-        tuple1b = _NigamJennings(accel, deltat, periods).evaluate()
-        tuple2a = NewmarkBeta(self.trace, periods).evaluate()
-        tuple2b = NigamJennings(self.trace, periods).evaluate()
+        tuple1a = a_rs('NewmarkBeta', accel, deltat, periods)
+        tuple1b = a_rs('NigamJennings', accel, deltat, periods)
+        tuple2a = t_rs('NewmarkBeta', self.trace, periods)
+        tuple2b = t_rs('NigamJennings', self.trace, periods)
 
         # compare dicts:
         for tup1, tup2 in [[tuple1a, tuple2a], [tuple1b, tuple2b]]:

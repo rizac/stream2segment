@@ -17,6 +17,7 @@ import sys
 from collections import defaultdict
 import inspect
 from contextlib import contextmanager
+from future.utils import itervalues
 
 from sqlalchemy.orm.scoping import scoped_session
 from sqlalchemy.engine import create_engine
@@ -55,17 +56,19 @@ if sys.version_info[0] > 2:  # python 3+ (if py4 will not be compliant we'll fix
         spec.loader.exec_module(foo)
         return foo
 
-    def is_mod_function(pymodule, func):
-        '''returns True if the python function `func` is a function defined (and not imported) in
-        the python module `pymodule`
+    def is_mod_function(pymodule, func, include_classes=False):
+        '''returns True if the python function `func` is a function (or class if `include_classes`
+        is True) defined (and not imported) in the python module `pymodule`
         '''
-        sourcefile = inspect.getsourcefile  # just to make next line fit in max line-width
-        return inspect.isfunction(func) and \
-            os.path.abspath(sourcefile(pymodule)) == os.path.abspath(sourcefile(func))
+#         sourcefile = inspect.getsourcefile  # just to make next line fit in max line-width
+#         return inspect.isfunction(func) and \
+#             os.path.abspath(sourcefile(pymodule)) == os.path.abspath(sourcefile(func))
+        is_candidate = inspect.isfunction(func) or (include_classes and inspect.isclass(func))
+        # check that the source file is the module (i.e. not imported). NOTE that
+        # getsourcefile might raise (not the case for functions or classes)
+        return is_candidate and os.path.abspath(inspect.getsourcefile(pymodule)) == \
+            os.path.abspath(inspect.getsourcefile(func))
 
-    # and also make itervalues a function
-    def itervalues(dict_obj):
-        return dict_obj.values()
 else:
     import imp
 
@@ -74,28 +77,28 @@ else:
         name = _getmodulename(pyfilepath)
         return imp.load_source(name, pyfilepath)
 
-    def is_mod_function(pymodule, func):
-        '''returns True if the python function `func` is a function defined (and not imported) in
-        the python module `pymodule`
+    def is_mod_function(pymodule, func, include_classes=False):
+        '''returns True if the python function `func` is a function (or class if `include_classes`
+        is True) defined (and not imported) in the python module `pymodule`
         '''
-        return inspect.isfunction(func) and inspect.getmodule(func) == pymodule
+#         return inspect.isfunction(func) and inspect.getmodule(func) == pymodule
+        is_candidate = inspect.isfunction(func) or (include_classes and inspect.isclass(func))
+        # check that the source file is the module (i.e. not imported). NOTE that
+        # getsourcefile might raise (not the case for functions or classes)
+        return is_candidate and inspect.getmodule(func) == pymodule
 
-    # and also make itervalues a function
-    def itervalues(dict_obj):
-        return dict_obj.values()
 
-
-def iterfuncs(pymodule):
-    '''Returns an iterator over all functions defined (and not imported)
-    in the given python module `pymodule`
+def iterfuncs(pymodule, include_classes=False):
+    '''Returns an iterator over all functions (or classes if `include_classes`
+    is True) defined (and not imported) in the given python module `pymodule`
     '''
     for func in itervalues(pymodule.__dict__):
-        if is_mod_function(pymodule, func):
+        if is_mod_function(pymodule, func, include_classes):
             yield func
 
 
 class strconvert(object):
-    ''' String conversion utilities from sql-LIKE operator's wildcards, Filesystem's wildcards, and
+    '''String conversion utilities from sql-LIKE operator's wildcards, Filesystem's wildcards, and
     regular expressions'''
     @staticmethod
     def sql2wild(text):

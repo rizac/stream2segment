@@ -1,7 +1,7 @@
 '''
 Math utilities for `obspy.Trace` objects.
 
-This package wraps many functions of the `arrays` module (working on `numpy` arrays)
+This package wraps many functions of the :module:`stream2segment.math.ndarrays`
 defining their counterparts for `Trace` objects
 
 Remember that all functions processing and returning `Trace`s, e.g.:
@@ -15,7 +15,8 @@ can be applied on a `Stream` easily:
 
 :date: Jun 20, 2016
 
-.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>,
+                  Graeme Weatherill <gweather@gfz-potsdam.de>
 '''
 from __future__ import division
 
@@ -29,13 +30,14 @@ from stream2segment.process.math.ndarrays import fft as _fft, ampspec as _ampspe
     NewmarkBeta as _NewmarkBeta, NigamJennings as _NigamJennings
 
 
-__all__ = ['bandpass', 'maxabs', 'cumsum', 'cumtimes', 'fft', 'ampspec', 'powspec', 'ampratio',
-           'timeof', 'utcdatetime']
+# __all__ = ['bandpass', 'maxabs', 'cumsum', 'cumtimes', 'fft', 'ampspec', 'powspec', 'ampratio',
+#            'timeof', 'utcdatetime']
 
 
 def bandpass(trace, freq_min, freq_max, max_nyquist_ratio=0.9,
              corners=2, copy=True):
-    """Filters a signal trace with a bandpass and other pre-processing.
+    """
+    Filters a signal trace with a bandpass and other pre-processing.
     The algorithm steps are:
      1. Set the max frequency to 0.9 of the nyquist freauency (sampling rate /2)
         (slightly less than nyquist seems to avoid artifacts)
@@ -87,7 +89,8 @@ def bandpass(trace, freq_min, freq_max, max_nyquist_ratio=0.9,
 
 
 def maxabs(trace, starttime=None, endtime=None):
-    """Returns the maximum of the absolute values of `trace`, and its occurrence time.
+    """
+    Returns the maximum of the absolute values of `trace`, and its occurrence time.
     In other words, returns the point `(time, value)` where `value = max(abs(trace.data))`
     and time (`UTCDateTime`) is the time occurrence of `value`
 
@@ -120,7 +123,8 @@ def maxabs(trace, starttime=None, endtime=None):
 
 
 def cumsum(trace):
-    """Returns the cumulative sum of `trace.data**2`, normalized between 0 and 1
+    """
+    Returns the cumulative sum of `trace.data**2`, normalized between 0 and 1
     :param trace: the input obspy.core.Trace
 
     :return: a new Trace representing the cumulative sum of the square of `trace.data`
@@ -129,7 +133,8 @@ def cumsum(trace):
 
 
 def cumtimes(mi_trace, *percentages):
-    """Calculates the time(s) where `mi_trace` reaches the given percentage(s) of the total signal.
+    """
+    Calculates the time(s) where `mi_trace` reaches the given percentage(s) of the total signal.
     **`mi_trace.data` need to be monotonically increasing**, e.g., as resulting from
     :func:`stream2segment.stream2segment.process.math.traces.cumsum`
 
@@ -152,7 +157,8 @@ def cumtimes(mi_trace, *percentages):
 
 def fft(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',
         return_freqs=False):
-    """Computes the Fast Fourier transform of the given trace.
+    """
+    Computes the Fast Fourier transform of the given trace.
     If `return_freqs=False` (the default), returns the tuple
     ```df, fft```
     where `df` is the frequency resolution (in Hz). Otherwise, returns
@@ -192,7 +198,8 @@ def fft(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_ty
 
 def ampspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',
             return_freqs=False):
-    """Computes the amplitude spectrum of the given trace.
+    """
+    Computes the amplitude spectrum of the given trace.
     See :func:`stream2segment.process.math.traces.fft` for info (this function does exactly the
     same, it only returns the amplitude spectrum as second element - i.e., the modulus of the fft)
     """
@@ -202,7 +209,8 @@ def ampspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, tape
 
 def powspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',
             return_freqs=False):
-    """Computes the power spectrum of the given trace.
+    """
+    Computes the power spectrum of the given trace.
     See :func:`stream2segment.process.math.traces.fft` for info (this function does exactly the
     same, it only returns the power spectrum as second element - i.e., the square of the fft)
     """
@@ -211,7 +219,8 @@ def powspec(trace, starttime=None, endtime=None, taper_max_percentage=0.05, tape
 
 
 def ampratio(trace, threshold=2**23):
-    """Returns the amplitude ratio given by:
+    """
+    Returns the amplitude ratio given by:
         ```numpy.nanmax(numpy.abs(trace.data)) / threshold```
     The trace has not to be in physical units but in counts
 
@@ -224,7 +233,8 @@ def ampratio(trace, threshold=2**23):
 
 
 def timeof(trace, index):
-    """Returns the time occurrence of the `index`-th point of `trace`.
+    """
+    Returns the time occurrence of the `index`-th point of `trace`.
     Note that the index does not need to be inside the trace indices,
     the corresponding time will be computed anyway according to the trace sampling rate
 
@@ -237,7 +247,8 @@ def timeof(trace, index):
 
 
 def utcdatetime(time, return_if_none=None):
-    '''Normalizes `time` into an `UTCDateTime`. Utility function for working consistently
+    """
+    Normalizes `time` into an `UTCDateTime`. Utility function for working consistently
     with different date-time-like inputs and convert them to the same object type.
 
     :param time: numeric (int, float), `datetime.datetime` object, `UtcDateTime`. If `UtcDateTime`,
@@ -248,16 +259,16 @@ def utcdatetime(time, return_if_none=None):
     `    time` is None
 
     :return: an :class:`obspy.core.utcdatetime.UTCDateTime` from the given time argument
-    '''
+    """
     if not isinstance(time, UTCDateTime):
         time = return_if_none if time is None else UTCDateTime(time)
     return time
 
 
 class ResponseSpectrum(_ResponseSpectrum):
-    '''
+    """
     Base abstract Class to implement a response spectrum calculation for :class:`obspy.Trace`s
-    '''
+    """
     def __init__(self, acc_trace, periods, damping=0.05, units="cm/s/s"):
         '''RemoveResponse base class operating on :class:`obspy.Trace`s. When not documented,
         parameters are the same of :class:`stream2segment.process.math.ndarrays.ResponseSpectrum`
@@ -283,8 +294,64 @@ class NigamJennings(ResponseSpectrum, _NigamJennings):
 
 
 class NewmarkBeta(ResponseSpectrum, _NewmarkBeta):
-    '''
+    """
     Evaluates the response spectrum using the Newmark-Beta methodology
     for :class:`obspy.Trace`s objects.
-    '''
+    """
     pass
+
+# define a global variable for use with the function below:
+# note that isinstance(c, type) returns if v is a class but works for new-style classes
+# which as of end 2017 is not anymore a restriction
+_rs = {c.lower(): v for c, v in globals().items() if isinstance(v, type) and
+       issubclass(v, ResponseSpectrum) and v != ResponseSpectrum}
+
+
+def respspec(method, acc_trace, periods, damping=0.05):
+    """
+    Evaluates the response spectrum within a single function
+
+    :param method: a string denoting the method. Currently supported are:
+        'NewmarkBeta' and 'NigamJennings' (`method` is case-insensitive so you can input also
+        lower-case strings). See relative module classes for details. 'NigamJennings' is in
+        general faster than the classical Newmark-Beta method, and can provide estimates of the
+        spectra at frequencies higher than that of the sampling frequency.
+    :param acc_trace: a Trace in acceleration units, obtained via, e.g.:
+        ```
+            acc_trace = trace.remove_response(..., output="ACC", ...)
+        ```
+    :param time_step: the sampling period (delta t) of `acceleration`
+    :param periods: (numpy.ndarray) Spectral periods (s) for calculation
+    :param damping: float (default=0.05) Fractional coefficient of damping
+
+    :returns:
+        Response Spectrum - Dictionary containing all response spectrum
+                            data. All units depend to the passed `acc_trace` array.
+                            Use `class`:ResponseSpectrum.acc2cms2 to convert to
+                            cm per second squared, if needed
+            'Time' - Time
+            'Acceleration' - Acceleration Response Spectrum
+            'Velocity' - Velocity Response Spectrum
+            'Displacement' - Displacement Response Spectrum
+            'Pseudo-Velocity' - Pseudo-Velocity Response Spectrum
+            'Pseudo-Acceleration' - Pseudo-Acceleration Response Spectrum
+
+        Time Series - Dictionary containing all time-series data
+            'Time' - Time (s)
+            'Acceleration' - Acceleration time series
+            'Velocity' - Velocity time series
+            'Displacement' - Displacement time series
+            'PGA' - Peak ground acceleration
+            'PGV' - Peak ground velocity
+            'PGD' - Peak ground displacement
+
+        accel - Acceleration response of Single Degree of Freedom Oscillator
+        vel - Velocity response of Single Degree of Freedom Oscillator
+        disp - Displacement response of Single Degree of Freedom Oscillator
+    """
+    try:
+        rs_class = _rs[method.lower()]
+    except KeyError:
+        raise TypeError('Please supply a response spectrum method in %s' %
+                        list(_rs.keys()))
+    return rs_class(acc_trace, periods, damping).evaluate()
