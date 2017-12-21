@@ -156,9 +156,9 @@ class Test(unittest.TestCase):
             session.commit()
                 
             id = 'firstevent'
-            e1 = Event(eventid='event1', webservice_id=ws.id, time=utcnow, latitude=89.5, longitude=6,
+            e1 = Event(event_id='event1', webservice_id=ws.id, time=utcnow, latitude=89.5, longitude=6,
                              depth_km=7.1, magnitude=56)
-            e2 = Event(eventid='event2', webservice_id=ws.id, time=utcnow + timedelta(seconds=5),
+            e2 = Event(event_id='event2', webservice_id=ws.id, time=utcnow + timedelta(seconds=5),
                       latitude=89.5, longitude=6, depth_km=7.1, magnitude=56)
             
             session.add_all([e1, e2])
@@ -224,7 +224,7 @@ class Test(unittest.TestCase):
                               arrival_time=ev.time + timedelta(seconds=2 * val),
                               request_end=ev.time + timedelta(seconds=5 * val),
                               data=mseed,
-                              data_identifier=obspy_trace.get_id() if mseed == data_ok else None,
+                              data_seed_id=obspy_trace.get_id() if mseed == data_ok else None,
                               event_distance_deg=val,
                               event_id=ev.id,
                               **fixed_args)

@@ -572,7 +572,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
                                                Segment.event_id,
                                          Segment.download_code, Segment.data,
                                          Segment.maxgap_numsamples, Segment.download_id,
-                                         Segment.sample_rate, Segment.data_identifier))
+                                         Segment.sample_rate, Segment.data_seed_id))
         dfres1.sort_values(by=Segment.id.key, inplace=True)  # for easier visual compare
         dfres1.reset_index(drop=True, inplace=True)  # we need to normalize indices for comparison later
         # just change the value of the bytes so that we can better 
@@ -647,7 +647,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
                                                Segment.event_id,
                                          Segment.download_code, Segment.data,
                                          Segment.maxgap_numsamples, Segment.download_id,
-                                         Segment.sample_rate, Segment.data_identifier))
+                                         Segment.sample_rate, Segment.data_seed_id))
         dfres1.sort_values(by=Segment.id.key, inplace=True)  # for easier visual compare
         dfres1.reset_index(drop=True, inplace=True)  # we need to normalize indices for comparison later
         # just change the value of the bytes so that we can better 
@@ -678,7 +678,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
                                                Segment.event_id,
                                          Segment.download_code, Segment.data,
                                          Segment.maxgap_numsamples, Segment.download_id,
-                                         Segment.sample_rate, Segment.data_identifier))
+                                         Segment.sample_rate, Segment.data_seed_id))
         dfres2.sort_values(by=Segment.id.key, inplace=True)  # for easier visual compare
         dfres2.reset_index(drop=True, inplace=True)  # we need to normalize indices for comparison later
         # just change the value of the bytes so that we can better 
@@ -897,12 +897,12 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         # now test that if a station chanbges datacenter "owner", then the new datacenter
         # is used. Test also that if we remove a single miniseed component of a download that
         # miniseed only is downloaded again
-        dfz = dbquery2df(self.session.query(Segment.id, Segment.data_identifier,
+        dfz = dbquery2df(self.session.query(Segment.id, Segment.data_seed_id,
                                             Segment.datacenter_id, Channel.station_id).
                          join(Segment.station, Segment.channel).filter(Segment.has_data))
         
         # dfz:
-    #     id  data_identifier datacenter_id  Station.datacenter_id
+    #     id  data_seed_id    datacenter_id  Station.datacenter_id
     #  0  1   GE.FLT1..HHE    1              1            
     #  1  2   GE.FLT1..HHN    1              1            
     #  2  3   GE.FLT1..HHZ    1              1            
@@ -911,7 +911,6 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         # remove the first one:
         deleted_seg_id = 1
         seed_to_redownload = dfz[dfz[Segment.id.key] == deleted_seg_id].iloc[0]
-        # deleted_seed_id = dfz[dfz[Segment.id.key] == deleted_seg_id].iloc[0][Segment.data_identifier.key]
         self.session.query(Segment).filter(Segment.id == deleted_seg_id).delete()
         # be sure we deleted it:
         assert len(self.session.query(Segment.id).filter(Segment.has_data).all()) == len(dfz) - 1
@@ -932,7 +931,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
             return
  
         # try to get
-        dfz2 = dbquery2df(self.session.query(Segment.id, Segment.data_identifier,
+        dfz2 = dbquery2df(self.session.query(Segment.id, Segment.data_seed_id,
                                              Segment.datacenter_id, Channel.station_id,
                                              Station.network, Station.station, Channel.location, Channel.channel).
                          join(Segment.station, Segment.channel))
@@ -940,8 +939,8 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         # build manually the seed identifier id:
         
         
-        dfz2[Segment.data_identifier.key] = dfz2[Station.network.key].str.cat(dfz2[Station.station.key].str.cat(dfz2[Channel.location.key].str.cat(dfz2[Channel.channel.key], "."),"."), ".")
-        seed_redownloaded = dfz2[dfz2[Segment.data_identifier.key] == seed_to_redownload[Segment.data_identifier.key]]
+        dfz2[Segment.data_seed_id.key] = dfz2[Station.network.key].str.cat(dfz2[Station.station.key].str.cat(dfz2[Channel.location.key].str.cat(dfz2[Channel.channel.key], "."),"."), ".")
+        seed_redownloaded = dfz2[dfz2[Segment.data_seed_id.key] == seed_to_redownload[Segment.data_seed_id.key]]
         assert len(seed_redownloaded) == 1
         seed_redownloaded = seed_redownloaded.iloc[0]
         

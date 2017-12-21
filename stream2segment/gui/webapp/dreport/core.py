@@ -144,7 +144,7 @@ def querystationinfo4dreport(session, station_id, **binexprs2count):
         NO = text("''")
         return case([(binexpr, YES)], else_=NO).label(key)
 
-    qry = session.query(Segment.id, Segment.seed_identifier,
+    qry = session.query(Segment.id, Segment.seed_id,
                         Segment.event_id,
                         Segment.start_time, Segment.end_time,
                         *[countif(k, v) for k, v in binexprs2count.items()])

@@ -73,8 +73,8 @@ def get_events_df(session, eventws_url, db_bufsize, **args):
     events_df = pd.concat(ret, axis=0, ignore_index=True, copy=False)
     events_df[Event.webservice_id.key] = eventws_id
     events_df = dbsyncdf(events_df, session,
-                         [Event.eventid, Event.webservice_id], Event.id, buf_size=db_bufsize,
-                         cols_to_print_on_err=[Event.eventid.key])
+                         [Event.event_id, Event.webservice_id], Event.id, buf_size=db_bufsize,
+                         cols_to_print_on_err=[Event.event_id.key])
 
     # try to release memory for unused columns (FIXME: NEEDS TO BE TESTED)
     return events_df[[Event.id.key, Event.magnitude.key, Event.latitude.key, Event.longitude.key,

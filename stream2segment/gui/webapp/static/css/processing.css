@@ -269,3 +269,8 @@ div.metadata > div.panel-body{
     visibility: visible;
     opacity: 1;
 }
+
+.select-highlighted{
+	font-weight: bold;
+	color: ForestGreen;
+}

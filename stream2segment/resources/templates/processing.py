@@ -218,13 +218,13 @@ segment.maxgap_numsamples                 float: the maximum gap found in the wa
 \                                         always perform a check in the processing for
 \                                         safety, e.g., via `len(segment.stream())` or
 \                                         `segment.stream().get_gaps()`)
-segment.data_identifier                   str: the seed identifier in the typical format
+segment.data_seed_id                      str: the seed identifier in the typical format
 \                                         'Network.Station.Location.Channel' as read from the data.
 \                                         It might be null if the data is empty or null because of
 \                                         a download error. See also 'segment.meed_identifier'
-segment.seed_identifier                   str: the seed identifier in the typical format
+segment.seed_id                           str: the seed identifier in the typical format
 \                                         'Network.Station.Location.Channel': it is the same as
-\                                         'segment.data_identifier', but it is assured not to be,
+\                                         'segment.data_seed_id', but it is assured not to be,
 \                                         null, as the segment meta-data is used if needed: in this
 \                                         case the query might perform more poorly at the SQL level
 segment.has_class                         boolean: tells if the segment has (at least one) class
@@ -235,6 +235,7 @@ segment.data                              bytes: the waveform (raw) data. You do
 ----------------------------------------- ------------------------------------------------
 segment.event                             object (attributes below)
 segment.event.id                          int
+segment.event.event_id                    str: the id returned by the web service
 segment.event.time                        datetime.datetime
 segment.event.latitude                    float
 segment.event.longitude                   float

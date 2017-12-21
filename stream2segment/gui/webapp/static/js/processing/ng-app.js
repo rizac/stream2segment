@@ -37,14 +37,6 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	$scope.snColors = ['#2ca02c', '#d62728']  // signal, noise
 	// if more than two lines are present, it's undefined and handled by plotly (not tested)
 	$scope.snColors.arrivalTimeLine = '#777777';  // arrival time line
-
-//	$scope.PLOTCONFIGS = {
-//		otherComponentsColor: '#dddddd',
-//		// spectra: red the first (noise) green the second
-//		// https://github.com/plotly/plotly.js/blob/master/src/components/color/attributes.js
-//		snColors: ['#2ca02c', '#d62728'], // signal, noise
-//		arrivalTimeLineColor: '#777777'
-//	};
 	
 	$scope.err = function(response){
 		var msg = (response.data || 'Request failed');
@@ -400,19 +392,31 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	};
 	
 	$scope.toggleClassLabelForCurrentSegment = function(classId){
-		
+		var classIdIndex = $scope.segmentClassIndex(classId);
 		var param = {class_id: classId, segment_id: $scope.segIds[$scope.segIdx]};
-	    $http.post("/toggle_class_id", param, {headers: {'Content-Type': 'application/json'}}).
-		    success(function(data, status, headers, config) {
-		        $scope.segData.classIds = data.segment_class_ids;
-		        data.classes.forEach(function(elm, index){
-		        	$scope.classes[index]['count'] = elm['count'];  //update count
-		        });
-		      }).
-		      error(function(data, status, headers, config) {
-		        // called asynchronously if an error occurs
+	    $http.post("/toggle_class_id", param, {headers: {'Content-Type': 'application/json'}}).then(
+		    function(response) {
+		    	if (classIdIndex >=0){
+		    		$scope.segData.classIds.splice(classIdIndex, 1);
+		    	}else{
+		    		$scope.segData.classIds.push(classId);
+		    	}
+		    	$scope.classes.forEach(function(elm, index){
+		    		if (elm.id == classId){
+		    			elm.count += (classIdIndex >=0 ? -1 : 1);  //update count
+		    		}
+		    	});
+		    },
+		    function(response) {
+		    	// called asynchronously if an error occurs
 		        // or server returns response with an error status.
-		      });
+		    	$window.alert('Server error setting the class');
+		    }
+		);
+	};
+	
+	$scope.segmentClassIndex = function(classId){
+		return $scope.segData.classIds.indexOf(classId);
 	};
 	
 	//visibility of some panels

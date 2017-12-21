@@ -231,7 +231,7 @@ class SegmentPlotList(list):
                                 title = None
                                 break
                     if title is None:
-                        title = segment.seed_identifier
+                        title = segment.seed_id
                     if title is not None:
                         # try to get it from the stream. Otherwise, get it from the segment
                         self.data['plot_title_prefix'] = title

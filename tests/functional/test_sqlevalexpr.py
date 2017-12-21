@@ -22,51 +22,21 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.inspection import inspect
 from datetime import datetime, timedelta
 from sqlalchemy.orm.session import object_session
-from stream2segment.io.db.sqlevalexpr import exprquery, binexpr
+from stream2segment.io.db.sqlevalexpr import exprquery, binexpr, inspect_list, inspect_model,\
+    inspect_instance
 from stream2segment.io.db.models import ClassLabelling, Class, Segment, Station, Channel,\
     Event, DataCenter, Download, WebService
 from sqlalchemy.sql.expression import desc
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.hybrid import hybrid_property, hybrid_method
 
 from sqlalchemy.orm.query import aliased
+from sqlalchemy.sql.functions import func
 class Test(unittest.TestCase):
         
-
     
-    def setUp(self):
-        url = os.getenv("DB_URL", "sqlite:///:memory:")
-        self.engine = create_engine(url, echo=False)
-        Base.metadata.drop_all(self.engine)
-        Base.metadata.create_all(self.engine)
-        
-        # session = sessionmaker(bind=self.engine)()
-    
-        # create a configured "Session" class
-        Session = sessionmaker(bind=self.engine)
-        # create a Session
-        self.session = Session()
-
-    def tearDown(self):
-        try:
-            self.session.flush()
-            self.session.commit()
-        except SQLAlchemyError as _:
-            pass
-            # self.session.rollback()
-        self.session.close()
-        self.session.close()
-        Base.metadata.drop_all(self.engine)
-
-    @property
-    def is_sqlite(self):
-        return str(self.engine.url).startswith("sqlite:///")
-    
-    @property
-    def is_postgres(self):
-        return str(self.engine.url).startswith("postgresql://")
-
-    def test_query_joins(self):
+    def _init_db(self):
         sess = self.session
         run = Download()
         sess.add(run)
@@ -93,9 +63,9 @@ class Test(unittest.TestCase):
         sess.add(ws)
         sess.commit()
         
-        event1 = Event(id=1, eventid='a', webservice_id=ws.id, time=datetime.utcnow(), magnitude=5,
+        event1 = Event(id=1, event_id='a', webservice_id=ws.id, time=datetime.utcnow(), magnitude=5,
                               latitude=66, longitude=67, depth_km=6)
-        event2 = Event(id=2, eventid='b', webservice_id=ws.id, time=datetime.utcnow(), magnitude=5,
+        event2 = Event(id=2, event_id='b', webservice_id=ws.id, time=datetime.utcnow(), magnitude=5,
                               latitude=66, longitude=67, depth_km=6)
         
         sess.add_all([event1, event2])
@@ -162,6 +132,43 @@ class Test(unittest.TestCase):
                               request_end=datetime.utcnow())
         sess.add(seg3)
         sess.commit()
+    
+    def setUp(self):
+        url = os.getenv("DB_URL", "sqlite:///:memory:")
+        self.engine = create_engine(url, echo=False)
+        Base.metadata.drop_all(self.engine)
+        Base.metadata.create_all(self.engine)
+        
+        # session = sessionmaker(bind=self.engine)()
+    
+        # create a configured "Session" class
+        Session = sessionmaker(bind=self.engine)
+        # create a Session
+        self.session = Session()
+        
+        self._init_db()
+
+    def tearDown(self):
+        try:
+            self.session.flush()
+            self.session.commit()
+        except SQLAlchemyError as _:
+            pass
+            # self.session.rollback()
+        self.session.close()
+        self.session.close()
+        Base.metadata.drop_all(self.engine)
+
+    @property
+    def is_sqlite(self):
+        return str(self.engine.url).startswith("sqlite:///")
+    
+    @property
+    def is_postgres(self):
+        return str(self.engine.url).startswith("postgresql://")
+
+    def test_query_joins(self):
+        sess = self.session
         
         # ok so let's see how relationships join for us:
         # this below is wrong, it does not return ANY join cause none is specified in models
@@ -371,7 +378,6 @@ class Test(unittest.TestCase):
         assert not(set((_[0] for _ in res1)) & set((_[0] for _ in res2)))
         
     def test_eval_expr(self):
-        from stream2segment.io.db.models import Segment, Event, Station, Channel
 
         c = Segment.arrival_time
         cond = binexpr(c, "=2016-01-01T00:03:04")
@@ -409,6 +415,28 @@ class Test(unittest.TestCase):
         
         cond = binexpr(c, "(2016-01-01T00:03:04 2017-01-01)")
         assert str(cond) == "segments.arrival_time BETWEEN :arrival_time_1 AND :arrival_time_2 AND segments.arrival_time != :arrival_time_3 AND segments.arrival_time != :arrival_time_4"
+    
+    def test_inspect(self):
+        # attach a fake method to Segment where the type is unknown:
+        Segment._fake_method = hybrid_property(lambda self: 'a',
+                                               expr=lambda cls: func.substr(cls.download_code, 1, 1))
+        
+        seg = self.session.query(Segment).first()
+        
+        a = inspect_model(Segment)
+        attrs = {_[0]: _[1] for _ in a}
+        assert 'station.inventory_xml' in attrs
+        assert '_fake_method' in attrs and attrs['_fake_method'] is None
+        assert all(v is not None for a, v in attrs.items() if a != '_fake_method')
+        
+        a2 = inspect_model(Segment, ['segments', 'station'])
+        # too long to count how many attributes should be missing, launched a test and put the
+        # number here (17):
+        assert len(a2) == len(a) - 11
+        # just test it does not raise FIXME: better tests maybe?
+        b = inspect_instance(seg)
+        
+        h = 9
         
     
 if __name__ == "__main__":

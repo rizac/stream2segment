@@ -94,11 +94,11 @@
 #                                   always perform a check in the processing for
 #                                   safety, e.g., via `len(segment.stream())` or
 #                                   `segment.stream().get_gaps()`)
-# data_identifier                   str: the seed identifier in the typical format
+# data_seed_id                      str: the seed identifier in the typical format
 #                                   'Network.Station.Location.Channel' as read from the data.
 #                                   It might be null if the data is empty or null because of
 #                                   a download error. See also 'segment.meed_identifier'
-# seed_identifier                   str: the seed identifier in the typical format
+# seed_id                           str: the seed identifier in the typical format
 #                                   'Network.Station.Location.Channel': it is the same as
 #                                   'segment.data_identifier', but it is assured not to be,
 #                                   null, as the segment meta-data is used if needed: in this
@@ -111,6 +111,7 @@
 # --------------------------------- ------------------------------------------------
 # event                             object (attributes below)
 # event.id                          int
+# event.event_id                    str: the id returned by the web service
 # event.time                        datetime.datetime
 # event.latitude                    float
 # event.longitude                   float

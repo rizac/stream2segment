@@ -69,15 +69,15 @@ class DB(object):
         self.session.commit()
         self.ws = ws
         # setup an event:
-        e1 = Event(id=1, webservice_id=ws.id, eventid='abc1', latitude=8, longitude=9, magnitude=5,
+        e1 = Event(id=1, webservice_id=ws.id, event_id='abc1', latitude=8, longitude=9, magnitude=5,
                    depth_km=4, time=datetime.utcnow())
-        e2 = Event(id=2, webservice_id=ws.id, eventid='abc2', latitude=8, longitude=9, magnitude=5,
+        e2 = Event(id=2, webservice_id=ws.id, event_id='abc2', latitude=8, longitude=9, magnitude=5,
                    depth_km=4, time=datetime.utcnow())
-        e3 = Event(id=3, webservice_id=ws.id, eventid='abc3', latitude=8, longitude=9, magnitude=5,
+        e3 = Event(id=3, webservice_id=ws.id, event_id='abc3', latitude=8, longitude=9, magnitude=5,
                    depth_km=4, time=datetime.utcnow())
-        e4 = Event(id=4, webservice_id=ws.id, eventid='abc4', latitude=8, longitude=9, magnitude=5,
+        e4 = Event(id=4, webservice_id=ws.id, event_id='abc4', latitude=8, longitude=9, magnitude=5,
                    depth_km=4, time=datetime.utcnow())
-        e5 = Event(id=5, webservice_id=ws.id, eventid='abc5', latitude=8, longitude=9, magnitude=5,
+        e5 = Event(id=5, webservice_id=ws.id, event_id='abc5', latitude=8, longitude=9, magnitude=5,
                    depth_km=4, time=datetime.utcnow())
         self.session.add_all([e1, e2, e3, e4, e5])
         self.session.commit()

@@ -116,10 +116,10 @@ class Test(unittest.TestCase):
         self.session.commit()
             
         id = 'firstevent'
-        e1 = Event(eventid='event1', webservice_id=ws.id, time=utcnow, latitude=89.5, longitude=6,
+        e1 = Event(event_id='event1', webservice_id=ws.id, time=utcnow, latitude=89.5, longitude=6,
                          depth_km=7.1, magnitude=56)
         # note: e2 not used, store in db here anyway...
-        e2 = Event(eventid='event2', webservice_id=ws.id, time=utcnow + timedelta(seconds=5),
+        e2 = Event(event_id='event2', webservice_id=ws.id, time=utcnow + timedelta(seconds=5),
                   latitude=89.5, longitude=6, depth_km=7.1, magnitude=56)
         
         self.session.add_all([e1, e2])
@@ -212,7 +212,7 @@ class Test(unittest.TestCase):
                           arrival_time = arrival_time,
                           request_end = end_time,
                           data = mseed,
-                          data_identifier = seedid,
+                          data_seed_id = seedid,
                           event_distance_deg = val,
                           event_id=ev.id,
                           **fixed_args)
@@ -455,7 +455,7 @@ class Test(unittest.TestCase):
             assert not mock_get_inv.called  # already called
             assert not mock_get_stream.called  # already computed
             # assert all titles are properly set, with the given prefix
-            seedid = s.seed_identifier
+            seedid = s.seed_id
             assert all(p is None or p.title.startswith(seedid) for p in m[s.id][0])
             assert all(p is None or p.title.startswith(seedid) for p in m[s.id][1])
             # check plot titles and warnings:

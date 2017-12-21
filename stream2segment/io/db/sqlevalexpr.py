@@ -16,6 +16,9 @@ from future.utils import viewitems
 
 import numpy as np
 from sqlalchemy import asc, and_, desc, inspect
+from sqlalchemy.orm.attributes import QueryableAttribute
+from sqlalchemy.exc import NoInspectionAvailable
+from sqlalchemy.orm.collections import InstrumentedList
 
 # from sqlalchemy.exc import InvalidRequestError
 
@@ -275,7 +278,7 @@ def parsevals_sql(column, expr_value):
         ```
     """
     try:
-        return parsevals(column.type.python_type, expr_value)
+        return parsevals(get_pytype(get_sqltype(column)), expr_value)
     except ValueError as verr:
         raise ValueError("column %s: %s" % (str(column), str(verr)))
 
@@ -322,3 +325,216 @@ def _bool(val):
     elif val in ('true', 'True', 'TRUE'):
         return True
     return bool(val)
+
+
+def get_sqltype(obj):
+    '''Returns the sql type associated with `obj`.
+
+    :param obj: an object with an 'expression' method, e.g. sqlalchemy.sql.schema.Column or
+        :class:`sqlalchemy.orm.attributes.QueryableAttribute` (for instance
+         :class:`sqlalchemy.orm.attributes.InstrumentedAttribute`, i.e. the model's attributes
+        mapping db columns)
+
+    :return: An object defined in :class:`sqlalchemy.sql.sqltypes`, e.g. `Integer`
+        the method  :function:`get_pytype` of the returned object defines the relative python type
+    '''
+    try:
+        return obj.expression.type
+    except NotImplementedError:
+        return None
+
+
+def get_pytype(sqltype):
+    """Returns the python type associated to the given sqltype.
+    :param sqltype: an object as returned by `get_sqltype`
+    :return: a python type class asscoaiated to `sqltype`, or None
+    """
+    try:
+        return sqltype.python_type
+    except NotImplementedError:
+        return None
+
+
+def inspect_model(model, exclude=None):
+    '''Returns a list of tuples:
+    ```
+        (att_name, python_type)
+    ```
+    of the given model. `python_type` is the type of the attribute `att_name`, it can be None if
+    the relative method raises.
+    Attributes referring to db table foreign keys will not be returned.
+    Attributes referring to db relationships R will inspect the relationship's mapped table T,
+    returning a list of attributes names in the format:
+    '<R name>.<T attribute name>'
+
+    :param exclude: a list of strings or :class:`sqlalchemy.orm.attributes.InstrumentedAttribute`s
+    (e.g., attributes mapping db table columns or model relationships)
+    to exclude from the returned iterator
+
+    '''
+    data = inspect_list(model, 'rcp', False, True, exclude)
+    # Note: python types (function get_sqltype) of relationships return 'boolean' as python type.
+    # We need to get them and replace with object
+    rels = set(inspect(model).relationships.keys())
+    for d in data:
+        if d[0] in rels:
+            d[1] = object
+        else:
+            try:
+                d[1] = get_pytype(get_sqltype(d[1]))
+            except Exception as exc:
+                d[1] = None
+    return data
+
+
+def inspect_instance(instance, exclude=None):
+    '''Returns a list of tuples:
+    ```
+        (att_name, att_val)
+    ```
+    of the given instance. `att_name` denotes an attribute of `instance`.
+    Attributes referring to db table foreign keys will not be returned.
+    Attributes referring to db relationships R will inspect the relationship's mapped table T,
+    returning a list of attributes names in the format:
+    '<R name>.<T attribute name>'
+
+    :param exclude: a list of strings or :class:`sqlalchemy.orm.attributes.InstrumentedAttribute`s
+        (e.g., attributes mapping db table columns or model relationships)
+        to exclude from the returned iterator, in addition to Foreign keys
+    '''
+    return inspect_list(instance, 'rcp', False, True, exclude)
+
+
+def inspect_list(model, type_='rcp', fkeys=True, deep_relationships=False, exclude=None):
+    '''Returns a list of two-element lists:
+    ```
+    att_name, att_val.
+    ```
+    from the given `model` argument, where:
+    - `att_name` is a string denoting an attribute of `model`. If 'deep_relationships=True',
+        Attributes referring to db relationships R will inspect the relationship's mapped table T,
+        returning a list of attributes names in the format:
+        '<R name>.<T attribute name>'
+    - `att_val` is the attribute value, if `model` defines a mapped db table *instance*, or
+    the :class:`sqlalchemy.orm.attributes.InstrumentedAttribute`, if `model` defines a
+    mapped table *class*
+
+    the order of the returned tuples will be:
+    - attributes denoting primary key columns first
+    - all other attributes instance of `QueryableAttribute` (attributes denoting table columns,
+        hybrid properties, etc...) in alphabetical ascending order
+    - all relationships in alphabetical ascending order. If `deep_relationships` = True, each
+      relation attribute is in turn sorted according to the primary key and all
+      `QueryableAttribute`s in alphabetical ascending order
+
+    :param model: an ORM model or an ORM model instance. If the former, the attribute values
+        will be :class:`sqlalchemy.orm.attributes.InstrumentedAttribute`(s), otherwise the instance
+        values
+    :param type_: string denoting what to return. Is any combination of 'r', 'p' and 'c'.
+        'c': return attributes mapped to db columns
+        'r': return attributes mapped to sql-alchemy relationships
+        'p': return attributes which are any other queryable property on the model
+    :param fkeys: boolean (default: True), whether to return columns that are foreign keys to
+        some other table
+    :param deep_relationships: boolean (default: True) whether to inspect all relationships found,
+        running this method on the mapped class (if `model` is a model class) or instance
+        (if `model` is a model instance)
+    :param exclude: a list of strings or :class:`sqlalchemy.orm.attributes.InstrumentedAttribute`s
+        (e.g., attributes mapping db table columns or model relationships)
+        to exclude from the returned iterator
+
+    :return: a list of tuples of `model` attributes mapped to their values
+    '''
+    if not model:
+        return []
+
+    if not exclude:
+        exclude = set([])  # faster 'in' search operator
+    elif not isinstance(exclude, set):
+        exclude = set(exclude)
+
+    try:
+        mapper = inspect(model)
+    except NoInspectionAvailable:
+        return []
+
+    if mapper is model:  # this happens when the object has anything to inspect, eg.
+        # an AppenderQuery object resulting from some relationship configured in some particular way
+        return []
+
+    instance = model
+    inspecting_instance = False
+    if mapper.mapper.class_ == model.__class__:
+        inspecting_instance = True
+        model = instance.__class__
+        mapper = inspect(model)
+
+    ret_pkeys = []
+    ret_atts = []
+    ret_rels = []
+
+    def append(attname, excluded_, list_):
+        class_attval = getattr(model, attname)
+        if class_attval not in excluded_:
+            list_.append([attname,
+                          getattr(instance, attname) if inspecting_instance else class_attval])
+            return True
+        return False
+
+    if 'c' in type_:
+        columns = mapper.columns
+        fk_cols_excluded = \
+            set() if fkeys else set(f.parent for f in mapper.mapped_table.foreign_keys)
+        pkey_columns = set(mapper.mapped_table.primary_key.columns)
+        if 'c' in type_:
+            for attname, column in columns.items():
+                if attname in exclude or column in fk_cols_excluded:
+                    continue
+                append(attname, exclude, ret_pkeys if column in pkey_columns else ret_atts)
+
+    if 'r' in type_ or 'p' in type_:
+        rels = mapper.relationships
+        rel_names = rels.keys()
+        if 'p' in type_:
+            excluded_attrs2 = exclude | set(rel_names) | set(columns.keys())
+            for attname in dir(model):
+                if attname in excluded_attrs2 or attname[:2] == '__':
+                    continue
+                class_attval = getattr(model, attname)
+                if not isinstance(class_attval, QueryableAttribute):
+                    continue
+                append(attname, excluded_attrs2, ret_atts)
+
+        if 'r' in type_:
+            if not deep_relationships:
+                for attname in rel_names:
+                    if attname not in exclude:
+                        append(attname, exclude, ret_rels)
+            else:
+                # relation names will be prepended with the class name + dot.
+                for attname in rel_names:
+                    if attname not in exclude:
+                        class_attval = getattr(model, attname)
+                        if class_attval not in exclude:
+                            sub_model = getattr(instance, attname) if inspecting_instance else \
+                                get_rel_refmodel(class_attval)
+                            type_2 = type_.replace('r', '')
+                            if isinstance(sub_model, InstrumentedList):
+                                relname2index = {}
+                                for subm in sub_model:
+                                    for a, v in inspect_list(subm, type_2, fkeys, False, exclude):
+                                        rel_attname = ("%s.%s" % (attname, a))
+                                        index = relname2index.get(rel_attname, None)
+                                        if index is None:
+                                            index = len(ret_rels)
+                                            relname2index[rel_attname] = index
+                                            ret_rels.append([rel_attname, []])
+                                        ret_rels[index][1].append(v)
+                            else:
+                                for a, v in inspect_list(sub_model, type_2, fkeys, False, exclude):
+                                    rel_attname = ("%s.%s" % (attname, a))
+                                    ret_rels.append([rel_attname, v])
+
+    ret_pkeys.sort(key=lambda item: item[0])
+    ret_atts.sort(key=lambda item: item[0])
+    return ret_pkeys + ret_atts + ret_rels

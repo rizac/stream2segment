@@ -120,9 +120,9 @@
 											<input
 											    type="checkbox"
 											    value="{{ class.id }}"
-											    ng-checked="segData.classIds.indexOf(class.id) > -1"
+											    ng-model="$scope.segmentClassIndex(class.id) > -1"
 											    ng-click="toggleClassLabelForCurrentSegment(class.id)"
-											> {{ class.id }}: {{ class.label }} ({{ class.count }})
+											> {{ class.id }}: {{ class.label }} ({{ class.count }} segments with this class)
 										</label>
 									</div>
 								</div>
@@ -174,7 +174,7 @@
 			<table style='width:100%'>
 				<tr><th>Key</th><th>Value (expression)</th></tr>
 				<tr ng-repeat="values in metadata">
-					<td>{{ values[0] }}</td>
+					<td ng-class="values[2] ? 'select-highlighted' : ''">{{ values[0] }}</td>
 					<td style='width:100%'><input style='width:100%' type=text
 						ng-model="values[2]"
 						placeholder="({{ values[1] }})"/></td>

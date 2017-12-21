@@ -74,5 +74,6 @@ def get_segment_data():
 @main_page.route("/toggle_class_id", methods=['POST'])
 def toggle_class_id():
     json_req = request.get_json()
-    return jsonify(core.toggle_class_id(get_session(current_app),
-                                        json_req['segment_id'], json_req['class_id']))
+    core.toggle_class_id(get_session(current_app), json_req['segment_id'], json_req['class_id'])
+    # the above raises, otherwise return empty json to signal success:
+    return jsonify({})

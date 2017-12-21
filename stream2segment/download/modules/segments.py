@@ -241,7 +241,7 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid, 
     SEG_ETIME = Segment.end_time.key
     SEG_DATA = Segment.data.key
     SEG_DSCODE = Segment.download_code.key
-    SEG_DATAID = Segment.data_identifier.key
+    SEG_DATAID = Segment.data_seed_id.key
     SEG_MGAP = Segment.maxgap_numsamples.key
     SEG_SRATE = Segment.sample_rate.key
     SEG_DOWNLID = Segment.download_id.key

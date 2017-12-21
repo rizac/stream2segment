@@ -1735,7 +1735,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # get columns from db which we are interested on to check
         cols = [Segment.id, Segment.channel_id, Segment.datacenter_id,
                 Segment.download_code, Segment.maxgap_numsamples, \
-                Segment.sample_rate, Segment.data_identifier, Segment.data, Segment.download_id,
+                Segment.sample_rate, Segment.data_seed_id, Segment.data, Segment.download_id,
                 Segment.request_start, Segment.request_end, Segment.start_time, Segment.end_time
                 ]
         db_segments_df = dbquery2df(self.session.query(*cols))
@@ -1757,7 +1757,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         db_segments_df = pd.concat(ret, axis=0)
 
 # db_segments_df:
-#    id  channel_id  datacenter_id  download_status_code  max_gap_ovlap_ratio  sample_rate data_identifier  data  run_id          start_time            end_time
+#    id  channel_id  datacenter_id  download_status_code  max_gap_ovlap_ratio  sample_rate data_seed_id     data  run_id          start_time            end_time
 # 0  1   1           1              200.0                 0.0001               100.0        GE.FLT1..HHE    data  1      2016-05-08 05:16:12 2016-05-08 05:19:12
 # 1  2   2           1              200.0                 0.0001               100.0        GE.FLT1..HHN    data  1      2016-05-08 05:16:12 2016-05-08 05:19:12
 # 2  3   3           1              200.0                 0.0001               100.0        GE.FLT1..HHZ    data  1      2016-05-08 05:16:12 2016-05-08 05:19:12
@@ -2051,7 +2051,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # get columns from db which we are interested on to check
         cols = [Segment.id, Segment.channel_id, Segment.datacenter_id,
                 Segment.download_code, Segment.maxgap_numsamples, \
-                Segment.sample_rate, Segment.data_identifier, Segment.data, Segment.download_id,
+                Segment.sample_rate, Segment.data_seed_id, Segment.data, Segment.download_id,
                 Segment.request_start, Segment.request_end, Segment.start_time, Segment.end_time
                 ]
         db_segments_df = dbquery2df(self.session.query(*cols))
@@ -2072,7 +2072,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         db_segments_df = pd.concat(ret, axis=0)
 
 # db_segments_df:
-#    id  channel_id  datacenter_id  download_status_code  max_gap_ovlap_ratio  sample_rate data_identifier  data  run_id          start_time            end_time
+#    id  channel_id  datacenter_id  download_status_code  max_gap_ovlap_ratio  sample_rate data_seed_id     data  run_id          start_time            end_time
 # 0  1   1           1              -3                    0.0001               100.0        GE.FLT1..HHE    b''   1      2016-05-08 05:16:12 2016-05-08 05:19:12
 # 1  2   2           1              -3                    0.0001               100.0        GE.FLT1..HHN    b''   1      2016-05-08 05:16:12 2016-05-08 05:19:12
 # 2  3   3           1              -3                    0.0001               100.0        GE.FLT1..HHZ    b''   1      2016-05-08 05:16:12 2016-05-08 05:19:12

@@ -314,7 +314,7 @@ class Event(Base):
 
     id = Column(Integer, primary_key=True)  # pylint:disable=invalid-name
     webservice_id = Column(Integer, ForeignKey("web_services.id"), nullable=False)
-    eventid = Column(String, nullable=False)
+    event_id = Column(String, nullable=False)
     time = Column(DateTime, nullable=False)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
@@ -329,7 +329,7 @@ class Event(Base):
     event_location_name = Column(String)
 
     __table_args__ = (
-                      UniqueConstraint('webservice_id', 'eventid', name='ws_eventid_uc'),
+                      UniqueConstraint('webservice_id', 'event_id', name='ws_eventid_uc'),
                      )
     # segments = relationship("Segment", back_populates="event")
 
@@ -459,7 +459,7 @@ class Channel(Base):
     @hybrid_property
     def band_code(self):
         '''returns the first letter of the channel field, or None if the latter has not length 3'''
-        return self.channel[0] # if len(self.channel) == 3 else None
+        return self.channel[0:1]  # if len(self.channel) == 3 else None
 
     @band_code.expression
     def band_code(cls):  # @NoSelf
@@ -472,7 +472,7 @@ class Channel(Base):
     @hybrid_property
     def instrument_code(self):
         '''returns the second letter of the channel field, or None if the latter has not length 3'''
-        return self.channel[1] # if len(self.channel) == 3 else None
+        return self.channel[1:2]  # if len(self.channel) == 3 else None
 
     @instrument_code.expression
     def instrument_code(cls):  # @NoSelf
@@ -485,7 +485,7 @@ class Channel(Base):
     @hybrid_property
     def orientation_code(self):
         '''returns the third letter of the channel field, or None if the latter has not length 3'''
-        return self.channel[2] # if len(self.channel) == 3 else None
+        return self.channel[2:3]  # if len(self.channel) == 3 else None
 
     @orientation_code.expression
     def orientation_code(cls):  # @NoSelf
@@ -512,7 +512,7 @@ class Segment(Base):
     event_id = Column(Integer, ForeignKey("events.id"), nullable=False)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
     datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
-    data_identifier = Column(String)
+    data_seed_id = Column(String)
     event_distance_deg = Column(Float, nullable=False)
     data = Column(LargeBinary)
     download_code = Column(Integer)
@@ -661,17 +661,17 @@ class Segment(Base):
                 raise
 
     @hybrid_property
-    def seed_identifier(self):
+    def seed_id(self):
         try:
-            return self.data_identifier or \
+            return self.data_seed_id or \
                 ".".join([self.station.network, self.station.station,
                           self.channel.location, self.channel.channel])
         except (TypeError, AttributeError):
             return None
 
-    @seed_identifier.expression
-    def seed_identifier(cls):  # @NoSelf
-        '''returns data_identifier if the latter is not None, else net.sta.loc.cha by querying the
+    @seed_id.expression
+    def seed_id(cls):  # @NoSelf
+        '''returns data_seed_id if the latter is not None, else net.sta.loc.cha by querying the
         relative channel and station'''
         # Needed note: To know what we are doing in 'sel' below, please look:
         # http://docs.sqlalchemy.org/en/latest/orm/extensions/hybrid.html#correlated-subquery-relationship-hybrid
@@ -687,14 +687,10 @@ class Segment(Base):
                              Channel.location, dot, Channel.channel)]).\
             where((Channel.id == cls.channel_id) & (Station.id == Channel.station_id)).limit(1).\
             label('seedidentifier')
-        return case([(cls.data_identifier.isnot(None), cls.data_identifier)],
-                    else_=sel)
+        return case([(cls.data_seed_id.isnot(None), cls.data_seed_id)], else_=sel)
 
     event = relationship("Event", backref=backref("segments", lazy="dynamic"))
     channel = relationship("Channel", backref=backref("segments", lazy="dynamic"))
-    datacenter = relationship("DataCenter", backref=backref("segments", lazy="dynamic"))
-    download = relationship("Download", backref=backref("segments", lazy="dynamic"))
-
     # http://stackoverflow.com/questions/17580649/sqlalchemy-relationships-across-multiple-tables
     # this method will work better, as the ORM can also handle
     # eager loading with this one.
@@ -706,6 +702,8 @@ class Segment(Base):
     classes = relationship("Class",  # lazy='dynamic', viewonly=True,
                            secondary="class_labellings",  # <-  must be table name in metadata
                            backref=backref("segments", lazy="dynamic"))
+    datacenter = relationship("DataCenter", backref=backref("segments", lazy="dynamic"))
+    download = relationship("Download", backref=backref("segments", lazy="dynamic"))
 
     __table_args__ = (
                       UniqueConstraint('channel_id', 'event_id',

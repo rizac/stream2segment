@@ -22,7 +22,7 @@ from stream2segment.io.db.models import Segment, Class, Station, Channel, DataCe
 from stream2segment.gui.webapp.processing.plots.jsplot import jsontimestamp
 # from stream2segment.io.db import sqlevalexpr
 from stream2segment.utils.resources import yaml_load_doc, get_templates_fpath
-from stream2segment.io.db.sqlevalexpr import exprquery
+from stream2segment.io.db.sqlevalexpr import exprquery, inspect_instance, inspect_model
 from sqlalchemy.orm import load_only
 from stream2segment.process.utils import getseg
 
@@ -70,80 +70,34 @@ def get_metadata(session, seg_id=None):
     (column, column_value) if segment is not None. In the first case, `column_type` is the
     string representation of the column python type (str, datetime,...), in the latter,
     it is the value of `segment` for that column'''
+    excluded_colnames = set([Station.inventory_xml, Segment.data, Download.log,
+                             Download.config, Download.errors, Download.warnings,
+                             Download.program_version, Class.description])
+
     if seg_id is not None:
         segment = getseg(session, seg_id)
         if not segment:
             return []
+        else:
+            return inspect_instance(segment, exclude=excluded_colnames)
     else:
-        segment = None
-
-    METADATA = [("", Segment), ("event", Event), ("channel", Channel),
-                ("station", Station), ("datacenter", DataCenter), ('download', Download)]
-
-    def type2str(python_type):
-        '''returns the str representation of a python type'''
-        return python_type.__name__
-
-    ret = []
-    # exclude columns with byte data or too long text data which would make no sense to show:
-    excluded_colnames = set([Station.inventory_xml.key, Segment.data.key, Download.log.key,
-                             Download.config.key])
-    # if segment is None, return hybrid attributes, too.
-    # Use a dict of pairs: (model -> list of hybrid attributes to be shown)
-    # The type of the hybrid attribute will be later inferred by sqlalchemy:
-    included_colnames = {} if segment is not None else \
-        {Segment: [Segment.has_data.key],  # @UndefinedVariable
-         Station: [Station.has_inventory.key]}  # @UndefinedVariable
-
-    for prefix, model in METADATA:
-        colnamez = list(colnames(model, fkey=False))
-        colnamez.extend(included_colnames.get(model, []))
-        for colname in colnamez:
-            if colname in excluded_colnames:
-                continue
-            column = getattr(model, colname)
-            try:
-                if segment is not None:
-                    if model is not Segment:
-                        value = getattr(getattr(segment, prefix), colname)
-                    else:
-                        value = getattr(segment, colname)
-                    try:
-                        value = value.isoformat()
-                    except AttributeError:
-                        if value is None:
-                            value = 'null'
-                        else:
-                            value = str(value)
-                else:
-                    value = type2str(column.type.python_type)
-            except Exception as _:
-                continue
-            ret.append([("%s." % prefix) + colname if prefix else colname, value])
-    # add fields for selecting. These fields do not need to be set if a segment is provided:
-    if segment is None:
-        # https://stackoverflow.com/questions/14754994/why-is-sqlalchemy-count-much-slower-than-the-raw-query
-        classcount = session.query(func.count(Class.id)).scalar()
-        if classcount > 0:
-            ret.insert(0, ['classes.id', type2str(Class.id.type.python_type)  # @UndefinedVariable
-                           ])
-            ret.insert(0, ['classes', type2str(str) +  # @UndefinedVariable
-                           ": type either any: segments with at least one class, "
-                           "or none: segments with no class"])
-
-    return ret
+        # return inspect_model but convert types into their names (json serializable)
+        return [[aname, getattr(aval, "__name__", "unknown")] for aname, aval in
+                inspect_model(Segment, exclude=excluded_colnames)]
 
 
 def toggle_class_id(session, segment_id, class_id):
-    segment = session.query(Segment).options(load_only(Segment.id)).first()
+    segment = getseg(session, segment_id)
     clz = segment.classes
+    len_classes = len(clz)
+    annotator = 'web app labeller'  # FIXME: use a session username or the computer username?
     if any(c.id == class_id for c in clz):
         segment.del_classes(class_id)
     else:
-        segment.add_classes(class_id)
-    # re-query the database to be sure:
-    return {'classes': get_classes(session),
-            'segment_class_ids': get_classes(session, segment_id)}
+        segment.add_classes(class_id, annotator=annotator)
+    if len(segment.classes) == len_classes:
+        raise Exception('Could not toggle the class')
+    return {}
 
 
 def get_classes(session, seg_id=None):
@@ -156,8 +110,10 @@ def get_classes(session, seg_id=None):
         return [] if not segment else sorted(c.id for c in segment.classes)
 
     colnames = [Class.id.key, Class.label.key, 'count']
+    # Note isouter which produces a left outer join, important when we have no class labellings
+    # (i.e. third column all zeros) otherwise with a normal join we would have no results
     data = session.query(Class.id, Class.label, func.count(ClassLabelling.id).label(colnames[-1])).\
-        join(ClassLabelling, ClassLabelling.class_id == Class.id).group_by(Class.id).\
+        join(ClassLabelling, ClassLabelling.class_id == Class.id, isouter=True).group_by(Class.id).\
         order_by(Class.id)
     return [{name: val for name, val in zip(colnames, d)} for d in data]
 

@@ -129,7 +129,7 @@ class Test(unittest.TestCase):
         self.session.commit()
             
         id = '__abcdefghilmnopq'
-        e = Event(eventid=id, webservice_id=ws.id, time=utcnow, latitude=89.5, longitude=6,
+        e = Event(event_id=id, webservice_id=ws.id, time=utcnow, latitude=89.5, longitude=6,
                          depth_km=7.1, magnitude=56)
         self.session.add(e)
         

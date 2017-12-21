@@ -376,7 +376,7 @@ class Test(unittest.TestCase):
         self.session.commit()
         
         val = '6.7'
-        e = Event(eventid='abc', webservice_id=ws.id, time=datetime.utcnow(),
+        e = Event(event_id='abc', webservice_id=ws.id, time=datetime.utcnow(),
                          latitude=val, longitude=78, magnitude=56, depth_km=45)
         assert e.latitude != float(val)
         assert object_session(e) == None
@@ -520,16 +520,16 @@ class Test(unittest.TestCase):
         self.session.commit()
             
         id = '__abcdefghilmnopq'
-        e = Event(eventid=id, webservice_id=ws.id, time=utcnow, latitude=89.5, longitude=6,
+        e = Event(event_id=id, webservice_id=ws.id, time=utcnow, latitude=89.5, longitude=6,
                          depth_km=7.1, magnitude=56)
         self.session.add(e)
-        e2 = Event(eventid=id+'5', webservice_id=ws.id, time=utcnow, latitude=49.5, longitude=6,
+        e2 = Event(event_id=id+'5', webservice_id=ws.id, time=utcnow, latitude=49.5, longitude=6,
                          depth_km=7.1, magnitude=56)
         self.session.add(e2)
-        e3 = Event(eventid=id+'5_', webservice_id=ws.id, time=utcnow, latitude=49.5, longitude=67,
+        e3 = Event(event_id=id+'5_', webservice_id=ws.id, time=utcnow, latitude=49.5, longitude=67,
                          depth_km=7.1, magnitude=56)
         self.session.add(e3)
-        e4 = Event(eventid=id+'5_werger', webservice_id=ws.id, time=utcnow, latitude=49.5, longitude=67.6,
+        e4 = Event(event_id=id+'5_werger', webservice_id=ws.id, time=utcnow, latitude=49.5, longitude=67.6,
                          depth_km=7.1, magnitude=56)
         self.session.add(e4)
         
@@ -548,7 +548,7 @@ class Test(unittest.TestCase):
         
         id = '__abcdefghilmnopq'
         utcnow = datetime.utcnow()
-        e = Event(id=e.id, eventid=id, webservice_id=ws.id, time=utcnow)
+        e = Event(id=e.id, event_id=id, webservice_id=ws.id, time=utcnow)
 #         e, added = self.get_or_add(self.session, e)
 #         assert added == False
 
@@ -896,14 +896,14 @@ class Test(unittest.TestCase):
         s1_seed_id = 'abc'
         s2_seed_id = ".".join([s1.station.network, s1.station.station, s1.channel.location,
                                s1.channel.channel])
-        s1.data_identifier =  s1_seed_id
+        s1.data_seed_id =  s1_seed_id
         self.session.commit()
         
-        ss1 = self.session.query(Segment.id).filter(Segment.seed_identifier == s1_seed_id).all()
+        ss1 = self.session.query(Segment.id).filter(Segment.seed_id == s1_seed_id).all()
         assert len(ss1) == 1
         assert ss1[0][0] == s1.id
         
-        ss2 = self.session.query(Segment.id).filter(Segment.seed_identifier == s2_seed_id).all()
+        ss2 = self.session.query(Segment.id).filter(Segment.seed_id == s2_seed_id).all()
         assert len(ss2) >= 1
         assert any(_[0] == s2.id for _ in ss2)      
         
@@ -1075,7 +1075,7 @@ class Test(unittest.TestCase):
         self.session.commit()
         N = 100
         id = '__abcdefghilmnopq'
-        events =[Event(eventid=id+str(i), webservice_id=ws.id, time=utcnow+timedelta(seconds=i),
+        events =[Event(event_id=id+str(i), webservice_id=ws.id, time=utcnow+timedelta(seconds=i),
                   latitude=89.5, longitude=6,
                          depth_km=7.1, magnitude=56) for i in range(N)]
         self.session.add_all(events)
