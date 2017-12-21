@@ -3,8 +3,11 @@ var myApp = angular.module('myApp', []);
 myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', function($scope, $http, $window, $timeout) {
 	$scope.segIds = [];  // segment indices
 	$scope.segIdx = -1;  // current segment index
-	$scope.metadata = []; // array of 3-element arrays [(key, type, expr), ... ] (all elements as string)
+	$scope.metadata = []; // array of 3-element arrays. Each element represents a select expression
+						  // and is: [key, type, expr] (all elements as string)
 						  // example: [('has_data', 'bool', 'true'), ('id', 'int, ''), ('event.id', 'int', ''), ...]
+	$scope.classes = []; // Array of dicts. Each dict represents a class and is: {count: <int>, id: <int>, label:<string>}
+						 // example: [{count:1, id:1, label'Ok'}, {count:0, id:2, label'Bad'}, ...]
 	// selection "window" handling:
 	$scope.selection = {
 			showForm: false,
@@ -13,11 +16,21 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	
 	$scope.snWindows = $window.__SETTINGS.sn_windows;
 	$scope.snWindows._changed = false;
-
-	$scope.segData = {}; // the segment data (classes, plot data, metadata etc...)
 	$scope.plots = $window.plots.map(function(div, index) {
 		   return {'visible': index < 3, 'zoom': [null, null], 'div': div}
 	});
+
+	// the segment data (classes, plot data, metadata etc...):
+	$scope.segData = {
+		classIds: {}, // dict of class ids mapped to a boolean value (selected or not)
+		metadata: {}, // dict of keys mapped to dicts. Keys are 'station', 'segment' etc.
+					  // and values are dicts of attributes (string) mapped to their segmetn values
+		plotData: new Array($scope.plots.length), //array of plot data (each element represents a plot)
+		snWindows: [] // array of two elements: [signal_window, noise_window] each
+			           // window is in turn a 2 element array of integers representing timestamps: [t1, t2]
+	
+	};
+	
 	// this forwards the plotly 'on' method to all plots defined in $scope.plots: (see when defining zoom event listeners below)
 	$scope.plots.on = function(key, callback){
 		$scope.plots.forEach(function(elm, index, elms){
@@ -30,7 +43,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	$scope.customPlotId = 2;
 	$scope.showPreProcessed = true;
 	$scope.showAllComponents = false;
-	$scope.classes = [];
+	
 
 	$scope.warnMsg = "Loading...";
 
@@ -185,15 +198,9 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			$scope.snWindows._changed = false;
 		}
 		$scope.warnMsg = "Loading...";
-		// initialize if undefined (as it is the first time we download plots)
-		if (!$scope.segData.plotData){
-			$scope.segData.plotData = new Array($scope.plots.length);
-			$scope.segData.snWindows = [];
-		}
 		if(refreshMetadata){
 			param.metadata = true;
 			param.classes = true
-			param.warnings = true; // NOT USED
 		}
 		
 		$http.post("/get_segment", param, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
@@ -230,9 +237,13 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			}
 			segMetadata[elms[0]][elms[1]] = val;
 		});
+		var classIds = {};
+		$scope.classes.forEach(function(elm, index){
+			var classId = elm.id;
+			classIds[classId] = response.data.classes.indexOf(classId) > -1;
+		});
 		$scope.segData.metadata = segMetadata;
-		$scope.segData.classIds = response.data.classes;  // array of class ids
-		$scope.segData.warnings = response.data.warnings;  // FIXME: need to set it up!
+		$scope.segData.classIds = classIds;  // dict created above
 	};
 	
 	/** functions for getting data for the plot query above **/
@@ -391,32 +402,24 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		$scope.warnMsg = "";
 	};
 	
-	$scope.toggleClassLabelForCurrentSegment = function(classId){
-		var classIdIndex = $scope.segmentClassIndex(classId);
-		var param = {class_id: classId, segment_id: $scope.segIds[$scope.segIdx]};
-	    $http.post("/toggle_class_id", param, {headers: {'Content-Type': 'application/json'}}).then(
+	$scope.toggleSegmentClassLabel = function(classId){
+		var value = $scope.segData.classIds[classId];
+		var param = {class_id: classId, segment_id: $scope.segIds[$scope.segIdx], value:value};
+	    $http.post("/set_class_id", param, {headers: {'Content-Type': 'application/json'}}).then(
 		    function(response) {
-		    	if (classIdIndex >=0){
-		    		$scope.segData.classIds.splice(classIdIndex, 1);
-		    	}else{
-		    		$scope.segData.classIds.push(classId);
-		    	}
 		    	$scope.classes.forEach(function(elm, index){
 		    		if (elm.id == classId){
-		    			elm.count += (classIdIndex >=0 ? -1 : 1);  //update count
+		    			elm.count += (value ? 1 : -1);  //update count
 		    		}
 		    	});
 		    },
 		    function(response) {
+		    	$scope.segData.classIds[classId] = !value; // restore old value
 		    	// called asynchronously if an error occurs
 		        // or server returns response with an error status.
 		    	$window.alert('Server error setting the class');
 		    }
 		);
-	};
-	
-	$scope.segmentClassIndex = function(classId){
-		return $scope.segData.classIds.indexOf(classId);
 	};
 	
 	//visibility of some panels

@@ -59,21 +59,20 @@ def get_segment_data():
     all_components = data.get('all_components', False)
     metadata = data.get('metadata', False)
     classes = data.get('classes', False)
-    warnings = data.get('warnings', False)
     sn_windows = data.get('sn_windows', {})
     plotmanager = current_app.config['PLOTMANAGER']
 #     if conf:
 #         current_app.config['CONFIG.YAML'].update(conf)  # updates also plotmanager
     # NOTE: seg_id is a unicode string, but the query to the db works as well
     return jsonify(core.get_segment_data(get_session(current_app), seg_id, plotmanager,
-                                         plot_indices, all_components,
-                                         preprocessed, zooms, metadata, classes, warnings,
-                                         sn_windows))
+                                         plot_indices, all_components, preprocessed, zooms,
+                                         metadata, classes, sn_windows))
 
 
-@main_page.route("/toggle_class_id", methods=['POST'])
-def toggle_class_id():
+@main_page.route("/set_class_id", methods=['POST'])
+def set_class_id():
     json_req = request.get_json()
-    core.toggle_class_id(get_session(current_app), json_req['segment_id'], json_req['class_id'])
+    core.set_class_id(get_session(current_app), json_req['segment_id'], json_req['class_id'],
+                      json_req['value'])
     # the above raises, otherwise return empty json to signal success:
     return jsonify({})

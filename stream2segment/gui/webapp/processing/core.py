@@ -75,6 +75,8 @@ def get_metadata(session, seg_id=None):
                              Download.program_version, Class.description])
 
     if seg_id is not None:
+        # exclude all classes attributes (returned in get_classes):
+        excluded_colnames |= {Class.id, Class.label}
         segment = getseg(session, seg_id)
         if not segment:
             return []
@@ -86,17 +88,13 @@ def get_metadata(session, seg_id=None):
                 inspect_model(Segment, exclude=excluded_colnames)]
 
 
-def toggle_class_id(session, segment_id, class_id):
+def set_class_id(session, segment_id, class_id, value):
     segment = getseg(session, segment_id)
-    clz = segment.classes
-    len_classes = len(clz)
     annotator = 'web app labeller'  # FIXME: use a session username or the computer username?
-    if any(c.id == class_id for c in clz):
-        segment.del_classes(class_id)
-    else:
+    if value:
         segment.add_classes(class_id, annotator=annotator)
-    if len(segment.classes) == len_classes:
-        raise Exception('Could not toggle the class')
+    else:
+        segment.del_classes(class_id)
     return {}
 
 
@@ -119,7 +117,7 @@ def get_classes(session, seg_id=None):
 
 
 def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components, preprocessed,
-                     zooms, metadata=False, classes=False, warnings=False, sn_wdws=False):
+                     zooms, metadata=False, classes=False, sn_wdws=False):
     """Returns the segment data, depending on the arguments
     :param session: a flask sql-alchemy session object
     :param seg_id: integer denoting the segment id
@@ -141,11 +139,6 @@ def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components,
     javascript parsing
     :param classes: boolean, whether to return the integers classes ids (if any) of the given
     segment
-    :param warnings: NOT IMPLEMENTED YET
-    boolean, whether to return the given warnings for the given segment. the
-    warnings include: segment with gaps, inventory error (if inventory is required according to
-    the config), and sn windows calculation error (e.g., bad values given from the config or the
-    gui). The warnings is a list of (currently) at most 3 string elements
     :param sn_wdws: boolean, whether to returns the sn windows calculated according to the
     config values. The returned list is a 2-element list, where each element is in turn a
     2-element numeric list: [noise_window_start, noise_window_end],
@@ -177,7 +170,6 @@ def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components,
 
     return {'plots': [p.tojson(z, NPTS_WIDE) for p, z in zip(plots, zooms_)],
             'sn_windows': sn_windows,
-            'warnings': [],  # if not warnings else plotmanager.get_warnings(seg_id, preprocessed),
             'metadata': [] if not metadata else get_metadata(session, seg_id),
             'classes': [] if not classes else get_classes(session, seg_id)}
 
