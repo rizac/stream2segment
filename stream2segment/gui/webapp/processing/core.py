@@ -235,7 +235,7 @@ def get_doc(key, plotmanager):
         ret = yaml_load_doc(get_templates_fpath("processing.yaml"), "segment_select", True)
         # remove the example session cause is misleading from the GUI (double string quotation
         # is not needed) and redundant (the form should be already self-explanatory):
-        ret = re.sub("\\s+Example:.*$", "", ret, flags=re.DOTALL)
+        ret = re.sub("\\s+Example:.*$", "", ret, flags=re.DOTALL)  # @UndefinedVariable
     if not ret:
         ret = "error: documentation N/A"
     return ret.strip()

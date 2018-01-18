@@ -331,20 +331,23 @@ class Test(unittest.TestCase):
             self.session.commit()
             cid = c.id
             assert len(segment.classes) == 0
-            rv = app.post("/toggle_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid}),
+            rv = app.post("/set_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid,
+                                                               'value':True}),
                                    headers={'Content-Type': 'application/json'})
             data = self.jsonloads(rv.data)
             
             assert len(segment.classes) == 1
             assert segment.classes[0].id == cid
             
-            # toggle again:
-            rv = app.post("/toggle_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid}),
+            # toggle value (now False):
+            rv = app.post("/set_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid,
+                                                               'value':False}),
                                    headers={'Content-Type': 'application/json'})
             assert len(segment.classes) == 0
             
             # toggle again and run test_get_seg with a class set
-            rv = app.post("/toggle_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid}),
+            rv = app.post("/set_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid,
+                                                               'value': True}),
                                    headers={'Content-Type': 'application/json'})
             assert len(segment.classes) == 1
             self._tst_get_seg(app)
@@ -358,8 +361,8 @@ class Test(unittest.TestCase):
         # does pytest.mark.parametrize work with unittest?
         # seems not. So:
         has_labellings = self.session.query(ClassLabelling).count() > 0
-        for _ in product([[0, 1, 2], [], [0]], [True, False], [True, False], [True, False], [True, False], [True, False]):
-            plot_indices, preprocessed, metadata, classes, all_components, warnings = _
+        for _ in product([[0, 1, 2], [], [0]], [True, False], [True, False], [True, False], [True, False]):
+            plot_indices, preprocessed, metadata, classes, all_components = _
         
             d = dict(seg_id=1,
                      pre_processed=preprocessed,
@@ -367,8 +370,7 @@ class Test(unittest.TestCase):
                      plot_indices=plot_indices,  # data['plotIndices']
                      metadata=metadata,
                      classes=classes,
-                     all_components=all_components,
-                     warnings=warnings)
+                     all_components=all_components)
                      # conf = data.get('config', {})
                      # plotmanager = current_app.config['PLOTMANAGER']
     #         if conf:
@@ -381,7 +383,7 @@ class Test(unittest.TestCase):
             assert len(data['plots']) == len(d['plot_indices'])
             assert bool(len(data['metadata'])) == metadata
             assert bool(len(data['classes'])) == (classes and has_labellings)
-            assert len(data['warnings']) == 0 or warnings  # we might have 0 warnings even if we asked for them
+
             if 0 in plot_indices:
                 traces_in_first_plot = len(data['plots'][plot_indices.index(0)][1])
                 assert (traces_in_first_plot == 1 and not all_components) or traces_in_first_plot >= 1

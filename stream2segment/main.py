@@ -197,7 +197,7 @@ def closing(dburl, scoped=False, close_logger=True, close_session=True):
                 pass
 
 
-def helpmathiter(type, filter):  # @ReservedAssignment
+def helpmathiter(type, filter):  # @ReservedAssignment pylint: disable=redefined-outer-name
     '''iterator yielding the doc-string of :module:`stream2segment.process.math.ndarrays` or
     :module:`stream2segment.process.math.traces`
 
