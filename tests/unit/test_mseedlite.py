@@ -252,8 +252,9 @@ def test_change_header_change_id():
     assert haserr(dic)
     # curiously, the returned "traces" are 4 and not 3. The first one being the "error" trace
     assert len(dic) == 4
-    # assert first one is erroneous:
-    assert str(list(dic.values())[0][0]) == 'non-data record'
+    # assert first one is erroneous (actually, different python versions might not store it in
+    # the first item, so use 'any'):
+    assert any(str(list(dic.values())[i][0]) == 'non-data record' for i in range(len(dic)))
     # assert all max gap ratios are below a certain threshold
     # (we should get 0, some rounding errors might occur)
     assert all(abs(v[3]) < 0.00011 for v in dic.values() if v[3] is not None)
@@ -272,8 +273,9 @@ def test_invalid_pointers():
     # is the id we created by modyfing the bytes above
     assert haserr(dic)
     assert len(dic) == 3
-    # assert first one is erroneous:
-    assert str(list(dic.values())[0][0]) == 'invalid pointers'
+    # assert first one is erroneous (actually, different python versions might not store it in
+    # the first item, so use 'any'):
+    assert any(str(list(dic.values())[i][0]) == 'invalid pointers' for i in range(len(dic)))
     # assert all max gap ratios are below a certain threshold
     # (we should get 0, some rounding errors might occur)
     assert all(abs(v[3]) < 0.00011 for v in dic.values() if v[3] is not None)
