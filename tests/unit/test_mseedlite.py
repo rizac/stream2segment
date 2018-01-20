@@ -106,7 +106,7 @@ def test_standard():
         assert abs(t1.stats.endtime.datetime - mseedlite_endtime) <= tdelta
     # assert also same number of traces:
     assert len(obspy_stream) == len(dic)
-#     for t1, v in zip(obspy_stream, dic.values()):
+#     for t1, v in zip(obspy_stream, dic.values()): 
 #         assert abs(t1.stats.starttime.datetime - v[4]) <= tdelta
 #         assert abs(t1.stats.endtime.datetime - v[5]) <= tdelta
 #     assert all(np.array_equal(x.data, obspy_dic[id_].data) for id_, x in mseed_dic.iteritems())
