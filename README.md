@@ -29,6 +29,9 @@ sudo apt-get upgrade gcc
 ```
 The following system packages are required: `git python-pip python2.7-dev libpng-dev libfreetype6-dev 
 build-essential gfortran libatlas-base-dev libxml2-dev libxslt-dev`
+
+*NOTE* Replace `python2.7-dev` with `python3-dev` and `python-pip` with `python3-pip` if you want to use the tool under  python3
+
 You can skip installing the system packages and get back here in case of problems, or choose to be
 (almost) sure (see also [Installation Notes](#installation-notes)):
 ```
