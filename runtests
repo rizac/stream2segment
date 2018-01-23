@@ -26,10 +26,10 @@ then
 	unset DB_URL
 	echo
 	# set color to light blue:
-	echo -e "\033[1;36mRunning db-tests with in-memory sqlite and -x option, temporarily ignoring other pytest arguments, if any:\033[0m"
+	echo -e "\033[1;36mRunning db-tests with in-memory sqlite with no options:\033[0m"
 	echo temporarily unset DB_URL="$DB_URL"
 	echo
-	(pytest -x ./tests/functional/test_db.py \
+	(pytest ./tests/functional/test_db.py \
 		./tests/functional/test_download.py \
 		./tests/functional/test_processing.py \
 		./tests/functional/test_sqlevalexpr.py \
