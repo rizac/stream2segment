@@ -36,7 +36,7 @@ then
 		./tests/functional/test_webgui.py \
 		./tests/unit/test_dbqueries.py \
 		./tests/unit/test_plotviews.py \
-		./tests/unit/test_u_download.py) && \
+		./tests/unit/test_u_download.py) ; \
 		(echo ;\
 		echo -e "\033[1;36mRunning all tests with postgres:\033[0m";\
 		echo DB_URL="$TMP_DB_URL" pytest ./tests --ignore=./tests/skip --cov=./stream2segment "$@";\
