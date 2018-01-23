@@ -7,10 +7,10 @@ do
 	if [ ${var} == "--help" ]
 	then
 		echo "runtests [PYTESTARGS]"
-		echo "CALLS: pytest ./tests -x --ignore=./tests/skip --cov=./stream2segment [PYTESTARGS]"
+		echo "CALLS: pytest ./tests --ignore=./tests/skip --cov=./stream2segment [PYTESTARGS]"
 		echo 
 		echo "Example:"
-		echo "DB_URL=postgresql://user:password@localhost/s2s_test ./runtests --cov-report=html"
+		echo "DB_URL=postgresql://user:password@localhost/s2s_test ./runtests -x --cov-report=html"
 		echo 
 		echo "Notes: "
 		echo "	DB_URL is a custom url to a database to be used (supported is postgres and sqlite)"
@@ -25,9 +25,9 @@ then
 	TMP_DB_URL="$DB_URL"
 	unset DB_URL
 	echo
-	# set color to red:
-	echo -e "\033[1;36mRunning db-tests with in-memory sqlite and -x option (ignoring other pytest arguments, if any):\033[0m"
-	echo Temporarily unset DB_URL="$DB_URL"
+	# set color to light blue:
+	echo -e "\033[1;36mRunning db-tests with in-memory sqlite and -x option (temporarily ignoring other pytest arguments, if any):\033[0m"
+	echo (Temporarily unset DB_URL="$DB_URL)"
 	echo
 	(pytest -x ./tests/functional/test_db.py \
 		./tests/functional/test_download.py \
@@ -41,13 +41,14 @@ then
 		echo -e "\033[1;36mRunning all tests with postgres:\033[0m";\
 		echo DB_URL="$TMP_DB_URL" pytest ./tests --ignore=./tests/skip --cov=./stream2segment "$@";\
 		echo ;\
-		DB_URL="$TMP_DB_URL" pytest -x ./tests --ignore=./tests/skip --cov=./stream2segment "$@")
+		DB_URL="$TMP_DB_URL" pytest ./tests --ignore=./tests/skip --cov=./stream2segment "$@")
 else
 	echo
+	# set color to light blue:
 	echo -e "\033[1;36mRunning all tests with in-memory sqlite:\033[0m"
 	echo COMMAND: pytest ./tests --ignore=./tests/skip --cov=./stream2segment "$@"
 	echo
-	pytest -x ./tests --ignore=./tests/skip --cov=./stream2segment "$@"
+	pytest ./tests --ignore=./tests/skip --cov=./stream2segment "$@"
 fi
 
 
