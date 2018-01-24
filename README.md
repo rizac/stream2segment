@@ -267,4 +267,4 @@ sudo apt-get install sqlitebrowser
 ### matplotlibrc
 
 A `matplotlibrc` file is included in the main root package. As said, matplotlib is not used by the program
-but from imported libraries, The included file sets the backend to 'TkAgg' so that we hide the "Turning interactive mode on" message (for Mac users)
+but from imported libraries, The included file sets the backend to 'Agg' so that we hide the "Turning interactive mode on" message (for Mac users)
