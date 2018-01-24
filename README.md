@@ -159,7 +159,7 @@ Install via requirements file:
 ```
 pip install ./requirements.txt
 ```
-Or, if you want to run tests (recommended):
+Alternatively, if you want to run tests (recommended):
 ```
 pip install ./requirements.dev.txt
 ```
@@ -170,7 +170,17 @@ pip install -e .
 
 ### Runt tests
 
-To run tests, move in the project directory and run the command:
+#### Run using pre-built script ...
+
+Type
+```
+./runtests --help
+```
+which explains how to execute `runtests`. This is a script which gives the option for specifying a custom database path (e.g., postgres, if installed) and run tests requiring a database with both the custom and the default one (sqlite)
+
+#### ... or the old (longer) way:
+
+move in the project directory and run the command:
 ```
 pytest ./tests/ --ignore=./tests/skip --cov=./stream2segment
 ```
@@ -181,6 +191,7 @@ python -m pytest ./tests/ --ignore=./tests/skip --cov=./stream2segment
 Wait, tests are time consuming (some minutes currently) and you should see a message with no errors, such as
 `"===== 8 passed in 1.30 seconds ======"`
 
+The database used for testing will be the value of the environment variable 'DB_PATH'. If missing, an in-memory 'sqlite' will be used. You should preferably test with the database type used for downloading and processing.
 
 ## Usage
 
