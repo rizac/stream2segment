@@ -33,6 +33,29 @@ from stream2segment.process.math.ndarrays import fft as _fft, ampspec as _ampspe
 # __all__ = ['bandpass', 'maxabs', 'cumsum', 'cumtimes', 'fft', 'ampspec', 'powspec', 'ampratio',
 #            'timeof', 'utcdatetime']
 
+def _add_processing_info(trace, func_name, **kwargs):
+    """
+    This function attaches information about a processing call as a
+    string to the Trace.stats.processing list. Copied (and simplified)
+    from obspy Trace to give same consistent behaviour to the
+    functions implemented in this module
+    We do not use a decorator as it modifies the signature and names of this module functions
+    and we don't want complex workaround for that.
+    Call this function at the end of any function modifying a trace
+    """
+    
+    # Attach after executing the function to avoid having it attached
+    # while the operation failed.
+    # Create info:
+    info = "{package}.{function}(%s)".format(package=__name__, function=func_name)
+    arguments = \
+        ["%s=%s" % (k, repr(v)) if not isinstance(v, str) else
+         "%s='%s'" % (k, v) for k, v in kwargs.items()]
+    info = info % "::".join(arguments)
+    # attach (copied from obspy):
+    proc = trace.stats.setdefault('processing', [])
+    proc.append(info)
+
 
 def bandpass(trace, freq_min, freq_max, max_nyquist_ratio=0.9,
              corners=2, copy=True):
@@ -122,37 +145,53 @@ def maxabs(trace, starttime=None, endtime=None):
     return (time, val)
 
 
-def cumsum(trace):
+def cumsum(trace, normalize=True, copy=True):
     """
     Returns the cumulative sum of `trace.data**2`, normalized between 0 and 1
     :param trace: the input obspy.core.Trace
 
-    :return: a new Trace representing the cumulative sum of the square of `trace.data`
+    :param normalize: boolean (default: True), whether to normalize the data in [0, 1]
+    :return: a Trace representing the cumulative sum of the square of `trace.data`
     """
-    return Trace(_cumsum(trace.data, normalize=True), header=trace.stats.copy())
+    data = _cumsum(trace.data, normalize=normalize)
+    if copy:
+        trace = Trace(data, header=trace.stats.copy())
+    else:
+        trace.data = data
+    # copied from obspy Trace to keep track of the modifications
+    _add_processing_info(trace, cumsum.__name__, normalize=normalize, copy=copy)
+    return trace
 
 
 def cumtimes(mi_trace, *percentages):
     """
-    Calculates the time(s) where `mi_trace` reaches the given percentage(s) of the total signal.
-    **`mi_trace.data` need to be monotonically increasing**, e.g., as resulting from
-    :func:`stream2segment.stream2segment.process.math.traces.cumsum`
+    Calculates the time(s) where `mi_trace` reaches the given percentage(s) of `mi_trace`
+    maximum. **`mi_trace.data` need to be monotonically increasing**, e.g., as resulting from
+    :func:`stream2segment.stream2segment.process.math.traces.cumsum`.
 
-    :param mi_trace: a monotonically increasing trace
-    :param percentages: the precentages to be calculated, e.g. 0.05, 0.95 (5% and 95%)
+    :param mi_trace: a **monotonically increasing** trace. NaNs values, if any, should be
+        at the end of the array (as returned, e.g., from
+        :func:`stream2segment.stream2segment.process.math.traces.cumsum`).
+    :param percentages: the precentages to be calculated, in [0, 1]; e.g. 0.05, 0.95 (5% and 95%)
 
-    :return: a list of length P = len(percentages) `UtcDateTime`'s denoting the occurrence of
+    :return: a list of N `UtcDateTime`s (N = len(percentages)) denoting the occurrence of
         the given percentages of the total signal in `mi_trace`
     """
     starttime = mi_trace.stats.starttime
     delta = mi_trace.stats.delta
-    val = []
-    minv = mi_trace[0]
-    maxv = mi_trace[-1]
-    for perc in percentages:
-        idx = np.searchsorted(mi_trace.data, minv + (maxv - minv) * perc)
-        val.append(starttime + idx * delta)
-    return val
+    tracedata = mi_trace.data
+    minv = tracedata[0]
+    maxv = tracedata[-1] if not np.isnan(tracedata[-1]) else np.nanmax(tracedata)
+    vrange = (maxv - minv)
+    
+#     val = []
+#     for perc in percentages:
+#         idx = np.searchsorted(mi_trace.data, minv + vrange * perc)
+#         val.append(starttime + idx * delta)
+#     return val
+
+    return [starttime + delta * np.searchsorted(tracedata, minv + vrange * perc)
+            for perc in percentages]
 
 
 def fft(trace, starttime=None, endtime=None, taper_max_percentage=0.05, taper_type='hann',

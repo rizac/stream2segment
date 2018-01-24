@@ -85,7 +85,11 @@ Functions arguments
 ===================
 
 As said, all functions needed or implemented for processing and visualization must have the same
-signature. In details, the two arguments passed to those functions are:
+signature:
+```
+    def myfunction(segment, config):
+```
+In details, the two arguments passed to those functions are:
 
 segment (object)
 ~~~~~~~~~~~~~~~~
@@ -127,8 +131,8 @@ segment methods:
   `
   If segment's stream has more than one trace, the method raises.
 
-* segment.other_orientations(): returns a list of segments representing the same recorded event
-  on other channel's orientations. E.g., if `segment` refers to an event E recorded by a
+* segment.other_orientations(): returns a list of segment objects representing the same recorded
+  event on other channel's orientations. E.g., if `segment` refers to an event E recorded by a
   station channel with code 'HHZ', this method returns the segments recorded on 'HHE' and
   'HHN' (relative to the same event on the same station and location codes).
 
@@ -597,6 +601,7 @@ def savitzky_golay(y, window_size, order, deriv=0, rate=1):
     approach is to make for each point a least-square fit with a
     polynomial of high order over a odd-sized window centered at
     the point.
+
     Examples
     --------
     t = np.linspace(-4, 4, 500)
@@ -608,6 +613,7 @@ def savitzky_golay(y, window_size, order, deriv=0, rate=1):
     plt.plot(t, ysg, 'r', label='Filtered signal')
     plt.legend()
     plt.show()
+
     References
     ----------
     .. [1] A. Savitzky, M. J. E. Golay, Smoothing and Differentiation of

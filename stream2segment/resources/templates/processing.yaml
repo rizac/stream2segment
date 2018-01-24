@@ -221,15 +221,16 @@ save_inventory: False
 #
 # Arrival time shift: shifts programmatically the calculated arrival time of
 # each segment by the specified amount of time (in seconds). Negative values are allowed.
-# The arrival time sets the end of the noise window, whose
-# duration will always be equal to the signal window (see below)
+# The arrival time is used to split a segment into noise and signal portion
 #
-# Signal window: specifies the signal window length. If numeric (scalar), it's
+# Signal window: specifies the window of the signal portion. If numeric (scalar), it's the
 # window duration, in seconds starting from the arrival time. If 2-element numeric array,
-# it's the time window start and end, relative to the cumulative. E.g., a value of [0.05, 0.95]
+# it's the window start and end points, relative to the cumulative of the squares of the signal portion.
+# E.g.: [0.05, 0.95]
 # sets the signal window from the time the cumulative reaches 5% of its maximum, until
-# the time it reaches 95% of its maximum. Note that when providing a 2-element array the noise
-# window and the signal window might overlap.
+# the time it reaches 95% of its maximum
+# The window of the noise portion will always be obtained by moving the signal window backwards
+# in time with its end-point equal to the segment arrival time.
 sn_windows:
   arrival_time_shift: -2.0  # programmatically shifts the arrival time for every segment (in seconds)
   signal_window: [0.1, 0.9]  # either a number (in seconds) or interval relative to the % of the cumulative

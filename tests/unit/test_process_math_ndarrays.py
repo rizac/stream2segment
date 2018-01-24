@@ -1,41 +1,185 @@
+#@PydevCodeAnalysisIgnore
 '''
-Created on May 12, 2017
+Created on Feb 23, 2016
 
 @author: riccardo
 '''
 from __future__ import division
-from builtins import range
+
 from past.utils import old_div
-import unittest
-import numpy as np
-from numpy.fft import rfft
-from numpy import abs
-from numpy import true_divide as np_true_divide
-from obspy.core.stream import read as o_read
-from io import BytesIO
-import os
-from stream2segment.process.math.traces import fft
-from stream2segment.process.math.ndarrays import ampspec, triangsmooth, snr, dfreq, freqs, powspec
-
+import mock, os, sys
 import pytest
+import re
+import argparse
+import numpy as np
+from numpy import true_divide as np_true_divide  # needed for mock and return original func (see below)
+import pandas as pd
+from stream2segment.process.math.ndarrays import cumsum, argtrim, snr, dfreq, freqs, powspec, \
+    triangsmooth
+from scipy.signal import hilbert
+
 from mock.mock import patch, Mock
-from datetime import datetime
-from obspy.core.utcdatetime import UTCDateTime
+# from obspy.core.inventory import read_inventory
+# from obspy.core import read as obspy_read
+# from obspy.core import Trace, Stream
+# from StringIO import StringIO
+# from obspy.io.stationxml.core import _read_stationxml
+# from obspy.core.trace import Trace
+from itertools import count
 
 
-class Test(unittest.TestCase):
+@pytest.mark.parametrize('y',
+                          [([-11, 1, 3.3, 4]),
+                           (np.array([-11, 1, 3.3, 4])),
+                           ])
+def test_argtrim(y):
+    #y = [1,2,3,4]
+    delta = 0.01
+    # signal_x is just used for checking:
+    signal_x = np.linspace(0, delta*len(y), num=len(y), endpoint=False)
 
-    def setUp(self):
-        with open(os.path.join(os.path.dirname(os.path.dirname(__file__)),"data", "trace_GE.APE.mseed"), 'rb') as opn:
-            self.mseed = o_read(BytesIO(opn.read()))
-            self.fft = fft(self.mseed)
-        pass
+    # assert boundary conditions are satisfied:
+    assert np.array_equal(y[slice(*argtrim(y, delta, None, None, nearest_sample=False))], y)
+    assert np.array_equal(y[slice(*argtrim(y, delta, None, None, nearest_sample=True))], y)
+    assert np.array_equal(y[slice(*argtrim(y, delta, 0, None, nearest_sample=False))], y)
+    assert np.array_equal(y[slice(*argtrim(y, delta, 0, None, nearest_sample=True))], y)
+    assert np.array_equal(y[slice(*argtrim(y, delta, None, 5, nearest_sample=False))], y)
+    assert np.array_equal(y[slice(*argtrim(y, delta, None, 5, nearest_sample=True))], y)
+    
+    # test nearest sample. xmin is in between x[0 and x[1], but closer to x[0]
+    xmin = signal_x[0] + old_div((signal_x[0]+signal_x[1]), 3.0)
+    assert np.array_equal(y[slice(*argtrim(y, delta, xmin, None, nearest_sample=False))], y[1:])
+    assert np.array_equal(y[slice(*argtrim(y, delta, xmin, None, nearest_sample=True))], y)
+    
+    # test nearest sample. xmax is in between x[0 and x[1], but closer to x[1]
+    xmax = signal_x[0] + old_div((signal_x[0]+signal_x[1]), 1.5)
+    assert np.array_equal(y[slice(*argtrim(y, delta, None, xmax, nearest_sample=False))], y[:1])
+    assert np.array_equal(y[slice(*argtrim(y, delta, None, xmax, nearest_sample=True))], y[:2])
+    
+    # test out of bound x
+    xmin = signal_x[0] - 1
+    assert np.array_equal(y[slice(*argtrim(y, delta, xmin, None, nearest_sample=False))], y)
+    assert np.array_equal(y[slice(*argtrim(y, delta, xmin, None, nearest_sample=True))], y)
+    xmin = signal_x[-1] + 1
+    assert np.array_equal(y[slice(*argtrim(y, delta, xmin, None, nearest_sample=False))], [])
+    assert np.array_equal(y[slice(*argtrim(y, delta, xmin, None, nearest_sample=True))], [])
+    
+    
+    # test out of bound x
+    xmax = signal_x[0] - 1
+    assert np.array_equal(y[slice(*argtrim(y, delta, None, xmax, nearest_sample=False))], [])
+    assert np.array_equal(y[slice(*argtrim(y, delta, None, xmax, nearest_sample=True))], [])
+    xmax = signal_x[-1] + 1
+    assert np.array_equal(y[slice(*argtrim(y, delta, None, xmax, nearest_sample=False))], y)
+    assert np.array_equal(y[slice(*argtrim(y, delta, None, xmax, nearest_sample=True))], y)
+    
+    
+    # test out of bound x
+    xmin = signal_x[0] - 1
+    xmax = signal_x[-1] + 1
+    assert np.array_equal(y[slice(*argtrim(y, delta, xmin, xmax, nearest_sample=False))], y)
+    assert np.array_equal(y[slice(*argtrim(y, delta, xmin, xmax, nearest_sample=True))], y)
+    
+    # out of bounds inversed:
+    xmax = signal_x[0] - 1
+    xmin = signal_x[-1] + 1
+    assert np.array_equal(y[slice(*argtrim(y, delta, xmin, xmax, nearest_sample=False))], [])
+    assert np.array_equal(y[slice(*argtrim(y, delta, xmin, xmax, nearest_sample=True))], [])
+    
 
-    def tearDown(self):
-        pass
+@pytest.mark.parametrize('arr, normalize, expected_result, ',
+                          [([-1, 1], True, [0, 1]),
+                           ([-1, 1], False, [1, 2]),
+                           ([-2, 3], True, [0, 1]),
+                           ([-2, 3], False, [4, 4+9]),
+                           ])
+@mock.patch('stream2segment.process.math.ndarrays.np')
+def test_cumsum(mock_np, arr, normalize, expected_result):
+    mock_np.cumsum = mock.Mock(side_effect = lambda *a, **k: np.cumsum(*a, **k))
+    mock_np.square =  mock.Mock(side_effect = lambda *a, **k: np.square(*a, **k))
+    mock_np.nanmax =  mock.Mock(side_effect = lambda *a, **k: np.nanmax(*a, **k))
+    mock_np.nanmin =  mock.Mock(side_effect = lambda *a, **k: np.nanmin(*a, **k))
+    # mock_np.true_divide =  mock.Mock(side_effect = lambda *a, **k: np.true_divide(*a, **k))
+    mock_np.isnan = mock.Mock(side_effect = lambda *a, **k: np.isnan(*a, **k))
+    r = cumsum(arr, normalize=normalize)
+    assert len(r) == len(arr)
+    assert (r == np.array(expected_result)).all()
+    assert mock_np.cumsum.called
+    assert mock_np.square.called
+    
+    assert mock_np.isnan.called == normalize
+    assert mock_np.nanmax.called == (normalize and np.isnan(arr).any())
+    assert mock_np.nanmin.called == False
+#     if normalize:
+#         assert mock_np.isnan.called
+#         assert mock_np.max.called
+#         assert mock_np.true_divide.called
+#     else:
+#         assert not mock_np.max.called
+#         assert not mock_np.true_divide.called
 
-    def tstName(self):
-        pass
+
+@mock.patch('stream2segment.process.math.ndarrays.np')
+def test_cumsum_errs(mock_np):
+    mock_np.cumsum = mock.Mock(side_effect = lambda *a, **k: np.cumsum(*a, **k))
+    mock_np.square =  mock.Mock(side_effect = lambda *a, **k: np.square(*a, **k))
+    mock_np.nanmax =  mock.Mock(side_effect = lambda *a, **k: np.nanmax(*a, **k))
+    mock_np.nanmin =  mock.Mock(side_effect = lambda *a, **k: np.nanmin(*a, **k))
+    # mock_np.true_divide =  mock.Mock(side_effect = lambda *a, **k: np.true_divide(*a, **k))
+    mock_np.isnan = mock.Mock(side_effect = lambda *a, **k: np.isnan(*a, **k))
+    
+    def compute_cumsum(*args, **kwargs):
+        '''reset mocks, computes cumsum, asserts that the specified function have been called
+        and returns cumsum'''
+        mock_np.cumsum.reset_mock()
+        mock_np.square.reset_mock()
+        mock_np.nanmax.reset_mock()
+        mock_np.nanmin.reset_mock()
+        mock_np.isnan.reset_mock()
+        r = cumsum(*args, **kwargs)
+        assert mock_np.cumsum.called
+        assert mock_np.square.called
+        return r
+    
+    arr = [0, 0]
+    r = compute_cumsum(arr, normalize=True)
+    assert len(r) == len(arr)
+    assert (r == np.array(arr)).all()
+    assert mock_np.isnan.called
+    assert not mock_np.nanmax.called
+    assert not mock_np.nanmin.called
+    # assert not mock_np.true_divide.called
+    
+    arr = [1, 3, float('nan'), 5, 6]
+    r = compute_cumsum(arr, normalize=False)
+    assert len(r) == len(arr)
+    assert (r[0] == 1) and np.isnan(r[2:]).all()
+    assert not mock_np.isnan.called
+    assert not mock_np.nanmax.called
+    assert not mock_np.nanmin.called
+    
+    arr = [1, 3, float('nan'), 5, 6]
+    r = compute_cumsum(arr, normalize=True)
+    assert len(r) == len(arr)
+    assert (r[0] == 0) and np.isnan(r[2:]).all()
+    assert mock_np.isnan.called
+    assert mock_np.nanmax.called
+    assert not mock_np.nanmin.called
+    
+    arr = [float('nan'), 1,3,4]
+    r = compute_cumsum(arr, normalize=True)
+    assert len(r) == len(arr)
+    assert np.isnan(r).all()
+    assert mock_np.isnan.called
+    assert not mock_np.nanmax.called
+    assert not mock_np.nanmin.called
+    
+    r = compute_cumsum(arr, normalize=False)
+    assert len(r) == len(arr)
+    assert np.isnan(r).all()
+    assert not mock_np.isnan.called
+    assert not mock_np.nanmax.called
+    assert not mock_np.nanmin.called
 
 
 # IMPORTANT READ:
@@ -43,7 +187,7 @@ class Test(unittest.TestCase):
 # IF we change in the future (we shouldn't), then be aware that the call check might differ!
 # impoortant: we must import np.true_divide at module level to avoid recursion problems:
 @patch("stream2segment.process.math.ndarrays.np.true_divide",
-       side_effect=lambda *a, **v: np_true_divide(*a, **v))
+       side_effect=np_true_divide)  # lambda *a, **v: np_true_divide(*a, **v))
 def test_snr(mock_np_true_divide):
 
     signal = np.array([0, 1, 2, 3, 4, 5, 6])
@@ -205,7 +349,7 @@ def triangsmooth0(spectrum, alpha):
     spectrum_ = np.array(spectrum, dtype=float)
 #     if copy:
 #         spectrum = spectrum.copy()
-
+ 
     leng = len(spectrum)
     # get the number of points (left branch, center if leng odd, right branch = left reversed)
     nptsl = np.arange(leng // 2)
@@ -217,23 +361,19 @@ def triangsmooth0(spectrum, alpha):
                                 np.arange(leng, dtype=float) * alpha)).astype(int)
     del nptsl, nptsc, nptsr  # frees up memory?
     npts_u = np.unique(npts)
-
+ 
     startindex = 0
     try:
         startindex = np.argwhere(npts_u <= 1)[-1][0] + 1
     except IndexError:
         pass
-
+ 
     for n in npts_u[startindex:]:
         # n_2 = np.true_divide(2*n-1, 2)
         tri = (1 - np.abs(np.true_divide(np.arange(2*n + 1) - n, n)))
         idxs = np.argwhere(npts == n)
         spec_slices = spectrum[idxs-n + np.arange(2*n+1)]
         spectrum_[idxs.flatten()] = old_div(np.sum(tri * spec_slices, axis=1), np.sum(tri))
-
+ 
     return spectrum_
 
-
-if __name__ == "__main__":
-    #import sys;sys.argv = ['', 'Test.testName']
-    unittest.main()

@@ -220,7 +220,8 @@ def get_sn_windows(config, a_time, stream):
     # work with that object type
     try:
         cum0, cum1 = config['sn_windows']['signal_window']
-        t0, t1 = cumtimes(cumsum(stream[0]), cum0, cum1)
+        trim_trace = stream[0].copy().trim(starttime=a_time)
+        t0, t1 = cumtimes(cumsum(trim_trace, normalize=False), cum0, cum1)  #pylint: disable=unbalanced-tuple-unpacking
         nsy, sig = (a_time - (t1-t0), a_time), (t0, t1)
     except TypeError:  # not a tuple/list? then it's a scalar:
         shift = config['sn_windows']['signal_window']

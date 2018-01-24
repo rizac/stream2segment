@@ -245,16 +245,20 @@ def cumsum(signal, normalize=True):
     """
     Return the cumulative sum of `signal**2`
 
+    :param signal: 1d array or numeric list
     :param normalize: if True (the default), normalizes the cumulative in [0,1]
 
-    :return: the cumulative sum of the square of `signal`
+    :return: the cumulative sum of the square of `signal` (numpy array)
     """
     ret = np.cumsum(np.square(signal), axis=None, dtype=None, out=None)
-    if normalize:  # and (ret != 0).any():
-        max_ = np.max(ret)
-        if not np.isnan(max_) and (max_ != 0):
-            # normalize between 0 and 1. Note that ret /= max_ might lead to cast problems, so:
-            ret = ret / max_
+    if normalize:
+        # first check if any not nan, as np.nanmax issues warnings if computed on all-nan array:
+        if not np.isnan(ret[0]): # in a cumulative, 1st element nan => all nan
+            min_ = ret[0]
+            max_ = ret[-1] if not np.isnan(ret[-1]) else np.nanmax(ret)
+            if max_ != min_:
+                # normalize between 0 and 1. Note that ret /= max_ might lead to cast problems, so:
+                ret = (ret - min_ ) / (max_ - min_)
     return ret
 
 

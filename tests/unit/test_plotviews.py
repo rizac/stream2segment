@@ -545,8 +545,8 @@ class Test(unittest.TestCase):
             assert_(m[s.id][0], s, preprocessed=False)
             assert m[s.id][1] is None
             sn_plot_unprocessed_new = m[s.id][0][SN_INDEX].data
-            # we changed the arrival time, BUT: the signal noise depends on the cumulative, thus
-            # changing the arrival time does not change the signal window s_stream
+            # we changed the arrival time and both the signal and noise depend on the cumulative, thus
+            # changing the arrival time does change them signal window s_stream
             # Conversely, n_stream should change BUT only for the 'ok' stream (no 'gap' or 'err' in s.channel.location)
             # as for the other we explicitly set a miniseed starttime, endtime BEFORE the event time
             # which should result in noise stream all padded with zeros regardless of the arrival time shift
@@ -554,10 +554,18 @@ class Test(unittest.TestCase):
                 #there was an error in sn ratio (e.g., gaps, overlaps in source stream):
                 assert len(sn_plot_unprocessed_new) == 1
             else:
-                # no singal window is the same (index 0. Then index 2 cause it is the np.array of the data)
-                assert np.allclose(sn_plot_unprocessed_new[0][2], sn_plot_unprocessed[0][2], equal_nan=True)
-                # the n window does not:
-                assert not np.allclose(sn_plot_unprocessed_new[1][2], sn_plot_unprocessed[1][2], equal_nan=True)
+                # both signal and noise plots are different. Check it:
+                sig_array_new, sig_array_old = sn_plot_unprocessed_new[0][2], sn_plot_unprocessed[0][2]
+                noi_array_new, noi_array_old = sn_plot_unprocessed_new[1][2], sn_plot_unprocessed[1][2]
+                
+                assert len(sig_array_new) != len(sig_array_old) or \
+                    not np.allclose(ssig_array_new, sig_array_old, equal_nan=True)
+                assert len(noi_array_new) != len(noi_array_old) or \
+                    not np.allclose(noi_array_new, noi_array_old, equal_nan=True)
+                # # no singal window is the same (index 0. Then index 2 cause it is the np.array of the data)
+                # assert np.allclose(sn_plot_unprocessed_new[0][2], sn_plot_unprocessed[0][2], equal_nan=True)
+                # # the n window does not:
+                # assert not np.allclose(sn_plot_unprocessed_new[1][2], sn_plot_unprocessed[1][2], equal_nan=True)
 
             # now run again with preprocessed=True.
             plots = m.get_plots(self.session, s.id, idxs, preprocessed=True, all_components_in_segment_plot=True)
@@ -570,10 +578,18 @@ class Test(unittest.TestCase):
                 #there was an error in sn ratio (e.g., gaps, overlaps in source stream):
                 assert len(sn_plot_preprocessed_new) == 1
             else:
-                # no singal window is the same (index 0. Then index 2 cause it is the np.array of the data)
-                assert np.allclose(sn_plot_preprocessed_new[0][2], sn_plot_preprocessed[0][2], equal_nan=True)
-                # the n window does not:
-                assert not np.allclose(sn_plot_preprocessed_new[1][2], sn_plot_preprocessed[1][2], equal_nan=True)
+                # both signal and noise plots are different. Check it:
+                sig_array_new, sig_array_old = sn_plot_unprocessed_new[0][2], sn_plot_unprocessed[0][2]
+                noi_array_new, noi_array_old = sn_plot_unprocessed_new[1][2], sn_plot_unprocessed[1][2]
+                
+                assert len(sig_array_new) != len(sig_array_old) or \
+                    not np.allclose(ssig_array_new, sig_array_old, equal_nan=True)
+                assert len(noi_array_new) != len(noi_array_old) or \
+                    not np.allclose(noi_array_new, noi_array_old, equal_nan=True)
+                # # no singal window is the same (index 0. Then index 2 cause it is the np.array of the data)
+                # assert np.allclose(sn_plot_preprocessed_new[0][2], sn_plot_preprocessed[0][2], equal_nan=True)
+                # # the n window does not:
+                # assert not np.allclose(sn_plot_preprocessed_new[1][2], sn_plot_preprocessed[1][2], equal_nan=True)
             
             assert_(m[s.id][1], s, preprocessed=True)
             # re-set the inventory_xml to None:

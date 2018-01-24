@@ -209,7 +209,7 @@ def helpmathiter(type, filter):  # @ReservedAssignment pylint: disable=redefined
 
     :return: doc-string for all matching functions and classes
     '''
-    itr = [s2s_math.ndarrays] if type == 'numpy' else [s2s_math.traces] if 'type' == 'obspy' else \
+    itr = [s2s_math.ndarrays] if type == 'numpy' else [s2s_math.traces] if type == 'obspy' else \
         [s2s_math.ndarrays, s2s_math.traces]
     reg = re.compile(strconvert.wild2re(filter))
     INDENT = "   "
@@ -236,7 +236,7 @@ def helpmathiter(type, filter):  # @ReservedAssignment pylint: disable=redefined
                     module_doc_printed = True
                     yield "-" * len(modname) + "\n"
                 yield "%s%s:" % (func.__name__, inspect.signature(func))
-                yield render(func.__doc__, indent_num=1)
+                yield render(func.__doc__ or '(No documentation found)', indent_num=1)
                 if inspect.isclass(func):
                     for funcname, func in inspect.getmembers(func):
                         if funcname != "__class__" and not funcname.startswith("_"):

@@ -8,7 +8,7 @@ from click.testing import CliRunner
 from stream2segment.cli import cli
 from mock.mock import patch
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
-from stream2segment.main import init as orig_init
+from stream2segment.main import init as orig_init, helpmathiter as main_helpmathiter
 from tempfile import NamedTemporaryFile
 import yaml
 from contextlib import contextmanager
@@ -223,8 +223,6 @@ def test_click_template(mock_create_templates, mock_isfile, mock_copy2):
 def test_click_template_realcopy():
     '''test a real example of copying files to a tempdir that will be removed'''
     runner = CliRunner()
-
-    runner = CliRunner()
     with runner.isolated_filesystem() as mydir:
         result = runner.invoke(cli, ['init', mydir])
         filez = os.listdir(mydir)
@@ -237,6 +235,56 @@ def test_click_template_realcopy():
 
     # assert help works:
     assert result.exit_code == 0
+
+
+# THIS HAS TO BE IMPLEMENTED (if we set the datareport html in place)
+@patch("stream2segment.main.helpmathiter", side_effect=main_helpmathiter)
+def test_click_funchelp(mock_da):
+    runner = CliRunner()
+
+    # simply assert it does not raise
+    result = runner.invoke(cli, ['utils', 'functions', '-t', 'all', '-f', 'cumsum'])
+    assert result.exit_code == 0
+
+    result2 = runner.invoke(cli, ['utils', 'functions', '-t', 'obspy'])
+    assert result2.exit_code == 0
+    assert len(result2.output) > len(result.output)
+
+    result3 = runner.invoke(cli, ['utils', 'functions', '-t', 'numpy'])
+    assert result3.exit_code == 0
+
+    result4 = runner.invoke(cli, ['utils', 'functions', '-t', 'all'])
+    assert result4.exit_code == 0
+    assert len(result4.output) > len(result3.output)
+    assert len(result4.output) > len(result2.output)
+    
+    result4 = runner.invoke(cli, ['utils', 'functions', '-t', 'all', '-f', 'nfiwruhfnhgvcfwa___qrfwv'])
+    assert result4.exit_code == 0
+    assert len(result4.output) == 0
+    
+
+    # test wrong arg.
+#     mock_da.reset_mock()
+#     with download_setup("download.yaml") as (conffile, yamldic):
+#         result = runner.invoke(cli, ['utils', 'download-report', 'dburl', 'outfile', '-mm', 0.5])
+#         assert not mock_da.called
+# #         assert lst == ['dburl', 'outfile']
+#         assert result.exit_code != 0
+
+    # test wrong arg.
+#     mock_da.reset_mock()
+#     with download_setup("download.yaml") as (conffile, yamldic):
+#         result = runner.invoke(cli, ['a', '--dburl', 'dburl', 'outfile', '-m', 0.4])
+#         lst = list(mock_da.call_args_list[0][0])
+#         assert lst == ['dburl', 'outfile', 0.4]
+#         assert result.exit_code == 0
+
+    # assert help works:
+    mock_da.reset_mock()
+    result = runner.invoke(cli, ['utils', 'download-report', '--help'])
+    assert not mock_da.called
+    assert result.exit_code == 0
+
 
 # THIS HAS TO BE IMPLEMENTED (if we set the datareport html in place)
 @patch("stream2segment.main.show_download_report", return_value=0)
