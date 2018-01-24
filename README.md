@@ -1,18 +1,20 @@
 # stream2segment
 
-A python project to download, process and visualize seismic event waveforms segments.
+A python project to download, process and visualize event-based seismic waveform segments.
 
-The program stores segments in a db storage (sqlite or postgres) and exploits its capabilities for
-building highly customizable processing modules for building csv outputs. The user can visualize
-the downloded segments and customize functions to plot in a web browser GUI exploiting the high
-capabilities of Javascript plotting libraries. Finally, a set of class labels can be defined
-to make the GUI a hand-labelling tool for supervised classification problems
+The key aspects with respect to widely-used similar applications are:
+
+* A db storage (sqlite or postgres) for downloaded data (and metadata)
+* A highly customizable processing module which can, e.g., create csv file outputs or store
+  on the local file system the processed waveform segments.
+* A visualization tool to show downloded and optionally customized processed segments in a web browser by means
+  of python we-app and Javascript plotting libraries. The user can also set class labels 
+  to make the GUI a hand-labelling tool for supervised classification problems, or to simply annotate special segments
+* A highly efficient, easy-to-use selection of segments for filtering data for processing and/or visualization. The selection can be performed on all segments metadata, it exploits the efficiency of SQL 'select' syntax and its simplified for non-experienced user with a documented and simplified custom syntax.
 
 ## Installation
 
-This program has been installed and tested on Ubuntu14.04, Ubuntu16.04 and Mac OSX El Capitan.
-The installation instructions below refer to the former (Ubuntu). In principle, Mac users can
-safely follow the same instructions below.
+This program has been installed and tested on Ubuntu14.04, Ubuntu16.04 and Mac OSX El Capitan
 
 ### Prerequisites
 
@@ -42,6 +44,15 @@ sudo apt-get update
 sudo apt-get install git python-pip python2.7-dev libpng-dev libfreetype6-dev \
 	build-essential gfortran libatlas-base-dev libxml2-dev libxslt-dev python-tk
 ```
+
+Another option is to install **really** required packages:
+```
+sudo apt-get update
+sudo apt-get install git python-pip python2.7-dev  # python 2
+sudo apt-get install git python3-pip python3-dev  # python 3
+```
+
+and get back here in case of problems
 
 <!--
 #### Ubuntu16.04 and Python3.5+
@@ -82,7 +93,7 @@ To install python virtual environment either use [Virtualenvwrapper][http://virt
 ```
 sudo pip install virtualenv
 ```
-Make virtual environment in an stream2segment/env directory (env is a convention, but it's ignored by git commits so keep it)
+Make virtual environment in an stream2segment/env directory (env is a convention, but it's ignored by git commits so better keep it)
  ```
 virtualenv env
  ```
@@ -94,7 +105,7 @@ Python 3 has a built-in support for virtual environments - venv. It might be bet
 ```
 sudo apt-get install python3-venv
 ```
-Make virtual environment in an stream2segment/env directory (env is a convention, but it's ignored by git commits so keep it)
+Make virtual environment in an stream2segment/env directory (env is a convention, but it's ignored by git commits so better keep it)
 ```
 python3 -m venv ./env
 ```
