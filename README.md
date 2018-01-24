@@ -20,26 +20,30 @@ This is a set of system packages which are necessary to run the program on Ubunt
 On Mac OsX El Capitan, we **did not experience the need of these packages** as they are probably
 pre-installed, so you can try to skip this section in the first place and get back here just in case.
 
-#### Ubuntu14.04 and Python2.7+
+#### Ubuntu (tested on 14.04 and 16.04)
 
 We suggest to upgrade `gcc` first:
 ```
 sudo apt-get update
 sudo apt-get upgrade gcc
 ```
+<!--
 The following system packages are required: `git python-pip python2.7-dev libpng-dev libfreetype6-dev 
 build-essential gfortran libatlas-base-dev libxml2-dev libxslt-dev`
-
-*NOTE* Replace `python2.7-dev` with `python3-dev` and `python-pip` with `python3-pip` if you want to use the tool under  python3
+-->
 
 You can skip installing the system packages and get back here in case of problems, or choose to be
 (almost) sure (see also [Installation Notes](#installation-notes)):
+
+*NOTE* Replace `python2.7-dev` with `python3-dev` and `python-pip` with `python3-pip` if you want to use the tool under  python3
+
 ```
 sudo apt-get update
 sudo apt-get install git python-pip python2.7-dev libpng-dev libfreetype6-dev \
 	build-essential gfortran libatlas-base-dev libxml2-dev libxslt-dev python-tk
 ```
 
+<!--
 #### Ubuntu16.04 and Python3.5+
 
 We suggest to upgrade `gcc` first (this has been proved necessary because some tests failed before
@@ -54,6 +58,7 @@ You can skip installing the system packages and get back here in case of problem
 sudo apt-get update
 sudo apt-get install git python3-pip wheel
 ```
+-->
 
 ### Cloning repository
 
@@ -106,7 +111,8 @@ or `source env/bin/activate.csh` (depending on your shell)
 
 ### Install and activate python virtualenv (Anaconda)
 
-(Thanks to JessieMyr who wrote this for us)
+(Thanks to JessieMyr who wrote this for us **NOTE: this refers to an installation executed once in 2016, sorry for
+potential problems for that**)
 
 Create a virtual environment for your project
 
@@ -164,6 +170,7 @@ python -m pytest ./tests/ --ignore=./tests/skip --cov=./stream2segment
 Wait, tests are time consuming (some minutes currently) and you should see a message with no errors, such as
 `"===== 8 passed in 1.30 seconds ======"`
 
+
 ## Usage
 
 This is a short tutorial, more detailed instructions soon...
@@ -204,6 +211,19 @@ Edit the processing files (yaml and python) created with `s2s t --help` and run 
 or the GUI
 
 ## Installation Notes:
+
+- If you see (we experienced this while running tests, thus we can guess you should see it whenever accessing the program
+  for the first time):
+  ```
+  This system supports the C.UTF-8 locale which is recommended.
+  You might be able to resolve your issue by exporting the
+  following environment variables:
+
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+  ```
+  Then edit your `~/.profile` (or `~/.bash_profile` on Mac) and put the two lines starting with 'export',
+  and execute `source ~/.profile` (`source ~/.bash_profile` on Mac) and re-execute the program.  
 
 - On Ubuntu 12.10, there might be problems with libxml (`version libxml2_2.9.0' not found`). 
 Move the file or create a link in the proper folder. The problem has been solved looking at
