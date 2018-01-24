@@ -172,7 +172,7 @@ pip install -e .
 
 To run tests, move in the project directory and run the command:
 ```
-py.test ./tests/ --ignore=./tests/skip --cov=./stream2segment
+pytest ./tests/ --ignore=./tests/skip --cov=./stream2segment
 ```
 or (if 'pytest not found' message appears):
 ```
@@ -184,9 +184,9 @@ Wait, tests are time consuming (some minutes currently) and you should see a mes
 
 ## Usage
 
-This is a short tutorial, more detailed instructions soon...
+This is a short introduction explaining the first steps with the program. All instructions can be found by executing the following commands, either in the configuration files (.yaml and .py) or via the command line.
 
-Move (`cd` on a terminal) to the stream2segment folder. If you installed and activated a python virtual environment during installation (hopefully you did), **activate the virtual environment first**:
+Move (`cd` on a terminal) to the stream2segment folder. If you installed and activated a python virtual environment during installation (hopefully you did), **activate the virtual environment first**. For instance, if the virtual environment is installed inside the package folder:
 ```
 source env/bin/activate
 ```
@@ -195,31 +195,22 @@ source env/bin/activate
 
 Type:
 ```
-s2s t --help
+s2s --help
 ```
-and check how to create download and processing template files. This creates three files:
+and check all available program commands.
+
+The first to run is always `s2s init`. Type:
+```
+s2s init --help
+```
+to list how to create the necessary files for downloading and processing data. `s2s init` creates three files:
 
   - download.yaml: the config file for download data
   - processing.yaml: the config file for processing/visualization
   - processing.py: the python module to be run during processing/visualization
 
-Once done, type
-```
-s2s d --help
-```
-to see how to execute the download. Edit the download yaml file created with `s2s t --help` and run the
-download. If a postgres database is used, setup the database first.
-
-For processing, type:
-```
-s2s p --help
-```
-or alternatively, for visualizing the downloaded data in a web browser GUI, type:
-```
-s2s v --help
-```
-Edit the processing files (yaml and python) created with `s2s t --help` and run the processing
-or the GUI
+All instructions are written therein as comments. Browse e.g. `download.yaml` (edit it if needed) and start a download via
+`s2s download` (type `s2s download --help` for details). Once downloaded, browse (and edit them if needed) the remaining two files which will be both used for processing (`s2s process --help` for details) or visualize the segment waveforms (`s2s show --help` for details)
 
 ## Installation Notes:
 
