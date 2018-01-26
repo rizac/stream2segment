@@ -183,8 +183,8 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
             logger.info(("** Station inventories download summary **\n"
                          "- downloaded     %7d \n"
                          "- discarded      %7d (empty response)\n"
-                         "- not downloaded %7d (client/server errors)") %
-                        (n_downloaded, n_empty, n_errors))
+                         "- not downloaded %7d (client/server errors)"),
+                        n_downloaded, n_empty, n_errors)
     return exit_code
 
 

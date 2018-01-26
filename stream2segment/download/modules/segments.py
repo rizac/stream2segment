@@ -436,7 +436,8 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid, 
                 if exc is not None:
                     df.loc[:, SEG_DSCODE] = code
                     stats[url][code] += len(df)
-                    logger.warning(MSG("Unable to get waveform data", exc, request))
+                    logger.warning(MSG("Segment download error, code %s" % str(code),
+                                       exc, request))
 
                 segmanager.add(df)
                 bar.update(len(df))

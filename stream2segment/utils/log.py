@@ -64,6 +64,13 @@ class DbStreamHandler(logging.FileHandler):
         super(DbStreamHandler, self).emit(record)  # logging.FileHandler flushes every emit
 
     def close(self):
+        # the super-class sets the stream to None when closing, so we might check this to
+        # see if we closed it already:
+        if self.stream is None:
+            return
+        # we experienced the NoneType error which we could not test deterministically
+        # so the if above serves to this, especially because we
+        # know self.stream == None => already closed
         super(DbStreamHandler, self).flush()  # for safety
         self.stream.seek(0)  # offset of 0
         logcontent = self.stream.read()   # read again

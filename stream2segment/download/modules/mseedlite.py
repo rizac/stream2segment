@@ -120,8 +120,11 @@ class Record(object):
             self.time_correction, self.__pdata, self.__pblk) = \
             struct.unpack(">6scx5s2s3s2s2H3Bx2H2h4Bl2H", fixhead)
 
-        self._record_id = _get_id(net, sta, loc, cha)
-
+        try:
+            self._record_id = _get_id(net, sta, loc, cha)
+        except UnicodeDecodeError as exc:  # raise MSeedError so it will be caught
+            raise MSeedError(str(exc))
+        
         self.header += fixhead
 
         if ((self.rectype != b'D') and (self.rectype != b'R') and
@@ -460,7 +463,14 @@ class Input(object):
 
 
 def _get_id(n, s, l, c):
-    '''all arguments should be bytes'''
+    '''Returns the id in the format ```n.s.l.c```: all arguments should be bytes
+    The four arguments are network, station, location and channel code as read from
+    the miniseed bytes. 
+    
+    :return: a string (unicode in python2)
+
+    :raise: UnicodeDecodeError if any character cannot be 
+    '''
     # assure python3 compatibility. Return str in py3 and unicode in py2:
     return (b"%s.%s.%s.%s" % (n.strip(), s.strip(), l.strip(), c.strip())).decode('utf8')
 

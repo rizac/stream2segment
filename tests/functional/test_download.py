@@ -583,7 +583,55 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         _, _, TBOUND_ERRCODE, _ = custom_download_codes()
         assert len(dfres1[dfres1[Segment.download_code.key] == TBOUND_ERRCODE]) == 4
         
-             
+    
+    @pytest.mark.skip(reason="no way of currently testing what we want to test")
+    @patch('stream2segment.download.main.get_events_df')
+    @patch('stream2segment.download.main.get_datacenters_df')
+    @patch('stream2segment.download.main.get_channels_df')
+    @patch('stream2segment.download.main.save_inventories')
+    @patch('stream2segment.download.main.download_save_segments')
+    @patch('stream2segment.download.modules.segments.mseedunpack')
+    @patch('stream2segment.io.db.pdsql.insertdf')
+    @patch('stream2segment.io.db.pdsql.updatedf')
+    def test_cmdline_unexpected_err(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
+                     mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
+                     mock_get_datacenters_df, mock_get_events_df):
+        ''' we experienced once a UnicodeDecodeError in mseed_unpack, whcih, has expected
+        raised. Fine, but we got also another error: attempt to write on an apparently already-closed logger,
+        as if threads where trying to access concurrently to the same logger.
+        Try to test this case even if unfortunately we did not experience this issue in this test'''
+        mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
+        mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
+        mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
+        mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
+        mock_download_save_segments.side_effect = lambda *a, **v: self.download_save_segments(None, *a, **v)
+        # =========================
+        # HERE IS THE IMPORTANT PART
+        # mseed unpack is mocked by accepting only first arg (so that time bounds are not considered)
+        # =========================
+        def mockunpack(*a, **v):
+            # https://gehrcke.de/2015/12/how-to-raise-unicodedecodeerror-in-python-3/
+            raise UnicodeDecodeError('funnycodec', b'\x00\x00', 1, 2, 'This is just a fake reason!')
+        mock_mseed_unpack.side_effect = mockunpack  # now is cought, and a MiniSeed Error is raised, but let's see
+        mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
+        mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
+        # prevlen = len(self.session.query(Segment).all())
+     
+        # The run table is populated with a run_id in the constructor of this class
+        # for checking run_ids, store here the number of runs we have in the table:
+        runs = len(self.session.query(Download.id).all())
+
+
+
+        runner = CliRunner()
+        result = runner.invoke(cli , ['download',
+                                       '-c', self.configfile,
+                                        '--dburl', self.dburi,
+                                       '--start', '2016-05-08T00:00:00',
+                                       '--end', '2016-05-08T9:00:00'])
+        h= 9
+    
+    
     @patch('stream2segment.download.main.get_events_df')
     @patch('stream2segment.download.main.get_datacenters_df')
     @patch('stream2segment.download.main.get_channels_df')
