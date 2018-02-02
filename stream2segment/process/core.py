@@ -200,8 +200,7 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
                                     # clear session if we are changing the station:
                                     # this will clear also channel and segments
                                     session.expunge_all()
-                                    # this should be enough, but we expunge above for safety
-                                    # session.close()
+                                    # (session.close() this should not be necessary)
                                     # clear inventory ref:
                                     inventory = None
                                 else:  # B) are we changing the segment?:
@@ -215,7 +214,7 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
                             segment = seg_query.get(seg_id) or \
                                 seg_query.filter(Segment.id == seg_id).\
                                 options(load_only(Segment.id)).first()
-                        segment._inventory = inventory
+                        segment._inventory = inventory  #pylint: disable=protected-access
                         station_id = sta_id
                         try:
                             array = pyfunc(segment, config)
@@ -232,8 +231,8 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
                             skipped_error += 1
                         # check if we loaded the inventory and set it as last computed
                         # little hack: check if the "private" field is defined:
-                        if inventory is None and segment._inventory is not None:
-                            inventory = segment._inventory
+                        if inventory is None and segment._inventory is not None:  #pylint: disable=protected-access
+                            inventory = segment._inventory  #pylint: disable=protected-access
                         pbar.update(1)
                 except:
                     err_msg = traceback.format_exc()
@@ -262,13 +261,13 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
         if stasaved2 > stasaved:
             logger.info("station inventories saved: %d", (stasaved2-stasaved))
 
-        logger.info("%d of %d segments successfully processed\n" % (done, seg_len))
-        logger.info("%d of %d segments skipped without messages\n" % (skipped, seg_len))
+        logger.info("%d of %d segments successfully processed\n", done, seg_len)
+        logger.info("%d of %d segments skipped without messages\n" , skipped, seg_len)
         logger.info("%d of %d segments skipped with message "
-                    "(check log or details)\n" % (skipped_error, seg_len))
+                    "(check log or details)\n", skipped_error, seg_len)
 
 
-def query4process(session, conditions={}):
+def query4process(session, conditions=None):
     '''Returns a query yielding the the segments ids (and their stations ids) for the processing.
     The returned tuples are sorted by station id, event id, channel location and channel's channel
 
