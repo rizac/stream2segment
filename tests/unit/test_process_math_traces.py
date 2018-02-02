@@ -13,7 +13,7 @@ from numpy import true_divide as np_true_divide
 from obspy.core.stream import read as o_read
 from io import BytesIO
 import os
-from stream2segment.process.math.traces import fft, cumsum, cumtimes
+from stream2segment.process.math.traces import fft, cumsumsq, cumtimes
 
 import pytest
 from mock.mock import patch, Mock
@@ -36,38 +36,38 @@ class Test(unittest.TestCase):
         t = self.mseed[0]
         # we did not write any processing to the trace:
         assert 'processing' not in t.stats or not t.stats.processing
-        c1 = cumsum(t)
+        c1 = cumsumsq(t)
         assert t is not c1
         assert not np.allclose(t.data, c1.data, equal_nan=True)
         assert max(c1.data) <= 1
         # we wrote processing information in the trace:
         assert c1.stats.processing
-        assert cumsum.__name__ in c1.stats.processing[0]
+        assert cumsumsq.__name__ in c1.stats.processing[0]
 
-        c3 = cumsum(t, normalize=False)
+        c3 = cumsumsq(t, normalize=False)
         assert t is not c3
         assert not np.allclose(c1.data, c3.data, equal_nan=True)
         assert max(c3.data) > 1
         # we wrote processing information in the trace:
         assert c3.stats.processing
-        assert cumsum.__name__ in c3.stats.processing[0]
+        assert cumsumsq.__name__ in c3.stats.processing[0]
 
-        c2 = cumsum(t, copy=False)
+        c2 = cumsumsq(t, copy=False)
         assert t is c2
         assert max(c2.data) <= 1
         assert np.allclose(c1.data, c2.data, equal_nan=True)
         # we wrote processing information in the trace:
         assert t.stats.processing
-        assert cumsum.__name__ in c3.stats.processing[0]
+        assert cumsumsq.__name__ in c3.stats.processing[0]
     
 
     def test_cumtimes(self):
-        c1 = cumsum(self.mseed[0])
+        c1 = cumsumsq(self.mseed[0])
         t0, t1 = cumtimes(c1, 0, 1)
         assert t0 == c1.stats.starttime
         assert t1 == c1.stats.endtime
         
-        c2 = cumsum(self.mseed[0], normalize=True)
+        c2 = cumsumsq(self.mseed[0], normalize=True)
         t0, t1 = cumtimes(c2, 0, 1)
         assert t0 == c2.stats.starttime
         assert t1 == c2.stats.endtime

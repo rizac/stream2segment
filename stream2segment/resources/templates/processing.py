@@ -344,7 +344,7 @@ from obspy.geodetics import degrees2kilometers as d2km
 from stream2segment.process.utils import gui
 # strem2segment functions for processing obspy Traces. This is just a list of possible functions
 # to show how to import them:
-from stream2segment.process.math.traces import ampratio, bandpass, cumsum,\
+from stream2segment.process.math.traces import ampratio, bandpass, cumsumsq,\
     cumtimes, fft, maxabs, utcdatetime, ampspec, powspec, timeof, respspec
 # stream2segment function for processing numpy arrays:
 from stream2segment.process.math.ndarrays import triangsmooth, snr, linspace
@@ -807,7 +807,7 @@ def cumulative(segment, config):
     stream = segment.stream()
     assert1trace(stream)  # raise and return if stream has more than one trace
     trace = stream[0]
-    return cumsum(trace)
+    return cumsumsq(trace)
 
 
 @gui.sideplot

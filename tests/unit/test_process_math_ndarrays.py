@@ -14,7 +14,7 @@ import argparse
 import numpy as np
 from numpy import true_divide as np_true_divide  # needed for mock and return original func (see below)
 import pandas as pd
-from stream2segment.process.math.ndarrays import cumsum, argtrim, snr, dfreq, freqs, powspec, \
+from stream2segment.process.math.ndarrays import cumsumsq, argtrim, snr, dfreq, freqs, powspec, \
     triangsmooth
 from scipy.signal import hilbert
 
@@ -101,7 +101,7 @@ def test_cumsum(mock_np, arr, normalize, expected_result):
     mock_np.nanmin =  mock.Mock(side_effect = lambda *a, **k: np.nanmin(*a, **k))
     # mock_np.true_divide =  mock.Mock(side_effect = lambda *a, **k: np.true_divide(*a, **k))
     mock_np.isnan = mock.Mock(side_effect = lambda *a, **k: np.isnan(*a, **k))
-    r = cumsum(arr, normalize=normalize)
+    r = cumsumsq(arr, normalize=normalize)
     assert len(r) == len(arr)
     assert (r == np.array(expected_result)).all()
     assert mock_np.cumsum.called
@@ -129,14 +129,14 @@ def test_cumsum_errs(mock_np):
     mock_np.isnan = mock.Mock(side_effect = lambda *a, **k: np.isnan(*a, **k))
     
     def compute_cumsum(*args, **kwargs):
-        '''reset mocks, computes cumsum, asserts that the specified function have been called
-        and returns cumsum'''
+        '''reset mocks, computes cumsumsq, asserts that the specified function have been called
+        and returns cumsumsq'''
         mock_np.cumsum.reset_mock()
         mock_np.square.reset_mock()
         mock_np.nanmax.reset_mock()
         mock_np.nanmin.reset_mock()
         mock_np.isnan.reset_mock()
-        r = cumsum(*args, **kwargs)
+        r = cumsumsq(*args, **kwargs)
         assert mock_np.cumsum.called
         assert mock_np.square.called
         return r

@@ -241,7 +241,7 @@ def argtrim(signal, deltax, minx=None, maxx=None, nearest_sample=False):
     return idxmin, idxmax
 
 
-def cumsum(signal, normalize=True):
+def cumsumsq(signal, normalize=True):
     """
     Return the cumulative sum of `signal**2`
 

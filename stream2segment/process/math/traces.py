@@ -26,11 +26,11 @@ from obspy.core import Trace, UTCDateTime  # , Stats
 
 # from obspy import read_inventory
 from stream2segment.process.math.ndarrays import fft as _fft, ampspec as _ampspec,\
-    powspec as _powspec, cumsum as _cumsum, dfreq, freqs, ResponseSpectrum as _ResponseSpectrum, \
+    powspec as _powspec, cumsumsq as _cumsum, dfreq, freqs, ResponseSpectrum as _ResponseSpectrum, \
     NewmarkBeta as _NewmarkBeta, NigamJennings as _NigamJennings
 
 
-# __all__ = ['bandpass', 'maxabs', 'cumsum', 'cumtimes', 'fft', 'ampspec', 'powspec', 'ampratio',
+# __all__ = ['bandpass', 'maxabs', 'cumsumsq', 'cumtimes', 'fft', 'ampspec', 'powspec', 'ampratio',
 #            'timeof', 'utcdatetime']
 
 def _add_processing_info(trace, func_name, **kwargs):
@@ -145,11 +145,11 @@ def maxabs(trace, starttime=None, endtime=None):
     return (time, val)
 
 
-def cumsum(trace, normalize=True, copy=True):
+def cumsumsq(trace, normalize=True, copy=True):
     """
-    Returns the cumulative sum of `trace.data**2`, normalized between 0 and 1
-    :param trace: the input obspy.core.Trace
-
+    Returns the cumulative sum of the squares of the trace's data, `trace.data**2`
+    
+    :param trace: the input :class:`obspy.core.Trace`
     :param normalize: boolean (default: True), whether to normalize the data in [0, 1]
     :return: a Trace representing the cumulative sum of the square of `trace.data`
     """
@@ -159,7 +159,7 @@ def cumsum(trace, normalize=True, copy=True):
     else:
         trace.data = data
     # copied from obspy Trace to keep track of the modifications
-    _add_processing_info(trace, cumsum.__name__, normalize=normalize, copy=copy)
+    _add_processing_info(trace, cumsumsq.__name__, normalize=normalize, copy=copy)
     return trace
 
 
@@ -167,11 +167,11 @@ def cumtimes(mi_trace, *percentages):
     """
     Calculates the time(s) where `mi_trace` reaches the given percentage(s) of `mi_trace`
     maximum. **`mi_trace.data` need to be monotonically increasing**, e.g., as resulting from
-    :func:`stream2segment.stream2segment.process.math.traces.cumsum`.
+    :func:`stream2segment.stream2segment.process.math.traces.cumsumsq`.
 
     :param mi_trace: a **monotonically increasing** trace. NaNs values, if any, should be
         at the end of the array (as returned, e.g., from
-        :func:`stream2segment.stream2segment.process.math.traces.cumsum`).
+        :func:`stream2segment.stream2segment.process.math.traces.cumsumsq`).
     :param percentages: the precentages to be calculated, in [0, 1]; e.g. 0.05, 0.95 (5% and 95%)
 
     :return: a list of N `UtcDateTime`s (N = len(percentages)) denoting the occurrence of

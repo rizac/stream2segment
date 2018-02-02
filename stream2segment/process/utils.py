@@ -34,7 +34,7 @@ from stream2segment.io.utils import loads_inv, dumps_inv
 from stream2segment.utils.url import urlread
 from stream2segment.utils import urljoin
 from stream2segment.io.db.models import Segment, Station, Channel, Class
-from stream2segment.process.math.traces import cumsum, cumtimes
+from stream2segment.process.math.traces import cumsumsq, cumtimes
 from contextlib import contextmanager
 from sqlalchemy.orm import load_only
 
@@ -72,19 +72,19 @@ class gui(object):
     @staticmethod
     def preprocess(func):
         '''decorator that adds the attribute func._s2s_att = "gui.preprocess"'''
-        func._s2s_att = "gui.preprocess"
+        func._s2s_att = "gui.preprocess"  #pylint: disable=protected-access
         return func
 
     @staticmethod
     def customplot(func):
         '''decorator that adds the attribute func._s2s_att = "gui.customplot"'''
-        func._s2s_att = "gui.customplot"
+        func._s2s_att = "gui.customplot"  #pylint: disable=protected-access
         return func
 
     @staticmethod
     def sideplot(func):
         '''decorator that adds the attribute func._s2s_att = "gui.sideplot"'''
-        func._s2s_att = "gui.sideplot"
+        func._s2s_att = "gui.sideplot"  #pylint: disable=protected-access
         return func
 
 
@@ -117,7 +117,7 @@ def enhancesegmentclass(config_dict=None, overwrite_config=False):
     already_enhanced = hasattr(Segment, "_config")
     if already_enhanced:
         if overwrite_config:
-            Segment._config = config_dict or {}
+            Segment._config = config_dict or {}  #pylint: disable=protected-access
         yield
     else:
         @raiseifreturnsexception
@@ -137,7 +137,7 @@ def enhancesegmentclass(config_dict=None, overwrite_config=False):
             inventory = getattr(self, "_inventory", None)
             if inventory is None:
                 try:
-                    save_station_inventory = self._config['save_inventory']
+                    save_station_inventory = self._config['save_inventory']  #pylint: disable=protected-access
                 except:
                     save_station_inventory = False
                 try:
@@ -157,7 +157,7 @@ def enhancesegmentclass(config_dict=None, overwrite_config=False):
             # hard to know when a recalculation is needed (this is particularly important when
             # bounds relative to the cumulative sum are given, if an interval was given there would
             # be no problem)
-            return get_sn_windows(self._config, self.arrival_time, self.stream())
+            return get_sn_windows(self._config, self.arrival_time, self.stream())  #pylint: disable=protected-access
 
         def _query_to_other_orientations(self, *query_args):
             return self.dbsession().query(*query_args).join(Segment.channel).\
@@ -170,21 +170,21 @@ def enhancesegmentclass(config_dict=None, overwrite_config=False):
         def other_orientations(self):
             seg_other_orientations = getattr(self, "_other_orientations", None)
             if seg_other_orientations is None:
-                segs = self._query_to_other_orientations(Segment).all()
+                segs = self._query_to_other_orientations(Segment).all()  #pylint: disable=protected-access
                 seg_other_orientations = self._other_orientations = segs
                 # assign also to other segments:y
                 for seg in segs:
-                    seg._other_orientations = [s for s in segs if s.id != seg.id] + [self]
+                    seg._other_orientations = [s for s in segs if s.id != seg.id] + [self]  #pylint: disable=protected-access
 
             return seg_other_orientations
 
-        Segment._config = config_dict or {}
+        Segment._config = config_dict or {}  #pylint: disable=protected-access
         Segment.stream = stream
         Segment.inventory = inventory
         Segment.sn_windows = sn_windows
         Segment.other_orientations = other_orientations
         Segment.dbsession = lambda self: object_session(self)
-        Segment._query_to_other_orientations = _query_to_other_orientations
+        Segment._query_to_other_orientations = _query_to_other_orientations  #pylint: disable=protected-access
         try:
             yield
         finally:
@@ -221,7 +221,7 @@ def get_sn_windows(config, a_time, stream):
     try:
         cum0, cum1 = config['sn_windows']['signal_window']
         trim_trace = stream[0].copy().trim(starttime=a_time)
-        t0, t1 = cumtimes(cumsum(trim_trace, normalize=False), cum0, cum1)  #pylint: disable=unbalanced-tuple-unpacking
+        t0, t1 = cumtimes(cumsumsq(trim_trace, normalize=False), cum0, cum1)  #pylint: disable=unbalanced-tuple-unpacking
         nsy, sig = (a_time - (t1-t0), a_time), (t0, t1)
     except TypeError:  # not a tuple/list? then it's a scalar:
         shift = config['sn_windows']['signal_window']
