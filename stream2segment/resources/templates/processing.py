@@ -194,18 +194,30 @@ segment.has_data                          boolean: tells if the segment has data
 \                                         e.g. has_data: 'true'.
 segment.sample_rate                       float: the waveform data sample rate.
 \                                         It might differ from the segment channel's sample_rate
-segment.download_code                     int: the download code (extends HTTP status codes).
-\                                         Typically, values between 200 and 399 denote
-\                                         successful download. Values >=400 and lower than 500
-\                                         denote client errors, values >=500 server errors, -1
-\                                         indicates a general download error - e.g. no Internet
-\                                         connection, -2 that the waveform data is corrupted,
-\                                         -200 a successful download where some waveform data has
-\                                         been discarded because outside the requested time span,
+segment.download_code                     int: the download code (for experienced users). As for
+\                                         any HTTP status code,
+\                                         values between 200 and 399 denote a successful download
+\                                         (this does not tell anything about the segment's data,
+\                                         which might be empty anyway. See 'segment.has_data'.
+\                                         Conversely, a download error assures no data has been
+\                                         saved), whereas
+\                                         values >=400 and < 500 denote client errors and
+\                                         values >=500 server errors.
+\                                         Moreover,
+\                                         -1 indicates a general download error - e.g. no Internet
+\                                         connection,
+\                                         -2 a successful download with corrupted waveform data,
+\                                         -200 a successful download where some waveform data chunks
+\                                         (miniSeed records) have been discarded because completely
+\                                         outside the requested time span,
 \                                         -204 a successful download where no data has been saved
-\                                         because all response data was outside the requested time
-\                                         span, and finally None denotes a general unknown error
-\                                         not in the previous categories
+\                                         because all chunks were completely outside the requested
+\                                         time span, and finally:
+\                                         None denotes a successful download where no data has been
+\                                         saved because the given segment wasn't found in the
+\                                         server response (note: this latter case is NOT the case
+\                                         when the server returns no data with an appropriate
+\                                         'No Content' message with download_code=204)
 segment.maxgap_numsamples                 float: the maximum gap found in the waveform data, in
 \                                         in number of points.
 \                                         If the value is positive, the max is a gap. If negative,
@@ -223,14 +235,15 @@ segment.maxgap_numsamples                 float: the maximum gap found in the wa
 \                                         safety, e.g., via `len(segment.stream())` or
 \                                         `segment.stream().get_gaps()`)
 segment.data_seed_id                      str: the seed identifier in the typical format
-\                                         'Network.Station.Location.Channel' as read from the data.
-\                                         It might be null if the data is empty or null because of
-\                                         a download error. See also 'segment.meed_identifier'
+\                                         [Network.Station.Location.Channel] stored in the
+\                                         segment's data. It might be null if the data is empty
+\                                         or null (e.g., because of a download error).
+\                                         See also 'segment.seed_id'
 segment.seed_id                           str: the seed identifier in the typical format
-\                                         'Network.Station.Location.Channel': it is the same as
-\                                         'segment.data_seed_id', but it is assured not to be,
-\                                         null, as the segment meta-data is used if needed: in this
-\                                         case the query might perform more poorly at the SQL level
+\                                         [Network.Station.Location.Channel]: it is the same as
+\                                         'segment.data_seed_id' if the latter is not null,
+\                                         otherwise it is fetched from the segment's metadata
+\                                         (this operation might be more time consuming)
 segment.has_class                         boolean: tells if the segment has (at least one) class
 \                                         assigned
 segment.data                              bytes: the waveform (raw) data. You don't generally need
@@ -772,7 +785,7 @@ def derivcum2(segment, config):
     cum = cumulative(segment, config)
     sec_der = savitzky_golay(cum.data, 31, 2, deriv=2)
     sec_der_abs = np.abs(sec_der)
-    sec_der_abs /= np.nanmax(sec_der_abs)  # FIXME: this should be sec_der_abs /= mmm
+    sec_der_abs /= np.nanmax(sec_der_abs)
     # the stream object has surely only one trace (see 'cumulative')
     return segment.stream()[0].stats.starttime, segment.stream()[0].stats.delta, sec_der_abs
 
