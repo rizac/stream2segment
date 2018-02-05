@@ -216,24 +216,14 @@
 # (note: for str types with spaces we need to quote twice: 'GURALP CMG-40T-30S', as otherwise "GURALP CMG-40T-30S"
 # would match 'GURALP' and 'CMG-40T-30S', but not the whole string)
 segment_select:
-  has_data: 'true'
-  maxgap_numsamples: '[-0.5, 0.5]'
+  download_code: '-200 -204'
+  # maxgap_numsamples: '[-0.5, 0.5]'
   # missing_data_sec: '<120'
   # missing_data_ratio: '<0.5'
   # id: '<300'
   # event.time: "(2014-01-01T00:00:00, 2014-12-31T23:59:59)"
   # event.latitude: "[24, 70]"
   # event.longitude: "[-11, 24]"
-
-# sql_select (string, for experienced users): selects segments via a raw sql clause. If specified, it
-# overrides 'segment_select'. The value here will be concatenated with a fixed sql prefix
-# and the final select statement issued it is roughly equivalent to:
-# "select segment.id from segments join events, channels, stations, datacenters, download [sql_select]"
-# Example:
-# sql_select: 'WHERE download.id > 1'
-# sql_select: 'WHERE download.id > 1 limit(1)'
-# sql_select: 'WHERE segments.download_status_code <0 groupby stations.id limit(1)'
-
 
 # Boolean flag indicating whether station inventories (in xml format) should be saved to the database
 # when they need to be downloaded
