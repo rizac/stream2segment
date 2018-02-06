@@ -338,13 +338,13 @@ from math import factorial  # for savitzky_golay function
 # import numpy for efficient computation:
 import numpy as np
 # import obspy core classes (when working with times, use obspy UTCDateTime when possible):
-from obspy import Trace, Stream, UTCDateTime
+from obspy import Trace, Stream, UTCDateTime, read
 from obspy.geodetics import degrees2kilometers as d2km
 # decorators needed to setup this module @gui.sideplot, @gui.preprocess @gui.customplot:
 from stream2segment.process.utils import gui
 # strem2segment functions for processing obspy Traces. This is just a list of possible functions
 # to show how to import them:
-from stream2segment.process.math.traces import ampratio, bandpass, cumsum,\
+from stream2segment.process.math.traces import ampratio, bandpass, cumsumsq,\
     cumtimes, fft, maxabs, utcdatetime, ampspec, powspec, timeof, respspec
 # stream2segment function for processing numpy arrays:
 from stream2segment.process.math.ndarrays import triangsmooth, snr, linspace
@@ -421,11 +421,8 @@ def main(segment, config):
     `UTCDateTime`s you could return either `float(utcdatetime)` (numeric) or
     `utcdatetime.isoformat()` (string)
     """
-    stream = segment.stream()
-    assert1trace(stream)  # raise and return if stream has more than one trace
-    trace = stream[0]  # work with the (surely) one trace now
 
-    url = stream.datancenter.dataselect_url + \
+    url = segment.datancenter.dataselect_url + \
         "?network=%s&station=%s&location=%s&channel=%s&start=%s&end=%s" % \
         (segment.network, segment.station, segment.location, segment.channel,
          segment.request_start.isoformat(), segment.request_end.isoformat())
@@ -433,7 +430,7 @@ def main(segment, config):
     try:
         obspy_stream = read(url)
     except Exception as exc:
-      raise ValueError("Cannot fetch mseed: " + str(exc)) 
+        raise ValueError("Cannot fetch mseed: " + str(exc)) 
 
     
     assert1trace(obspy_stream)
@@ -451,14 +448,20 @@ def main(segment, config):
     # % of response inside request (over total response length): percin
 
     res_len = res_etime - res_stime
-    percout = max(0, req_stime - res_stime) + max(0, res_etime - req_etime)
-    
-    
+    res_out = 0
+    if res_etime < req_stime or res_stime > req_etime:
+        res_out = res_len
+    else:
+        res_out = max(0, req_stime - res_stime) + max(0, res_etime - req_etime)
 
     # write stuff to csv:
     ret = OrderedDict()
-
-    ret['\% resp outside req'] = percout
+    ret['res.out'] = round( 100.0 * res_out / res_len, 1)
+    ret['res.out (secs)'] = res_out
+    ret['req.start'] = req_stime
+    ret['req.end'] = req_etime
+    ret['res.start'] = res_stime
+    ret['res.end'] = res_etime
     ret['url'] = url
 
     return ret

@@ -548,8 +548,8 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
         # assert when we have a timespan warn or 200 response we have data:
         seg_with_data = self.session.query(Segment).filter(Segment.has_data).count()
         assert self.session.query(Segment).filter(Segment.has_data &
-                                                  ((Segment.download_code==timespan_err) |
-                                                   (Segment.download_code==timespan_err))).count() == seg_with_data 
+                                                  ((Segment.download_code==200) |
+                                                   (Segment.download_code==timespan_warn))).count() == seg_with_data 
         
         # pickup some examples and test them (the examples where found by debugging download_segments):
         data = {timespan_warn: ['BS.BLKB..HHE', 'BS.BLKB..HHN', 'BS.BLKB..HHZ', 'BS.BLKB..HNZ', 'BS.DOBAM..HNE',
