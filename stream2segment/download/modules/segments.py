@@ -388,15 +388,15 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid, 
                                 # set only the code field.
                                 # Use set_value as it's faster for single elements
                                 df.set_value(idxval, SEG_DSCODE, MSEEDERR_CODE)
-                                stats[url][MSEEDERR_CODE] += 1
                                 errors += 1
                             else:
+                                _code = code
                                 if outoftime is True:
                                     if data:
-                                        code = OUTTIME_WARN
+                                        _code = OUTTIME_WARN
                                         outtime_warns += 1
                                     else:
-                                        code = OUTTIME_ERR
+                                        _code = OUTTIME_ERR
                                         outtime_errs += 1
                                 else:
                                     oks += 1
@@ -413,15 +413,17 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid, 
                                 # decoded) and then use set_value only for the `data` field
                                 # set_value should be relatively fast
                                 df.loc[idxval, SEG_COLNAMES] = (b'', s_rate, max_gap_ratio,
-                                                                mseedid, code, stime, etime)
+                                                                mseedid, _code, stime, etime)
                                 df.set_value(idxval, SEG_DATA, data)
 
                         if oks:
                             stats[url][code] += oks
+                        if errors:
+                            stats[url][MSEEDERR_CODE] += errors
                         if outtime_errs:
-                            stats[url][code] += outtime_errs
+                            stats[url][OUTTIME_ERR] += outtime_errs
                         if outtime_warns:
-                            stats[url][code] += outtime_warns
+                            stats[url][OUTTIME_WARN] += outtime_warns
 
                         unknowns = len(df) - oks - errors - outtime_errs - outtime_warns
                         if unknowns > 0:
@@ -429,9 +431,6 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid, 
                     except MSeedError as mseedexc:
                         code = MSEEDERR_CODE
                         exc = mseedexc
-#                     except Exception as unknown_exc:
-#                         code = None
-#                         exc = unknown_exc
 
                 if exc is not None:
                     df.loc[:, SEG_DSCODE] = code
