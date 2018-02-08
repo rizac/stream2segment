@@ -31,6 +31,7 @@ then
 	echo
 	(pytest ./tests/functional/test_db.py \
 		./tests/functional/test_download.py \
+		./tests/functional/test_download2.py \
 		./tests/functional/test_processing.py \
 		./tests/functional/test_sqlevalexpr.py \
 		./tests/functional/test_webgui.py \
