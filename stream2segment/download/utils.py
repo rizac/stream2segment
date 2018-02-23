@@ -29,6 +29,9 @@ from stream2segment.utils.url import read_async as original_read_async
 from stream2segment.utils.msgs import MSG
 
 from future.standard_library import install_aliases
+from sqlalchemy.sql.expression import or_, and_
+from stream2segment.utils import strconvert
+import re
 install_aliases()
 from http.client import responses  # @UnresolvedImport @IgnorePep8
 
@@ -42,11 +45,12 @@ from stream2segment.download import logger  # @IgnorePep8
 
 class QuitDownload(Exception):
     """
-    This is an exception that should be raised from the functions of this package, when their OUTPUT
-    dataframe is empty and thus would prevent the continuation of the program.
+    This is an exception that should be raised from the functions of this package, when something
+    prevents the continuation of the download process. See `log_and_exit` for details how to
+    print the exception message
 
-    There are two causes for having empty data(frame). In both cases, the program should exit,
-    but the behavior should be different:
+    A typical case for this is when a function of a download pipeline returns an empty dataframe,
+    and this happens in two special cases (both of which should make quit the download):
 
     - There is no data because of a download error (no data fetched):
       the program should `log.error` the message and return nonzero. From the function
@@ -554,3 +558,337 @@ def custom_download_codes():
       request's time-span (only the data intersecting with the time span has been saved)
     """
     return (-1, -2, -204, -200)
+
+
+# def nslc_lists(dic):
+#     '''Scans `dic` keys and returtns the tuple
+#         ```
+#         (N, S, L, C)
+#         ```
+#     where each element is a list of networks (N), stations (S), locations (L) or channels (C)
+#     composed by strings in valid ASCII characters with three special characters:
+#     the 2 FDSN-compliant wildcards '*' and '?', and '!' which means NOT (when placed as first
+#     character only).
+# 
+#     This function basically returns `",".join(dic[key])` where `key` is any of the following: 
+#         'net', 'network' or 'networks'
+#         'sta', 'stations' or 'stations'
+#         'loc', 'location' or 'locations'
+#         'cha', 'channel' or 'channels'
+#     In case of keys conflicts (e.g. 'net' and 'network' are both in `dict`) a ValueError is raised.
+#     In case a key not found, None or '*', the corresponding element will be the empty list.
+#     A returned empty list has to be interpreted as "accept all" (i.e. no filter for that key).
+#     All string elements are stripped, meaning that leading and trailing spaces are removed.
+# 
+#     This function doe salso some preliminary check on each string, so that e.g.
+#     strings like "!*", or both "A?" and !A?"specified will raise a ValueError in case
+# 
+#     :return: a 4-element tuple net, sta, loc, cha. All elements are lists of strings. Returned
+#         empty lists mean: no filter for that key (accept all)
+#     '''
+#     
+#     params = [('net', 'network', 'networks'), ('sta', 'stations', 'stations'),
+#               ('loc', 'location', 'locations'), ('cha', 'channel', 'channels')]
+#     
+#     ret = [[], [], [], []]
+#     
+#     for i, pars in enumerate(params):
+#         try:
+#             occurencies = sum(p in dic for p in pars)
+#             if occurencies > 1:
+#                 raise Exception("param name found more than once")
+#             
+#             if occurencies == 0:
+#                 continue
+#             
+#             arg = dic.get(pars[0], dic.get(pars[1], dic.get(pars[2], None)))
+#             
+#             if arg is None or arg in ([], ()): # Empty string not included (althoug nonsense) 
+#                 continue
+#     
+#             strings = set()
+#         
+#             # we assume, when arg is not list, that arg is str in both python2 and python3, i.e.
+#             # it is NOT bytes in python2. The line below checks if is an iterable first:
+#             # in python2, it is sufficient to say it's not a string
+#             # in python3, we need to check that is no str also
+#             if not hasattr(arg, "__iter__") or isinstance(arg, str):
+#                 # it’s an iterable not a string
+#                 arg = [arg]
+#                 
+#             for string in arg:
+#                 splitted = string.split(",")
+#                 for s in splitted:
+#                     s = s.strip()
+#                     # if i == 3 (location) convert '--' to '':
+#                     strings.add('' if (i == 3 and s == '--') else s)
+# 
+#             # some checks:
+#             if "!*" in strings:  # discard everything is not valid
+#                 raise ValueError("value '!*' invalid (if one wants to discard all, "
+#                                  "there's no point in downloading)")
+#             elif "*" in  strings: # accept everything and this/that: this/that is redundant
+#                 strings = set(_ for _ in strings if _[0:1] == '!')
+#             else: 
+#                 for string in strings: # accept A end discard A is not valid
+#                     opposite = "!%s" % string
+#                     if opposite in strings:
+#                         raise Exception("conflicting values: '%s' and '%s'" % (string, opposite))
+#             
+#             ret[i] = sorted(strings)
+#     
+#         except Exception as exc:
+#             parname = "/".join(pars)
+#             raise ValueError("'%s': %s" % (parname, str(exc)))
+#         
+#     return ret
+
+
+def nslc_param_value_aslist(index, value):
+    '''Returns a nslc (network/station/location/channel) parameter value converted as list.
+    This method cleans-up and checks `value` splitting each of its string elements
+    with the comma "," and aggregating all the results into a single list, after performing some
+    sanity check. The resulting list is also sorted alphabetically
+    (for unit testing and readibility).
+    Raises ValueError in case some sanity checks fail (e.g., conflicts)
+
+    Examples:
+    
+    nslc_param_value_aslist Result
+    arguments:              (with comment)
+    ======================= =================================================================
+    (0, ['A,B,C', 'D'])     ['A', 'B', 'C', 'D']
+    (0, 'A,B,C,D')          ['A', 'B', 'C', 'D']  # same as above
+    (0, 'A*, B??, C*')      ['A*', 'B??', 'C*']  # fdsn wildcards accepted
+    (0, '!A*, B??, C*')     ['!A*', 'B??', 'C*']  # we support negations: !A* means "not A*"
+    (0, ' A, B ')           ['A', 'B']  # leading and trailing spaces ignored
+    (0, '  ')               ['']  # this means: match the empty string
+    (0, [])                 []  # this means: match all 
+    (2, "--")               []  # for locations (index=2), fdsn says that "--" means empty (we too)
+    (1, "--")               ["--"]  # for others (index = 0,1,3), "--" is what it is
+    
+
+    :param value: string or iterable of strings: (iterable in this context means python iterable
+        EXCEPT strings). If string, the argument will be converted
+        to the list [value] to make it iterable before processing it
+    :param index: the index of the parameter associated to `valie`, where 0 means 'network',
+        1 'station', 2 'location' and 3 'channel'. It is used for converting '--' to empty
+        strings in case of location(s), and to output the correct parameter name in the body of
+        Exceptions, if any has occurred or been raised
+    ''' 
+    try:
+        strings = set()
+    
+        # we assume, when arg is not list, that arg is str in both python2 and python3, i.e.
+        # it is NOT bytes in python2. The line below checks if is an iterable first:
+        # in python2, it is sufficient to say it's not a string
+        # in python3, we need to check that is no str also
+        if not hasattr(value, "__iter__") or isinstance(value, str):
+            # it’s an iterable not a string
+            value = [value]
+            
+        for string in value:
+            splitted = string.split(",")
+            for s in splitted:
+                s = s.strip()
+                # if i == 3 (location) convert '--' to '':
+                strings.add('' if (index == 3 and s == '--') else s)
+
+        # some checks:
+        if "!*" in strings:  # discard everything is not valid
+            raise ValueError("value '!*' invalid (if one wants to discard all, "
+                             "there's no point in downloading)")
+        elif "*" in  strings: # accept everything and this/that: this/that is redundant
+            strings = set(_ for _ in strings if _[0:1] == '!')
+        else: 
+            for string in strings: # accept A end discard A is not valid
+                opposite = "!%s" % string
+                if opposite in strings:
+                    raise Exception("conflicting values: '%s' and '%s'" % (string, opposite))
+        
+        return sorted(strings)
+
+    except Exception as exc:
+        parname = ["network", "station", "location", "channel"][index] + "(s)"
+        raise ValueError("Error in param. '%s': %s" % (parname, str(exc)))
+
+
+def to_fdsn_arg(iterable):
+    ''' Converts an iterable of strings (one of the elements returned by :func:`nslc_lists`
+    into a valid argument for an fdsn query, i.e. joining all element of `iterable` with a comma
+    after removing all elements starting with '!' (internally used for indicating logical not,
+    and not fdsn standard).
+    
+    :param iterable: an iterable of string, one of the elements returned from :func:`nslc_lists`
+    '''
+    return ",".join(v for v in iterable if v[0:1] != '!')
+
+
+# def aspost(net, sta, loc, cha):
+#     '''Returns the string for a FDSN POST request according to the given 
+#         net(works), sta(tions), loc(ations) and cha(nnels), all iterable of strings.
+#     
+#     Example:
+#         asget([], ['ABC'], [''], ['!A*', 'HH?', 'HN?']) = 'sta=ABC&loc=&cha=HH?,HN?'
+#     
+#     Note negations (!A*) not included: strings starting with "!" mean 'NOT' in this
+#     program's syntax: as this feature is not supported in an FDSN query it
+#     cannot be used. It can, however afterwards, to filter out rows of a pandas dataframe
+#     resulting from an FDSN query (see the :func:`stream2segment.download.aspdfilter`),
+#     or elsewhere: for instance, to perform a db SQL query
+#     (:func:`stream2segment.download.utils.asbinexp`)
+#     
+#     Arguments are usually the output of :func:`stream2segment.download.utils.nslc_lists`
+#     
+#     :param net: an iterable of strings denoting networks.
+#     :param sta: an iterable of strings denoting stations.
+#     :param loc: an iterable of strings denoting locations.
+#     :param cha: an iterable of strings denoting channels.
+#     '''
+#     return " ".join("*" if not lst else nslc_join(lst, "--") for lst in (net, sta, loc, cha))
+
+
+# def asget(net, sta, loc, cha):
+#     '''Returns the string for a FDSN GET request according to the given 
+#         net(works), sta(tions), loc(ations) and cha(nnels), all iterable of strings.
+#     
+#     Example:
+#         asget([], ['ABC'], [''], ['!A*', 'HH?', 'HN?']) = 'sta=ABC&loc=&cha=HH?,HN?'
+#     
+#     Note negations (!A*) not included: strings starting with "!" mean 'NOT' in this
+#     program's syntax: as this feature is not supported in an FDSN query it
+#     cannot be used. It can, however afterwards, to filter out rows of a pandas dataframe
+#     resulting from an FDSN query (see the :func:`stream2segment.download.aspdfilter`),
+#     or elsewhere: for instance, to perform a db SQL query
+#     (:func:`stream2segment.download.utils.asbinexp`)
+#     
+#     Arguments are usually the output of :func:`stream2segment.download.utils.nslc_lists`
+#     
+#     :param net: an iterable of strings denoting networks.
+#     :param sta: an iterable of strings denoting stations.
+#     :param loc: an iterable of strings denoting locations.
+#     :param cha: an iterable of strings denoting channels.
+#     '''
+#     ret = []
+#     for param, lst in zip(('net', 'sta', 'loc', 'cha'), (net, sta, loc, cha)):
+#         if lst:
+#             ret.append("{}={}".format(param, (_join(lst, ""))))
+#     
+#     return "&".join(ret)
+
+
+# def asbinexp(net, sta, loc, cha):
+#     '''Returns the sql-alchemy binary expression to be used as argument
+#     for db queries (e.g., `session.query(...)`) which translates to SQL the given 
+#         net(works), sta(tions), loc(ations) and cha(nnels), all iterable of strings.
+#     
+#     Example:
+#         asbinexp([], ['ABC'], [''], ['!A*', 'HH?', 'HN?']) = 'sta=ABC&loc=&cha=HH?,HN?'
+#     
+#     Note negations (!A*) mean 'NOT' in this
+#     program's syntax (this feature is not standard in an FDSN query)
+#     
+#     Arguments are usually the output of :func:`stream2segment.download.utils.nslc_lists`
+#     
+#     :param net: an iterable of strings denoting networks.
+#     :param sta: an iterable of strings denoting stations.
+#     :param loc: an iterable of strings denoting locations.
+#     :param cha: an iterable of strings denoting channels.
+#     '''
+#     # build a sql alchemy filter condition
+#     sa_cols = (Station.network, Station.station, Channel.location, Channel.channel)
+# 
+#     sa_bin_exprs = []
+# 
+#     wild2sql = strconvert.wild2sql  # conversion function
+#     
+#     for column, lst in zip(sa_cols, (net, sta, loc, cha)):
+#         matches = []
+#         for string in lst:
+#             negate = False
+#             if string[0:1] == '!':
+#                 negate = True
+#                 string = string[1:]
+#             
+#             condition = column.like(wild2sql(string)) if ('?' in string or '*' in string) \
+#                 else (column == string)
+#             
+#             if negate:
+#                 condition = ~condition
+#             
+#             matches.append(condition)
+#             
+#         if matches:
+#             sa_bin_exprs.append(or_(*matches))
+# 
+#     return True if not sa_bin_exprs else and_(*sa_bin_exprs)
+# 
+# 
+# def aspdfilter(net, sta, loc, cha):
+#     '''Returns a function which can filter out the given 
+#         net(works), sta(tions), loc(ations) and cha(nnels)
+#     from a pandas dataframe resulting from a FDSN station query (level=channel).
+#     The returned function signature is: func(dataframe, copy=False) and copy is an optional
+#     parameter denoting if the returned dataframe should be a copy or not (the argument will be
+#     ignored in some cases where no filter will be applied)
+#     
+#     Example:
+#         aspdfilter([], ['ABC'], [''], ['!A*', 'HH?', 'HN?']) returns a function
+#         
+#         func(dataframe, copy=False)
+#         
+#         which basically takes the dataframe, finds the column related to the `channels` key and
+#         removes all rowv whose channel starts with 'A'.
+#     
+#         The dataframe should be the result from `:func:normalize_fdsn_dframe` with second argument 
+#         'channel', otherwise any column related to network, station, location or channel might not
+#         be found
+#         
+#     Note that standard FDSN strings, i.e. non negations ('ABC', '', 'HH?', 'HN?') are NOT
+#     used by the function, which should be used in this workflow:
+#         - use net, sta,loc, cha to build a GET or POST station query (level=channel). The query
+#             string can be obtained with :func:`stream2segment.download.utils.asget` or
+#             :func:`stream2segment.download.utils.aspost`
+#         - call `:func:normalize_fdsn_dframe`response2normalizeddf`
+#             or `:func:normalize_fdsn_dframe`
+#             both with last argument 'channel', with return a dataframe D
+#         - call D=F(D), where F = aspdfilter(net, sta, loc, cha) 
+# 
+#     Arguments are usually the output of :func:`stream2segment.download.utils.nslc_lists`
+#     
+#     :param net: an iterable of strings denoting networks.
+#     :param sta: an iterable of strings denoting stations.
+#     :param loc: an iterable of strings denoting locations.
+#     :param cha: an iterable of strings denoting channels.
+#     '''
+#     # create a dict of regexps for pandas dataframe. FDSNWS do not support NOT
+#     # operators and thus we need to call filter(dataframe) after dataframe has been
+#     # created from fetched url data
+#     pd_re = {}  #filter = df['Event Name'].str.contains(patternDel)
+#     sa_cols = (Station.network, Station.station, Channel.location, Channel.channel)
+# 
+#     for lst, sa_col in zip((net, sta, loc, cha), sa_cols):
+#         if not lst:
+#             continue
+#         lst = [_ for _ in lst if _[0:1] == '!']
+#         if not lst:
+#             continue
+#         condition = ("^%s$" if len(lst) == 1 else "^(?:%s)$") % \
+#             "|".join(strconvert.wild2re(x[1:]) for x in lst)
+#         colname = sa_col.key
+#         pd_re[colname] = re.compile(condition)
+# 
+#     if not pd_re:
+#         return lambda dataframe, *a, **kw: dataframe  # @UnusedVariable
+#         
+#     def func(dataframe, copy=False):
+#         flt = None
+#         for colname, reg in pd_re.items():
+#             colflt = dataframe[colname].str.match(reg)
+#             if flt is None:
+#                 flt = ~colflt
+#             else:
+#                 flt |= ~colflt
+#         return dataframe if flt is None else dataframe[flt].copy() if copy else dataframe[flt]
+# 
+#     return func

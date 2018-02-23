@@ -31,17 +31,21 @@ logger = logging.getLogger(__name__)
 
 
 def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
-        search_radius, channels, min_sample_rate, update_metadata, inventory, timespan,
+        networks, stations, locations, channels, min_sample_rate,
+        search_radius, update_metadata, inventory, timespan,
         retry_seg_not_found, retry_url_err, retry_mseed_err, retry_client_err, retry_server_err,
         retry_timespan_err, traveltimes_model, advanced_settings, isterminal=False):
     """
         Downloads waveforms related to events to a specific path. FIXME: improve doc
     """
 
-    # RAMEINDER: **Any function here EXPECTS THEIR DATAFRAME INPUT TO BE NON-EMPTY.**
+    # RAMAINDER: **Any function here EXPECTS THEIR DATAFRAME INPUT TO BE NON-EMPTY.**
 
-    tt_table = TTTable(get_ttable_fpath(traveltimes_model))
-
+    try:
+        tt_table = TTTable(get_ttable_fpath(traveltimes_model))
+    except Exception as exc:
+        return log_and_exit(QuitDownload("Error loading travel time file: %s" % str(exc)))
+        
     # set blocksize if zero:
     if advanced_settings['download_blocksize'] <= 0:
         advanced_settings['download_blocksize'] = -1
@@ -56,10 +60,10 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
     # custom function for logging.info different steps:
     def stepinfo(text, *args, **kwargs):
         step = next(stepiter)
-        logger.info("\nSTEP %d of %d: {}".format(text), step, __steps, *args, **kwargs)
+        logger.info("\nSTEP %d of %d: {}".format(text), step, __steps, *args, **kwargs)  #pylint: disable=logging-not-lazy
         if process is not None:
             percent = process.memory_percent()
-            logger.warning("(%.1f%% memory used)" % percent)
+            logger.warning("(%.1f%% memory used)", percent)
 
     startiso = start.isoformat()
     endiso = end.isoformat()
@@ -79,7 +83,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
     try:
         datacenters_df, eidavalidator = \
             get_datacenters_df(session, dataws, advanced_settings['routing_service_url'],
-                               channels, start, end, dbbufsize)
+                               networks, stations, locations, channels, start, end, dbbufsize)
     except QuitDownload as dexc:
         return log_and_exit(dexc)
 
@@ -87,7 +91,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
              "data-center" if len(datacenters_df) == 1 else "data-centers")
     try:
         channels_df = get_channels_df(session, datacenters_df, eidavalidator,
-                                      channels, start, end,
+                                      networks, stations, locations, channels, start, end,
                                       min_sample_rate, update_metadata,
                                       advanced_settings['max_thread_workers'],
                                       advanced_settings['s_timeout'],

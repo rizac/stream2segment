@@ -221,21 +221,28 @@ class Test(unittest.TestCase):
             return dic
         self.mock_yaml_load.side_effect = yload
         
-        # mock threadpoolexecutor to run one instance at a time, so we get deterministic results:
-        self.patcher23 = patch('stream2segment.download.utils.original_read_async')
-        self.mock_read_async = self.patcher23.start()
-
-        def readasync(iterable, *a, **v):
-            # make readasync deterministic by returning the order of iterable
-            ret = list(iterable)
-            ondones = [None] * len(ret)
+        # mock ThreadPool (tp) to run one instance at a time, so we get deterministic results:
+        class MockThreadPool(object):
             
-            for a_ in read_async(ret, *a, **v):
-                ondones[ret.index(a_[0])] = a_
-
-            for k in ondones:
-                yield k
-        self.mock_read_async.side_effect = readasync
+            def __init__(self, *a, **kw):
+                pass
+                
+            def imap(self, func, iterable, *args):
+                # make imap deterministic: same as standard python map:
+                # everything is executed in a single thread the right input order
+                return map(func, iterable)
+            
+            def imap_unordered(self, func, iterable, *args):
+                # make imap_unordered deterministic: same as standard python map:
+                # everything is executed in a single thread in the right input order
+                return map(func, iterable)
+            
+            def close(self, *a, **kw):
+                pass
+        # assign patches and mocks:
+        self.patcher23 = patch('stream2segment.utils.url.ThreadPool')
+        self.mock_tpool = self.patcher23.start()
+        self.mock_tpool.side_effect = MockThreadPool
         
         
         self.logout = StringIO()

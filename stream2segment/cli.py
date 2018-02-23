@@ -206,7 +206,7 @@ def init(outdir):
 def download(configfile, dburl, eventws, start, end, dataws, min_sample_rate, traveltimes_model,
              timespan, update_metadata, retry_url_err, retry_mseed_err, retry_seg_not_found,
              retry_client_err, retry_server_err, retry_timespan_err, inventory, eventws_query_args):
-    """Download waveform data segments with quality metadata and relative events, stations and
+    """Download waveform data segments with quality-check metadata and relative events, stations and
     channels metadata into a specified database.
     The -c option (required) sets the defaults for all other options below, which are optional.
     The argument 'eventws_query_args' is an optional list of space separated key and values to be

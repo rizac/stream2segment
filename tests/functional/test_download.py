@@ -11,7 +11,7 @@ from __future__ import print_function
 
 from future import standard_library
 standard_library.install_aliases()
-from builtins import str
+from builtins import str, map
 import re
 import numpy as np
 from mock import patch
@@ -218,30 +218,28 @@ class Test(unittest.TestCase):
             return dic
         self.mock_yaml_load.side_effect = yload
         
-        # mock threadpoolexecutor to run one instance at a time, so we get deterministic results:
-        self.patcher23 = patch('stream2segment.download.utils.original_read_async')
-        self.mock_read_async = self.patcher23.start()
-#         def readasync(iterable, ondone, *a, **v):
-#             ret = list(iterable)
-#             ondones = [None] * len(ret)
-#             def _ondone(*a_):
-#                 ondones[ret.index(a_[0])] = a_
-#             
-#             read_async(ret, _ondone, *a, **v)
-#             
-#             for k in ondones:
-#                 ondone(*k)
-        def readasync(iterable, *a, **v):
-            # make readasync deterministic by returning the order of iterable
-            ret = list(iterable)
-            ondones = [None] * len(ret)
+        # mock ThreadPool (tp) to run one instance at a time, so we get deterministic results:
+        class MockThreadPool(object):
             
-            for a_ in read_async(ret, *a, **v):
-                ondones[ret.index(a_[0])] = a_
-
-            for k in ondones:
-                yield k
-        self.mock_read_async.side_effect = readasync
+            def __init__(self, *a, **kw):
+                pass
+                
+            def imap(self, func, iterable, *args):
+                # make imap deterministic: same as standard python map:
+                # everything is executed in a single thread the right input order
+                return map(func, iterable)
+            
+            def imap_unordered(self, func, iterable, *args):
+                # make imap_unordered deterministic: same as standard python map:
+                # everything is executed in a single thread in the right input order
+                return map(func, iterable)
+            
+            def close(self, *a, **kw):
+                pass
+        # assign patches and mocks:
+        self.patcher23 = patch('stream2segment.utils.url.ThreadPool')
+        self.mock_tpool = self.patcher23.start()
+        self.mock_tpool.side_effect = MockThreadPool
         
         
         self.logout = StringIO()
@@ -580,7 +578,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         dfres1.loc[(~pd.isnull(dfres1[Segment.data.key])) & (dfres1[Segment.data.key].str.len()>0),
                   Segment.data.key] = b'data'
         # assert the segments we should have data for are actually out-of-time-bounds
-        _, _, TBOUND_ERRCODE, _ = custom_download_codes()
+        _, _, TBOUND_ERRCODE, TBOUND_WARNCODE = custom_download_codes()
         assert len(dfres1[dfres1[Segment.download_code.key] == TBOUND_ERRCODE]) == 4
         
     
@@ -809,7 +807,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         # assert str_err not in self.log_msg()
         def mgdf(*a, **v):
             aa = list(a)
-            aa[6] = 100000  # change min sample rate to a huge number
+            aa[9] = 100000  # change min sample rate to a huge number
             return self.get_channels_df(None, *aa, **v) 
         mock_get_channels_df.side_effect = mgdf
         

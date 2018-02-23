@@ -19,6 +19,8 @@ import pytest
 from mock import Mock
 from datetime import datetime, timedelta
 
+import random
+
 import sys
 # this can apparently not be avoided neither with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
@@ -224,23 +226,28 @@ class Test(unittest.TestCase):
         self.mock_closing.side_effect = clsing
         
         
-        # mock threadpoolexecutor to run one instance at a time, so we get deterministic results:
-        self.patcher23 = patch('stream2segment.download.utils.read_async')
-        self.mock_read_async = self.patcher23.start()
-        def readasync(iterable, *a, **v):
-            # make readasync deterministic by returning the order of iterable
-            # Note that this could be supported by passing unordered=False, but these tests
-            # were implemented previously and I'm lazy
-            ret = list(iterable)
-            ondones = [None] * len(ret)
+        # mock ThreadPool (tp) to run one instance at a time, so we get deterministic results:
+        class MockThreadPool(object):
             
-            for a_ in read_async(ret, *a, **v):
-                ondones[ret.index(a_[0])] = a_
-
-            for k in ondones:
-                yield k
-
-        self.mock_read_async.side_effect = readasync
+            def __init__(self, *a, **kw):
+                pass
+                
+            def imap(self, func, iterable, *args):
+                # make imap deterministic: same as standard python map:
+                # everything is executed in a single thread the right input order
+                return map(func, iterable)
+            
+            def imap_unordered(self, func, iterable, *args):
+                # make imap_unordered deterministic: same as standard python map:
+                # everything is executed in a single thread in the right input order
+                return map(func, iterable)
+            
+            def close(self, *a, **kw):
+                pass
+        # assign patches and mocks:
+        self.patcher23 = patch('stream2segment.utils.url.ThreadPool')
+        self.mock_tpool = self.patcher23.start()
+        self.mock_tpool.side_effect = MockThreadPool
         
         
         self.logout = StringIO()
@@ -520,10 +527,9 @@ Db table 'stations': 4 rows updated (no sql error)""" in s
     def get_datacenters_df(self, url_read_side_effect, *a, **v):
         self.setup_urlopen(self._dc_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
         return get_datacenters_df(*a, **v)
-    
-#     (session, service, routing_service_url, 
-#     channels, starttime=None, endtime=None, 
-#     db_bufsize=None)
+        # get_datacenters_df(session, service, routing_service_url, 
+        #                    net, sta, loc, cha, starttime=None, endtime=None, 
+        #                    db_bufsize=None)
     
     @patch('stream2segment.download.modules.datacenters.urljoin', return_value='a')
     def test_get_dcs_general(self, mock_urljoin):
@@ -537,19 +543,22 @@ http://geofon.gfz-potsdam.de/fdsnws/station/1/query
 ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
 UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
         
+        # provide defaults for arguments not tested here:
+        net, sta, loc, cha, start, end = [], [], [], [], None, None
+        
         # no fdsn service ("http://myservice")
         with pytest.raises(QuitDownload):
             data, _ = self.get_datacenters_df(urlread_sideeffect, self.session,
-                                                           "http://myservice",
-                                                       self.routing_service, None, None,
-                                                       db_bufsize=self.db_buf_size)
+                                              "http://myservice", self.routing_service,
+                                              net, sta, loc, cha, start, end,
+                                              db_bufsize=self.db_buf_size)
         assert not mock_urljoin.called # is called only when supplying eida
         
         # normal fdsn service ("https://mocked_domain/fdsnws/station/1/query")
         data, eidavalidator = \
             self.get_datacenters_df(urlread_sideeffect, self.session,
-                                    "https://mock/fdsnws/station/1/query",
-                                    self.routing_service, None, None,
+                                    "https://mock/fdsnws/station/1/query",self.routing_service,
+                                    net, sta, loc, cha, start, end,
                                     db_bufsize=self.db_buf_size)
         assert not mock_urljoin.called # is called only when supplying eida
         assert len(self.session.query(DataCenter).all()) == len(data) == 1
@@ -558,8 +567,9 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
 
         # iris:
         data, eidavalidator = \
-            self.get_datacenters_df(urlread_sideeffect, self.session, "iris",
-                                    self.routing_service, None, None,
+            self.get_datacenters_df(urlread_sideeffect, self.session,
+                                    "iris", self.routing_service,
+                                    net, sta, loc, cha, start, end,
                                     db_bufsize=self.db_buf_size)
         assert not mock_urljoin.called # is called only when supplying eida
         assert len(self.session.query(DataCenter).all()) == 2  # we had one already (added above)
@@ -569,8 +579,9 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
 
         # eida:
         data, eidavalidator = \
-            self.get_datacenters_df(urlread_sideeffect, self.session, "eida",
-                                    self.routing_service, None, None,
+            self.get_datacenters_df(urlread_sideeffect, self.session,
+                                    "eida", self.routing_service,
+                                    net, sta, loc, cha, start, end,
                                     db_bufsize=self.db_buf_size)
         assert mock_urljoin.called # is called only when supplying eida
         assert len(self.session.query(DataCenter).all()) == 3 # we had two already written, 1 written now
@@ -584,16 +595,20 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
         # now re-launch and assert we did not write anything to the db cause we already did:
         dcslen = len(self.session.query(DataCenter).all())
         self.get_datacenters_df(urlread_sideeffect, self.session,
-                                "https://mock/fdsnws/station/1/query",
-                                self.routing_service, None, None,
+                                "https://mock/fdsnws/station/1/query", self.routing_service,
+                                net, sta, loc, cha, start, end,
                                 db_bufsize=self.db_buf_size)
         assert dcslen == len(self.session.query(DataCenter).all())
-        self.get_datacenters_df(urlread_sideeffect, self.session, "iris", self.routing_service,
-                                None, None, db_bufsize=self.db_buf_size)
+        self.get_datacenters_df(urlread_sideeffect, self.session,
+                                "iris", self.routing_service,
+                                net, sta, loc, cha, start, end,
+                                db_bufsize=self.db_buf_size)
         assert dcslen == len(self.session.query(DataCenter).all())
         
-        self.get_datacenters_df(urlread_sideeffect, self.session, "eida", self.routing_service,
-                                None, None, db_bufsize=self.db_buf_size)
+        self.get_datacenters_df(urlread_sideeffect, self.session,
+                                "eida", self.routing_service,
+                                net, sta, loc, cha, start, end,
+                                db_bufsize=self.db_buf_size)
         assert dcslen == len(self.session.query(DataCenter).all())
         
 
@@ -611,15 +626,19 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
         
         d0 = datetime.utcnow()
         d1 = d0 + timedelta(minutes=1.1)
-
-        for channels, starttime, endtime in product([['HH?'], ['HH?', 'BH?'], None], [None, d0],
-                                                    [None, d1]):
+        
+        nsl = [['ABC'], []]
+        chans = [['HH?'], ['HH?', 'BH?'], []]
+        
+        for net, sta, loc, cha, starttime, endtime in product(nsl, nsl, nsl, chans,
+                                                                   [None, d0],
+                                                                   [None, d1]):
             mock_urljoin.reset_mock()
             # normal fdsn service ("https://mocked_domain/fdsnws/station/1/query")
             data, eida_validator = self.get_datacenters_df(urlread_sideeffect, self.session,
                                                            "https://mock/fdsnws/station/1/query",
                                                            self.routing_service,
-                                                           channels, starttime, endtime,
+                                                           net, sta, loc, cha, starttime, endtime,
                                                            db_bufsize=self.db_buf_size)
             assert eida_validator is None
             assert not mock_urljoin.called
@@ -627,18 +646,18 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
             # iris:
             mock_urljoin.reset_mock()
             data, eida_validator = self.get_datacenters_df(urlread_sideeffect, self.session, "iris",
-                                                       self.routing_service,
-                                                       channels, starttime, endtime,
-                                                       db_bufsize=self.db_buf_size)
+                                                           self.routing_service,
+                                                           net, sta, loc, cha, starttime, endtime,
+                                                           db_bufsize=self.db_buf_size)
             assert eida_validator is None
             assert not mock_urljoin.called
             
             # eida:
             mock_urljoin.reset_mock()
             data, eida_validator = self.get_datacenters_df(urlread_sideeffect, self.session, "eida",
-                                                   self.routing_service,
-                                                   channels, starttime, endtime,
-                                                   db_bufsize=self.db_buf_size)
+                                                           self.routing_service,
+                                                           net, sta, loc, cha, starttime, endtime,
+                                                           db_bufsize=self.db_buf_size)
             
             geofon_id = data[data[DataCenter.station_url.key] == 'http://geofon.gfz-potsdam.de/fdsnws/station/1/query'].iloc[0].id
             resif_id = data[data[DataCenter.station_url.key] == 'http://ws.resif.fr/fdsnws/station/1/query'].iloc[0].id
@@ -652,10 +671,22 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
             assert args[0] == 'http://rz-vm258.gfz-potsdam.de/eidaws/routing/1/query'
             assert kwargs['service'] == 'dataselect'
             assert kwargs['format'] == 'post'
-            if channels:
-                assert kwargs['channel'] == ','.join(channels)
+            if net:
+                assert kwargs['net'] == ','.join(net)
             else:
-                assert 'channel' not in kwargs
+                assert 'net' not in kwargs
+            if sta:
+                assert kwargs['sta'] == ','.join(sta)
+            else:
+                assert 'sta' not in kwargs
+            if loc:
+                assert kwargs['loc'] == ','.join(loc)
+            else:
+                assert 'loc' not in kwargs
+            if cha:
+                assert kwargs['cha'] == ','.join(cha)
+            else:
+                assert 'cha' not in kwargs
             if starttime:
                 assert kwargs['start'] == starttime.isoformat()
             else:
@@ -671,34 +702,36 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
         # this is the output when using eida as service:
         urlread_sideeffect = [URLError('wat?')]
         
+        # we might set the following params as defaults because not used, let's provide anyway
+        # something meaningful:
+        net, sta, loc, cha = ['*'], [], [],['HH?', 'BH?']
         starttime = datetime.utcnow()
         endtime = starttime + timedelta(minutes=1.1)
-        channels = ['HH?', 'BH?']
-        
+
         # normal fdsn service ("https://mocked_domain/fdsnws/station/1/query")
         # test that everything is ok because we do not call urlread
         data, _ = self.get_datacenters_df(urlread_sideeffect, self.session,
-                                                       "https://mock/fdsnws/station/1/query",
-                                                       self.routing_service,
-                                                       channels, starttime, endtime,
-                                                       db_bufsize=self.db_buf_size)
+                                          "https://mock/fdsnws/station/1/query",
+                                          self.routing_service,
+                                          net, sta, loc, cha, starttime, endtime,
+                                          db_bufsize=self.db_buf_size)
         assert not self.mock_urlopen.called
 
         # iris:
         # test that everything is ok because we do not call urlread
         data, _ = self.get_datacenters_df(urlread_sideeffect, self.session, "iris",
-                                                   self.routing_service,
-                                                   channels, starttime, endtime,
-                                                   db_bufsize=self.db_buf_size)
+                                          self.routing_service,
+                                          net, sta, loc, cha, starttime, endtime,
+                                          db_bufsize=self.db_buf_size)
         assert not self.mock_urlopen.called
         
         # eida:
         # test that everything is not ok because urlread raises and we do not have data on the db
         with pytest.raises(QuitDownload) as qdown:
             data, _ = self.get_datacenters_df(urlread_sideeffect, self.session, "eida",
-                                                   self.routing_service,
-                                                   channels, starttime, endtime,
-                                                   db_bufsize=self.db_buf_size)
+                                              self.routing_service,
+                                              net, sta, loc, cha, starttime, endtime,
+                                              db_bufsize=self.db_buf_size)
         assert self.mock_urlopen.called
         assert "Eida routing service error, no eida data-center saved in database" \
             in str(qdown.value)
@@ -711,44 +744,16 @@ http://geofon.gfz-potsdam.de/fdsnws/station/1/query
 ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
 UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
         df, eidavalidator = self.get_datacenters_df(urlread_sideeffect, self.session,
-                                                               "eida",
-                                                               self.routing_service,
-                                                               channels, starttime, endtime,
-                                                               db_bufsize=self.db_buf_size)
+                                                    "eida",
+                                                    self.routing_service,
+                                                    net, sta, loc, cha, starttime, endtime,
+                                                    db_bufsize=self.db_buf_size)
         # check that all datacenters are eida
         dcs = sorted([_[0] for _ in self.session.query(DataCenter.id).filter(DataCenter.organization_name == 'eida').all()])
         assert self.mock_urlopen.called
         assert len(dcs) == len(df)
         assert eidavalidator is not None
-        
-        # and it should not raise anymore, but return the db stuff: pass None as service to check  that it
-        # defaults to 'eida'
-#         assert "Eida routing service error" not in self.log_msg()
-#         urlread_sideeffect = [URLError('wat?')]
-#         df, post_data, eidavalidator = self.get_datacenters_df(urlread_sideeffect, self.session,
-#                                                                None,  # == "eida",
-#                                                                self.routing_service,
-#                                                                channels, starttime, endtime,
-#                                                                db_bufsize=self.db_buf_size)
-#         assert len(post_data)
-#         dcs2 = sorted([_[0] for _ in self.session.query(DataCenter.id).filter(DataCenter.organization_name == 'eida').all()])
-#         assert dcs == dcs2
-#         assert self.mock_urlopen.called
-#         assert sorted(df[DataCenter.id.key].tolist()) == dcs
-#         assert eidavalidator is None
-#         assert "Eida routing service error" in self.log_msg()
-# 
-#         # check post_data. We called last time with none argument, so it should be like this
-#         assert post_data == '* * * %s %s %s' % (",".join(channels), starttime.isoformat(),
-#                                                 endtime.isoformat())
-#         df, post_data, eidavalidator = self.get_datacenters_df(urlread_sideeffect, self.session,
-#                                                                None,  # == "eida",
-#                                                                self.routing_service,
-#                                                                channels=None, starttime=None,
-#                                                                endtime=None,
-#                                                                db_bufsize=self.db_buf_size)
-#         assert post_data == '* * * * * *'
-        
+       
 # =================================================================================================
 
 
@@ -756,11 +761,11 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
     def get_channels_df(self, url_read_side_effect, *a, **kw):
         self.setup_urlopen(self._sta_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
         return get_channels_df(*a, **kw)
-    # get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
-    #                channels, starttime, endtime,
-    #                min_sample_rate, update,
-    #                max_thread_workers, timeout, blocksize, db_bufsize,
-    #                show_progress=False):
+    # def get_channels_df(session, datacenters_df, eidavalidator, # <- can be none
+    #                     net, sta, loc, cha, starttime, endtime, 
+    #                     min_sample_rate, update, 
+    #                     max_thread_workers, timeout, blocksize, db_bufsize, 
+    #                     show_progress=False):
      
     def test_get_channels_df(self):
         urlread_sideeffect = """1|2|3|4|5|6|7|8|9|10|11|12|13
@@ -782,11 +787,67 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
         # we tried to add two events with the same id, check we printed out the msg:
         assert "Duplicated instances violate db constraint" in self.log_msg()
         
-        channels = None
+        net, sta, loc, cha = [], [], [], []
         datacenters_df, eidavalidator = \
             self.get_datacenters_df(urlread_sideeffect, self.session, None, self.routing_service,
-                                    channels=channels, db_bufsize=self.db_buf_size)
+                                    net, sta, loc, cha, db_bufsize=self.db_buf_size)
         
+        # first we mock url errors in all queries. We still did not write anything in the db
+        # so we should quit:
+        with pytest.raises(QuitDownload) as qd:
+            _ = self.get_channels_df(URLError('urlerror_wat'), self.session,
+                                                           datacenters_df,
+                                                           eidavalidator,
+                                                           net, sta, loc, cha, None, None, 100,
+                                                           False, None, None, -1, self.db_buf_size)
+        assert 'urlerror_wat' in self.log_msg()
+        assert "Unable to fetch stations" in self.log_msg()
+        assert "Fetching stations from database for 2 (of 2) data-center(s)" in self.log_msg()
+        # Test that the exception message is correct
+        # note that this message is in the log if we run the method from the main
+        # function (which is not the case here):
+        assert ("Unable to fetch stations from all data-centers, "
+                                      "no data to fetch from the database. "
+                                      "Check config and log for details") in str(qd.value)
+        
+
+        # now use filters on hannels start-time and end-time arguments, by assuring post data
+        # is well formed. Include negations (!) to check that they are not included in the request
+        # post data
+        st = [datetime(2001,1,1), None]
+        et = [datetime(2001,3,1), None]
+        nslc = [[], ['HH?'], ['HHL', 'HH?'], ['!A'], ['!AZ', 'BH?']]
+        # now we might want to use 
+        # for net, sta, loc, cha, s, e in product(nslc, nslc, nslc, nslc, [None, st], [None, et]):
+        # which runs 2500 iterations. Way too much. We pick 1000 tests by randomly choicing 
+        # in those elements
+        for i in range(1000):
+            _net, _sta, _loc, _cha = random.choice(nslc), random.choice(nslc),\
+                random.choice(nslc), random.choice(nslc)
+            s, e = random.choice(st), random.choice(et)
+            with pytest.raises(QuitDownload) as qd:
+                _ = self.get_channels_df(URLError('urlerror_wat'), self.session,
+                                                           datacenters_df,
+                                                           eidavalidator,
+                                                           _net, _sta, _loc, _cha, s, e, 100,
+                                                           False, None, None, -1,
+                                                           self.db_buf_size)
+                
+                n_ = (",".join(_ for _ in _net if _[0:1] != '!') or '*').encode()
+                s_ = (",".join(_ for _ in _sta if _[0:1] != '!') or '*').encode()
+                l_ = (",".join(_ for _ in _loc if _[0:1] != '!') or '*').encode()
+                c_ = (",".join(_ for _ in _cha if _[0:1] != '!') or '*').encode()
+                s_ = '*' if st is None else st.isoformat().encode()
+                e_ = '*' if et is None else et.isoformat().encode()
+                expected == b"""format=text
+level=channel
+%s %s %s %s %s %s""" % (n_, s_, l_, c_, s_, e_)
+                assert self.mock_urlopen.call_args_list[0][0][0].data == expected
+                assert self.mock_urlopen.call_args_list[1][0][0].data == expected
+        
+        
+
+        # now get channels with a mocked custom urlread_sideeffect below:
         # IMPORTANT: url read for channels: Note: first response data raises, second has an error and
         # that error is skipped (the other channels are added)
         urlread_sideeffect  = ["""#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
@@ -806,53 +867,11 @@ HT|LKD2||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|83
 BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|2019-01-01T00:00:00
 BLA|BLA||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2018-01-01T00:00:00|
 """]                     
-        # first we mock url errors in all queries. We still did not write anything in the db
-        # so we should quit:
-        with pytest.raises(QuitDownload) as qd:
-            _ = self.get_channels_df(URLError('urlerror_wat'), self.session,
-                                                           datacenters_df,
-                                                           eidavalidator,
-                                                           channels, None, None, 100,
-                                                           False, None, None, -1, self.db_buf_size)
-        assert 'urlerror_wat' in self.log_msg()
-        assert "Unable to fetch stations" in self.log_msg()
-        assert "Fetching stations from database for 2 (of 2) data-center(s)" in self.log_msg()
-        # Test that the exception message is correct
-        # note that this message is in the log if we run the method from the main
-        # function (which is not the case here):
-        assert ("Unable to fetch stations from all data-centers, "
-                                      "no data to fetch from the database. "
-                                      "Check config and log for details") in str(qd.value)
-        
 
-        # now we check the channels start-time and end-time arguments, by assuring post data
-        # is well formed:
-        st = datetime(2001,1,1)
-        et = datetime(2001,3,1)
-        for c,s,e in product([None, ['HH?'], ['HHL', 'HH?']], [None, st], [None, et]):
-            with pytest.raises(QuitDownload) as qd:
-                _ = self.get_channels_df(URLError('urlerror_wat'), self.session,
-                                                           datacenters_df,
-                                                           eidavalidator,
-                                                           c, s, e, 100,
-                                                           False, None, None, -1, self.db_buf_size)
-                
-                c_ = '*' if c is None else ",".join(c).encode()
-                s_ = '*' if st is None else st.isoformat().encode()
-                e_ = '*' if et is None else et.isoformat().encode()
-                expected == b"""format=text
-level=channel
-* * * %s %s %s""" % (c_, s_, e_)
-                assert self.mock_urlopen.call_args_list[0][0][0].data == expected
-                assert self.mock_urlopen.call_args_list[1][0][0].data == expected
-        
-        
-
-        # now get channels with the above implemented urlread_sideeffect:
         cha_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        eidavalidator,
-                                                       channels, None, None, 90,
+                                                       net, sta, loc, cha, None, None, 90,
                                                        False, None, None, -1, self.db_buf_size
                                                )
         # assert we have a message for discarding the response data
@@ -864,11 +883,13 @@ level=channel
         # the last two channels of the second item of `urlread_sideeffect` are from two
         # stations (BLA|BLA|...) with only different start time. Thus they should both be added:
         assert len(self.session.query(Channel.id).all()) == 6
-        # as channels = start = end = None, this is the post data passed to urlread for the 1st datacenter:
+        # as net, sta, loc, cha are all empty lists and start = end = None (all default=>no filter),
+        # this is the post data passed to urlread for the 1st datacenter:
         assert self.mock_urlopen.call_args_list[0][0][0].data == b"""format=text
 level=channel
 * * * * * *"""
-        # as channels = start = end = None, this is the post data passed to urlread for the 2nd datacenter:
+        # as net, sta, loc, cha are all empty lists and start = end = None (all default=>no filter),
+        # this is the post data passed to urlread for the 2nd datacenter:
         assert self.mock_urlopen.call_args_list[1][0][0].data == b"""format=text
 level=channel
 * * * * * *"""
@@ -886,21 +907,21 @@ level=channel
         # now mock again url errors in all queries. As we wrote something in the db
         # so we should NOT quit
         cha_df2 = self.get_channels_df(URLError('urlerror_wat'), self.session,
-                                                           datacenters_df,
-                                                           eidavalidator,
-                                                           channels, datetime(2020, 1, 1), None, 100,
-                                                           False, None, None, -1, self.db_buf_size)
+                                       datacenters_df,
+                                       eidavalidator,
+                                       net, sta, loc, cha, datetime(2020, 1, 1), None, 100,
+                                       False, None, None, -1, self.db_buf_size)
 
-        # Note that min sample rate = 100 and a starttime which should return 3 channels: 
+        # Note above that min sample rate = 100 and a starttime proivded should return 3 channels: 
         assert len(cha_df2) == 3
         assert "Fetching stations from database for 2 (of 2) data-center(s)" in self.log_msg()
 
         # now test again with a socket timeout
         cha_df2 = self.get_channels_df(socket.timeout(), self.session,
-                                                           datacenters_df,
-                                                           eidavalidator,
-                                                           channels, None, None, 100,
-                                                           False, None, None, -1, self.db_buf_size)
+                                       datacenters_df,
+                                       eidavalidator,
+                                       net, sta, loc, cha, None, None, 100,
+                                       False, None, None, -1, self.db_buf_size)
         assert 'timeout' in self.log_msg()
         assert "Fetching stations from database for 2 (of 2) data-center(s)" in self.log_msg()
 
@@ -908,10 +929,10 @@ level=channel
         
         # now change min sampling rate and see that we should get one channel less
         cha_df3 = self.get_channels_df(urlread_sideeffect, self.session,
-                                                       datacenters_df,
-                                                       eidavalidator,
-                                                       channels, None, None, 100,
-                                                       False, None, None, -1, self.db_buf_size)
+                                       datacenters_df,
+                                       eidavalidator,
+                                       net, sta, loc, cha, None, None,  100,
+                                       False, None, None, -1, self.db_buf_size)
         assert len(cha_df3) == len(cha_df)-2
         assert "2 channel(s) discarded (sample rate < 100 Hz)" in self.log_msg()
         
@@ -919,46 +940,65 @@ level=channel
         
         urlread_sideeffect  = [URLError('wat'), 
 """#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
-A|B||HBE|39.0211|22.336|622.0|0.0|0.0|-90.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2003-02-12T00:00:00|2010-02-12T00:00:00
-E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2019-01-01T00:00:00|
+A|B|10|HBE|39.0211|22.336|622.0|0.0|0.0|-90.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2003-02-12T00:00:00|2010-02-12T00:00:00
+E|F|11|HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2019-01-01T00:00:00|
 """,  URLError('wat'), socket.timeout()]
         
         
-        # now change channels=['B??'], we should have the same result as before as
-        # the `channel` argument has effect when postdata is None (=query to the db)
+        # now change channels=['B??']. In the urlread_sideeffect above, for the 1st, 3rd and 4th
+        # case we fallback to a db query, but we do not have such a channel, so nothing is returned
+        # The dataframe currently saved on db is:
+        #    id channel start_time   end_time  sample_rate  datacenter_id
+        # 0  1   HLE    2008-02-12 NaT         100.0        2            
+        # 1  2   HLZ    2008-02-12 NaT         100.0        2            
+        # 2  3   HHE    2009-01-01 NaT         90.0         2            
+        # 3  4   HHZ    2009-01-01 NaT         90.0         2            
+        # 4  5   HHZ    2009-01-01 2019-01-01  100.0        2            
+        # 5  6   HHZ    2018-01-01 NaT         100.0        2
+        # for the second case, the mocked response returns two channels and in this case
+        # we might put whatever filter here below. Assert that the number of channels returned is 2
         cha_df = self.get_channels_df(urlread_sideeffect, self.session,
-                                                       datacenters_df,
-                                                       eidavalidator,
-                                                       ['B??'], None, None, 10,
-                                                       False, None, None, -1, self.db_buf_size)
+                                      datacenters_df,
+                                      eidavalidator,
+                                      net, sta, loc, ['B??'], None, None, 10,
+                                      False, None, None, -1, self.db_buf_size)
         assert len(cha_df) == 2
         
         # test channels and startime + entimes provided when querying the db (postdata None)
         # by iussuing the command:
-        # dbquery2df(self.session.query(Channel.id, Channel.channel, Station.start_time,
-        #                               Station.end_time, Channel.sample_rate, Station.datacenter_id).join(Station))
-        # we found the following channels on the db:
+        # dbquery2df(self.session.query(Channel.id, Station.network, Station.station,
+        #  Channel.location, Channel.channel, Station.start_time,Station.end_time,
+        #  Channel.sample_rate, Station.datacenter_id).join(Channel.station))
+        # This is the actual state of the db:
         # ----------------------------------------------
-        # id channel start_time   end_time    sample_rate  datacenter_id
-        #  1   HLE    2008-02-12  NaT         100.0        2  
-        #  2   HLZ    2008-02-12  NaT         100.0        2  
-        #  3   HHE    2009-01-01  NaT         90.0         2  
-        #  4   HHZ    2009-01-01  NaT         90.0         2  
-        #  5   HHZ    2009-01-01  2019-01-01  100.0        2  
-        #  6   HHZ    2018-01-01  NaT         100.0        2  
-        #  7   HBE    2003-02-12  2010-02-12  100.0        2  
-        #  8   HHZ    2019-01-01  NaT         100.0        2
+        # channel_id network station location channel start_time    end_time   sample_rate  datacenter_id
+        #          1      HT     AGG              HLE    2008-02-12 NaT              100.0              2               
+        #          2      HT     AGG              HLZ    2008-02-12 NaT              100.0              2               
+        #          3      HT     LKD2             HHE    2009-01-01 NaT              90.0               2               
+        #          4      HT     LKD2             HHZ    2009-01-01 NaT              90.0               2               
+        #          5      BLA    BLA              HHZ    2009-01-01 2019-01-01       100.0              2               
+        #          6      BLA    BLA              HHZ    2018-01-01 NaT              100.0              2               
+        #          7      A      B         10     HBE    2003-02-12 2010-02-12       100.0              2               
+        #          8      E      F         11     HHZ    2019-01-01 NaT              100.0              2  
         # ----------------------------------------------
         # Now according to the table above set a list of arguments:
         # Each key is: the argument, each value IS A LIST OF BOOLEAN MAPPED TO EACH ROW OF THE
         # DATAFRAME ABOVE, telling if the row matches according to the argument:
+        nets = {('*',): [1, 1, 1, 1, 1, 1, 1, 1],
+                # ('HT', 'BLA'): [1, 1, 1, 1, 1, 1, 0, 0],
+                ('*A*',): [0, 0, 0, 0, 1, 1, 1, 0]
+                }
+        stas = {('B*',): [0, 0, 0, 0, 1, 1, 1, 0],
+                ('B??',): [0, 0, 0, 0, 1, 1, 0, 0]}
+        locs = {('',): [1, 1, 1, 1, 1, 1, 0, 0],  # note that we do NOT assume '--' can be given, as this should be the parsed output of `nslc_lists`
+                ('1?',): [0, 0, 0, 0, 0, 0, 1, 1],}
         chans = {('?B?',): [0, 0, 0, 0, 0, 0, 1, 0],
                   ('HL?', '?B?'): [1, 1, 0, 0, 0, 0, 1, 0],
                   ('HHZ',): [0, 0, 0, 1, 1, 1, 0, 1],
                  }
         stimes={None: [1, 1, 1, 1, 1, 1, 1, 1],
                     datetime(2002, 1, 1): [1, 1, 1, 1, 1, 1, 1, 1],
-                    datetime(2011, 1, 1): [1, 1, 1, 1, 1, 1, 0, 1],
+                    # datetime(2011, 1, 1): [1, 1, 1, 1, 1, 1, 0, 1],
                     datetime(2099, 1, 1): [1, 1, 1, 1, 0, 1, 0, 1],
                     }
         etimes={None: [1, 1, 1, 1, 1, 1, 1, 1],
@@ -967,15 +1007,14 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
                     datetime(2099, 1, 1): [1, 1, 1, 1, 1, 1, 1, 1],
                     }
         minsr = {90: [1, 1, 1, 1, 1, 1, 1, 1],
-                 95: [1, 1, 0, 0, 1, 1, 1, 1],
+                 # 95: [1, 1, 0, 0, 1, 1, 1, 1],
                  100: [1, 1, 0, 0, 1, 1, 1, 1],
                  105: [0, 0, 0, 0, 0, 0, 0, 0]}
         # no url read: set socket.tiomeout as urlread side effect. This will force
         # querying the database to test that the filtering works as expected:
-        for c, s, e, m in product(chans, stimes, etimes, minsr):
-            while threading.active_count() > 100000000000000000:
-                pass
-            matches = np.array(chans[c]) * np.array(stimes[s]) * np.array(etimes[e]) * np.array(minsr[m])
+        for n, s, l, c, st, e, m in product(nets, stas, locs, chans, stimes, etimes, minsr):
+            matches = np.array(nets[n]) * np.array(stas[s]) * np.array(locs[l]) * \
+                np.array(chans[c]) * np.array(stimes[st]) * np.array(etimes[e]) * np.array(minsr[m])
             expected_length = matches.sum()
             # Now: if expected length is zero, it means we do not have data matches on the db
             # This raises a quitdownload (avoiding pytest.raises cause in this
@@ -984,13 +1023,63 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
                 cha_df = self.get_channels_df(socket.timeout(), self.session,
                                               datacenters_df.loc[datacenters_df[DataCenter.id.key] == 2],
                                               eidavalidator,
-                                              c, s, e, m,
+                                              n, s, l, c, st, e, m,
                                               False, None, None, -1, self.db_buf_size)
                 assert len(cha_df) == expected_length
             except QuitDownload as qd:
                 assert expected_length == 0
                 assert "Unable to fetch stations from all data-centers" in str(qd)       
-        
+
+        # Same test as above, but test negative assertions with "!". Reminder: data on db is:
+        # ----------------------------------------------
+        # channel_id network station location channel start_time    end_time   sample_rate  datacenter_id
+        #          1      HT     AGG              HLE    2008-02-12 NaT              100.0              2               
+        #          2      HT     AGG              HLZ    2008-02-12 NaT              100.0              2               
+        #          3      HT     LKD2             HHE    2009-01-01 NaT              90.0               2               
+        #          4      HT     LKD2             HHZ    2009-01-01 NaT              90.0               2               
+        #          5      BLA    BLA              HHZ    2009-01-01 2019-01-01       100.0              2               
+        #          6      BLA    BLA              HHZ    2018-01-01 NaT              100.0              2               
+        #          7      A      B         10     HBE    2003-02-12 2010-02-12       100.0              2               
+        #          8      E      F         11     HHZ    2019-01-01 NaT              100.0              2  
+        # ----------------------------------------------
+        # Now according to the table above set a list of arguments:
+        # Each key is: the argument, each value IS A LIST OF BOOLEAN MAPPED TO EACH ROW OF THE
+        # DATAFRAME ABOVE, telling if the row matches according to the argument:
+        nets = {('!*A*', 'A'): [1, 1, 1, 1, 0, 0, 1, 1],
+                ('E', 'A'): [0, 0, 0, 0, 0, 0, 1, 1]
+                }
+        stas = {('!*B*', 'B'): [1, 1, 1, 1, 0, 0, 1, 1],
+                ('!???2',): [1, 1, 0, 0, 1, 1, 1, 1]}
+        locs = {('',): [1, 1, 1, 1, 1, 1, 0, 0],  # note that we do NOT assume '--' can be given, as this should be the parsed output of `nslc_lists`
+                ('!',): [0, 0, 0, 0, 0, 0, 1, 1],}
+        chans = { ('HHZ', '!*E'): [0, 1, 0, 1, 1, 1, 0, 1],
+                 ('!?H?',): [1, 1, 0, 0, 0, 0, 1, 0]
+                 }
+        stimes={None: [1, 1, 1, 1, 1, 1, 1, 1]}
+        etimes={None: [1, 1, 1, 1, 1, 1, 1, 1]}
+        minsr = {-1: [1, 1, 1, 1, 1, 1, 1, 1]}
+        # no url read: set socket.tiomeout as urlread side effect. This will force
+        # querying the database to test that the filtering works as expected:
+        for n, s, l, c, st, e, m in product(nets, stas, locs, chans, stimes, etimes, minsr):
+            matches = np.array(nets[n]) * np.array(stas[s]) * np.array(locs[l]) * \
+                np.array(chans[c]) * np.array(stimes[st]) * np.array(etimes[e]) * np.array(minsr[m])
+            expected_length = matches.sum()
+            # Now: if expected length is zero, it means we do not have data matches on the db
+            # This raises a quitdownload (avoiding pytest.raises cause in this
+            # case it's easier like done below):
+            try:
+                cha_df = self.get_channels_df(socket.timeout(), self.session,
+                                              datacenters_df.loc[datacenters_df[DataCenter.id.key] == 2],
+                                              eidavalidator,
+                                              n, s, l, c, st, e, m,
+                                              False, None, None, -1, self.db_buf_size)
+                
+                assert len(cha_df) == expected_length
+            except QuitDownload as qd:
+                assert expected_length == 0
+                assert "Unable to fetch stations from all data-centers" in str(qd)       
+
+  
         # now make the second url_side_effect raise => force query from db, and the first good
         # => fetch from the web
         # We want to test the mixed case: some fetched from db, some from the web
@@ -1010,11 +1099,11 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
         #  The second url read did not raise, now it does (socket.timeout): fetch from the db
         # we issue a ['???'] as 'channel' argument in order to fetch everything from the db
         # (we would have got the same by passing None as 'channel' argument)
+        # The three [] before ['???'] are net, sta, loc and mean: no filter on those params
         cha_df_ = self.get_channels_df(urlread_sideeffect2, self.session,
-                                                         datacenters_df, eidavalidator,
-                                                         ['???'], None, None, 10,
-                                                         False, None, None, -1, self.db_buf_size
-                                                       )
+                                       datacenters_df, eidavalidator,
+                                       [], [], [], ['???'], None, None, 10,
+                                       False, None, None, -1, self.db_buf_size)
         
         # we should have the channel with network 'U' to the first datacenter
         dcid = datacenters_df.iloc[0][DataCenter.id.key]
@@ -1030,7 +1119,7 @@ E|F||HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860
         assert chaids_of_dcid == db_chaids_of_dcid
 
 
-    def test_get_channels_df_eidavalidator(self):
+    def tst_get_channels_df_eidavalidator_station_and_channel_duplicates(self):
         urlread_sideeffect = """1|2|3|4|5|6|7|8|9|10|11|12|13
 20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 01:45:30.300000|44.96|15.35|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|3.6|EMSC|CROATIA
@@ -1052,20 +1141,25 @@ B1 * * HH? 2002-09-01T00:00:00 2005-10-20T00:00:00
 XX xx * * 2013-08-01T00:00:00 2017-04-25
 YY yy * DE? 2013-08-01T00:00:00 2017-04-25
 """
-        channels = None
+        net, sta, loc, cha = [], [], [], []
         datacenters_df, eidavalidator = \
             self.get_datacenters_df(urlread_sideeffect, self.session, None, self.routing_service,
-                                    channels=channels, db_bufsize=self.db_buf_size)
+                                    net, sta, loc, cha, db_bufsize=self.db_buf_size)
         
-        # the idea of the eida routing service (or db query) is. Given a station, if it's unique
-        # just fetch the station id from the db. Note that this does not touch the station datacenter
-        # so we might end up downloading station's segment from a different datacenter than the
-        # station's datacenter saved on the database. That's what we want.
-        # If the station is NOT unique query the eida routing service (or the database): the FIRST
-        # station (sorted by datacenter id) which has a match on the eida routing service or db is
-        # taken, the other(s) discarded. If no station match (the station is not supposed to be
-        # returned by ANY datacenter in the eida-rs, or we do not have that station on the db) the
-        # station, and all its channels, are discarded
+        # MOCK THE CASE OF DUPLICATED STATIONS (I.E., RETURNED BY MORE THAN ONE DATACENTER)
+        # The behaviour we want to test is the following: Given a downloaded station,
+        # 1) if the station if it's unique (only one datacenter returned it), just fetch
+        # the station ID from the db
+        # (note that this does not touch the station datacenter so we might end up
+        # downloading station's segment from a different datacenter than the station's
+        # datacenter saved on the database, which is what we want).
+        # 2) if the station is NOT unique, then query the eida routing service
+        # (or the database if the eda-rs is down):
+        # the FIRST station among our duplicates (sorted by datacenter id) which has a match
+        # on the eida routing service or db is taken, the other(s) discarded.
+        # If no station match (the station is not supposed to be
+        # returned by ANY datacenter in the eida-rs, or we do not have that station on the db)
+        # the station, and all its channels, are discarded
         #
         # To test what we just said, we write here the datacenters station query responses.
         # LEGEND. In the channel:
@@ -1095,10 +1189,9 @@ YY|yy||DEL|3|4|6|0|0|0|OK: channel check done cause it's dupe: matches    |8|0.1
 
         # get channels with the above implemented urlread_sideeffect:
         cha_df = self.get_channels_df(urlread_sideeffect, self.session,
-                                                       datacenters_df,
-                                                       eidavalidator,
-                                                       channels, None, None, 10,
-                                                       False, None, None, -1, self.db_buf_size)
+                                      datacenters_df, eidavalidator,
+                                      net, sta, loc, cha, None, None, 10,
+                                      False, None, None, -1, self.db_buf_size)
         # if u want to check what has been taken, issue in the debugger:
         # str(dbquery2df(self.session.query(Channel.id, Station.network, Station.station, Channel.channel, Channel.station_id, Station.datacenter_id).join(Station)))
         csd = dbquery2df(self.session.query(Channel.sensor_description))
@@ -1111,7 +1204,7 @@ YY|yy||DEL|3|4|6|0|0|0|OK: channel check done cause it's dupe: matches    |8|0.1
         cha_df2 = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        None,
-                                                       channels, None, None, 10,
+                                                       net, sta, loc, cha, None, None, 10,
                                                        False, None, None, -1, self.db_buf_size)
         
         # assert that we get the same result as when eidavalidator is None:
@@ -1124,7 +1217,7 @@ YY|yy||DEL|3|4|6|0|0|0|OK: channel check done cause it's dupe: matches    |8|0.1
         cha_df3 = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        eidavalidator,
-                                                       channels, None, None, 10,
+                                                       net, sta, loc, cha, None, None, 10,
                                                        False, None, None, -1, self.db_buf_size)
         # we tested visually that everything is ok visually by issuing a 
         # str(dbquery2df(self.session.query(Channel.id, Station.network, Station.station, Channel.channel, Channel.station_id, Station.datacenter_id).join(Station)))
@@ -1162,10 +1255,10 @@ YY|yy||DEL|3|4|6|0|0|0|OK: channel check done cause it's dupe: matches    |8|0.1
         events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", db_bufsize=self.db_buf_size)
 
 
-        channels = None
+        net, sta, loc, cha = [], [], [], []
         datacenters_df, eidavalidator = \
             self.get_datacenters_df(None, self.session, None, self.routing_service,
-                                    channels=channels, db_bufsize=self.db_buf_size)
+                                    net, sta, loc, cha, db_bufsize=self.db_buf_size)
 
         # url read for channels: Note: first response data raises, second has an error and
         #that error is skipped (other channels are added), and last two channels are from two
@@ -1183,7 +1276,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         channels_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        eidavalidator,
-                                                       channels, None, None, 10,
+                                                       net, sta, loc, cha, None, None, 10,
                                                        False, None, None, -1, self.db_buf_size
                                                )
         
@@ -1286,14 +1379,14 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # prepare:
         urlread_sideeffect = None  # use defaults from class
         events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", db_bufsize=self.db_buf_size)
-        channels = None
+        net, sta, loc, cha = [], [], [], []
         datacenters_df, eidavalidator = \
             self.get_datacenters_df(urlread_sideeffect, self.session, None, self.routing_service,
-                                    channels=channels, db_bufsize=self.db_buf_size)                                      
+                                    net, sta, loc, cha, db_bufsize=self.db_buf_size)                                      
         channels_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        eidavalidator,
-                                                       channels, None, None, 100,
+                                                       net, sta, loc, cha, None, None, 100,
                                                        False, None, None, -1, self.db_buf_size
                                                )
         assert len(channels_df) == 12  # just to be sure. If failing, we might have changed the class default
@@ -1484,15 +1577,15 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 20160508_0000004|2016-05-08 05:17:12.300000|1.001|1.001|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|4|EMSC|CROATIA
 """
         events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", db_bufsize=self.db_buf_size)
-        channels = None
+        net, sta, loc, cha = [], [], [], []
         urlread_sideeffect = None
         datacenters_df, eidavalidator = \
             self.get_datacenters_df(urlread_sideeffect, self.session, None, self.routing_service,
-                                    channels=channels, db_bufsize=self.db_buf_size)                                      
+                                    net, sta, loc, cha, db_bufsize=self.db_buf_size)                                      
         channels_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        eidavalidator,
-                                                       channels, None, None, 100,
+                                                       net, sta, loc, cha, None, None, 100,
                                                        False, None, None, -1, self.db_buf_size
                                                )
         assert len(channels_df) == 12  # just to be sure. If failing, we might have changed the class default
@@ -1597,14 +1690,15 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         
         urlread_sideeffect = None  # use defaults from class
         events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", db_bufsize=self.db_buf_size)
-        channels = None
+        net, sta, loc, cha = [], [], [], []
         datacenters_df, eidavalidator = \
             self.get_datacenters_df(urlread_sideeffect, self.session, self.service,
-                                    self.routing_service, channels, db_bufsize=self.db_buf_size)                                      
+                                    self.routing_service, net, sta, loc, cha,
+                                    db_bufsize=self.db_buf_size)                                      
         channels_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        eidavalidator,
-                                                       channels, None, None, 10,
+                                                       net, sta, loc, cha, None, None, 10,
                                                        False, None, None, -1, self.db_buf_size
                                                )
         assert len(channels_df) == 12  # just to be sure. If failing, we might have changed the class default
@@ -1912,14 +2006,15 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         events_df = self.get_events_df(urlread_sideeffect, self.session, "http://eventws", db_bufsize=self.db_buf_size)
         # restore urlread_side_effect:
         urlread_sideeffect = None
-        channels = None
+        net, sta, loc, cha = [], [], [], []
         datacenters_df, eidavalidator = \
             self.get_datacenters_df(urlread_sideeffect, self.session, self.service,
-                                    self.routing_service, channels, db_bufsize=self.db_buf_size)                                      
+                                    self.routing_service, net, sta, loc, cha,
+                                    db_bufsize=self.db_buf_size)                                      
         channels_df = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        eidavalidator,
-                                                       channels, None, None, 10,
+                                                       net, sta, loc, cha, None, None, 10,
                                                        False, None, None, -1, self.db_buf_size
                                                )
         assert len(channels_df) == 12  # just to be sure. If failing, we might have changed the class default

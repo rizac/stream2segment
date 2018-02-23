@@ -78,11 +78,34 @@ eventws_query_args:
 
 # data-select web service to use (url). It should be fdsn compliant, so that the relative
 # station url can be retrieved automatically. You can also type two special values, "iris" and
-# "eida". The former is just a shortcut for the iris data-select url, the latter will automatically
-# fetch all eida datacenters and their urls
+# "eida". The former is just a shortcut for the iris data-select urls
+# (https://service.iris.edu/fdsnws/station/1/query for stations and channels,
+# https://service.iris.edu/fdsnws/dataselect/1/query for data), the latter will automatically
+# fetch all eida datacenters and their urls.
+# For any datacenter which fails to download stations and channels (e.g., network error, client/server error)
+# the database will be queried with the same filters (see network, station, location, channel and min_sample_rate, if provided)
+# after converting FDSN syntax to SQL, when needed.
+# If no datacenter station's url returns data and the db is empty (first download) the download process will stop
 dataws: 'eida'
 
-# channels to be downloaded for each station found
+# Limit the search to stations and channels matching any of the four parameters:
+# network, station, location, channel.
+# Parameter values are strings following FDSN queries syntax (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf),
+# i.e. can be given as comma separated strings with wildcards * and ? allowed.
+# The FDSN syntax is enhanced here with the operator ! to indicate logical NOT. So e.g.:
+# stations: "AA?,!AA3". Pay attention for complex syntax to contradictory statements, as the download might not work. This e.g. does not download anything:
+# channels: "!*"
+# networks: "HH?, !HH?"
+# will download all stations starting with 'AA' but not the station 'AA3' (and relative data waveforms).
+# If any parameter is omitted, then no filter is applied for that parameter. 
+# Parameters can be given also by omitting the last 's' to be FDSN compliant (e.g., channel, station, ...).
+# From the config file (not the command line) you can also specify a list/array of strings in yaml format
+# instead of comma-separated strings. E.g., these are quivalent:
+# networks: [ "A,B" , "C" ]
+# networks: "A,B,C"
+# networks:
+#  - "A, B"
+#  - "C"
 channels:
  - "HH?"
  # - 'SH?'
@@ -90,6 +113,11 @@ channels:
  # - 'SN?'
  - 'HL?'
  # - 'SL?'
+
+# Limit the search to station's channels with at least min_sample_rate (in Hz).
+# The relative segments are *mot likely* (not always) matching the channel sample rate.
+# Set to 0 or negative number to ignore the sampling rate
+min_sample_rate: 60
 
 # search radius: for each event, stations will be searched within a circular area whose radius is a linear function
 # of the event magnitude:
@@ -112,11 +140,6 @@ search_radius:
  maxmag: 7 # max magnitude
  minmag_radius: 3 # search radius for min mag (deg)
  maxmag_radius: 3 # search radius for max mag (deg)
- 
-# Limit the search to station channels with at least min_sample_rate (in Hz).
-# The relative segments are *mot likely* (not always) matching the channel sample rate.
-# Set to 0 or negative number to ignore the sampling rate
-min_sample_rate: 60
 
 # The model to be used to asses the travel times of a wave from
 # the event location to each station location. For each segment, the arrival time (travel

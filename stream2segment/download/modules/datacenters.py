@@ -16,7 +16,7 @@ from collections import defaultdict
 import pandas as pd
 
 from stream2segment.io.db.models import DataCenter, fdsn_urls
-from stream2segment.download.utils import QuitDownload, dbsyncdf, empty
+from stream2segment.download.utils import QuitDownload, dbsyncdf, empty, to_fdsn_arg
 from stream2segment.utils import strconvert, urljoin
 from stream2segment.utils.url import URLException, urlread
 from stream2segment.utils.msgs import MSG
@@ -31,7 +31,7 @@ from stream2segment.download import logger  # @IgnorePep8
 
 
 def get_datacenters_df(session, service, routing_service_url,
-                       channels, starttime=None, endtime=None,
+                       net, sta, loc, cha, starttime=None, endtime=None,
                        db_bufsize=None):
     """Returns a 2 elements tuple: the dataframe of the datacenter(s) matching `service`,
     and an EidaValidator (built on the eida routing service response)
@@ -73,7 +73,7 @@ def get_datacenters_df(session, service, routing_service_url,
                                              "Url does not seem to be a valid fdsn url", service)))
     else:
         dc_df, eidars_responsetext = get_eida_datacenters_df(session, routing_service_url,
-                                                             channels, starttime, endtime)
+                                                             net, sta, loc, cha, starttime, endtime)
 
     # attempt saving to db only if we might have something to save:
     if service != 'eida' or eidars_responsetext:  # not eida, or eida succesfully queried: Sync db
@@ -85,7 +85,8 @@ def get_datacenters_df(session, service, routing_service_url,
     return dc_df, eidavalidator
 
 
-def get_eida_datacenters_df(session, routing_service_url, channels, starttime=None, endtime=None):
+def get_eida_datacenters_df(session, routing_service_url, net, sta, loc, cha,
+                            starttime=None, endtime=None):
     """Returns the tuple (datacenters_df, eidavalidator) from eidars or from the db (in this latter
     case eidavalidator is None)
     """
@@ -97,14 +98,17 @@ def get_eida_datacenters_df(session, routing_service_url, channels, starttime=No
 
     # do not return only new datacenters, return all of them
     query_args = {'service': 'dataselect', 'format': 'post'}
-    if channels:
-        query_args['channel'] = ",".join(channels)
     if starttime:
         query_args['start'] = starttime.isoformat()
     if endtime:
         query_args['end'] = endtime.isoformat()
 
+    for param, lst in zip(('net', 'sta', 'loc', 'cha'), (net, sta, loc, cha)):
+        if lst:
+            query_args[param] = to_fdsn_arg(lst)
+
     url = urljoin(routing_service_url, **query_args)
+
     dc_df = None
     dclist = []
 

@@ -18,7 +18,7 @@ from sqlalchemy import or_, and_
 
 from stream2segment.io.db.models import DataCenter, Station, Channel
 from stream2segment.download.utils import read_async, response2normalizeddf, empty, QuitDownload,\
-    handledbexc, dbsyncdf
+    handledbexc, dbsyncdf, to_fdsn_arg
 from stream2segment.utils.msgs import MSG
 from stream2segment.utils import get_progressbar, strconvert
 from stream2segment.io.db.pdsql import dbquery2df, shared_colnames, mergeupdate
@@ -26,6 +26,7 @@ from stream2segment.io.db.pdsql import dbquery2df, shared_colnames, mergeupdate
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#aliased-imports):
 from future import standard_library
+import re
 standard_library.install_aliases()
 from urllib.parse import urlparse  # @IgnorePep8
 from urllib.request import Request  # @IgnorePep8
@@ -39,7 +40,7 @@ from stream2segment.download import logger  # @IgnorePep8
 
 
 def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
-                    channels, starttime, endtime,
+                    net, sta, loc, cha, starttime, endtime,
                     min_sample_rate, update,
                     max_thread_workers, timeout, blocksize, db_bufsize,
                     show_progress=False):
@@ -57,9 +58,9 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
     :param min_sample_rate: minimum sampling rate, set to negative value for no-filtering
     (all channels)
     """
-    postdata = "* * * %s %s %s" % (",".join(channels) if channels else "*",
-                                   "*" if not starttime else starttime.isoformat(),
-                                   "*" if not endtime else endtime.isoformat())
+    postdata = get_post_data(net, sta, loc, cha, starttime, endtime)
+    purgedf = get_pd_filterfunc(net, sta, loc, cha)  # it's a function(dataframe, copy=False)
+    
     ret = []
     url_failed_dc_ids = []
     iterable = ((id_, Request(url,
@@ -81,8 +82,10 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
             else:
                 try:
                     df = response2normalizeddf(url, result[0], "channel")
-                except ValueError as exc:
-                    logger.warning(MSG("Discarding response data", exc, url))
+                    # remove stuff we do not want, if specified in any net, sta, loc, cha param:
+                    df = purgedf(df)
+                except ValueError as verr:
+                    logger.warning(MSG("Discarding response data", verr, url))
                     df = empty()
                 if not empty(df):
                     df[Station.datacenter_id.key] = dcen_id
@@ -95,8 +98,8 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
                     "download errors occurred") %
                     (len(dc_df_fromdb), len(datacenters_df)) + ":")
         logger.info(dc_df_fromdb[DataCenter.dataselect_url.key].to_string(index=False))
-        db_cha_df = get_channels_df_from_db(session, dc_df_fromdb, channels, starttime, endtime,
-                                            min_sample_rate, db_bufsize)
+        db_cha_df = get_channels_df_from_db(session, dc_df_fromdb, net, sta, loc, cha,
+                                            starttime, endtime, min_sample_rate, db_bufsize)
 
     # build two dataframes which we will concatenate afterwards
     web_cha_df = pd.DataFrame()
@@ -145,11 +148,110 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
         return pd.concat((web_cha_df, db_cha_df), axis=0, ignore_index=True)[colnames].copy()
 
 
-def get_channels_df_from_db(session, datacenters_df, channels, starttime, endtime, min_sample_rate,
-                            db_bufsize):
+def get_post_data(net, sta, loc, cha, starttime=None, endtime=None):
+    '''Returns the string for a FDSN POST request according to the given 
+        net(works), sta(tions), loc(ations) and cha(nnels), all iterable of strings
+        returned by :func:`stream2segment.download.utils.nslc_lists`
+    
+    Example:
+        asget([], ['ABC'], [''], ['!A*', 'HH?', 'HN?'], None, None) = '* ABC -- HH?,HN? * *'
+    
+    Note negations (!A*) not included: strings starting with "!" mean 'NOT' in this
+    program's syntax: as this feature is not supported in an FDSN query it
+    cannot be forwarded to any web service. The feature is used here in other module functions
+    *after* downloading data
+    
+    Arguments are usually the output of :func:`stream2segment.download.utils.nslc_lists`:
+    
+    :param net: an iterable of strings denoting networks.
+    :param sta: an iterable of strings denoting stations.
+    :param loc: an iterable of strings denoting locations.
+    :param cha: an iterable of strings denoting channels.
+    '''
+    args = []
+    for i, lst in enumerate([net, sta, loc, cha]):
+        arg = '*'
+        if lst:
+            arg = to_fdsn_arg(lst)
+            if i == 3 and not arg:  # location case, empty has to be input as '--'
+                arg = '--'
+        args.append(arg)
+    
+    args.append("*" if not starttime else starttime.isoformat())
+    args.append("*" if not endtime else endtime.isoformat())
+    
+    return "{} {} {} {} {} {}".format(*args)
+
+
+
+def get_pd_filterfunc(net, sta, loc, cha):
+    '''Returns a function which can filter out the given 
+        net(works), sta(tions), loc(ations) and cha(nnels)
+    from a pandas dataframe resulting from a FDSN station query (level=channel).
+    The returned function signature is: func(dataframe, copy=False) and copy is an optional
+    parameter denoting if the returned dataframe should be a copy or not (the argument will be
+    ignored in some cases where no filter will be applied)
+    
+    Example:
+        aspdfilter([], ['ABC'], [''], ['!A*', 'HH?', 'HN?']) returns a function
+        
+        func(dataframe, copy=False)
+        
+        which basically takes the dataframe, finds the column related to the `channels` key and
+        removes all rowv whose channel starts with 'A'.
+    
+        The dataframe should be the result from `:func:normalize_fdsn_dframe` with second argument 
+        'channel', otherwise any column related to network, station, location or channel might not
+        be found
+    
+    See :func:`get_channels_df` of this module for its usage in the download workflow.
+    Note that standard FDSN strings, i.e. non negations ('ABC', '', 'HH?', 'HN?') are NOT
+    used by the function
+
+    Arguments are usually the output of :func:`stream2segment.download.utils.nslc_lists`
+    
+    :param net: an iterable of strings denoting networks.
+    :param sta: an iterable of strings denoting stations.
+    :param loc: an iterable of strings denoting locations.
+    :param cha: an iterable of strings denoting channels.
+    '''
+    # create a dict of regexps for pandas dataframe. FDSNWS do not support NOT
+    # operators and thus we need to call filter(dataframe) after dataframe has been
+    # created from fetched url data
+    pd_re = {}  #filter = df['Event Name'].str.contains(patternDel)
+    sa_cols = (Station.network, Station.station, Channel.location, Channel.channel)
+
+    for lst, sa_col in zip((net, sta, loc, cha), sa_cols):
+        if not lst:
+            continue
+        lst = [_ for _ in lst if _[0:1] == '!']
+        if not lst:
+            continue
+        condition = ("^%s$" if len(lst) == 1 else "^(?:%s)$") % \
+            "|".join(strconvert.wild2re(x[1:]) for x in lst)
+        colname = sa_col.key
+        pd_re[colname] = re.compile(condition)
+
+    if not pd_re:
+        return lambda dataframe, *a, **kw: dataframe  # @UnusedVariable
+        
+    def func(dataframe, copy=False):
+        flt = None
+        for colname, reg in pd_re.items():
+            colflt = dataframe[colname].str.match(reg)
+            if flt is None:
+                flt = ~colflt
+            else:
+                flt |= ~colflt
+        return dataframe if flt is None else dataframe[flt].copy() if copy else dataframe[flt]
+
+    return func
+
+
+def get_channels_df_from_db(session, datacenters_df, net, sta, loc, cha, starttime, endtime,
+                            min_sample_rate, db_bufsize):
+    # Build sql-alchemy binary expressions
     # _be means "binary expression" (sql alchemy object reflecting a sql clause)
-    cha_be = or_(*[Channel.channel.like(strconvert.wild2sql(cha)) for cha in channels]) \
-        if channels else True
     srate_be = Channel.sample_rate >= min_sample_rate if min_sample_rate > 0 else True
     # select only relevant datacenters. Convert tolist() cause python3 complains of numpy ints
     # (python2 doesn't but tolist() is safe for both):
@@ -165,13 +267,63 @@ def get_channels_df_from_db(session, datacenters_df, channels, starttime, endtim
     sa_cols = [Channel.id, Channel.station_id, Station.latitude, Station.longitude,
                Station.start_time, Station.end_time, Station.datacenter_id, Station.network,
                Station.station, Channel.location, Channel.channel]
+    # filter on net, sta, loc, cha, as specified in config and converted to sql-alchemy be:
+    nslc_be = get_sqla_binexp(net, sta, loc, cha)
     # note below: binary expressions (all variables ending with "_be") might be the boolean True.
     # SqlAlchemy seems to understand them as long as they are preceded by a "normal" binary
     # expression. Thus q.filter(binary_expr & True) works and it's equal to q.filter(binary_expr),
     # BUT .filter(True & True) is not working as a no-op filter, it simply does not work
-    qry = session.query(*sa_cols).join(Channel.station).filter(and_(dc_be, srate_be, cha_be,
+    # Here we should be safe cause dc_be is a non-True sql alchemy expression (see above)
+    qry = session.query(*sa_cols).join(Channel.station).filter(and_(dc_be, srate_be, nslc_be,
                                                                     stime_be, etime_be))
     return dbquery2df(qry)
+
+
+def get_sqla_binexp(net, sta, loc, cha):
+    '''Returns the sql-alchemy binary expression to be used as argument
+    for db queries (e.g., `session.query(...)`) which translates to SQL the given 
+        net(works), sta(tions), loc(ations) and cha(nnels), all iterable of strings.
+    
+    Example:
+        asbinexp([], ['ABC'], [''], ['!A*', 'HH?', 'HN?']) = 'sta=ABC&loc=&cha=HH?,HN?'
+    
+    Note negations (!A*) mean 'NOT' in this
+    program's syntax (this feature is not standard in an FDSN query)
+    
+    Arguments are usually the output of :func:`stream2segment.download.utils.nslc_lists`
+    
+    :param net: an iterable of strings denoting networks.
+    :param sta: an iterable of strings denoting stations.
+    :param loc: an iterable of strings denoting locations.
+    :param cha: an iterable of strings denoting channels.
+    '''
+    # build a sql alchemy filter condition
+    sa_cols = (Station.network, Station.station, Channel.location, Channel.channel)
+
+    sa_bin_exprs = []
+
+    wild2sql = strconvert.wild2sql  # conversion function
+    
+    for column, lst in zip(sa_cols, (net, sta, loc, cha)):
+        matches = []
+        for string in lst:
+            negate = False
+            if string[0:1] == '!':
+                negate = True
+                string = string[1:]
+            
+            condition = column.like(wild2sql(string)) if ('?' in string or '*' in string) \
+                else (column == string)
+            
+            if negate:
+                condition = ~condition
+            
+            matches.append(condition)
+            
+        if matches:
+            sa_bin_exprs.append(or_(*matches))
+
+    return True if not sa_bin_exprs else and_(*sa_bin_exprs)
 
 
 def save_stations_and_channels(session, channels_df, eidavalidator, update, db_bufsize):

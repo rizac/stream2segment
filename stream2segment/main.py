@@ -38,6 +38,7 @@ from stream2segment.utils.resources import get_templates_fpaths
 from stream2segment.gui.main import create_p_app, run_in_browser, create_d_app
 from stream2segment.process import math as s2s_math
 from stream2segment.utils import strconvert, iterfuncs
+from stream2segment.download.utils import nslc_lists
 
 
 # set root logger if we are executing this module as script, otherwise as module name following
@@ -56,6 +57,13 @@ def download(isterminal=False, **yaml_dict):
     """
     dburl = yaml_dict['dburl']
     with closing(dburl) as session:
+        # check for networks, stations, locations and channels and harmonize them:
+        net, sta, loc, cha = nslc_lists(yaml_dict)
+        yaml_dict['networks'] = net
+        yaml_dict['stations'] = sta
+        yaml_dict['locations'] = loc
+        yaml_dict['channels'] = cha        
+        
         # print local vars: use safe_dump to avoid python types. See:
         # http://stackoverflow.com/questions/1950306/pyyaml-dumping-without-tags
         download_inst = Download(config=tounicode(yaml.safe_dump(yaml_dict,
@@ -97,6 +105,56 @@ def download(isterminal=False, **yaml_dict):
 
     return 0
 
+
+def adjust_nslc_params(yaml_dic):
+    '''Scans `dic` keys and returtns the tuple
+        ```
+        (N, S, L, C)
+        ```
+    where each element is a list of networks (N), stations (S), locations (L) or channels (C)
+    composed by strings in valid ASCII characters with three special characters:
+    the 2 FDSN-compliant wildcards '*' and '?', and '!' which means NOT (when placed as first
+    character only).
+
+    This function basically returns `",".join(dic[key])` where `key` is any of the following: 
+        'net', 'network' or 'networks'
+        'sta', 'stations' or 'stations'
+        'loc', 'location' or 'locations'
+        'cha', 'channel' or 'channels'
+    In case of keys conflicts (e.g. 'net' and 'network' are both in `dict`) a ValueError is raised.
+    In case a key not found, None or '*', the corresponding element will be the empty list.
+    A returned empty list has to be interpreted as "accept all" (i.e. no filter for that key).
+    All string elements are stripped, meaning that leading and trailing spaces are removed.
+
+    This function doe salso some preliminary check on each string, so that e.g.
+    strings like "!*", or both "A?" and !A?"specified will raise a ValueError in case
+
+    :return: a 4-element tuple net, sta, loc, cha. All elements are lists of strings. Returned
+        empty lists mean: no filter for that key (accept all)
+    '''
+    
+    params = [('net', 'network', 'networks'), ('sta', 'stations', 'stations'),
+              ('loc', 'location', 'locations'), ('cha', 'channel', 'channels')]
+    
+    for i, pars in enumerate(params):
+        
+        arg = None
+        parconflicts = []
+        for p in pars:
+            if p in yaml_dic:
+                parconflicts.append(p)
+                arg = yaml_dic[p]
+            if len(parconflicts) > 1:
+                raise ValueError("Parameter name conflict: cannot handle both %s" %
+                                 (" and ".join('%s' % _ for _ in parconflicts)))
+            
+        s2s_name = pars[-1]
+        val = []
+        if len(parconflicts) and arg is not None and arg not in ([], ()):
+            val = check_nslc_param(val, i)
+        
+        yaml_dic[s2s_name] = val
+        
 
 def process(dburl, pyfile, configfile, outcsvfile, isterminal=False):
     """
