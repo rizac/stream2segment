@@ -118,6 +118,10 @@ class SysOutStreamHandler(logging.StreamHandler):
 
 
 def configlog4processing(logger, outcsvfile, isterminal):
+    # https://docs.python.org/2/howto/logging.html#optimization:
+    logging._srcfile = None
+    logging.logThreads = 0
+    logging.logProcesses = 0
     # config logger (FIXME: merge with download logger?):
     logger.setLevel(logging.INFO)  # this is necessary to configure logger HERE, otherwise the
     # handler below does not work. FIXME: better implementation!!
