@@ -44,7 +44,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
     try:
         tt_table = TTTable(get_ttable_fpath(traveltimes_model))
     except Exception as exc:
-        return log_and_exit(QuitDownload("Error loading travel time file: %s" % str(exc)))
+        return log_and_get_exitcode(QuitDownload("Error loading travel time file: %s" % str(exc)))
         
     # set blocksize if zero:
     if advanced_settings['download_blocksize'] <= 0:
@@ -76,7 +76,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
         events_df = get_events_df(session, eventws, dbbufsize, start=startiso, end=endiso,
                                   **eventws_query_args)
     except QuitDownload as dexc:
-        return log_and_exit(dexc)
+        return log_and_get_exitcode(dexc)
 
     # Get datacenters, store them in the db, returns the dc instances (db rows) correctly added:
     stepinfo("Requesting data-centers")
@@ -85,7 +85,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
             get_datacenters_df(session, dataws, advanced_settings['routing_service_url'],
                                networks, stations, locations, channels, start, end, dbbufsize)
     except QuitDownload as dexc:
-        return log_and_exit(dexc)
+        return log_and_get_exitcode(dexc)
 
     stepinfo("Requesting stations and channels from %d %s", len(datacenters_df),
              "data-center" if len(datacenters_df) == 1 else "data-centers")
@@ -98,7 +98,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
                                       advanced_settings['download_blocksize'], dbbufsize,
                                       isterminal)
     except QuitDownload as dexc:
-        return log_and_exit(dexc)
+        return log_and_get_exitcode(dexc)
 
     # get channel id to mseed id dict and purge channels_df
     # the dict will be used to download the segments later, but we use it now to drop
@@ -111,7 +111,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
                                             search_radius['maxmag'], search_radius['minmag_radius'],
                                             search_radius['maxmag_radius'], tt_table, isterminal)
     except QuitDownload as dexc:
-        return log_and_exit(dexc)
+        return log_and_get_exitcode(dexc)
 
     # help gc by deleting the (only) refs to unused dataframes
     del events_df
@@ -158,7 +158,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
         # 2) we ran out of memory in download_... (QuitDownload with exception message
 
         # in the first case continue, in the latter return a nonzero exit code
-        exit_code = log_and_exit(dexc)
+        exit_code = log_and_get_exitcode(dexc)
         if exit_code != 0:
             return exit_code
 
@@ -192,7 +192,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
     return exit_code
 
 
-def log_and_exit(quitdownloadexc):
+def log_and_get_exitcode(quitdownloadexc):
     '''logs with the appropriate level and returns the relative exit code from the exception
     argument
     :param quitdownloadexc: a QuitDownload exception

@@ -67,7 +67,7 @@ def get_events_df(session, eventws_url, db_bufsize, **args):
 
     if not ret:  # pd.concat below raise ValueError if ret is empty:
         raise QuitDownload(Exception(MSG("",
-                                         "No events found. Check config and log for details",
+                                         "No events found. Check input config. or log for details",
                                          url)))
 
     events_df = pd.concat(ret, axis=0, ignore_index=True, copy=False)
