@@ -46,66 +46,6 @@ from stream2segment.io.db.models import Segment, Station, Event, Channel
 logger = logging.getLogger(__name__)
 
 
-# THE FUNCTION BELOW REDIRECTS STANDARD ERROR/OUTPUT FROM EXTERNAL PROGRAM
-# http://stackoverflow.com/questions/5081657/how-do-i-prevent-a-c-shared-library-to-print-on-stdout-in-python
-# there's a second one easier to understand but does not restore old std/err stdout
-# Added comments from
-# http://stackoverflow.com/questions/8804893/redirect-stdout-from-python-for-c-calls
-@contextmanager
-def redirect(src=sys.stdout, dst=os.devnull):
-    '''
-    import os
-
-    with stdout_redirected(to=filename):
-        print("from Python")
-        os.system("echo non-Python applications are also supported")
-    '''
-
-    # some tools (e.g., pytest) change sys.stderr. In that case, we do want this
-    # function to yield and return without changing anything:
-    try:
-        file_desc = src.fileno()
-    except (AttributeError, OSError) as _:
-        yield
-        return
-
-    # # assert that Python and C stdio write using the same file descriptor
-    # assert libc.fileno(ctypes.c_void_p.in_dll(libc, "stdout")) == file_desc == 1
-
-    def _redirect_stderr(to):
-        sys.stderr.close()  # + implicit flush()
-        os.dup2(to.fileno(), file_desc)  # file_desc writes to 'to' file
-        sys.stderr = os.fdopen(file_desc, 'w')  # Python writes to file_desc
-
-    def _redirect_stdout(to):
-        sys.stdout.close()  # + implicit flush()
-        os.dup2(to.fileno(), file_desc)  # file_desc writes to 'to' file
-        sys.stdout = os.fdopen(file_desc, 'w')  # Python writes to file_desc
-
-    _redirect_ = _redirect_stderr if src is sys.stderr else _redirect_stdout
-
-    with os.fdopen(os.dup(file_desc), 'w') as old_:
-        with open(dst, 'w') as fopen:
-            _redirect_(to=fopen)
-        try:
-            yield  # allow code to be run with the redirected stdout/err
-        finally:
-            # restore stdout. buffering and flags such as CLOEXEC may be different:
-            _redirect_(to=old_)
-
-
-def default_funcname():
-    '''returns 'main', the default function name for processing, when such a name is not given'''
-    return 'main'
-
-
-def load_proc_cfg(configsourcefile):
-    """Returns the dict represetning the processing yaml file"""
-    # After refactoring, this function simply calls the default "yaml to dict" function (yaml_load)
-    # leave it here for testing purposes (mock)
-    return yaml_load(configsourcefile)
-
-
 def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=False):
     reg = re.compile("^(.*):([a-zA-Z_][a-zA-Z_0-9]*)$")
     m = reg.match(pysourcefile)
@@ -206,8 +146,8 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
                                 else:  # B) are we changing the segment?:
                                     # clear the segment and its components, if any. FIXME: DO WE?
                                     session.expunge(segment)
-                                    for _ in other_orients_list:
-                                        session.expunge(_)
+                                    for otherseg_ in other_orients_list:
+                                        session.expunge(otherseg_)
                                 # force to query segment to the db:
                                 segment = None
                         if segment is None:
@@ -265,6 +205,66 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
         logger.info("%d of %d segments skipped without messages\n" , skipped, seg_len)
         logger.info("%d of %d segments skipped with message "
                     "(check log or details)\n", skipped_error, seg_len)
+
+
+# THE FUNCTION BELOW REDIRECTS STANDARD ERROR/OUTPUT FROM EXTERNAL PROGRAM
+# http://stackoverflow.com/questions/5081657/how-do-i-prevent-a-c-shared-library-to-print-on-stdout-in-python
+# there's a second one easier to understand but does not restore old std/err stdout
+# Added comments from
+# http://stackoverflow.com/questions/8804893/redirect-stdout-from-python-for-c-calls
+@contextmanager
+def redirect(src=sys.stdout, dst=os.devnull):
+    '''
+    import os
+
+    with stdout_redirected(to=filename):
+        print("from Python")
+        os.system("echo non-Python applications are also supported")
+    '''
+
+    # some tools (e.g., pytest) change sys.stderr. In that case, we do want this
+    # function to yield and return without changing anything:
+    try:
+        file_desc = src.fileno()
+    except (AttributeError, OSError) as _:
+        yield
+        return
+
+    # # assert that Python and C stdio write using the same file descriptor
+    # assert libc.fileno(ctypes.c_void_p.in_dll(libc, "stdout")) == file_desc == 1
+
+    def _redirect_stderr(to):
+        sys.stderr.close()  # + implicit flush()
+        os.dup2(to.fileno(), file_desc)  # file_desc writes to 'to' file
+        sys.stderr = os.fdopen(file_desc, 'w')  # Python writes to file_desc
+
+    def _redirect_stdout(to):
+        sys.stdout.close()  # + implicit flush()
+        os.dup2(to.fileno(), file_desc)  # file_desc writes to 'to' file
+        sys.stdout = os.fdopen(file_desc, 'w')  # Python writes to file_desc
+
+    _redirect_ = _redirect_stderr if src is sys.stderr else _redirect_stdout
+
+    with os.fdopen(os.dup(file_desc), 'w') as old_:
+        with open(dst, 'w') as fopen:
+            _redirect_(to=fopen)
+        try:
+            yield  # allow code to be run with the redirected stdout/err
+        finally:
+            # restore stdout. buffering and flags such as CLOEXEC may be different:
+            _redirect_(to=old_)
+
+
+def default_funcname():
+    '''returns 'main', the default function name for processing, when such a name is not given'''
+    return 'main'
+
+
+def load_proc_cfg(configsourcefile):
+    """Returns the dict represetning the processing yaml file"""
+    # After refactoring, this function simply calls the default "yaml to dict" function (yaml_load)
+    # leave it here for testing purposes (mock)
+    return yaml_load(configsourcefile)
 
 
 def query4process(session, conditions=None):

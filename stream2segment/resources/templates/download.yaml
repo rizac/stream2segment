@@ -142,18 +142,20 @@ search_radius:
  maxmag_radius: 3 # search radius for max mag (deg)
 
 # The model to be used to asses the travel times of a wave from
-# the event location to each station location. For each segment, the arrival time (travel
+# the event location to each station location. Type a string denoting a file name (absolute path)
+# of a custom model created by means of `s2s utils ttcreate` or one of the 4 built-in models
+# (all assuming receiver depth=0 for simplicity):
+# ak135_ttp+: ak135 model pre-computed for all ttp+ phases (P wave arrivals)
+# ak135_tts+: ak135 model pre-computed for all tts+ phases (S wave arrivals)
+# iasp91_ttp+: iasp91 model pre-computed for all ttp+ phases (P wave arrivals)
+# iasp91_tts+: iasp91 model pre-computed for all tts+ phases (S wave arrivals)
+# For each segment, the arrival time (travel
 # time + event time) will be the pivot whereby the user sets up the download time window
 # (see also 'timespan').
 # A model is internally a 2- or 3-dimensional grid
 # of pre-computed travel time points coupled with an highly efficient
 # algoritm which returns interpolated travel time values. This results in a relevant increase in
 # execution speed, with max errors in the order of 0.5 seconds due to interpolation.
-# The available default models, all assuming receiver depth=0 for simplicity, are:
-# ak135_ttp+: ak135 model pre-computed for all ttp+ phases (P wave arrivals)
-# ak135_tts+: ak135 model pre-computed for all tts+ phases (S wave arrivals)
-# iasp91_ttp+: iasp91 model pre-computed for all ttp+ phases (P wave arrivals)
-# iasp91_tts+: iasp91 model pre-computed for all tts+ phases (S wave arrivals)
 traveltimes_model: 'ak135_ttp+'
 
 # The segment's data time window to download: specify two positive floats denoting the 

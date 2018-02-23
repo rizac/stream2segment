@@ -49,9 +49,12 @@ def download_setup(filename, **params):
 
     assert not os.path.isfile(name)
 
-
-@patch("stream2segment.main.download", return_value=0)
-def test_click_download(mock_download):
+@patch("stream2segment.main.configlog4download")
+@patch("stream2segment.main.new_db_download")
+@patch("stream2segment.main.closing")
+@patch("stream2segment.main.run_download", return_value=0)
+def test_click_download(mock_download, mock_closing, mock_new_db_download,
+                        mock_configlog4download):
     runner = CliRunner()
     # test normal case and arguments.
     with download_setup("download.yaml") as (conffile, yamldic):
@@ -59,31 +62,37 @@ def test_click_download(mock_download):
         dic = mock_download.call_args_list[0][1]
         assert dic['start'] == yamldic['start']
         assert dic['end'] == yamldic['end']
-        assert dic['dburl'] == yamldic['dburl']
+        mock_closing.assert_called_once_with(yamldic['dburl'])
+        #assert dic['dburl'] == yamldic['dburl']
         assert result.exit_code == 0
 
         # test by supplying an argument it is overridden
         mock_download.reset_mock()
+        mock_closing.reset_mock()
         newdate = yamldic['start'] + timedelta(seconds=1)
         result = runner.invoke(cli, ['download', '-c', conffile, '--start', newdate])
         dic = mock_download.call_args_list[0][1]
         assert dic['start'] == newdate
         assert dic['end'] == yamldic['end']
-        assert dic['dburl'] == yamldic['dburl']
+        mock_closing.assert_called_once_with(yamldic['dburl'])
+        # assert dic['dburl'] == yamldic['dburl']
         assert result.exit_code == 0
 
         # test by supplying the same argument as string instead of datetime (use end instead of start this time)
         mock_download.reset_mock()
+        mock_closing.reset_mock()
         result = runner.invoke(cli, ['download', '-c', conffile, '--end', newdate.isoformat()])
         dic = mock_download.call_args_list[0][1]
         assert dic['end'] == newdate
         assert dic['start'] == yamldic['start']
-        assert dic['dburl'] == yamldic['dburl']
+        mock_closing.assert_called_once_with(yamldic['dburl'])
+        # assert dic['dburl'] == yamldic['dburl']
         assert result.exit_code == 0
 
     # test start and end given as integers
     with download_setup("download.yaml", start=1, end=0) as (conffile, yamldic):
         mock_download.reset_mock()
+        mock_closing.reset_mock()
         result = runner.invoke(cli, ['download', '-c', conffile])
         dic = mock_download.call_args_list[0][1]
         d = datetime.utcnow()
@@ -91,7 +100,8 @@ def test_click_download(mock_download):
         endd = datetime(d.year, d.month, d.day)
         assert dic['start'] == startd
         assert dic['end'] == endd
-        assert dic['dburl'] == yamldic['dburl']
+        mock_closing.assert_called_once_with(yamldic['dburl'])
+        # assert dic['dburl'] == yamldic['dburl']
         assert result.exit_code == 0
 
     # test removing an item in the config.yaml this item is not passed to download func

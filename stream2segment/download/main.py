@@ -13,10 +13,11 @@ import os
 import logging
 
 import psutil
+import yaml
 
 from stream2segment.io.db.pdsql import dbquery2df
 from stream2segment.traveltimes.ttloader import TTTable
-from stream2segment.utils.resources import get_ttable_fpath
+from stream2segment.utils.resources import get_ttable_fpath, version
 from stream2segment.download.utils import QuitDownload, empty
 from stream2segment.download.modules.events import get_events_df
 from stream2segment.download.modules.datacenters import get_datacenters_df
@@ -25,6 +26,8 @@ from stream2segment.download.modules.stationsearch import merge_events_stations
 from stream2segment.download.modules.segments import prepare_for_download, download_save_segments,\
     chaid2mseedid_dict
 from stream2segment.download.modules.stations import save_inventories, query4inventorydownload
+from stream2segment.utils import tounicode
+from stream2segment.io.db.models import Download
 
 
 logger = logging.getLogger(__name__)
@@ -34,17 +37,15 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
         networks, stations, locations, channels, min_sample_rate,
         search_radius, update_metadata, inventory, timespan,
         retry_seg_not_found, retry_url_err, retry_mseed_err, retry_client_err, retry_server_err,
-        retry_timespan_err, traveltimes_model, advanced_settings, isterminal=False):
+        retry_timespan_err, tt_table, advanced_settings, isterminal=False):
     """
-        Downloads waveforms related to events to a specific path. FIXME: improve doc
+        Downloads waveforms related to events to a specific path.
+        This function is not intended to be called directly (PENDING: update doc?)
+        
+        :raise: QuitDownload exceptions
     """
 
     # RAMAINDER: **Any function here EXPECTS THEIR DATAFRAME INPUT TO BE NON-EMPTY.**
-
-    try:
-        tt_table = TTTable(get_ttable_fpath(traveltimes_model))
-    except Exception as exc:
-        return log_and_get_exitcode(QuitDownload("Error loading travel time file: %s" % str(exc)))
         
     # set blocksize if zero:
     if advanced_settings['download_blocksize'] <= 0:
@@ -190,6 +191,26 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
                          "- not downloaded %7d (client/server errors)"),
                         n_downloaded, n_empty, n_errors)
     return exit_code
+
+
+def new_db_download(session, params=None):
+    if params is None:
+        params = {}
+    # print local vars: use safe_dump to avoid python types. See:
+    # http://stackoverflow.com/questions/1950306/pyyaml-dumping-without-tags
+    download_inst = Download(config=tounicode(yaml.safe_dump(params,
+                                                             default_flow_style=False)),
+                             # log by default shows error. If everything works fine, we replace
+                             # the content later
+                             log=('N/A: either logger not configured, or content not written '
+                                  'because of an unexpected interruption of the process '
+                                  '(e.g., memory overflow)'), program_version=version())
+    
+    session.add(download_inst)
+    session.commit()
+    download_id = download_inst.id
+    session.close()  # frees memory?
+    return download_id
 
 
 def log_and_get_exitcode(quitdownloadexc):

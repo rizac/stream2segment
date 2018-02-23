@@ -70,7 +70,7 @@ class QuitDownload(Exception):
 
     Note that in both cases the string messages need most likely to be built with the `MSG`
     function for harmonizing the message outputs.
-    (Note also that with the current settings defined in stream2segment/main,
+    (Note also that with the current settings defined in stream2segment.main,
     `log.info` and `log.error` both print also to `stdout`, `log.warning` and `log.debug` do not).
     """
     def __init__(self, exc_or_msg):

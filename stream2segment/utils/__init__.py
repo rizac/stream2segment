@@ -113,8 +113,9 @@ class strconvert(object):
         _   ?    .   matches exactly one character
         === ==== === ===============================
 
-        :return: string. This function does not support escaping, i.e. it
-        converts also escaped characters, if any.
+        :return: string. Note that this function performs a simple replacement: wildcard
+            characters in the input string will result in a string that is not the perfect
+            translation of the input
         """
         return text.replace("%", "*").replace("_", "?")
 
@@ -131,8 +132,9 @@ class strconvert(object):
         _   ?    .   matches exactly one character
         === ==== === ===============================
 
-        :return: string. This function does not support escaping, i.e. it
-        converts also escaped characters, if any.
+        :return: string. Note that this function performs a simple replacement: sql special
+            characters in the input string will result in a string that is not the perfect
+            translation of the input
         """
         return text.replace("*", "%").replace("?", "_")
 
@@ -149,8 +151,9 @@ class strconvert(object):
         _   ?    .   matches exactly one character
         === ==== === ===============================
 
-        :return: string. This function does not support escaping, i.e. it
-        converts also escaped characters, if any.
+        :return: string. Note that this function performs a simple replacement: regexp special
+            characters in the input string will result in a string that is not the perfect
+            translation of the input
         """
         return re.escape(text).replace(r"\*", ".*").replace(r"\?", ".")
 
@@ -167,8 +170,9 @@ class strconvert(object):
         _   ?    .   matches exactly one character
         === ==== === ===============================
 
-        :return: string. This function does not support escaping, i.e. it
-        converts also escaped characters, if any.
+        :return: string. Note that this function performs a simple replacement: regexp special
+            characters in the input string will result in a string that is not the perfect
+            translation of the input
         """
         return re.escape(text).replace(r"\%", ".*").replace("_", ".")
 

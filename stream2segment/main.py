@@ -21,24 +21,25 @@ import os
 from contextlib import contextmanager
 import shutil
 import inspect
+from datetime import datetime, timedelta 
 
 # iterate over dictionary keys without list allocation in both py 2 and 3:
-from future.utils import viewitems
+# from future.utils import viewitems
+
 import yaml
 import click
 
 from stream2segment.utils.log import configlog4download, configlog4processing,\
     elapsedtime2logger_when_finished
-from stream2segment.utils.resources import version
 from stream2segment.io.db.models import Download
 from stream2segment.process.main import to_csv
-from stream2segment.download.main import run as run_download
-from stream2segment.utils import tounicode, get_session, indent, secure_dburl
-from stream2segment.utils.resources import get_templates_fpaths
+from stream2segment.download.main import run as run_download, new_db_download
+from stream2segment.utils import get_session, indent, secure_dburl, strptime, strconvert, iterfuncs
+from stream2segment.utils.resources import get_templates_fpaths, yaml_load, get_ttable_fpath
 from stream2segment.gui.main import create_p_app, run_in_browser, create_d_app
 from stream2segment.process import math as s2s_math
-from stream2segment.utils import strconvert, iterfuncs
 from stream2segment.download.utils import nslc_param_value_aslist
+from stream2segment.traveltimes.ttloader import TTTable
 
 
 # set root logger if we are executing this module as script, otherwise as module name following
@@ -50,30 +51,19 @@ from stream2segment.download.utils import nslc_param_value_aslist
 logger = logging.getLogger("stream2segment")
 
 
-def download(isterminal=False, **yaml_dict):
+def download(config_yaml_path, isterminal=False, **overrides):
     """
         Downloads the given segment providing a set of keyword arguments to match those of the
         config file (see confi.example.yaml for details)
     """
+    yaml_dict = yaml_load(config_yaml_path, **overrides)
     dburl = yaml_dict['dburl']
     with closing(dburl) as session:
         # check for networks, stations, locations and channels and harmonize them:
         adjust_nslc_params(yaml_dict)
-
-        # print local vars: use safe_dump to avoid python types. See:
-        # http://stackoverflow.com/questions/1950306/pyyaml-dumping-without-tags
-        download_inst = Download(config=tounicode(yaml.safe_dump(yaml_dict,
-                                                                 default_flow_style=False)),
-                                 # log by default shows error. If everything works fine, we replace
-                                 # the content later
-                                 log=('Content N/A: this is probably due to an unexpected'
-                                      'and out-of-control interruption of the download process '
-                                      '(e.g., memory error)'), program_version=version())
-
-        session.add(download_inst)
-        session.commit()
-        download_id = download_inst.id
-        session.close()  # frees memory?
+        adjust_times(yaml_dict)
+        tt_table = load_tt_table(yaml_dict['traveltimes_model'])
+        download_id = new_db_download(session, yaml_dict)
 
         if isterminal:
             print("Arguments:")
@@ -94,12 +84,47 @@ def download(isterminal=False, **yaml_dict):
                                                        Download.log.key))
 
         with elapsedtime2logger_when_finished(logger):
+            # replace arg and set tt_table now it's fine (no error sofar):
+            yaml_dict.pop('traveltimes_model')
+            yaml_dict['tt_table'] = tt_table
             run_download(session=session, download_id=download_id, isterminal=isterminal,
                          **yaml_dict)
             logger.info("\n%d total error(s), %d total warning(s)", loghandler.errors,
                         loghandler.warnings)
 
     return 0
+
+
+def load_tt_table(file_or_name):
+    try:
+        filepath = get_ttable_fpath(file_or_name)
+        if not os.path.isfile(filepath):
+            filepath = file_or_name
+        return TTTable(filepath)
+    except Exception as exc:
+        msg = "Error loading travel-times table from file '%s': %s" % (filepath, str(exc))
+        raise ValueError(msg)
+
+def adjust_times(yaml_dict):
+    try:
+        for pname in ['start', 'end']:
+            yaml_dict[pname] = valid_date(yaml_dict[pname])
+    except ValueError as exc:
+        raise ValueError("Invalid parameter '%s': %s" % (pname, str(exc)))
+
+
+def valid_date(obj):
+    try:
+        return strptime(obj)  # if obj is datetime, returns obj
+    except ValueError as _:
+        try:
+            days = int(obj)
+            NOW = datetime.utcnow()
+            endt = datetime(NOW.year, NOW.month, NOW.day, 0, 0, 0, 0)
+            return endt - timedelta(days=days)
+        except Exception:
+            pass
+    raise ValueError("please supply a date-time or an integer")
 
 
 def adjust_nslc_params(yaml_dic):

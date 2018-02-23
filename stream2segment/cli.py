@@ -31,14 +31,12 @@ from builtins import (ascii, bytes, chr, dict, filter, hex, input,
 
 import sys
 import os
-from datetime import datetime, timedelta
 
 import click
-from click.exceptions import BadParameter, ClickException, MissingParameter
+from click.exceptions import BadParameter, MissingParameter  # , ClickException
 
 from stream2segment import main
 from stream2segment.process.core import default_funcname
-from stream2segment.utils import strptime
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, yaml_load_doc
 from stream2segment.traveltimes import ttcreator
 
@@ -48,7 +46,6 @@ class clickutils(object):
     decorators"""
 
     TERMINAL_HELP_WIDTH = 110  # control width of help. 80 should be the default (roughly)
-    NOW = datetime.utcnow()
     DEFAULTDOC = yaml_load_doc(get_templates_fpath("download.yaml"))
     DBURLDOC_SUFFIX = ("****IMPORTANT NOTE****: It can also be the path of a yaml file "
                        "containing the property 'dburl' (e.g., the yaml you used for "
@@ -61,15 +58,9 @@ class clickutils(object):
         `string` days (negative values are allowed)
         Returns the datetime on success, throws an BadParameter otherwise"""
         try:
-            return strptime(obj)  # if obj is datetime, returns obj
+            return main.valid_date(obj)  # if obj is datetime, returns obj
         except ValueError as _:
-            try:
-                days = int(obj)
-                endt = datetime(cls.NOW.year, cls.NOW.month, cls.NOW.day, 0, 0, 0, 0)
-                return endt - timedelta(days=days)
-            except Exception:
-                pass
-        raise BadParameter("Invalid date time or invalid integer")
+            raise BadParameter(str(_))
 
     @classmethod
     def set_help_from_yaml(cls, ctx, param, value):
@@ -214,14 +205,9 @@ def download(configfile, dburl, eventws, start, end, dataws, min_sample_rate, tr
     arguments are valid except 'start', 'end' (set them via -t0 and -t1) and 'format'
     """
     try:
-        cfg_dict = yaml_load(configfile, **{k: v for k, v in locals().items()
-                                            if v not in ((), {}, None, configfile)})
-        # start and end might be integers. If we attach the conversion function
-        # `clickutils.valid_date` to the relative clikc Option 'type' argument, the
-        # function does not affect integer values in the config. Thus we need to set it here:
-        cfg_dict['start'] = clickutils.valid_date(cfg_dict['start'])
-        cfg_dict['end'] = clickutils.valid_date(cfg_dict['end'])
-        ret = main.download(isterminal=True, **cfg_dict)
+        overrides = {k: v for k, v in locals().items()
+                     if v not in ((), {}, None) and k != 'configfile'}
+        ret = main.download(configfile, isterminal=True, **overrides)
         sys.exit(ret)
     except KeyboardInterrupt:  # this except avoids printing traceback
         sys.exit(1)  # exit with 1 as normal python exceptions
@@ -317,7 +303,7 @@ def dareport(dburl):
 @click.option("-f", "--filter", default='*', show_default=True,
               help="Show doc only for the function whose name matches the given filter. "
                     "Wildcards (* and ?) are allowed")
-def functions(type, filter):  # @ReservedAssignment
+def functions(type, filter):  # @ReservedAssignment pylint: disable=redefined-outer-name
     for line in main.helpmathiter(type, filter):
         print(line)
 

@@ -119,7 +119,7 @@ class SysOutStreamHandler(logging.StreamHandler):
 
 def configlog4processing(logger, outcsvfile, isterminal):
     # https://docs.python.org/2/howto/logging.html#optimization:
-    logging._srcfile = None
+    logging._srcfile = None  #pylint: disable=protected-access
     logging.logThreads = 0
     logging.logProcesses = 0
     # config logger (FIXME: merge with download logger?):
@@ -144,7 +144,7 @@ def configlog4download(logger, db_session, download_id, isterminal):
     and to a tmp file. The file is accessible via logger..baseFilename
     """
     # https://docs.python.org/2/howto/logging.html#optimization:
-    logging._srcfile = None
+    logging._srcfile = None  #pylint: disable=protected-access
     logging.logThreads = 0
     logging.logProcesses = 0
     # FIXME above: move elsewhere (maybe restoring defaults?)
