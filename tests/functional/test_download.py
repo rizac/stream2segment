@@ -10,6 +10,9 @@ from __future__ import print_function
 # assert sys.path[0] == os.path.realpath(myPath + '/../../')
 
 from future import standard_library
+import random
+import yaml
+import tempfile
 standard_library.install_aliases()
 from builtins import str, map
 import re
@@ -26,6 +29,8 @@ try:
     from cStringIO import StringIO  # python2.x
 except ImportError:
     from io import StringIO
+
+from itertools import product, combinations
 
 import unittest, os
 from sqlalchemy.engine import create_engine
@@ -638,7 +643,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
     @patch('stream2segment.download.modules.segments.mseedunpack')
     @patch('stream2segment.io.db.pdsql.insertdf')
     @patch('stream2segment.io.db.pdsql.updatedf')
-    def test_cmdline(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
+    def tst_cmdline(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                      mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
                      mock_get_datacenters_df, mock_get_events_df):
         
@@ -1084,5 +1089,127 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
             print("DID NOT RAISE!!")
             assert False
         self._seg_urlread_sideeffect = suse  # restore default
-     
+
+
+    @patch('stream2segment.main.run_download')
+    def test_yaml_optional_params(self, mock_run):
+        with open(self.configfile) as fp:
+            _yaml_dict = yaml.load(fp)
         
+        # do not provide trailing spaces for easier comparison here below
+        vals = [None, ['*'], ['HH?', 'AB']]
+        
+        params = ['net', 'networks', 'network', 'sta', 'stations', 'station',
+                  'loc', 'location', 'locations', 'cha', 'channels', 'channel']
+        for p in params:
+            _yaml_dict.pop(p, None)
+        
+        
+        for net, sta, loc, cha in product(vals, vals, vals, vals):
+            yaml_dict = dict(_yaml_dict)  # copy, otherwise old params are still there ... 
+            netname, staname, locname, chaname = None, None, None, None
+            if net is not None:
+                netname = params[random.randint(0, 2)]
+                yaml_dict[netname] = net
+            if sta is not None:
+                staname = params[random.randint(3, 5)]
+                yaml_dict[staname] = sta
+            if loc is not None:
+                locname = params[random.randint(6, 8)]
+                yaml_dict[locname] = loc
+            if cha is not None:
+                chaname = params[random.randint(9, 11)]
+                yaml_dict[chaname] = cha
+                
+        
+            with tempfile.NamedTemporaryFile() as keyfile:
+                configfilename = keyfile.name
+                with open(configfilename, 'w') as outfile:
+                    yaml.dump(yaml_dict, outfile, default_flow_style=False)
+
+                mock_run.reset_mock()
+                    
+                runner = CliRunner()
+                result = runner.invoke(cli , ['download',
+                                               '-c', configfilename,
+                                               # '--dburl', self.dburi,
+                                               #'--start', '2016-05-08T00:00:00',
+                                               #'--end', '2016-05-08T9:00:00'
+                                               ])
+                args = mock_run.call_args_list
+                assert len(args) == 1  # called just once (for safety)
+                args = args[0]
+                assert not args[0]  # no *args supplied (all kwargs)
+                args = args[1]
+                for name, val in zip(['networks', 'stations', 'locations', 'channels'],
+                                     [net, sta, loc, cha]):
+                    if val is None or val == ['*']:
+                        assert args[name] == []
+                    elif name=='locations' and val == ['--']:
+                        assert args[name] == ['']
+                    else:
+                        assert args[name] == sorted(val)
+        
+        # test locations empty:
+        val = ['--']
+        yaml_dict = dict(_yaml_dict)  # copy, otherwise old params are still there ... 
+        netname, staname, locname, chaname = None, None, None, None
+        yaml_dict['net'] = val
+        yaml_dict['sta'] = val
+        yaml_dict['loc'] = val
+        yaml_dict['cha'] = val
+            
+    
+        with tempfile.NamedTemporaryFile() as keyfile:
+            configfilename = keyfile.name
+            with open(configfilename, 'w') as outfile:
+                yaml.dump(yaml_dict, outfile, default_flow_style=False)
+
+            mock_run.reset_mock()
+                
+            runner = CliRunner()
+            result = runner.invoke(cli , ['download',
+                                           '-c', configfilename,
+                                           # '--dburl', self.dburi,
+                                           #'--start', '2016-05-08T00:00:00',
+                                           #'--end', '2016-05-08T9:00:00'
+                                           ])
+            args = mock_run.call_args_list
+            assert len(args) == 1  # called just once (for safety)
+            args = args[0]
+            assert not args[0]  # no *args supplied (all kwargs)
+            args = args[1]
+            for name, val in zip(['networks', 'stations', 'locations', 'channels'],
+                                 [net, sta, loc, cha]):
+                if name=='locations':
+                    assert args[name] == ['']
+                else:
+                    assert args[name] == ['--']
+        
+        
+          
+        # now test errors (duplicates)
+        for i in range(4):
+            yaml_dict = dict(_yaml_dict)  # copy, otherwise old params are still there ... 
+            
+            for p1, p2 in combinations(params[i*3: (i+1)*3], 2):
+                yaml_dict[p1] = []
+                yaml_dict[p2] = []
+        
+                with tempfile.NamedTemporaryFile() as keyfile:
+                    configfilename = keyfile.name
+                    with open(configfilename, 'w') as outfile:
+                        yaml.dump(yaml_dict, outfile, default_flow_style=False)
+    
+                    mock_run.reset_mock()
+                        
+                    runner = CliRunner()
+                    result = runner.invoke(cli , ['download',
+                                                   '-c', configfilename,
+                                                   # '--dburl', self.dburi,
+                                                   #'--start', '2016-05-08T00:00:00',
+                                                   #'--end', '2016-05-08T9:00:00'
+                                                   ])
+                    assert result.exit_code != 0
+                    assert 'conflict' in result.output
+                    

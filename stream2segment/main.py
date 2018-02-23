@@ -38,7 +38,7 @@ from stream2segment.utils.resources import get_templates_fpaths
 from stream2segment.gui.main import create_p_app, run_in_browser, create_d_app
 from stream2segment.process import math as s2s_math
 from stream2segment.utils import strconvert, iterfuncs
-from stream2segment.download.utils import nslc_lists
+from stream2segment.download.utils import nslc_param_value_aslist
 
 
 # set root logger if we are executing this module as script, otherwise as module name following
@@ -58,12 +58,8 @@ def download(isterminal=False, **yaml_dict):
     dburl = yaml_dict['dburl']
     with closing(dburl) as session:
         # check for networks, stations, locations and channels and harmonize them:
-        net, sta, loc, cha = nslc_lists(yaml_dict)
-        yaml_dict['networks'] = net
-        yaml_dict['stations'] = sta
-        yaml_dict['locations'] = loc
-        yaml_dict['channels'] = cha        
-        
+        adjust_nslc_params(yaml_dict)
+
         # print local vars: use safe_dump to avoid python types. See:
         # http://stackoverflow.com/questions/1950306/pyyaml-dumping-without-tags
         download_inst = Download(config=tounicode(yaml.safe_dump(yaml_dict,
@@ -133,7 +129,7 @@ def adjust_nslc_params(yaml_dic):
         empty lists mean: no filter for that key (accept all)
     '''
     
-    params = [('net', 'network', 'networks'), ('sta', 'stations', 'stations'),
+    params = [('net', 'network', 'networks'), ('sta', 'station', 'stations'),
               ('loc', 'location', 'locations'), ('cha', 'channel', 'channels')]
     
     for i, pars in enumerate(params):
@@ -143,7 +139,7 @@ def adjust_nslc_params(yaml_dic):
         for p in pars:
             if p in yaml_dic:
                 parconflicts.append(p)
-                arg = yaml_dic[p]
+                arg = yaml_dic.pop(p)
             if len(parconflicts) > 1:
                 raise ValueError("Parameter name conflict: cannot handle both %s" %
                                  (" and ".join('%s' % _ for _ in parconflicts)))
@@ -151,7 +147,7 @@ def adjust_nslc_params(yaml_dic):
         s2s_name = pars[-1]
         val = []
         if len(parconflicts) and arg is not None and arg not in ([], ()):
-            val = check_nslc_param(val, i)
+            val = nslc_param_value_aslist(i, arg)
         
         yaml_dic[s2s_name] = val
         

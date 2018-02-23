@@ -21,7 +21,8 @@ from io import StringIO
 import stream2segment
 from stream2segment.download.modules.stationsearch import locations2degrees as s2sloc2deg, get_search_radius
 from stream2segment.download.modules.datacenters import EidaValidator
-from stream2segment.download.utils import custom_download_codes, DownloadStats
+from stream2segment.download.utils import custom_download_codes, DownloadStats, nslc_param_value_aslist,\
+    to_fdsn_arg, nslc_param_value_aslist as nslc_param_value_aslist_orig
 from obspy.geodetics.base import locations2degrees  as obspyloc2deg
 import numpy as np
 import pandas as pd
@@ -486,7 +487,71 @@ http:wrong
     
     for k, expected in tests.items():
         assert eidavalidator.isin(*k) == expected
+
+# (any, ['A','D','C','B'])   ['A', 'B', 'C', 'D']  # note result is sorted
+#     (any, 'B,C,D,A')          ['A', 'B', 'C', 'D']  # same as above
+#     (any, 'A*, B??, C*')      ['A*', 'B??', 'C*']  # fdsn wildcards accepted
+#     (any, '!A*, B??, C*')     ['!A*', 'B??', 'C*']  # we support negations: !A* means "not A*"
+#     (any, ' A, B ')           ['A', 'B']  # leading and trailing spaces ignored
+#     (any, '*')                []  # if any chunk is '*', then [] (=match all) is returned
+#     (any, [])                 []  # same as above
+#     (any, '  ')               ['']  # this means: match the empty string
+#     (2, "--")                 ['']  # for locations (index=2), "--" means empty (fdsn spec.)
+#     (1, "--")                 ["--"]  # for others (index = 0,1,3), "--" is what it is
+#     (any, "!")                ['!']  # match any non empty string
+#     (any, "!*")               this raises (you cannot specify "discard all")
+#     (any, "!H*, H*")          this raises (it's a paradox)
+
+@pytest.mark.parametrize('val, exp_value',
+                         [(['A','D','C','B'], ['A', 'B', 'C', 'D']),
+                          ("B,D,C,A", ['A', 'B', 'C', 'D']),
+                          ('A*, B??, C*', ['A*', 'B??', 'C*']),
+                          ('!A*, B??, C*', ['!A*', 'B??', 'C*']),
+                           (' A, B ', ['A', 'B']),
+                           ('*', []),
+                           ([], []),
+                           ('  ', ['']),
+                           (' ! ', ['!']),
+                           (' !* ', None),  # None means: raises ValueError
+                           ("!H*, H*", None),
+                           ("A B, CD", None),
+                          ])
+def test_nslc_param_value_aslist(val, exp_value):
     
+    for i in range(4):
+        if exp_value is None:
+            with pytest.raises(ValueError):
+                nslc_param_value_aslist(i, val)
+        else:
+            assert nslc_param_value_aslist(i, val) == exp_value
+
+@pytest.mark.parametrize('val, exp_value, exp_value_loc',
+                         [(['A','D','C','--'], ['--', 'A', 'C', 'D'], ['', 'A', 'C', 'D']),
+                          ('A , D , C , --', ['--', 'A', 'C', 'D'], ['', 'A', 'C', 'D']),
+                          ([' --  '], ['--'], ['']),
+                          (' -- ',  ['--'], ['']),
+                          ])
+def test_nslc_param_value_aslist_locations(val, exp_value, exp_value_loc):
+    
+    for i in range(4):
+        if exp_value is None:
+            with pytest.raises(ValueError):
+                nslc_param_value_aslist(i, val)
+        elif i == 2: # location
+            assert nslc_param_value_aslist(i, val) == exp_value_loc
+        else:
+            assert nslc_param_value_aslist(i, val) == exp_value
+        
+def test_to_fdsn_arg():
+
+    val = ['A' , 'B']
+    assert to_fdsn_arg(val) == 'A,B'
+    
+    val = ['!A' , 'B']
+    assert to_fdsn_arg(val) == 'B'
+    
+    val = ['!A' , 'B  ']
+    assert to_fdsn_arg(val) == 'B  '
     
 
 # PIECES OF MUSEUMS BELOW!!! OLD TESTS!! leaving as i would do with ancient ruins ;)    

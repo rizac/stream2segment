@@ -89,17 +89,17 @@ eventws_query_args:
 dataws: 'eida'
 
 # Limit the search to stations and channels matching any of the four parameters:
-# network, station, location, channel.
+# network, station, location, channel. E.g.:
+# netowrk: '*'  (=download all networks)
+# channels: 'H*,B??' (download all channels starting with H, OR having 3 characters whose first is 'B')
+# If a parameter name is missing, it's value defaults to '*'.
 # Parameter values are strings following FDSN queries syntax (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf),
-# i.e. can be given as comma separated strings with wildcards * and ? allowed.
-# The FDSN syntax is enhanced here with the operator ! to indicate logical NOT. So e.g.:
-# stations: "AA?,!AA3". Pay attention for complex syntax to contradictory statements, as the download might not work. This e.g. does not download anything:
-# channels: "!*"
-# networks: "HH?, !HH?"
-# will download all stations starting with 'AA' but not the station 'AA3' (and relative data waveforms).
-# If any parameter is omitted, then no filter is applied for that parameter. 
-# Parameters can be given also by omitting the last 's' to be FDSN compliant (e.g., channel, station, ...).
-# From the config file (not the command line) you can also specify a list/array of strings in yaml format
+# which is enhanced in the program with the operator ! to indicate logical NOT. So e.g.:
+# networks: 'XYZ'
+# stations: "!AA3"
+# will download all stations from network 'XYZ' except data (and metadata) from station 'AA3'.
+# Parameter names can be given also in FDSN standard (e.g. 'net' or 'network' instead of 'networks')
+# From the config yaml file you can also specify a list/array of strings in yaml format
 # instead of comma-separated strings. E.g., these are quivalent:
 # networks: [ "A,B" , "C" ]
 # networks: "A,B,C"

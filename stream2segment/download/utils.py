@@ -647,32 +647,39 @@ def custom_download_codes():
 def nslc_param_value_aslist(index, value):
     '''Returns a nslc (network/station/location/channel) parameter value converted as list.
     This method cleans-up and checks `value` splitting each of its string elements
-    with the comma "," and aggregating all the results into a single list, after performing some
-    sanity check. The resulting list is also sorted alphabetically
+    with the comma "," and aggregating all the string chunks into a single list, after performing
+    some sanity check. The resulting list is also sorted alphabetically
     (for unit testing and readibility).
-    Raises ValueError in case some sanity checks fail (e.g., conflicts)
+    Raises ValueError in case some sanity checks fail (e.g., conflicts, syntax errors)
 
     Examples:
     
-    nslc_param_value_aslist Result
-    arguments:              (with comment)
-    ======================= =================================================================
-    (0, ['A,B,C', 'D'])     ['A', 'B', 'C', 'D']
-    (0, 'A,B,C,D')          ['A', 'B', 'C', 'D']  # same as above
-    (0, 'A*, B??, C*')      ['A*', 'B??', 'C*']  # fdsn wildcards accepted
-    (0, '!A*, B??, C*')     ['!A*', 'B??', 'C*']  # we support negations: !A* means "not A*"
-    (0, ' A, B ')           ['A', 'B']  # leading and trailing spaces ignored
-    (0, '  ')               ['']  # this means: match the empty string
-    (0, [])                 []  # this means: match all 
-    (2, "--")               []  # for locations (index=2), fdsn says that "--" means empty (we too)
-    (1, "--")               ["--"]  # for others (index = 0,1,3), "--" is what it is
+    nslc_param_value_aslist 
+    arguments (any means:
+    any value in [0,1,2,3])   Result (with comment)            
+    ========================= =================================================================
+    (any, ['A','D','C','B'])  ['A', 'B', 'C', 'D']  # note result is sorted
+    (any, 'B,C,D,A')          ['A', 'B', 'C', 'D']  # same as above
+    (any, 'A*, B??, C*')      ['A*', 'B??', 'C*']  # fdsn wildcards accepted
+    (any, '!A*, B??, C*')     ['!A*', 'B??', 'C*']  # we support negations: !A* means "not A*"
+    (any, ' A, B ')           ['A', 'B']  # leading and trailing spaces ignored
+    (any, '*')                []  # if any chunk is '*', then [] (=match all) is returned
+    (any, [])                 []  # same as above
+    (any, '  ')               ['']  # this means: match the empty string
+    (2, "--")                 ['']  # for locations (index=2), "--" means empty (fdsn spec.)
+    (1, "--")                 ["--"]  # for others (index = 0,1,3), "--" is what it is
+    (any, "!")                ['!']  # match any non empty string
+    (any, "!*")               this raises (you cannot specify "discard all")
+    (any, "!H*, H*")          this raises (it's a paradox)
+    (any, " A B,  CD")        this raises ('A B' invalid: only leading and trailing spaces allowed)
     
 
     :param value: string or iterable of strings: (iterable in this context means python iterable
         EXCEPT strings). If string, the argument will be converted
         to the list [value] to make it iterable before processing it
-    :param index: the index of the parameter associated to `valie`, where 0 means 'network',
-        1 'station', 2 'location' and 3 'channel'. It is used for converting '--' to empty
+    :param index: integer in [0,1,2,3]: the index of the parameter associated to `valie`,
+        where 0 means 'network', 1 'station', 2 'location' and 3 'channel'.
+        It is used for converting '--' to empty
         strings in case of location(s), and to output the correct parameter name in the body of
         Exceptions, if any has occurred or been raised
     ''' 
@@ -691,8 +698,10 @@ def nslc_param_value_aslist(index, value):
             splitted = string.split(",")
             for s in splitted:
                 s = s.strip()
+                if ' ' in s:
+                    raise Exception("invalid value contains space(s): '%s'" % s)
                 # if i == 3 (location) convert '--' to '':
-                strings.add('' if (index == 3 and s == '--') else s)
+                strings.add('' if (index == 2 and s == '--') else s)
 
         # some checks:
         if "!*" in strings:  # discard everything is not valid
@@ -714,12 +723,13 @@ def nslc_param_value_aslist(index, value):
 
 
 def to_fdsn_arg(iterable):
-    ''' Converts an iterable of strings (one of the elements returned by :func:`nslc_lists`
-    into a valid argument for an fdsn query, i.e. joining all element of `iterable` with a comma
-    after removing all elements starting with '!' (internally used for indicating logical not,
-    and not fdsn standard).
-    
-    :param iterable: an iterable of string, one of the elements returned from :func:`nslc_lists`
+    ''' Converts an iterable of strings returned by :func:`nslc_param_value_aslist`
+    into a valid string argument for an fdsn query, i.e. joining all element of `iterable` with a
+    comma after removing all elements starting with '!' (internally used for indicating logical
+    not, and not fdsn standard).
+
+    :param iterable: an iterable of string, one of the elements returned from
+        :func:`nslc_param_value_aslist`
     '''
     return ",".join(v for v in iterable if v[0:1] != '!')
 

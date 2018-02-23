@@ -1119,7 +1119,7 @@ E|F|11|HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|8388
         assert chaids_of_dcid == db_chaids_of_dcid
 
 
-    def tst_get_channels_df_eidavalidator_station_and_channel_duplicates(self):
+    def test_get_channels_df_eidavalidator_station_and_channel_duplicates(self):
         urlread_sideeffect = """1|2|3|4|5|6|7|8|9|10|11|12|13
 20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 01:45:30.300000|44.96|15.35|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|3.6|EMSC|CROATIA
@@ -1228,7 +1228,7 @@ YY|yy||DEL|3|4|6|0|0|0|OK: channel check done cause it's dupe: matches    |8|0.1
         cha_df4 = self.get_channels_df(urlread_sideeffect, self.session,
                                                        datacenters_df,
                                                        None,
-                                                       channels, None, None, 10,
+                                                       net, sta, loc, cha, None, None, 10,
                                                        False, None, None, -1, self.db_buf_size)
         
         assert not cha_df3.equals(cha_df4)  # WHY?? cause they are not sorted, we might have
