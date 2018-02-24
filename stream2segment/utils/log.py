@@ -29,14 +29,13 @@ from stream2segment.io.db.models import Download
 
 
 class DbStreamHandler(logging.FileHandler):
-    """A StreamHandler which counts errors and warnings. See
+    """A `logging.FileHandler` which counts errors and warnings. See
     http://stackoverflow.com/questions/812477/how-many-times-was-logging-error-called
-    NOTE: we might want to commit immediately each log message to a database, but
-    we should update (concat) the log field: don't know
-    how much is efficient. Better keep it in a StringIO and commit at the end for the
-    moment (see how an object of this class is instantiated few lines below)
-    PLEASE CALL close() OTHERWISE
-    FOR AN EXAMPLE USING LOG AND SQLALCHEMY, SEE:
+    This class takes in the constructor an id of the table 'downloads' (referring to
+    the current download), and when closed writes the content of the file to the database,
+    deleting the handler's file. You should always explicitly call close() to assure the log
+    is written to the database**.
+    For an example usijng sql-alchemy log rows (slightly different case but informative) see:
     http://docs.pylonsproject.org/projects/pyramid_cookbook/en/latest/logging/sqlalchemy_logger.html
     """
     def __init__(self, session, download_id, min_level=20):
@@ -93,9 +92,17 @@ class LevelFilter(object):
     """
     This is a filter extending standard logging filter in that it handles logging messages
     not "up to a certain level" but for a particular set of levels only.
-    This
     """
     def __init__(self, levels):
+        '''Init a LevelFilter
+        :param levels: iterable of integers representing different logging levels:
+            CRITICAL    50
+            ERROR    40
+            WARNING    30
+            INFO    20
+            DEBUG    10
+            NOTSET    0
+        '''
         self._levels = set(levels)
 
     def filter(self, record):
@@ -140,8 +147,14 @@ def gettmpfile():
 
 
 def configlog4download(logger, db_session, download_id, isterminal):
-    """configs for download and returns the handler used to store the log to the db
-    and to a tmp file. The file is accessible via logger..baseFilename
+    """configs for download and returns the DbStreamHandler used to store the log to the db
+    and to a tmp file (the file is accessible via `handler.baseFilename`). The handlers added to
+    the logger are:
+    - A DbStreamHandler which will capture all INFO, ERROR and WARNING level messages, and when
+    its close() method is called, flushes the content of its file to the database (deleting the
+    file. This assures that if no close method is called, possibly due to an exception,
+    the file can be inspected)
+    
     """
     # https://docs.python.org/2/howto/logging.html#optimization:
     logging._srcfile = None  #pylint: disable=protected-access

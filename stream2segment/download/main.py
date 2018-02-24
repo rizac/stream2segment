@@ -55,7 +55,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
     dbbufsize = min(advanced_settings['db_buf_size'], 1)
 
     process = psutil.Process(os.getpid()) if isterminal else None
-    __steps = 6 + inventory  # bool substraction works: 8 - True == 7
+    __steps = 6 + inventory  # bool substraction works, e.g: 8 - True == 7
     stepiter = iter(range(1, __steps+1))
 
     # custom function for logging.info different steps:
@@ -69,37 +69,28 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
     startiso = start.isoformat()
     endiso = end.isoformat()
 
-    # events and datacenters should print meaningful stuff
-    # cause otherwise is unclear why the program stop so quickly
     stepinfo("Requesting events")
-    # eventws_url = get_eventws_url(session, service)
-    try:
-        events_df = get_events_df(session, eventws, dbbufsize, start=startiso, end=endiso,
-                                  **eventws_query_args)
-    except QuitDownload as dexc:
-        return log_and_get_exitcode(dexc)
+    # get events (might raise QuitDownload)
+    events_df = get_events_df(session, eventws, dbbufsize, start=startiso, end=endiso,
+                              **eventws_query_args)
 
-    # Get datacenters, store them in the db, returns the dc instances (db rows) correctly added:
+    # Get datacenters, store them in the db, returns the dc instances (db rows) correctly added
     stepinfo("Requesting data-centers")
-    try:
-        datacenters_df, eidavalidator = \
-            get_datacenters_df(session, dataws, advanced_settings['routing_service_url'],
-                               networks, stations, locations, channels, start, end, dbbufsize)
-    except QuitDownload as dexc:
-        return log_and_get_exitcode(dexc)
+    # get dacatanters (might raise QuitDownload):
+    datacenters_df, eidavalidator = \
+        get_datacenters_df(session, dataws, advanced_settings['routing_service_url'],
+                           networks, stations, locations, channels, start, end, dbbufsize)
 
     stepinfo("Requesting stations and channels from %d %s", len(datacenters_df),
              "data-center" if len(datacenters_df) == 1 else "data-centers")
-    try:
-        channels_df = get_channels_df(session, datacenters_df, eidavalidator,
-                                      networks, stations, locations, channels, start, end,
-                                      min_sample_rate, update_metadata,
-                                      advanced_settings['max_thread_workers'],
-                                      advanced_settings['s_timeout'],
-                                      advanced_settings['download_blocksize'], dbbufsize,
-                                      isterminal)
-    except QuitDownload as dexc:
-        return log_and_get_exitcode(dexc)
+    # get dacatanters (might raise QuitDownload):
+    channels_df = get_channels_df(session, datacenters_df, eidavalidator,
+                                  networks, stations, locations, channels, start, end,
+                                  min_sample_rate, update_metadata,
+                                  advanced_settings['max_thread_workers'],
+                                  advanced_settings['s_timeout'],
+                                  advanced_settings['download_blocksize'], dbbufsize,
+                                  isterminal)
 
     # get channel id to mseed id dict and purge channels_df
     # the dict will be used to download the segments later, but we use it now to drop
@@ -107,12 +98,10 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
     chaid2mseedid = chaid2mseedid_dict(channels_df, drop_mseedid_columns=True)
 
     stepinfo("Selecting stations within search area from %d events", len(events_df))
-    try:
-        segments_df = merge_events_stations(events_df, channels_df, search_radius['minmag'],
-                                            search_radius['maxmag'], search_radius['minmag_radius'],
-                                            search_radius['maxmag_radius'], tt_table, isterminal)
-    except QuitDownload as dexc:
-        return log_and_get_exitcode(dexc)
+    # merge vents and stations (might raise QuitDownload):
+    segments_df = merge_events_stations(events_df, channels_df, search_radius['minmag'],
+                                        search_radius['maxmag'], search_radius['minmag_radius'],
+                                        search_radius['maxmag_radius'], tt_table, isterminal)
 
     # help gc by deleting the (only) refs to unused dataframes
     del events_df
@@ -158,10 +147,11 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
         # 1) we didn't have segments in prepare_for... (QuitDownload with string message)
         # 2) we ran out of memory in download_... (QuitDownload with exception message
 
-        # in the first case continue, in the latter return a nonzero exit code
-        exit_code = log_and_get_exitcode(dexc)
-        if exit_code != 0:
-            return exit_code
+        # in the first case continue, in the latter raise:
+        if dexc._iserror:
+            raise
+        # print to console (log.info) and continue with inventories
+        log_and_get_exitcode(dexc)
 
     if inventory:
         # frees memory. Although maybe unecessary, let's do our best to free stuff cause the

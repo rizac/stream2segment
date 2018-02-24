@@ -33,12 +33,12 @@ from stream2segment.utils.log import configlog4download, configlog4processing,\
     elapsedtime2logger_when_finished
 from stream2segment.io.db.models import Download
 from stream2segment.process.main import to_csv
-from stream2segment.download.main import run as run_download, new_db_download
+from stream2segment.download.main import run as run_download, new_db_download, log_and_get_exitcode
 from stream2segment.utils import get_session, indent, secure_dburl, strptime, strconvert, iterfuncs
 from stream2segment.utils.resources import get_templates_fpaths, yaml_load, get_ttable_fpath
 from stream2segment.gui.main import create_p_app, run_in_browser, create_d_app
 from stream2segment.process import math as s2s_math
-from stream2segment.download.utils import nslc_param_value_aslist
+from stream2segment.download.utils import nslc_param_value_aslist, QuitDownload
 from stream2segment.traveltimes.ttloader import TTTable
 
 
@@ -51,28 +51,34 @@ from stream2segment.traveltimes.ttloader import TTTable
 logger = logging.getLogger("stream2segment")
 
 
-def download(config_yaml_path, isterminal=False, **overrides):
+def download(config_yaml_path, isterminal=False, **param_overrides):
     """
         Downloads the given segment providing a set of keyword arguments to match those of the
         config file (see confi.example.yaml for details)
     """
-    yaml_dict = yaml_load(config_yaml_path, **overrides)
-    dburl = yaml_dict['dburl']
-    with closing(dburl) as session:
-        # check for networks, stations, locations and channels and harmonize them:
+    input_yaml_dict = yaml_load(config_yaml_path, **param_overrides)
+    # the obect above will be saved to db, make a copy for mainpulation here:
+    yaml_dict = dict(input_yaml_dict)
+    # param check before setting stuff up:
+    try:
         adjust_nslc_params(yaml_dict)
         adjust_times(yaml_dict)
         tt_table = load_tt_table(yaml_dict['traveltimes_model'])
-        download_id = new_db_download(session, yaml_dict)
-
-        if isterminal:
-            print("Arguments:")
-            # replace dbrul passowrd for printing to terminal
-            # Note that we remove dburl from yaml_dict cause query_main gets its session object
-            # (which we just built)
-            yaml_safe = dict(yaml_dict, dburl=secure_dburl(yaml_dict.pop('dburl')))
-            print(indent(yaml.safe_dump(yaml_safe, default_flow_style=False), 2))
-
+    except Exception as exc:  #pylint: disable=broad-except
+        logger.error(exc)
+        return 1
+    
+    dburl = yaml_dict['dburl']
+    # print yaml_dict to terminal if needed. Do not use input_yaml_dict as
+    # params needs to be shown as expanded/converted so the user can check their correctness:
+    if isterminal:
+        print("Config. input parameters:")
+        # replace dburl hiding passowrd for printing to terminal
+        yaml_safe = dict(yaml_dict, dburl=secure_dburl(dburl))
+        print(indent(yaml.safe_dump(yaml_safe, default_flow_style=False), 2))
+ 
+    with closing(dburl) as session:
+        download_id = new_db_download(session, input_yaml_dict)
         loghandler = configlog4download(logger, session, download_id, isterminal)
 
         if isterminal:
@@ -84,11 +90,15 @@ def download(config_yaml_path, isterminal=False, **overrides):
                                                        Download.log.key))
 
         with elapsedtime2logger_when_finished(logger):
-            # replace arg and set tt_table now it's fine (no error sofar):
+            # remove keys not used in run_download:
             yaml_dict.pop('traveltimes_model')
-            yaml_dict['tt_table'] = tt_table
-            run_download(session=session, download_id=download_id, isterminal=isterminal,
-                         **yaml_dict)
+            yaml_dict.pop('dburl')
+            try:
+                run_download(session=session, download_id=download_id, isterminal=isterminal,
+                             tt_table=tt_table, **yaml_dict)
+            except QuitDownload as qdwnl:
+                return log_and_get_exitcode(qdwnl)
+
             logger.info("\n%d total error(s), %d total warning(s)", loghandler.errors,
                         loghandler.warnings)
 
@@ -102,8 +112,8 @@ def load_tt_table(file_or_name):
             filepath = file_or_name
         return TTTable(filepath)
     except Exception as exc:
-        msg = "Error loading travel-times table from file '%s': %s" % (filepath, str(exc))
-        raise ValueError(msg)
+        raise ValueError(("Error loading travel-times "
+                          "table from file '%s': %s") % (filepath, str(exc)))
 
 def adjust_times(yaml_dict):
     try:
