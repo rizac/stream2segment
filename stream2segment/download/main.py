@@ -16,8 +16,7 @@ import psutil
 import yaml
 
 from stream2segment.io.db.pdsql import dbquery2df
-from stream2segment.traveltimes.ttloader import TTTable
-from stream2segment.utils.resources import get_ttable_fpath, version
+from stream2segment.utils.resources import version
 from stream2segment.download.utils import QuitDownload, empty
 from stream2segment.download.modules.events import get_events_df
 from stream2segment.download.modules.datacenters import get_datacenters_df
@@ -108,7 +107,6 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
     del channels_df
 
     stepinfo("%d segments found. Checking already downloaded segments", len(segments_df))
-    exit_code = 0
     try:
         segments_df, request_timebounds_need_update = \
             prepare_for_download(session, segments_df, timespan, retry_seg_not_found,
@@ -147,40 +145,45 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
         # 1) we didn't have segments in prepare_for... (QuitDownload with string message)
         # 2) we ran out of memory in download_... (QuitDownload with exception message
 
-        # in the first case continue, in the latter raise:
-        if dexc._iserror:
-            raise
-        # print to console (log.info) and continue with inventories
-        log_and_get_exitcode(dexc)
-
-    if inventory:
-        # frees memory. Although maybe unecessary, let's do our best to free stuff cause the
-        # next one might be memory consuming:
-        # https://stackoverflow.com/questions/30021923/how-to-delete-a-sqlalchemy-mapped-object-from-memory
-        session.expunge_all()
-        session.close()
-
-        # query station id, network station, datacenter_url
-        # for those stations with empty inventory_xml
-        # AND at least one segment non empty/null
-        # Download inventories for those stations only
-        sta_df = dbquery2df(query4inventorydownload(session, update_metadata))
-        # stations = session.query(Station).filter(~withdata(Station.inventory_xml)).all()
-        if empty(sta_df):
-            stepinfo("Skipping: No station inventory to download")
-        else:
-            stepinfo("Downloading %d station inventories", len(sta_df))
-            n_downloaded, n_empty, n_errors = \
-                save_inventories(session, sta_df,
-                                 advanced_settings['max_thread_workers'],
-                                 advanced_settings['i_timeout'],
-                                 advanced_settings['download_blocksize'], dbbufsize, isterminal)
-            logger.info(("** Station inventories download summary **\n"
-                         "- downloaded     %7d \n"
-                         "- discarded      %7d (empty response)\n"
-                         "- not downloaded %7d (client/server errors)"),
-                        n_downloaded, n_empty, n_errors)
-    return exit_code
+        # in the first case avoid downloading inventories:
+        if dexc._iserror:  #pylint: disable=protected-access
+            inventory = False
+        # note that if inventory=True and dexc._iserror=False, if the caller function
+        # catches any captured QuitDownload and logs it, the message will appear
+        # after inventories stats are logged, but it's ok
+        raise
+    except:
+        inventory = False
+        raise
+    finally:
+        if inventory:
+            # frees memory. Although maybe unecessary, let's do our best to free stuff cause the
+            # next one might be memory consuming:
+            # https://stackoverflow.com/questions/30021923/how-to-delete-a-sqlalchemy-mapped-object-from-memory
+            session.expunge_all()
+            session.close()
+    
+            # query station id, network station, datacenter_url
+            # for those stations with empty inventory_xml
+            # AND at least one segment non empty/null
+            # Download inventories for those stations only
+            sta_df = dbquery2df(query4inventorydownload(session, update_metadata))
+            # stations = session.query(Station).filter(~withdata(Station.inventory_xml)).all()
+            if empty(sta_df):
+                stepinfo("Skipping: No station inventory to download")
+            else:
+                stepinfo("Downloading %d station inventories", len(sta_df))
+                n_downloaded, n_empty, n_errors = \
+                    save_inventories(session, sta_df,
+                                     advanced_settings['max_thread_workers'],
+                                     advanced_settings['i_timeout'],
+                                     advanced_settings['download_blocksize'], dbbufsize,
+                                     isterminal)
+                logger.info(("** Station inventories download summary **\n"
+                             "- downloaded     %7d \n"
+                             "- discarded      %7d (empty response)\n"
+                             "- not downloaded %7d (client/server errors)"),
+                            n_downloaded, n_empty, n_errors)
 
 
 def new_db_download(session, params=None):
@@ -202,15 +205,3 @@ def new_db_download(session, params=None):
     session.close()  # frees memory?
     return download_id
 
-
-def log_and_get_exitcode(quitdownloadexc):
-    '''logs with the appropriate level and returns the relative exit code from the exception
-    argument
-    :param quitdownloadexc: a QuitDownload exception
-    '''
-    if quitdownloadexc._iserror:
-        logger.error(quitdownloadexc)
-        return 1  # that's the program return
-    else:
-        logger.info(str(quitdownloadexc))
-        return 0  # that's the program return, 0 means ok anyway

@@ -32,7 +32,6 @@ from sqlalchemy.engine import create_engine
 from stream2segment.io.db.models import Base, Event, Class, WebService
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from stream2segment.main import closing
 from stream2segment.cli import cli
 from click.testing import CliRunner
 import pandas as pd
@@ -196,15 +195,9 @@ class Test(unittest.TestCase):
         self.mock_get_session.side_effect = self._get_sess
         
         # this mocks closing to actually NOT close the session (we will do it here):
-        self.patcher2 = patch('stream2segment.main.closing')
+        self.patcher2 = patch('stream2segment.main.closesession')
         self.mock_closing = self.patcher2.start()
-        def clsing(*a, **v):
-            if len(a) >= 4:
-                a[3] = False
-            else:
-                v['close_session'] = False
-            return closing(*a, **v)
-        self.mock_closing.side_effect = clsing
+        self.mock_closing.side_effect = lambda *a, **v: None
         
         # this mocks yaml_load and sets inventory to False, as tests rely on that.
         # Moreover, we set the 

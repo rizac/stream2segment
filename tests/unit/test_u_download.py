@@ -34,7 +34,6 @@ from sqlalchemy.engine import create_engine
 from stream2segment.io.db.models import Base, Event, Class, WebService, DataCenter, fdsn_urls
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from stream2segment.main import closing
 from click.testing import CliRunner
 
 import pandas as pd
@@ -205,25 +204,25 @@ class Test(unittest.TestCase):
         self.session = Session()
         self.engine = engine
         
+        self.patchers = []
         
-        self.patcher = patch('stream2segment.utils.url.urllib.request.urlopen')
-        self.mock_urlopen = self.patcher.start()
+        self.patchers.append(patch('stream2segment.utils.url.urllib.request.urlopen'))
+        self.mock_urlopen = self.patchers[-1].start()
         
         # this mocks get_session to return self.session:
-        self.patcher1 = patch('stream2segment.main.get_session')
-        self.mock_get_session = self.patcher1.start()
+        self.patchers.append(patch('stream2segment.main.get_session'))
+        self.mock_get_session = self.patchers[-1].start()
         self.mock_get_session.side_effect = self._get_sess
         
         # this mocks closing to actually NOT close the session (we will do it here):
-        self.patcher2 = patch('stream2segment.main.closing')
-        self.mock_closing = self.patcher2.start()
-        def clsing(*a, **v):
-            if len(a) >= 4:
-                a[3] = False
-            else:
-                v['close_session'] = False
-            return closing(*a, **v)
-        self.mock_closing.side_effect = clsing
+        self.patchers.append(patch('stream2segment.main.get_session'))
+        self.mock_get_sess = self.patchers[-1].start()
+        self.mock_get_sess.side_effect = lambda *a, **v: self.session
+        
+        # this mocks closing to actually NOT close the session (we will do it here):
+        self.patchers.append(patch('stream2segment.main.closesession'))
+        self.mock_closing = self.patchers[-1].start()
+        self.mock_closing.side_effect = lambda *a, **v: None
         
         
         # mock ThreadPool (tp) to run one instance at a time, so we get deterministic results:
@@ -245,8 +244,8 @@ class Test(unittest.TestCase):
             def close(self, *a, **kw):
                 pass
         # assign patches and mocks:
-        self.patcher23 = patch('stream2segment.utils.url.ThreadPool')
-        self.mock_tpool = self.patcher23.start()
+        self.patchers.append(patch('stream2segment.utils.url.ThreadPool'))
+        self.mock_tpool = self.patchers[-1].start()
         self.mock_tpool.side_effect = MockThreadPool
         
         
@@ -261,11 +260,6 @@ class Test(unittest.TestCase):
         # sets a different level, but for the moment who cares
         
         query_logger.addHandler(self.handler)
-        
-
-        self.patchers = [self.patcher, self.patcher1, self.patcher2, self.patcher23]
-        #self.patcher3 = patch('stream2segment.main.logger')
-        #self.mock_main_logger = self.patcher3.start()
         
         # setup a run_id:
         r = Download()

@@ -14,10 +14,7 @@ import tempfile
 import logging
 from datetime import timedelta, datetime
 import sys
-from contextlib import contextmanager
-import time
 
-from stream2segment.utils import timedeltaround
 from stream2segment.io.db.models import Download
 
 # CRITICAL    50
@@ -38,7 +35,7 @@ class DbStreamHandler(logging.FileHandler):
     For an example usijng sql-alchemy log rows (slightly different case but informative) see:
     http://docs.pylonsproject.org/projects/pyramid_cookbook/en/latest/logging/sqlalchemy_logger.html
     """
-    def __init__(self, session, download_id, min_level=20):
+    def __init__(self, min_level=20):
         """
         :param download_id: the id of the database instance reflecting a row of the Download table.
         THE INSTANCE MUST BE ADDED TO THE DATABASE ALREADY. It will be
@@ -47,10 +44,9 @@ class DbStreamHandler(logging.FileHandler):
         # w+: allows to read without closing first:
         super(DbStreamHandler, self).__init__(gettmpfile(), mode='w+')
         # access the stream with self.stream
-        self.session = session
-        self.download_id = download_id
         self.errors = 0
         self.warnings = 0
+        self.criticals = 0  # one should be enough
         # configure level and formatter
         self.setLevel(min_level)
         self.setFormatter(logging.Formatter('[%(levelname)s]  %(message)s'))
@@ -60,9 +56,12 @@ class DbStreamHandler(logging.FileHandler):
             self.warnings += 1
         elif record.levelno == 40:
             self.errors += 1
+        elif record.levelno == 50:
+            self.criticals += 1
         super(DbStreamHandler, self).emit(record)  # logging.FileHandler flushes every emit
 
-    def close(self):
+    def finalize(self, session, download_id, removefile=True):
+        '''writes to db, closes and optionally removes the underlying file'''
         # the super-class sets the stream to None when closing, so we might check this to
         # see if we closed it already:
         if self.stream is None:
@@ -70,6 +69,11 @@ class DbStreamHandler(logging.FileHandler):
         # we experienced the NoneType error which we could not test deterministically
         # so the if above serves to this, especially because we
         # know self.stream == None => already closed
+        
+        # Completed succesfully, 45 warnings (execution ime: ...)
+        # Not completed succesfully, 3 error, 45 warning (total execution time: )
+        
+        
         super(DbStreamHandler, self).flush()  # for safety
         self.stream.seek(0)  # offset of 0
         logcontent = self.stream.read()   # read again
@@ -77,15 +81,16 @@ class DbStreamHandler(logging.FileHandler):
             super(DbStreamHandler, self).close()
         except:
             pass
-        try:
-            os.remove(self.baseFilename)
-        except:
-            pass
-        self.session.query(Download).filter(Download.id == self.download_id).\
+        if removefile:
+            try:
+                os.remove(self.baseFilename)
+            except:
+                pass
+        session.query(Download).filter(Download.id == download_id).\
             update({Download.log.key: logcontent,
                     Download.errors.key: self.errors,
                     Download.warnings.key: self.warnings})
-        self.session.commit()
+        session.commit()
 
 
 class LevelFilter(object):
@@ -125,19 +130,43 @@ class SysOutStreamHandler(logging.StreamHandler):
 
 
 def configlog4processing(logger, outcsvfile, isterminal):
+    """Configures a set of default handlers, add them to `logger` amd teturns them as list:
+    - if outcsvfile is given (not falsy):
+        - A logging.FileHandler which will capture all INFO, ERROR and WARNING level messages, and
+        prints them to a file named `outcsvfile`+".log"
+        - If `isterminal` = True, a StreamHandler which prints to standard output ONLY messages of
+        level INFO (20) and ERROR (40) and CRITICAL (50): i.e., it does not rpint DEBUG and WARNING
+        messages
+    - if `outcsvfile` not given (falsy):
+        - A logging.StreamHandler which will capture all INFO, ERROR and WARNING level messages,
+        and prints them to standard error
+    
+    Implementation detail: this method modifies permanently these values for performance reason: 
+    ```
+    logging._srcfile = None  #pylint: disable=protected-access
+    logging.logThreads = 0
+    logging.logProcesses = 0
+    ```
+    If you run the download inside a process re-using logging, store those values and re-set them
+    as needed
+    """
     # https://docs.python.org/2/howto/logging.html#optimization:
     logging._srcfile = None  #pylint: disable=protected-access
     logging.logThreads = 0
     logging.logProcesses = 0
     # config logger (FIXME: merge with download logger?):
     logger.setLevel(logging.INFO)  # this is necessary to configure logger HERE, otherwise the
-    # handler below does not work. FIXME: better implementation!!
-    logger_handler = logging.FileHandler(outcsvfile + ".log", mode='w')
-    logger_handler.setLevel(logging.DEBUG)
-    logger.addHandler(logger_handler)
+    handlers = []
+    if outcsvfile:
+        handlers.append(logging.FileHandler(outcsvfile + ".log", mode='w'))
+    else:
+        handlers.append(logging.StreamHandler(sys.stderr))
     if isterminal:
-        # configure print to stdout (by default only info warning errors and critical messages)
-        logger.addHandler(SysOutStreamHandler(sys.stdout))
+        # configure print to stdout (by default only info errors and critical messages)
+        handlers.append(SysOutStreamHandler(sys.stdout))
+    for hand in handlers:
+        logger.addHandler(hand)
+    return handlers
 
 
 def gettmpfile():
@@ -146,15 +175,26 @@ def gettmpfile():
     return os.path.join(tempfile.gettempdir(), "s2s_%s.log" % datetime.utcnow().isoformat())
 
 
-def configlog4download(logger, db_session, download_id, isterminal):
-    """configs for download and returns the DbStreamHandler used to store the log to the db
-    and to a tmp file (the file is accessible via `handler.baseFilename`). The handlers added to
-    the logger are:
+def configlog4download(logger, isterminal=False):
+    """Configures a set of default handlers, add them to `logger` amd teturns them as list:
     - A DbStreamHandler which will capture all INFO, ERROR and WARNING level messages, and when
-    its close() method is called, flushes the content of its file to the database (deleting the
-    file. This assures that if no close method is called, possibly due to an exception,
+    its finalize() method is called, flushes the content of its file to the database (deleting the
+    file if needed. This assures that if `finalize` is not called, possibly due to an exception,
     the file can be inspected)
+    - If `isterminal` = True, a StreamHandler which prints to standard output ONLY messages of
+    level INFO (20) and ERROR (40) and CRITICAL (50): i.e., it does not rpint DEBUG and WARNING
+    messages
     
+    If `isterminal` is False, the second handler is not added and a list of one element is returned
+    
+    Implementation detail: this method modifies permanently these values for performance reason: 
+    ```
+    logging._srcfile = None  #pylint: disable=protected-access
+    logging.logThreads = 0
+    logging.logProcesses = 0
+    ```
+    If you run the download inside a process re-using logging, store those values and re-set them
+    as needed
     """
     # https://docs.python.org/2/howto/logging.html#optimization:
     logging._srcfile = None  #pylint: disable=protected-access
@@ -163,12 +203,13 @@ def configlog4download(logger, db_session, download_id, isterminal):
     # FIXME above: move elsewhere (maybe restoring defaults?)
     logger.setLevel(logging.INFO)  # necessary to forward to handlers
     # custom StreamHandler: count errors and warnings:
-    dbstream_handler = DbStreamHandler(db_session, download_id)
-    logger.addHandler(dbstream_handler)
+    handlers = [DbStreamHandler()]
     if isterminal:
-        # configure print to stdout (by default only info and critical messages)
-        logger.addHandler(SysOutStreamHandler(sys.stdout))
-    return dbstream_handler
+        # configure print to stdout (by default only info errors and critical messages)
+        handlers.append(SysOutStreamHandler(sys.stdout))
+    for hand in handlers:
+        logger.addHandler(hand)
+    return handlers
 
 
 # def configlog4stdout(logger):
@@ -177,21 +218,21 @@ def configlog4download(logger, db_session, download_id, isterminal):
 #     logger.addHandler(SysOutStreamHandler(sys.stdout))
 
 
-@contextmanager
-def elapsedtime2logger_when_finished(logger, method='info'):
-    """contextmanager to be used in a with statement, will print to the logger how much time it
-    required to
-    execute the code in the with statement. At the end (if no exception is raised)
-    `logger.info` (or whatever specified in `method`) will be called with a
-    "Completed in ..." message with a nicely formatted timedelta
-    :param logger: a logger object
-    :param method: the string of the method to invoke. Defaults to 'info'. Possible other values
-    are 'warning', 'error', 'debug' and 'critical'
-    """
-    starttime = time.time()
-    yield
-    getattr(logger, method)("(Completed in %s)",
-                            str(timedeltaround(timedelta(seconds=time.time()-starttime))))
+# @contextmanager
+# def elapsedtime2logger_when_finished(logger, method='info'):
+#     """contextmanager to be used in a with statement, will print to the logger how much time it
+#     required to
+#     execute the code in the with statement. At the end (if no exception is raised)
+#     `logger.info` (or whatever specified in `method`) will be called with a
+#     "Completed in ..." message with a nicely formatted timedelta
+#     :param logger: a logger object
+#     :param method: the string of the method to invoke. Defaults to 'info'. Possible other values
+#     are 'warning', 'error', 'debug' and 'critical'
+#     """
+#     starttime = time.time()
+#     yield
+#     getattr(logger, method)("(Completed in %s)",
+#                             str(timedeltaround(timedelta(seconds=time.time()-starttime))))
 
 # class MyFormatter(logging.Formatter):
 #         """Extends formatter to print different formatted messages according to levelname

@@ -33,7 +33,11 @@ from stream2segment.process.core import run
 logger = logging.getLogger(__name__)
 
 
-def to_csv(outcsvfile, session, pysourcefile, configsourcefile, isterminal):
+def to_csv(outcsvfile, session, pyfunc, config_dict, isterminal):
+    if not outcsvfile:
+        run(session, pyfunc, None, config_dict, isterminal)
+        return
+    
     kwargs = dict(delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
     flush_num = [1, 10]  # determines when to flush (not used. We use the
     # last argument to open which tells to flush line-wise. To add custom flush, see commented
@@ -77,4 +81,4 @@ def to_csv(outcsvfile, session, pysourcefile, configsourcefile, isterminal):
             #    # http://stackoverflow.com/questions/3976711/csvwriter-not-saving-data-to-file-why
             # flush_num[0] += 1
 
-        run(session, pysourcefile, ondone, configsourcefile, isterminal)
+        run(session, pyfunc, ondone, config_dict, isterminal)

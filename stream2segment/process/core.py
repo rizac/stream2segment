@@ -46,28 +46,9 @@ from stream2segment.io.db.models import Segment, Station, Event, Channel
 logger = logging.getLogger(__name__)
 
 
-def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=False):
-    reg = re.compile("^(.*):([a-zA-Z_][a-zA-Z_0-9]*)$")
-    m = reg.match(pysourcefile)
-    if m and m.groups():
-        pysourcefile = m.groups()[0]
-        funcname = m.groups()[1]
-    else:
-        funcname = default_funcname()
-
-    try:
-        pyfunc = load_source(pysourcefile).__dict__[funcname]
-    except Exception as exc:
-        msg = "Error while importing '%s' from '%s': %s" % (funcname, pysourcefile, str(exc))
-        logger.critical(msg)
-        return 0
-
-    try:
-        config = {} if configsourcefile is None else load_proc_cfg(configsourcefile)
-    except Exception as exc:
-        msg = "Error while reading config file '%s': %s" % (configsourcefile,  str(exc))
-        logger.critical(msg)
-        return 0
+def run(session, pyfunc, ondone=None, config=None, show_progress=False):
+    if config is None:
+        config = {}
 
     # suppress obspy warnings. Doing process-wise is more feasible FIXME: do it?
     warnings.filterwarnings("default")  # https://docs.python.org/2/library/warnings.html#the-warnings-filter @IgnorePep8
@@ -77,9 +58,6 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
     logging.captureWarnings(True)
     warnings_logger = logging.getLogger("py.warnings")
     warnings_logger.addHandler(logger_handler)
-    logger.info("Executing '%s' in '%s'", funcname, pysourcefile)
-    logger.info("Input database: '%s", secure_dburl(str(session.bind.engine.url)))
-    logger.info("Config. file: %s", str(configsourcefile))
 
     # multiprocess with sessions is a mess. Among other problems, we should not share any
     # session-related operation with the same session object across different multiprocesses.
@@ -121,67 +99,66 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
 
         with redirect(sys.stderr):
             with get_progressbar(show_progress, length=seg_len) as pbar:
-                try:
-                    for row in seg_sta_ids:
-                        seg_id, sta_id = row.tolist()
-                        # check if we already loaded a segment from a previous segment's
-                        # orientations:
-                        if segment is not None:
-                            other_orients_list = getattr(segment, "_other_orientations", [])
-                            for sg in other_orients_list:
-                                if sg.id == seg_id:
-                                    segment = sg
-                                    break
-                            else:
-                                # other orientations not found or not loaded, expunge segment:
-                                # if we are changing the station we are here (not the vice-versa,
-                                # if we are here we might have changed only the segment):
-                                if station_id != sta_id:  # A) are we changing the station?:
-                                    # clear session if we are changing the station:
-                                    # this will clear also channel and segments
-                                    session.expunge_all()
-                                    # (session.close() this should not be necessary)
-                                    # clear inventory ref:
-                                    inventory = None
-                                else:  # B) are we changing the segment?:
-                                    # clear the segment and its components, if any. FIXME: DO WE?
-                                    session.expunge(segment)
-                                    for otherseg_ in other_orients_list:
-                                        session.expunge(otherseg_)
-                                # force to query segment to the db:
-                                segment = None
-                        if segment is None:
-                            segment = seg_query.get(seg_id) or \
-                                seg_query.filter(Segment.id == seg_id).\
-                                options(load_only(Segment.id)).first()
-                        segment._inventory = inventory  #pylint: disable=protected-access
-                        station_id = sta_id
-                        try:
-                            array = pyfunc(segment, config)
-                            if array is not None:
-                                ondone(segment, array)
+                
+                for row in seg_sta_ids:
+                    seg_id, sta_id = row.tolist()
+                    # check if we already loaded a segment from a previous segment's
+                    # orientations:
+                    if segment is not None:
+                        other_orients_list = getattr(segment, "_other_orientations", [])
+                        for sg in other_orients_list:
+                            if sg.id == seg_id:
+                                segment = sg
+                                break
+                        else:
+                            # other orientations not found or not loaded, expunge segment:
+                            # if we are changing the station we are here (not the vice-versa,
+                            # if we are here we might have changed only the segment):
+                            if station_id != sta_id:  # A) are we changing the station?:
+                                # clear session if we are changing the station:
+                                # this will clear also channel and segments
+                                session.expunge_all()
+                                # (session.close() this should not be necessary)
+                                # clear inventory ref:
+                                inventory = None
+                            else:  # B) are we changing the segment?:
+                                # clear the segment and its components, if any. FIXME: DO WE?
+                                session.expunge(segment)
+                                for otherseg_ in other_orients_list:
+                                    session.expunge(otherseg_)
+                            # force to query segment to the db:
+                            segment = None
+                    if segment is None:
+                        segment = seg_query.get(seg_id) or \
+                            seg_query.filter(Segment.id == seg_id).\
+                            options(load_only(Segment.id)).first()
+                    segment._inventory = inventory  #pylint: disable=protected-access
+                    station_id = sta_id
+                    try:
+                        array_or_dic = pyfunc(segment, config)
+                        if ondone:
+                            if array_or_dic is not None:
+                                ondone(segment, array_or_dic)
                                 done += 1
                             else:
                                 skipped += 1
-                        except (ImportError, NameError, AttributeError, SyntaxError,
-                                TypeError) as _:
-                            raise  # sys.exc_info()
-                        except Exception as generr:
-                            logger.warning("segment (id=%d): %s", seg_id, str(generr))
-                            skipped_error += 1
-                        # check if we loaded the inventory and set it as last computed
-                        # little hack: check if the "private" field is defined:
-                        if inventory is None and segment._inventory is not None:  #pylint: disable=protected-access
-                            inventory = segment._inventory  #pylint: disable=protected-access
-                        pbar.update(1)
-                except:
-                    err_msg = traceback.format_exc()
-                    logger.critical(err_msg)
-                    return 0
+                        else:
+                            done += 1
+                    except (ImportError, NameError, AttributeError, SyntaxError,
+                            TypeError) as _:
+                        raise  # sys.exc_info()
+                    except Exception as generr:
+                        logger.warning("segment (id=%d): %s", seg_id, str(generr))
+                        skipped_error += 1
+                    # check if we loaded the inventory and set it as last computed
+                    # little hack: check if the "private" field is defined:
+                    if inventory is None and segment._inventory is not None:  #pylint: disable=protected-access
+                        inventory = segment._inventory  #pylint: disable=protected-access
+                    pbar.update(1)
 
         captured_warnings = s.getvalue()
         if captured_warnings:
-            logger.info("(external warnings captured, please see log for details)")
+            logger.info("(external warnings captured, if provided, see log file for details)")
             logger.info("")
             logger.warning("Captured external warnings:")
             logger.warning("%s", captured_warnings)
@@ -202,8 +179,9 @@ def run(session, pysourcefile, ondone, configsourcefile=None, show_progress=Fals
             logger.info("station inventories saved: %d", (stasaved2-stasaved))
 
         logger.info("%d of %d segments successfully processed\n", done, seg_len)
-        logger.info("%d of %d segments skipped without messages\n" , skipped, seg_len)
-        logger.info("%d of %d segments skipped with message "
+        if skipped: # this is the case when ondone is provided AND pyfunc returned None
+            logger.info("%d of %d segments skipped without messages\n" , skipped, seg_len)
+        logger.info("%d of %d segments skipped with error message "
                     "(check log or details)\n", skipped_error, seg_len)
 
 
@@ -253,18 +231,6 @@ def redirect(src=sys.stdout, dst=os.devnull):
         finally:
             # restore stdout. buffering and flags such as CLOEXEC may be different:
             _redirect_(to=old_)
-
-
-def default_funcname():
-    '''returns 'main', the default function name for processing, when such a name is not given'''
-    return 'main'
-
-
-def load_proc_cfg(configsourcefile):
-    """Returns the dict represetning the processing yaml file"""
-    # After refactoring, this function simply calls the default "yaml to dict" function (yaml_load)
-    # leave it here for testing purposes (mock)
-    return yaml_load(configsourcefile)
 
 
 def query4process(session, conditions=None):

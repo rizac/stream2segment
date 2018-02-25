@@ -27,7 +27,7 @@ from sqlalchemy.orm.session import sessionmaker
 # import multiprocessing
 from obspy.core.stream import read
 
-from stream2segment.main import closing
+
 from stream2segment.cli import cli
 from stream2segment.io.db.models import Base, Event, Station, WebService, Segment,\
     Channel, Download, DataCenter
@@ -223,9 +223,9 @@ class Test(unittest.TestCase):
         self.mock_session = self.patcher1.start()
         self.mock_session.return_value = self.session
 
-        self.patcher2 = patch('stream2segment.main.closing')
+        self.patcher2 = patch('stream2segment.main.closesession')
         self.mock_closing = self.patcher2.start()
-        self.mock_closing.side_effect = lambda dburl: closing(dburl, close_session=False)
+        self.mock_closing.side_effect = lambda *a, **v: None
 
     @staticmethod
     def read_stream_raw(file_name):

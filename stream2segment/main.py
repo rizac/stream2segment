@@ -21,25 +21,30 @@ import os
 from contextlib import contextmanager
 import shutil
 import inspect
-from datetime import datetime, timedelta 
+from datetime import datetime, timedelta
+from sqlalchemy.exc import SQLAlchemyError
 
-# iterate over dictionary keys without list allocation in both py 2 and 3:
-# from future.utils import viewitems
+# this can not apparently be fixed with the future package:
+# The problem is io.StringIO accepts unicodes in python2 and strings in python3:
+try:
+    from cStringIO import StringIO  # python2.x
+except ImportError:
+    from io import StringIO
 
 import yaml
 import click
 
-from stream2segment.utils.log import configlog4download, configlog4processing,\
-    elapsedtime2logger_when_finished
+from stream2segment.utils.log import configlog4download, configlog4processing
 from stream2segment.io.db.models import Download
 from stream2segment.process.main import to_csv
-from stream2segment.download.main import run as run_download, new_db_download, log_and_get_exitcode
-from stream2segment.utils import get_session, indent, secure_dburl, strptime, strconvert, iterfuncs
+from stream2segment.download.main import run as run_download, new_db_download
+from stream2segment.utils import get_session, secure_dburl, strptime, strconvert, iterfuncs, load_source
 from stream2segment.utils.resources import get_templates_fpaths, yaml_load, get_ttable_fpath
 from stream2segment.gui.main import create_p_app, run_in_browser, create_d_app
 from stream2segment.process import math as s2s_math
 from stream2segment.download.utils import nslc_param_value_aslist, QuitDownload
 from stream2segment.traveltimes.ttloader import TTTable
+import time
 
 
 # set root logger if we are executing this module as script, otherwise as module name following
@@ -51,76 +56,160 @@ from stream2segment.traveltimes.ttloader import TTTable
 logger = logging.getLogger("stream2segment")
 
 
-def download(config_yaml_path, isterminal=False, **param_overrides):
+def download(configfile, verbosity=2, **param_overrides):
     """
         Downloads the given segment providing a set of keyword arguments to match those of the
         config file (see confi.example.yaml for details)
+        
+        :param configfile: a valid path to a file in yaml format
+        :param verbosity: integer: 0 means: no logger configured, no print to standard output.
+            Use this option if you want to have maximum flexibility (e.g. configure your logger)
+            and - in principle - shorter execution time (although the real benefits have not been
+            measured): this means however that no log information will be saved to the database
+            (including the execution time) unless a logger has been explicitly set by the user
+            beforehand (see :clas:`DbHandler` in case)
+            1 means: configure default logger, no print to standard output. Use this option if you
+            are not calling this function from the command line but you want to have all log
+            information stored to the database (including execution time)
+            2 (the default) means: configure default logger, and print to standard output. Use this
+            option if calling this program from the command line. This is the same as verbosity=1
+            but in addition some informations are printed to the standard output, including
+            progresss bars for displaying the estimated remaining time of each sub-task
+
+        :raise: ValueError if some parameter is invalid in configfile (yaml format)
     """
-    input_yaml_dict = yaml_load(config_yaml_path, **param_overrides)
+    # implementation details: this function can return 0 on success and 1 on failure.
+    # First, it can raise ValueError for a bad parameter (checked before starting db session and
+    # logger),
+    # Then, during download, if the process completed 0 is returned. This includes the case
+    # when according to our config, there are no segments to download
+    # For any other case where we cannot proceed (we do not have data, e.g. no stations,
+    # for whatever reason it is), 1 is returned. We should actually check better if there
+    # might be some of these cases where 0 should be returned instead of 1.
+    # When 1 is returned, a QuitDownload is raised and logged to error.
+    # Other exceptions are caught, logged with the stack trace as critical, and raised
+    
+    input_yaml_dict = read_configfile(configfile, **param_overrides)
     # the obect above will be saved to db, make a copy for mainpulation here:
     yaml_dict = dict(input_yaml_dict)
-    # param check before setting stuff up:
-    try:
-        adjust_nslc_params(yaml_dict)
-        adjust_times(yaml_dict)
-        tt_table = load_tt_table(yaml_dict['traveltimes_model'])
-    except Exception as exc:  #pylint: disable=broad-except
-        logger.error(exc)
-        return 1
-    
-    dburl = yaml_dict['dburl']
-    # print yaml_dict to terminal if needed. Do not use input_yaml_dict as
-    # params needs to be shown as expanded/converted so the user can check their correctness:
-    if isterminal:
-        print("Config. input parameters:")
-        # replace dburl hiding passowrd for printing to terminal
-        yaml_safe = dict(yaml_dict, dburl=secure_dburl(dburl))
-        print(indent(yaml.safe_dump(yaml_safe, default_flow_style=False), 2))
- 
-    with closing(dburl) as session:
-        download_id = new_db_download(session, input_yaml_dict)
-        loghandler = configlog4download(logger, session, download_id, isterminal)
+    # param check before setting stuff up. All these raise BadParameter(s) in case:
+    adjust_nslc_params(yaml_dict)
+    adjust_times(yaml_dict)
+    load_tt_table(yaml_dict)  # pops 'traveltimes_model' from yaml_dict, adds tt_table key
+    session = create_session(extract_dburl(yaml_dict))  # pops dburl from yaml_dict
 
-        if isterminal:
-            print("Log messages will be temporarily written to:\n'%s'" %
-                  str(loghandler.baseFilename))
-            print("(if the program does not quit for external causes, e.g., memory overflow,\n"
+    # print yaml_dict to terminal if needed. Do not use input_yaml_dict as
+    # params needs to be shown as expanded/converted so the user can check their correctness
+    # Do no use loggers yet:
+    is_from_terminal = verbosity >= 2
+    if is_from_terminal:
+        # replace dburl hiding passowrd for printing to terminal, tt_table with a short repr str,
+        # and restore traveltimes_model because we popped from yaml_dict it out in load_tt_table
+        yaml_safe = dict(yaml_dict, dburl=secure_dburl(input_yaml_dict['dburl']),
+                         tt_table="<%s object>" % TTTable.__class__.__name__,
+                         traveltimes_model=input_yaml_dict['traveltimes_model'])
+        ip_params = yaml.safe_dump(yaml_safe, default_flow_style=False)
+        ip_title = "Input parameters"
+        print("%s\n%s\n%s\n" % (ip_title, "-" * len(ip_title), ip_params))
+        
+    
+    download_id = new_db_download(session, input_yaml_dict)
+    loghandlers = configlog4download(logger, is_from_terminal) if verbosity > 0 else []
+    ret = 0
+    noexc_occurred = True
+    stime, etime = None, None
+    try:
+        if is_from_terminal:  # (=> loghandlers not empty)
+            print("Log file:\n'%s'\n"
+                  "(if the program does not quit for unexpected exceptions or external causes, "
+                  "e.g., memory overflow,\n"
                   "the file will be deleted before exiting and its content will be written\n"
-                  "to the table '%s', column '%s')" % (Download.__tablename__,
+                  "to the table '%s', column '%s')" % (str(loghandlers[0].baseFilename),
+                                                       Download.__tablename__,
                                                        Download.log.key))
 
-        with elapsedtime2logger_when_finished(logger):
-            # remove keys not used in run_download:
-            yaml_dict.pop('traveltimes_model')
-            yaml_dict.pop('dburl')
-            try:
-                run_download(session=session, download_id=download_id, isterminal=isterminal,
-                             tt_table=tt_table, **yaml_dict)
-            except QuitDownload as qdwnl:
-                return log_and_get_exitcode(qdwnl)
+        stime = time.time()
+        try:
+            run_download(session=session, download_id=download_id, isterminal=is_from_terminal,
+                         **yaml_dict)
+        except QuitDownload as quitdownloadexc:
+            if quitdownloadexc._iserror:  #pylint: disable=protected-access
+                logger.error(quitdownloadexc)
+                ret = 1  # that's the program return
+            else:
+                logger.info(str(quitdownloadexc))
+        etime = time.time()
 
-            logger.info("\n%d total error(s), %d total warning(s)", loghandler.errors,
-                        loghandler.warnings)
+    except:  # print the exception traceback (only last) witha  custom logger, and raise,
+        # so that in principle the full traceback is printed on terminal (or caught by the caller) 
+        noexc_occurred = False
+        # https://stackoverflow.com/questions/5191830/best-way-to-log-a-python-exception:
+        logger.critical("Download aborted", exc_info=True)
+        raise
+    finally:
+        if noexc_occurred:
+            logger.info("Completed in %s", str(totimedelta(stime, etime)))
+            logger.info("\n%d total error(s), %d total warning(s)", loghandlers[0].errors,
+                        loghandlers[0].warnings)
+        
+        # write log to db if custom handlers provided:
+        if loghandlers:
+            loghandlers[0].finalize(session, download_id, removefile=noexc_occurred)
+        closesession(session)
+        
+    return ret
 
-    return 0
 
-
-def load_tt_table(file_or_name):
+def read_configfile(configfile, **param_overrides):
+    pname = 'configfile'
+    
     try:
+        if not os.path.isfile(configfile):
+            raise Exception('file does not exist')
+        
+        return yaml_load(configfile, **param_overrides)
+    except Exception as exc:
+        raise BadParameter(exc, pname)
+
+
+def extract_dburl(yaml_dict):
+    pname = 'dburl'
+    try:
+        return yaml_dict.pop(pname)
+    except KeyError:
+        raise MissingConfigfileParameter(pname)
+
+
+def create_session(dburl):
+    try:
+        return get_session(dburl, scoped=False)
+    except SQLAlchemyError as exc:
+        raise BadParameter(exc, 'dburl')
+
+
+def load_tt_table(yaml_dict):
+    pname = 'traveltimes_model'
+    try:
+        file_or_name = yaml_dict.get(pname, None)
         filepath = get_ttable_fpath(file_or_name)
         if not os.path.isfile(filepath):
             filepath = file_or_name
-        return TTTable(filepath)
+        if not os.path.isfile(filepath):
+            raise Exception('file or builtin model name not found')
+        yaml_dict['tt_table'] = TTTable(filepath)
+    except KeyError:
+        raise MissingConfigfileParameter(pname)
     except Exception as exc:
-        raise ValueError(("Error loading travel-times "
-                          "table from file '%s': %s") % (filepath, str(exc)))
+        raise BadParameter(exc, pname)
 
 def adjust_times(yaml_dict):
     try:
         for pname in ['start', 'end']:
             yaml_dict[pname] = valid_date(yaml_dict[pname])
+    except KeyError:
+        raise MissingConfigfileParameter(pname)
     except ValueError as exc:
-        raise ValueError("Invalid parameter '%s': %s" % (pname, str(exc)))
+        raise BadParameter(exc, pname)
 
 
 def valid_date(obj):
@@ -129,12 +218,12 @@ def valid_date(obj):
     except ValueError as _:
         try:
             days = int(obj)
-            NOW = datetime.utcnow()
-            endt = datetime(NOW.year, NOW.month, NOW.day, 0, 0, 0, 0)
+            now = datetime.utcnow()
+            endt = datetime(now.year, now.month, now.day, 0, 0, 0, 0)
             return endt - timedelta(days=days)
         except Exception:
             pass
-    raise ValueError("please supply a date-time or an integer")
+    raise ValueError("date-time or an integer required")
 
 
 def adjust_nslc_params(yaml_dic):
@@ -176,33 +265,124 @@ def adjust_nslc_params(yaml_dic):
                 parconflicts.append(p)
                 arg = yaml_dic.pop(p)
             if len(parconflicts) > 1:
-                raise ValueError("Parameter name conflict: cannot handle both %s" %
-                                 (" and ".join('%s' % _ for _ in parconflicts)))
+                raise BadParameter("name conflict: %s both specified" %
+                                 (" and ".join('%s' % _ for _ in parconflicts)),
+                                 "/".join(parconflicts))
             
         s2s_name = pars[-1]
         val = []
         if len(parconflicts) and arg is not None and arg not in ([], ()):
-            val = nslc_param_value_aslist(i, arg)
-        
+            try:
+                val = nslc_param_value_aslist(i, arg)
+            except ValueError as verr:
+                raise BadParameter(verr, parconflicts[-1])
+
         yaml_dic[s2s_name] = val
         
 
-def process(dburl, pyfile, configfile, outcsvfile, isterminal=False):
+def process(dburl, pyfile, funcname=None, configfile=None, outfile=None, verbose=False):
     """
-        Process the segment saved in the db and saves the results into a csv file
-        :param processing: a dict as load from the config
+        Process the segment saved in the db and optionally saves the results into `outfile`
+        in .csv format
+        If `outfile` is given, `pyfile` should return lists/dicts to be written as
+            csv row, and logging errors/ warnings/ infos /critical messages will be printed to a
+            file whose path is `[outfile].log`
+        If `outfile` is not given, then the returned values of `pyfile` will be ignored
+            (`pyfile` is supposed to process data without returning a value, e.g. save processed
+            miniSeed to the FileSystem), and logging errors/warnings/infnos/critical messages
+            will be printed to `stderr`.
+        In both cases, if `verbose` is True, log informations and errors, and a progressbar will be
+            printed to standard output, otherwise nothing will be printed
     """
-    with closing(dburl) as session:
-        if isterminal:
-            print("Processing, please wait")
-        logger.info('Output file: %s', outcsvfile)
+    # implementation details: this function returns 0 on success and raises otherwise.
+    # First, it can raise ValueError for a bad parameter (checked before starting db session and
+    # logger),
+    # Then, during processing, each segment error which is not (ImportError, NameError,
+    # AttributeError, SyntaxError, TypeError) is logged as warning and the program continues.
+    # Other exceptions are raised, caught here and logged as error, with the stack trace:
+    # this allows to help users to discovers possible bugs in pyfile, without waiting for
+    # the whole process to finish. Note that this does not distinguish the case where
+    # we have any other exception (e.g., keyboard interrupt), but that's not a requirement
+    
+    # param check before setting stuff up. All these raise BadParameter(s) in case:
+    session = create_session(dburl)
+    funcname, pyfunc = read_processing_module(pyfile, funcname)
+    config_dict = {} if not configfile else read_configfile(configfile)
+        
+    configlog4processing(logger, outfile, verbose)
+    try:
+        if verbose:
+            if outfile:
+                logger.info('Output file: %s', outfile)
+            logger.info("Executing '%s' in '%s'", funcname, pyfile)
+            logger.info("Input database: '%s", secure_dburl(dburl))
+            if configfile:
+                logger.info("Config. file: %s", str(configfile))
+    
+        stime = time.time()
+        to_csv(outfile, session, pyfunc, config_dict, verbose)
+        logger.info("Completed in %s", str(totimedelta(stime)))
+        return 0  # contrarily to download, an exception should always raise and log as error
+        # with the stack trace
+        # (this includes pymodule exceptions e.g. TypeError)
+    except:
+        logger.error("Process aborted", exc_info=True)  # see comment above
+        raise
+    finally:
+        closesession(session)
 
-        configlog4processing(logger, outcsvfile, isterminal)
-        with elapsedtime2logger_when_finished(logger):
-            to_csv(outcsvfile, session, pyfile, configfile, isterminal)
 
-    return 0
+def read_processing_module(pyfile, funcname=None):
+    '''Returns the python module from the given python file'''
+    reg = re.compile("^(.*):([a-zA-Z_][a-zA-Z_0-9]*)$")
+    m = reg.match(pyfile)
+    if m and m.groups():
+        pyfile = m.groups()[0]
+        funcname = m.groups()[1]
+    elif funcname is None:
+        funcname = default_processing_funcname() 
+    
+    pname = 'pyfile'
 
+    try:
+        if not os.path.isfile(pyfile):
+            raise Exception('file does not exist')
+    
+        return funcname, load_source(pyfile).__dict__[funcname]
+    except Exception as exc:
+        raise BadParameter(exc, pname)
+
+
+def default_processing_funcname():
+    '''returns 'main', the default function name for processing, when such a name is not given'''
+    return 'main'
+
+
+def totimedelta(t0_sec, t1_sec=None):
+    '''time elapsed from `t0_sec` until `t1_sec`, as `timedelta` object rounded to
+    seconds.
+    If `t1_sec` is None, it will default to `time.time()` (the current time since the epoch,
+    in seconds)
+
+    :param t0_sec: (float) the start time in seconds. Usually it is the result of a
+        previous call to `time.time()`, before starting a process that had to be monitored
+    :param t1_sec: (float) the end time in seconds. If None, it defaults to `time.time()`
+        (current time since the epoch, in seconds)
+        
+    :return: a timedelta object, rounded to seconds
+    '''
+    return timedelta(seconds=round((time.time() if t1_sec is None else t1_sec) - t0_sec))
+
+
+def closesession(session):
+    '''closes the session, 
+    This method simply calls `session.close()`, passing all exceptions, if any. Useful for unit
+    testing and mock
+    '''
+    try:
+        session.close()
+    except:
+        pass
 
 def show(dburl, pyfile, configfile):
     run_in_browser(create_p_app(dburl, pyfile, configfile))
@@ -252,38 +432,48 @@ def init(outpath, prompt=True, *filenames):
     return copied_files
 
 
-@contextmanager
-def closing(dburl, scoped=False, close_logger=True, close_session=True):
-    """Opens a sqlalchemy session and closes it. Also closes and removes all logger handlers if
-    close_logger is True (the default)
-    :example:
-        # configure logger ...
-        with closing(dburl) as session:
-            # ... do stuff, print to logger etcetera ...
-        # session is closed and also the logger handlers
-    """
-    try:
-        session = get_session(dburl, scoped=scoped)
-        yield session
-    except:
-        logger.critical(sys.exc_info()[1])
-        raise
-    finally:
-        if close_logger:
-            handlers = logger.handlers[:]  # make a copy
-            for handler in handlers:
-                try:
-                    handler.close()
-                    logger.removeHandler(handler)
-                except (AttributeError, TypeError, IOError, ValueError):
-                    pass
-        if close_session:
-            # close the session at the **real** end! we might need it above when closing loggers!!!
-            try:
-                session.close()
-                session.bind.dispose()
-            except NameError:
-                pass
+class BadParameter(ValueError):
+    '''An exception that needs to be raised when a bad parameter value is encountered.
+    It inherits from click.BadParameter so that it can be processed by click, and when raised
+    as "normal" exception and caught by some other function it provides the same formatted message
+    than click
+    '''
+    def __init__(self, error_msg, param_name=None):
+        '''Calls the super constructor without context and param information but
+        providing explicitly a parameter name'''
+        super(BadParameter, self).__init__(str(error_msg))
+        self.param_name = str(param_name) if param_name else None
+
+    @property
+    def message(self):
+        err_msg = self.args[0]  # in ValueError, is the error_msg passed in the constructor
+        if self.param_name:
+            msg = "Invalid value for %s: %s" % (self.param_name, err_msg)
+        else:
+            msg = err_msg
+        return msg
+
+    def toClickExc(self):
+        return click.BadParameter(self.message, param_hint=self.param_name)
+    
+    def __str__(self):
+        ''''''
+        return "Error: %s" % self.message
+    
+
+class MissingConfigfileParameter(BadParameter):
+    
+    def __init__(self, param_name=None):
+        super(MissingConfigfileParameter, self).__init__('Missing parameter in config. file',
+                                                         param_name)
+    
+    def toClickExc(self):
+        return click.MissingParameter('', param_hint=self.param_name or None)
+    
+    @property
+    def message(self):
+        # in ValueError, is the error_msg passed in the constructor
+        return "%s%s" % (self.args[0], (': ' + str(self.param_name)) if self.param_name else '')
 
 
 def helpmathiter(type, filter):  # @ReservedAssignment pylint: disable=redefined-outer-name

@@ -273,10 +273,10 @@ def get_session(dbpath, scoped=False):  # , enable_fk_if_sqlite=True):
         return scoped_session(session_factory)
 
 
-def timedeltaround(tdelta):
-    """Rounds a timedelta to seconds"""
-    add = 1 if tdelta.microseconds >= 500000 else 0
-    return timedelta(days=tdelta.days, seconds=tdelta.seconds+add, microseconds=0)
+# def timedeltaround(tdelta):
+#     """Rounds a timedelta to seconds"""
+#     add = 1 if tdelta.microseconds >= 500000 else 0
+#     return timedelta(days=tdelta.days, seconds=tdelta.seconds+add, microseconds=0)
 
 
 def secure_dburl(dburl):
@@ -329,13 +329,13 @@ def get_progressbar(show, **kw):
             yield bar
 
 
-def indent(string, n_chars=3):
-    """Indents the given string (or each line of string if multi-line)
-    with n_chars spaces.
-    :param n_chars: int or string: the number of spaces to use for indentation. If 'tab',
-    indents using the tab character"""
-    reg = re.compile("^", re.MULTILINE)  # @UndefinedVariable
-    return reg.sub("\t" if n_chars == 'tab' else " " * n_chars, string)
+# def indent(string, n_chars=3):
+#     """Indents the given string (or each line of string if multi-line)
+#     with n_chars spaces.
+#     :param n_chars: int or string: the number of spaces to use for indentation. If 'tab',
+#     indents using the tab character"""
+#     reg = re.compile("^", re.MULTILINE)  # @UndefinedVariable
+#     return reg.sub("\t" if n_chars == 'tab' else " " * n_chars, string)
 
 
 def urljoin(*urlpath, **query_args):

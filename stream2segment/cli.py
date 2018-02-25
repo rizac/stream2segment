@@ -36,9 +36,9 @@ import click
 from click.exceptions import BadParameter, MissingParameter  # , ClickException
 
 from stream2segment import main
-from stream2segment.process.core import default_funcname
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, yaml_load_doc
 from stream2segment.traveltimes import ttcreator
+from stream2segment.main import extract_dburl, MissingConfigfileParameter
 
 
 class clickutils(object):
@@ -106,12 +106,14 @@ class clickutils(object):
         """
         if value and os.path.isfile(value):
             try:
-                value = yaml_load(value)['dburl']
+                yaml_dict = yaml_load(value)
+                try:
+                    value = extract_dburl(yaml_dict)
+                except MissingConfigfileParameter as mcp:
+                    raise mcp.toClickExc()
             except Exception:
-                raise BadParameter("'dburl' not found in '%s'" % value)
-        if not value:
-            raise MissingParameter("dburl")
-        return value
+                raise BadParameter("file exists but could not be read as yaml")
+        return value  # let's handle potential errors later
 
 
 @click.group()
@@ -207,7 +209,11 @@ def download(configfile, dburl, eventws, start, end, dataws, min_sample_rate, tr
     try:
         overrides = {k: v for k, v in locals().items()
                      if v not in ((), {}, None) and k != 'configfile'}
-        ret = main.download(configfile, isterminal=True, **overrides)
+        try:
+            ret = main.download(configfile, verbosity=2, **overrides)
+        except ValueError as verr:  # bad parameters
+            print(str(verr))
+            ret = 1
         sys.exit(ret)
     except KeyboardInterrupt:  # this except avoids printing traceback
         sys.exit(1)  # exit with 1 as normal python exceptions
@@ -216,7 +222,8 @@ def download(configfile, dburl, eventws, start, end, dataws, min_sample_rate, tr
 @cli.command(short_help='Process downloaded waveform data segments',
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', callback=clickutils.extract_dburl_if_yaml,
-              help="%s.\n%s" % (clickutils.DEFAULTDOC['dburl'], clickutils.DBURLDOC_SUFFIX))
+              help="%s.\n%s" % (clickutils.DEFAULTDOC['dburl'], clickutils.DBURLDOC_SUFFIX),
+              required=True)
 @click.option("-c", "--configfile",
               help="The path to the configuration file in yaml format "
                    "(https://learn.getgrav.org/advanced/yaml).",
@@ -236,15 +243,20 @@ def download(configfile, dburl, eventws, start, end, dataws, min_sample_rate, tr
               )
 @click.option("-f", "--funcname",
               help="The name of the function to execute in the given python file. "
-                   "Optional: defaults to '%s' when missing" % default_funcname(),
+                   "Optional: defaults to '%s' when missing" % main.default_processing_funcname(),
               )  # do not set default='main', so that we can test when arg is missing or not
-@click.argument('outfile')
+@click.argument('outfile', required=False)
 def process(dburl, configfile, pyfile, funcname, outfile):
     """Process downloaded waveform data segments via a custom python file and a configuration
     file"""
     try:
-        main.process(dburl, pyfile+":"+funcname if funcname else pyfile, configfile, outfile,
-                     isterminal=True)
+        try:
+            ret = main.process(dburl, pyfile, funcname, configfile,
+                               outfile, verbose=True)
+        except ValueError as verr:  # bad parameters
+            print(str(verr))
+            ret = 1
+        sys.exit(ret)
     except KeyboardInterrupt:  # this except avoids printing traceback
         sys.exit(1)  # exit with 1 as normal python exceptions
 
@@ -252,7 +264,8 @@ def process(dburl, configfile, pyfile, funcname, outfile):
 @cli.command(short_help='Show raw and processed downloaded waveform\'s plots in a browser',
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', callback=clickutils.extract_dburl_if_yaml,
-              help="%s.\n%s" % (clickutils.DEFAULTDOC['dburl'], clickutils.DBURLDOC_SUFFIX))
+              help="%s.\n%s" % (clickutils.DEFAULTDOC['dburl'], clickutils.DBURLDOC_SUFFIX),
+              required=True)
 @click.option("-c", "--configfile",
               help="The path to the configuration file in yaml format "
                    "(https://learn.getgrav.org/advanced/yaml).",
