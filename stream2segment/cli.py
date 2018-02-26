@@ -33,12 +33,12 @@ import sys
 import os
 
 import click
-from click.exceptions import BadParameter, MissingParameter  # , ClickException
+from click.exceptions import BadParameter  # , ClickException
 
 from stream2segment import main
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, yaml_load_doc
 from stream2segment.traveltimes import ttcreator
-from stream2segment.main import extract_dburl, MissingConfigfileParameter
+from stream2segment.main import extract_dburl, MissingConfigfileParameter, ArgumentError
 
 
 class clickutils(object):
@@ -209,12 +209,10 @@ def download(configfile, dburl, eventws, start, end, dataws, min_sample_rate, tr
     try:
         overrides = {k: v for k, v in locals().items()
                      if v not in ((), {}, None) and k != 'configfile'}
-        try:
-            ret = main.download(configfile, verbosity=2, **overrides)
-        except ValueError as verr:  # bad parameters
-            print(str(verr))
-            ret = 1
-        sys.exit(ret)
+        sys.exit(main.download(configfile, verbosity=2, **overrides))
+    except ArgumentError as aerr:
+        print(aerr)
+        sys.exit(1)
     except KeyboardInterrupt:  # this except avoids printing traceback
         sys.exit(1)  # exit with 1 as normal python exceptions
 
@@ -250,13 +248,10 @@ def process(dburl, configfile, pyfile, funcname, outfile):
     """Process downloaded waveform data segments via a custom python file and a configuration
     file"""
     try:
-        try:
-            ret = main.process(dburl, pyfile, funcname, configfile,
-                               outfile, verbose=True)
-        except ValueError as verr:  # bad parameters
-            print(str(verr))
-            ret = 1
-        sys.exit(ret)
+        sys.exit(main.process(dburl, pyfile, funcname, configfile, outfile, verbose=True))
+    except ArgumentError as aerr:
+        print(aerr)
+        sys.exit(1)  # exit with 1 as normal python exceptions
     except KeyboardInterrupt:  # this except avoids printing traceback
         sys.exit(1)  # exit with 1 as normal python exceptions
 

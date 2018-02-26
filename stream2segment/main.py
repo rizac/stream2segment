@@ -89,10 +89,10 @@ def download(configfile, verbosity=2, **param_overrides):
     # When 1 is returned, a QuitDownload is raised and logged to error.
     # Other exceptions are caught, logged with the stack trace as critical, and raised
     
-    input_yaml_dict = read_configfile(configfile, **param_overrides)
+    input_yaml_dict = load_configfile(configfile, **param_overrides)
     # the obect above will be saved to db, make a copy for mainpulation here:
     yaml_dict = dict(input_yaml_dict)
-    # param check before setting stuff up. All these raise BadParameter(s) in case:
+    # param check before setting stuff up. All these raise ArgumentError(s) in case:
     adjust_nslc_params(yaml_dict)
     adjust_times(yaml_dict)
     load_tt_table(yaml_dict)  # pops 'traveltimes_model' from yaml_dict, adds tt_table key
@@ -160,7 +160,7 @@ def download(configfile, verbosity=2, **param_overrides):
     return ret
 
 
-def read_configfile(configfile, **param_overrides):
+def load_configfile(configfile, **param_overrides):
     pname = 'configfile'
     
     try:
@@ -169,7 +169,7 @@ def read_configfile(configfile, **param_overrides):
         
         return yaml_load(configfile, **param_overrides)
     except Exception as exc:
-        raise BadParameter(exc, pname)
+        raise ArgumentError(exc, pname)
 
 
 def extract_dburl(yaml_dict):
@@ -184,13 +184,13 @@ def create_session(dburl):
     try:
         return get_session(dburl, scoped=False)
     except SQLAlchemyError as exc:
-        raise BadParameter(exc, 'dburl')
+        raise ArgumentError(exc, 'dburl')
 
 
 def load_tt_table(yaml_dict):
     pname = 'traveltimes_model'
     try:
-        file_or_name = yaml_dict.get(pname, None)
+        file_or_name = yaml_dict.pop(pname)
         filepath = get_ttable_fpath(file_or_name)
         if not os.path.isfile(filepath):
             filepath = file_or_name
@@ -200,7 +200,7 @@ def load_tt_table(yaml_dict):
     except KeyError:
         raise MissingConfigfileParameter(pname)
     except Exception as exc:
-        raise BadParameter(exc, pname)
+        raise ArgumentError(exc, pname)
 
 def adjust_times(yaml_dict):
     try:
@@ -209,7 +209,7 @@ def adjust_times(yaml_dict):
     except KeyError:
         raise MissingConfigfileParameter(pname)
     except ValueError as exc:
-        raise BadParameter(exc, pname)
+        raise ArgumentError(exc, pname)
 
 
 def valid_date(obj):
@@ -265,7 +265,7 @@ def adjust_nslc_params(yaml_dic):
                 parconflicts.append(p)
                 arg = yaml_dic.pop(p)
             if len(parconflicts) > 1:
-                raise BadParameter("name conflict: %s both specified" %
+                raise ArgumentError("name conflict: %s both specified" %
                                  (" and ".join('%s' % _ for _ in parconflicts)),
                                  "/".join(parconflicts))
             
@@ -275,7 +275,7 @@ def adjust_nslc_params(yaml_dic):
             try:
                 val = nslc_param_value_aslist(i, arg)
             except ValueError as verr:
-                raise BadParameter(verr, parconflicts[-1])
+                raise ArgumentError(verr, parconflicts[-1])
 
         yaml_dic[s2s_name] = val
         
@@ -304,10 +304,10 @@ def process(dburl, pyfile, funcname=None, configfile=None, outfile=None, verbose
     # the whole process to finish. Note that this does not distinguish the case where
     # we have any other exception (e.g., keyboard interrupt), but that's not a requirement
     
-    # param check before setting stuff up. All these raise BadParameter(s) in case:
+    # param check before setting stuff up. All these raise ArgumentError(s) in case:
     session = create_session(dburl)
     funcname, pyfunc = read_processing_module(pyfile, funcname)
-    config_dict = {} if not configfile else read_configfile(configfile)
+    config_dict = {} if not configfile else load_configfile(configfile)
         
     configlog4processing(logger, outfile, verbose)
     try:
@@ -350,7 +350,7 @@ def read_processing_module(pyfile, funcname=None):
     
         return funcname, load_source(pyfile).__dict__[funcname]
     except Exception as exc:
-        raise BadParameter(exc, pname)
+        raise ArgumentError(exc, pname)
 
 
 def default_processing_funcname():
@@ -376,8 +376,8 @@ def totimedelta(t0_sec, t1_sec=None):
 
 def closesession(session):
     '''closes the session, 
-    This method simply calls `session.close()`, passing all exceptions, if any. Useful for unit
-    testing and mock
+    This method simply calls `session.close()`, passing all exceptions, if any.
+    Useful for unit testing and mock
     '''
     try:
         session.close()
@@ -432,16 +432,16 @@ def init(outpath, prompt=True, *filenames):
     return copied_files
 
 
-class BadParameter(ValueError):
-    '''An exception that needs to be raised when a bad parameter value is encountered.
-    It inherits from click.BadParameter so that it can be processed by click, and when raised
+class ArgumentError(ValueError):
+    '''An exception that needs to be raised when a ValueError in a function is encountered.
+    It inherits from click.ArgumentError so that it can be processed by click, and when raised
     as "normal" exception and caught by some other function it provides the same formatted message
     than click
     '''
     def __init__(self, error_msg, param_name=None):
         '''Calls the super constructor without context and param information but
         providing explicitly a parameter name'''
-        super(BadParameter, self).__init__(str(error_msg))
+        super(ArgumentError, self).__init__(str(error_msg))
         self.param_name = str(param_name) if param_name else None
 
     @property
@@ -452,23 +452,17 @@ class BadParameter(ValueError):
         else:
             msg = err_msg
         return msg
-
-    def toClickExc(self):
-        return click.BadParameter(self.message, param_hint=self.param_name)
     
     def __str__(self):
         ''''''
         return "Error: %s" % self.message
     
 
-class MissingConfigfileParameter(BadParameter):
+class MissingConfigfileParameter(ArgumentError):
     
     def __init__(self, param_name=None):
         super(MissingConfigfileParameter, self).__init__('Missing parameter in config. file',
                                                          param_name)
-    
-    def toClickExc(self):
-        return click.MissingParameter('', param_hint=self.param_name or None)
     
     @property
     def message(self):
