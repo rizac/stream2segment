@@ -17,7 +17,7 @@ import pandas as pd
 from sqlalchemy import or_, and_
 
 from stream2segment.io.db.models import DataCenter, Station, Channel
-from stream2segment.download.utils import read_async, response2normalizeddf, empty, QuitDownload,\
+from stream2segment.download.utils import read_async, response2normalizeddf, QuitDownload,\
     handledbexc, dbsyncdf, to_fdsn_arg
 from stream2segment.utils.msgs import MSG
 from stream2segment.utils import get_progressbar, strconvert
@@ -84,12 +84,11 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
                     df = response2normalizeddf(url, result[0], "channel")
                     # remove stuff we do not want, if specified in any net, sta, loc, cha param:
                     df = purgedf(df)
+                    if not df.empty:
+                        df[Station.datacenter_id.key] = dcen_id
+                        ret.append(df)
                 except ValueError as verr:
                     logger.warning(MSG("Discarding response data", verr, url))
-                    df = empty()
-                if not empty(df):
-                    df[Station.datacenter_id.key] = dcen_id
-                    ret.append(df)
 
     db_cha_df = pd.DataFrame()
     if url_failed_dc_ids:  # if some datacenter does not return station, warn with INFO
@@ -116,7 +115,8 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
                                    "sample rate < %s Hz" % str(min_sample_rate)),
                                discarded_sr)
             if web_cha_df.empty and db_cha_df.empty:
-                raise QuitDownload("No channel found with sample rate >= %f" % min_sample_rate)
+                raise QuitDownload(Exception("No channel found with sample rate >= %f"
+                                             % min_sample_rate))
 
         try:
             # this raises QuitDownload if we cannot save any element:

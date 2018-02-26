@@ -209,22 +209,6 @@ class Test(unittest.TestCase):
         self.patchers.append(patch('stream2segment.utils.url.urllib.request.urlopen'))
         self.mock_urlopen = self.patchers[-1].start()
         
-        # this mocks get_session to return self.session:
-        self.patchers.append(patch('stream2segment.main.get_session'))
-        self.mock_get_session = self.patchers[-1].start()
-        self.mock_get_session.side_effect = self._get_sess
-        
-        # this mocks closing to actually NOT close the session (we will do it here):
-        self.patchers.append(patch('stream2segment.main.get_session'))
-        self.mock_get_sess = self.patchers[-1].start()
-        self.mock_get_sess.side_effect = lambda *a, **v: self.session
-        
-        # this mocks closing to actually NOT close the session (we will do it here):
-        self.patchers.append(patch('stream2segment.main.closesession'))
-        self.mock_closing = self.patchers[-1].start()
-        self.mock_closing.side_effect = lambda *a, **v: None
-        
-        
         # mock ThreadPool (tp) to run one instance at a time, so we get deterministic results:
         class MockThreadPool(object):
             

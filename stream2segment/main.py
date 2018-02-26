@@ -24,6 +24,7 @@ import inspect
 from datetime import datetime, timedelta
 from sqlalchemy.exc import SQLAlchemyError
 
+from future.utils import string_types
 # this can not apparently be fixed with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
 try:
@@ -133,11 +134,7 @@ def download(configfile, verbosity=2, **param_overrides):
             run_download(session=session, download_id=download_id, isterminal=is_from_terminal,
                          **yaml_dict)
         except QuitDownload as quitdownloadexc:
-            if quitdownloadexc._iserror:  #pylint: disable=protected-access
-                logger.error(quitdownloadexc)
-                ret = 1  # that's the program return
-            else:
-                logger.info(str(quitdownloadexc))
+            ret = 1
         etime = time.time()
 
     except:  # print the exception traceback (only last) witha  custom logger, and raise,
@@ -151,10 +148,10 @@ def download(configfile, verbosity=2, **param_overrides):
             logger.info("Completed in %s", str(totimedelta(stime, etime)))
             logger.info("\n%d total error(s), %d total warning(s)", loghandlers[0].errors,
                         loghandlers[0].warnings)
-        
+
         # write log to db if custom handlers provided:
         if loghandlers:
-            loghandlers[0].finalize(session, download_id, removefile=noexc_occurred)
+            loghandlers[0].finalize(session, download_id, removefile=noexc_occurred and ret==0)
         closesession(session)
         
     return ret
@@ -176,12 +173,14 @@ def extract_dburl(yaml_dict):
     pname = 'dburl'
     try:
         return yaml_dict.pop(pname)
-    except KeyError:
-        raise MissingConfigfileParameter(pname)
+    except Exception as exc:
+        raise ArgumentError(exc, pname)
 
 
 def create_session(dburl):
     try:
+        if not isinstance(dburl, string_types):
+            raise ArgumentError(TypeError('string required, not %s' % str(type(dburl))))
         return get_session(dburl, scoped=False)
     except SQLAlchemyError as exc:
         raise ArgumentError(exc, 'dburl')
@@ -191,14 +190,14 @@ def load_tt_table(yaml_dict):
     pname = 'traveltimes_model'
     try:
         file_or_name = yaml_dict.pop(pname)
+        if not isinstance(file_or_name, string_types):
+            raise ArgumentError(TypeError('string required, not %s' % str(type(file_or_name))))
         filepath = get_ttable_fpath(file_or_name)
         if not os.path.isfile(filepath):
             filepath = file_or_name
         if not os.path.isfile(filepath):
             raise Exception('file or builtin model name not found')
         yaml_dict['tt_table'] = TTTable(filepath)
-    except KeyError:
-        raise MissingConfigfileParameter(pname)
     except Exception as exc:
         raise ArgumentError(exc, pname)
 
@@ -206,9 +205,7 @@ def adjust_times(yaml_dict):
     try:
         for pname in ['start', 'end']:
             yaml_dict[pname] = valid_date(yaml_dict[pname])
-    except KeyError:
-        raise MissingConfigfileParameter(pname)
-    except ValueError as exc:
+    except Exception as exc:
         raise ArgumentError(exc, pname)
 
 
@@ -334,13 +331,18 @@ def process(dburl, pyfile, funcname=None, configfile=None, outfile=None, verbose
 
 def read_processing_module(pyfile, funcname=None):
     '''Returns the python module from the given python file'''
+    if not isinstance(pyfile, string_types):
+        raise ArgumentError(TypeError('string required, not %s' % str(type(pyfile))))
+
     reg = re.compile("^(.*):([a-zA-Z_][a-zA-Z_0-9]*)$")
     m = reg.match(pyfile)
     if m and m.groups():
         pyfile = m.groups()[0]
         funcname = m.groups()[1]
     elif funcname is None:
-        funcname = default_processing_funcname() 
+        funcname = default_processing_funcname()
+    elif not isinstance(pyfile, string_types):
+        raise ArgumentError(TypeError('string required, not %s' % str(type(pyfile))))
     
     pname = 'pyfile'
 
@@ -433,41 +435,39 @@ def init(outpath, prompt=True, *filenames):
 
 
 class ArgumentError(ValueError):
-    '''An exception that needs to be raised when a ValueError in a function is encountered.
+    '''An exception that needs to be raised when a ValueError/TypeError in a function is
+    encountered.
     It inherits from click.ArgumentError so that it can be processed by click, and when raised
     as "normal" exception and caught by some other function it provides the same formatted message
     than click
     '''
-    def __init__(self, error_msg, param_name=None):
+    def __init__(self, error, param_name=None):
         '''Calls the super constructor without context and param information but
         providing explicitly a parameter name'''
-        super(ArgumentError, self).__init__(str(error_msg))
+        super(ArgumentError, self).__init__(str(error))
+        self._original_type = TypeError if isinstance(error, TypeError) else \
+            KeyError if isinstance(error, KeyError) else None
         self.param_name = str(param_name) if param_name else None
 
     @property
+    def toClickClass(self):
+        return click.MissingParameter if self._original_type == KeyError  else click.BadParameter
+
+    @property
     def message(self):
-        err_msg = self.args[0]  # in ValueError, is the error_msg passed in the constructor
-        if self.param_name:
-            msg = "Invalid value for %s: %s" % (self.param_name, err_msg)
+        if self._original_type == KeyError:
+            msg = 'Missing value for %s'
+        elif self._original_type == TypeError:
+            msg = "Invalid type for %s"
         else:
-            msg = err_msg
-        return msg
+            msg = "Invalid value for %s"
+        err_msg = self.args[0]  # in ValueError, is the error_msg passed in the constructor
+        pname = self.param_name if self.param_name else 'some parameter (check input arguments)'
+        return (msg % pname) + (": " + err_msg if err_msg else '')
     
     def __str__(self):
         ''''''
         return "Error: %s" % self.message
-    
-
-class MissingConfigfileParameter(ArgumentError):
-    
-    def __init__(self, param_name=None):
-        super(MissingConfigfileParameter, self).__init__('Missing parameter in config. file',
-                                                         param_name)
-    
-    @property
-    def message(self):
-        # in ValueError, is the error_msg passed in the constructor
-        return "%s%s" % (self.args[0], (': ' + str(self.param_name)) if self.param_name else '')
 
 
 def helpmathiter(type, filter):  # @ReservedAssignment pylint: disable=redefined-outer-name

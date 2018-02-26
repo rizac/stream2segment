@@ -13,7 +13,6 @@ from __future__ import division
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import zip, range
 
-
 import logging
 import os
 from itertools import chain, cycle
@@ -23,7 +22,7 @@ import pandas as pd
 import psutil
 
 from stream2segment.io.db.models import Event, Station, Channel
-from stream2segment.io.db.pdsql import harmonize_columns,\
+from stream2segment.io.db.pdsql import harmonize_columns, \
     harmonize_rows, colnames, syncdf
 from stream2segment.utils.url import read_async as original_read_async
 from stream2segment.utils.msgs import MSG
@@ -35,7 +34,6 @@ import re
 install_aliases()
 from http.client import responses  # @UnresolvedImport @IgnorePep8
 
-
 # logger: do not use logging.getLogger(__name__) but point to stream2segment.download.logger:
 # this way we preserve the logging namespace hierarchy
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial) when calling logging
@@ -46,33 +44,34 @@ from stream2segment.download import logger  # @IgnorePep8
 class QuitDownload(Exception):
     """
     This is an exception that should be raised from the functions of this package, when something
-    prevents the continuation of the download process. See `log_and_exit` for details how to
-    print the exception message
+    prevents the continuation of the download process.
+    
+    Passing an Exception in the construcor makes this exception "critical", which is
+    handled differntly by the main download process. E.g.:
 
-    A typical case for this is when a function of a download pipeline returns an empty dataframe,
-    and this happens in two special cases (both of which should make quit the download):
-
-    - There is no data because of a download error (no data fetched):
-      the program should `log.error` the message and return nonzero. From the function
-      that raises it, the QuitDownload object should be:
+    - There is no data because of a download error (no data fetched). A function should then:
 
       ```raise QuitDownload(Exception(...))```
+      
+      and the caller function might then log.error the exception, and return non-zero.
 
-    - There is no data because of current settings (e.g., no channels with sample rate >=
-      config sample rate, all segments already downloaded with current retry settings):
-      the program should `log.info` the message and return zero. From the function
-      that raises the it, the QuitDownload object should be:
+    - There is no data because of current settings (e.g., all segments already downloaded
+      with current retry settings): the program should then:
 
       ```raise QuitDownload(string_message)```
+      
+      and the caller function might then log.info the message, and return zero.
 
-    The method '_iserror' of any `QuitDownload` object tells the user if the object has been built
+    The method 'iscritical' of any `QuitDownload` object tells the user if the object has been built
     for indicating a download error (first case).
 
     Note that in both cases the string messages need most likely to be built with the `MSG`
     function for harmonizing the message outputs.
-    (Note also that with the current settings defined in stream2segment.main,
-    `log.info` and `log.error` both print also to `stdout`, `log.warning` and `log.debug` do not).
+    (Note also that with the default logging settings defined in stream2segment.main from the
+    command line `log.info` and `log.error` both print also to `stdout`, `log.warning` and
+    `log.debug` do not).
     """
+
     def __init__(self, exc_or_msg):
         """Creates a new QuitDownload instance
         :param exc_or_msg: if Exception, then this object will log.error in the `log()` method
@@ -80,10 +79,10 @@ class QuitDownload(Exception):
         inthere and return 0
         """
         super(QuitDownload, self).__init__(str(exc_or_msg))
-        self._iserror = isinstance(exc_or_msg, Exception)
+        self.iscritical = isinstance(exc_or_msg, Exception)
 
 
-def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
+def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024 * 1024,
                decode=None, raise_http_err=True, timeout=None, max_mem_consumption=90,
                **kwargs):
     """Wrapper around read_async defined in url which raises a QuitDownload in case of MemoryError
@@ -106,9 +105,8 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024,
                 mem_percent = process.memory_percent()
                 if mem_percent > max_mem_consumption:
                     raise QuitDownload(MemoryError(("Memory overflow: %.2f%% (used) > "
-                                                    "%.2f%% (threshold)") %
+                                                    "%.2f%% (threshold)") % 
                                                    (mem_percent, max_mem_consumption)))
-   
 
 
 def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=False,
@@ -126,7 +124,7 @@ def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, updat
                onduplicates_callback, oninsert_err_callback, onupdate_err_callback)
 
     table = autoincrement_pkey_col.class_
-    if empty(df):
+    if df.empty:
         raise QuitDownload(Exception(MSG("No row saved to table '%s'" % table.__tablename__,
                                          "unknown error, check log for details and db connection")))
     dblog(table, inserted, not_inserted, updated, not_updated)
@@ -140,7 +138,7 @@ def handledbexc(cols_to_print_on_err, update=False):
         return None
 
     def hde(dataframe, exception):
-        if not empty(dataframe):
+        if not dataframe.empty:
             try:
                 # if sql-alchemy exception, try to guess the orig atrribute which represents
                 # the wrapped exception
@@ -153,6 +151,7 @@ def handledbexc(cols_to_print_on_err, update=False):
             msg = MSG("%d database rows not %s" % (len_df, "updated" if update else "inserted"),
                       errmsg)
             logwarn_dataframe(dataframe, msg, cols_to_print_on_err)
+
     return hde
 
 
@@ -177,6 +176,7 @@ def dblog(table, inserted, not_inserted, updated=0, not_updated=0):
     if not inserted and not not_inserted and not updated and not not_updated:
         logger.info("%s: no new row to insert, no row to update", _header)
     else:
+
         def dolog(ok, notok, okstr, nookstr):
             if not ok and not notok:
                 return
@@ -263,7 +263,7 @@ def rename_columns(query_df, query_type):
     "channel" (for a station query with parameter level=channel)
     :return: a new DataFrame with columns correctly renamed
     """
-    if empty(query_df):
+    if query_df.empty:
         return query_df
 
     if query_type.lower() == "event" or query_type.lower() == "events":
@@ -292,7 +292,7 @@ def rename_columns(query_df, query_type):
 
     oldcolumns = query_df.columns.tolist()
     if len(oldcolumns) != len(columns):
-        raise ValueError("Mismatching number of columns in '%s' query.\nExpected:\n%s\nFound:\n%s" %
+        raise ValueError("Mismatching number of columns in '%s' query.\nExpected:\n%s\nFound:\n%s" % 
                          (query_type.lower(), str(oldcolumns), str(columns)))
 
     return query_df.rename(columns={cold: cnew for cold, cnew in zip(oldcolumns, columns)})
@@ -305,8 +305,8 @@ def harmonize_fdsn_dframe(query_df, query_type):
     :param query_type: either 'event', 'channel', 'station'
     :return: a new dataframe with only the good values
     """
-    if empty(query_df):
-        return empty()
+    if query_df.empty:
+        return query_df
 
     if query_type.lower() in ("event", "events"):
         fdsn_model_classes = [Event]
@@ -340,27 +340,9 @@ def normalize_fdsn_dframe(dframe, query_type):
     """
     dframe = rename_columns(dframe, query_type)
     ret = harmonize_fdsn_dframe(dframe, query_type)
-    if empty(ret):
+    if ret.empty:
         raise ValueError("Malformed data (invalid values, e.g., NaN's)")
     return ret
-
-
-def empty(*obj):
-    """
-    Utility function to handle "no-data" dataframes in this module function by providing a
-    general check and generation of empty objects.
-    Returns True or False if the argument is "empty" (i.e. if obj is None or obj has attribute
-    'empty' and `obj.empty` is True). With a single argument, returns an object `obj` which
-    evaluates to empty, i.e. for which `empty(obj)` is True (currently, an empty DataFrame, but it
-    might be any value for which empty(obj) is True. We prefer a DataFrame over `None` so that
-    len(empty()) does not raise Exceptions and correctly returns 0).
-    """
-    if not len(obj):
-        return pd.DataFrame()  # this allows us to call len(empty()) without errors
-    elif len(obj) > 1:
-        return [empty(o) for o in obj]
-    obj = obj[0]
-    return obj is None or obj.empty  # (hasattr(obj, 'empty') and obj.empty)
 
 
 class DownloadStats(defaultdict):
@@ -375,6 +357,7 @@ class DownloadStats(defaultdict):
             print(str(d))
         ```
     '''
+
     def __init__(self):
         '''initializes a new instance'''
         # apparently, using defaultdict(int) is slightly faster than collections.Count
@@ -422,16 +405,16 @@ class DownloadStats(defaultdict):
             '''sorts an integer key. 200Ok comes first, then OUTTIMEWARN, Then all other ints
             sorted "normally". At the end all non-int key values, and as really last None's'''
             if key is None:
-                return maxval+2
+                return maxval + 2
             elif key == 200:
-                return minval-2
+                return minval - 2
             elif key == OUTTIMEWARN:
-                return minval-1
+                return minval - 1
             else:
                 try:
                     return int(key)
                 except:
-                    return maxval+1
+                    return maxval + 1
 
         columns = sorted(colset, key=sortkey)
 
@@ -443,7 +426,7 @@ class DownloadStats(defaultdict):
             if not dic:
                 continue
             rows.append(row)
-            datarow = [0]*len(columns)
+            datarow = [0] * len(columns)
             data.append(datarow)
             for key, value in dic.items():
                 datarow[colindex[key]] = value
@@ -486,7 +469,7 @@ class DownloadStats(defaultdict):
                 code = c
                 if c not in resp:
                     c = "Unknown %s" % str(c)
-                    legend.append("%s: Non-standard response, unknown message (code=%s)" %
+                    legend.append("%s: Non-standard response, unknown message (code=%s)" % 
                                   (str(c), str(code)))
                 else:
                     c = resp[c]
@@ -507,21 +490,21 @@ class DownloadStats(defaultdict):
                         legend.append("%s: Response OK, but segment data not found "
                                       "(e.g., after a multi-segment request)" % str(c))
                     else:
-                        legend.append("%s: Standard response message indicating %s (code=%d)" %
+                        legend.append("%s: Standard response message indicating %s (code=%d)" % 
                                       (str(c), codetype2str(code), code))
             rows = [_ for _ in c.split(" ") if _.strip()]
             rows_to_insert = len(rows) - len(columns_df)
             if rows_to_insert > 0:
-                emptyrows = pd.DataFrame(index=['']*rows_to_insert,
+                emptyrows = pd.DataFrame(index=[''] * rows_to_insert,
                                          columns=d.columns,
-                                         data=[['']*len(columns_df.columns)]*rows_to_insert)
+                                         data=[[''] * len(columns_df.columns)] * rows_to_insert)
                 columns_df = pd.concat((emptyrows, columns_df))
             # calculate colmax:
             colmax = max(len(c) for c in rows)
             if colmax > colwidths[i]:
                 colwidths[i] = colmax
             # align every row left:
-            columns_df.iloc[len(columns_df)-len(rows):, i] = \
+            columns_df.iloc[len(columns_df) - len(rows):, i] = \
                 [("{:<%d}" % colwidths[i]).format(r) for r in rows]
 
         # create column header by setting the same number of rows for each column:
@@ -612,18 +595,17 @@ def nslc_param_value_aslist(index, value):
             for s in splitted:
                 s = s.strip()
                 if ' ' in s:
-                    raise Exception("invalid value contains space(s): '%s'" % s)
+                    raise Exception("invalid space char(s): '%s'" % s)
                 # if i == 3 (location) convert '--' to '':
                 strings.add('' if (index == 2 and s == '--') else s)
 
         # some checks:
         if "!*" in strings:  # discard everything is not valid
-            raise ValueError("value '!*' invalid (if one wants to discard all, "
-                             "there's no point in downloading)")
-        elif "*" in  strings: # accept everything and this/that: this/that is redundant
+            raise ValueError("'!*' (=dsicard all) invalid")
+        elif "*" in  strings:  # accept everything and this/that: this/that is redundant
             strings = set(_ for _ in strings if _[0:1] == '!')
         else: 
-            for string in strings: # accept A end discard A is not valid
+            for string in strings:  # accept A end discard A is not valid
                 opposite = "!%s" % string
                 if opposite in strings:
                     raise Exception("conflicting values: '%s' and '%s'" % (string, opposite))
@@ -631,17 +613,16 @@ def nslc_param_value_aslist(index, value):
         return sorted(strings)
 
     except Exception as exc:
-        parname = ["network", "station", "location", "channel"][index] + "(s)"
-        raise ValueError("Error in param. '%s': %s" % (parname, str(exc)))
+        raise ValueError(str(exc))
 
 
 def to_fdsn_arg(iterable):
-    ''' Converts an iterable of strings returned by :func:`nslc_param_value_aslist`
-    into a valid string argument for an fdsn query, i.e. joining all element of `iterable` with a
-    comma after removing all elements starting with '!' (internally used for indicating logical
-    not, and not fdsn standard).
+    ''' Converts an iterable of strings denotings networks, stations, locations or channels
+    into a valid string argument for an fdsn query,
+    This methid basically joins all element of `iterable` with a comma after removing all elements
+    starting with '!' (internally used for indicating logical not, and not fdsn standard).
 
-    :param iterable: an iterable of string, one of the elements returned from
-        :func:`nslc_param_value_aslist`
+    :param iterable: an iterable of strings. This function does not check if any string
+        element is invalid for the query (e.g., it contains spaces)
     '''
     return ",".join(v for v in iterable if v[0:1] != '!')

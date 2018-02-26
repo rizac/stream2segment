@@ -206,7 +206,8 @@ def strptime(string, formats=None):
            - '%Y-%m-%dT%H:%M:%S.%fZ'
            - '%Y-%m-%dT%H:%M:%SZ'
            - '%Y-%m-%dZ'
-        :raise: ValueError if the string cannot be parsed
+        :raise: TypeError if the argument is not a string nor a datetime,
+            ValueError if the string cannot be parsed
         :type: on_err_return_none: object or Exception
         :return: a datetime object
         :Example:
@@ -224,8 +225,10 @@ def strptime(string, formats=None):
         return string
 
     try:
-        string = string.strip()
-
+        try:
+            string = string.strip()
+        except AttributeError as aerr:
+            raise TypeError(str(aerr))
         if formats is None:
             has_z = string[-1] == 'Z'
             has_t = 'T' in string
@@ -242,7 +245,7 @@ def strptime(string, formats=None):
             except ValueError:  # as exce:
                 pass
         raise ValueError("invalid date time '%s'" % str(string))
-    except ValueError:
+    except (TypeError, ValueError):
         raise
     except Exception as exc:
         raise ValueError(str(exc))

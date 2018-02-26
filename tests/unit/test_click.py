@@ -51,9 +51,9 @@ def download_setup(filename, **params):
 
 @patch("stream2segment.main.configlog4download")
 @patch("stream2segment.main.new_db_download")
-@patch("stream2segment.main.closing")
+@patch("stream2segment.main.create_session")
 @patch("stream2segment.main.run_download", return_value=0)
-def test_click_download(mock_download, mock_closing, mock_new_db_download,
+def test_click_download(mock_download, mock_create_sess, mock_new_db_download,
                         mock_configlog4download):
     runner = CliRunner()
     # test normal case and arguments.
@@ -62,37 +62,37 @@ def test_click_download(mock_download, mock_closing, mock_new_db_download,
         dic = mock_download.call_args_list[0][1]
         assert dic['start'] == yamldic['start']
         assert dic['end'] == yamldic['end']
-        mock_closing.assert_called_once_with(yamldic['dburl'])
+        mock_create_sess.assert_called_once_with(yamldic['dburl'])
         #assert dic['dburl'] == yamldic['dburl']
         assert result.exit_code == 0
 
         # test by supplying an argument it is overridden
         mock_download.reset_mock()
-        mock_closing.reset_mock()
+        mock_create_sess.reset_mock()
         newdate = yamldic['start'] + timedelta(seconds=1)
         result = runner.invoke(cli, ['download', '-c', conffile, '--start', newdate])
         dic = mock_download.call_args_list[0][1]
         assert dic['start'] == newdate
         assert dic['end'] == yamldic['end']
-        mock_closing.assert_called_once_with(yamldic['dburl'])
+        mock_create_sess.assert_called_once_with(yamldic['dburl'])
         # assert dic['dburl'] == yamldic['dburl']
         assert result.exit_code == 0
 
         # test by supplying the same argument as string instead of datetime (use end instead of start this time)
         mock_download.reset_mock()
-        mock_closing.reset_mock()
+        mock_create_sess.reset_mock()
         result = runner.invoke(cli, ['download', '-c', conffile, '--end', newdate.isoformat()])
         dic = mock_download.call_args_list[0][1]
         assert dic['end'] == newdate
         assert dic['start'] == yamldic['start']
-        mock_closing.assert_called_once_with(yamldic['dburl'])
+        mock_create_sess.assert_called_once_with(yamldic['dburl'])
         # assert dic['dburl'] == yamldic['dburl']
         assert result.exit_code == 0
 
     # test start and end given as integers
     with download_setup("download.yaml", start=1, end=0) as (conffile, yamldic):
         mock_download.reset_mock()
-        mock_closing.reset_mock()
+        mock_create_sess.reset_mock()
         result = runner.invoke(cli, ['download', '-c', conffile])
         dic = mock_download.call_args_list[0][1]
         d = datetime.utcnow()
@@ -100,7 +100,7 @@ def test_click_download(mock_download, mock_closing, mock_new_db_download,
         endd = datetime(d.year, d.month, d.day)
         assert dic['start'] == startd
         assert dic['end'] == endd
-        mock_closing.assert_called_once_with(yamldic['dburl'])
+        mock_create_sess.assert_called_once_with(yamldic['dburl'])
         # assert dic['dburl'] == yamldic['dburl']
         assert result.exit_code == 0
 
@@ -142,14 +142,21 @@ def test_click_process(mock_process):
     mock_process.reset_mock()
     result = runner.invoke(cli, ['process', '-d', 'd', '-c', conffile, '-p', pyfile, 'c'])
     lst = list(mock_process.call_args_list[0][0])
-    assert lst == ['d', pyfile, conffile, 'c']
+    assert lst == ['d', pyfile, None, conffile, 'c']
     assert result.exit_code == 0
     
     # test dburl supplied via config
     mock_process.reset_mock()
     result = runner.invoke(cli, ['process', '-d', d_conffile , '-c', conffile, '-p', pyfile, 'c'])
     lst = list(mock_process.call_args_list[0][0])
-    assert lst == [yaml_load(d_conffile)['dburl'], pyfile, conffile, 'c']
+    assert lst == [yaml_load(d_conffile)['dburl'], pyfile, None, conffile, 'c']
+    assert result.exit_code == 0
+    
+    # test funcname supplied via cli:
+    mock_process.reset_mock()
+    result = runner.invoke(cli, ['process', '--funcname', 'wat?', '-d', d_conffile , '-c', conffile, '-p', pyfile, 'c'])
+    lst = list(mock_process.call_args_list[0][0])
+    assert lst == [yaml_load(d_conffile)['dburl'], pyfile, 'wat?', conffile, 'c']
     assert result.exit_code == 0
 
     # test an error in params: -dburl instead of --dburl:

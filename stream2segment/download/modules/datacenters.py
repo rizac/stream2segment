@@ -16,7 +16,7 @@ from collections import defaultdict
 import pandas as pd
 
 from stream2segment.io.db.models import DataCenter, fdsn_urls
-from stream2segment.download.utils import QuitDownload, dbsyncdf, empty, to_fdsn_arg
+from stream2segment.download.utils import QuitDownload, dbsyncdf, to_fdsn_arg
 from stream2segment.utils import strconvert, urljoin
 from stream2segment.utils.url import URLException, urlread
 from stream2segment.utils.msgs import MSG
@@ -127,7 +127,7 @@ def get_eida_datacenters_df(session, routing_service_url, net, sta, loc, cha,
                                          DataCenter.dataselect_url).
                            filter(DataCenter.organization_name == 'eida')).\
                                 reset_index(drop=True)
-        if empty(dc_df):
+        if dc_df.empty:
             msg = MSG("Eida routing service error, no eida data-center saved in database",
                       urlexc.exc, url)
             raise QuitDownload(Exception(msg))

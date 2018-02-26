@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 
 from stream2segment.io.db.models import DataCenter, Station, Channel, Segment
-from stream2segment.download.utils import read_async, empty, QuitDownload,\
+from stream2segment.download.utils import read_async, QuitDownload,\
     handledbexc, custom_download_codes, logwarn_dataframe, DownloadStats
 from stream2segment.download.modules.mseedlite import MSeedError, unpack as mseedunpack
 from stream2segment.utils.msgs import MSG
@@ -167,7 +167,7 @@ def prepare_for_download(session, segments_df, timespan, retry_seg_not_found, re
         reason = "already downloaded, no retry"
         logger.info(MSG("%d segments discarded", reason), oldlen-len(segments_df))
 
-    if empty(segments_df):
+    if segments_df.empty:
         raise QuitDownload("Nothing to download: all segments already downloaded according to "
                            "the current configuration")
 

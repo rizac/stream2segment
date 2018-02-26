@@ -33,12 +33,12 @@ import sys
 import os
 
 import click
-from click.exceptions import BadParameter  # , ClickException
+from click.exceptions import BadParameter, MissingParameter
 
 from stream2segment import main
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, yaml_load_doc
 from stream2segment.traveltimes import ttcreator
-from stream2segment.main import extract_dburl, MissingConfigfileParameter, ArgumentError
+from stream2segment.main import extract_dburl, ArgumentError
 
 
 class clickutils(object):
@@ -109,8 +109,8 @@ class clickutils(object):
                 yaml_dict = yaml_load(value)
                 try:
                     value = extract_dburl(yaml_dict)
-                except MissingConfigfileParameter as mcp:
-                    raise mcp.toClickExc()
+                except ArgumentError as aerr:
+                    raise aerr.toClickClass()
             except Exception:
                 raise BadParameter("file exists but could not be read as yaml")
         return value  # let's handle potential errors later
@@ -246,7 +246,15 @@ def download(configfile, dburl, eventws, start, end, dataws, min_sample_rate, tr
 @click.argument('outfile', required=False)
 def process(dburl, configfile, pyfile, funcname, outfile):
     """Process downloaded waveform data segments via a custom python file and a configuration
-    file"""
+    file.
+    
+    \b
+    outfile:  [optional] the file where the output of `pyfile` will be written (in .csv format).
+    If missing, then `pyfile` (see options below) is not supposed to provide any output and all
+    logging information, errors or warnings will be redirected to the standard error (e.g., when
+    processing database data and save it to the FileSystem). Otherwise, if this argument is 
+    pecified, the log messages will be written to the file [outpath].log
+    """
     try:
         sys.exit(main.process(dburl, pyfile, funcname, configfile, outfile, verbose=True))
     except ArgumentError as aerr:

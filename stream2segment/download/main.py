@@ -17,7 +17,7 @@ import yaml
 
 from stream2segment.io.db.pdsql import dbquery2df
 from stream2segment.utils.resources import version
-from stream2segment.download.utils import QuitDownload, empty
+from stream2segment.download.utils import QuitDownload
 from stream2segment.download.modules.events import get_events_df
 from stream2segment.download.modules.datacenters import get_datacenters_df
 from stream2segment.download.modules.channels import get_channels_df
@@ -45,6 +45,11 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
     """
 
     # RAMAINDER: **Any function here EXPECTS THEIR DATAFRAME INPUT TO BE NON-EMPTY.**
+    
+    # remember that any QuitDownload raised by any of these function will prevent inventory
+    # download if quitdownload.iscritical=True. This happens almost in all cases except when
+    # we do not have segments to download according to our config (in prepare_for_download)
+    # In this case, download inventories if needed
         
     # set blocksize if zero:
     if advanced_settings['download_blocksize'] <= 0:
@@ -68,46 +73,47 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
     startiso = start.isoformat()
     endiso = end.isoformat()
 
-    stepinfo("Requesting events")
-    # get events (might raise QuitDownload)
-    events_df = get_events_df(session, eventws, dbbufsize, start=startiso, end=endiso,
-                              **eventws_query_args)
-
-    # Get datacenters, store them in the db, returns the dc instances (db rows) correctly added
-    stepinfo("Requesting data-centers")
-    # get dacatanters (might raise QuitDownload):
-    datacenters_df, eidavalidator = \
-        get_datacenters_df(session, dataws, advanced_settings['routing_service_url'],
-                           networks, stations, locations, channels, start, end, dbbufsize)
-
-    stepinfo("Requesting stations and channels from %d %s", len(datacenters_df),
-             "data-center" if len(datacenters_df) == 1 else "data-centers")
-    # get dacatanters (might raise QuitDownload):
-    channels_df = get_channels_df(session, datacenters_df, eidavalidator,
-                                  networks, stations, locations, channels, start, end,
-                                  min_sample_rate, update_metadata,
-                                  advanced_settings['max_thread_workers'],
-                                  advanced_settings['s_timeout'],
-                                  advanced_settings['download_blocksize'], dbbufsize,
-                                  isterminal)
-
-    # get channel id to mseed id dict and purge channels_df
-    # the dict will be used to download the segments later, but we use it now to drop
-    # unnecessary columns and save space (and time)
-    chaid2mseedid = chaid2mseedid_dict(channels_df, drop_mseedid_columns=True)
-
-    stepinfo("Selecting stations within search area from %d events", len(events_df))
-    # merge vents and stations (might raise QuitDownload):
-    segments_df = merge_events_stations(events_df, channels_df, search_radius['minmag'],
-                                        search_radius['maxmag'], search_radius['minmag_radius'],
-                                        search_radius['maxmag_radius'], tt_table, isterminal)
-
-    # help gc by deleting the (only) refs to unused dataframes
-    del events_df
-    del channels_df
-
-    stepinfo("%d segments found. Checking already downloaded segments", len(segments_df))
     try:
+        stepinfo("Requesting events")
+        # get events (might raise QuitDownload)
+        events_df = get_events_df(session, eventws, dbbufsize, start=startiso, end=endiso,
+                                  **eventws_query_args)
+    
+        # Get datacenters, store them in the db, returns the dc instances (db rows) correctly added
+        stepinfo("Requesting data-centers")
+        # get dacatanters (might raise QuitDownload):
+        datacenters_df, eidavalidator = \
+            get_datacenters_df(session, dataws, advanced_settings['routing_service_url'],
+                               networks, stations, locations, channels, start, end, dbbufsize)
+    
+        stepinfo("Requesting stations and channels from %d %s", len(datacenters_df),
+                 "data-center" if len(datacenters_df) == 1 else "data-centers")
+        # get dacatanters (might raise QuitDownload):
+        channels_df = get_channels_df(session, datacenters_df, eidavalidator,
+                                      networks, stations, locations, channels, start, end,
+                                      min_sample_rate, update_metadata,
+                                      advanced_settings['max_thread_workers'],
+                                      advanced_settings['s_timeout'],
+                                      advanced_settings['download_blocksize'], dbbufsize,
+                                      isterminal)
+    
+        # get channel id to mseed id dict and purge channels_df
+        # the dict will be used to download the segments later, but we use it now to drop
+        # unnecessary columns and save space (and time)
+        chaid2mseedid = chaid2mseedid_dict(channels_df, drop_mseedid_columns=True)
+    
+        stepinfo("Selecting stations within search area from %d events", len(events_df))
+        # merge vents and stations (might raise QuitDownload):
+        segments_df = merge_events_stations(events_df, channels_df, search_radius['minmag'],
+                                            search_radius['maxmag'], search_radius['minmag_radius'],
+                                            search_radius['maxmag_radius'], tt_table, isterminal)
+    
+        # help gc by deleting the (only) refs to unused dataframes
+        del events_df
+        del channels_df
+    
+        stepinfo("%d segments found. Checking already downloaded segments", len(segments_df))
+        
         segments_df, request_timebounds_need_update = \
             prepare_for_download(session, segments_df, timespan, retry_seg_not_found,
                                  retry_url_err, retry_mseed_err, retry_client_err,
@@ -141,18 +147,21 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
                     str(d_stats) or "Nothing to show")
 
     except QuitDownload as dexc:
-        # we are here if:
+        # we are here when any of the function above raised, and this happens when
+        # we do not have data to download. E.g.
+        # in prepare_for_download (the last function raising QuitDownload), if:
         # 1) we didn't have segments in prepare_for... (QuitDownload with string message)
         # 2) we ran out of memory in download_... (QuitDownload with exception message
 
         # in the first case avoid downloading inventories:
-        if dexc._iserror:  #pylint: disable=protected-access
+        if dexc.iscritical:
             inventory = False
-        # note that if inventory=True and dexc._iserror=False, if the caller function
-        # catches any captured QuitDownload and logs it, the message will appear
-        # after inventories stats are logged, but it's ok
+            logger.error(dexc)
+        else:
+            logger.info(str(dexc))
+
         raise
-    except:
+    except: # unexpected exception:
         inventory = False
         raise
     finally:
@@ -169,7 +178,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
             # Download inventories for those stations only
             sta_df = dbquery2df(query4inventorydownload(session, update_metadata))
             # stations = session.query(Station).filter(~withdata(Station.inventory_xml)).all()
-            if empty(sta_df):
+            if sta_df.empty:
                 stepinfo("Skipping: No station inventory to download")
             else:
                 stepinfo("Downloading %d station inventories", len(sta_df))
