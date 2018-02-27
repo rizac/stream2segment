@@ -29,16 +29,15 @@ from stream2segment.io.db.models import Base
 
 def _getmodulename(pyfilepath):
     '''returns a most likely unique module name for a python source file loaded as a module'''
-    # We need to supply a model name
-    # First let's define a module name. What the name does and why is necessary is not well
-    # documented. However, we cannot supply whatever we want for two reasons following
-    # python import mechanism (tested in python2):
-    # 1. two different `pyfilepath`s must have different `name`s, otherwise when importing the
-    # second file the module of the former is actually returned
-    # 2. Names should NOT contain dots, as otherwise a
-    # `RuntimeWarning: Parent module ... not found` is issued.
-    # So, make the name equal to the pathname to avoid 1. and replace
-    # module and file-path separators with underscores to avoid 2.:
+    # In both python2 and 3, the function importing a module from file needs a file path and 
+    # a 'name' argument. It's not clear why it's necessary and e.g., it does not default
+    # to the filepath 's name. However, keep in mind that:
+    # 1. The name must be UNIQUE: otherwise when importing the second file the module of the
+    # former is actually returned
+    # 2. Names should NOT contain dots, as otherwise a `RuntimeWarning: Parent module ... not
+    # found` is issued.
+    # To achieve 1. and 2. this function returns a string that is the full absolute path of
+    # `pyfilepath`, replacing file-path separators and dots with '_pathsep_' and '_dot_', repsectiyely
     return os.path.abspath(os.path.realpath(pyfilepath)).replace(".", "_dot_").\
         replace(os.path.sep, "_pathsep_")
     # note above: os.path.sep returns '/' on mac, os.pathsep returns ':'
@@ -60,9 +59,6 @@ if sys.version_info[0] > 2:  # python 3+ (if py4 will not be compliant we'll fix
         '''returns True if the python function `func` is a function (or class if `include_classes`
         is True) defined (and not imported) in the python module `pymodule`
         '''
-#         sourcefile = inspect.getsourcefile  # just to make next line fit in max line-width
-#         return inspect.isfunction(func) and \
-#             os.path.abspath(sourcefile(pymodule)) == os.path.abspath(sourcefile(func))
         is_candidate = inspect.isfunction(func) or (include_classes and inspect.isclass(func))
         # check that the source file is the module (i.e. not imported). NOTE that
         # getsourcefile might raise (not the case for functions or classes)
@@ -81,7 +77,6 @@ else:
         '''returns True if the python function `func` is a function (or class if `include_classes`
         is True) defined (and not imported) in the python module `pymodule`
         '''
-#         return inspect.isfunction(func) and inspect.getmodule(func) == pymodule
         is_candidate = inspect.isfunction(func) or (include_classes and inspect.isclass(func))
         # check that the source file is the module (i.e. not imported). NOTE that
         # getsourcefile might raise (not the case for functions or classes)
@@ -192,23 +187,19 @@ def tounicode(bytestr, decoding='utf-8'):
 def strptime(string, formats=None):
     """
         Converts a date in string format into a datetime python object. The inverse can be obtained
-        by calling datetime.isoformat() (which returns 'T' as date time separator, and optionally
-        microseconds if they are not zero). This function is an easy version of
-        `dateutil.parser.parse` for parsing iso-like datetime format (e.g. fdnsws standard)
-        without the need of a module import
-        :param: string: if a datetime object, returns it. If date object, converts to datetime
-        and returns it. Otherwise must be a string representing a datetime
-        :type: string: a string, a date or a datetime object (in that case just returns it)
-        :param formats: if list or iterable, it holds the strings denoting the formats to be used
-        to convert string (in the order they are declared). If None (the default), the datetime
-        format will be guessed from the string length among the following (with optional 'Z', and
-        with 'T' replaced by space as vaild option):
-           - '%Y-%m-%dT%H:%M:%S.%fZ'
-           - '%Y-%m-%dT%H:%M:%SZ'
-           - '%Y-%m-%dZ'
+        by calling datetime.isoformat(). This is a light version of `dateutil.parser.parse`. Note
+        that string can be a datetime object
+
+        :param: string: if a datetime object, returns it. Otherwise must be a string representing
+            a date-time
+        :param formats: itarable of strings or None. the strings denoting the formats to be used
+            to convert `string` (in the order they are declared). If None (the default), the
+            format will be guessed from the followings:
+            - '%Y-%m-%dT%H:%M:%S.%fZ' (Z optional, T can also be the witespace character)
+            - '%Y-%m-%dT%H:%M:%SZ' (Z optional, T can also be the witespace character)
+            - '%Y-%m-%dZ'
         :raise: TypeError if the argument is not a string nor a datetime,
             ValueError if the string cannot be parsed
-        :type: on_err_return_none: object or Exception
         :return: a datetime object
         :Example:
         ```
@@ -276,12 +267,6 @@ def get_session(dbpath, scoped=False):  # , enable_fk_if_sqlite=True):
         return scoped_session(session_factory)
 
 
-# def timedeltaround(tdelta):
-#     """Rounds a timedelta to seconds"""
-#     add = 1 if tdelta.microseconds >= 500000 else 0
-#     return timedelta(days=tdelta.days, seconds=tdelta.seconds+add, microseconds=0)
-
-
 def secure_dburl(dburl):
     """Returns a printable database name by removing passwords, if any
     :param dbpath: string, in the format:
@@ -330,15 +315,6 @@ def get_progressbar(show, **kw):
             kw['bar_template'] = '%(label)s %(bar)s %(info)s'
         with click_progressbar(**kw) as bar:
             yield bar
-
-
-# def indent(string, n_chars=3):
-#     """Indents the given string (or each line of string if multi-line)
-#     with n_chars spaces.
-#     :param n_chars: int or string: the number of spaces to use for indentation. If 'tab',
-#     indents using the tab character"""
-#     reg = re.compile("^", re.MULTILINE)  # @UndefinedVariable
-#     return reg.sub("\t" if n_chars == 'tab' else " " * n_chars, string)
 
 
 def urljoin(*urlpath, **query_args):

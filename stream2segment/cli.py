@@ -38,7 +38,7 @@ from click.exceptions import BadParameter, MissingParameter
 from stream2segment import main
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, yaml_load_doc
 from stream2segment.traveltimes import ttcreator
-from stream2segment.main import extract_dburl, ArgumentError
+from stream2segment.utils import inputargs
 
 
 class clickutils(object):
@@ -47,20 +47,9 @@ class clickutils(object):
 
     TERMINAL_HELP_WIDTH = 110  # control width of help. 80 should be the default (roughly)
     DEFAULTDOC = yaml_load_doc(get_templates_fpath("download.yaml"))
-    DBURLDOC_SUFFIX = ("****IMPORTANT NOTE****: It can also be the path of a yaml file "
+    DBURLDOC_SUFFIX = ("^^^ NOTE ^^^: It can also be the path of a yaml file "
                        "containing the property 'dburl' (e.g., the yaml you used for "
                        "downloading, so as to avoid re-typing the database path)")
-
-    @classmethod
-    def valid_date(cls, obj):
-        """does a check on string to see if it's a valid datetime string.
-        If integer, is a datetime object relative to today, at midnight, plus
-        `string` days (negative values are allowed)
-        Returns the datetime on success, throws an BadParameter otherwise"""
-        try:
-            return main.valid_date(obj)  # if obj is datetime, returns obj
-        except ValueError as _:
-            raise BadParameter(str(_))
 
     @classmethod
     def set_help_from_yaml(cls, ctx, param, value):
@@ -88,32 +77,6 @@ class clickutils(object):
                 option.help = cfg_doc.get(option.name, None)
 
         return value
-
-    @staticmethod
-    def proc_eventws_args(ctx, param, value):
-        """parses optional event query args (when the 'd' command is issued) into a dict"""
-        # use iter to make a dict from a list whose even indices = keys, odd ones = values
-        # https://stackoverflow.com/questions/4576115/convert-a-list-to-a-dictionary-in-python
-        itr = iter(value)
-        return dict(zip(itr, itr))
-
-    @staticmethod
-    def extract_dburl_if_yaml(ctx, param, value):
-        """
-        For all non-download click Options, returns the database path from 'value':
-        'value' can be a file (in that case is assumed to be a yaml file with the
-        'dburl' key in it) or the database path otherwise
-        """
-        if value and os.path.isfile(value):
-            try:
-                yaml_dict = yaml_load(value)
-                try:
-                    value = extract_dburl(yaml_dict)
-                except ArgumentError as aerr:
-                    raise aerr.toClickClass()
-            except Exception:
-                raise BadParameter("file exists but could not be read as yaml")
-        return value  # let's handle potential errors later
 
 
 @click.group()
@@ -179,8 +142,8 @@ def init(outdir):
 # Note: Don't set required = True with eager=True: it suppresses --help
 @click.option('-d', '--dburl', is_eager=True, callback=clickutils.set_help_from_yaml)
 @click.option('-e', '--eventws')
-@click.option('-t0', '--start', type=clickutils.valid_date)
-@click.option('-t1', '--end', type=clickutils.valid_date)
+@click.option('-t0', '--start', type=inputargs.valid_date)
+@click.option('-t1', '--end', type=inputargs.valid_date)
 @click.option('-ds', '--dataws')
 @click.option('--min_sample_rate')
 @click.option('-t', '--traveltimes_model')
@@ -195,7 +158,7 @@ def init(outdir):
 @click.option('-r6', '--retry_timespan_err', is_flag=True, default=None)
 @click.option('-i', '--inventory', is_flag=True, default=None)
 @click.argument('eventws_query_args', nargs=-1, type=click.UNPROCESSED,
-                callback=clickutils.proc_eventws_args)
+                callback=lambda ctx, param, value: inputargs.keyval_list_to_dict(value))
 def download(configfile, dburl, eventws, start, end, dataws, min_sample_rate, traveltimes_model,
              timespan, update_metadata, retry_url_err, retry_mseed_err, retry_seg_not_found,
              retry_client_err, retry_server_err, retry_timespan_err, inventory, eventws_query_args):
@@ -210,7 +173,7 @@ def download(configfile, dburl, eventws, start, end, dataws, min_sample_rate, tr
         overrides = {k: v for k, v in locals().items()
                      if v not in ((), {}, None) and k != 'configfile'}
         sys.exit(main.download(configfile, verbosity=2, **overrides))
-    except ArgumentError as aerr:
+    except inputargs.BadArgument as aerr:
         print(aerr)
         sys.exit(1)
     except KeyboardInterrupt:  # this except avoids printing traceback
@@ -219,7 +182,7 @@ def download(configfile, dburl, eventws, start, end, dataws, min_sample_rate, tr
 
 @cli.command(short_help='Process downloaded waveform data segments',
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
-@click.option('-d', '--dburl', callback=clickutils.extract_dburl_if_yaml,
+@click.option('-d', '--dburl', type=inputargs.extract_dburl_if_yamlpath,
               help="%s.\n%s" % (clickutils.DEFAULTDOC['dburl'], clickutils.DBURLDOC_SUFFIX),
               required=True)
 @click.option("-c", "--configfile",
@@ -241,7 +204,7 @@ def download(configfile, dburl, eventws, start, end, dataws, min_sample_rate, tr
               )
 @click.option("-f", "--funcname",
               help="The name of the function to execute in the given python file. "
-                   "Optional: defaults to '%s' when missing" % main.default_processing_funcname(),
+                   "Optional: defaults to '%s' when missing" % inputargs.default_processing_funcname(),
               )  # do not set default='main', so that we can test when arg is missing or not
 @click.argument('outfile', required=False)
 def process(dburl, configfile, pyfile, funcname, outfile):
@@ -257,7 +220,7 @@ def process(dburl, configfile, pyfile, funcname, outfile):
     """
     try:
         sys.exit(main.process(dburl, pyfile, funcname, configfile, outfile, verbose=True))
-    except ArgumentError as aerr:
+    except inputargs.BadArgument as aerr:
         print(aerr)
         sys.exit(1)  # exit with 1 as normal python exceptions
     except KeyboardInterrupt:  # this except avoids printing traceback
@@ -266,7 +229,7 @@ def process(dburl, configfile, pyfile, funcname, outfile):
 
 @cli.command(short_help='Show raw and processed downloaded waveform\'s plots in a browser',
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
-@click.option('-d', '--dburl', callback=clickutils.extract_dburl_if_yaml,
+@click.option('-d', '--dburl', type=inputargs.extract_dburl_if_yamlpath,
               help="%s.\n%s" % (clickutils.DEFAULTDOC['dburl'], clickutils.DBURLDOC_SUFFIX),
               required=True)
 @click.option("-c", "--configfile",
@@ -298,7 +261,7 @@ def utils():
                short_help='Show an an interactive map in a browser with downloaded data quality '
                           'metrics on a per-station basis',
                context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
-@click.option('-d', '--dburl', callback=clickutils.extract_dburl_if_yaml,
+@click.option('-d', '--dburl', type=inputargs.extract_dburl_if_yamlpath,
               help="%s.\n%s" % (clickutils.DEFAULTDOC['dburl'], clickutils.DBURLDOC_SUFFIX))
 def dareport(dburl):
     """Show an an interactive map in a browser with downloaded data quality metrics

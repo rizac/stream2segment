@@ -18,19 +18,19 @@ import logging
 import re
 import sys
 import os
-from contextlib import contextmanager
 import shutil
 import inspect
 from datetime import datetime, timedelta
-from sqlalchemy.exc import SQLAlchemyError
 
-from future.utils import string_types
+
+from stream2segment.utils.inputargs import load_configfile, adjust_start, load_tt_table,\
+    create_session, adjust_end, adjust_net, adjust_cha, adjust_loc, adjust_sta, get_funcname, load_pyfunc
 # this can not apparently be fixed with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
 try:
-    from cStringIO import StringIO  # python2.x
+    from cStringIO import StringIO  # python2.x pylint: disable=unused-import
 except ImportError:
-    from io import StringIO
+    from io import StringIO  # @UnusedImport
 
 import yaml
 import click
@@ -39,12 +39,11 @@ from stream2segment.utils.log import configlog4download, configlog4processing
 from stream2segment.io.db.models import Download
 from stream2segment.process.main import to_csv
 from stream2segment.download.main import run as run_download, new_db_download
-from stream2segment.utils import get_session, secure_dburl, strptime, strconvert, iterfuncs, load_source
-from stream2segment.utils.resources import get_templates_fpaths, yaml_load, get_ttable_fpath
+from stream2segment.utils import secure_dburl, strconvert, iterfuncs
+from stream2segment.utils.resources import get_templates_fpaths
 from stream2segment.gui.main import create_p_app, run_in_browser, create_d_app
 from stream2segment.process import math as s2s_math
-from stream2segment.download.utils import nslc_param_value_aslist, QuitDownload
-from stream2segment.traveltimes.ttloader import TTTable
+from stream2segment.download.utils import QuitDownload
 import time
 
 
@@ -93,11 +92,15 @@ def download(configfile, verbosity=2, **param_overrides):
     input_yaml_dict = load_configfile(configfile, **param_overrides)
     # the obect above will be saved to db, make a copy for mainpulation here:
     yaml_dict = dict(input_yaml_dict)
-    # param check before setting stuff up. All these raise ArgumentError(s) in case:
-    adjust_nslc_params(yaml_dict)
-    adjust_times(yaml_dict)
-    load_tt_table(yaml_dict)  # pops 'traveltimes_model' from yaml_dict, adds tt_table key
-    session = create_session(extract_dburl(yaml_dict))  # pops dburl from yaml_dict
+    # param check before setting stuff up. All these raise BadArgument(s) in case:
+    adjust_net(yaml_dict)
+    adjust_sta(yaml_dict)
+    adjust_loc(yaml_dict)
+    adjust_cha(yaml_dict)
+    adjust_start(yaml_dict)
+    adjust_end(yaml_dict)
+    tt_table = load_tt_table(yaml_dict)  # pops 'traveltimes_model' from dict
+    session = create_session(yaml_dict)  # pops 'dburl' from dict
 
     # print yaml_dict to terminal if needed. Do not use input_yaml_dict as
     # params needs to be shown as expanded/converted so the user can check their correctness
@@ -107,7 +110,7 @@ def download(configfile, verbosity=2, **param_overrides):
         # replace dburl hiding passowrd for printing to terminal, tt_table with a short repr str,
         # and restore traveltimes_model because we popped from yaml_dict it out in load_tt_table
         yaml_safe = dict(yaml_dict, dburl=secure_dburl(input_yaml_dict['dburl']),
-                         tt_table="<%s object>" % TTTable.__class__.__name__,
+                         tt_table="<%s object>" % tt_table.__class__.__name__,
                          traveltimes_model=input_yaml_dict['traveltimes_model'])
         ip_params = yaml.safe_dump(yaml_safe, default_flow_style=False)
         ip_title = "Input parameters"
@@ -132,7 +135,7 @@ def download(configfile, verbosity=2, **param_overrides):
         stime = time.time()
         try:
             run_download(session=session, download_id=download_id, isterminal=is_from_terminal,
-                         **yaml_dict)
+                         tt_table=tt_table, **yaml_dict)
         except QuitDownload as quitdownloadexc:
             ret = 1
         etime = time.time()
@@ -146,8 +149,9 @@ def download(configfile, verbosity=2, **param_overrides):
     finally:
         if noexc_occurred:
             logger.info("Completed in %s", str(totimedelta(stime, etime)))
-            logger.info("\n%d total error(s), %d total warning(s)", loghandlers[0].errors,
-                        loghandlers[0].warnings)
+            if loghandlers:
+                logger.info("\n%d total error(s), %d total warning(s)", loghandlers[0].errors,
+                            loghandlers[0].warnings)
 
         # write log to db if custom handlers provided:
         if loghandlers:
@@ -155,126 +159,6 @@ def download(configfile, verbosity=2, **param_overrides):
         closesession(session)
         
     return ret
-
-
-def load_configfile(configfile, **param_overrides):
-    pname = 'configfile'
-    
-    try:
-        if not os.path.isfile(configfile):
-            raise Exception('file does not exist')
-        
-        return yaml_load(configfile, **param_overrides)
-    except Exception as exc:
-        raise ArgumentError(exc, pname)
-
-
-def extract_dburl(yaml_dict):
-    pname = 'dburl'
-    try:
-        return yaml_dict.pop(pname)
-    except Exception as exc:
-        raise ArgumentError(exc, pname)
-
-
-def create_session(dburl):
-    try:
-        if not isinstance(dburl, string_types):
-            raise ArgumentError(TypeError('string required, not %s' % str(type(dburl))))
-        return get_session(dburl, scoped=False)
-    except SQLAlchemyError as exc:
-        raise ArgumentError(exc, 'dburl')
-
-
-def load_tt_table(yaml_dict):
-    pname = 'traveltimes_model'
-    try:
-        file_or_name = yaml_dict.pop(pname)
-        if not isinstance(file_or_name, string_types):
-            raise ArgumentError(TypeError('string required, not %s' % str(type(file_or_name))))
-        filepath = get_ttable_fpath(file_or_name)
-        if not os.path.isfile(filepath):
-            filepath = file_or_name
-        if not os.path.isfile(filepath):
-            raise Exception('file or builtin model name not found')
-        yaml_dict['tt_table'] = TTTable(filepath)
-    except Exception as exc:
-        raise ArgumentError(exc, pname)
-
-def adjust_times(yaml_dict):
-    try:
-        for pname in ['start', 'end']:
-            yaml_dict[pname] = valid_date(yaml_dict[pname])
-    except Exception as exc:
-        raise ArgumentError(exc, pname)
-
-
-def valid_date(obj):
-    try:
-        return strptime(obj)  # if obj is datetime, returns obj
-    except ValueError as _:
-        try:
-            days = int(obj)
-            now = datetime.utcnow()
-            endt = datetime(now.year, now.month, now.day, 0, 0, 0, 0)
-            return endt - timedelta(days=days)
-        except Exception:
-            pass
-    raise ValueError("date-time or an integer required")
-
-
-def adjust_nslc_params(yaml_dic):
-    '''Scans `dic` keys and returtns the tuple
-        ```
-        (N, S, L, C)
-        ```
-    where each element is a list of networks (N), stations (S), locations (L) or channels (C)
-    composed by strings in valid ASCII characters with three special characters:
-    the 2 FDSN-compliant wildcards '*' and '?', and '!' which means NOT (when placed as first
-    character only).
-
-    This function basically returns `",".join(dic[key])` where `key` is any of the following: 
-        'net', 'network' or 'networks'
-        'sta', 'stations' or 'stations'
-        'loc', 'location' or 'locations'
-        'cha', 'channel' or 'channels'
-    In case of keys conflicts (e.g. 'net' and 'network' are both in `dict`) a ValueError is raised.
-    In case a key not found, None or '*', the corresponding element will be the empty list.
-    A returned empty list has to be interpreted as "accept all" (i.e. no filter for that key).
-    All string elements are stripped, meaning that leading and trailing spaces are removed.
-
-    This function doe salso some preliminary check on each string, so that e.g.
-    strings like "!*", or both "A?" and !A?"specified will raise a ValueError in case
-
-    :return: a 4-element tuple net, sta, loc, cha. All elements are lists of strings. Returned
-        empty lists mean: no filter for that key (accept all)
-    '''
-    
-    params = [('net', 'network', 'networks'), ('sta', 'station', 'stations'),
-              ('loc', 'location', 'locations'), ('cha', 'channel', 'channels')]
-    
-    for i, pars in enumerate(params):
-        
-        arg = None
-        parconflicts = []
-        for p in pars:
-            if p in yaml_dic:
-                parconflicts.append(p)
-                arg = yaml_dic.pop(p)
-            if len(parconflicts) > 1:
-                raise ArgumentError("name conflict: %s both specified" %
-                                 (" and ".join('%s' % _ for _ in parconflicts)),
-                                 "/".join(parconflicts))
-            
-        s2s_name = pars[-1]
-        val = []
-        if len(parconflicts) and arg is not None and arg not in ([], ()):
-            try:
-                val = nslc_param_value_aslist(i, arg)
-            except ValueError as verr:
-                raise ArgumentError(verr, parconflicts[-1])
-
-        yaml_dic[s2s_name] = val
         
 
 def process(dburl, pyfile, funcname=None, configfile=None, outfile=None, verbose=False):
@@ -301,10 +185,12 @@ def process(dburl, pyfile, funcname=None, configfile=None, outfile=None, verbose
     # the whole process to finish. Note that this does not distinguish the case where
     # we have any other exception (e.g., keyboard interrupt), but that's not a requirement
     
-    # param check before setting stuff up. All these raise ArgumentError(s) in case:
-    session = create_session(dburl)
-    funcname, pyfunc = read_processing_module(pyfile, funcname)
-    config_dict = {} if not configfile else load_configfile(configfile)
+    # param check before setting stuff up. All these raise BadArgument(s) in case:
+    dic = dict(locals())
+    session = create_session(dic)  # removes dburl from dic, but we do not care
+    funcname = get_funcname(dic)
+    pyfunc = load_pyfunc(dic, funcname)
+    config_dict = {} if not configfile else load_configfile(dic)
         
     configlog4processing(logger, outfile, verbose)
     try:
@@ -327,37 +213,6 @@ def process(dburl, pyfile, funcname=None, configfile=None, outfile=None, verbose
         raise
     finally:
         closesession(session)
-
-
-def read_processing_module(pyfile, funcname=None):
-    '''Returns the python module from the given python file'''
-    if not isinstance(pyfile, string_types):
-        raise ArgumentError(TypeError('string required, not %s' % str(type(pyfile))))
-
-    reg = re.compile("^(.*):([a-zA-Z_][a-zA-Z_0-9]*)$")
-    m = reg.match(pyfile)
-    if m and m.groups():
-        pyfile = m.groups()[0]
-        funcname = m.groups()[1]
-    elif funcname is None:
-        funcname = default_processing_funcname()
-    elif not isinstance(pyfile, string_types):
-        raise ArgumentError(TypeError('string required, not %s' % str(type(pyfile))))
-    
-    pname = 'pyfile'
-
-    try:
-        if not os.path.isfile(pyfile):
-            raise Exception('file does not exist')
-    
-        return funcname, load_source(pyfile).__dict__[funcname]
-    except Exception as exc:
-        raise ArgumentError(exc, pname)
-
-
-def default_processing_funcname():
-    '''returns 'main', the default function name for processing, when such a name is not given'''
-    return 'main'
 
 
 def totimedelta(t0_sec, t1_sec=None):
@@ -432,42 +287,6 @@ def init(outpath, prompt=True, *filenames):
         shutil.copy2(tfile, outpath)
         copied_files.append(os.path.join(outpath, os.path.basename(tfile)))
     return copied_files
-
-
-class ArgumentError(ValueError):
-    '''An exception that needs to be raised when a ValueError/TypeError in a function is
-    encountered.
-    It inherits from click.ArgumentError so that it can be processed by click, and when raised
-    as "normal" exception and caught by some other function it provides the same formatted message
-    than click
-    '''
-    def __init__(self, error, param_name=None):
-        '''Calls the super constructor without context and param information but
-        providing explicitly a parameter name'''
-        super(ArgumentError, self).__init__(str(error))
-        self._original_type = TypeError if isinstance(error, TypeError) else \
-            KeyError if isinstance(error, KeyError) else None
-        self.param_name = str(param_name) if param_name else None
-
-    @property
-    def toClickClass(self):
-        return click.MissingParameter if self._original_type == KeyError  else click.BadParameter
-
-    @property
-    def message(self):
-        if self._original_type == KeyError:
-            msg = 'Missing value for %s'
-        elif self._original_type == TypeError:
-            msg = "Invalid type for %s"
-        else:
-            msg = "Invalid value for %s"
-        err_msg = self.args[0]  # in ValueError, is the error_msg passed in the constructor
-        pname = self.param_name if self.param_name else 'some parameter (check input arguments)'
-        return (msg % pname) + (": " + err_msg if err_msg else '')
-    
-    def __str__(self):
-        ''''''
-        return "Error: %s" % self.message
 
 
 def helpmathiter(type, filter):  # @ReservedAssignment pylint: disable=redefined-outer-name
