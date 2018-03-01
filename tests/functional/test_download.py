@@ -1134,46 +1134,47 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
                                      [net, sta, loc, cha]):
                     if val is None or val == ['*']:
                         assert args[name] == []
-                    elif name=='locations' and val == ['--']:
-                        assert args[name] == ['']
+#                     elif name=='locations' and val == ['--']:
+#                         assert args[name] == ['']
                     else:
                         assert args[name] == sorted(val)
         
-        # test locations empty:
-        val = ['--']
-        yaml_dict = dict(_yaml_dict)  # copy, otherwise old params are still there ... 
-        netname, staname, locname, chaname = None, None, None, None
-        yaml_dict['net'] = val
-        yaml_dict['sta'] = val
-        yaml_dict['loc'] = val
-        yaml_dict['cha'] = val
-            
-    
-        with tempfile.NamedTemporaryFile() as keyfile:
-            configfilename = keyfile.name
-            with open(configfilename, 'w') as outfile:
-                yaml.dump(yaml_dict, outfile, default_flow_style=False)
-
-            mock_run.reset_mock()
-                
-            runner = CliRunner()
-            result = runner.invoke(cli , ['download',
-                                           '-c', configfilename,
-                                           # '--dburl', self.dburi,
-                                           #'--start', '2016-05-08T00:00:00',
-                                           #'--end', '2016-05-08T9:00:00'
-                                           ])
-            args = mock_run.call_args_list
-            assert len(args) == 1  # called just once (for safety)
-            args = args[0]
-            assert not args[0]  # no *args supplied (all kwargs)
-            args = args[1]
-            for name, val in zip(['networks', 'stations', 'locations', 'channels'],
-                                 [net, sta, loc, cha]):
-                if name=='locations':
-                    assert args[name] == ['']
-                else:
-                    assert args[name] == ['--']
+        # test locations empty: NOT SUPPORTED ANYMORE: locations must be input as ''
+        # the '--' NOTATION WILL BE USED FOR POST REQUESTS
+#         val = ['--']
+#         yaml_dict = dict(_yaml_dict)  # copy, otherwise old params are still there ... 
+#         netname, staname, locname, chaname = None, None, None, None
+#         yaml_dict['net'] = val
+#         yaml_dict['sta'] = val
+#         yaml_dict['loc'] = val
+#         yaml_dict['cha'] = val
+#             
+#     
+#         with tempfile.NamedTemporaryFile() as keyfile:
+#             configfilename = keyfile.name
+#             with open(configfilename, 'w') as outfile:
+#                 yaml.dump(yaml_dict, outfile, default_flow_style=False)
+# 
+#             mock_run.reset_mock()
+#                 
+#             runner = CliRunner()
+#             result = runner.invoke(cli , ['download',
+#                                            '-c', configfilename,
+#                                            # '--dburl', self.dburi,
+#                                            #'--start', '2016-05-08T00:00:00',
+#                                            #'--end', '2016-05-08T9:00:00'
+#                                            ])
+#             args = mock_run.call_args_list
+#             assert len(args) == 1  # called just once (for safety)
+#             args = args[0]
+#             assert not args[0]  # no *args supplied (all kwargs)
+#             args = args[1]
+#             for name, val in zip(['networks', 'stations', 'locations', 'channels'],
+#                                  [net, sta, loc, cha]):
+#                 if name=='locations':
+#                     assert args[name] == ['']
+#                 else:
+#                     assert args[name] == ['--']
         
         
           

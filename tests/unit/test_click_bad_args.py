@@ -18,10 +18,10 @@ import tempfile
 import shutil
 
 from stream2segment.main import configlog4download as o_configlog4download, \
-    new_db_download as o_new_db_download, create_session as o_create_session, run_download as o_run_download, \
+    new_db_download as o_new_db_download, run_download as o_run_download, \
     configlog4processing as o_configlog4processing, to_csv as o_to_csv, process as o_process, \
     download as o_download
-from stream2segment.utils.inputargs import yaml_load as o_yaml_load
+from stream2segment.utils.inputargs import yaml_load as o_yaml_load, create_session as o_create_session
 from stream2segment.io.db.models import Download
 from _pytest.capture import capsys
 import pytest
@@ -57,7 +57,7 @@ class Test(unittest.TestCase):
         self.mock_new_db_download = self.patchers[-1].start()
         self.mock_new_db_download.side_effect = o_new_db_download
         
-        self.patchers.append(patch('stream2segment.main.create_session'))
+        self.patchers.append(patch('stream2segment.utils.inputargs.create_session'))
         self.mock_create_session = self.patchers[-1].start()
         def csess(*a, **v):
             self.session = o_create_session(*a, **v)

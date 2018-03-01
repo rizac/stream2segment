@@ -1,20 +1,22 @@
 '''
-Module with utilities for checking / parsing / setting input arguments.
-Functions decorated with @checkarg provide a way, when called with a dict as first argument,
-to raise explicative exceptions whise message format is similar to click, and which are
-caught from the cli to print the message and exit instead of raising  
+Module with utilities for checking / parsing / setting input arguments from the cli
+and for the main functionalities (download, process).
 
 :date: Feb 27, 2018
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
-from datetime import datetime, timedelta
 import os
-from stream2segment.utils.resources import yaml_load, get_ttable_fpath
+import sys
+import re
+from datetime import datetime, timedelta
+
 from future.utils import string_types
-from stream2segment.utils import get_session, strptime, load_source
+
+from stream2segment.utils.resources import yaml_load, get_ttable_fpath, yaml_load_doc, \
+    get_templates_fpath
+from stream2segment.utils import get_session, strptime, load_source, iterfuncs
 from stream2segment.traveltimes.ttloader import TTTable
-from stream2segment.download.utils import nslc_param_value_aslist
 
 
 class BadArgument(Exception):
@@ -81,79 +83,138 @@ class ConflictingArgs(BadArgument):
         # little hack: build a string wiothout first and last quote (will be added in super-class)
         param_name = " / ".join('"%s"' % p for p in param_names)[1:-1]
         super(ConflictingArgs, self).__init__(param_name, '', "Conflicting names")
+        
 
-
-# _DDEFAULTDOC = yaml_load_doc(get_templates_fpath("download.yaml"))
-# 
-# def checkdownloadinput(config):
-#     
-#     yaml_orig = yaml.
-
-
-def checkarg(pname, *optional_pnames, pop=False, update=False, default=None):
-    '''decorator that makes a function f(value, *args, **kwargs) a function that checks specific
-    arguments/parameters and raises appropriate `BadArgument`s exceptions
-    in case, whose messages are click-style formatted.
-
-    be called also with `value` as
-    dict. In case dict, several options are given to manioulate the dict and raise explicative
-    Exceptions in case `pname` is not found. When not called as dict, the function is run as-it-is.
+class UnknownArg(BadArgument):
     
-    Example:
+    def __init__(self, param_name):
+        '''A BadArgument notifying an unknown argument'''
+        super(UnknownArg, self).__init__(param_name, '', "Unknown argument")
+
+
+_DEFAULTDOC = yaml_load_doc(get_templates_fpath("download.yaml"))
+_ORIGCONFIG = yaml_load(get_templates_fpath("download.yaml"))
+
+
+def get_doc(download_param):
+    return _DEFAULTDOC[download_param]
+
+
+def arg(pname, *optional_pnames, ifmissing=None, newname=None, newvalue=lambda v: v):
+    def wrapped_f(dic):
+        try:
+            keys_in =[]
+            for p in set([pname] + list(optional_pnames)):
+                if p in dic:
+                    keys_in.append(p)
+            if len(keys_in) > 1:
+                raise ConflictingArgs(*keys_in)
+            pname2get = pname if not keys_in else keys_in[0]
+            if pname2get not in dic and ifmissing is not None:
+                value = ifmissing
+            else:
+                value = dic.pop(pname2get)
+            
+        except KeyError as _:
+            raise MissingArg(pname)
+        try:
+            newval = newvalue(value) if hasattr(newvalue, '__call__') else newvalue
+            dic[pname if newname is None else newname] = newval
+            return newval
+        except TypeError as terr:
+            raise BadTypeArg(pname, terr)
+        except Exception as exc:
+            raise BadValueArg(pname, exc)
+    wrapped_f.argnames = [pname] + list(optional_pnames)
+    return wrapped_f
+
+
+def typesmatch(value, other_value):
+    if not issubclass(value.__class__, other_value.__class__):
+        raise TypeError("%s expected, found %s" % (str(type(value)), str(type(other_value))))
+    return value
+
+
+def nslc_param_value_aslist(value):
+    '''Returns a nslc (network/station/location/channel) parameter value converted as list.
+    This method cleans-up and checks `value` splitting each of its string elements
+    with the comma "," and aggregating all the string chunks into a single list, after performing
+    some sanity check. The resulting list is also sorted alphabetically
+    (for unit testing and readibility).
+    Raises ValueError in case some sanity checks fail (e.g., conflicts, syntax errors)
+
+    Examples:
     
-    # checks if the argument 'a' is int, and raises an appropriate BadArgument
-    checkarg('a')(int)({'a': 5})
+    nslc_param_value_aslist 
+    arguments (any means:
+    any value in [0,1,2,3])   Result (with comment)            
+    ========================= =================================================================
+    (['A','D','C','B'])  ['A', 'B', 'C', 'D']  # note result is sorted
+    ('B,C,D,A')          ['A', 'B', 'C', 'D']  # same as above
+    ('A*, B??, C*')      ['A*', 'B??', 'C*']  # fdsn wildcards accepted
+    ('!A*, B??, C*')     ['!A*', 'B??', 'C*']  # we support negations: !A* means "not A*"
+    (' A, B ')           ['A', 'B']  # leading and trailing spaces ignored
+    ('*')                []  # if any chunk is '*', then [] (=match all) is returned
+    ([])                 []  # same as above
+    ('  ')               ['']  # this means: match the empty string (strip the string)
+    ("")                 [""]  # same as above
+    ("!")                ['!']  # match any non empty string
+    ("!*")               this raises (you cannot specify "discard all")
+    ("!H*, H*")          this raises (it's a paradox)
+    (" A B,  CD")        this raises ('A B' invalid: only leading and trailing spaces allowed)
     
 
-    In the latter case value[pname] will be first got and passed to `f`.
-    Moreover, the decorated function raises always a BadArgument exception:
-    If dict is provided and the key is not found, a MissingArg exception is raised.
-    From within `f` any TypeError raised will be re-raised with a BadTypeArg exception. In any
-    other case, a BadValueArg exception is raised''' 
-    def wrap(f):
-        def wrapped_f(value_or_dict, *args, **kwargs):
-            try:
-                isdict = isinstance(value_or_dict, dict)
-                if isdict:
-                    keys_in =[]
-                    for p in set([pname] + list(optional_pnames)):
-                        if p in value_or_dict:
-                            keys_in.append(p)
-                    if len(keys_in) > 1:
-                        raise ConflictingArgs(*keys_in)
-                    pname2get = pname if not keys_in else keys_in[0]
-                    if pname2get not in value_or_dict and default is not None:
-                        value_or_dict[pname2get] = default
-                    if pop:
-                        value = value_or_dict.pop(pname2get)
-                    else:
-                        value = value_or_dict[pname2get]
-                else:
-                    value = value_or_dict
-            except KeyError as _:
-                raise MissingArg(pname)
-            try:
-                newvalue = f(value, *args, **kwargs)
-                if isdict: 
-                    if update:
-                        value_or_dict[pname] = newvalue
-                return newvalue
-            except TypeError as terr:
-                raise BadTypeArg(pname, terr)
-            except Exception as exc:
-                raise BadValueArg(pname, exc)
-        return wrapped_f
-    return wrap
+    :param value: string or iterable of strings: (iterable in this context means python iterable
+        EXCEPT strings). If string, the argument will be converted
+        to the list [value] to make it iterable before processing it
+    :param index: integer in [0,1,2,3]: the index of the parameter associated to `valie`,
+        where 0 means 'network', 1 'station', 2 'location' and 3 'channel'.
+        It is used for converting '--' to empty
+        strings in case of location(s), and to output the correct parameter name in the body of
+        Exceptions, if any has occurred or been raised
+    ''' 
+    try:
+        strings = set()
+    
+        # we assume, when arg is not list, that arg is str in both python2 and python3, i.e.
+        # it is NOT bytes in python2. The line below checks if is an iterable first:
+        # in python2, it is sufficient to say it's not a string
+        # in python3, we need to check that is no str also
+        if not hasattr(value, "__iter__") or isinstance(value, str):
+            # it’s an iterable not a string
+            value = [value]
+            
+        for string in value:
+            splitted = string.split(",")
+            for s in splitted:
+                s = s.strip()
+                if ' ' in s:
+                    raise Exception("invalid space char(s): '%s'" % s)
+                # if i == 3 (location) convert '--' to '':
+                strings.add(s)
+
+        # some checks:
+        if "!*" in strings:  # discard everything is not valid
+            raise ValueError("'!*' (=discard all) invalid")
+        elif "*" in  strings:  # accept everything and X: X is redundant
+            strings = set(_ for _ in strings if _[0:1] == '!')
+        else: 
+            for string in strings:  # accept A end discard A is not valid
+                opposite = "!%s" % string
+                if opposite in strings:
+                    raise Exception("conflicting values: '%s' and '%s'" % (string, opposite))
+        
+        return sorted(strings)
+
+    except Exception as exc:
+        raise ValueError(str(exc))
 
 
-@checkarg('config')
 def load_config(config, **param_overrides):
-    return yaml_load(config, **param_overrides)
-
-
-@checkarg('dburl')
-def extract_dburl(db_url):
-    return db_url
+    try:
+        return yaml_load(config, **param_overrides)
+    except Exception as exc:
+        raise BadValueArg('config', exc)
 
 
 def extract_dburl_if_yamlpath(value):
@@ -162,7 +223,7 @@ def extract_dburl_if_yamlpath(value):
     'value' can be a file (in that case is assumed to be a yaml file with the
     'dburl' key in it) or the database path otherwise
     """
-    return extract_dburl(yaml_load(value)) \
+    return yaml_load(value)['dburl'] \
         if (value and isinstance(value, string_types) and os.path.isfile(value)) else value
 
 
@@ -174,14 +235,12 @@ def keyval_list_to_dict(value):
     return dict(zip(itr, itr))
 
 
-@checkarg('dburl', pop=True)
 def create_session(dburl):
     if not isinstance(dburl, string_types):
         raise TypeError('string required, %s found' % str(type(dburl)))
     return get_session(dburl, scoped=False)
 
 
-@checkarg('traveltimes_model', pop=True)
 def load_tt_table(file_or_name):
     if not isinstance(file_or_name, string_types):
         raise TypeError('string required, not %s' % str(type(file_or_name)))
@@ -191,16 +250,6 @@ def load_tt_table(file_or_name):
     if not os.path.isfile(filepath):
         raise Exception('file or builtin model name not found')
     return TTTable(filepath)
-
-
-@checkarg('start', update=True)
-def adjust_start(start):
-    return valid_date(start)
-
-
-@checkarg('end', update=True)
-def adjust_end(end):
-    return valid_date(end)
 
 
 def valid_date(obj):
@@ -217,35 +266,55 @@ def valid_date(obj):
     raise ValueError("date-time or an integer required")
 
 
-@checkarg('networks', 'net', 'network', update=True, default=[])
-def adjust_net(networks):
-    '''
-    '''
-    return nslc_param_value_aslist(0, networks)
+
+def valid_fdsn(url):
+    if url.lower() in ('eida', 'iris'):
+        return url
+    reg = re.compile("^.*/fdsnws/(?P<service>[^/]+)/(?P<majorversion>\\d+)/query$")
+    match = reg.match(url)
+    if not match or not match.group('service') or not match.group('majorversion'):
+        raise ValueError("No FDSN url: <site>/fdsnws/<service>/<majorversion>/")
+    if match.group('service') not in ('dataselect', 'station', 'event'):
+        raise ValueError("No FDSN url: service not in 'station', 'event' or 'dataselect'")
+    return url
 
 
-@checkarg('stations', 'sta', 'station', update=True, default=[])
-def adjust_sta(stations):
-    '''
-    '''
-    return nslc_param_value_aslist(1, stations)
+
+def checkdownloadinput(dic):
+    '''checks download arguments'''
+
+    remainingkeys = set(dic.keys())
+    args = (arg('dburl', newname='session', newvalue=create_session),
+            arg('traveltimes_model', newname='tt_table', newvalue=load_tt_table),
+            arg('start', newvalue=valid_date),
+            arg('end', newvalue=valid_date),
+            arg('eventws', newvalue=valid_fdsn),
+            arg('dataws', newvalue=valid_fdsn),
+            arg('networks', 'net', 'network', ifmissing=[], newvalue=nslc_param_value_aslist),
+            arg('stations', 'sta', 'station', ifmissing=[], newvalue=nslc_param_value_aslist),
+            arg('locations', 'loc', 'location', ifmissing=[], newvalue=nslc_param_value_aslist),
+            arg('channels', 'cha', 'channel', ifmissing=[], newvalue=nslc_param_value_aslist))
+
+    for func in args:
+        func(dic)
+        remainingkeys -= set(func.argnames)
+    
+    # Note: dic here is passed with the arguments 9keys) not implemented in the decorator
+    # above. We perform a simple check: the argument must be present in the default config
+    # shipped with this package and the types must match. Note that you should call arg
+    # because 1. it raises the appropriate BadArgument exception which is caught and print in cli,
+    # and 2. it modifies the dic value with the rpoper value (which in this case is the same)
+    orig_config = _ORIGCONFIG
+
+    for key in remainingkeys:  # iterate over list(keys) cause we will modify the dict inplace
+        if key not in orig_config:
+            raise UnknownArg(key)
+        arg(key, newvalue=lambda value: typesmatch(value, orig_config[key]))(dic)
+    
+    # now process the arguments in checker
+    return dic['session'], dic['tt_table']
 
 
-@checkarg('locations', 'loc', 'location', update=True, default=[])
-def adjust_loc(locations):
-    '''
-    '''
-    return nslc_param_value_aslist(2, locations)
-
-
-@checkarg('channels', 'cha', 'channel', update=True, default=[])
-def adjust_cha(channels):
-    '''
-    '''
-    return nslc_param_value_aslist(3, channels)
-
-
-@checkarg('pyfile')
 def load_pyfunc(pyfile, funcname):
     '''Returns the python module from the given python file'''
     if not isinstance(pyfile, string_types):
@@ -268,7 +337,6 @@ def load_pyfunc(pyfile, funcname):
     return pymoduledict[funcname]
     
 
-@checkarg('funcname')
 def get_funcname(funcname=None):
     '''Returns the python module from the given python file'''
     if funcname is None:
@@ -283,3 +351,17 @@ def get_funcname(funcname=None):
 def default_processing_funcname():
     '''returns 'main', the default function name for processing, when such a name is not given'''
     return 'main'
+
+
+def checkprocessinput(dic):
+    '''checks download arguments'''
+    session = arg('dburl', newname='session', newvalue=create_session)(dic)
+    arg('funcname', newvalue=get_funcname)(dic)
+    arg('config', newname='config_dict', newvalue=lambda c: {} if c is None else load_config(c))(dic)
+    funcname = dic.pop('funcname')
+    arg('pyfile', newvalue=lambda val: load_pyfunc(val, funcname))(dic)
+    # nothing more to process
+    return session
+
+
+

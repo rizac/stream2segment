@@ -23,9 +23,7 @@ import inspect
 from datetime import datetime, timedelta
 
 
-from stream2segment.utils.inputargs import load_config, adjust_start, load_tt_table,\
-    create_session, adjust_end, adjust_net, adjust_cha, adjust_loc, adjust_sta, get_funcname,\
-    load_pyfunc
+from stream2segment.utils.inputargs import checkdownloadinput, checkprocessinput, load_config
 from future.utils import string_types
 # this can not apparently be fixed with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
@@ -93,28 +91,23 @@ def download(config, verbosity=2, **param_overrides):
     # Other exceptions are caught, logged with the stack trace as critical, and raised
     
     input_yaml_dict = load_config(config, **param_overrides)
-    # the obect above will be saved to db, make a copy for mainpulation here:
     yaml_dict = dict(input_yaml_dict)
-    # param check before setting stuff up. All these raise BadArgument(s) in case:
-    adjust_net(yaml_dict)
-    adjust_sta(yaml_dict)
-    adjust_loc(yaml_dict)
-    adjust_cha(yaml_dict)
-    adjust_start(yaml_dict)
-    adjust_end(yaml_dict)
-    tt_table = load_tt_table(yaml_dict)  # pops 'traveltimes_model' from dict
-    session = create_session(yaml_dict)  # pops 'dburl' from dict
+    # checks dic values (modify in place) and returns dic value(s) needed here:
+    session, tttable = checkdownloadinput(yaml_dict)
 
     # print yaml_dict to terminal if needed. Do not use input_yaml_dict as
     # params needs to be shown as expanded/converted so the user can check their correctness
     # Do no use loggers yet:
     is_from_terminal = verbosity >= 2
     if is_from_terminal:
+        # print to terminal an informative config. First objects with custom string outputs:
+        sessstr = "<session object, dburl='%s'>" % secure_dburl(str(session.bind.engine.url))
+        tttablestr = "<%s object, model=%s, phases=%s>" % (tttable.__class__.__name__,
+                                                           str(tttable.model),
+                                                           str(tttable.phases))
         # replace dburl hiding passowrd for printing to terminal, tt_table with a short repr str,
         # and restore traveltimes_model because we popped from yaml_dict it out in load_tt_table
-        yaml_safe = dict(yaml_dict, dburl=secure_dburl(input_yaml_dict['dburl']),
-                         tt_table="<%s object>" % tt_table.__class__.__name__,
-                         traveltimes_model=input_yaml_dict['traveltimes_model'])
+        yaml_safe = dict(yaml_dict, session=sessstr, tt_table=tttablestr)
         ip_params = yaml.safe_dump(yaml_safe, default_flow_style=False)
         ip_title = "Input parameters"
         print("%s\n%s\n%s\n" % (ip_title, "-" * len(ip_title), ip_params))
@@ -137,8 +130,7 @@ def download(config, verbosity=2, **param_overrides):
 
         stime = time.time()
         try:
-            run_download(session=session, download_id=download_id, isterminal=is_from_terminal,
-                         tt_table=tt_table, **yaml_dict)
+            run_download(download_id=download_id, isterminal=is_from_terminal, **yaml_dict)
         except QuitDownload as quitdownloadexc:
             ret = 1
         etime = time.time()
@@ -190,11 +182,9 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, verbose=Fal
     
     # param check before setting stuff up. All these raise BadArgument(s) in case:
     dic = dict(locals())
-    session = create_session(dic)  # removes dburl from dic, but we do not care
-    funcname = get_funcname(dic)
-    pyfunc = load_pyfunc(dic, funcname)
-    config_dict = {} if not config else load_config(dic)
-        
+    # checks dic values (modify in place) and returns dic value(s) needed here:
+    session = checkprocessinput(dic)
+
     configlog4processing(logger, outfile, verbose)
     try:
         if verbose:
@@ -206,7 +196,7 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, verbose=Fal
                 logger.info("Config. file: %s", str(config))
     
         stime = time.time()
-        to_csv(outfile, session, pyfunc, config_dict, verbose)
+        to_csv(outfile=outfile, verbose=verbose, **dic)
         logger.info("Completed in %s", str(totimedelta(stime)))
         return 0  # contrarily to download, an exception should always raise and log as error
         # with the stack trace
@@ -333,12 +323,12 @@ def helpmathiter(type, filter):  # @ReservedAssignment pylint: disable=redefined
                 yield "%s%s:" % (func.__name__, inspect.signature(func))
                 yield render(func.__doc__ or '(No documentation found)', indent_num=1)
                 if inspect.isclass(func):
-                    for funcname, func in inspect.getmembers(func):
+                    for funcname, func_ in inspect.getmembers(func):
                         if funcname != "__class__" and not funcname.startswith("_"):
                             # Consider anything that starts with _ private
                             # and don't document it
                             yield "\n"
-                            yield "%s%s%s:" % (INDENT, funcname, inspect.signature(func))
-                            yield render(func.__doc__, indent_num=2)
+                            yield "%s%s%s:" % (INDENT, funcname, inspect.signature(func_))
+                            yield render(func_.__doc__, indent_num=2)
 
                 yield "\n"
