@@ -1,6 +1,6 @@
 '''
 Module with utilities for checking / parsing / setting input arguments.
-Functions decorated with @argchecker provide a way, when called with a dict as first argument,
+Functions decorated with @checkarg provide a way, when called with a dict as first argument,
 to raise explicative exceptions whise message format is similar to click, and which are
 caught from the cli to print the message and exit instead of raising  
 
@@ -83,16 +83,28 @@ class ConflictingArgs(BadArgument):
         super(ConflictingArgs, self).__init__(param_name, '', "Conflicting names")
 
 
-def argchecker(pname, *optional_pnames, ifdict=None, default=None):
-    '''decorator that makes a function f(value, *args, **kwargs) be called also with `value` as
-    dict. If dict, several options are given to manioulate the dict and raise explicative
+# _DDEFAULTDOC = yaml_load_doc(get_templates_fpath("download.yaml"))
+# 
+# def checkdownloadinput(config):
+#     
+#     yaml_orig = yaml.
+
+
+def checkarg(pname, *optional_pnames, pop=False, update=False, default=None):
+    '''decorator that makes a function f(value, *args, **kwargs) a function that checks specific
+    arguments/parameters and raises appropriate `BadArgument`s exceptions
+    in case, whose messages are click-style formatted.
+
+    be called also with `value` as
+    dict. In case dict, several options are given to manioulate the dict and raise explicative
     Exceptions in case `pname` is not found. When not called as dict, the function is run as-it-is.
     
     Example:
     
-    @argchecker('paramname'
+    # checks if the argument 'a' is int, and raises an appropriate BadArgument
+    checkarg('a')(int)({'a': 5})
     
-     
+
     In the latter case value[pname] will be first got and passed to `f`.
     Moreover, the decorated function raises always a BadArgument exception:
     If dict is provided and the key is not found, a MissingArg exception is raised.
@@ -112,7 +124,7 @@ def argchecker(pname, *optional_pnames, ifdict=None, default=None):
                     pname2get = pname if not keys_in else keys_in[0]
                     if pname2get not in value_or_dict and default is not None:
                         value_or_dict[pname2get] = default
-                    if ifdict.lower() in ('pop', 'set', 'replace'):
+                    if pop:
                         value = value_or_dict.pop(pname2get)
                     else:
                         value = value_or_dict[pname2get]
@@ -123,7 +135,7 @@ def argchecker(pname, *optional_pnames, ifdict=None, default=None):
             try:
                 newvalue = f(value, *args, **kwargs)
                 if isdict: 
-                    if ifdict.lower() in ('set', 'replace'):
+                    if update:
                         value_or_dict[pname] = newvalue
                 return newvalue
             except TypeError as terr:
@@ -134,15 +146,12 @@ def argchecker(pname, *optional_pnames, ifdict=None, default=None):
     return wrap
 
 
-@argchecker('configfile')
-def load_configfile(configfile, **param_overrides):
-    if not os.path.isfile(configfile):
-        raise Exception('file does not exist')
-    
-    return yaml_load(configfile, **param_overrides)
+@checkarg('config')
+def load_config(config, **param_overrides):
+    return yaml_load(config, **param_overrides)
 
 
-@argchecker('dburl')
+@checkarg('dburl')
 def extract_dburl(db_url):
     return db_url
 
@@ -164,14 +173,15 @@ def keyval_list_to_dict(value):
     itr = iter(value)
     return dict(zip(itr, itr))
 
-@argchecker('dburl', ifdict='pop')
+
+@checkarg('dburl', pop=True)
 def create_session(dburl):
     if not isinstance(dburl, string_types):
         raise TypeError('string required, %s found' % str(type(dburl)))
     return get_session(dburl, scoped=False)
 
 
-@argchecker('traveltimes_model', ifdict='pop')
+@checkarg('traveltimes_model', pop=True)
 def load_tt_table(file_or_name):
     if not isinstance(file_or_name, string_types):
         raise TypeError('string required, not %s' % str(type(file_or_name)))
@@ -183,12 +193,12 @@ def load_tt_table(file_or_name):
     return TTTable(filepath)
 
 
-@argchecker('start', ifdict='replace')
+@checkarg('start', update=True)
 def adjust_start(start):
     return valid_date(start)
 
 
-@argchecker('end', ifdict='replace')
+@checkarg('end', update=True)
 def adjust_end(end):
     return valid_date(end)
 
@@ -207,35 +217,35 @@ def valid_date(obj):
     raise ValueError("date-time or an integer required")
 
 
-@argchecker('networks', 'net', 'network', ifdict='replace', default=[])
+@checkarg('networks', 'net', 'network', update=True, default=[])
 def adjust_net(networks):
     '''
     '''
     return nslc_param_value_aslist(0, networks)
 
 
-@argchecker('stations', 'sta', 'station', ifdict='replace', default=[])
+@checkarg('stations', 'sta', 'station', update=True, default=[])
 def adjust_sta(stations):
     '''
     '''
     return nslc_param_value_aslist(1, stations)
 
 
-@argchecker('locations', 'loc', 'location', ifdict='replace', default=[])
+@checkarg('locations', 'loc', 'location', update=True, default=[])
 def adjust_loc(locations):
     '''
     '''
     return nslc_param_value_aslist(2, locations)
 
 
-@argchecker('channels', 'cha', 'channel', ifdict='replace', default=[])
+@checkarg('channels', 'cha', 'channel', update=True, default=[])
 def adjust_cha(channels):
     '''
     '''
     return nslc_param_value_aslist(3, channels)
 
 
-@argchecker('pyfile')
+@checkarg('pyfile')
 def load_pyfunc(pyfile, funcname):
     '''Returns the python module from the given python file'''
     if not isinstance(pyfile, string_types):
@@ -249,16 +259,16 @@ def load_pyfunc(pyfile, funcname):
 #     elif funcname is None:
 #         funcname = default_processing_funcname()
 
-    try:
-        if not os.path.isfile(pyfile):
-            raise Exception('file does not exist')
-    
-        return load_source(pyfile).__dict__[funcname]
-    except KeyError as _:
+    if not os.path.isfile(pyfile):
+        raise Exception('file does not exist')
+
+    pymoduledict = load_source(pyfile).__dict__
+    if funcname not in pymoduledict:
         raise Exception("function '%s' not found in %s" % (str(funcname), pyfile))
+    return pymoduledict[funcname]
+    
 
-
-@argchecker('funcname')
+@checkarg('funcname')
 def get_funcname(funcname=None):
     '''Returns the python module from the given python file'''
     if funcname is None:

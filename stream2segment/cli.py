@@ -33,10 +33,10 @@ import sys
 import os
 
 import click
-from click.exceptions import BadParameter, MissingParameter
+# from click.exceptions import BadParameter, MissingParameter
 
 from stream2segment import main
-from stream2segment.utils.resources import get_templates_fpath, yaml_load, yaml_load_doc
+from stream2segment.utils.resources import get_templates_fpath, yaml_load_doc
 from stream2segment.traveltimes import ttcreator
 from stream2segment.utils import inputargs
 
@@ -77,6 +77,16 @@ class clickutils(object):
                 option.help = cfg_doc.get(option.name, None)
 
         return value
+
+
+# def catchbadarguments(func):
+#     def wrapper(*args, **kwargs):
+#         try:
+#             return func(*args, **kwargs)
+#         except inputargs.BadArgument as aerr:
+#             print(aerr)
+#             return 1
+#     return wrapper
 
 
 @click.group()
@@ -129,7 +139,7 @@ def init(outdir):
 
 @cli.command(short_help='Download waveform data segments',
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
-@click.option("-c", "--configfile",
+@click.option("-c", "--config",
               help="The path to the configuration file in yaml format "
                    "(https://learn.getgrav.org/advanced/yaml).",
               type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
@@ -159,7 +169,7 @@ def init(outdir):
 @click.option('-i', '--inventory', is_flag=True, default=None)
 @click.argument('eventws_query_args', nargs=-1, type=click.UNPROCESSED,
                 callback=lambda ctx, param, value: inputargs.keyval_list_to_dict(value))
-def download(configfile, dburl, eventws, start, end, dataws, min_sample_rate, traveltimes_model,
+def download(config, dburl, eventws, start, end, dataws, min_sample_rate, traveltimes_model,
              timespan, update_metadata, retry_url_err, retry_mseed_err, retry_seg_not_found,
              retry_client_err, retry_server_err, retry_timespan_err, inventory, eventws_query_args):
     """Download waveform data segments with quality-check metadata and relative events, stations and
@@ -171,8 +181,8 @@ def download(configfile, dburl, eventws, start, end, dataws, min_sample_rate, tr
     """
     try:
         overrides = {k: v for k, v in locals().items()
-                     if v not in ((), {}, None) and k != 'configfile'}
-        sys.exit(main.download(configfile, verbosity=2, **overrides))
+                     if v not in ((), {}, None) and k != 'config'}
+        sys.exit(main.download(config, verbosity=2, **overrides))
     except inputargs.BadArgument as aerr:
         print(aerr)
         sys.exit(1)
@@ -185,7 +195,7 @@ def download(configfile, dburl, eventws, start, end, dataws, min_sample_rate, tr
 @click.option('-d', '--dburl', type=inputargs.extract_dburl_if_yamlpath,
               help="%s.\n%s" % (clickutils.DEFAULTDOC['dburl'], clickutils.DBURLDOC_SUFFIX),
               required=True)
-@click.option("-c", "--configfile",
+@click.option("-c", "--config",
               help="The path to the configuration file in yaml format "
                    "(https://learn.getgrav.org/advanced/yaml).",
               type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
@@ -207,7 +217,7 @@ def download(configfile, dburl, eventws, start, end, dataws, min_sample_rate, tr
                    "Optional: defaults to '%s' when missing" % inputargs.default_processing_funcname(),
               )  # do not set default='main', so that we can test when arg is missing or not
 @click.argument('outfile', required=False)
-def process(dburl, configfile, pyfile, funcname, outfile):
+def process(dburl, config, pyfile, funcname, outfile):
     """Process downloaded waveform data segments via a custom python file and a configuration
     file.
     
@@ -219,7 +229,7 @@ def process(dburl, configfile, pyfile, funcname, outfile):
     pecified, the log messages will be written to the file [outpath].log
     """
     try:
-        sys.exit(main.process(dburl, pyfile, funcname, configfile, outfile, verbose=True))
+        sys.exit(main.process(dburl, pyfile, funcname, config, outfile, verbose=True))
     except inputargs.BadArgument as aerr:
         print(aerr)
         sys.exit(1)  # exit with 1 as normal python exceptions

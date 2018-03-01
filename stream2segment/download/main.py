@@ -204,9 +204,9 @@ def new_db_download(session, params=None):
                                                              default_flow_style=False)),
                              # log by default shows error. If everything works fine, we replace
                              # the content later
-                             log=('N/A: either logger not configured, or content not written '
-                                  'because of an unexpected interruption of the process '
-                                  '(e.g., memory overflow)'), program_version=version())
+                             log=('N/A: either logger not configured, or '
+                                  'an unexpected error interrupted the process'),
+                             program_version=version())
     
     session.add(download_inst)
     session.commit()

@@ -23,8 +23,10 @@ import inspect
 from datetime import datetime, timedelta
 
 
-from stream2segment.utils.inputargs import load_configfile, adjust_start, load_tt_table,\
-    create_session, adjust_end, adjust_net, adjust_cha, adjust_loc, adjust_sta, get_funcname, load_pyfunc
+from stream2segment.utils.inputargs import load_config, adjust_start, load_tt_table,\
+    create_session, adjust_end, adjust_net, adjust_cha, adjust_loc, adjust_sta, get_funcname,\
+    load_pyfunc
+from future.utils import string_types
 # this can not apparently be fixed with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
 try:
@@ -56,12 +58,13 @@ import time
 logger = logging.getLogger("stream2segment")
 
 
-def download(configfile, verbosity=2, **param_overrides):
+def download(config, verbosity=2, **param_overrides):
     """
         Downloads the given segment providing a set of keyword arguments to match those of the
         config file (see confi.example.yaml for details)
         
-        :param configfile: a valid path to a file in yaml format
+        :param config: a valid path to a file in yaml format, or a dict of parameters reflecting
+            a download config file
         :param verbosity: integer: 0 means: no logger configured, no print to standard output.
             Use this option if you want to have maximum flexibility (e.g. configure your logger)
             and - in principle - shorter execution time (although the real benefits have not been
@@ -89,7 +92,7 @@ def download(configfile, verbosity=2, **param_overrides):
     # When 1 is returned, a QuitDownload is raised and logged to error.
     # Other exceptions are caught, logged with the stack trace as critical, and raised
     
-    input_yaml_dict = load_configfile(configfile, **param_overrides)
+    input_yaml_dict = load_config(config, **param_overrides)
     # the obect above will be saved to db, make a copy for mainpulation here:
     yaml_dict = dict(input_yaml_dict)
     # param check before setting stuff up. All these raise BadArgument(s) in case:
@@ -161,7 +164,7 @@ def download(configfile, verbosity=2, **param_overrides):
     return ret
         
 
-def process(dburl, pyfile, funcname=None, configfile=None, outfile=None, verbose=False):
+def process(dburl, pyfile, funcname=None, config=None, outfile=None, verbose=False):
     """
         Process the segment saved in the db and optionally saves the results into `outfile`
         in .csv format
@@ -190,7 +193,7 @@ def process(dburl, pyfile, funcname=None, configfile=None, outfile=None, verbose
     session = create_session(dic)  # removes dburl from dic, but we do not care
     funcname = get_funcname(dic)
     pyfunc = load_pyfunc(dic, funcname)
-    config_dict = {} if not configfile else load_configfile(dic)
+    config_dict = {} if not config else load_config(dic)
         
     configlog4processing(logger, outfile, verbose)
     try:
@@ -199,8 +202,8 @@ def process(dburl, pyfile, funcname=None, configfile=None, outfile=None, verbose
                 logger.info('Output file: %s', outfile)
             logger.info("Executing '%s' in '%s'", funcname, pyfile)
             logger.info("Input database: '%s", secure_dburl(dburl))
-            if configfile:
-                logger.info("Config. file: %s", str(configfile))
+            if config and isinstance(config, string_types):
+                logger.info("Config. file: %s", str(config))
     
         stime = time.time()
         to_csv(outfile, session, pyfunc, config_dict, verbose)

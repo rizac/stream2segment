@@ -17,13 +17,15 @@ from datetime import datetime, timedelta
 import tempfile
 import shutil
 
-from stream2segment.main import configlog4download as o_config4download, \
+from stream2segment.main import configlog4download as o_configlog4download, \
     new_db_download as o_new_db_download, create_session as o_create_session, run_download as o_run_download, \
     configlog4processing as o_configlog4processing, to_csv as o_to_csv, process as o_process, \
     download as o_download
 from stream2segment.utils.inputargs import yaml_load as o_yaml_load
 from stream2segment.io.db.models import Download
 from _pytest.capture import capsys
+import pytest
+from stream2segment.utils import get_session
 
 
 class Test(unittest.TestCase):
@@ -49,7 +51,7 @@ class Test(unittest.TestCase):
         
         self.patchers.append(patch('stream2segment.main.configlog4download'))
         self.mock_config4download = self.patchers[-1].start()
-        self.mock_config4download.side_effect = o_config4download
+        self.mock_config4download.side_effect = o_configlog4download
         
         self.patchers.append(patch('stream2segment.main.new_db_download'))
         self.mock_new_db_download = self.patchers[-1].start()
@@ -116,7 +118,7 @@ class Test(unittest.TestCase):
         return result
 
         
-    def test_download_bad_values(self):
+    def tst_download_bad_values(self):
         '''test different scenarios where the value in the dwonload.yaml are not well formatted'''
         result = self.run_cli_download(networks={'a': 'b'})  # invalid type
         assert result.exit_code == 0 # WHAT?? because networks needs to be just an iterable
@@ -216,7 +218,7 @@ class Test(unittest.TestCase):
         # Test an invalif configfile. This can be done only via command line
         result = self.run_cli_download('-c', 'frjkwlag5vtyhrbdd_nleu3kvshg w') 
         assert result.exit_code != 0
-        assert "Error: Invalid value for \"-c\" / \"--configfile\":" in result.output
+        assert "Error: Invalid value for \"-c\" / \"--config\":" in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.session.query(Download).count() == 1
 
@@ -270,22 +272,118 @@ class Test(unittest.TestCase):
         pass
 
 
+@patch('stream2segment.utils.inputargs.get_session')
+@patch('stream2segment.main.closesession')
+@patch('stream2segment.main.configlog4download')
 @patch('stream2segment.main.run_download')
-def test_download_verbosity(mock_run_download, capsys):
-    dburl = 'sqlite:///:memory:' 
+def test_download_verbosity(mock_run_download, mock_configlog, mock_closesess, mock_getsess,
+                            capsys):
+    # handlers should be removed each run_download call, otherwise we end up
+    # appending them
+    numloggers = [0]
+    def clogd(logger, *a, **kv):
+        for h in logger.handlers[:]:
+            logger.removeHandler(h)
+        ret = o_configlog4download(logger, *a, **kv)
+        numloggers[0] = len(ret)
+        return ret
+    mock_configlog.side_effect = clogd
+
+    dburl = 'sqlite:///:memory:'
+    # close session should not close session, otherwise with a memory db we loose the data
+    mock_closesess.side_effect = lambda *a, **v: None
+    # also, mock get_session cause we need the same session object to
+    # retrieve what's been written on the db
+    sess = get_session(dburl)
+    # mock get_session in order to return always the same session objet:
+    mock_getsess.side_effect = lambda *a, **kw: sess
+    
+    
+    last_known_id = [None]  # stupid hack to assign to out-of-scope var (py2 compatible)
+    def dblog_err_warn():
+        qry = sess.query(Download.id, Download.log, Download.warnings, Download.errors)
+        if last_known_id[0] is not None:
+            qry = qry.filter(Download.id > last_known_id[0])
+        tup = qry.first()
+        last_known_id[0] = tup[0]
+        return tup[1], tup[2], tup[3]
+    
     d_yaml_file = get_templates_fpath("download.yaml")
     
+    # run verbosity = 0. As this does not configure loggers, previous loggers will not be removed
+    # (see mock above). Thus launch all tests in increasing verbosity order (from 0 on)
+    mock_run_download.side_effect = lambda *a, **v: None
     ret = o_download(d_yaml_file, verbosity=0, dburl=dburl)
     out, err = capsys.readouterr()
     assert not out  # assert empty (avoid comparing to strings and potential py2 py3 headache)
+    log, err, warn = dblog_err_warn()
+    assert "N/A: either logger not configured, or " in log
+    assert err == 0
+    assert warn == 0
+    assert numloggers[0] == 0
     
+    # now let's see that if we raise an exception we also 
+    mock_run_download.side_effect = KeyError('a')
+    # verbosity=1 configures loggers, but only the Db logger
+    with pytest.raises(KeyError) as kerr:
+        ret = o_download(d_yaml_file, verbosity=0, dburl=dburl)
+    out, err = capsys.readouterr()
+    assert not out
+    log, err, warn = dblog_err_warn()
+    assert "N/A: either logger not configured, or " in log
+    assert err == 0
+    assert warn == 0
+    assert numloggers[0] == 0
+    
+    
+    # verbosity=1 configures loggers, but only the Db logger
+    mock_run_download.side_effect = lambda *a, **v: None
     ret = o_download(d_yaml_file, verbosity=1, dburl=dburl)
     out, err = capsys.readouterr()
+    # this is also empty cause mock_run_download is no-op
+    assert not out  # assert empty
+    log, err, warn = dblog_err_warn()
+    assert " Completed in " in log
+    assert str(err) + ' ' in log  # 0 total errors
+    assert str(warn) + ' ' in log  # 0 total warnings
+    assert numloggers[0] == 1
     
+    # now let's see that if we raise an exception we also 
+    mock_run_download.side_effect = KeyError('a')
+    with pytest.raises(KeyError) as kerr:
+        ret = o_download(d_yaml_file, verbosity=1, dburl=dburl)
+    out, err = capsys.readouterr()
+    assert not out
+    log, err, warn = dblog_err_warn()
+    assert "Traceback (most recent call last):" in log
+    assert err == 0
+    assert warn == 0
+    assert numloggers[0] == 1
+    
+    
+    mock_run_download.side_effect = lambda *a, **v: None
     ret = o_download(d_yaml_file, verbosity=2, dburl=dburl)
     out, err = capsys.readouterr()
-        
-
+    assert out  # assert non empty
+    log, err, warn = dblog_err_warn()
+    assert " Completed in " in log
+    assert str(err) + ' ' in log  # 0 total errors
+    assert str(warn) + ' ' in log  # 0 total warnings 
+    assert numloggers[0] == 2
+    
+    # now let's see that if we raise an exception we also 
+    mock_run_download.side_effect = KeyError('a')
+    with pytest.raises(KeyError) as kerr:
+        ret = o_download(d_yaml_file, verbosity=2, dburl=dburl)
+    out, err = capsys.readouterr()
+    # Now out is not empty cause the logger which prints to stdout infos errors and critical is set:
+    assert "Traceback (most recent call last):" in out 
+    assert "KeyError" in out
+    log, err, warn = dblog_err_warn()
+    assert "Traceback (most recent call last):" in log
+    assert err == 0
+    assert warn == 0
+    assert numloggers[0] == 2
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']

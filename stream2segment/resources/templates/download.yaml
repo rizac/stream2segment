@@ -90,14 +90,11 @@ dataws: 'eida'
 
 # Limit the search to stations and channels matching any of the four parameters:
 # network, station, location, channel. E.g.:
-# netowrk: '*'  (=download all networks)
+# netowrk: '!A*'  (download networks NOT starting with 'A')
 # channels: 'H*,B??' (download all channels starting with H, OR having 3 characters whose first is 'B')
 # If a parameter name is missing, it's value defaults to '*'.
 # Parameter values are strings following FDSN queries syntax (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf),
-# which is enhanced in the program with the operator ! to indicate logical NOT. So e.g.:
-# networks: 'XYZ'
-# stations: "!AA3"
-# will download all stations from network 'XYZ' except data (and metadata) from station 'AA3'.
+# which is enhanced in here with the operator ! to indicate logical NOT. So e.g.:
 # Parameter names can be given also in FDSN standard (e.g. 'net' or 'network' instead of 'networks')
 # From the config yaml file you can also specify a list/array of strings in yaml format
 # instead of comma-separated strings. E.g., these are quivalent:
@@ -108,11 +105,8 @@ dataws: 'eida'
 #  - "C"
 channels:
  - "HH?"
- # - 'SH?'
  - 'HN?'
- # - 'SN?'
  - 'HL?'
- # - 'SL?'
 
 # Limit the search to station's channels with at least min_sample_rate (in Hz).
 # The relative segments are *mot likely* (not always) matching the channel sample rate.
@@ -192,10 +186,9 @@ advanced_settings:
  # max time to wait (in seconds) for a single request while downloading waveform data (`urllib2.urlopen` timeout argument)
  w_timeout: 60
  # the buffer size used when writing items (stations, segments, events, ...) to database.
- # Increasing this number to speed up db IO operations. Keep in mind that if any item in the buffer
- # cannot be inserted or updated (e.g., integrity errors), all subsequent buffer items will also be discarded.
- # If you want to be sure that only items that cannot be inserted/updated are discarded,
- # set it to 1, although for massive downloads it might be inefficient
+ # Increasing this number usually sppeds speed up db IO operations, but increases the potentially unsaved
+ # rows in case of errors, as if a row item in the buffer cannot be inserted or updated
+ # (e.g., integrity errors), all subsequent buffer items will be also discarded
  db_buf_size: 20
 
 

@@ -196,7 +196,7 @@ class Test(unittest.TestCase):
         self.mock_urlopen = self.patchers[-1].start()
         
         # this mocks get_session to return self.session:
-        self.patchers.append(patch('stream2segment.main.get_session'))
+        self.patchers.append(patch('stream2segment.utils.inputargs.get_session'))
         self.mock_get_session = self.patchers[-1].start()
         self.mock_get_session.side_effect = self._get_sess
         
@@ -206,7 +206,7 @@ class Test(unittest.TestCase):
         self.mock_closing.side_effect = lambda *a, **kw: None
         
         # this mocks yaml_load and sets inventory to False, as tests rely on that
-        self.patchers.append(patch('stream2segment.cli.yaml_load'))
+        self.patchers.append(patch('stream2segment.utils.inputargs.yaml_load'))
         self.mock_yaml_load = self.patchers[-1].start()
         def yload(*a, **v):
             dic = yaml_load(*a, **v)
@@ -1200,5 +1200,5 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
                                                    #'--end', '2016-05-08T9:00:00'
                                                    ])
                     assert result.exit_code != 0
-                    assert 'conflict' in result.output
+                    assert 'Conflicting' in result.output
                     

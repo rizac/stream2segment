@@ -11,7 +11,7 @@ import re
 from collections import defaultdict
 
 # python2-3 compatibility for items and viewitems:
-from future.utils import viewitems
+from future.utils import viewitems, string_types
 import yaml
 
 
@@ -96,14 +96,21 @@ def get_ws_fpath():
 
 
 def yaml_load(filepath, **updates):
-    """Loads a yaml file producing the corresponding Python dict (`safe_load`). Then:
+    """Loads a yaml file into a dict (if `filepath` is a `dict`, skips loading). Then:
     1. normalizes non-absolute sqlite path values relative to `filepath`, if any
-    2. updates the dict values with `updqtes`
-    and returns the yaml dict.
+    2. updates the dict values with `updqtes` and returns the yaml dict.
+
+    :param filepath: string or dict. If string, it must denote a path to an existing .yaml file
     :param updates: arguments which will updates the yaml dict before it is returned
     """
-    with open(filepath, 'r') as stream:
-        ret = yaml.safe_load(stream)
+    if isinstance(filepath, string_types):
+        with open(filepath, 'r') as stream:
+            ret = yaml.safe_load(stream)
+    elif isinstance(filepath, dict):
+        ret = filepath
+    else:
+        raise TypeError('required file path or dict, %s found' % str(type(filepath)))
+   
     # convert sqlite into absolute paths, if any
     configfilepath = abspath(dirname(filepath))
     # convert relative sqlite path to absolute, assuming they are relative to the config:
