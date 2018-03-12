@@ -28,14 +28,14 @@ import csv
 
 
 from stream2segment.io.db.models import Segment
-from stream2segment.process.core import run
+from stream2segment.process.core import run as core_run_process
 
 logger = logging.getLogger(__name__)
 
 
-def to_csv(outcsvfile, session, pyfunc, config_dict, isterminal):
-    if not outcsvfile:
-        run(session, pyfunc, None, config_dict, isterminal)
+def run(session, pyfunc, config_dict, outcsvfile=None, isterminal=False):
+    if outcsvfile is None:
+        core_run_process(session, pyfunc, None, config_dict, isterminal)
         return
     
     kwargs = dict(delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
@@ -81,4 +81,4 @@ def to_csv(outcsvfile, session, pyfunc, config_dict, isterminal):
             #    # http://stackoverflow.com/questions/3976711/csvwriter-not-saving-data-to-file-why
             # flush_num[0] += 1
 
-        run(session, pyfunc, ondone, config_dict, isterminal)
+        core_run_process(session, pyfunc, ondone, config_dict, isterminal)

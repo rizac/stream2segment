@@ -23,8 +23,7 @@ import inspect
 from datetime import datetime, timedelta
 
 
-from stream2segment.utils.inputargs import checkdownloadinput, checkprocessinput, load_config,\
-    load_config_for_download
+from stream2segment.utils.inputargs import load_config_for_process, load_config_for_download
 from future.utils import string_types
 # this can not apparently be fixed with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
@@ -38,7 +37,7 @@ import click
 
 from stream2segment.utils.log import configlog4download, configlog4processing
 from stream2segment.io.db.models import Download
-from stream2segment.process.main import to_csv
+from stream2segment.process.main import run as run_process
 from stream2segment.download.main import run as run_download, new_db_download
 from stream2segment.utils import secure_dburl, strconvert, iterfuncs
 from stream2segment.utils.resources import get_templates_fpaths, yaml_load
@@ -185,10 +184,8 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, verbose=Fal
     # the whole process to finish. Note that this does not distinguish the case where
     # we have any other exception (e.g., keyboard interrupt), but that's not a requirement
     
-    # param check before setting stuff up. All these raise BadArgument(s) in case:
-    dic = dict(locals())
     # checks dic values (modify in place) and returns dic value(s) needed here:
-    session = checkprocessinput(dic)
+    session, pyfunc, config_dict = load_config_for_process(dburl, pyfile, funcname, config, outfile)
 
     configlog4processing(logger, outfile, verbose)
     try:
@@ -201,7 +198,7 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, verbose=Fal
                 logger.info("Config. file: %s", str(config))
     
         stime = time.time()
-        to_csv(outfile=outfile, verbose=verbose, **dic)
+        run_process(session, pyfunc, config_dict, outfile, verbose)
         logger.info("Completed in %s", str(totimedelta(stime)))
         return 0  # contrarily to download, an exception should always raise and log as error
         # with the stack trace

@@ -11,7 +11,6 @@ from builtins import map, next, zip, range, object
 
 import logging
 from datetime import timedelta, datetime
-import dateutil
 
 import pandas as pd
 
@@ -19,7 +18,7 @@ from stream2segment.download.utils import dbsyncdf, QuitDownload, response2norma
 from stream2segment.io.db.models import WebService, Event
 from stream2segment.utils.msgs import MSG
 from stream2segment.utils.url import urlread, URLException
-from stream2segment.utils import urljoin
+from stream2segment.utils import urljoin, strptime
 
 # logger: do not use logging.getLogger(__name__) but point to stream2segment.download.logger:
 # this way we preserve the logging namespace hierarchy
@@ -93,8 +92,8 @@ def get_events_list(eventws, **args):
     try:
         raw_data, code, msg = urlread(url, decode='utf8', raise_http_err=False)
         if code == 413:  # payload too large (formerly: request entity too large)
-            start = dateutil.parser.parsefrom(args.get('start', datetime(1970, 1, 1).isoformat()))
-            end = dateutil.parser.parsefrom(args.get('end', datetime.utcnow().isoformat()))
+            start = strptime(args.get('start', datetime(1970, 1, 1)))
+            end = strptime(args.get('end', datetime.utcnow()))
             total_seconds_diff = (end-start).total_seconds() / 2
             if total_seconds_diff < 1:
                 raise ValueError("%d: %s (maximum recursion reached: time window < 1 sec)" %

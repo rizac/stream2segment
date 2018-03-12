@@ -88,21 +88,22 @@ eventws_query_args:
 # If no datacenter station's url returns data and the db is empty (first download) the download process will stop
 dataws: 'eida'
 
-# Limit the search to stations and channels matching any of the four parameters:
-# network, station, location, channel. E.g.:
-# netowrk: '!A*'  (download networks NOT starting with 'A')
-# channels: 'H*,B??' (download all channels starting with H, OR having 3 characters whose first is 'B')
-# If a parameter name is missing, it's value defaults to '*'.
-# Parameter values are strings following FDSN queries syntax (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf),
-# which is enhanced in here with the operator ! to indicate logical NOT. So e.g.:
-# Parameter names can be given also in FDSN standard (e.g. 'net' or 'network' instead of 'networks')
+# Limit the search to the specified networks, stations, locations and channels.
+# Parameter names and values are strings following FDSN queries syntax (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf),
+# so for instance 'cha', 'channel', 'channels' are equivalent
+# (if a parameter name is missing, it's value defaults to '*').
+# Parameter values are enhanced here with the operator ! to indicate logical NOT. So e.g.,
+# to download all networks NOT starting with 'A' AND, within the matching networks,
+# all 3-letter channels starting with H or B, type: 
+#  netowrk: '!A*'
+#  channels: 'H??,B??'
 # From the config yaml file you can also specify a list/array of strings in yaml format
 # instead of comma-separated strings. E.g., these are quivalent:
-# networks: [ "A,B" , "C" ]
-# networks: "A,B,C"
+# networks: "A,B"
+# networks: [ "A" , "B" ]
 # networks:
-#  - "A, B"
-#  - "C"
+#  - "A"
+#  - "B"
 channels:
  - "HH?"
  - 'HN?'

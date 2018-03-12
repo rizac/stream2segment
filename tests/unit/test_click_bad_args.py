@@ -19,7 +19,7 @@ import shutil
 
 from stream2segment.main import configlog4download as o_configlog4download, \
     new_db_download as o_new_db_download, run_download as o_run_download, \
-    configlog4processing as o_configlog4processing, to_csv as o_to_csv, process as o_process, \
+    configlog4processing as o_configlog4processing, run_process as o_run_process, process as o_process, \
     download as o_download
 from stream2segment.utils.inputargs import yaml_load as o_yaml_load, create_session as o_create_session
 from stream2segment.io.db.models import Download
@@ -72,9 +72,9 @@ class Test(unittest.TestCase):
         self.mock_configlog4processing = self.patchers[-1].start()
         self.mock_configlog4processing.side_effect = o_configlog4processing
         
-        self.patchers.append(patch('stream2segment.main.to_csv'))
-        self.mock_to_csv = self.patchers[-1].start()
-        self.mock_to_csv.side_effect = lambda *a, **v: None  # no-op
+        self.patchers.append(patch('stream2segment.main.run_process'))
+        self.mock_run_process = self.patchers[-1].start()
+        self.mock_run_process.side_effect = lambda *a, **v: None  # no-op
         
         self.patchers.append(patch('stream2segment.utils.inputargs.yaml_load'))
         self.mock_yaml_load = self.patchers[-1].start()
@@ -92,8 +92,8 @@ class Test(unittest.TestCase):
         self.addCleanup(Test.cleanup, self)
 
         self.d_yaml_file = get_templates_fpath("download.yaml")
-        # self.p_yaml_file = get_templates_fpath("processing.yaml")
-        self.p_py_file = get_templates_fpath("processing.yaml")
+        self.p_yaml_file = get_templates_fpath("processing.yaml")
+        self.p_py_file = get_templates_fpath("processing.py")
         
     def run_cli_download(self, *args, **yaml_overrides):
         args = list(args)
@@ -105,16 +105,20 @@ class Test(unittest.TestCase):
         self.yaml_overrides = _tmp
         return result
     
-    def run_cli_process(self, *args, **dburl_yaml_overrides):
+    def run_cli_process(self, *args, dburl_in_yaml=None):
         args = list(args)
         if all(a not in ("-d", "--dburl") for a in args):
-            args += ['-c', self.d_yaml_file]
+            args += ['-d', self.d_yaml_file]
         if all(a not in ("-p", "--pyfile") for a in args):
             args += ['-p', self.p_py_file]
-        self.yaml_overrides, _tmp = dburl_yaml_overrides, self.yaml_overrides
+        if all(a not in ("-c", "--config") for a in args):
+            args += ['-c', self.p_yaml_file]
+        if dburl_in_yaml is not None:
+            self.yaml_overrides, _tmp = {'dburl': dburl_in_yaml}, self.yaml_overrides
         runner = CliRunner()
         result = runner.invoke(cli, ['process'] + args)
-        self.yaml_overrides = _tmp
+        if dburl_in_yaml is not None:
+            self.yaml_overrides = _tmp
         return result
 
         
@@ -223,50 +227,43 @@ class Test(unittest.TestCase):
         assert self.session.query(Download).count() == 1
 
 
-    def tst_process_bad_types(self):
+    def test_process_bad_types(self):
         '''bad types must be passed directly to download as click does a preliminary check'''
         
         result = self.run_cli_process('--pyfile', 'nrvnkenrgdvf')  # invalid value from cli
+        # Note the resulting message is SIMILAR to the following, not exactly the same
+        # as this is issued by click, the other by our functions in inputargs module
         assert result.exit_code != 0
-        assert "Error: Invalid type for \"-p\" / \"--pyfile\":" in result.output
+        assert "Error: Invalid value for \"-p\" / \"--pyfile\":" in result.output
+        
+        result = self.run_cli_process('--dburl', 'nrvnkenrgdvf')
+        assert result.exit_code != 0
+        assert "Error: Invalid value for \"dburl\":" in result.output
+        
+        result = self.run_cli_process(dburl_in_yaml='abcde')
+        assert result.exit_code != 0
+        assert "Error: Invalid value for \"dburl\":" in result.output
+        assert "abcde" in result.output
+        
+        result = self.run_cli_process('--funcname', 'nrvnkenrgdvf')
+        assert result.exit_code != 0
+        assert "Error: Invalid value for \"pyfile\": function 'nrvnkenrgdvf' not found in" in result.output
+        
+        result = self.run_cli_process('-c', 'nrvnkenrgdvf')
+        assert result.exit_code != 0
+        # this is issued by click (see comment above)
+        assert "Invalid value for \"-c\" / \"--config\"" in result.output
+        
+        result = self.run_cli_process('-c', self.p_py_file)
+        assert result.exit_code != 0
+        assert "Error: Invalid value for \"config\"" in result.output
+        
+#         result = self.run_cli_process('--pyfile', 55.5)  # invalid type from cli
+#         assert result.exit_code != 0
+#         assert "Error: Invalid type for \"-p\" / \"--pyfile\":" in result.output
         
         
-        result = self.run_cli_process(networks='!*')  # invalid value
-        result.output
         
-        result = self.run_cli_process(start=[])  # invalid type
-        result.output
-
-        result = self.run_cli_process(start='wat')  # invalid value
-        result.output
-        
-        # invalid value
-        result = self.run_cli_process('t0', 'wat')  # invalid value typed from the command line
-        result.output
-        
-        result = self.run_cli_process(end='wat') # try with end
-        result.output
-        
-        result = self.run_cli_process(traveltimes_model=[])  # invalid type
-        result.output
-        
-        result = self.run_cli_process(traveltimes_model='wat')  # invalid value
-        result.output
-
-        result = self.run_cli_process(dburl=self.d_yaml_file)  # valid file
-        result.output
-        
-        result = self.run_cli_process(dburl="sqlite:/whatever")  # invalid db url
-        result.output
-        
-        result = self.run_cli_process(dburl="sqlite://whatever")  # invalid db url
-        result.output
-        
-        result = self.run_cli_process(dburl="sqlite:///jngqoryuves__")  # invalid db url file
-        result.output
-        
-        result = self.run_cli_process(dburl=[])  # invalid type
-        result.output
 
     def testName(self):
         pass
@@ -276,7 +273,7 @@ class Test(unittest.TestCase):
 @patch('stream2segment.main.closesession')
 @patch('stream2segment.main.configlog4download')
 @patch('stream2segment.main.run_download')
-def test_download_verbosity(mock_run_download, mock_configlog, mock_closesess, mock_getsess,
+def tst_download_verbosity(mock_run_download, mock_configlog, mock_closesess, mock_getsess,
                             capsys):
     # handlers should be removed each run_download call, otherwise we end up
     # appending them

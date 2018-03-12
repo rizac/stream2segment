@@ -66,7 +66,7 @@ class clickutils(object):
         ```
         \@click.Option('--opt1', ..., callback=set_help_from_yaml, is_eager=True,...)
         \@click.Option('--opt2'...)
-        \@click.Option('--opt3'..., help='my custom help do not set the config help')
+        \@click.Option('--opt3'..., help='my custom help. Do not fetch help from config')
         \@click.Option('--opt4'...)
         ...
         ```
@@ -77,16 +77,6 @@ class clickutils(object):
                 option.help = cfg_doc.get(option.name, None)
 
         return value
-
-
-# def catchbadarguments(func):
-#     def wrapper(*args, **kwargs):
-#         try:
-#             return func(*args, **kwargs)
-#         except inputargs.BadArgument as aerr:
-#             print(aerr)
-#             return 1
-#     return wrapper
 
 
 @click.group()

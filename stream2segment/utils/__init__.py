@@ -8,11 +8,15 @@ Common utilities for the whole program
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import object
 
+from future.utils import string_types
+
 import os
 import yaml
 import re
 import time
 from datetime import datetime, timedelta
+from dateutil import parser as dateparser
+from dateutil.tz import tzutc
 import sys
 from collections import defaultdict
 import inspect
@@ -172,74 +176,68 @@ class strconvert(object):
         return re.escape(text).replace(r"\%", ".*").replace("_", ".")
 
 
-def tounicode(bytestr, decoding='utf-8'):
+def tounicode(string, decoding='utf-8'):
     """
-        Converts bytestr to unicode string, with the given decoding. Python 2-3 compatible.
-        :param bytestr: a `bytes` object. If already unicode string (`unicode` in python2,
-        `str` in python3) this method just returns it
-        :param decoding: the decoding used. Defaults to 'utf-8' when missing
-        :return: a string (`str` in python3, `unicode` string in python2) resulting from decoding
-        `bytestr`
+        Converts string to text (unicode in python2, str in python3). Function python 2-3
+        compatible. If string is already a text, returns it
+        :param string: a `str`, 'bytes' or (in py2) 'unicode' object.
+        :param decoding: the decoding used if `string` has to be converted to text.
+            Defaults to 'utf-8' when missing
+        :return: the text (`str` in python3, `unicode` string in python2) representing `string`
     """
-    return bytestr.decode(decoding) if isinstance(bytestr, bytes) else bytestr
+    # Curiously, future.utils has no such a simple method. So instead of checking
+    # when string is text, let's check when it is NOT, i.e. when it's instance of bytes
+    # (str in py2 is instanceof bytes):
+    return string.decode(decoding) if isinstance(string, bytes) else string
 
 
-def strptime(string, formats=None):
+def strptime(obj):
     """
-        Converts a date in string format into a datetime python object. The inverse can be obtained
-        by calling datetime.isoformat(). This is a light version of `dateutil.parser.parse`. Note
-        that string can be a datetime object
-
-        :param: string: if a datetime object, returns it. Otherwise must be a string representing
-            a date-time
-        :param formats: itarable of strings or None. the strings denoting the formats to be used
-            to convert `string` (in the order they are declared). If None (the default), the
-            format will be guessed from the followings:
-            - '%Y-%m-%dT%H:%M:%S.%fZ' (Z optional, T can also be the witespace character)
-            - '%Y-%m-%dT%H:%M:%SZ' (Z optional, T can also be the witespace character)
-            - '%Y-%m-%dZ'
-        :raise: TypeError if the argument is not a string nor a datetime,
-            ValueError if the string cannot be parsed
-        :return: a datetime object
-        :Example:
+        Converts `obj` to a `datetime` object in UTC without tzinfo.
+        
+        If `obj` is string, creates a `datetime` object by parsing it with `dateutil`, otherwise
+        uses `obj` as `datetime` object.
+        If the datetime object has a tzinfo supplied, converts it to UTC and removes the tzinfo
+        attribute.
+        Finally, returns the datetime object
+        
+        :param obj: `datetime` object or string.
+        
+        :return: a datetime object in UTC, with the tzinfo removed
+        :raise: TypeError or ValueError
+        :Example. These are all equivalent:
         ```
-            strptime("2016-06-01T09:04:00.5600Z")
-            strptime("2016-06-01T09:04:00.5600")
-            strptime("2016-06-01 09:04:00.5600Z")
-            strptime("2016-06-01T09:04:00Z")
-            strptime("2016-06-01T09:04:00")
-            strptime("2016-06-01 09:04:00Z")
+            strptime("2016-06-01T00:00:00.000000Z")
+            strptime("2016-06-01T00.01.00CET")
+            strptime("2016-06-01 00:00:00.000000Z")
+            strptime("2016-06-01 00:00:00.000000")
+            strptime("2016-06-01 00:00:00")
+            strptime("2016-06-01 00:00:00Z")
             strptime("2016-06-01")
+            
+            This raises ValueError:
+            strptime("2016-06-01Z")
+            
+            This raises TypeError:
+            strptime(45.5)
         ```
     """
-    if isinstance(string, datetime):
-        return string
-
-    try:
+    dtime = obj
+    if isinstance(obj, string_types):
         try:
-            string = string.strip()
-        except AttributeError as aerr:
-            raise TypeError(str(aerr))
-        if formats is None:
-            has_z = string[-1] == 'Z'
-            has_t = 'T' in string
-            if has_t or has_z or ' ' in string:
-                t_str, z_str = 'T' if has_t else ' ', 'Z' if has_z else ''
-                formats = ['%Y-%m-%d{}%H:%M:%S.%f{}'.format(t_str, z_str),
-                           '%Y-%m-%d{}%H:%M:%S{}'.format(t_str, z_str)]
-            else:
-                formats = ['%Y-%m-%d']
+            dtime = dateparser.parse(obj)
+        except Exception as exc:
+            raise ValueError(str(exc))
 
-        for dtformat in formats:
-            try:
-                return datetime.strptime(string, dtformat)
-            except ValueError:  # as exce:
-                pass
-        raise ValueError("invalid date time '%s'" % str(string))
-    except (TypeError, ValueError):
-        raise
-    except Exception as exc:
-        raise ValueError(str(exc))
+    if not isinstance(dtime, datetime):
+        raise TypeError('string or datetime required, found %s' % str(type(obj)))
+
+    if dtime.tzinfo is not None:
+        # if a time zone is specified, convert to utc and remove the timezone
+        dtime = dtime.astimezone(tzutc()).replace(tzinfo=None)
+    
+    # the datetime has no timezone provided AND is in UTC:
+    return dtime
 
 
 def get_session(dbpath, scoped=False):  # , enable_fk_if_sqlite=True):

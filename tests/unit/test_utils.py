@@ -5,7 +5,10 @@ Created on Dec 12, 2016
 @author: riccardo
 '''
 from future import standard_library
+from itertools import product
 standard_library.install_aliases()
+
+from datetime import datetime, timedelta
 from builtins import range
 from builtins import object
 from builtins import str
@@ -17,7 +20,7 @@ import pytest
 from urllib.error import URLError, HTTPError
 import socket
 import mock
-from stream2segment.utils import secure_dburl, get_progressbar, Nop, strconvert
+from stream2segment.utils import secure_dburl, get_progressbar, Nop, strconvert, strptime
 from io import BytesIO
 from click.termui import progressbar
 
@@ -227,6 +230,54 @@ def test_progressbar_functional():
         for i in range(N):
             bar.update(i)
 
+
+@pytest.mark.parametrize('str_input, expected_diff, ',
+                          [
+                           ("2016-01-01", timedelta(minutes=60)),
+                           ("2016-01-01T01:11:15", timedelta(minutes=60)),
+                           ("2016-01-01 01:11:15", timedelta(minutes=60)),
+                           ("2016-01-01T01:11:15.556734", timedelta(minutes=60)),
+                           ("2016-01-01 01:11:15.556734", timedelta(minutes=60)),
+                           ("2016-07-01", timedelta(minutes=120)),
+                           ("2016-07-01T01:11:15", timedelta(minutes=120)),
+                           ("2016-07-01 01:11:15", timedelta(minutes=120)),
+                           ("2016-07-01T01:11:15.431778", timedelta(minutes=120)),
+                           ("2016-07-01 01:11:15.431778", timedelta(minutes=120)),
+                           ],
+                        )
+def test_strptime(str_input, expected_diff):
+    
+    if ":" in str_input:
+        arr = [str_input, str_input+'Z', str_input+'CET']
+    else:
+        arr = [str_input]
+    for ds1, ds2 in product(arr, arr):
+        
+        d1 = strptime(ds1)
+        d2 = strptime(ds2)
+        if ds1[-3:] == 'CET' and not ds2[-3:] == 'CET':
+            # ds1 was CET, it means that d1 (which is UTC) is one hour less than d2 (which is UTC)
+            assert d1 == d2 - expected_diff
+        elif ds2[-3:] == 'CET' and not ds1[-3:] == 'CET':
+            # ds2 was CET, it means that d2 (which is UTC) is one hour less than d1 (which is UTC)
+            assert d2 == d1 - expected_diff
+        else:
+            assert d1 == d2
+        assert d1.tzinfo is None and d2.tzinfo is None
+        assert strptime(d1) == d1
+        assert strptime(d2) == d2
+        
+    
+    # test a valueerror:
+    if ":" not in str_input:
+        for dtimestr in [str_input+'Z', str_input+'CET']:
+            with pytest.raises(ValueError):
+                strptime(dtimestr)
+                
+    # test type error:
+    with pytest.raises(TypeError):
+        strptime(5)
+    
 
 
 if __name__ == "__main__":
