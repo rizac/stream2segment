@@ -100,33 +100,108 @@ def get_doc(download_param):
     return _DEFAULTDOC[download_param]
 
 
-def arg(pname, *optional_pnames, ifmissing=None, newname=None, newvalue=lambda v: v):
+def parsearg(key, *optional_keys, ifmissing=None, newname=None, newvalue=lambda v: v):
     def wrapped_f(dic):
         try:
             keys_in =[]
-            for p in set([pname] + list(optional_pnames)):
+            for p in set([key] + list(optional_keys)):
                 if p in dic:
                     keys_in.append(p)
             if len(keys_in) > 1:
                 raise ConflictingArgs(*keys_in)
-            pname2get = pname if not keys_in else keys_in[0]
+            pname2get = key if not keys_in else keys_in[0]
             if pname2get not in dic and ifmissing is not None:
                 value = ifmissing
             else:
                 value = dic.pop(pname2get)
             
         except KeyError as _:
-            raise MissingArg(pname)
+            raise MissingArg(key)
         try:
             newval = newvalue(value) if hasattr(newvalue, '__call__') else newvalue
-            dic[pname if newname is None else newname] = newval
+            dic[key if newname is None else newname] = newval
             return newval
         except TypeError as terr:
-            raise BadTypeArg(pname, terr)
+            raise BadTypeArg(key, terr)
         except Exception as exc:
-            raise BadValueArg(pname, exc)
-    wrapped_f.argnames = [pname] + list(optional_pnames)
+            raise BadValueArg(key, exc)
+    wrapped_f.names = [key] + list(optional_keys)
     return wrapped_f
+
+
+class S2SArgument(object):
+    
+    def __init__(self, name, *optional_names, ifmissing=None, pop=False):
+        '''Creates a new stream2segment argument, which represents an application input 
+        argument. An object of this class allows parsing /
+        validating itself on a dict D and given a validation/parsing function F via the 
+        method `parsefrom`.
+        
+        The use of `S2SArgument`s and their `parsefrom` is extremely useful because any exception
+        is wrapped and raised as the corresponding `BadArgument` exception. `BadArgument`s
+        exceptions are caught in the two main command line applications of this package
+        (download and process) and print a meaningful message to the console instead of the stack
+        trace
+    
+            :param name: the argument name
+            :param optional_names: the argument optional names
+            :param ifmissing: (any value, default None) if None, when calling `parsefrom` any of
+                this argument's names must be in the passed dict. Otherwise, return this value it
+                the argument is missing in the passed dict.
+            :param pop: boolean (default False) when calling `parsefrom`, if this argument is True,
+            
+        '''
+        self._keys = [name] + list(optional_names)
+        self._ifmissing = ifmissing
+        self._pop = pop
+    
+    def _get(self, dic):
+        keys = self._keys
+        pop = self._pop
+        try:
+            keys_in =[]
+            for p in keys:
+                if p in dic:
+                    keys_in.append(p)
+            if len(keys_in) > 1:
+                raise ConflictingArgs(*keys_in)
+            pname2get = keys[0] if not keys_in else keys_in[0]
+            if pname2get not in dic and self._ifmissing is not None:
+                return self._ifmissing
+            if pop:
+                return dic.pop(pname2get)
+            else:
+                return dic[pname2get]
+            
+        except KeyError as _:
+            raise MissingArg(keys[0])
+
+    def parsefrom(self, dic, func, *args, **kwargs):
+        '''Calls `func` on the `dic` value associated to this argument.
+        More precisely, calls and returns `func(dic[K], *args, **kwargs)`, where
+        K the first key found in `dic` among this argument names.
+        Depending on the `pop` argument provided in the __init__ method, `dic[K]` might be 
+        permanently removed from `dic` after this call.
+        According to the `ifmissing` argument provided in the __init__ method, if K is not in
+        `dic` keys, and ifmissing=None, a `MissingArg` exception is raised.
+
+        This function raises BadArgument exceptions only
+        '''
+        value = self._get(dic)
+        try:
+            return func(value, *args, **kwargs) if hasattr(func, '__call__') else func
+        except TypeError as terr:
+            raise BadTypeArg(self.name, terr)
+        except Exception as exc:
+            raise BadValueArg(self.name, exc)
+    
+    @property
+    def name(self):
+        return self._keys[0]
+    
+    @property
+    def names(self):
+        return set(self._keys)
 
 
 def typesmatch(value, other_value):
@@ -176,7 +251,7 @@ def nslc_param_value_aslist(value):
     try:
         strings = set()
     
-        # we assume, when arg is not list, that arg is str in both python2 and python3, i.e.
+        # we assume, when parsearg is not list, that parsearg is str in both python2 and python3, i.e.
         # it is NOT bytes in python2. The line below checks if is an iterable first:
         # in python2, it is sufficient to say it's not a string
         # in python3, we need to check that is no str also
@@ -208,13 +283,6 @@ def nslc_param_value_aslist(value):
 
     except Exception as exc:
         raise ValueError(str(exc))
-
-
-def load_config(config, **param_overrides):
-    try:
-        return yaml_load(config, **param_overrides)
-    except Exception as exc:
-        raise BadValueArg('config', exc)
 
 
 def extract_dburl_if_yamlpath(value):
@@ -266,53 +334,111 @@ def valid_date(obj):
     raise ValueError("date-time or an integer required")
 
 
-
 def valid_fdsn(url):
     if url.lower() in ('eida', 'iris'):
         return url
     reg = re.compile("^.*/fdsnws/(?P<service>[^/]+)/(?P<majorversion>\\d+)/query$")
     match = reg.match(url)
     if not match or not match.group('service') or not match.group('majorversion'):
-        raise ValueError("No FDSN url: <site>/fdsnws/<service>/<majorversion>/")
+        raise ValueError("No FDSN url. Format is: <site>/fdsnws/<service>/<majorversion>/query")
     if match.group('service') not in ('dataselect', 'station', 'event'):
-        raise ValueError("No FDSN url: service not in 'station', 'event' or 'dataselect'")
+        raise ValueError("No FDSN url: service not in ('station', 'event', 'dataselect')")
     return url
 
 
+# def load_config_for_download(config, **param_overrides):
+#     '''checks download arguments'''
+# 
+#     try:
+#         dic = yaml_load(config, **param_overrides)
+#     except Exception as exc:
+#         raise BadValueArg('config', exc)
+# 
+#     remainingkeys = set(dic.keys())
+#     parsefuncs = \
+#         (parsearg('dburl', newname='session', newvalue=create_session),
+#          parsearg('traveltimes_model', newname='tt_table', newvalue=load_tt_table),
+#          parsearg('start', newvalue=valid_date),
+#          parsearg('end', newvalue=valid_date),
+#          parsearg('eventws', newvalue=valid_fdsn),
+#          parsearg('dataws', newvalue=valid_fdsn),
+#          parsearg('networks', 'net', 'network', ifmissing=[], newvalue=nslc_param_value_aslist),
+#          parsearg('stations', 'sta', 'station', ifmissing=[], newvalue=nslc_param_value_aslist),
+#          parsearg('locations', 'loc', 'location', ifmissing=[], newvalue=nslc_param_value_aslist),
+#          parsearg('channels', 'cha', 'channel', ifmissing=[], newvalue=nslc_param_value_aslist))
+# 
+#     for parsefunc in parsefuncs:
+#         parsefunc(dic)
+#         remainingkeys -= set(parsefunc.names)
+#     
+#     # Note: dic here is passed with the arguments (keys) not implemented in the decorator
+#     # above. We perform a simple check: the argument must be present in the default config
+#     # shipped with this package and the types must match. Note that you should call parsearg
+#     # because 1. it raises the appropriate BadArgument exception which is caught and print in cli,
+#     # and 2. it modifies the dic value with the rpoper value (which in this case is the same)
+#     orig_config = _ORIGCONFIG
+# 
+#     for key in remainingkeys:  # iterate over list(keys) cause we will modify the dict inplace
+#         if key not in orig_config:
+#             raise UnknownArg(key)
+#         parsearg(key, newvalue=lambda value: typesmatch(value, orig_config[key]))(dic)
+# 
+#     return dic
 
-def checkdownloadinput(dic):
+def load_config_for_download(config, **param_overrides):
     '''checks download arguments'''
 
+    try:
+        dic = yaml_load(config, **param_overrides)
+    except Exception as exc:
+        raise BadValueArg('config', exc)
+
     remainingkeys = set(dic.keys())
-    args = (arg('dburl', newname='session', newvalue=create_session),
-            arg('traveltimes_model', newname='tt_table', newvalue=load_tt_table),
-            arg('start', newvalue=valid_date),
-            arg('end', newvalue=valid_date),
-            arg('eventws', newvalue=valid_fdsn),
-            arg('dataws', newvalue=valid_fdsn),
-            arg('networks', 'net', 'network', ifmissing=[], newvalue=nslc_param_value_aslist),
-            arg('stations', 'sta', 'station', ifmissing=[], newvalue=nslc_param_value_aslist),
-            arg('locations', 'loc', 'location', ifmissing=[], newvalue=nslc_param_value_aslist),
-            arg('channels', 'cha', 'channel', ifmissing=[], newvalue=nslc_param_value_aslist))
 
-    for func in args:
-        func(dic)
-        remainingkeys -= set(func.argnames)
+    # parsefrom arguments (dic keys). First, two arguments which have to be replaced (pop=True)
+    # and assigned to new dic key:
+    argument = S2SArgument('dburl', pop=True)
+    dic['session'] = argument.parsefrom(dic, create_session)
+    # now remove the already processed dic keys:
+    remainingkeys -= argument.names  # argument.names is simply set(['dburl]) in this case
+
+    argument = S2SArgument('traveltimes_model', pop=True)
+    dic['tt_table'] = argument.parsefrom(dic, load_tt_table)
+    remainingkeys -= argument.names
+
+    # then, "normal" arguments whose value has to be replaced, as a tuple of alternated elements:
+    # the argument and the associated validation/parser function:
+    parsers = (S2SArgument('start'),
+               valid_date,
+               S2SArgument('end'),
+               valid_date,
+               S2SArgument('eventws'),
+               valid_fdsn,
+               S2SArgument('dataws'),
+               valid_fdsn,
+               S2SArgument('networks', 'net', 'network', ifmissing=[], pop=True),
+               nslc_param_value_aslist,
+               S2SArgument('stations', 'sta', 'station', ifmissing=[], pop=True),
+               nslc_param_value_aslist,
+               S2SArgument('locations', 'loc', 'location', ifmissing=[], pop=True),
+               nslc_param_value_aslist,
+               S2SArgument('channels', 'cha', 'channel', ifmissing=[], pop=True),
+               nslc_param_value_aslist
+               )
+    itr = iter(parsers)  # simple way to make an alternate iteration
+    for argument, func in zip(itr, itr):
+        dic[argument.name] = argument.parsefrom(dic, func)
+        remainingkeys -= argument.names
     
-    # Note: dic here is passed with the arguments 9keys) not implemented in the decorator
-    # above. We perform a simple check: the argument must be present in the default config
-    # shipped with this package and the types must match. Note that you should call arg
-    # because 1. it raises the appropriate BadArgument exception which is caught and print in cli,
-    # and 2. it modifies the dic value with the rpoper value (which in this case is the same)
+    # For all remaining arguments, just check the type as it should match the 
+    # default download config shipped with this package:
     orig_config = _ORIGCONFIG
-
-    for key in remainingkeys:  # iterate over list(keys) cause we will modify the dict inplace
+    for key in remainingkeys:
         if key not in orig_config:
             raise UnknownArg(key)
-        arg(key, newvalue=lambda value: typesmatch(value, orig_config[key]))(dic)
-    
-    # now process the arguments in checker
-    return dic['session'], dic['tt_table']
+        S2SArgument(key).parsefrom(dic, typesmatch, orig_config[key])
+
+    return dic
 
 
 def load_pyfunc(pyfile, funcname):
@@ -355,11 +481,11 @@ def default_processing_funcname():
 
 def checkprocessinput(dic):
     '''checks download arguments'''
-    session = arg('dburl', newname='session', newvalue=create_session)(dic)
-    arg('funcname', newvalue=get_funcname)(dic)
-    arg('config', newname='config_dict', newvalue=lambda c: {} if c is None else load_config(c))(dic)
+    session = parsearg('dburl', newname='session', newvalue=create_session)(dic)
+    parsearg('funcname', newvalue=get_funcname)(dic)
+    parsearg('config', newname='config_dict', newvalue=lambda c: {} if c is None else yaml_load(c))(dic)
     funcname = dic.pop('funcname')
-    arg('pyfile', newvalue=lambda val: load_pyfunc(val, funcname))(dic)
+    parsearg('pyfile', newvalue=lambda val: load_pyfunc(val, funcname))(dic)
     # nothing more to process
     return session
 

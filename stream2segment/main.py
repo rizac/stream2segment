@@ -23,7 +23,8 @@ import inspect
 from datetime import datetime, timedelta
 
 
-from stream2segment.utils.inputargs import checkdownloadinput, checkprocessinput, load_config
+from stream2segment.utils.inputargs import checkdownloadinput, checkprocessinput, load_config,\
+    load_config_for_download
 from future.utils import string_types
 # this can not apparently be fixed with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
@@ -40,7 +41,7 @@ from stream2segment.io.db.models import Download
 from stream2segment.process.main import to_csv
 from stream2segment.download.main import run as run_download, new_db_download
 from stream2segment.utils import secure_dburl, strconvert, iterfuncs
-from stream2segment.utils.resources import get_templates_fpaths
+from stream2segment.utils.resources import get_templates_fpaths, yaml_load
 from stream2segment.gui.main import create_p_app, run_in_browser, create_d_app
 from stream2segment.process import math as s2s_math
 from stream2segment.download.utils import QuitDownload
@@ -89,11 +90,11 @@ def download(config, verbosity=2, **param_overrides):
     # might be some of these cases where 0 should be returned instead of 1.
     # When 1 is returned, a QuitDownload is raised and logged to error.
     # Other exceptions are caught, logged with the stack trace as critical, and raised
-    
-    input_yaml_dict = load_config(config, **param_overrides)
-    yaml_dict = dict(input_yaml_dict)
-    # checks dic values (modify in place) and returns dic value(s) needed here:
-    session, tttable = checkdownloadinput(yaml_dict)
+
+    # check and parse config values (modify in place):
+    yaml_dict = load_config_for_download(config, **param_overrides)
+    # get the session object and the tt_table object (needed separately, see below):
+    session, tttable = yaml_dict['session'], yaml_dict['tt_table']
 
     # print yaml_dict to terminal if needed. Do not use input_yaml_dict as
     # params needs to be shown as expanded/converted so the user can check their correctness
@@ -112,8 +113,9 @@ def download(config, verbosity=2, **param_overrides):
         ip_title = "Input parameters"
         print("%s\n%s\n%s\n" % (ip_title, "-" * len(ip_title), ip_params))
         
-    
-    download_id = new_db_download(session, input_yaml_dict)
+    # create download row with unprocessed config (yaml_load function)
+    # Note that yaml_load is called by load_config above, so yaml_load does not raise:
+    download_id = new_db_download(session, yaml_load(config, **param_overrides))
     loghandlers = configlog4download(logger, is_from_terminal) if verbosity > 0 else []
     ret = 0
     noexc_occurred = True
@@ -135,7 +137,7 @@ def download(config, verbosity=2, **param_overrides):
             ret = 1
         etime = time.time()
 
-    except:  # print the exception traceback (only last) witha  custom logger, and raise,
+    except:  # log the exception traceback (only last) and raise,
         # so that in principle the full traceback is printed on terminal (or caught by the caller) 
         noexc_occurred = False
         # https://stackoverflow.com/questions/5191830/best-way-to-log-a-python-exception:
@@ -148,9 +150,12 @@ def download(config, verbosity=2, **param_overrides):
                 logger.info("\n%d total error(s), %d total warning(s)", loghandlers[0].errors,
                             loghandlers[0].warnings)
 
-        # write log to db if custom handlers provided:
+        # write log to db if default handlers are provided:
         if loghandlers:
-            loghandlers[0].finalize(session, download_id, removefile=noexc_occurred and ret==0)
+            # remove file if we do not print to terminal (as it would be impossible to
+            # know which file we logged into), or no exceptions occurred  
+            loghandlers[0].finalize(session, download_id,
+                                    removefile=not is_from_terminal or noexc_occurred)
         closesession(session)
         
     return ret

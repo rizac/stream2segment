@@ -170,12 +170,12 @@ def get_post_data(net, sta, loc, cha, starttime=None, endtime=None):
     '''
     args = []
     for i, lst in enumerate([net, sta, loc, cha]):
-        arg = '*'
+        parsearg = '*'
         if lst:
-            arg = to_fdsn_arg(lst)
-            if i == 3 and not arg:  # location case, empty has to be input as '--'
-                arg = '--'
-        args.append(arg)
+            parsearg = to_fdsn_arg(lst)
+            if i == 3 and not parsearg:  # location case, empty has to be input as '--'
+                parsearg = '--'
+        args.append(parsearg)
     
     args.append("*" if not starttime else starttime.isoformat())
     args.append("*" if not endtime else endtime.isoformat())
