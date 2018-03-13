@@ -7,6 +7,7 @@ Models for the ORM
 '''
 
 import re
+import os
 from datetime import datetime
 import sqlite3
 
@@ -40,6 +41,7 @@ from sqlalchemy.orm.strategy_options import load_only
 from sqlalchemy.orm.session import object_session
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm.attributes import InstrumentedAttribute
+
 
 _Base = declarative_base()
 
@@ -603,6 +605,30 @@ class Segment(Base):
             return metadata[0]
         else:
             return metadata
+    
+    def seiscomp_path(self, root='.'):
+        '''Creates the seiscomp compatible path where to store the given segment or any
+        data associated to it. The returned path has no extension (to be supplied by the user)
+        and has the following format:
+        <root>/<net>/<sta>/<loc>/<cha>.D/<net>.<sta>.<loc>.<cha>.<year>.<day>.<event_id>
+        where
+        <net> is the segment network
+        <sta> is the segment station
+        <loc> is the segment location
+        <cha> is the segment channel
+        <year> is the segment start time's year
+        <day> is the segment start time's day (in [1, 366])
+        <event_id> is the segment event id
+        '''
+        # year > N > S > L > C.D > segments > N.S.L.C.year.day.event_id.mseed
+        seg_dtime = self.request_start  # note that start_time might be None
+        year = seg_dtime.year
+        net, sta = self.station.network, self.station.station
+        loc, cha = self.channel.location, self.channel.channel
+        day = (seg_dtime - datetime(year, 1, 1)).days + 1
+        eid = self.event_id
+        return os.path.join(root, str(year), net, sta, loc, cha +".D",
+                            '.'.join((net, sta, loc, cha, str(year), str(day), str(eid))))
 
     def del_classes(self, *ids_or_labels):
         self.edit_classes(*ids_or_labels, mode='del')

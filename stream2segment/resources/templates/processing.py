@@ -152,6 +152,17 @@ segment methods:
 * segment.add_classes(*ids_or_labels, annotator=None): Same as `segment.set_classes` but already
   assigned classes will neither be deleted first, nor added again if already assigned
 
+* segment.seiscomp_path(root='.'): Returns a file system path where to store
+  the given segment or any data associated to it in the seiscomp-compatible format:
+     <root>/<net>/<sta>/<loc>/<cha>.D/<net>.<sta>.<loc>.<cha>.<year>.<day>.<event_id>
+  The optional root argument, when missing, defaults to '.' (current working directory)
+  The directory name of the path is accessible via `os.path.dirname(segment.seiscomp_path())`
+  The file name of the path is accessible via `os.path.basename(segment.seiscomp_path())`. Note
+  that the file name has intentionally no extension because the user might be interested to save
+  different types of segment's data (metadata, spectra, etcetera). In the typical case where the
+  segment's stream has to be saved you can type:
+      segment.stream().write(segment.seiscomp_path() + '.mseed', format='MSEED')
+
 * segment.dbsession(): WARNING: this is for advanced users experienced with Sql-Alchemy library:
   returns the database session for IO operations with the database
 

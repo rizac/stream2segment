@@ -225,16 +225,6 @@ segment_select:
   # event.latitude: "[24, 70]"
   # event.longitude: "[-11, 24]"
 
-# sql_select (string, for experienced users): selects segments via a raw sql clause. If specified, it
-# overrides 'segment_select'. The value here will be concatenated with a fixed sql prefix
-# and the final select statement issued it is roughly equivalent to:
-# "select segment.id from segments join events, channels, stations, datacenters, download [sql_select]"
-# Example:
-# sql_select: 'WHERE download.id > 1'
-# sql_select: 'WHERE download.id > 1 limit(1)'
-# sql_select: 'WHERE segments.download_status_code <0 groupby stations.id limit(1)'
-
-
 # Boolean flag indicating whether station inventories (in xml format) should be saved to the database
 # when they need to be downloaded
 # Saving inventories might speed up further processing but increases db size

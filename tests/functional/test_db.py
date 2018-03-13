@@ -715,6 +715,22 @@ class Test(unittest.TestCase):
         assert len(qry) == 1
         
         
+        # test seiscomp path:
+        p = seg__1.seiscomp_path()
+        # do some assertions:
+        assert '.'.join((seg__1.station.network, seg__1.station.station, seg__1.channel.location,
+                         seg__1.channel.channel)) in p
+        assert os.sep.join((seg__1.station.network, seg__1.station.station, seg__1.channel.location,
+                         seg__1.channel.channel)) in p
+        assert str(seg__1.request_start.year) + os.sep in p
+        assert "." + str(seg__1.request_start.year) + "." in p
+        assert p.startswith("." + os.sep)
+        assert p.endswith("." + str(seg__1.event_id))
+        
+        p = seg__1.seiscomp_path('abcdefghijklm')
+        assert p.startswith('abcdefghijklm' + os.sep)
+
+
         ###########################################
         #
         # TESTING HYBRID ATTRIBUTES
