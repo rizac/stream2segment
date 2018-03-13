@@ -390,9 +390,8 @@ class Test(unittest.TestCase):
             # we should add a a test for the pre_processed case also, but we should inspect the plotmanager defined as app['PLOTMANAGER'] 
             # we should add a test for the zooms, too
 
-    def tst_segment_sa_session_not_expired(self):
-        '''commented out: this test is criptic in what should test and it does not seem to
-        add any valuable test with the current implementation'''
+    def test_segment_sa_station_inv_errors_in_preprocessed_traces(self):
+        ''''''
         plot_indices = [0]
         metadata = False
         classes = False
@@ -410,8 +409,7 @@ class Test(unittest.TestCase):
                                headers={'Content-Type': 'application/json'})
             
             
-        # Now we exited the session, we try to load the pre_processed traces which make use
-        # of session.event. we should get anyway an error cause we didn't load any inventory
+        # Now we exited the session, we try with pre_processed=True
         with self.app.test_request_context():
             app = self.app.test_client()
             d = dict(seg_id=1,
@@ -434,52 +432,7 @@ class Test(unittest.TestCase):
             for i in plot_indices:
                 assert "Station inventory (xml) error" in plots[i].warnings[0]
                     
-        # now reset the pre_processed plotlists:
-        pm._pplots = {}
-        # set an inventory matching the segments we have:
-        # set inventory
-        folder = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
-        with open(os.path.join(folder, "GE.FLT1.xml"), 'rb') as opn:
-            inventory = loads_inv(opn.read())
-        # re-set internal dicts: Note that this must be a little cumbersome due to the
-        # design of InventoryCache:
-        mocked_inv_cache = dict()
-        for segid in pm.inv_cache._segid2staid:
-            mocked_inv_cache[segid] = inventory
-        pm.inv_cache = mocked_inv_cache
-        # and now test again
-        with self.app.test_request_context():
-            app = self.app.test_client()
-            d = dict(seg_id=1,
-                     pre_processed=True,
-                     # zooms = data['zooms']
-                     plot_indices=plot_indices,  # data['plotIndices']
-                     metadata=metadata,
-                     classes=classes,
-                     all_components=all_components)
-            rv = app.post("/get_segment", data=json.dumps(d),
-                               headers={'Content-Type': 'application/json'})
         
-        # assert we do NOT have exceptions:
-        # FIXME: check why we have to access _app for global vars and not app (see setup method)
-#         pm = self.app.config['PLOTMANAGER']
-#         filtered_plotcaches = pm._pplots
-#         for plotscache in filtered_plotcaches.values():
-#             data = plotscache.data
-#             for d in data.values():
-#                 _, plots = d
-#                 for p in plots:
-#                     if p is None:  # not calculated, skip
-#                         continue
-#                     assert "" == p.message
-                    
-        pm = self.app.config['PLOTMANAGER']
-        for plotlists in pm.values():
-            plots = plotlists[1]
-            if plots is None:  # not calculated, skip
-                continue
-            for i in plot_indices:
-                assert not plots[i].warnings
         
 if __name__ == "__main__":
     # import sys;sys.argv = ['', 'Test.testName']

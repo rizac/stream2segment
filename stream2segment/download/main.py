@@ -151,7 +151,8 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
         # we do not have data to download. E.g.
         # in prepare_for_download (the last function raising QuitDownload), if:
         # 1) we didn't have segments in prepare_for... (QuitDownload with string message)
-        # 2) we ran out of memory in download_... (QuitDownload with exception message
+        # 2) we ran out of memory in download, some url error prevents continuation,
+        #    e.g., event ws down) (QuitDownload with exception message)
 
         # in the first case avoid downloading inventories:
         if dexc.iscritical:

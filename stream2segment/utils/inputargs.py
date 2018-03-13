@@ -322,7 +322,7 @@ def load_tt_table(file_or_name):
 def valid_date(obj):
     try:
         return strptime(obj)  # if obj is datetime, returns obj
-    except ValueError as _:
+    except (TypeError, ValueError) as _:
         try:
             days = int(obj)
             now = datetime.utcnow()
@@ -330,7 +330,11 @@ def valid_date(obj):
             return endt - timedelta(days=days)
         except Exception:
             pass
-    raise ValueError("required string representing a date-time or an integer")
+        if isinstance(_, TypeError):
+            raise TypeError(("iso-formatted datetime string, datetime "
+                             "object or int required, found %s") % str(type(obj)))
+        else:
+            raise _
 
 
 def valid_fdsn(url):

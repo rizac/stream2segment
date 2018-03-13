@@ -761,47 +761,6 @@ class Test(unittest.TestCase):
         g = 9
 
 
-
-
-    def tst_assert_perfs(self):
-        """Assert that our kinds bulk update and insert (low level) are less memory consuming
-        REMOVED. It failed and having a look at it not quite sure we can rely on this test
-        More sound tests were implemented outside this package and demonstrated this
-        """
-        process = psutil.Process(os.getpid())
-        N = 1000
-        data = b'x' * 5000
-        mem_perc1a = process.memory_percent()
-        
-        for i in range(N):
-            self.session.add(Customer(id=i+1, name=str(i+1), data=data))
-        self.session.commit()
-        
-        mem_perc1b = process.memory_percent()
-        
-        MEM_CONSUMED_SQLALCHEMY = mem_perc1b - mem_perc1a
-        
-        assert self.session.query(Customer).count() == N  # to be sure db has been correctly written
-        self.session.query(Customer).delete()
-        self.session.commit()
-        self.session.expunge_all()
-        assert self.session.query(Customer).count() == 0
-        
-        mem_perc2a = process.memory_percent()
-        
-        d2, new = insertdf(pd.DataFrame([{'id': i+1, 'name': str(i+1), 'data':data} for i in range(N)]),
-                           self.session, [Customer.name])
-
-        mem_perc2b = process.memory_percent()
-        
-        MEM_CONSUMED_S2S = mem_perc2b - mem_perc2a
-         
-        # HERE THE TEST: MEMORY DIFF NOW IS LOWER THAN MEMORY DIFF BEFORE:
-        assert MEM_CONSUMED_S2S < MEM_CONSUMED_SQLALCHEMY
-        
-        assert self.session.query(Customer).count() == N  # to be sure db has been correctly written
-
-
 def array_equal(a1, a2):
     """test array equality by assuming nan == nan. Probably already implemented somewhere in numpy, no time for browsing now"""
     return len(a1) == len(a2) and all([c ==d or (np.isnan(c) == np.isnan(d)) for c, d in zip(a1, a2)])

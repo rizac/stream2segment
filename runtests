@@ -7,27 +7,26 @@ do
 	if [ ${var} == "--help" ]
 	then
 		echo "runtests [PYTESTARGS]"
-		echo "CALLS: pytest ./tests --ignore=./tests/skip --cov=./stream2segment [PYTESTARGS]"
+		echo "CALLS: pytest ./tests [PYTESTARGS]"
+		echo "and supports db paths via environment variables"
 		echo 
 		echo "Example:"
-		echo "DB_URL=postgresql://user:password@localhost/s2s_test ./runtests -x  --ignore=./tests/skip --cov=./stream2segment --cov-report=html"
+		echo "ADD_DB=postgresql://user:password@localhost/s2s_test ./runtests -x --ignore=./tests/skip --cov=./stream2segment --cov-report=html"
+		echo "SET_DB=postgresql://user:password@localhost/s2s_test ./runtests -x --ignore=./tests/skip --cov=./stream2segment --cov-report=html"
 		echo 
 		echo "Notes: "
-		echo "	DB_URL is a custom url to a database to be used (supported is postgres and sqlite)"
-		echo "	If missing, it defaults to an in-memory sqlite database"
-		echo "	If not missing, tests requiring a database will in any case run ALSO with an in-memory sqlite database"
+		echo "	SET_DB defines the url of the database to be used for testing (supported is postgres and sqlite):"
+		echo "	ADD_DB does the same, but assures that tests requiring a database will run also with an in-memory sqlite database"
+		echo "	If none of the above env. variables is specified, tests will be run with an in-memory sqlite database"
 		exit 0
 	fi
 done
 
-if [ -n "$DB_URL" ]
+if [ -n "$ADD_DB" ]
 then
-	TMP_DB_URL="$DB_URL"
-	unset DB_URL
 	echo
 	# set color to light blue:
-	echo -e "\033[1;36mRunning db-tests with in-memory sqlite:\033[0m"
-	echo temporarily unset DB_URL="$DB_URL"
+	echo -e "\033[1;36mRunning db-tests only with in-memory sqlite:\033[0m"
 	echo
 	(pytest ./tests/functional/test_db.py \
 		./tests/functional/test_download.py \
@@ -38,17 +37,22 @@ then
 		./tests/unit/test_dbqueries.py \
 		./tests/unit/test_plotviews.py \
 		./tests/unit/test_u_download.py "$@") ; \
-	(echo ;\
-		echo -e "\033[1;36mRunning all tests with postgres:\033[0m";\
-		echo DB_URL="$TMP_DB_URL" pytest ./tests "$@";\
-		echo ;\
-		DB_URL="$TMP_DB_URL" pytest ./tests "$@")
+
+	echo
+	# set color to light blue:
+	echo -e "\033[1;36mRunning all tests with DB_URL=$ADD_DB:\033[0m"
+	(DB_URL="$ADD_DB" pytest ./tests "$@")
+
+elif [ -n "$SET_DB" ]
+then
+	echo
+	# set color to light blue:
+	echo -e "\033[1;36mRunning all tests with DB_URL=$SET_DB:\033[0m"
+	(DB_URL="$SET_DB" pytest ./tests "$@")
 else
 	echo
 	# set color to light blue:
 	echo -e "\033[1;36mRunning all tests with in-memory sqlite:\033[0m"
-	echo COMMAND: pytest ./tests --ignore=./tests/skip --cov=./stream2segment "$@"
-	echo
 	pytest ./tests "$@"
 fi
 

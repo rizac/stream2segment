@@ -177,7 +177,7 @@ def download(config, dburl, eventws, start, end, dataws, min_sample_rate, travel
         print(aerr)
         sys.exit(1)
     except KeyboardInterrupt:  # this except avoids printing traceback
-        sys.exit(1)  # exit with 1 as normal python exceptions
+        sys.exit(2)
 
 
 @cli.command(short_help='Process downloaded waveform data segments',
@@ -225,7 +225,7 @@ def process(dburl, config, pyfile, funcname, outfile):
         print(aerr)
         sys.exit(1)  # exit with 1 as normal python exceptions
     except KeyboardInterrupt:  # this except avoids printing traceback
-        sys.exit(1)  # exit with 1 as normal python exceptions
+        sys.exit(2)
 
 
 @cli.command(short_help='Show raw and processed downloaded waveform\'s plots in a browser',

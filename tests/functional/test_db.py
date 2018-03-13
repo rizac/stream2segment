@@ -185,50 +185,6 @@ class Test(unittest.TestCase):
         assert self.session.query(Station).count() == 0
         
         # self.tst_test_dcanter_netloc()
-
-#     def tst_test_dcanter_netloc(self):
-#         
-#         # return  # NETLOC IS NOT ANYMORE IMPLEMENTED!!!
-#      
-#     
-#         dc = DataCenter(station_url='abc')
-#         assert dc.netloc == 'abc'
-#         # this raises cause only when fdsn ws url is supplied (either station_url or
-#         # dataselect_url), then the other is addded to
-#         with pytest.raises(IntegrityError):
-#             self.session.add(dc)
-#             self.session.commit()
-#         self.session.rollback()
-#         
-#         # this should work:
-#         dc1 = DataCenter(station_url='abc', dataselect_url='bce')
-#         # add a fdsn also (we should have already one but for safety):
-#         dc2 = DataCenter(station_url='http://www.blabla.org/fdsnws/station/1/query')
-#         # add them
-#         self.session.add_all([dc1, dc2])
-#         self.session.commit()
-#         # test expression:
-#         dcs = self.session.query(DataCenter).all()
-#         for d in dcs:
-#             dcs_ = self.session.query(DataCenter.id).filter(DataCenter.netloc == d.netloc).all()
-#             assert len(dcs_) >= 1
-#             assert any(_[0] == d.id for _ in dcs_)
-#     
-#         # test some other cases:
-#         dc = DataCenter(station_url='http://www.orfeus-eu.org/fdsnws/station/1/query')
-#         assert dc.netloc == 'http://www.orfeus-eu.org'
-#         
-#         dc = DataCenter(station_url='https://eida.ethz.ch/fdsnws/station/1/query')
-#         assert dc.netloc == 'https://eida.ethz.ch'
-#         
-#         dc = DataCenter(dataselect_url='https://eida.ethz.ch/fdsnws/dataselect/1/query')
-#         assert dc.netloc == 'https://eida.ethz.ch'
-#         
-#         dc = DataCenter(station_url='http://geofon.gfz-potsdam.de/NOFDSNWS/dataselect/1/query')
-#         assert dc.netloc == 'http://geofon.gfz-potsdam.de/NOFDSNWS/dataselect/1/query'
-        
-        
-        
     
     # Note that the naming here RUNS this test FIRST!!!
     def test_010_difference_supplying_autoinc_id(self):
@@ -1273,83 +1229,6 @@ class Test(unittest.TestCase):
         assert pd.isnull(dfx.loc[0, Event.longitude.key])
         assert pd.notnull(dfx.loc[0, Event.latitude.key])
         
-
-#############################################################
-#
-# THE TESTS BELOW ARE ACTUALLY TO GET INSIGHTS ON SQLALCHEMY,
-# or they tests code not existing anymore.
-# THUS we do not maintain them anymore and WE CALL THEM TST_*
-#
-#############################################################
-
-    def tst_OLD_query_get(self):
-        # query.get() is special in that it provides direct access to the identity map of the owning
-        # Session. If the given primary key identifier is present in the local identity map,
-        # the object is returned directly from this collection and no SQL is emitted,
-        # unless the object has been marked fully expired. If not present, a SELECT is performed
-        # in order to locate the object.
-        n = 'tyyugibib'
-        s = 'lbibjfd'
-        dc= DataCenter(station_url="345fbg666tgrefs", dataselect_url='edfawrptojfh')
-        self.session.add(dc)
-        assert dc.id == None
-        self.session.flush()  # or commit()
-        assert dc.id != None
-        
-        id = 1000000
-        sta = Station(id=id, station=s, network=n, datacenter_id=dc.id,
-                             latitude=5, longitude=9)
-        q = self.session.query(Station)
-        
-        staq = q.get(id)
-        assert staq is None
-        self.session.add(sta)
-        staq = q.get(id)
-        assert staq is not None
-        
-        # works also with tuples, in case of multiple primary key(s)
-        staq = q.get((id))
-        assert staq is not None
-        
-        # what if id is None? what does it return? well it should be None right?
-        staq = q.get((None,))
-        assert staq is None
-
-
-    def tst_OLD_add_and_flush(self):
-        # bad event entry (no id):
-        e = Event(time = datetime.utcnow(), latitude = 6, longitude=8, depth_km=6,
-                         magnitude=56)
-        events = len(self.session.query(Event).all())
-        
-        self.session.add(e)
-        with pytest.raises(IntegrityError):
-            self.session.flush()
-        self.session.rollback()  # necessary for the query below (all()). Try to comment and see
-        assert len(self.session.query(Event).all()) == events
-        
-        # single flush after two add: rollback rolls back BOTH
-        e2 = Event(id = 'Column(String, primary_key=True', 
-                         time = datetime.utcnow(), latitude = 6, longitude=8, depth_km=6,
-                         magnitude=56)
-        self.session.add(e)
-        self.session.add(e2)
-        with pytest.raises(IntegrityError):
-            self.session.flush()
-
-        self.session.rollback()  # necessary for the query below (all()). Try to comment and see        
-        assert len(self.session.query(Event).all()) == events
-
-        # CORRECT WAY TO DO:
-        # two flushes after two adds: rollback rolls back only those that failed:
-        self.session.add(e)
-        with pytest.raises(IntegrityError):
-            self.session.flush()
-        self.session.rollback()  # necessary for the query below (all()). Try to comment and see        
-        self.session.add(e2)
-        
-        assert len(self.session.query(Event).all()) == events+1
-
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']

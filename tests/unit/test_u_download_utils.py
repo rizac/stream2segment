@@ -21,8 +21,7 @@ from io import StringIO
 import stream2segment
 from stream2segment.download.modules.stationsearch import locations2degrees as s2sloc2deg, get_search_radius
 from stream2segment.download.modules.datacenters import EidaValidator
-from stream2segment.download.utils import custom_download_codes, DownloadStats, nslc_param_value_aslist,\
-    to_fdsn_arg, nslc_param_value_aslist as nslc_param_value_aslist_orig
+from stream2segment.download.utils import custom_download_codes, DownloadStats, to_fdsn_arg
 from obspy.geodetics.base import locations2degrees  as obspyloc2deg
 import numpy as np
 import pandas as pd
@@ -44,9 +43,10 @@ def test_loc2deg(lat1, lon1, lat2, lon2):
     else:   
         assert np.array_equal(s2sloc2deg(lat1, lon1, lat2, lon2), np.asarray(obspyloc2deg(lat1, lon1, lat2, lon2)))
 
-# rename as test_perf if you want to see perf differences between onspy loc2deg and s2s loc2deg
+# this is not run as tests, if you want name it test_.. or move it elsewhere to
+# see perf differences between obspy loc2deg and s2s loc2deg
 # (use -s with pytest in case)
-def tst_perf():
+def dummy_test_perf():
     N = 1000
     lat1 = np.random.randint(0, 90, N).astype(float)
     lon1 = np.random.randint(0, 90, N).astype(float)
@@ -502,46 +502,6 @@ http:wrong
 #     (any, "!*")               this raises (you cannot specify "discard all")
 #     (any, "!H*, H*")          this raises (it's a paradox)
 
-@pytest.mark.parametrize('val, exp_value',
-                         [(['A','D','C','B'], ['A', 'B', 'C', 'D']),
-                          ("B,D,C,A", ['A', 'B', 'C', 'D']),
-                          ('A*, B??, C*', ['A*', 'B??', 'C*']),
-                          ('!A*, B??, C*', ['!A*', 'B??', 'C*']),
-                           (' A, B ', ['A', 'B']),
-                           ('*', []),
-                           ([], []),
-                           ('  ', ['']),
-                           (' ! ', ['!']),
-                           (' !* ', None),  # None means: raises ValueError
-                           ("!H*, H*", None),
-                           ("A B, CD", None),
-                          ])
-def test_nslc_param_value_aslist(val, exp_value):
-    
-    for i in range(4):
-        if exp_value is None:
-            with pytest.raises(ValueError):
-                nslc_param_value_aslist(i, val)
-        else:
-            assert nslc_param_value_aslist(i, val) == exp_value
-
-@pytest.mark.parametrize('val, exp_value, exp_value_loc',
-                         [(['A','D','C','--'], ['--', 'A', 'C', 'D'], ['', 'A', 'C', 'D']),
-                          ('A , D , C , --', ['--', 'A', 'C', 'D'], ['', 'A', 'C', 'D']),
-                          ([' --  '], ['--'], ['']),
-                          (' -- ',  ['--'], ['']),
-                          ])
-def test_nslc_param_value_aslist_locations(val, exp_value, exp_value_loc):
-    
-    for i in range(4):
-        if exp_value is None:
-            with pytest.raises(ValueError):
-                nslc_param_value_aslist(i, val)
-        elif i == 2: # location
-            assert nslc_param_value_aslist(i, val) == exp_value_loc
-        else:
-            assert nslc_param_value_aslist(i, val) == exp_value
-        
 def test_to_fdsn_arg():
 
     val = ['A' , 'B']

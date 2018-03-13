@@ -544,7 +544,7 @@ def to_fdsn_arg(iterable):
     ''' Converts an iterable of strings denotings networks, stations, locations or channels
     into a valid string argument for an fdsn query,
     This methid basically joins all element of `iterable` with a comma after removing all elements
-    starting with '!' (internally used for indicating logical not, and not fdsn standard).
+    starting with '!' (used in this application to denote logical not, and not fdsn standard).
 
     :param iterable: an iterable of strings. This function does not check if any string
         element is invalid for the query (e.g., it contains spaces)

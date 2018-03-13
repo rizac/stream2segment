@@ -21,7 +21,8 @@ from stream2segment.main import configlog4download as o_configlog4download, \
     new_db_download as o_new_db_download, run_download as o_run_download, \
     configlog4processing as o_configlog4processing, run_process as o_run_process, process as o_process, \
     download as o_download
-from stream2segment.utils.inputargs import yaml_load as o_yaml_load, create_session as o_create_session
+from stream2segment.utils.inputargs import yaml_load as o_yaml_load, create_session as o_create_session,\
+    nslc_param_value_aslist
 from stream2segment.io.db.models import Download
 from _pytest.capture import capsys
 import pytest
@@ -403,9 +404,9 @@ def test_download_verbosity(mock_run_download, mock_configlog, mock_closesess, m
     # this is also empty cause mock_run_download is no-op
     assert not out  # assert empty
     log, err, warn = dblog_err_warn()
-    assert " Completed in " in log
-    assert str(err) + ' ' in log  # 0 total errors
-    assert str(warn) + ' ' in log  # 0 total warnings
+    assert "Completed in " in log
+    assert 'No errors' in log  # 0 total errors
+    assert 'No warnings' in log  # 0 total warnings
     assert numloggers[0] == 1
     
     # now let's see that if we raise an exception we also 
@@ -426,9 +427,9 @@ def test_download_verbosity(mock_run_download, mock_configlog, mock_closesess, m
     out, err = capsys.readouterr()
     assert out  # assert non empty
     log, err, warn = dblog_err_warn()
-    assert " Completed in " in log
-    assert str(err) + ' ' in log  # 0 total errors
-    assert str(warn) + ' ' in log  # 0 total warnings 
+    assert "Completed in " in log
+    assert 'No errors' in log  # 0 total errors
+    assert 'No warnings' in log  # 0 total warnings
     assert numloggers[0] == 2
     
     # now let's see that if we raise an exception we also 
@@ -444,6 +445,48 @@ def test_download_verbosity(mock_run_download, mock_configlog, mock_closesess, m
     assert err == 0
     assert warn == 0
     assert numloggers[0] == 2
+
+
+@pytest.mark.parametrize('val, exp_value',
+                         [(['A','D','C','B'], ['A', 'B', 'C', 'D']),
+                          ("B,D,C,A", ['A', 'B', 'C', 'D']),
+                          ('A*, B??, C*', ['A*', 'B??', 'C*']),
+                          ('!A*, B??, C*', ['!A*', 'B??', 'C*']),
+                           (' A, B ', ['A', 'B']),
+                           ('*', []),
+                           ([], []),
+                           ('  ', ['']),
+                           (' ! ', ['!']),
+                           (' !* ', None),  # None means: raises ValueError
+                           ("!H*, H*", None),
+                           ("A B, CD", None),
+                          ])
+def test_nslc_param_value_aslist(val, exp_value):
+    
+    for i in range(4):
+        if exp_value is None:
+            with pytest.raises(ValueError):
+                nslc_param_value_aslist(val)
+        else:
+            assert nslc_param_value_aslist(val) == exp_value
+
+@pytest.mark.parametrize('val, exp_value',
+                         [(['A','D','C','--'], ['--', 'A', 'C', 'D']),
+                          ('A , D , C , --', ['--', 'A', 'C', 'D']),
+                          ([' --  '], ['--']),
+                          (' -- ',  ['--']),
+                          ])
+def test_nslc_param_value_aslist_locations(val, exp_value):
+    
+    for i in range(4):
+        if exp_value is None:
+            with pytest.raises(ValueError):
+                nslc_param_value_aslist(val)
+        else:
+            assert nslc_param_value_aslist(val) == exp_value
+        
+
+
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']

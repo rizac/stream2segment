@@ -118,6 +118,7 @@ def download(config, verbosity=2, **param_overrides):
     loghandlers = configlog4download(logger, is_from_terminal) if verbosity > 0 else []
     ret = 0
     noexc_occurred = True
+    log_elapsedtime_errs_warns = True
     try:
         if is_from_terminal:  # (=> loghandlers not empty)
             print("Log file:\n'%s'\n"
@@ -132,11 +133,16 @@ def download(config, verbosity=2, **param_overrides):
         try:
             run_download(download_id=download_id, isterminal=is_from_terminal, **yaml_dict)
         except QuitDownload as quitdownloadexc:
-            ret = 1
-        logger.info("Completed in %s", str(totimedelta(stime)))
-        if loghandlers:
-            logger.info("%d total error(s), %d total warning(s)", loghandlers[0].errors,
-                        loghandlers[0].warnings)
+            log_elapsedtime_errs_warns = not quitdownloadexc.iscritical
+
+        if log_elapsedtime_errs_warns:
+            logger.info("Completed in %s", str(totimedelta(stime)))
+            if loghandlers:
+                errs, warns = loghandlers[0].errors, loghandlers[0].warnings
+                def frmt(n, text):
+                    '''stupid function to format 'No error', '1 error' , '2 errors', ...'''
+                    return "%s %s%s" % ("No" if n == 0 else str(n), text, '' if n == 1 else 's')
+                logger.info("%s, %s", frmt(errs, 'error'), frmt(warns, 'warning'))
 
     except:  # log the exception traceback (only last) and raise,
         # so that in principle the full traceback is printed on terminal (or caught by the caller) 
