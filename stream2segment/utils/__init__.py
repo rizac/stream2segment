@@ -196,10 +196,8 @@ def strptime(obj):
         Converts `obj` to a `datetime` object in UTC without tzinfo.
         
         If `obj` is string, creates a `datetime` object by parsing it with `dateutil`, otherwise
-        uses `obj` as `datetime` object.
-        If the datetime object has a tzinfo supplied, converts it to UTC and removes the tzinfo
-        attribute.
-        Finally, returns the datetime object
+        uses `obj` as `datetime` object. Then, if the datetime object has a tzinfo supplied,
+        converts it to UTC and removes the tzinfo attribute. Finally, returns the datetime object
         
         :param obj: `datetime` object or string.
         
@@ -291,14 +289,13 @@ class Nop(object):
 @contextmanager
 def get_progressbar(show, **kw):
     """Returns a `click.progressbar` if `show` is True, otherwise a No-op class, so that we can
-    run programs from code (do not print progress) and from terminal (print progress) by simply
-    doing:
+    run programs by simply doing:
     ```
         isterminal = True  # or False for no-op class
         with get_progressbar(isterminal, length=..., ...) as bar:
             # do your stuff in iterators and call
             bar.update(num_increments)  # will update the terminal with a progressbar, or
-                                        # do nothing (no-op) if isterminal=True
+                                        # do nothing (no-op) if isterminal=False
     ```
     """
     if not show or kw.get('length', 1) == 0:

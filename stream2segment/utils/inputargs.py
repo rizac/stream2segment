@@ -477,7 +477,7 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None, outfile=N
     if outfile is not None:
         S2SArgument('outfile').parse(outfile, filewritable)
     # nothing more to process
-    return session, pyfunc, config
+    return session, pyfunc, funcname, config
 
 
 

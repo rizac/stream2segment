@@ -34,7 +34,7 @@ class Test(unittest.TestCase):
     def cleanup(me):
         for patcher in me.patchers:
             patcher.stop()
-    
+
 #     @property
 #     def is_sqlite(self):
 #         return str(self.dburl).startswith("sqlite:///")
@@ -57,6 +57,7 @@ class Test(unittest.TestCase):
         self.mock_new_db_download = self.patchers[-1].start()
         self.mock_new_db_download.side_effect = o_new_db_download
         
+        self.session = None
         self.patchers.append(patch('stream2segment.utils.inputargs.create_session'))
         self.mock_create_session = self.patchers[-1].start()
         def csess(*a, **v):
@@ -122,25 +123,27 @@ class Test(unittest.TestCase):
         return result
 
         
-    def tst_download_bad_values(self):
+    def test_download_bad_values(self):
         '''test different scenarios where the value in the dwonload.yaml are not well formatted'''
         result = self.run_cli_download(networks={'a': 'b'})  # invalid type
         assert result.exit_code == 0 # WHAT?? because networks needs to be just an iterable
         # thus providing dict is actually fine and will iterate over its keys:
         assert self.mock_run_download.call_args_list[0][1]['networks'] == ['a']
         # do some asserts only for this case to test how we print the arguments to string:
-        assert "tt_table: <TTTable object>" in result.output
-        assert "traveltimes_model:" in result.output
-        assert 'dburl: \''+ self.dburl + "'" in result.output
+        assert "tt_table: <TTTable object, " in result.output
+        assert "traveltimes_model:" not in result.output
+        assert 'session: <session object, dburl=\''+ self.dburl + "'>" in result.output
         
         dwnl = self.session.query(Download).first()
         assert dwnl.log  # assert we have something written
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert self.session.query(Download).count() == 1
         
         result = self.run_cli_download(networks='!*')  # invalid value
         assert result.exit_code != 0
-        assert "Error: Invalid value for \"networks\":" in result.output
+        assert "Error: Invalid value for \"networks\" / \"" in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 1
+        assert self.session.query(Download).count() == 0
         
         #what about conflicting arguments?
         result = self.run_cli_download(networks='!*', net='opu')  # invalid value
@@ -148,75 +151,74 @@ class Test(unittest.TestCase):
         assert "Conflicting names \"net\" / \"networks\"" in result.output or \
             "Conflicting names \"networks\" / \"net\"" in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 1
+        assert self.session.query(Download).count() == 0
         
         result = self.run_cli_download(start=[])  # invalid type
         assert result.exit_code != 0
         assert "Error: Invalid type for \"start\":" in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 1
+        assert self.session.query(Download).count() == 0
 
         result = self.run_cli_download(start='wat')  # invalid value
         assert result.exit_code != 0
         assert "Error: Invalid value for \"start\":" in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 1
+        assert self.session.query(Download).count() == 0
         
         # now test the same as above BUT with the wrong value from the command line:
         result = self.run_cli_download('-t0', 'wat')  # invalid value typed from the command line
         assert result.exit_code != 0
         assert "Error: Invalid value for \"-t0\" / \"--start\":" in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 1
+        assert self.session.query(Download).count() == 0
         
         result = self.run_cli_download(end='wat') # try with end
         assert result.exit_code != 0
         assert "Error: Invalid value for \"end\":" in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 1
+        assert self.session.query(Download).count() == 0
         
         # now test the same as above BUT with the wrong value from the command line:
         result = self.run_cli_download('-t1', 'wat')  # invalid value typed from the command line
         assert result.exit_code != 0
         assert "Error: Invalid value for \"-t1\" / \"--end\":" in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 1
+        assert self.session.query(Download).count() == 0
         
         result = self.run_cli_download(traveltimes_model=[])  # invalid type
         assert result.exit_code != 0
         assert "Error: Invalid type for \"traveltimes_model\":" in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 1
+        assert self.session.query(Download).count() == 0
         
         result = self.run_cli_download(traveltimes_model='wat')  # invalid value
         assert result.exit_code != 0
         assert "Error: Invalid value for \"traveltimes_model\":" in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 1
+        assert self.session.query(Download).count() == 0
         
-        result = self.run_cli_download(dburl=self.d_yaml_file)  # valid file
+        result = self.run_cli_download(dburl=self.d_yaml_file)  # existing file, invalid db url
         assert result.exit_code != 0
-        assert "Error: Invalid value for \"dburl\":" in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 1
+        assert self.session.query(Download).count() == 0
         
         result = self.run_cli_download(dburl="sqlite:/whatever")  # invalid db url
         assert result.exit_code != 0
         assert "Error: Invalid value for \"dburl\":" in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 1
+        assert self.session.query(Download).count() == 0
         
         result = self.run_cli_download(dburl="sqlite://whatever")  # invalid db url
         assert result.exit_code != 0
         assert "Error: Invalid value for \"dburl\":" in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 1
+        assert self.session.query(Download).count() == 0
                 
         result = self.run_cli_download(dburl=[])  # invalid type
         assert result.exit_code != 0
         assert "Error: Invalid type for \"dburl\":" in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 1
+        assert self.session.query(Download).count() == 0
         result.output
         
         # Test an invalif configfile. This can be done only via command line
@@ -224,7 +226,7 @@ class Test(unittest.TestCase):
         assert result.exit_code != 0
         assert "Error: Invalid value for \"-c\" / \"--config\":" in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 1
+        assert self.session.query(Download).count() == 0
 
 
     def test_process_bad_types(self):
@@ -265,15 +267,76 @@ class Test(unittest.TestCase):
         
         
 
-    def testName(self):
-        pass
+@patch('stream2segment.utils.inputargs.get_session')
+@patch('stream2segment.main.closesession')
+@patch('stream2segment.main.configlog4processing')
+@patch('stream2segment.main.run_process')
+def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, mock_getsess,
+                            capsys):
+    
+    # handlers should be removed each run_download call, otherwise we end up
+    # appending them
+    numloggers = [0]
+    def clogd(logger, *a, **kv):
+        for h in logger.handlers[:]:
+            logger.removeHandler(h)
+        ret = o_configlog4processing(logger, *a, **kv)
+        numloggers[0] = len(ret)
+        return ret
+    mock_configlog.side_effect = clogd
+    
+    dburl = 'sqlite:///:memory:'
+    # close session should not close session, otherwise with a memory db we loose the data
+    mock_closesess.side_effect = lambda *a, **v: None
+    # also, mock get_session cause we need the same session object to
+    # retrieve what's been written on the db
+    sess = get_session(dburl)
+    # mock get_session in order to return always the same session objet:
+    mock_getsess.side_effect = lambda *a, **kw: sess
+    
+    conffile = get_templates_fpath("processing.yaml")
+    pyfile = get_templates_fpath("processing.py")
+    
+    # run verbosity = True, with output file. This configures a logger to log file and a logger stdout
+    with tempfile.NamedTemporaryFile() as outfile:
+        mock_run_process.side_effect = lambda *a, **v: None
+        ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=outfile.name, verbose=True)
+        out, err = capsys.readouterr()
+        assert not err 
+        assert len(out)  # assert empty (avoid comparing to strings and potential py2 py3 headache)
+        assert numloggers[0] == 2
+    
+    # run verbosity = False, with output file. This configures a logger to log file
+    with tempfile.NamedTemporaryFile() as outfile:
+        mock_run_process.side_effect = lambda *a, **v: None
+        ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=outfile.name, verbose=False)
+        out, err = capsys.readouterr()
+        assert not err 
+        assert not out  # assert empty (avoid comparing to strings and potential py2 py3 headache)
+        assert numloggers[0] == 1
+            
+    # run verbosity = True, with no output file. This configures a logger stderr and a logger stdout
+    mock_run_process.side_effect = lambda *a, **v: None
+    ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=None, verbose=True)
+    out, err = capsys.readouterr()
+    assert err == out  # assert empty (avoid comparing to strings and potential py2 py3 headache)
+    assert numloggers[0] == 2
+    
+    # run verbosity = False, with no output file. This configures a logger stderr but no logger stdout
+    # with no file
+    mock_run_process.side_effect = lambda *a, **v: None
+    ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=None, verbose=False)
+    out, err = capsys.readouterr()
+    assert not out  # assert empty (avoid comparing to strings and potential py2 py3 headache)
+    assert len(err)
+    assert numloggers[0] == 1
 
 
 @patch('stream2segment.utils.inputargs.get_session')
 @patch('stream2segment.main.closesession')
 @patch('stream2segment.main.configlog4download')
 @patch('stream2segment.main.run_download')
-def tst_download_verbosity(mock_run_download, mock_configlog, mock_closesess, mock_getsess,
+def test_download_verbosity(mock_run_download, mock_configlog, mock_closesess, mock_getsess,
                             capsys):
     # handlers should be removed each run_download call, otherwise we end up
     # appending them

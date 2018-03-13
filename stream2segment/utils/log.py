@@ -130,20 +130,19 @@ class SysOutStreamHandler(logging.StreamHandler):
 
 
 def configlog4processing(logger, outcsvfile, isterminal):
-    """Configures a set of default handlers, add them to `logger` amd teturns them as list:
-    - if outcsvfile is given (not falsy):
-        - A logging.FileHandler which will capture all INFO, ERROR and WARNING level messages, and
-        prints them to a file named `outcsvfile`+".log"
-        - If `isterminal` = True, a StreamHandler which prints to standard output ONLY messages of
-        level INFO (20) and ERROR (40) and CRITICAL (50): i.e., it does not rpint DEBUG and WARNING
-        messages
-    - if `outcsvfile` not given (falsy):
-        - A logging.StreamHandler which will capture all INFO, ERROR and WARNING level messages,
-        and prints them to standard error
+    """Configures a set of default handlers, add them to `logger` amd returns them as list:
+
+       - A logging.FileHandler redirecting to a file named `outcsvfile`+".log"
+         (if outcsvfile is given, i.e. not falsy) OR
+         a logging.StreamHandler redirecting to standard error (if `outcsvfile` not given)
+
+       - If `isterminal` = True, a StreamHandler which redirects to standard output ONLY messages
+         of level INFO (20) and ERROR (40) and CRITICAL (50): i.e., it does not print DEBUG
+         WARNING messages
     
     Implementation detail: this method modifies permanently these values for performance reason: 
     ```
-    logging._srcfile = None  #pylint: disable=protected-access
+    logging._srcfile = None
     logging.logThreads = 0
     logging.logProcesses = 0
     ```
@@ -154,7 +153,7 @@ def configlog4processing(logger, outcsvfile, isterminal):
     logging._srcfile = None  #pylint: disable=protected-access
     logging.logThreads = 0
     logging.logProcesses = 0
-    # config logger (FIXME: merge with download logger?):
+
     logger.setLevel(logging.INFO)  # this is necessary to configure logger HERE, otherwise the
     handlers = []
     if outcsvfile:
@@ -177,19 +176,19 @@ def gettmpfile():
 
 def configlog4download(logger, isterminal=False):
     """Configures a set of default handlers, add them to `logger` amd teturns them as list:
+
     - A DbStreamHandler which will capture all INFO, ERROR and WARNING level messages, and when
-    its finalize() method is called, flushes the content of its file to the database (deleting the
-    file if needed. This assures that if `finalize` is not called, possibly due to an exception,
-    the file can be inspected)
+      its finalize() method is called, flushes the content of its file to the database (deleting
+      the file if needed. This assures that if `finalize` is not called, possibly due to an
+      exception, the file can be inspected)
+    
     - If `isterminal` = True, a StreamHandler which prints to standard output ONLY messages of
-    level INFO (20) and ERROR (40) and CRITICAL (50): i.e., it does not rpint DEBUG and WARNING
-    messages
-    
-    If `isterminal` is False, the second handler is not added and a list of one element is returned
-    
+      level INFO (20) and ERROR (40) and CRITICAL (50): i.e., it does not rpint DEBUG and WARNING
+      messages
+
     Implementation detail: this method modifies permanently these values for performance reason: 
     ```
-    logging._srcfile = None  #pylint: disable=protected-access
+    logging._srcfile = None
     logging.logThreads = 0
     logging.logProcesses = 0
     ```
@@ -200,7 +199,7 @@ def configlog4download(logger, isterminal=False):
     logging._srcfile = None  #pylint: disable=protected-access
     logging.logThreads = 0
     logging.logProcesses = 0
-    # FIXME above: move elsewhere (maybe restoring defaults?)
+
     logger.setLevel(logging.INFO)  # necessary to forward to handlers
     # custom StreamHandler: count errors and warnings:
     handlers = [DbStreamHandler()]

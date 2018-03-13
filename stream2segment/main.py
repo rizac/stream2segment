@@ -118,7 +118,6 @@ def download(config, verbosity=2, **param_overrides):
     loghandlers = configlog4download(logger, is_from_terminal) if verbosity > 0 else []
     ret = 0
     noexc_occurred = True
-    stime, etime = None, None
     try:
         if is_from_terminal:  # (=> loghandlers not empty)
             print("Log file:\n'%s'\n"
@@ -134,7 +133,10 @@ def download(config, verbosity=2, **param_overrides):
             run_download(download_id=download_id, isterminal=is_from_terminal, **yaml_dict)
         except QuitDownload as quitdownloadexc:
             ret = 1
-        etime = time.time()
+        logger.info("Completed in %s", str(totimedelta(stime)))
+        if loghandlers:
+            logger.info("%d total error(s), %d total warning(s)", loghandlers[0].errors,
+                        loghandlers[0].warnings)
 
     except:  # log the exception traceback (only last) and raise,
         # so that in principle the full traceback is printed on terminal (or caught by the caller) 
@@ -143,12 +145,6 @@ def download(config, verbosity=2, **param_overrides):
         logger.critical("Download aborted", exc_info=True)
         raise
     finally:
-        if noexc_occurred:
-            logger.info("Completed in %s", str(totimedelta(stime, etime)))
-            if loghandlers:
-                logger.info("\n%d total error(s), %d total warning(s)", loghandlers[0].errors,
-                            loghandlers[0].warnings)
-
         # write log to db if default handlers are provided:
         if loghandlers:
             # remove file if we do not print to terminal (as it would be impossible to
@@ -165,14 +161,13 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, verbose=Fal
         Process the segment saved in the db and optionally saves the results into `outfile`
         in .csv format
         If `outfile` is given, `pyfile` should return lists/dicts to be written as
-            csv row, and logging errors/ warnings/ infos /critical messages will be printed to a
-            file whose path is `[outfile].log`
+            csv row, and a handler will redirect all logged messages to a the file `[outfile].log`
         If `outfile` is not given, then the returned values of `pyfile` will be ignored
             (`pyfile` is supposed to process data without returning a value, e.g. save processed
-            miniSeed to the FileSystem), and logging errors/warnings/infnos/critical messages
-            will be printed to `stderr`.
-        In both cases, if `verbose` is True, log informations and errors, and a progressbar will be
-            printed to standard output, otherwise nothing will be printed
+            miniSeed to the FileSystem), and a handler will redirect all logged messages to `stderr`.
+        In both cases, if `verbose` is True, a handler will redirect all informations, errors
+            and critical logged messages to the standard output (also, and a progressbar will be
+            printed to standard output)
     """
     # implementation details: this function returns 0 on success and raises otherwise.
     # First, it can raise ValueError for a bad parameter (checked before starting db session and
@@ -185,18 +180,19 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, verbose=Fal
     # we have any other exception (e.g., keyboard interrupt), but that's not a requirement
     
     # checks dic values (modify in place) and returns dic value(s) needed here:
-    session, pyfunc, config_dict = load_config_for_process(dburl, pyfile, funcname, config, outfile)
+    session, pyfunc, funcname, config_dict = \
+        load_config_for_process(dburl, pyfile, funcname, config, outfile)
 
     configlog4processing(logger, outfile, verbose)
     try:
-        if verbose:
-            if outfile:
-                logger.info('Output file: %s', outfile)
-            logger.info("Executing '%s' in '%s'", funcname, pyfile)
-            logger.info("Input database: '%s", secure_dburl(dburl))
-            if config and isinstance(config, string_types):
-                logger.info("Config. file: %s", str(config))
-    
+        
+        if outfile:
+            logger.info('Output file: %s', outfile)
+        logger.info("Executing '%s' in '%s'", funcname, pyfile)
+        logger.info("Input database: '%s", secure_dburl(dburl))
+        if config and isinstance(config, string_types):
+            logger.info("Config. file: %s", str(config))
+
         stime = time.time()
         run_process(session, pyfunc, config_dict, outfile, verbose)
         logger.info("Completed in %s", str(totimedelta(stime)))
@@ -204,7 +200,7 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, verbose=Fal
         # with the stack trace
         # (this includes pymodule exceptions e.g. TypeError)
     except:
-        logger.error("Process aborted", exc_info=True)  # see comment above
+        logger.critical("Process aborted", exc_info=True)  # see comment above
         raise
     finally:
         closesession(session)

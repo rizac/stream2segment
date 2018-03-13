@@ -194,8 +194,8 @@ def download(config, dburl, eventws, start, end, dataws, min_sample_rate, travel
               # Note: Don't set required = True with eager=True: it suppresses --help
               )
 @click.option("-p", "--pyfile",
-              help="The path to the python file where to implement the processing function "
-                   "which will be called iteratively on each segment "
+              help="The path to the python file where the user-defined processing function "
+                   "is implemented. The function which will be called iteratively on each segment "
                    "selected in the config file",
               type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
                               readable=True),
@@ -203,7 +203,7 @@ def download(config, dburl, eventws, start, end, dataws, min_sample_rate, travel
               # Don't set required = True with eager=True: it suppresses --help
               )
 @click.option("-f", "--funcname",
-              help="The name of the function to execute in the given python file. "
+              help="The name of the user-defined processing function in the given python file. "
                    "Optional: defaults to '%s' when missing" % inputargs.default_processing_funcname(),
               )  # do not set default='main', so that we can test when arg is missing or not
 @click.argument('outfile', required=False)
@@ -212,10 +212,11 @@ def process(dburl, config, pyfile, funcname, outfile):
     file.
     
     \b
-    outfile:  [optional] the file where the output of `pyfile` will be written (in .csv format).
-    If missing, then `pyfile` (see options below) is not supposed to provide any output and all
-    logging information, errors or warnings will be redirected to the standard error (e.g., when
-    processing database data and save it to the FileSystem). Otherwise, if this argument is 
+    outfile:  [optional] the file (in .csv format) where the output of the user-defined processing
+    function will be written for each selected segment.
+    If missing, then the output of the user-defined processing function (if any) is discarded,
+    and all logging information, errors or warnings will be redirected to the standard error.
+    Otherwise, if this argument is 
     pecified, the log messages will be written to the file [outpath].log
     """
     try:

@@ -30,12 +30,13 @@ from obspy.core.stream import read
 from stream2segment.cli import cli
 from stream2segment.io.db.models import Base, Event, Station, WebService, Segment,\
     Channel, Download, DataCenter
-from stream2segment.main import load_configfile as load_proc_cfg
+from stream2segment.utils.inputargs import yaml_load as load_proc_cfg
 from stream2segment import process
 from stream2segment.utils.resources import get_templates_fpaths
 from stream2segment.process.utils import get_inventory_url, save_inventory as original_saveinv
 from stream2segment.process.core import query4process
 
+from stream2segment.process.core import run as process_core_run
 from future import standard_library
 from stream2segment.process.utils import enhancesegmentclass
 standard_library.install_aliases()
@@ -216,7 +217,7 @@ class Test(unittest.TestCase):
         self.mock_url_read = self.patchers[-1].start()
         self.mock_url_read.side_effect = self.url_read
 
-        self.patchers.append(patch('stream2segment.main.get_session'))
+        self.patchers.append(patch('stream2segment.utils.inputargs.get_session'))
         self.mock_session = self.patchers[-1].start()
         self.mock_session.return_value = self.session
 
@@ -265,57 +266,6 @@ class Test(unittest.TestCase):
     def get_processing_files():
         pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml") #pylint: disable=unbalanced-tuple-unpacking
         return pyfile, conffile
-
-    # DEPRECATED: NOT USED ANYMORE (WE DONT USE PYTHON MULTIPROCESSING ANYMORE):
-    # IMPLEMENTED BECAUSE
-    # self.mock_url read.call_count seems not to work woth
-    # multiprocessing: mock multiprocessing
-    def mocked_ascompleted(self, iterable):
-        """mocks run_async cause we want to test also without multiprocessing (see below)"""
-        class mockfuture(object):
-            def __init__(self, res, cnc):
-                self.res = res
-                self.cnc = cnc
-
-            def cancelled(self):
-                return self.cnc
-
-            def exception(self, *a, **v):
-                if isinstance(self.res, Exception):
-                    return self.res
-                return None
-
-            def result(self, *a, **v):
-                if self.exception() is not None:
-                    raise self.exception()
-                return self.res
-
-        for obj in iterable:
-            try:
-                res = obj[0](*obj[1], **obj[2])
-            except Exception as exc:
-                res = exc
-            yield mockfuture(res, False)
-
-    # DEPRECATED: NOT USED ANYMORE (WE DONT USE PYTHON MULTIPROCESSING ANYMORE):
-    # IMPLEMENTED BECAUSE
-    # self.mock_url read.call_count seems not to work woth
-    # multiprocessing: mock multiprocessing
-    def mocked_processpoolexecutor(self):
-
-        class mppe(object):
-            self.elements = []
-
-            def __enter__(self, *a, **v):
-                return self
-
-            def __exit__(self, *a, **v):
-                pass
-
-            def submit(self, func, *a, **kw):
-                return (func, a, kw)
-
-        return mppe()
 
     @staticmethod
     def url_read(*a, **v):
@@ -432,7 +382,75 @@ class Test(unittest.TestCase):
     # as by default withdata is True in segment_select, then we process only the last three
     #
     # Here a simple test for a processing file returning dict. Save inventory and check it's saved
-    @mock.patch('stream2segment.main.load_configfile')
+    @mock.patch('stream2segment.utils.inputargs.yaml_load')
+    @mock.patch('stream2segment.process.main.process_core_run', side_effect=process_core_run)
+    def test_simple_run_no_outfile_provided(self, mock_run, mock_load_cfg):
+        '''test a case where save inventory is True, and that we saved inventories'''
+        # set values which will override the yaml config in templates folder:
+        self.config_overrides = {'save_inventory': True,
+                                 'snr_threshold': 0,
+                                 'segment_select': {'has_data': 'true'}}
+        mock_load_cfg.side_effect = self.load_proc_cfg
+
+        # query data for testing now as the program will expunge all data from the session
+        # and thus we want to avoid DetachedInstanceError(s):
+        expected_first_row_seg_id = str(self.db.seg1.id)
+        station_id_whose_inventory_is_saved = self.db.sta_ok.id
+
+        # need to reset this global variable: FIXME: better handling?
+        process.main._inventories = {}
+        runner = CliRunner()
+        
+        pyfile, conffile = self.get_processing_files()
+        result = runner.invoke(cli, ['process', '--dburl', self.dburi,
+                               '-p', pyfile, '-c', conffile])
+
+        if result.exception:
+            import traceback
+            traceback.print_exception(*result.exc_info)
+            print(result.output)
+            assert False
+            return
+
+        lst = mock_run.call_args_list
+        assert len(lst) == 1
+        args, kwargs = lst[0][0], lst[0][1]
+        assert args[2] is None  # assert third argument (`ondone` callback) is None 'ondone' 
+        assert "Output file:" not in result.output
+
+        # Note that apparently CliRunner() puts stderr and stdout together 
+        # (https://github.com/pallets/click/pull/868)
+        # So we should test that we have these string twice:
+        for subs in ["Executing 'main' in ", "Config. file: "]:
+            idx = result.output.find(subs)
+            assert idx > -1
+            assert result.output.find(subs, idx+1) > idx
+        
+        
+        
+        # these assertion are just copied from the test below and left here cause they
+        # should still hold (db behaviour does not change of we provide output file or not):
+        
+        # save_downloaded_inventory True, test that we did save any:
+        assert len(self.session.query(Station).filter(Station.has_inventory).all()) > 0
+
+        # Or alternatively:
+        # test we did save any inventory:
+        stas = self.session.query(Station).all()
+        assert any(s.inventory_xml for s in stas)
+        assert self.session.query(Station).\
+            filter(Station.id == station_id_whose_inventory_is_saved).first().inventory_xml
+
+    # Recall: we have 5 segments:
+    # 2 are empty, out of the remaining three:
+    # 1 has errors if its inventory is queried to the db. Out of the other two:
+    # 1 has gaps
+    # 1 has no gaps
+    # Thus we have several levels of selection possible
+    # as by default withdata is True in segment_select, then we process only the last three
+    #
+    # Here a simple test for a processing file returning dict. Save inventory and check it's saved
+    @mock.patch('stream2segment.utils.inputargs.yaml_load')
     def test_simple_run_retDict_saveinv(self, mock_load_cfg):
         '''test a case where save inventory is True, and that we saved inventories'''
         # set values which will override the yaml config in templates folder:
@@ -499,7 +517,7 @@ class Test(unittest.TestCase):
     # as by default withdata is True in segment_select, then we process only the last three
     #
     # Here a simple test for a processing file returning dict. Save inventory and check it's saved
-    @mock.patch('stream2segment.main.load_configfile')
+    @mock.patch('stream2segment.utils.inputargs.yaml_load')
     def test_simple_run_retDict_saveinv_complex_select(self, mock_load_cfg):
         '''test a case where we have a more complex select involving joins'''
         # When we use our exprequery, we might join already joined tables.
@@ -579,7 +597,7 @@ class Test(unittest.TestCase):
         assert self.session.query(Station).\
             filter(Station.id == station_id_whose_inventory_is_saved).first().inventory_xml
 
-    @mock.patch('stream2segment.main.load_configfile')
+    @mock.patch('stream2segment.utils.inputargs.yaml_load')
     def test_simple_run_retDict_saveinv_high_snr_threshold(self, mock_load_cfg):
         '''same as `test_simple_run_retDict_saveinv` above
         but with a very high snr threshold'''
@@ -648,7 +666,7 @@ class Test(unittest.TestCase):
     #
     # Here a simple test for a processing file returning dict. Don't save inventory and check it's
     # not saved
-    @mock.patch('stream2segment.main.load_configfile')
+    @mock.patch('stream2segment.utils.inputargs.yaml_load')
     def test_simple_run_retDict_dontsaveinv(self, mock_load_cfg):
         '''same as `test_simple_run_retDict_saveinv` above
          but with a 0 snr threshold and do not save inventories'''
@@ -704,7 +722,7 @@ class Test(unittest.TestCase):
     #
     # Here a simple test for a processing NO file. We implement a filter that excludes the only
     # processed file using associated stations lat and lon. 
-    @mock.patch('stream2segment.main.load_configfile')
+    @mock.patch('stream2segment.utils.inputargs.yaml_load')
     def test_simple_run_retDict_seg_select_empty_and_err_segments(self, mock_load_cfg):
         '''test that segment selection works'''
         # set values which will override the yaml config in templates folder:
@@ -782,7 +800,7 @@ class Test(unittest.TestCase):
     #
     # Here a simple test for a processing NO file. We implement a filter that excludes the only
     # processed file using associated stations lat and lon. 
-    @mock.patch('stream2segment.main.load_configfile')
+    @mock.patch('stream2segment.utils.inputargs.yaml_load')
     def test_simple_run_retDict_seg_select_only_one_err_segment(self, mock_load_cfg):
         '''test that segment selection works (2)'''
         # set values which will override the yaml config in templates folder:
@@ -845,7 +863,7 @@ class Test(unittest.TestCase):
     # as by default withdata is True in segment_select, then we process only the last three
     #
     # Here a simple test for a processing file returning list. Just check it works
-    @mock.patch('stream2segment.main.load_configfile')
+    @mock.patch('stream2segment.utils.inputargs.yaml_load')
     def test_simple_run_ret_list(self, mock_load_cfg):
         '''test processing returning list, and also when we specify a different main function'''
         # set values which will override the yaml config in templates folder:
@@ -903,7 +921,7 @@ def main(segment, config):""")
                     logtext = self.read_and_remove(file.name+".log")
                     assert len(logtext) > 0
 
-    @mock.patch('stream2segment.main.load_configfile')
+    @mock.patch('stream2segment.utils.inputargs.yaml_load')
     def test_wrong_pyfile(self, mock_load_cfg):
         '''test processing when supplying a wrong python file (not py extension, this seem
         to raise when importing it in python3)'''
@@ -933,7 +951,7 @@ def main(segment, config):""")
                 # we did not raise but printed to stdout. However, click apparently
                 # makes result.exception being truthy
                 assert result.exception
-                assert 'Invalid value for pyfile' in result.output
+                assert 'Invalid value for "pyfile": ' in result.output
                 assert result.exit_code != 0
 
                 # check file has NOT be written:
@@ -947,7 +965,7 @@ def main(segment, config):""")
                 assert not os.path.isfile(file.name+".log")
 
 
-    @mock.patch('stream2segment.main.load_configfile')
+    @mock.patch('stream2segment.utils.inputargs.yaml_load')
     def test_simple_run_codeerror(self, mock_load_cfg):
         '''test processing type error(wrong argumens)'''
         # set values which will override the yaml config in templates folder:

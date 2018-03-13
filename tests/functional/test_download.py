@@ -576,7 +576,8 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         assert len(dfres1[dfres1[Segment.download_code.key] == TBOUND_ERRCODE]) == 4
         
     
-    @pytest.mark.skip(reason="no way of currently testing what we want to test")
+    @pytest.mark.skip(reason=("no way of currently testing what we want to test, "
+                              "error not reproducible. See comments below"))
     @patch('stream2segment.download.main.get_events_df')
     @patch('stream2segment.download.main.get_datacenters_df')
     @patch('stream2segment.download.main.get_channels_df')
