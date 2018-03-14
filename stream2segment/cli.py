@@ -45,7 +45,7 @@ class clickutils(object):
     """Container for Options validations, default settings so as not to pollute the click
     decorators"""
 
-    TERMINAL_HELP_WIDTH = 110  # control width of help. 80 should be the default (roughly)
+    TERMINAL_HELP_WIDTH = 115  # control width of help. 80 should be the default (roughly)
     DEFAULTDOC = yaml_load_doc(get_templates_fpath("download.yaml"))
     DBURLDOC_SUFFIX = ("^^^ NOTE ^^^: It can also be the path of a yaml file "
                        "containing the property 'dburl' (e.g., the yaml you used for "
@@ -74,7 +74,7 @@ class clickutils(object):
         cfg_doc = cls.DEFAULTDOC
         for option in (opt for opt in ctx.command.params if opt.param_type_name == 'option'):
             if option.help is None:
-                option.help = cfg_doc.get(option.name, None)
+                option.help = cfg_doc.get(option.name, "")
                 # remove implementation details from the cli (avoid too much information,
                 # or information specific to the yaml file and not the cli):
                 idx = option.help.find('Implementation details:')
@@ -133,14 +133,14 @@ def init(outdir):
 
 
 # NOTES BELOW:
-# First naming conventions:
+# First, naming conventions:
 # * option short name: any click option name starting with "-"
 # * option long name: any click option name starting with "--"
 # * option default name: any click option name not starting with any "-"
-# * (http://click.pocoo.org/5/parameters/#parameter-names)
+#   (see http://click.pocoo.org/5/parameters/#parameter-names)
 # * option help: the option help shown when issuing "--help" from the command line
 # * yaml param help: the help in the docstring immediately preceeding a yaml param name,
-#   (fetched from the default download.yaml config in the 'templates' folder)
+#   (fetched from the default download.yaml file in the 'templates' folder)
 # 1. we want to set each option help from the corresponding yaml param help, so that we keep docs
 #    updated in only one place.
 #    This is done by the method `clickutils.set_help_from_yaml`, attached
@@ -153,8 +153,8 @@ def init(outdir):
 # 3. Some yaml params accepts different names (e.g., 'net' will
 #    be recognized as 'networks'): by convention, these are provided as option long names.
 #    (Options short names can be changed without problems, in principle).
-#    For these options, you need also to provide an option default name, in order
-#    to match the corresponding yaml param help when fetching its doc.
+#    For these options, you need also to provide an option default name which MUST MATCH
+#    the corresponding yaml param help, otherwise the option doc will not be found.
 # 4. Option flags should all have default=None which lets us know that the flag is missing and use
 #    the corresponding yaml param values
 @cli.command(short_help='Download waveform data segments',
@@ -166,12 +166,12 @@ def init(outdir):
                               readable=True), required=True)
 @click.option('-d', '--dburl', is_eager=True, callback=clickutils.set_help_from_yaml)
 @click.option('-e', '--eventws')
-@click.option('-t0', '--start', '--starttime', 'start', type=inputargs.valid_date)
+@click.option('-t0', '--start', '--starttime', "start", type=inputargs.valid_date)
 @click.option('-t1', '--end', '--endtime', 'end', type=inputargs.valid_date)
-@click.option('-n', '--net', '--network', '--networks', 'networks', help='See channels')
-@click.option('-s', '--sta', '--station', '--stations', 'stations', help='See channels')
-@click.option('-l', '--loc', '--location', '--locations', 'locations', help='See channels')
-@click.option('-k', '--cha', '--channel', '--channels', 'channels')
+@click.option('-n', '--networks', '--network', '--net', 'networks', help='See channels')
+@click.option('-s', '--stations', '--station', '--sta', 'stations', help='See channels')
+@click.option('-l', '--locations', '--location', '--loc', 'locations', help='See channels')
+@click.option('-k', '--channels', '--channel', '--chan', 'channels')
 @click.option('-msr', '--min-sample-rate')
 @click.option('-ds', '--dataws')
 @click.option('-t', '--traveltimes-model')
@@ -281,7 +281,7 @@ def show(dburl, configfile, pyfile):
     main.show(dburl, pyfile, configfile)
 
 
-@cli.group(short_help="Utilities. Type --help to list available sub-commands")
+@cli.group(short_help="Program utilities. Type --help to list available sub-commands")
 def utils():
     pass
 

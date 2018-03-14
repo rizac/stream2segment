@@ -38,8 +38,7 @@ retry_server_err: true
 # was completely outside the requested time span (see 'timespan' for details)
 retry_timespan_err: true
 
-# Update segments metadata, i.e. overwrite metadata of already saved stations and channels
-# (except their db id, which is fixed).
+# Update segments metadata, i.e. overwrite the data of already saved stations and channels.
 # Metadata include the station inventories (see 'inventory' for details).
 # This parameter does not affect new stations and channels, which will be saved on the db anyway
 update_metadata: false
@@ -84,7 +83,7 @@ eventws_query_args:
 
 # data-select web service to use (url). It should be fdsn compliant, so that the relative
 # station url can be retrieved automatically. You can also type two special values, "iris" 
-# (shortcut for: https://service.iris.edu/fdsnws/dataselect/1/query for data) or "eida"
+# (shortcut for: https://service.iris.edu/fdsnws/dataselect/1/query) or "eida"
 # (which will automatically fetch all eida datacenters and their urls).
 # Implementation details: For any datacenter which fails to download stations and channels
 # (e.g., network error, client/server error) the database will be queried with the same filters
@@ -97,8 +96,8 @@ dataws: 'eida'
 # (if missing, it's value defaults to '*', i.e. accept all channels)
 # Wildcards '?' and '*' are recognized (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf),
 # as well as the operator '!' placed as first character to indicate logical NOT.
-# E.g.: download waveform data and metadata from all networks NOT starting with 'A' and
-# all channels with 3 letters starting with 'H' or 'B': 
+# E.g.: In order to limit the search to networks NOT starting with 'A' and
+# channels with 3 letters starting with 'H' or 'B': 
 #  netowrks: '!A*'
 #  channels: 'H??,B??'
 # Implementation details: 'cha' or 'channel' are also valid names for the parameter.
@@ -115,17 +114,17 @@ channels:
  - 'HL?'
  
 # Limit the search to the specified networks (see 'channels' parameter above for details).
-# 'net' or 'network' are also valid names for the parameter.
+# Implementation details: 'net' or 'network' are also valid names for the parameter.
 # By default the line below is commented, meaning that all networks are accepted:
 # networks: '*'
 
 # Limit the search to the specified stations (see 'channels' parameter above for details).
-# 'sta' or 'station' are also valid names for the parameter.
+# Implementation details: 'sta' or 'station' are also valid names for the parameter.
 # By default the line below is commented, meaning that all stations are accepted:
 # stations: '*'
 
 # Limit the search to the specified locations (see 'channels' parameter above for details).
-# 'loc' or 'location' are also valid names for the parameter.
+# Implementation details: 'loc' or 'location' are also valid names for the parameter.
 # By default the line below is commented, meaning that all locations are accepted:
 # locations: '*'
 
@@ -175,7 +174,7 @@ search_radius:
 # execution speed, with max errors in the order of 0.5 seconds due to interpolation.
 traveltimes_model: 'ak135_ttp+'
 
-# The segment's data time window to download: specify two positive floats denoting the 
+# The segment's time span (i.e., the data time window to download): specify two positive floats denoting the 
 # minutes to account for before and after the calculated arrival time. Note that 3.5 means
 # 3 minutes 30 seconds, and that each segment window will be eventually rounded to the nearest
 # second to avoid floating point errors when checking for segments to re-download because of a
