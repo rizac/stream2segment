@@ -65,6 +65,23 @@ class Test(unittest.TestCase):
             self.session = o_create_session(*a, **v)
             return self.session
         self.mock_create_session.side_effect = csess
+
+        self.patchers.append(patch('stream2segment.main.closesession'))
+        self.mock_close_session = self.patchers[-1].start()
+        def clsess(*a, **v):  #pylint: disable=unused-argument
+            self.lastrun_lastdownload_id = None
+            self.lastrun_lastdownload_log = None
+            self.lastrun_lastdownload_config = None
+            self.lastrun_download_count = 0
+            dwnlds = self.session.query(Download).all()
+            self.lastrun_download_count = len(dwnlds)
+            if self.lastrun_download_count:
+                self.lastrun_lastdownload_config = dwnlds[-1].config
+                self.lastrun_lastdownload_log = dwnlds[-1].log
+                self.lastrun_lastdownload_id = dwnlds[-1].id
+            self.session.close()
+            self.session.bind.engine.dispose()  
+        self.mock_close_session.side_effect = clsess
         
         self.patchers.append(patch('stream2segment.main.run_download'))
         self.mock_run_download = self.patchers[-1].start()
@@ -87,6 +104,12 @@ class Test(unittest.TestCase):
             # provide a valid one so that we explicitly inject a bad one in self.yaml_overrides,
             # if needed
             dic.update(self.yaml_overrides or {})
+            # IMPORTANT: reset NOW yaml overrides. In download, yaml_load is called
+            # twice, the second time reading from the builtin download.yaml to check unknown
+            # parameters. In this case, the yaml must return EXECTLY the file ignoring our
+            # overrides. NOTE THAT THIS IS A HACK AND FAILS IF WE READ
+            # FROM THE BUILTIN CONFIG FIRST
+            self.yaml_overrides = {}
             return dic
         self.mock_yaml_load.side_effect = yload  # no-op
         
@@ -96,15 +119,24 @@ class Test(unittest.TestCase):
         self.d_yaml_file = get_templates_fpath("download.yaml")
         self.p_yaml_file = get_templates_fpath("processing.yaml")
         self.p_py_file = get_templates_fpath("processing.py")
-        
+    
+    @property
+    def downloads(self):
+        return self.session.query(Download).all()
+    
     def run_cli_download(self, *args, **yaml_overrides):
+        # reset database stuff:
+        self.lastrun_lastdownload_id = None
+        self.lastrun_lastdownload_log = None
+        self.lastrun_lastdownload_config = None
+        self.lastrun_download_count = 0
+        # process inputs:
         args = list(args)
         if all(a not in ("-c", "--configfile") for a in args):
             args += ['-c', self.d_yaml_file]
-        self.yaml_overrides, _tmp = yaml_overrides, self.yaml_overrides
+        self.yaml_overrides = yaml_overrides
         runner = CliRunner()
         result = runner.invoke(cli, ['download'] + args)
-        self.yaml_overrides = _tmp
         return result
     
     def run_cli_process(self, *args, dburl_in_yaml=None):
@@ -116,11 +148,9 @@ class Test(unittest.TestCase):
         if all(a not in ("-c", "--config") for a in args):
             args += ['-c', self.p_yaml_file]
         if dburl_in_yaml is not None:
-            self.yaml_overrides, _tmp = {'dburl': dburl_in_yaml}, self.yaml_overrides
+            self.yaml_overrides = {'dburl': dburl_in_yaml}
         runner = CliRunner()
         result = runner.invoke(cli, ['process'] + args)
-        if dburl_in_yaml is not None:
-            self.yaml_overrides = _tmp
         return result
 
         
@@ -134,100 +164,160 @@ class Test(unittest.TestCase):
         assert "tt_table: <TTTable object, " in result.output
         assert "traveltimes_model:" not in result.output
         assert 'session: <session object, dburl=\''+ self.dburl + "'>" in result.output
-        
-        dwnl = self.session.query(Download).first()
-        assert dwnl.log  # assert we have something written
+        # check the session:
+        assert self.lastrun_lastdownload_log  # assert we have something written
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 1
-        
+        assert self.lastrun_download_count == 1
+
         result = self.run_cli_download(networks='!*')  # invalid value
         assert result.exit_code != 0
-        assert "Error: Invalid value for \"networks\" / \"" in result.output
+        assert 'Error: Invalid value for "networks": ' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 0
+        assert self.lastrun_download_count == 0
+        
+        result = self.run_cli_download(network='!*')  # invalid value
+        assert result.exit_code != 0
+        assert 'Error: Invalid value for "network": ' in result.output
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert self.lastrun_download_count == 0
+        
+        result = self.run_cli_download(net='!*')  # invalid value
+        assert result.exit_code != 0
+        assert 'Error: Invalid value for "net": ' in result.output
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert self.lastrun_download_count == 0
+        
+        # test error from the command line. Result is the same as above as the check is made
+        # AFTER click
+        result = self.run_cli_download('-n', '!*')  # invalid value
+        assert result.exit_code != 0
+        assert 'Error: Invalid value for "networks": ' in result.output
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert self.lastrun_download_count == 0
+        
+        # no such option:
+        result = self.run_cli_download('-zz', '!*')
+        assert result.exit_code != 0
+        assert 'Error: no such option: -z' in result.output  # why -z and not -zz? whatever...
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert self.lastrun_download_count == 0
+        
+        # no such option from within the yaml:
+        result = self.run_cli_download(zz='!*') 
+        assert result.exit_code != 0
+        assert 'Error: No such option "zz"' in result.output
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert self.lastrun_download_count == 0
         
         #what about conflicting arguments?
         result = self.run_cli_download(networks='!*', net='opu')  # invalid value
         assert result.exit_code != 0
-        assert "Conflicting names \"net\" / \"networks\"" in result.output or \
-            "Conflicting names \"networks\" / \"net\"" in result.output
+        assert 'Conflicting names "net" / "networks"' in result.output or \
+            'Conflicting names "networks" / "net"' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 0
+        assert self.lastrun_download_count == 0
         
         result = self.run_cli_download(start=[])  # invalid type
         assert result.exit_code != 0
-        assert "Error: Invalid type for \"start\" / \"starttime\":" in result.output
+        assert 'Error: Invalid type for "start":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 0
+        assert self.lastrun_download_count == 0
 
-        result = self.run_cli_download(start='wat')  # invalid value
+        # mock implementing conflicting names in the yaml file:
+        result = self.run_cli_download(starttime='wat')  # invalid value
         assert result.exit_code != 0
-        assert "Error: Invalid value for \"start\" / \"starttime\":" in result.output
+        assert 'Error: Conflicting names "starttime" / "start"' in result.output or \
+            'Error: Conflicting names "start" / "starttime"' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 0
+        assert self.lastrun_download_count == 0
         
-        # now test the same as above BUT with the wrong value from the command line:
+        # mock implementing bad value in the cli: (cf with the previous test):
+        # THE MESSAGE BELOW IS DIFFERENT BECAUSE WE PROVIDE A CLI VALIDATION FUNCTION
+        # See the case of travetimes model below where, without a cli validation function,
+        # the message is the same when we provide a bad argument in the yaml or from the cli
+        result = self.run_cli_download('--starttime', 'wat')  # invalid value
+        assert result.exit_code != 0
+        assert 'Error: Invalid value for "-t0" / "--start" / "--starttime": wat' in result.output
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert self.lastrun_download_count == 0
+        
+        # This should work:
+        result = self.run_cli_download('--starttime', '2006-03-14')  # invalid value
+        assert result.exit_code == 0
+        run_download_kwargs = self.mock_run_download.call_args_list[-1][1]
+        assert run_download_kwargs['start'] == datetime(2006, 3, 14)
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert self.lastrun_download_count == 1
+        
+        # now test the same as above BUT with a cli-only argument (-t0):
         result = self.run_cli_download('-t0', 'wat')  # invalid value typed from the command line
         assert result.exit_code != 0
-        assert "Error: Invalid value for \"-t0\" / \"--start\" / \"--starttime\":" in result.output
+        assert 'Error: Invalid value for "-t0" / "--start" / "--starttime":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 0
+        assert self.lastrun_download_count == 0
+        
         
         result = self.run_cli_download(end='wat') # try with end
         assert result.exit_code != 0
-        assert "Error: Invalid value for \"end\" / \"endtime\":" in result.output
+        assert 'Error: Invalid value for "end":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 0
+        assert self.lastrun_download_count == 0
         
         # now test the same as above BUT with the wrong value from the command line:
         result = self.run_cli_download('-t1', 'wat')  # invalid value typed from the command line
         assert result.exit_code != 0
-        assert "Error: Invalid value for \"-t1\" / \"--end\" / \"--endtime\":" in result.output
+        assert 'Error: Invalid value for "-t1" / "--end" / "--endtime":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 0
+        assert self.lastrun_download_count == 0
         
         result = self.run_cli_download(traveltimes_model=[])  # invalid type
         assert result.exit_code != 0
-        assert "Error: Invalid type for \"traveltimes_model\":" in result.output
+        assert 'Error: Invalid type for "traveltimes_model":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 0
+        assert self.lastrun_download_count == 0
         
         result = self.run_cli_download(traveltimes_model='wat')  # invalid value
         assert result.exit_code != 0
-        assert "Error: Invalid value for \"traveltimes_model\":" in result.output
+        assert 'Error: Invalid value for "traveltimes_model":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 0
+        assert self.lastrun_download_count == 0
+        
+        # same as above but with error from the cli, not from within the config yaml:
+        result = self.run_cli_download('--traveltimes-model', 'wat')  # invalid value
+        assert result.exit_code != 0
+        assert 'Error: Invalid value for "traveltimes_model":' in result.output
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert self.lastrun_download_count == 0
         
         result = self.run_cli_download(dburl=self.d_yaml_file)  # existing file, invalid db url
         assert result.exit_code != 0
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 0
+        assert self.lastrun_download_count == 0
         
         result = self.run_cli_download(dburl="sqlite:/whatever")  # invalid db url
         assert result.exit_code != 0
-        assert "Error: Invalid value for \"dburl\":" in result.output
+        assert 'Error: Invalid value for "dburl":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 0
+        assert self.lastrun_download_count == 0
         
         result = self.run_cli_download(dburl="sqlite://whatever")  # invalid db url
         assert result.exit_code != 0
-        assert "Error: Invalid value for \"dburl\":" in result.output
+        assert 'Error: Invalid value for "dburl":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 0
+        assert self.lastrun_download_count == 0
                 
         result = self.run_cli_download(dburl=[])  # invalid type
         assert result.exit_code != 0
-        assert "Error: Invalid type for \"dburl\":" in result.output
+        assert 'Error: Invalid type for "dburl":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 0
-        result.output
+        assert self.lastrun_download_count == 0
         
         # Test an invalif configfile. This can be done only via command line
         result = self.run_cli_download('-c', 'frjkwlag5vtyhrbdd_nleu3kvshg w') 
         assert result.exit_code != 0
-        assert "Error: Invalid value for \"-c\" / \"--config\":" in result.output
+        assert 'Error: Invalid value for "-c" / "--config":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.session.query(Download).count() == 0
+        assert self.lastrun_download_count == 0
 
 
     def test_process_bad_types(self):
@@ -237,29 +327,29 @@ class Test(unittest.TestCase):
         # Note the resulting message is SIMILAR to the following, not exactly the same
         # as this is issued by click, the other by our functions in inputargs module
         assert result.exit_code != 0
-        assert "Error: Invalid value for \"-p\" / \"--pyfile\":" in result.output
+        assert 'Error: Invalid value for "-p" / "--pyfile":' in result.output
         
         result = self.run_cli_process('--dburl', 'nrvnkenrgdvf')
         assert result.exit_code != 0
-        assert "Error: Invalid value for \"dburl\":" in result.output
+        assert 'Error: Invalid value for "dburl":' in result.output
         
         result = self.run_cli_process(dburl_in_yaml='abcde')
         assert result.exit_code != 0
-        assert "Error: Invalid value for \"dburl\":" in result.output
+        assert 'Error: Invalid value for "dburl":' in result.output
         assert "abcde" in result.output
         
         result = self.run_cli_process('--funcname', 'nrvnkenrgdvf')
         assert result.exit_code != 0
-        assert "Error: Invalid value for \"pyfile\": function 'nrvnkenrgdvf' not found in" in result.output
+        assert 'Error: Invalid value for "pyfile": function "nrvnkenrgdvf" not found in' in result.output
         
         result = self.run_cli_process('-c', 'nrvnkenrgdvf')
         assert result.exit_code != 0
         # this is issued by click (see comment above)
-        assert "Invalid value for \"-c\" / \"--config\"" in result.output
+        assert 'Invalid value for "-c" / "--config"' in result.output
         
         result = self.run_cli_process('-c', self.p_py_file)
         assert result.exit_code != 0
-        assert "Error: Invalid value for \"config\"" in result.output
+        assert 'Error: Invalid value for "config"' in result.output
         
 #         result = self.run_cli_process('--pyfile', 55.5)  # invalid type from cli
 #         assert result.exit_code != 0

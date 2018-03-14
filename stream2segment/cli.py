@@ -75,6 +75,11 @@ class clickutils(object):
         for option in (opt for opt in ctx.command.params if opt.param_type_name == 'option'):
             if option.help is None:
                 option.help = cfg_doc.get(option.name, None)
+                # remove implementation details from the cli (avoid too much information,
+                # or information specific to the yaml file and not the cli):
+                idx = option.help.find('Implementation details:')
+                if idx > -1:
+                    option.help = option.help[:idx]
 
         return value
 
@@ -127,6 +132,31 @@ def init(outdir):
     sys.exit(1)
 
 
+# NOTES BELOW:
+# First naming conventions:
+# * option short name: any click option name starting with "-"
+# * option long name: any click option name starting with "--"
+# * option default name: any click option name not starting with any "-"
+# * (http://click.pocoo.org/5/parameters/#parameter-names)
+# * option help: the option help shown when issuing "--help" from the command line
+# * yaml param help: the help in the docstring immediately preceeding a yaml param name,
+#   (fetched from the default download.yaml config in the 'templates' folder)
+# 1. we want to set each option help from the corresponding yaml param help, so that we keep docs
+#    updated in only one place.
+#    This is done by the method `clickutils.set_help_from_yaml`, attached
+#    as callback to the option '--dburl' below, which has 'is_eager=True', meaning that the
+#    callback is executed before all other options, even when invoking the command with --help.
+#    The callback is not attached to '--config' above because
+#    options with required = True and eager=True will raise, bypassing --help, if given
+# 2. For yaml param help, any string following "Implementation details:": will not be shown
+#    in the corresponding option help.
+# 3. Some yaml params accepts different names (e.g., 'net' will
+#    be recognized as 'networks'): by convention, these are provided as option long names.
+#    (Options short names can be changed without problems, in principle).
+#    For these options, you need also to provide an option default name, in order
+#    to match the corresponding yaml param help when fetching its doc.
+# 4. Option flags should all have default=None which lets us know that the flag is missing and use
+#    the corresponding yaml param values
 @cli.command(short_help='Download waveform data segments',
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option("-c", "--config",
@@ -134,26 +164,18 @@ def init(outdir):
                    "(https://learn.getgrav.org/advanced/yaml).",
               type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
                               readable=True), required=True)
-# NOTE BELOW: we want to set each option docstring from the default download.yaml config in
-# the 'templates' folder, so that we keep docs updated in only one place.
-# This is done by the method `clickutils.set_help_from_yaml`, attached
-# as callback to the option '--dburl' below, which has 'is_eager=True', meaning that the
-# callback is executed before all other options, even when invoking the command with --help.
-# The callback is not attached to '--config' above because
-# options with required = True and eager=True will suppresses --help
 @click.option('-d', '--dburl', is_eager=True, callback=clickutils.set_help_from_yaml)
 @click.option('-e', '--eventws')
 @click.option('-t0', '--start', '--starttime', 'start', type=inputargs.valid_date)
 @click.option('-t1', '--end', '--endtime', 'end', type=inputargs.valid_date)
-@click.option('-nt', '--net', '--network', '--networks', 'networks', help='See channels')
-@click.option('-st', '--sta', '--station', '--stations', 'stations', help='See channels')
-@click.option('-lc', '--loc', '--location', '--locations', 'locations', help='See channels')
-@click.option('-ch', '--cha', '--channel', '--channels', 'channels')
+@click.option('-n', '--net', '--network', '--networks', 'networks', help='See channels')
+@click.option('-s', '--sta', '--station', '--stations', 'stations', help='See channels')
+@click.option('-l', '--loc', '--location', '--locations', 'locations', help='See channels')
+@click.option('-k', '--cha', '--channel', '--channels', 'channels')
 @click.option('-msr', '--min-sample-rate')
 @click.option('-ds', '--dataws')
 @click.option('-t', '--traveltimes-model')
 @click.option('-w', '--timespan', nargs=2, type=float)
-# note below: default=None lets us know that the flag is missing and use the config file values
 @click.option('-u', '--update-metadata', is_flag=True, default=None)
 @click.option('-r1', '--retry-url-err', is_flag=True, default=None)
 @click.option('-r2', '--retry-mseed-err', is_flag=True, default=None)
