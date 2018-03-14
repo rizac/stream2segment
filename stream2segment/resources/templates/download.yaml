@@ -19,7 +19,8 @@ dburl: 'sqlite:////path/to/my/db.sqlite'
 # Try to dowonload again already saved segments with no waveform data because not found
 # in the response. This is NOT the case when the server returns no data with an appropriate
 # 'No Content' message, but when a successful response (usually '200: OK') does not contain
-# the expected segment data. E.g., a multi-segment request returns some but not all requested segments.
+# the expected segment data. E.g., a multi-segment request returns some but not all requested
+# segments.
 retry_seg_not_found: true
 # Try to dowonload again already saved segments with no waveform data because of a
 # general url error (e.g., no internet connection, timeout, ...)
@@ -37,15 +38,17 @@ retry_server_err: true
 # was completely outside the requested time span (see 'timespan' for details)
 retry_timespan_err: true
 
-# Update segments metadata, i.e. overwrite data of already saved segments and stations
-# (keeping their id unchanged. This parameter might affect how the 'inventory' option beahves (see 'inventory' for details)
+# Update segments metadata, i.e. overwrite metadata of already saved stations and channels
+# (except their db id, which is fixed).
+# Metadata include the station inventories (see 'inventory' for details).
 # This parameter does not affect new stations and channels, which will be saved on the db anyway
 update_metadata: false
 
 # Download station inventories (xml format):
-# inventories will be downloaded and saved on the db for all stations that have saved segments with data.
-# If the db metadata should not be updated (see 'update_metadata') already saved inventories will not be downloaded again.
-# You can always fetch and save inventories later during processing, if required
+# inventories will be downloaded and saved on the db for all stations that have saved segments
+# with data. If the metadata should not be updated (see 'update_metadata') already saved inventories
+# will not be downloaded again. You can always fetch and save inventories later during processing,
+# if required
 inventory: true
 
 
@@ -53,20 +56,23 @@ inventory: true
 # DATA QUERY PARAMETERS
 #######################
 
-# Limit to events (and datacenters) on or after the specified start time. Specify a date or date-time in iso-format
-# or an integer >=0 to denote the number of days before today at midnight.
-# Example: start=1 and end=0 => fetch events occurred yesterday
+# Limit to events (and datacenters) on or after the specified start time. Specify a date or
+# date-time in iso-format or an integer >=0 to denote the number of days before today at midnight.
+# Example: start=1 and end=0 => fetch events occurred yesterday.
+# Implementation details: 'starttime' is also a valid name for this parameter
 start: 2006-01-01T00:00:00
-# Limit to events (and datacenters) on or before the specified end time. Specify a date or date-time in iso-format
-# or an integer >=0 to denote the number of days before today at midnight.
-# Example: start=1 and end=0 => fetch events occurred yesterday
+# Limit to events (and datacenters) on or before the specified end time. Specify a date or
+# date-time in iso-format or an integer >=0 to denote the number of days before today at midnight.
+# Example: start=1 and end=0 => fetch events occurred yesterday.
+# Implementation details: 'endtime' is also a valid name for this parameter
 end: 2016-12-25T00:00:00
 
 # the event web service to use (url)
 eventws: 'http://seismicportal.eu/fdsnws/event/1/query'
 
-# a dict of fdns ws arguments for the eventws query. All values are permitted except 'format', 'start' 
-# and 'end' (the latter are taken from the values of the relative config parameters specified above)
+# a dict of fdns ws arguments for the eventws query. All values are permitted except 'format',
+# 'start' and 'end' (the latter are taken from the values of the relative config parameters
+# specified above)
 eventws_query_args:
   minmag: 3.0
   minlat: 47.0
@@ -77,28 +83,27 @@ eventws_query_args:
   maxdepth: 50
 
 # data-select web service to use (url). It should be fdsn compliant, so that the relative
-# station url can be retrieved automatically. You can also type two special values, "iris" and
-# "eida". The former is just a shortcut for the iris data-select urls
-# (https://service.iris.edu/fdsnws/station/1/query for stations and channels,
-# https://service.iris.edu/fdsnws/dataselect/1/query for data), the latter will automatically
-# fetch all eida datacenters and their urls.
-# For any datacenter which fails to download stations and channels (e.g., network error, client/server error)
-# the database will be queried with the same filters (see network, station, location, channel and min_sample_rate, if provided)
-# after converting FDSN syntax to SQL, when needed.
-# If no datacenter station's url returns data and the db is empty (first download) the download process will stop
+# station url can be retrieved automatically. You can also type two special values, "iris" 
+# (shortcut for: https://service.iris.edu/fdsnws/dataselect/1/query for data) or "eida"
+# (which will automatically fetch all eida datacenters and their urls).
+# Implementation details: For any datacenter which fails to download stations and channels
+# (e.g., network error, client/server error) the database will be queried with the same filters
+# (see network, station, location, channel and min_sample_rate, if provided) after converting
+# FDSN syntax to SQL, when needed. If no datacenter station's url returns data and the db is
+# empty (first download) the download process will stop
 dataws: 'eida'
 
-# Limit the search to the specified networks, stations, locations and channels.
-# Parameter names and values are strings following FDSN queries syntax (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf),
-# so for instance 'cha', 'channel', 'channels' are equivalent
-# (if a parameter name is missing, it's value defaults to '*').
-# Parameter values are enhanced here with the operator ! to indicate logical NOT. So e.g.,
-# to download all networks NOT starting with 'A' AND, within the matching networks,
-# all 3-letter channels starting with H or B, type: 
-#  netowrk: '!A*'
+# Limit the search to the specified channels.
+# (if missing, it's value defaults to '*', i.e. accept all channels)
+# Wildcards '?' and '*' are recognized (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf),
+# as well as the operator '!' placed as first character to indicate logical NOT.
+# E.g.: download waveform data and metadata from all networks NOT starting with 'A' and
+# all channels with 3 letters starting with 'H' or 'B': 
+#  netowrks: '!A*'
 #  channels: 'H??,B??'
-# From the config yaml file you can also specify a list/array of strings in yaml format
-# instead of comma-separated strings. E.g., these are quivalent:
+# Implementation details: 'cha' or 'channel' are also valid names for the parameter.
+# Moreover, you can also specify a list/array of
+# strings in yaml format instead of comma-separated strings. E.g., these are quivalent:
 # networks: "A,B"
 # networks: [ "A" , "B" ]
 # networks:
@@ -108,14 +113,29 @@ channels:
  - "HH?"
  - 'HN?'
  - 'HL?'
+ 
+# Limit the search to the specified networks (see 'channels' parameter above for details).
+# 'net' or 'network' are also valid names for the parameter.
+# By default the line below is commented, meaning that all networks are accepted:
+# networks: '*'
 
-# Limit the search to station's channels with at least min_sample_rate (in Hz).
+# Limit the search to the specified stations (see 'channels' parameter above for details).
+# 'sta' or 'station' are also valid names for the parameter.
+# By default the line below is commented, meaning that all stations are accepted:
+# stations: '*'
+
+# Limit the search to the specified locations (see 'channels' parameter above for details).
+# 'loc' or 'location' are also valid names for the parameter.
+# By default the line below is commented, meaning that all locations are accepted:
+# locations: '*'
+
+# Limit the search to channels with at least min_sample_rate (in Hz).
 # The relative segments are *mot likely* (not always) matching the channel sample rate.
 # Set to 0 or negative number to ignore the sampling rate
 min_sample_rate: 60
 
-# search radius: for each event, stations will be searched within a circular area whose radius is a linear function
-# of the event magnitude:
+# search radius: for each event, stations will be searched within a circular area whose radius
+# is a linear function of the event magnitude:
 #
 #                   |
 #     maxmag_radius +                oooooooooooo
@@ -127,9 +147,11 @@ min_sample_rate: 60
 #                   ---------+-------+------------
 #                         minmag   maxmag
 # Edge cases:
-# - if minmag_radius == maxmag_radius = R, this is equivalent to a constant function returning always R regardless of the magnitude
-# - if minmag_radius != maxmag_radius and minmag == maxmag = M, this function returns minmag_radius for all magnitudes < M,
-#     maxmag_radius for all magnitudes > M, and (minmag_radius + maxmag_radius) / 2 for all magnitudes == M
+# - if minmag_radius == maxmag_radius = R, this is equivalent to a constant function returning
+#   always R regardless of the magnitude
+# - if minmag_radius != maxmag_radius and minmag == maxmag = M, this function returns
+#   minmag_radius for all magnitudes < M, maxmag_radius for all magnitudes > M, and
+#   (minmag_radius + maxmag_radius) / 2 for all magnitudes == M
 search_radius:
  minmag: 6 # min magnitude
  maxmag: 7 # max magnitude
@@ -147,18 +169,17 @@ search_radius:
 # For each segment, the arrival time (travel
 # time + event time) will be the pivot whereby the user sets up the download time window
 # (see also 'timespan').
-# A model is internally a 2- or 3-dimensional grid
+# Implementation details: a model is internally a 2- or 3-dimensional grid
 # of pre-computed travel time points coupled with an highly efficient
 # algoritm which returns interpolated travel time values. This results in a relevant increase in
 # execution speed, with max errors in the order of 0.5 seconds due to interpolation.
 traveltimes_model: 'ak135_ttp+'
 
 # The segment's data time window to download: specify two positive floats denoting the 
-# minutes to account for before and after the calculated arrival time.
-# Note that 3.5 means 3 minutes 30 seconds, 3.1 means 3 minutes and 6 seconds, and so on:
-# whereas this is not straightforward, there should be never the need to specify resolutions finer
-# than half a minute; in any case all segment time windows will be rounded
-# to the closest second to avoid floating point errors when checking for already existing segments
+# minutes to account for before and after the calculated arrival time. Note that 3.5 means
+# 3 minutes 30 seconds, and that each segment window will be eventually rounded to the nearest
+# second to avoid floating point errors when checking for segments to re-download because of a
+# changed window.
 timespan:
  - 1.0 # start time of the waveform segment to download, in minutes *before* the previously calculated arrival time.
  - 3.0 # end time of the waveform segment to download, in minutes *after* the previously calculated arrival time
@@ -179,16 +200,18 @@ advanced_settings:
  # If 0 or negative, is automatically set according to the machine CPU
  # (https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor)
  max_thread_workers: 0
- # max time to wait (in seconds) for a single request while downloading stations+channel metadata (`urllib2.urlopen` timeout argument)
+ # max time to wait (in seconds) for a single request while downloading stations+channel metadata
+ # (`urllib2.urlopen` timeout argument)
  s_timeout: 120
- # If the flag to download station inventories is on (true), max time to wait (in seconds) for a single request
- # while downloading an inventory in xml format (`urllib2.urlopen` timeout argument)
+ # If the flag to download station inventories is on (true), max time to wait (in seconds) for a
+ # single request while downloading an inventory in xml format (`urllib2.urlopen` timeout argument)
  i_timeout: 60
- # max time to wait (in seconds) for a single request while downloading waveform data (`urllib2.urlopen` timeout argument)
+ # max time to wait (in seconds) for a single request while downloading waveform data
+ # (`urllib2.urlopen` timeout argument)
  w_timeout: 60
  # the buffer size used when writing items (stations, segments, events, ...) to database.
- # Increasing this number usually sppeds speed up db IO operations, but increases the potentially unsaved
- # rows in case of errors, as if a row item in the buffer cannot be inserted or updated
+ # Increasing this number usually sppeds speed up db IO operations, but increases the potentially
+ # unsaved rows in case of errors, as if a row item in the buffer cannot be inserted or updated
  # (e.g., integrity errors), all subsequent buffer items will be also discarded
  db_buf_size: 20
 

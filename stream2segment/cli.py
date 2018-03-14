@@ -139,28 +139,34 @@ def init(outdir):
 # This is done by the method `clickutils.set_help_from_yaml`, attached
 # as callback to the option '--dburl' below, which has 'is_eager=True', meaning that the
 # callback is executed before all other options, even when invoking the command with --help.
-# Note: Don't set required = True with eager=True: it suppresses --help
+# The callback is not attached to '--config' above because
+# options with required = True and eager=True will suppresses --help
 @click.option('-d', '--dburl', is_eager=True, callback=clickutils.set_help_from_yaml)
 @click.option('-e', '--eventws')
-@click.option('-t0', '--start', '--starttime', type=inputargs.valid_date)
-@click.option('-t1', '--end', '--endtime', type=inputargs.valid_date)
+@click.option('-t0', '--start', '--starttime', 'start', type=inputargs.valid_date)
+@click.option('-t1', '--end', '--endtime', 'end', type=inputargs.valid_date)
+@click.option('-nt', '--net', '--network', '--networks', 'networks', help='See channels')
+@click.option('-st', '--sta', '--station', '--stations', 'stations', help='See channels')
+@click.option('-lc', '--loc', '--location', '--locations', 'locations', help='See channels')
+@click.option('-ch', '--cha', '--channel', '--channels', 'channels')
+@click.option('-msr', '--min-sample-rate')
 @click.option('-ds', '--dataws')
-@click.option('--min_sample_rate')
-@click.option('-t', '--traveltimes_model')
+@click.option('-t', '--traveltimes-model')
 @click.option('-w', '--timespan', nargs=2, type=float)
 # note below: default=None lets us know that the flag is missing and use the config file values
-@click.option('-u', '--update_metadata', is_flag=True, default=None)
-@click.option('-r1', '--retry_url_err', is_flag=True, default=None)
-@click.option('-r2', '--retry_mseed_err', is_flag=True, default=None)
-@click.option('-r3', '--retry_seg_not_found', is_flag=True, default=None)
-@click.option('-r4', '--retry_client_err', is_flag=True, default=None)
-@click.option('-r5', '--retry_server_err', is_flag=True, default=None)
-@click.option('-r6', '--retry_timespan_err', is_flag=True, default=None)
+@click.option('-u', '--update-metadata', is_flag=True, default=None)
+@click.option('-r1', '--retry-url-err', is_flag=True, default=None)
+@click.option('-r2', '--retry-mseed-err', is_flag=True, default=None)
+@click.option('-r3', '--retry-seg-not-found', is_flag=True, default=None)
+@click.option('-r4', '--retry-client-err', is_flag=True, default=None)
+@click.option('-r5', '--retry-server-err', is_flag=True, default=None)
+@click.option('-r6', '--retry-timespan-err', is_flag=True, default=None)
 @click.option('-i', '--inventory', is_flag=True, default=None)
 @click.argument('eventws_query_args', nargs=-1, type=click.UNPROCESSED,
                 callback=lambda ctx, param, value: inputargs.keyval_list_to_dict(value))
-def download(config, dburl, eventws, start, end, dataws, min_sample_rate, traveltimes_model,
-             timespan, update_metadata, retry_url_err, retry_mseed_err, retry_seg_not_found,
+def download(config, dburl, eventws, start, end, networks, stations, locations, channels,
+             min_sample_rate, dataws, traveltimes_model, timespan, update_metadata,
+             retry_url_err, retry_mseed_err, retry_seg_not_found,
              retry_client_err, retry_server_err, retry_timespan_err, inventory, eventws_query_args):
     """Download waveform data segments with quality-check metadata and relative events, stations and
     channels metadata into a specified database.

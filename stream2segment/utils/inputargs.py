@@ -384,7 +384,8 @@ def load_config_for_download(config, **param_overrides):
 
     # parse "simple" arguments where we must only parse a value and replace it in the dict 
     # (no key replacement / no variable num of arg names):
-    for argument, func in  [(S2SArgument('start'), valid_date), (S2SArgument('end'), valid_date),
+    for argument, func in  [(S2SArgument('start', 'starttime'), valid_date),
+                            (S2SArgument('end', 'endtime'), valid_date),
                             (S2SArgument('eventws'), valid_fdsn),
                             (S2SArgument('dataws'), valid_fdsn)]:
         value = argument.getfrom(dic)

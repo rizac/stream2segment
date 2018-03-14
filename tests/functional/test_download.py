@@ -1019,7 +1019,6 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
     
         # run without flag update on:
         result = runner.invoke(cli , ['download', '-c', self.configfile,
-                                      # '--update_metadata',
                                        '--dburl', self.dburi,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00', '--inventory'])
@@ -1035,7 +1034,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         # NOW UPDATE METADATA
         
         result = runner.invoke(cli , ['download', '-c', self.configfile,
-                                       '--update_metadata',
+                                       '--update-metadata',
                                        '--dburl', self.dburi,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00', '--inventory'])

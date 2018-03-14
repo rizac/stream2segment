@@ -156,33 +156,33 @@ class Test(unittest.TestCase):
         
         result = self.run_cli_download(start=[])  # invalid type
         assert result.exit_code != 0
-        assert "Error: Invalid type for \"start\":" in result.output
+        assert "Error: Invalid type for \"start\" / \"starttime\":" in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.session.query(Download).count() == 0
 
         result = self.run_cli_download(start='wat')  # invalid value
         assert result.exit_code != 0
-        assert "Error: Invalid value for \"start\":" in result.output
+        assert "Error: Invalid value for \"start\" / \"starttime\":" in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.session.query(Download).count() == 0
         
         # now test the same as above BUT with the wrong value from the command line:
         result = self.run_cli_download('-t0', 'wat')  # invalid value typed from the command line
         assert result.exit_code != 0
-        assert "Error: Invalid value for \"-t0\" / \"--start\":" in result.output
+        assert "Error: Invalid value for \"-t0\" / \"--start\" / \"--starttime\":" in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.session.query(Download).count() == 0
         
         result = self.run_cli_download(end='wat') # try with end
         assert result.exit_code != 0
-        assert "Error: Invalid value for \"end\":" in result.output
+        assert "Error: Invalid value for \"end\" / \"endtime\":" in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.session.query(Download).count() == 0
         
         # now test the same as above BUT with the wrong value from the command line:
         result = self.run_cli_download('-t1', 'wat')  # invalid value typed from the command line
         assert result.exit_code != 0
-        assert "Error: Invalid value for \"-t1\" / \"--end\":" in result.output
+        assert "Error: Invalid value for \"-t1\" / \"--end\" / \"--endtime\":" in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.session.query(Download).count() == 0
         
