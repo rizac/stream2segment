@@ -196,9 +196,9 @@ class Test(unittest.TestCase):
         assert self.lastrun_download_count == 0
         
         # no such option:
-        result = self.run_cli_download('-zz', '!*')
+        result = self.run_cli_download('--zrt', '!*')
         assert result.exit_code != 0
-        assert 'Error: no such option: -z' in result.output  # why -z and not -zz? whatever...
+        assert 'Error: no such option: --zrt' in result.output  # why -z and not -zz? whatever...
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.lastrun_download_count == 0
         
@@ -237,7 +237,7 @@ class Test(unittest.TestCase):
         # the message is the same when we provide a bad argument in the yaml or from the cli
         result = self.run_cli_download('--starttime', 'wat')  # invalid value
         assert result.exit_code != 0
-        assert 'Error: Invalid value for "-t0" / "--start" / "--starttime": wat' in result.output
+        assert 'Error: Invalid value for "-s" / "--start" / "--starttime": wat' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.lastrun_download_count == 0
         
@@ -250,9 +250,9 @@ class Test(unittest.TestCase):
         assert self.lastrun_download_count == 1
         
         # now test the same as above BUT with a cli-only argument (-t0):
-        result = self.run_cli_download('-t0', 'wat')  # invalid value typed from the command line
+        result = self.run_cli_download('-s', 'wat')  # invalid value typed from the command line
         assert result.exit_code != 0
-        assert 'Error: Invalid value for "-t0" / "--start" / "--starttime":' in result.output
+        assert 'Error: Invalid value for "-s" / "--start" / "--starttime":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.lastrun_download_count == 0
         
@@ -264,9 +264,9 @@ class Test(unittest.TestCase):
         assert self.lastrun_download_count == 0
         
         # now test the same as above BUT with the wrong value from the command line:
-        result = self.run_cli_download('-t1', 'wat')  # invalid value typed from the command line
+        result = self.run_cli_download('-e', 'wat')  # invalid value typed from the command line
         assert result.exit_code != 0
-        assert 'Error: Invalid value for "-t1" / "--end" / "--endtime":' in result.output
+        assert 'Error: Invalid value for "-e" / "--end" / "--endtime":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.lastrun_download_count == 0
         
