@@ -6,26 +6,26 @@
 # POGRAM PARAMETERS
 ###################
 
-# Database url where to save data. Currently supported are sqlite and postgresql databases.
+# Database url where to save data (currently supported are sqlite and postgresql).
 # If sqlite, just write the path to your local file
-# prefixed with 'sqlite:///' (e.g., 'sqlite:////home/my_folder/db.sqlite'): non-absolute
-# paths will be considered relative to the config file they are written in.
-# If not sqlite, the syntax is:
+# prefixed with 'sqlite:///' (e.g., 'sqlite:////home/myfolder/db.sqlite'): non-absolute
+# paths will be relative to the config file they are written in.
+# If non-sqlite, the syntax is:
 # dialect+driver://username:password@host:port/database
-# (e.g.: 'postgresql://smith:Hw_6,@mymachine.example.org/mydb')
+# E.g.: 'postgresql://smith:Hw_6,@mymachine.example.org/mydb'
 # (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)
 dburl: 'sqlite:////path/to/my/db.sqlite'
 
 # Try to dowonload again already saved segments with no waveform data because not found
 # in the response. This is NOT the case when the server returns no data with an appropriate
-# 'No Content' message, but when a successful response ('OK') does not contain
-# the expected segment data. For instance, a multi-segment request might return some but not all requested segments.
+# 'No Content' message, but when a successful response (usually '200: OK') does not contain
+# the expected segment data. E.g., a multi-segment request returns some but not all requested segments.
 retry_seg_not_found: true
 # Try to dowonload again already saved segments with no waveform data because of a
 # general url error (e.g., no internet connection, timeout, ...)
 retry_url_err: true
 # Try to dowonload again already saved segments with no waveform data because the response was
-# not readable as MiniSeed
+# malformed, i.e. not readable as MiniSeed
 retry_mseed_err: false
 # Try to dowonload again already saved segments with no waveform data because of a client error
 # (response code in [400,499])
@@ -37,14 +37,14 @@ retry_server_err: true
 # was completely outside the requested time span (see 'timespan' for details)
 retry_timespan_err: true
 
-# Tells to update segments metadata, i.e. overwrite data of already saved segments and stations
-# (keeping their id unchanged). New station and new channels (not found on the db) will be saved in any case.
-# This parameter might affect how the 'inventory' option beahves (see 'inventory' for details)
+# Update segments metadata, i.e. overwrite data of already saved segments and stations
+# (keeping their id unchanged. This parameter might affect how the 'inventory' option beahves (see 'inventory' for details)
+# This parameter does not affect new stations and channels, which will be saved on the db anyway
 update_metadata: false
 
-# Tells to download station inventories (xml format):
-# inventories will be downloaded for all station that have saved segments (with data and no errors), and
-# if the metadata should not be updated (see 'update_metadata') already saved inventories will not be downloaded again.
+# Download station inventories (xml format):
+# inventories will be downloaded and saved on the db for all stations that have saved segments with data.
+# If the db metadata should not be updated (see 'update_metadata') already saved inventories will not be downloaded again.
 # You can always fetch and save inventories later during processing, if required
 inventory: true
 

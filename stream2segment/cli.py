@@ -142,8 +142,8 @@ def init(outdir):
 # Note: Don't set required = True with eager=True: it suppresses --help
 @click.option('-d', '--dburl', is_eager=True, callback=clickutils.set_help_from_yaml)
 @click.option('-e', '--eventws')
-@click.option('-t0', '--start', type=inputargs.valid_date)
-@click.option('-t1', '--end', type=inputargs.valid_date)
+@click.option('-t0', '--start', '--starttime', type=inputargs.valid_date)
+@click.option('-t1', '--end', '--endtime', type=inputargs.valid_date)
 @click.option('-ds', '--dataws')
 @click.option('--min_sample_rate')
 @click.option('-t', '--traveltimes_model')
