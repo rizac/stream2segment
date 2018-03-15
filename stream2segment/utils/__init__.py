@@ -193,14 +193,26 @@ def tounicode(string, decoding='utf-8'):
 
 def strptime(obj):
     """
-        Converts `obj` to a `datetime` object in UTC without tzinfo.
-        
-        If `obj` is string, creates a `datetime` object by parsing it with `dateutil`, otherwise
-        uses `obj` as `datetime` object. Then, if the datetime object has a tzinfo supplied,
-        converts it to UTC and removes the tzinfo attribute. Finally, returns the datetime object
-        
-        :param obj: `datetime` object or string.
-        
+        Converts `obj` to a `datetime` object **in UTC without tzinfo**. This function should be
+        used within this program as the opposite of `datetime.isoformat()` for parsing date times
+        from, e.g. web service queries or command line inputs, under the assumption that no
+        time zone means UTC.
+
+        If `obj` is string, creates a `datetime` object by parsing it. If `obj`
+        is not a date-time object, raises TypeError. Otherwise, uses `obj` as `datetime` object.
+        Then, if the datetime object has a tzinfo supplied, converts it to UTC and removes the
+        tzinfo attribute. Finally, returns the datetime object
+
+        Implementation details: `datetime.strptime`does not keep time zone information in the
+        parsed date-time, nor it recognizes 'Z' as 'UTC' (raises instead). The library `dateutil`,
+        on the other hand, is too permissive and has too many false "positives"
+        (e.g. integers or strings such as  '5-7' are succesfully parsed into date-time).
+        We choose `dateutil` as the code is shorter, cleaner, and a single hack is needed:
+        we simply check, after a string `obj` is succesfully parsed into `dtime`, that `obj`
+        contains at least the string `dtime.strftime(format='%Y-%m-%d')` (such as e,g, '2006-01-31')
+
+        :param obj: `datetime` object or string in ISO format (see examples below)
+
         :return: a datetime object in UTC, with the tzinfo removed
         :raise: TypeError or ValueError
         :Example. These are all equivalent:
@@ -212,10 +224,10 @@ def strptime(obj):
             strptime("2016-06-01 00:00:00")
             strptime("2016-06-01 00:00:00Z")
             strptime("2016-06-01")
-            
+
             This raises ValueError:
             strptime("2016-06-01Z")
-            
+
             This raises TypeError:
             strptime(45.5)
         ```
@@ -223,7 +235,12 @@ def strptime(obj):
     dtime = obj
     if isinstance(obj, string_types):
         try:
-            dtime = dateparser.parse(obj)
+            dtime = dateparser.parse(obj, fuzzy=False, fuzzy_with_tokens=False)
+            # now, dateperser is quite hacky on purpose, guessing too much.
+            # datetime.strptime, on the other hand, does not parse Z as UTC (raises in case)
+            # and does not include the timezone in the parsed date. The best (hacky) solution
+            # is to assert the bare minimum: that %Y-%m-%d is in dtime:
+            assert dtime.strftime(format='%Y-%m-%d') in obj
         except Exception as exc:
             raise ValueError(str(exc))
 
@@ -233,7 +250,7 @@ def strptime(obj):
     if dtime.tzinfo is not None:
         # if a time zone is specified, convert to utc and remove the timezone
         dtime = dtime.astimezone(tzutc()).replace(tzinfo=None)
-    
+
     # the datetime has no timezone provided AND is in UTC:
     return dtime
 

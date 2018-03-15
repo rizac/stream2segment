@@ -104,6 +104,21 @@ def test_click_download(mock_download, mock_create_sess, mock_new_db_download,
         # assert dic['dburl'] == yamldic['dburl']
         assert result.exit_code == 0
 
+    # test again start and end given as integers (30 days) FROM THE CLI
+    with download_setup("download.yaml") as (conffile, yamldic):
+        mock_download.reset_mock()
+        mock_create_sess.reset_mock()
+        result = runner.invoke(cli, ['download', '-c', conffile, '-s', '30', '-e', '0'])
+        dic = mock_download.call_args_list[0][1]
+        d = datetime.utcnow()
+        startd = datetime(d.year, d.month, d.day) - timedelta(days=30)
+        endd = datetime(d.year, d.month, d.day)
+        assert dic['start'] == startd
+        assert dic['end'] == endd
+        mock_create_sess.assert_called_once_with(yamldic['dburl'])
+        # assert dic['dburl'] == yamldic['dburl']
+        assert result.exit_code == 0
+
     # test removing an item in the config.yaml this item is not passed to download func
     with download_setup("download.yaml", inventory=None) as (conffile, yamldic):
         mock_download.reset_mock()

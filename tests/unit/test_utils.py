@@ -248,13 +248,14 @@ def test_progressbar_functional():
 def test_strptime(str_input, expected_diff):
     
     if ":" in str_input:
-        arr = [str_input, str_input+'Z', str_input+'CET']
+        arr = [str_input, str_input + 'UTC', str_input+'Z', str_input+'CET']
     else:
         arr = [str_input]
     for ds1, ds2 in product(arr, arr):
         
         d1 = strptime(ds1)
         d2 = strptime(ds2)
+
         if ds1[-3:] == 'CET' and not ds2[-3:] == 'CET':
             # ds1 was CET, it means that d1 (which is UTC) is one hour less than d2 (which is UTC)
             assert d1 == d2 - expected_diff

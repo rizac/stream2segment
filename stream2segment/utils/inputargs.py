@@ -117,7 +117,7 @@ class S2SArgument(object):
 
     def _get(self, dic, pop=False, ifmissing=None):
         try:
-            keys_in =[p for p in self.names if p in dic]
+            keys_in = [par for par in self.names if par in dic]
             if len(keys_in) > 1:
                 raise ConflictingArgs(*keys_in)
             elif not keys_in:
@@ -191,7 +191,7 @@ class S2SArgument(object):
         '''returns the name of this argument (string). `self.names` contains the returned string
         (not necessarily at the first position when iterating over it)'''
         return self._name
-    
+
     @property
     def names(self):
         '''returns the names of this argument (set of strings). `self.name` is an element of
@@ -202,10 +202,10 @@ class S2SArgument(object):
 def typesmatch(value, other_value):
     '''checks that value is of the same type (same class, or subclass) of `other_value`.
     Raises TypeError if that's not the case
-    
+
     :param value: a python object
     :param other_value: a python object
-    
+
     :return: value
     '''
     if not issubclass(value.__class__, other_value.__class__):
@@ -268,7 +268,7 @@ def nslc_param_value_aslist(value):
         # some checks:
         if "!*" in strings:  # discard everything is not valid
             raise ValueError("'!*' (=discard all) invalid")
-        elif "*" in  strings:  # accept everything and X: X is redundant
+        elif "*" in strings:  # accept everything and X: X is redundant
             strings = set(_ for _ in strings if _[0:1] == '!')
         else:
             for string in strings:  # accept A end discard A is not valid
@@ -305,7 +305,7 @@ def keyval_list_to_dict(value):
 def create_session(dburl):
     '''Creates an asql-alchemy session from dburl. Raises TypeError if dburl os not
     a string, or any SqlAlchemy exception if the session could not be created
-    
+
     :param dburl: string denoting a database url (currently postgres and sqlite supported
     '''
     if not isinstance(dburl, string_types):
@@ -407,11 +407,11 @@ def load_config_for_download(config, parseargs, **param_overrides):
         dic['session'] = argument.popfrom(dic, callback=create_session)
         # now remove the already processed dic keys:
         remainingkeys -= argument.names  # argument.names is simply set(['dburl]) in this case
-    
+
         argument = S2SArgument('traveltimes_model')
         dic['tt_table'] = argument.popfrom(dic, callback=load_tt_table)
         remainingkeys -= argument.names
-    
+
         # parse "simple" arguments where we must only parse a value and replace it in the dict
         # (no key replacement / no variable num of arg names):
         for argument, func in  [(S2SArgument('start', 'starttime'), valid_date),
@@ -420,7 +420,7 @@ def load_config_for_download(config, parseargs, **param_overrides):
                                 (S2SArgument('dataws'), valid_fdsn)]:
             dic[argument.name] = argument.getfrom(dic, callback=func)
             remainingkeys -= argument.names
-    
+
         # then, network channel ... arguments:
         for argument in (S2SArgument('networks', 'net', 'network'),
                          S2SArgument('stations', 'sta', 'station'),
@@ -428,7 +428,7 @@ def load_config_for_download(config, parseargs, **param_overrides):
                          S2SArgument('channels', 'cha', 'channel'),):
             dic[argument.name] = argument.popfrom(dic, default=[], callback=nslc_param_value_aslist)
             remainingkeys -= argument.names
-    
+
         # For all remaining arguments, just check the type as it should match the
         # default download config shipped with this package:
         orig_config = yaml_load(get_templates_fpath("download.yaml"))
