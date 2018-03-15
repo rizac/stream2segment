@@ -40,17 +40,17 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
     """
         Downloads waveforms related to events to a specific path.
         This function is not intended to be called directly (PENDING: update doc?)
-        
+
         :raise: QuitDownload exceptions
     """
 
     # RAMAINDER: **Any function here EXPECTS THEIR DATAFRAME INPUT TO BE NON-EMPTY.**
-    
+
     # remember that any QuitDownload raised by any of these function will prevent inventory
     # download if quitdownload.iscritical=True. This happens almost in all cases except when
     # we do not have segments to download according to our config (in prepare_for_download)
     # In this case, download inventories if needed
-        
+
     # set blocksize if zero:
     if advanced_settings['download_blocksize'] <= 0:
         advanced_settings['download_blocksize'] = -1
@@ -65,7 +65,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
     # custom function for logging.info different steps:
     def stepinfo(text, *args, **kwargs):
         step = next(stepiter)
-        logger.info("\nSTEP %d of %d: {}".format(text), step, __steps, *args, **kwargs)  #pylint: disable=logging-not-lazy
+        logger.info("\nSTEP %d of %d: {}".format(text), step, __steps, *args, **kwargs)
         if process is not None:
             percent = process.memory_percent()
             logger.warning("(%.1f%% memory used)", percent)
@@ -78,14 +78,14 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
         # get events (might raise QuitDownload)
         events_df = get_events_df(session, eventws, dbbufsize, start=startiso, end=endiso,
                                   **eventws_query_args)
-    
+
         # Get datacenters, store them in the db, returns the dc instances (db rows) correctly added
         stepinfo("Requesting data-centers")
         # get dacatanters (might raise QuitDownload):
         datacenters_df, eidavalidator = \
             get_datacenters_df(session, dataws, advanced_settings['routing_service_url'],
                                networks, stations, locations, channels, start, end, dbbufsize)
-    
+
         stepinfo("Requesting stations and channels from %d %s", len(datacenters_df),
                  "data-center" if len(datacenters_df) == 1 else "data-centers")
         # get dacatanters (might raise QuitDownload):
@@ -96,24 +96,23 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
                                       advanced_settings['s_timeout'],
                                       advanced_settings['download_blocksize'], dbbufsize,
                                       isterminal)
-    
+
         # get channel id to mseed id dict and purge channels_df
         # the dict will be used to download the segments later, but we use it now to drop
         # unnecessary columns and save space (and time)
         chaid2mseedid = chaid2mseedid_dict(channels_df, drop_mseedid_columns=True)
-    
+
         stepinfo("Selecting stations within search area from %d events", len(events_df))
         # merge vents and stations (might raise QuitDownload):
         segments_df = merge_events_stations(events_df, channels_df, search_radius['minmag'],
                                             search_radius['maxmag'], search_radius['minmag_radius'],
                                             search_radius['maxmag_radius'], tt_table, isterminal)
-    
         # help gc by deleting the (only) refs to unused dataframes
         del events_df
         del channels_df
-    
+
         stepinfo("%d segments found. Checking already downloaded segments", len(segments_df))
-        
+
         segments_df, request_timebounds_need_update = \
             prepare_for_download(session, segments_df, timespan, retry_seg_not_found,
                                  retry_url_err, retry_mseed_err, retry_client_err,
@@ -162,7 +161,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
             logger.info(str(dexc))
 
         raise
-    except: # unexpected exception:
+    except:  # @IgnorePep8
         inventory = False
         raise
     finally:
@@ -172,7 +171,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
             # https://stackoverflow.com/questions/30021923/how-to-delete-a-sqlalchemy-mapped-object-from-memory
             session.expunge_all()
             session.close()
-    
+
             # query station id, network station, datacenter_url
             # for those stations with empty inventory_xml
             # AND at least one segment non empty/null
@@ -208,10 +207,9 @@ def new_db_download(session, params=None):
                              log=('N/A: either logger not configured, or '
                                   'an unexpected error interrupted the process'),
                              program_version=version())
-    
+
     session.add(download_inst)
     session.commit()
     download_id = download_inst.id
     session.close()  # frees memory?
     return download_id
-

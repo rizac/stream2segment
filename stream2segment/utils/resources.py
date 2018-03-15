@@ -11,7 +11,7 @@ import re
 from collections import defaultdict
 
 # python2-3 compatibility for items and viewitems:
-from future.utils import viewitems, string_types
+from future.utils import viewitems, viewkeys, string_types
 import yaml
 
 
@@ -97,8 +97,11 @@ def get_ws_fpath():
 
 def yaml_load(filepath, **updates):
     """Loads a yaml file into a dict (if `filepath` is a `dict`, skips loading). Then:
-    1. normalizes non-absolute sqlite path values relative to `filepath`, if any
-    2. updates the dict values with `updqtes` and returns the yaml dict.
+    1. If `filepath` denotes a file path (and not a dict),
+       normalizes non-absolute sqlite path values relative to `filepath`, if any
+    2. updates the dict values with `updqtes` and returns the yaml dict. The update is
+       recursive, meaning that nested dict values will be updated recursively and not completely
+       overridden
 
     :param filepath: string or dict. If string, it must denote a path to an existing .yaml file
     :param updates: arguments which will updates the yaml dict before it is returned
@@ -108,26 +111,41 @@ def yaml_load(filepath, **updates):
             ret = yaml.safe_load(stream)
     elif isinstance(filepath, dict):
         ret = filepath
+    elif hasattr(filepath, 'read'):
+        ret = yaml.safe_load(filepath)
     else:
-        raise TypeError('required file path or dict, %s found' % str(type(filepath)))
-   
-    # convert sqlite into absolute paths, if any
-    configfilepath = abspath(dirname(filepath))
-    # convert relative sqlite path to absolute, assuming they are relative to the config:
-    sqlite_prefix = 'sqlite:///'
-    # we cannot modify a dict while in iteration, thus create a new dict of possibly
-    # modified sqlite paths and use later dict.update
-    newdict = {}
-    for k, v in viewitems(ret):
-        try:
-            if v.startswith(sqlite_prefix) and ":memory:" not in v:
-                dbpath = v[len(sqlite_prefix):]
-                if not isabs(dbpath):
-                    newdict[k] = sqlite_prefix + abspath(normpath(join(configfilepath, dbpath)))
-        except AttributeError:
-            pass
-    newdict.update(updates)
-    ret.update(newdict)
+        raise TypeError('required file path (string), file object or dict, '
+                        '%s found' % str(type(filepath)))
+
+    # update recursively (which means subdicts are updated as well and not overridden):
+    def update(dic1, dic2):
+        '''update dic1 with dic2 recursively'''
+        dickeys = {k: dic2.pop(k) for k in viewkeys(dic1) if isinstance(dic1[k], dict) and
+                   isinstance(dic2.get(k, None), dict)}
+        dic1.update(dic2)
+        for k in dickeys:
+            update(dic1[k], dickeys[k])
+
+    update(ret, updates)
+
+    if isinstance(filepath, string_types):
+        # convert sqlite into absolute paths, if any. This does not convert nested sub-dict strings
+        configfilepath = abspath(dirname(filepath))
+        # convert relative sqlite path to absolute, assuming they are relative to the config:
+        sqlite_prefix = 'sqlite:///'
+        # we cannot modify a dict while in iteration, thus create a new dict of possibly
+        # modified sqlite paths and use later dict.update
+        newdict = {}
+        for k, v in viewitems(ret):
+            try:
+                if v.startswith(sqlite_prefix) and ":memory:" not in v:
+                    dbpath = v[len(sqlite_prefix):]
+                    if not isabs(dbpath):
+                        newdict[k] = sqlite_prefix + abspath(normpath(join(configfilepath, dbpath)))
+            except AttributeError:
+                pass
+    
+        ret.update(newdict)
     return ret
 
 

@@ -25,14 +25,14 @@ class BadArgument(Exception):
     '''
     def __init__(self, param_name, error, msg_preamble=''):
         '''init method
-        
+
         The formatted output, depending on the truthy value of the arguments will be:
 
         "%(msg_preamble) %(param_name): %(error)"
         "%(param_name): %(error)"
         "%(msg_preamble) %(param_name)"
         "%(param_name)"
-        
+
         :param param_name: the parameter name (string)
         :param error: the original exception, or a string message
         :param msg_preamble: the optional message preamble, as string
@@ -56,51 +56,51 @@ class BadArgument(Exception):
 
 
 class MissingArg(BadArgument):
-    
+
     def __init__(self, param_name):
         '''A BadArgument notifying a missing value of some argument'''
         super(MissingArg, self).__init__(param_name, '', "Missing value for")
 
    
 class BadValueArg(BadArgument):
-    
+
     def __init__(self, param_name, error):
         '''A BadArgument notifying a bad value of some argument'''
         super(BadValueArg, self).__init__(param_name, error, "Invalid value for")
 
 
 class BadTypeArg(BadArgument):
-    
+
     def __init__(self, param_name, error):
         '''A BadArgument notifying a bad type of some argument'''
         super(BadTypeArg, self).__init__(param_name, error, "Invalid type for")
 
 
 class ConflictingArgs(BadArgument):
-    
+
     def __init__(self, *param_names):
         '''A BadArgument notifying conflicting argument names'''
         # little hack: build a string wiothout first and last quote (will be added in super-class)
         param_name = self.formatnames(*param_names)
         super(ConflictingArgs, self).__init__(param_name, '', "Conflicting names")
-    
+
     @staticmethod
     def formatnames(*param_names):
         # little hack: build a string wiothout first and last quote (will be added in super-class)
         return " / ".join('"%s"' % p for p in param_names)[1:-1]
-        
+
 
 class UnknownArg(BadArgument):
-    
+
     def __init__(self, param_name):
         '''A BadArgument notifying an unknown argument'''
         super(UnknownArg, self).__init__(param_name, '', "no such option")
 
 
 class S2SArgument(object):
-    
+
     def __init__(self, name, *optional_names):
-        '''Creates a new stream2segment argument, which represents an application input 
+        '''Creates a new stream2segment argument, which represents an application input
         argument (sort of `click.Option`). An object of this class allows retrieving values from a
         dict (methods `popfrom` and `getfrom`) with validation options via a 'callback' argument.
         `parse`, `popfrom` and `getfrom` all raise BadArgument
@@ -108,7 +108,7 @@ class S2SArgument(object):
         parameter name. Moreover, program cli commands like 'download' and 'process'
         capture BadArguments in order to print to the console the message without the
         the stack trace.
-    
+
             :param name: the argument name
             :param optional_names: the argument optional names
         '''
@@ -120,21 +120,21 @@ class S2SArgument(object):
             keys_in =[p for p in self.names if p in dic]
             if len(keys_in) > 1:
                 raise ConflictingArgs(*keys_in)
-            elif len(keys_in) == 0:
+            elif not keys_in:
                 if ifmissing is not None:
                     return self.name, ifmissing
                 raise KeyError()
             name = keys_in[0]
             return name, dic.pop(name) if pop else dic[name]
-            
+
         except KeyError as _:
             raise MissingArg(ConflictingArgs.formatnames(self.names))
-    
+
     def getfrom(self, dic, default=None, callback=None, **callback_kwargs):
         '''Gets and returns the value mapped to this argument from `dic`.
         Raises BadArgument exceptions (e.g., no key found in `dic` among `self.names`, or more
         than one key found, or `callback` raising exceptions)
-        
+
         :param dic: a python dic
         :param default: what to return if no key of `dic` matches any of `self.names`.
             If None (default when missing), then a 'MissingArgument' is raised if `dic` does
@@ -147,12 +147,12 @@ class S2SArgument(object):
         name, value = self._get(dic, False, default)
         return value if callback is None else \
             S2SArgument.parse(name, value, callback, **callback_kwargs)
-    
+
     def popfrom(self, dic, default=None, callback=None, **callback_kwargs):
         '''Pops and returns the value mapped to this argument from `dic`.
         Raises BadArgument exceptions (e.g., no key found in `dic` among `self.names`, or more
         than one key found, or `callback` raising exceptions)
-        
+
         :param dic: a python dic
         :param default: what to return if no key of `dic` matches any of `self.names`.
             If None (default when missing), then a 'MissingArgument' is raised if `dic` does
@@ -172,7 +172,7 @@ class S2SArgument(object):
         Raises BadArgument exceptions (e.g., ValueError, TypeErrors) with the given name
         in the exception str representation.
         This function can be called from `popfrom` and `getfrom`
-        
+
         :param value: any python object.
         :param func: the function to be called with `value` as first argument. If not
             callable (function) if will return `func` ignoring *args and **kwargs, if any.
@@ -222,10 +222,10 @@ def nslc_param_value_aslist(value):
     Raises ValueError in case some sanity checks fail (e.g., conflicts, syntax errors)
 
     Examples:
-    
-    nslc_param_value_aslist 
+
+    nslc_param_value_aslist
     arguments (any means:
-    any value in [0,1,2,3])   Result (with comment)            
+    any value in [0,1,2,3])   Result (with comment)
     ========================= =================================================================
     (['A','D','C','B'])  ['A', 'B', 'C', 'D']  # note result is sorted
     ('B,C,D,A')          ['A', 'B', 'C', 'D']  # same as above
@@ -240,23 +240,22 @@ def nslc_param_value_aslist(value):
     ("!*")               this raises (you cannot specify "discard all")
     ("!H*, H*")          this raises (it's a paradox)
     (" A B,  CD")        this raises ('A B' invalid: only leading and trailing spaces allowed)
-    
 
     :param value: string or iterable of strings: (iterable in this context means python iterable
         EXCEPT strings). If string, the argument will be converted
         to the list [value] to make it iterable before processing it
-    ''' 
+    '''
     try:
         strings = set()
-    
-        # we assume, when parsearg is not list, that parsearg is str in both python2 and python3, i.e.
-        # it is NOT bytes in python2. The line below checks if is an iterable first:
+
+        # we assume, when parsearg is not list, that parsearg is str in both python2 and python3,
+        # i.e. it is NOT bytes in python2. The line below checks if is an iterable first:
         # in python2, it is sufficient to say it's not a string
         # in python3, we need to check that is no str also
         if not hasattr(value, "__iter__") or isinstance(value, str):
             # it’s an iterable not a string
             value = [value]
-            
+
         for string in value:
             splitted = string.split(",")
             for s in splitted:
@@ -271,12 +270,12 @@ def nslc_param_value_aslist(value):
             raise ValueError("'!*' (=discard all) invalid")
         elif "*" in  strings:  # accept everything and X: X is redundant
             strings = set(_ for _ in strings if _[0:1] == '!')
-        else: 
+        else:
             for string in strings:  # accept A end discard A is not valid
                 opposite = "!%s" % string
                 if opposite in strings:
                     raise Exception("conflicting values: '%s' and '%s'" % (string, opposite))
-        
+
         return sorted(strings)
 
     except Exception as exc:
@@ -365,10 +364,10 @@ def valid_fdsn(url):
     return url
 
 
-def load_config_for_download(config, **param_overrides):
+def load_config_for_download(config, parseargs, **param_overrides):
     '''loads download arguments from the given config (yaml file or dict) after parsing and
     checking some of the dict keys.
-    
+
     :return: a dict loaded from the given `config` and with parseed arguments (dict keys)
 
     Raises BadArgument in case of parsing errors, missisng arguments, conflicts etcetera
@@ -378,47 +377,67 @@ def load_config_for_download(config, **param_overrides):
     except Exception as exc:
         raise BadValueArg('config', exc)
 
-    remainingkeys = set(dic.keys())
+    # normalize eventws_query_args: the sub-dict is correctly updated. The function
+    # yaml_load updates nested sub-dict values, so that if both dic['eventws_query_args']
+    # and param_overrides['eventws_query_args'] contain, e.g. the key 'minlat', the key
+    # is overridden in dic['eventws_query_args']. But
+    # param_overrides['eventws_query_args'] might contain 'minlatitude' instead of 'minlat'
+    # which should override 'minlat' in dic['eventws_query_args'] as well.
+    # Check these cases of double names:
+    overrides_eventdic = param_overrides.get('eventws_query_args', {})
+    yaml_eventdic = dic['eventws_query_args']
+    for par in overrides_eventdic:
+        for find, rep in (('latitude', 'lat'), ('longitude', 'lon'), ('magnitude', 'mag')):
+            twinpar = par.replace(find, rep)
+            if twinpar == par:
+                twinpar.replace(rep, find)
+            if twinpar != par and twinpar in yaml_eventdic:
+                # rename the overridden par with the previously set config par:
+                yaml_eventdic[twinpar] = yaml_eventdic.pop(par)
+                break
 
-    # parse arguments (dic keys):
+    if parseargs:
+        remainingkeys = set(dic.keys())
 
-    # First, two arguments which have to be replaced (pop=True)
-    # and assigned to new dic key:
-    argument = S2SArgument('dburl')
-    dic['session'] = argument.popfrom(dic, callback=create_session)
-    # now remove the already processed dic keys:
-    remainingkeys -= argument.names  # argument.names is simply set(['dburl]) in this case
+        # parse arguments (dic keys):
 
-    argument = S2SArgument('traveltimes_model')
-    dic['tt_table'] = argument.popfrom(dic, callback=load_tt_table)
-    remainingkeys -= argument.names
-
-    # parse "simple" arguments where we must only parse a value and replace it in the dict 
-    # (no key replacement / no variable num of arg names):
-    for argument, func in  [(S2SArgument('start', 'starttime'), valid_date),
-                            (S2SArgument('end', 'endtime'), valid_date),
-                            (S2SArgument('eventws'), valid_fdsn),
-                            (S2SArgument('dataws'), valid_fdsn)]:
-        dic[argument.name] = argument.getfrom(dic, callback=func)
-        remainingkeys -= argument.names
-        
-    # then, network channel ... arguments:
-    for argument in (S2SArgument('networks', 'net', 'network'),
-                     S2SArgument('stations', 'sta', 'station'),
-                     S2SArgument('locations', 'loc', 'location'),
-                     S2SArgument('channels', 'cha', 'channel'),):
-        dic[argument.name] = argument.popfrom(dic, default=[], callback=nslc_param_value_aslist)
+        # First, two arguments which have to be replaced (pop=True)
+        # and assigned to new dic key:
+        argument = S2SArgument('dburl')
+        dic['session'] = argument.popfrom(dic, callback=create_session)
+        # now remove the already processed dic keys:
+        remainingkeys -= argument.names  # argument.names is simply set(['dburl]) in this case
+    
+        argument = S2SArgument('traveltimes_model')
+        dic['tt_table'] = argument.popfrom(dic, callback=load_tt_table)
         remainingkeys -= argument.names
     
-    # For all remaining arguments, just check the type as it should match the 
-    # default download config shipped with this package:
-    orig_config = yaml_load(get_templates_fpath("download.yaml"))
-    for key in remainingkeys:
-        try:
-            other_value = orig_config[key]
-        except KeyError:
-            raise UnknownArg(key)
-        S2SArgument.parse(key, dic[key], typesmatch, other_value)
+        # parse "simple" arguments where we must only parse a value and replace it in the dict
+        # (no key replacement / no variable num of arg names):
+        for argument, func in  [(S2SArgument('start', 'starttime'), valid_date),
+                                (S2SArgument('end', 'endtime'), valid_date),
+                                (S2SArgument('eventws'), valid_fdsn),
+                                (S2SArgument('dataws'), valid_fdsn)]:
+            dic[argument.name] = argument.getfrom(dic, callback=func)
+            remainingkeys -= argument.names
+    
+        # then, network channel ... arguments:
+        for argument in (S2SArgument('networks', 'net', 'network'),
+                         S2SArgument('stations', 'sta', 'station'),
+                         S2SArgument('locations', 'loc', 'location'),
+                         S2SArgument('channels', 'cha', 'channel'),):
+            dic[argument.name] = argument.popfrom(dic, default=[], callback=nslc_param_value_aslist)
+            remainingkeys -= argument.names
+    
+        # For all remaining arguments, just check the type as it should match the
+        # default download config shipped with this package:
+        orig_config = yaml_load(get_templates_fpath("download.yaml"))
+        for key in remainingkeys:
+            try:
+                other_value = orig_config[key]
+            except KeyError:
+                raise UnknownArg(key)
+            S2SArgument.parse(key, dic[key], typesmatch, other_value)
 
     return dic
 
@@ -443,13 +462,13 @@ def load_pyfunc(pyfile, funcname):
     if funcname not in pymoduledict:
         raise Exception('function "%s" not found in %s' % (str(funcname), pyfile))
     return pymoduledict[funcname]
-    
+
 
 def get_funcname(funcname=None):
     '''Returns the python module from the given python file'''
     if funcname is None:
         funcname = default_processing_funcname()
-    
+
     if not isinstance(funcname, string_types):
         raise TypeError('string required, not %s' % str(type(funcname)))
 
@@ -465,10 +484,10 @@ def filewritable(filepath):
     '''checks that the file is writable, i.e. that is a string and its directory exists'''
     if not isinstance(filepath, string_types):
         raise TypeError('string required, found %s' % str(type(filepath)))
-    
+
     if not os.path.isdir(os.path.dirname(filepath)):
         raise ValueError('cannot write file: parent directory does not exist')
-    
+
     return filepath
 
 

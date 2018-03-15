@@ -50,6 +50,7 @@ class clickutils(object):
     DBURLDOC_SUFFIX = ("^^^ NOTE ^^^: It can also be the path of a yaml file "
                        "containing the property 'dburl' (e.g., the yaml you used for "
                        "downloading, so as to avoid re-typing the database path)")
+    EQA = "(eventws query argument)"
 
     @classmethod
     def set_help_from_yaml(cls, ctx, param, value):
@@ -172,7 +173,7 @@ def init(outdir):
 @click.option('-z', '--stations', '--station', '--sta', 'stations', help='See channels')
 @click.option('-l', '--locations', '--location', '--loc', 'locations', help='See channels')
 @click.option('-k', '--channels', '--channel', '--chan', 'channels')
-@click.option('-msr', '--min-sample-rate')
+@click.option('-msr', '--min-sample-rate', type=float)
 @click.option('-ds', '--dataws')
 @click.option('-t', '--traveltimes-model')
 @click.option('-w', '--timespan', nargs=2, type=float)
@@ -184,22 +185,65 @@ def init(outdir):
 @click.option('-r5', '--retry-server-err', is_flag=True, default=None)
 @click.option('-r6', '--retry-timespan-err', is_flag=True, default=None)
 @click.option('-i', '--inventory', is_flag=True, default=None)
-@click.argument('eventws_query_args', nargs=-1, type=click.UNPROCESSED,
-                callback=lambda ctx, param, value: inputargs.keyval_list_to_dict(value))
-def download(config, dburl, eventws, start, end, networks, stations, locations, channels,
-             min_sample_rate, dataws, traveltimes_model, timespan, update_metadata,
-             retry_url_err, retry_mseed_err, retry_seg_not_found,
-             retry_client_err, retry_server_err, retry_timespan_err, inventory, eventws_query_args):
+@click.option('--minlat', '--minlatitude', type=float,
+              help=(clickutils.EQA + " Limit to events with a latitude larger than "
+                    "or equal to the specified minimum"))
+@click.option('--maxlat', '--maxlatitude', type=float,
+              help=(clickutils.EQA + " Limit to events with a latitude smaller than "
+                    "or equal to the specified maximum"))
+@click.option('--minlon', '--minlongitude', type=float,
+              help=(clickutils.EQA + " Limit to events with a longitude larger than "
+                    "or equal to the specified minimum"))
+@click.option('--maxlon', '--maxlongitude', type=float,
+              help=(clickutils.EQA + " Limit to events with a longitude smaller than "
+                    "or equal to the specified maximum"))
+@click.option('--lat', '--latitude', type=float,
+              help=(clickutils.EQA + " Specify the latitude to be used for a radius search."))
+@click.option('--lon', '--longitude', type=float,
+              help=(clickutils.EQA + " Specify the longitude to be used for a radius search"))
+@click.option('--minradius', type=float,
+              help=(clickutils.EQA + " Limit to events within the specified minimum "
+                    "number of degrees from the geographic point defined by the latitude and "
+                    "longitude parameters"))
+@click.option('--maxradius', type=float,
+              help=(clickutils.EQA + " Limit to events within the specified maximum "
+                    "number of degrees from the geographic point defined by the latitude and "
+                    "longitude parameters"))
+@click.option('--mindepth', type=float,
+              help=(clickutils.EQA + " Limit to events with depth more than the "
+                    "specified minimum"))
+@click.option('--maxdepth', type=float,
+              help=(clickutils.EQA + " Limit to events with depth less than the "
+                    "specified maximum"))
+@click.option('--minmag', '--minmagnitude', type=float,
+              help=(clickutils.EQA + " Limit to events with a magnitude larger than "
+                    "the specified minimum"))
+@click.option('--maxmag', '--maxmagnitude', type=float,
+              help=(clickutils.EQA + " Limit to events with a magnitude smaller than "
+                    "the specified maximum"))
+def download(config, dburl, eventws, start, end, networks, stations, locations, channels,  #pylint: disable=unused-argument
+             min_sample_rate, dataws, traveltimes_model, timespan, update_metadata,  #pylint: disable=unused-argument
+             retry_url_err, retry_mseed_err, retry_seg_not_found,  #pylint: disable=unused-argument
+             retry_client_err, retry_server_err, retry_timespan_err, inventory,  #pylint: disable=unused-argument
+             minlatitude, maxlatitude, minlongitude, maxlongitude, latitude, longitude,  #pylint: disable=unused-argument
+             minradius, maxradius, mindepth, maxdepth, minmagnitude, maxmagnitude):  #pylint: disable=unused-argument
     """Download waveform data segments with quality-check metadata and relative events, stations and
     channels metadata into a specified database.
-    The -c option (required) sets the defaults for all other options below, which are optional.
-    The argument 'eventws_query_args' is an optional list of space separated key and values to be
-    passed to the event web service query (example: minmag 5.5 minlon 34.5). All FDSN query
-    arguments are valid except 'start', 'end' (set them via -t0 and -t1) and 'format'
+    The -c option (required) sets the defaults for all other options below, **which are optional**
     """
     try:
         overrides = {k: v for k, v in locals().items()
                      if v not in ((), {}, None) and k != 'config'}
+        # pre-process all event ws query arguments:
+        eventws_dict = {par: overrides.pop(par) for par in ("minlatitude", "maxlatitude",
+                                                            "minlongitude", "maxlongitude",
+                                                            "latitude", "longitude", "minradius",
+                                                            "maxradius", "mindepth", "maxdepth",
+                                                            "minmagnitude", "maxmagnitude")
+                                                            if par in overrides}
+        if eventws_dict:
+            overrides['eventws_query_args'] = eventws_dict
+
         sys.exit(main.download(config, verbosity=2, **overrides))
     except inputargs.BadArgument as aerr:
         print(aerr)
@@ -232,20 +276,21 @@ def download(config, dburl, eventws, start, end, networks, stations, locations, 
               )
 @click.option("-f", "--funcname",
               help="The name of the user-defined processing function in the given python file. "
-                   "Optional: defaults to '%s' when missing" % inputargs.default_processing_funcname(),
+                   "Optional: defaults to '%s' when "
+                   "missing" % inputargs.default_processing_funcname(),
               )  # do not set default='main', so that we can test when arg is missing or not
 @click.argument('outfile', required=False)
 def process(dburl, config, pyfile, funcname, outfile):
     """Process downloaded waveform data segments via a custom python file and a configuration
     file.
-    
+
     \b
-    outfile:  [optional] the file (in .csv format) where the output of the user-defined processing
+    outfile [optional]: the .csv file where the output of the user-defined processing
     function will be written for each selected segment.
     If missing, then the output of the user-defined processing function (if any) is discarded,
     and all logging information, errors or warnings will be redirected to the standard error.
-    Otherwise, if this argument is 
-    pecified, the log messages will be written to the file [outpath].log
+    Otherwise, if this argument is specified, the log messages will be written to the file
+    [outpath].log
     """
     try:
         sys.exit(main.process(dburl, pyfile, funcname, config, outfile, verbose=True))
@@ -282,7 +327,7 @@ def show(dburl, configfile, pyfile):
 
 
 @cli.group(short_help="Program utilities. Type --help to list available sub-commands")
-def utils():
+def utils():  #pylint: disable=missing-docstring
     pass
 
 

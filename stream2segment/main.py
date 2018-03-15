@@ -14,16 +14,15 @@ from builtins import (ascii, bytes, chr, dict, filter, hex, input,
                       int, map, next, oct, open, pow, range, round,
                       str, super, zip, object)
 
+import time
 import logging
 import re
 import sys
 import os
 import shutil
 import inspect
-from datetime import datetime, timedelta
+from datetime import timedelta
 
-
-from stream2segment.utils.inputargs import load_config_for_process, load_config_for_download
 from future.utils import string_types
 # this can not apparently be fixed with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
@@ -35,16 +34,17 @@ except ImportError:
 import yaml
 import click
 
+
+from stream2segment.utils.inputargs import load_config_for_process, load_config_for_download
 from stream2segment.utils.log import configlog4download, configlog4processing
 from stream2segment.io.db.models import Download
 from stream2segment.process.main import run as run_process
 from stream2segment.download.main import run as run_download, new_db_download
 from stream2segment.utils import secure_dburl, strconvert, iterfuncs
-from stream2segment.utils.resources import get_templates_fpaths, yaml_load
+from stream2segment.utils.resources import get_templates_fpaths
 from stream2segment.gui.main import create_p_app, run_in_browser, create_d_app
 from stream2segment.process import math as s2s_math
 from stream2segment.download.utils import QuitDownload
-import time
 
 
 # set root logger if we are executing this module as script, otherwise as module name following
@@ -60,7 +60,7 @@ def download(config, verbosity=2, **param_overrides):
     """
         Downloads the given segment providing a set of keyword arguments to match those of the
         config file (see confi.example.yaml for details)
-        
+
         :param config: a valid path to a file in yaml format, or a dict of parameters reflecting
             a download config file
         :param verbosity: integer: 0 means: no logger configured, no print to standard output.
@@ -91,7 +91,7 @@ def download(config, verbosity=2, **param_overrides):
     # Other exceptions are caught, logged with the stack trace as critical, and raised
 
     # check and parse config values (modify in place):
-    yaml_dict = load_config_for_download(config, **param_overrides)
+    yaml_dict = load_config_for_download(config, True, **param_overrides)
     # get the session object and the tt_table object (needed separately, see below):
     session, tttable = yaml_dict['session'], yaml_dict['tt_table']
 
@@ -111,10 +111,11 @@ def download(config, verbosity=2, **param_overrides):
         ip_params = yaml.safe_dump(yaml_safe, default_flow_style=False)
         ip_title = "Input parameters"
         print("%s\n%s\n%s\n" % (ip_title, "-" * len(ip_title), ip_params))
-        
+
     # create download row with unprocessed config (yaml_load function)
-    # Note that yaml_load is called by load_config above, so yaml_load does not raise:
-    download_id = new_db_download(session, yaml_load(config, **param_overrides))
+    # Note that we call again load_config with parseargs=False:
+    download_id = new_db_download(session,
+                                  load_config_for_download(config, False, **param_overrides))
     loghandlers = configlog4download(logger, is_from_terminal) if verbosity > 0 else []
     ret = 0
     noexc_occurred = True
@@ -145,7 +146,7 @@ def download(config, verbosity=2, **param_overrides):
                 logger.info("%s, %s", frmt(errs, 'error'), frmt(warns, 'warning'))
 
     except:  # log the exception traceback (only last) and raise,
-        # so that in principle the full traceback is printed on terminal (or caught by the caller) 
+        # so that in principle the full traceback is printed on terminal (or caught by the caller)
         noexc_occurred = False
         # https://stackoverflow.com/questions/5191830/best-way-to-log-a-python-exception:
         logger.critical("Download aborted", exc_info=True)
@@ -154,13 +155,13 @@ def download(config, verbosity=2, **param_overrides):
         # write log to db if default handlers are provided:
         if loghandlers:
             # remove file if we do not print to terminal (as it would be impossible to
-            # know which file we logged into), or no exceptions occurred  
+            # know which file we logged into), or no exceptions occurred
             loghandlers[0].finalize(session, download_id,
                                     removefile=not is_from_terminal or noexc_occurred)
         closesession(session)
-        
+
     return ret
-        
+
 
 def process(dburl, pyfile, funcname=None, config=None, outfile=None, verbose=False):
     """
@@ -170,7 +171,8 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, verbose=Fal
             csv row, and a handler will redirect all logged messages to a the file `[outfile].log`
         If `outfile` is not given, then the returned values of `pyfile` will be ignored
             (`pyfile` is supposed to process data without returning a value, e.g. save processed
-            miniSeed to the FileSystem), and a handler will redirect all logged messages to `stderr`.
+            miniSeed to the FileSystem), and a handler will redirect all logged messages to
+            `stderr`.
         In both cases, if `verbose` is True, a handler will redirect all informations, errors
             and critical logged messages to the standard output (also, and a progressbar will be
             printed to standard output)
@@ -184,14 +186,14 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, verbose=Fal
     # this allows to help users to discovers possible bugs in pyfile, without waiting for
     # the whole process to finish. Note that this does not distinguish the case where
     # we have any other exception (e.g., keyboard interrupt), but that's not a requirement
-    
+
     # checks dic values (modify in place) and returns dic value(s) needed here:
     session, pyfunc, funcname, config_dict = \
         load_config_for_process(dburl, pyfile, funcname, config, outfile)
 
     configlog4processing(logger, outfile, verbose)
     try:
-        
+
         if outfile:
             logger.info('Output file: %s', outfile)
         logger.info("Executing '%s' in '%s'", funcname, pyfile)
@@ -222,14 +224,14 @@ def totimedelta(t0_sec, t1_sec=None):
         previous call to `time.time()`, before starting a process that had to be monitored
     :param t1_sec: (float) the end time in seconds. If None, it defaults to `time.time()`
         (current time since the epoch, in seconds)
-        
+
     :return: a timedelta object, rounded to seconds
     '''
     return timedelta(seconds=round((time.time() if t1_sec is None else t1_sec) - t0_sec))
 
 
 def closesession(session):
-    '''closes the session, 
+    '''closes the session,
     This method simply calls `session.close()`, passing all exceptions, if any.
     Useful for unit testing and mock
     '''

@@ -28,9 +28,6 @@ from stream2segment.utils.url import read_async as original_read_async
 from stream2segment.utils.msgs import MSG
 
 from future.standard_library import install_aliases
-from sqlalchemy.sql.expression import or_, and_
-from stream2segment.utils import strconvert
-import re
 install_aliases()
 from http.client import responses  # @UnresolvedImport @IgnorePep8
 
@@ -45,21 +42,21 @@ class QuitDownload(Exception):
     """
     This is an exception that should be raised from the functions of this package, when something
     prevents the continuation of the download process.
-    
+
     Passing an Exception in the construcor makes this exception "critical", which is
     handled differntly by the main download process. E.g.:
 
     - There is no data because of a download error (no data fetched). A function should then:
 
       ```raise QuitDownload(Exception(...))```
-      
+
       and the caller function might then log.error the exception, and return non-zero.
 
     - There is no data because of current settings (e.g., all segments already downloaded
       with current retry settings): the program should then:
 
       ```raise QuitDownload(string_message)```
-      
+
       and the caller function might then log.info the message, and return zero.
 
     The method 'iscritical' of any `QuitDownload` object tells the user if the object has been built
@@ -90,7 +87,7 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024 * 1024,
     total memory after which the program should raise. This should return as fast as possible
     consuming the less memory possible, and assuring the quit-download message will be sent to
     the logger
-    """         
+    """
     do_memcheck = max_mem_consumption > 0 and max_mem_consumption < 100
     process = psutil.Process(os.getpid()) if do_memcheck else None
     count = 0
@@ -105,7 +102,7 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024 * 1024,
                 mem_percent = process.memory_percent()
                 if mem_percent > max_mem_consumption:
                     raise QuitDownload(MemoryError(("Memory overflow: %.2f%% (used) > "
-                                                    "%.2f%% (threshold)") % 
+                                                    "%.2f%% (threshold)") %
                                                    (mem_percent, max_mem_consumption)))
 
 
@@ -292,15 +289,17 @@ def rename_columns(query_df, query_type):
 
     oldcolumns = query_df.columns.tolist()
     if len(oldcolumns) != len(columns):
-        raise ValueError("Mismatching number of columns in '%s' query.\nExpected:\n%s\nFound:\n%s" % 
+        raise ValueError(("Mismatching number of columns in '%s' query."
+                          "\nExpected:\n%s\nFound:\n%s") %
                          (query_type.lower(), str(oldcolumns), str(columns)))
 
     return query_df.rename(columns={cold: cnew for cold, cnew in zip(oldcolumns, columns)})
 
 
 def harmonize_fdsn_dframe(query_df, query_type):
-    """harmonizes the query dataframe (convert to dataframe dtypes, removes NaNs etcetera) according
-    to query_type
+    """harmonizes the query dataframe (convert to dataframe dtypes, removes NaNs
+    etcetera) according to query_type.
+
     :param query_df: a query dataframe *on which `rename_columns` has already been called*
     :param query_type: either 'event', 'channel', 'station'
     :return: a new dataframe with only the good values
@@ -413,7 +412,7 @@ class DownloadStats(defaultdict):
             else:
                 try:
                     return int(key)
-                except:
+                except:  # @IgnorePep8
                     return maxval + 1
 
         columns = sorted(colset, key=sortkey)
@@ -469,7 +468,7 @@ class DownloadStats(defaultdict):
                 code = c
                 if c not in resp:
                     c = "Unknown %s" % str(c)
-                    legend.append("%s: Non-standard response, unknown message (code=%s)" % 
+                    legend.append("%s: Non-standard response, unknown message (code=%s)" %
                                   (str(c), str(code)))
                 else:
                     c = resp[c]
@@ -483,15 +482,15 @@ class DownloadStats(defaultdict):
                         legend.append("%s: Response OK, but data completely outside "
                                       "requested time span " % str(c))
                     elif code == OUTTIMEWARN:
-                        legend.append("%s: Response OK, data saved partially: some received "
-                                      "data chunks where completely outside requested time "
-                                      "span" % str(c))
+                        legend.append("%s: Response OK, data saved partially: some "
+                                      "received data chunks where completely outside "
+                                      "requested time span" % str(c))
                     elif code is None:
                         legend.append("%s: Response OK, but segment data not found "
                                       "(e.g., after a multi-segment request)" % str(c))
                     else:
-                        legend.append("%s: Standard response message indicating %s (code=%d)" % 
-                                      (str(c), codetype2str(code), code))
+                        legend.append("%s: Standard response message indicating "
+                                      "%s (code=%d)" % (str(c), codetype2str(code), code))
             rows = [_ for _ in c.split(" ") if _.strip()]
             rows_to_insert = len(rows) - len(columns_df)
             if rows_to_insert > 0:
@@ -532,10 +531,11 @@ def custom_download_codes():
     not included in the standard HTTP status codes:
     * -1 denotes general url exceptions (e.g. no internet conenction)
     * -2 denotes mseed data errors while reading downloaded data, and
-    * -204 denotes a timespan error: all response is out of time with respect to the reqeuest's
-      time-span
-    * -200 denotes a timespan warning: some response data was out of time with respect to the
-      request's time-span (only the data intersecting with the time span has been saved)
+    * -204 denotes a timespan error: all response is out of time with respect to the
+      reqeuest's time-span
+    * -200 denotes a timespan warning: some response data was out of time with respect to
+      the request's time-span (only the data intersecting with the time span has been
+      saved)
     """
     return (-1, -2, -204, -200)
 
@@ -543,8 +543,9 @@ def custom_download_codes():
 def to_fdsn_arg(iterable):
     ''' Converts an iterable of strings denotings networks, stations, locations or channels
     into a valid string argument for an fdsn query,
-    This methid basically joins all element of `iterable` with a comma after removing all elements
-    starting with '!' (used in this application to denote logical not, and not fdsn standard).
+    This methid basically joins all element of `iterable` with a comma after removing all
+    elements starting with '!' (used in this application to denote logical not, and not
+    fdsn standard).
 
     :param iterable: an iterable of strings. This function does not check if any string
         element is invalid for the query (e.g., it contains spaces)

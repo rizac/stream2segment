@@ -28,6 +28,12 @@ from _pytest.capture import capsys
 import pytest
 from stream2segment.utils import get_session
 
+# this can not apparently be fixed with the future package:
+# The problem is io.StringIO accepts unicodes in python2 and strings in python3:
+try:
+    from cStringIO import StringIO  # python2.x pylint: disable=unused-import
+except ImportError:
+    from io import StringIO  # @UnusedImport
 
 class Test(unittest.TestCase):
 
@@ -152,6 +158,65 @@ class Test(unittest.TestCase):
         runner = CliRunner()
         result = runner.invoke(cli, ['process'] + args)
         return result
+
+
+    def test_download_eventws_query_args(self):
+        '''test different scenarios where we provide eventws query args from the command line'''
+        
+        # FIRST SCENARIO: PROVIDE A PARAMETER P in the cli ALREADY PRESENT IN THE CONFIG eventws_query_args
+        # Test that the name stays the same provided in the coinfig, regardless of the cli name
+        def_yaml_dict = yaml_load(self.d_yaml_file)['eventws_query_args']
+        param = 'minmag'
+        other_param = 'minmagnitude'
+        assert other_param not in def_yaml_dict
+        oldval = def_yaml_dict[param]  # which also asserts we do have the value
+        newval = oldval + 1.1
+        result = self.run_cli_download('--%s' % param, newval)  # invalid type
+        assert result.exit_code == 0  # WHAT?? because networks needs to be just an iterable
+        # assert new yaml (as saved on the db) has the correct value:
+        new_yaml_dict = yaml_load(StringIO(self.lastrun_lastdownload_config))['eventws_query_args']
+        assert new_yaml_dict[param] == newval
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert self.lastrun_download_count == 1
+        assert other_param not in new_yaml_dict
+
+        newval += 1.1
+        result = self.run_cli_download('--%s' % other_param, newval)  # invalid type
+        assert result.exit_code == 0  # WHAT?? because networks needs to be just an iterable
+        # assert new yaml (as saved on the db) has the correct value:
+        new_yaml_dict = yaml_load(StringIO(self.lastrun_lastdownload_config))['eventws_query_args']
+        assert new_yaml_dict[param] == newval
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert self.lastrun_download_count == 1
+        assert other_param not in new_yaml_dict
+        
+        # SECOND SCENARIO: PROVIDE A PARAMETER P in the cli NOT PRESENT IN THE CONFIG eventws_query_args
+        # Test that the name is the one provided from the cli (long name) regardless of the cli name (short or long)
+        param = 'lat'
+        other_param = 'latitude'
+        assert param not in def_yaml_dict  # if it fails, change param/other_param name above
+        assert other_param not in def_yaml_dict  # if it fails, change/other_param param name above
+        newval = 1.1
+        expected_param = other_param #  because it is the default cli param name
+        nonexpected_param = param # see above
+        result = self.run_cli_download('--%s' % param, newval)  # invalid type
+        assert result.exit_code == 0  # WHAT?? because networks needs to be just an iterable
+        # assert new yaml (as saved on the db) has the correct value:
+        new_yaml_dict = yaml_load(StringIO(self.lastrun_lastdownload_config))['eventws_query_args']
+        assert new_yaml_dict[expected_param] == newval
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert self.lastrun_download_count == 1
+        assert nonexpected_param not in new_yaml_dict
+
+        newval += 1.1
+        result = self.run_cli_download('--%s' % other_param, newval)  # invalid type
+        assert result.exit_code == 0  # WHAT?? because networks needs to be just an iterable
+        # assert new yaml (as saved on the db) has the correct value:
+        new_yaml_dict = yaml_load(StringIO(self.lastrun_lastdownload_config))['eventws_query_args']
+        assert new_yaml_dict[expected_param] == newval
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert self.lastrun_download_count == 1
+        assert nonexpected_param not in new_yaml_dict
 
         
     def test_download_bad_values(self):
