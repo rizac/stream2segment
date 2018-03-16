@@ -16,13 +16,6 @@ from builtins import (ascii, chr, dict, filter, hex, input,
 # iterating over dictionary keys with the same set-like behaviour on Py2.7 as on Py3:
 # from future.utils import viewkeys
 
-# this can not apparently be fixed with the future package:
-# The problem is io.StringIO accepts unicodes in python2 and strings in python3:
-try:
-    from cStringIO import StringIO  # python2.x
-except ImportError:
-    from io import StringIO
-
 import os
 import sys
 import logging
@@ -38,8 +31,7 @@ from sqlalchemy.orm import load_only
 
 from stream2segment.process.utils import enhancesegmentclass, set_classes
 from stream2segment.io.db.sqlevalexpr import exprquery
-from stream2segment.utils import get_progressbar, load_source, secure_dburl
-from stream2segment.utils.resources import yaml_load
+from stream2segment.utils import get_progressbar, StringIO
 from stream2segment.io.db.models import Segment, Station, Event, Channel
 
 

@@ -24,12 +24,6 @@ import inspect
 from datetime import timedelta
 
 from future.utils import string_types
-# this can not apparently be fixed with the future package:
-# The problem is io.StringIO accepts unicodes in python2 and strings in python3:
-try:
-    from cStringIO import StringIO  # python2.x pylint: disable=unused-import
-except ImportError:
-    from io import StringIO  # @UnusedImport
 
 import yaml
 import click

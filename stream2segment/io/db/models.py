@@ -75,7 +75,7 @@ class concat(FunctionElement):
 
 @compiles(concat)
 def standard_concat(element, compiler, **kw):
-    return compiler.visit_function(element)  # func.strpos(compiler.process(element.clauses))
+    return compiler.visit_function(element)
 
 
 @compiles(concat, 'sqlite')

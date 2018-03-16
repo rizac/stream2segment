@@ -8,25 +8,31 @@ Common utilities for the whole program
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import object
 
-from future.utils import string_types
+from future.utils import string_types, itervalues
+
+# this can not apparently be fixed with the future package:
+# The problem is io.StringIO accepts unicodes in python2 and strings in python3:
+try:
+    from cStringIO import StringIO  # python2.x
+except ImportError:
+    from io import StringIO
 
 import os
-import yaml
+import sys
 import re
 import time
 from datetime import datetime, timedelta
 from dateutil import parser as dateparser
 from dateutil.tz import tzutc
-import sys
 from collections import defaultdict
 import inspect
 from contextlib import contextmanager
-from future.utils import itervalues
 
+import yaml
+from click import progressbar as click_progressbar
 from sqlalchemy.orm.scoping import scoped_session
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm.session import sessionmaker
-from click import progressbar as click_progressbar
 
 from stream2segment.io.db.models import Base
 

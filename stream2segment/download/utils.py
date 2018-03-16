@@ -18,6 +18,8 @@ import os
 from itertools import chain, cycle
 from collections import defaultdict
 
+from future.utils import viewitems
+
 import pandas as pd
 import psutil
 
@@ -347,34 +349,153 @@ def normalize_fdsn_dframe(dframe, query_type):
 class DownloadStats(defaultdict):
     ''':ref:`class``defaultdict` subclass which holds statistics of a download.
         Keys of this dict are the domains (string), and values are `defaultdict`s of
-        download codes keys (int) mapped to their occurrences. Typical usage is to add data and
-        then print the overall statistics:
+        download codes keys (numeric, ususally but not necessarily int's) mapped to their
+        occurrences. This class is inteded for representation, e.g. typical usage:
+
         ```
             d = DownloadStats()
             d['domain.org'][200] += 4
             d['domain2.org2'][413] = 4
+            ...
             print(str(d))
         ```
+
+        If you want to fill custom codes (non-standard HTTP status code, including our
+        application codes -1, -2, -200, -204 and None), adds the tuple (title, legend)
+        to `self.resp`. E.g.:
+        `self.resp(1300) = ('OK with gaps', 'Data saved (download OK, data has gaps)')`
+        In this case, please note:
+        1. titles should be all with first letter capitalized (to conform to HTTP
+           messages implemented in `http.client.responses`)
+        1. legends should have the format:
+           '<Data saved|Data not saved> (download <ok|failed|completed><optional details>)'
+
+        2. The column order (when this class is printed or its `str` method called)
+           roughly follows the code natural ordering (using `float(code)`),
+           with the following exceptions:
+
+           code       sort value
+           =======    ==========
+           -200       200.5 (-> so that it is next to 'success')
+           -204       399.1 (->so that it is after all successfull response, and before errors)
+           -2         399.8 (mseed erros)
+           -1         399.9  (url errors)
+           <any>      1000  (any code for which float(code) raises, including None of course)
+           =========  ==========
     '''
 
     def __init__(self):
         '''initializes a new instance'''
         # apparently, using defaultdict(int) is slightly faster than collections.Count
         super(DownloadStats, self).__init__(lambda: defaultdict(int))
+        # build an internal dict of codes mapped to the tuple title, legend
+        resp = {}
+        for code, title in viewitems(responses):
+            leg = None
+            if code == 200:
+                leg = 'Data saved (download ok, no additional warning)'
+            elif code == 204:
+                leg = 'Data saved but empty (download ok, the server returned any data)'
+            elif code >= 500:
+                leg = ('Data not saved (download failed, HTTP code %d indicates '
+                       'Server error)') % code
+            elif code >= 400:
+                leg = ('Data not saved (download failed, HTTP code %d indicates '
+                       'Client error)') % code
+            elif code >= 300:
+                leg = ('Data potentially saved (download completed, HTTP code %d indicates '
+                       'Redirection)') % code
+            elif code >= 200:
+                leg = ('Data potentially saved (download completed, HTTP code %d indicates '
+                       'Success)') % code
+            elif code >= 100:
+                leg = ('Data potentially saved (download completed, HTTP code %d indicates '
+                       'Informational response)') % code
+            if leg is not None:
+                resp[code] = title, leg
+        # custom codes:
+        customcodes = custom_download_codes()
+        URLERR, MSEEDERR, OUTTIMEERR, OUTTIMEWARN = customcodes
+        resp[URLERR] = ('Url Error', 'No data saved (download failed due to generic error: '
+                        'timeout, no internet connection, ...)')
+        resp[MSEEDERR] = ('MSeed Error', 'No data saved (download ok, data malformed could '
+                          'not be read as MiniSeed)')
+        resp[OUTTIMEERR] = ('Time Span Error', 'No data saved (download ok, data completely '
+                            'outside requested time span)')
+        resp[OUTTIMEWARN] = ('OK Partially Saved', 'Data saved (download ok, data saved '
+                             'partially: some received data chunks where completely outside '
+                             'requested time span')
+        resp[None] = ('Segment Not Found', 'No data saved (download ok, segment data '
+                      'not found, e.g., after a multi-segment request)')
+
+        self.resp = resp
 
     def normalizecodes(self):
         '''normalizes all values (defaultdict) of this object casting keys to int, and merging
           their values if an int key is present.
           Useful if the codes provided are also instance of `str`'''
         for val in self.values():
-            for key in list(val.keys()):
+            for key in list(val.keys()):  # we will modify val inplace, copy keys
                 try:
                     intkey = int(key)
-                    if intkey != key:  # e.g. key is str. False if jey is int or np.int
+                    if intkey != key:  # e.g. key is str. False if key is int or np.int
                         val[intkey] += val.pop(key)
                 except Exception:
                     pass
         return self
+
+    def titlelegend(self, code):
+        '''Returns the title (string), legend (string) and column order (number or None) for the
+        given missing / unknown code.
+        If code is not found, returns the tuple
+        ```
+        "Status code %s" % str(code),
+        "Data potentially saved (download completed with unknown HTTP code %d)" % str(code)
+        ```
+        '''
+        titleleg = self.resp.get(code, None)
+        if titleleg is None:
+            titleleg = ("Status code %s" % str(code),
+                        "Data potentially saved (download completed with unknown HTTP code %d)")
+        return titleleg
+
+    @staticmethod
+    def sortcodes(codes):
+        '''Returns a list from the iterable codes, sorted ascending. Each element of code is
+        intended to be any of the standard HTTP codes plus our user defined codes
+        (-1, -2, -200, -204, None) or any numeric user-defined code.
+        The sort ordering roughly follows the codes natural ordering (using `float(code)`.
+        consider it when implementing user defined codes),
+        with the following exceptions:
+
+        code       sort value
+        =======    ==========
+        -200       200.5 (-> so that in principle it is next to 'OK success')
+        -204       399.1 (->so that it is after all successfull HTTP response, and before errors)
+        -2         399.8 (mseed erros)
+        -1         399.9  (url errors)
+        <else>     1000  (any code for which float(code) raises)
+
+        :param codes: an iterable of numeric codes. If not numeric, a code is pushed at the end
+        '''
+        URLERR, MSEEDERR, OUTTIMEERR, OUTTIMEWARN = custom_download_codes()
+
+        def sortkey(kode):
+            '''sort func'''
+            if kode == OUTTIMEWARN:
+                return 200.5
+            elif kode == OUTTIMEERR:
+                return 399.1
+            elif kode == MSEEDERR:
+                return 399.8
+            elif kode == URLERR:
+                return 399.9
+            try:
+                return float(kode)
+            except:  # @IgnorePep8
+                return 1000
+
+        return sorted(codes, key=sortkey)
 
     def __str__(self):
         '''prints a nicely formatted table with the statistics of the download. Returns the
@@ -389,43 +510,19 @@ class DownloadStats(defaultdict):
         resp[None] = 'Segment Not Found'
 
         # create a set of unique codes:
-        colset = set((k for dic in self.values() for k in dic))
-        if not colset:
+        sorted_codes = DownloadStats.sortcodes(set((k for dic in self.values() for k in dic)))
+        if not sorted_codes:
             return ""
-
-        # create a list of sorted codes. First 200, then OUTTIMEWARN, then
-        # all HTTP codes sorted naturally, then unkwnown codes, then Null
-
-        # assure a minimum val between all codes: custom and 0-600 (standard http codes):
-        minval = min(min(min(customcodes), 0), 600)
-        maxval = max(max(max(customcodes), 0), 600)
-
-        def sortkey(key):
-            '''sorts an integer key. 200Ok comes first, then OUTTIMEWARN, Then all other ints
-            sorted "normally". At the end all non-int key values, and as really last None's'''
-            if key is None:
-                return maxval + 2
-            elif key == 200:
-                return minval - 2
-            elif key == OUTTIMEWARN:
-                return minval - 1
-            else:
-                try:
-                    return int(key)
-                except:  # @IgnorePep8
-                    return maxval + 1
-
-        columns = sorted(colset, key=sortkey)
 
         # create data matrix
         data = []
         rows = []
-        colindex = {c: i for i, c in enumerate(columns)}
+        colindex = {c: i for i, c in enumerate(sorted_codes)}
         for row, dic in self.items():
             if not dic:
                 continue
             rows.append(row)
-            datarow = [0] * len(columns)
+            datarow = [0] * len(sorted_codes)
             data.append(datarow)
             for key, value in dic.items():
                 datarow[colindex[key]] = value
@@ -434,72 +531,38 @@ class DownloadStats(defaultdict):
             return ""
 
         # create dataframe of the data. Columns will be set later
-        d = pd.DataFrame(index=rows, data=data)
-        d.loc["TOTAL"] = d.sum(axis=0)
-        # add last column. Note that by default  (we did not specified it) columns are integers:
+        data_df = pd.DataFrame(index=rows, data=data)
+        data_df.loc["TOTAL"] = data_df.sum(axis=0)
+        # add last column. Note that by default  (we did not specified it) sorted_codes are ints:
         # it is important to provide the same type for any new column
-        d[len(d.columns)] = d.sum(axis=1)
+        data_df[len(data_df.columns)] = data_df.sum(axis=1)
 
-        # Set columns and legend. Columns should take the min available space, so stack them
+        # Set sorted_codes and legend. Columns should take the min available space, so stack them
         # in rows via a word wrap. Unfortunately, pandas does not allow this, so we need to create
         # a top dataframe with our col headers. Mopreover, add the legend to be displayed at the
         # bottom after the whole dataframe for non standard http codes
-        columns_df = pd.DataFrame(columns=d.columns)
+        columns_df = pd.DataFrame(columns=data_df.columns)
         legend = []
-        colwidths = d.iloc[-1].astype(str).str.len().tolist()
+        colwidths = data_df.iloc[-1].astype(str).str.len().tolist()
 
-        def codetype2str(code):
-            code = int(code / 100)
-            if code == 1:
-                return "Informational response"
-            elif code == 2:
-                return "Success"
-            elif code == 3:
-                return "Redirection"
-            elif code == 4:
-                return "Client error"
-            elif code == 5:
-                return "Server error"
-            else:
-                return "Unknown status"
+        # adjust all sorted_codes (split into chunks not to make them too wide, set legend, ...etc):
+        for i, code in enumerate(chain(sorted_codes, ['TOTAL'])):
+            title = code
+            if i < len(sorted_codes):  # last column is the total string, not a response code
+                title, leg = self.titlelegend(code)
+                legend.append("%s: %s" % (title, leg))
 
-        for i, c in enumerate(chain(columns, ['TOTAL'])):
-            if i < len(columns):  # last column is the total string, not a response code
-                code = c
-                if c not in resp:
-                    c = "Unknown %s" % str(c)
-                    legend.append("%s: Non-standard response, unknown message (code=%s)" %
-                                  (str(c), str(code)))
-                else:
-                    c = resp[c]
-                    if code == URLERR:
-                        legend.append("%s: Generic Url error (e.g., timeout, no internet "
-                                      "connection, ...)" % str(c))
-                    elif code == MSEEDERR:
-                        legend.append("%s: Response OK, but data cannot be read as "
-                                      "MiniSeed" % str(c))
-                    elif code == OUTTIMEERR:
-                        legend.append("%s: Response OK, but data completely outside "
-                                      "requested time span " % str(c))
-                    elif code == OUTTIMEWARN:
-                        legend.append("%s: Response OK, data saved partially: some "
-                                      "received data chunks where completely outside "
-                                      "requested time span" % str(c))
-                    elif code is None:
-                        legend.append("%s: Response OK, but segment data not found "
-                                      "(e.g., after a multi-segment request)" % str(c))
-                    else:
-                        legend.append("%s: Standard response message indicating "
-                                      "%s (code=%d)" % (str(c), codetype2str(code), code))
-            rows = [_ for _ in c.split(" ") if _.strip()]
+            # make, title, splitting in rows not to make column to wide, and adjust all other
+            # cokumns accordingly if new rows needs to be added:
+            rows = [_ for _ in title.split(" ") if _.strip()]
             rows_to_insert = len(rows) - len(columns_df)
             if rows_to_insert > 0:
                 emptyrows = pd.DataFrame(index=[''] * rows_to_insert,
-                                         columns=d.columns,
+                                         columns=data_df.columns,
                                          data=[[''] * len(columns_df.columns)] * rows_to_insert)
                 columns_df = pd.concat((emptyrows, columns_df))
             # calculate colmax:
-            colmax = max(len(c) for c in rows)
+            colmax = max(len(_) for _ in rows)
             if colmax > colwidths[i]:
                 colwidths[i] = colmax
             # align every row left:
@@ -508,16 +571,16 @@ class DownloadStats(defaultdict):
 
         # create column header by setting the same number of rows for each column:
         # create separator lines:
-        maxindexwidth = d.index.astype(str).str.len().max()
+        maxindexwidth = data_df.index.astype(str).str.len().max()
         linesep_df = pd.DataFrame(data=[["-" * cw for cw in colwidths]],
                                   index=['-' * maxindexwidth])
-        d = pd.concat((columns_df, linesep_df, d))
+        data_df = pd.concat((columns_df, linesep_df, data_df))
 
         with pd.option_context('max_colwidth', 50):
             # creating to_string needs max_colwidth as its default (50), otherwise, numbers
             # are left-aligned (just noticed from failing tests. impossible to understand why.
             # Btw, note that d has all dtypes = object, because mixes numeric and string values)
-            ret = d.to_string(na_rep='0', justify='right', header=False)
+            ret = data_df.to_string(na_rep='0', justify='right', header=False)
 
         if legend:
             legend = ["\n\nCOLUMNS DETAILS:"] + legend

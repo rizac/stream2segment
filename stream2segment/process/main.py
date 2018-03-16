@@ -16,13 +16,6 @@ from builtins import (ascii, chr, dict, filter, hex, input,
 # iterating over dictionary keys with the same set-like behaviour on Py2.7 as on Py3:
 from future.utils import viewkeys
 
-# this can not apparently be fixed with the future package:
-# The problem is io.StringIO accepts unicodes in python2 and strings in python3:
-try:
-    from cStringIO import StringIO  # python2.x
-except ImportError:
-    from io import StringIO
-
 import logging
 import csv
 
@@ -37,7 +30,7 @@ def run(session, pyfunc, config_dict, outcsvfile=None, isterminal=False):
     if outcsvfile is None:
         process_core_run(session, pyfunc, None, config_dict, isterminal)
         return
-    
+
     kwargs = dict(delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
     flush_num = [1, 10]  # determines when to flush (not used. We use the
     # last argument to open which tells to flush line-wise. To add custom flush, see commented
