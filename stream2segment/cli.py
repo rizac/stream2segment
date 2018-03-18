@@ -39,12 +39,6 @@ from stream2segment import main
 from stream2segment.utils.resources import get_templates_fpath, yaml_load_doc
 from stream2segment.traveltimes import ttcreator
 from stream2segment.utils import inputargs
-from click.types import Choice
-from stream2segment.gui.dinfo import get_dstats_str_iter, get_dstats_html
-import tempfile
-from _datetime import datetime
-import webbrowser
-import threading
 
 
 class clickutils(object):
@@ -246,7 +240,7 @@ def download(config, dburl, eventws, start, end, networks, stations, locations, 
                                                             "latitude", "longitude", "minradius",
                                                             "maxradius", "mindepth", "maxdepth",
                                                             "minmagnitude", "maxmagnitude")
-                                                            if par in overrides}
+                        if par in overrides}
         if eventws_dict:
             overrides['eventws_query_args'] = eventws_dict
 
@@ -333,7 +327,7 @@ def show(dburl, configfile, pyfile):
 
 
 @cli.group(short_help="Program utilities. Type --help to list available sub-commands")
-def utils():  #pylint: disable=missing-docstring
+def utils():  # pylint: disable=missing-docstring
     pass
 
 
@@ -354,38 +348,26 @@ def utils():  #pylint: disable=missing-docstring
                    "be identified has having overlaps")
 @click.option('-htm', '--html', is_flag=True, help="if flag is present, generate an interactive "
               "static web page where the download infos are visualized on a map, with statistics "
-              "on a per-station and data-center basis. The resulting file is a dynamic page "
-              "which requires an internet connection to work, due to the use of externally "
-              "linked javascript libraries")
+              "on a per-station and data-center basis. The resulting file is a single dynamic page "
+              "with no dependancies other than a working internet connection")
 @click.argument("outfile", required=False, type=click.Path(file_okay=True,
                                                            dir_okay=False, writable=True,
                                                            readable=True))
 def dinfo(dburl, download_id, maxgap_threshold, html, outfile):
-    """Show download information and statistics either in text format or html.
-    The results will be saved to [outfile], if specified. Otherwise, they will be
-    printed to screen (if 'html' is not specified, or saved to a temporary file otherwise)"""
-    print('Fetching data, please wait (this might take a while depending on the db size)')
-    download_ids = download_id or None
-    if html:
-        if not outfile:
-            outfile = os.path.join(tempfile.gettempdir(),
-                                   "s2s_dinfo_%s.html" % datetime.utcnow().isoformat())
-        with open(outfile, 'w') as opn:
-            opn.write(get_dstats_html(dburl, download_ids, maxgap_threshold, isterminal=False))
-        # webbrowser.open('file://' + outfile)
-        threading.Timer(1, lambda: sys.exit(0)).start()
-    else:
-        itr = get_dstats_str_iter(dburl, download_ids, maxgap_threshold, isterminal=False)
+    """Show / save download information and summary either in text format or html.
+    If [outfile], the results will be saved to the specified file. Otherwise, they will be
+    printed to screen if 'html' is not specified, or opened in a web browser if 'html'
+    is specified"""
+    print('Fetching data, please wait (this might take a while depending on the '
+          'db size and connection)')
+    try:
+        main.dinfo(dburl, download_id, maxgap_threshold, html, outfile)
         if outfile is not None:
-            with open(outfile, 'w') as opn:
-                for line in itr:
-                    opn.write(line + "\n")
-        else:
-            for line in itr:
-                print(line)
-
-    if outfile is not None:
-        print("download info and statistics written to '%s'" % outfile)
+            print("download info and statistics written to '%s'" % outfile)
+        sys.exit(0)
+    except inputargs.BadArgument as aerr:
+        print(aerr)
+        sys.exit(1)  # exit with 1 as normal python exceptions
 
 
 @utils.command(short_help='Show quick help on stream2segment built-in math functions',

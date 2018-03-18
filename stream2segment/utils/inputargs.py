@@ -512,4 +512,5 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None, outfile=N
     return session, pyfunc, funcname, config
 
 
-
+def load_session_for_dinfo(dburl):
+    return S2SArgument.parse('dburl', dburl, create_session)

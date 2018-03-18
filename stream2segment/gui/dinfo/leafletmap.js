@@ -172,6 +172,7 @@ function updateMap(){
 		processStation(staName, staData, dcs, networks, codes, selCodes, downloads, selDownloads);
 	}
 
+	// Note: if we want a control,
 	var layerControl = _leafletData['control'];
 	var dcLayerGroup = _leafletData['dcLayerGroup'];
 	// clear all existing layers first, removing all their markers:
@@ -182,7 +183,7 @@ function updateMap(){
 	var DCID_PREFIX = "_dcen_";
 	for (var dcen in dcens){
 		var val = dcens[dcen];
-		var title = `${dcen}  | Well-formed segments: ${val.ok} of ${val.total} (  ${Math.round((100*val.ok)/val.total)} %)`; 
+		var title = `${dcen}  | Well-formed segments: ${val.ok} of ${val.total} (${Math.round((100*val.ok)/val.total)} %)`; 
 		if (dcen in dcLayerGroup){
 			var layerGroup = dcLayerGroup[dcen];
 			val.markers.forEach(function(elm){layerGroup.addLayer(elm);});

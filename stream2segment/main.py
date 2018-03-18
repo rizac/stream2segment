@@ -22,6 +22,9 @@ import os
 import shutil
 import inspect
 from datetime import timedelta
+import webbrowser
+import threading
+import tempfile
 
 from future.utils import string_types
 
@@ -29,7 +32,8 @@ import yaml
 import click
 
 
-from stream2segment.utils.inputargs import load_config_for_process, load_config_for_download
+from stream2segment.utils.inputargs import load_config_for_process, load_config_for_download,\
+    load_session_for_dinfo
 from stream2segment.utils.log import configlog4download, configlog4processing
 from stream2segment.io.db.models import Download
 from stream2segment.process.main import run as run_process
@@ -39,6 +43,7 @@ from stream2segment.utils.resources import get_templates_fpaths
 from stream2segment.gui.main import create_p_app, run_in_browser, create_d_app
 from stream2segment.process import math as s2s_math
 from stream2segment.download.utils import QuitDownload
+from stream2segment.gui.dinfo import get_dstats_html, get_dstats_str_iter
 
 
 # set root logger if we are executing this module as script, otherwise as module name following
@@ -332,3 +337,27 @@ def helpmathiter(type, filter):  # @ReservedAssignment pylint: disable=redefined
                             yield render(func_.__doc__, indent_num=2)
 
                 yield "\n"
+
+
+def dinfo(dburl, download_id, maxgap_threshold, html=False, outfile=None):
+    session = load_session_for_dinfo(dburl)
+    download_ids = download_id or None
+    if html:
+        openbrowser = False
+        if not outfile:
+            openbrowser = True
+            outfile = os.path.join(tempfile.gettempdir(), "s2s_dinfo.html")
+        with open(outfile, 'w') as opn:
+            opn.write(get_dstats_html(session, download_ids, maxgap_threshold))
+        if openbrowser:
+            webbrowser.open('file://' + outfile)
+        threading.Timer(1, lambda: sys.exit(0)).start()
+    else:
+        itr = get_dstats_str_iter(session, download_ids, maxgap_threshold)
+        if outfile is not None:
+            with open(outfile, 'w') as opn:
+                for line in itr:
+                    opn.write(line + "\n")
+        else:
+            for line in itr:
+                print(line)

@@ -27,18 +27,11 @@ import json
 install_aliases()
 
 
-def get_dstats_dicts(dburl, download_ids=None, maxgap_threshold=0.5, isterminal=False):
-
-    sess = get_session(dburl)  # FIXME: create session in inputartgs instead???
-
-    echo = lambda *arg, **kwarg: None if not isterminal else print  # @IgnorePep8 @UnusedVariable
-
-    echo('Fetching data, please wait ...')
-
+def get_dstats_dicts(session, download_ids=None, maxgap_threshold=0.5):
     # Benchmark: the bare minimum (with postgres on external server) request takes around 12
     # sec and 14 seconds adding all necessary information. Therefore, we choose the latter
     maxgap_bexpr = get_maxgap_sql_expr(maxgap_threshold)
-    data = sess.query(func.count(Segment.id),
+    data = session.query(func.count(Segment.id),
                       Station.id,
                       concat(Station.network, '.', Station.station),
                       Station.latitude,
@@ -109,7 +102,7 @@ def get_dstats_dicts(dburl, download_ids=None, maxgap_threshold=0.5, isterminal=
 
     codes = [dstats2.titlelegend(code) for code in sortedcodes]
     networks = sorted(networks, key=lambda key: networks[key])
-    return sta_list, codes, get_datacenters(sess), get_downloads(sess), networks
+    return sta_list, codes, get_datacenters(session), get_downloads(session), networks
 
 
 def filterquery(query, download_ids=None):
@@ -154,14 +147,11 @@ class DownloadStats2(DownloadStats):
                                           'data has gaps or overlaps)')
 
 
-def get_dstats_str_iter(dburl, download_ids=None, maxgap_threshold=0.5, isterminal=False):
-
-    sess = get_session(dburl)  # FIXME: create session in inputartgs instead???
-
+def get_dstats_str_iter(session, download_ids=None, maxgap_threshold=0.5):
     # Benchmark: the bare minimum (with postgres on external server) request takes around 12
     # sec and 14 seconds adding all necessary information. Therefore, we choose the latter
     maxgap_bexpr = get_maxgap_sql_expr(maxgap_threshold)
-    data = sess.query(func.count(Segment.id),
+    data = session.query(func.count(Segment.id),
                       Segment.download_code,
                       Segment.datacenter_id,
                       Segment.download_id,
@@ -169,7 +159,7 @@ def get_dstats_str_iter(dburl, download_ids=None, maxgap_threshold=0.5, istermin
     data = filterquery(data, download_ids).group_by(Segment.download_id, Segment.datacenter_id,
                                                     Segment.download_code, maxgap_bexpr)
 
-    dcurl = get_datacenters(sess)
+    dcurl = get_datacenters(session)
     agg_statz = DownloadStats2()
     stas = defaultdict(lambda: DownloadStats2())
     for segcount, dwn_code, dc_id, dwn_id, has_go in data:
@@ -181,7 +171,7 @@ def get_dstats_str_iter(dburl, download_ids=None, maxgap_threshold=0.5, istermin
         statz[dcurl[dc_id]][dwn_code] += segcount
         agg_statz[dcurl[dc_id]][dwn_code] += segcount
 
-    dwlids = get_downloads(sess, download_ids)
+    dwlids = get_downloads(session, download_ids)
 
     for did, dwl in viewitems(dwlids):
         yield ascii_decorate('Download id: %d' % did)
@@ -220,9 +210,9 @@ def tojson(obj):
     return json.dumps(obj, separators=(',', ':'))
 
 
-def get_dstats_html(dburl, download_ids, maxgap_threshold, isterminal):
+def get_dstats_html(session, download_ids, maxgap_threshold):
     sta_data, codes, datacenters, downloads, networks = \
-        get_dstats_dicts(dburl, download_ids, maxgap_threshold, isterminal)
+        get_dstats_dicts(session, download_ids, maxgap_threshold)
     # selected codes by default the Ok one. To know which position is in codes is a little hacky:
     dstats = DownloadStats2()
     selcodes = [i for i, c in enumerate(codes) if c == dstats.resp[200]]
