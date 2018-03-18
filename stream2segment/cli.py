@@ -40,7 +40,11 @@ from stream2segment.utils.resources import get_templates_fpath, yaml_load_doc
 from stream2segment.traveltimes import ttcreator
 from stream2segment.utils import inputargs
 from click.types import Choice
-from stream2segment.gui.dreport import get_dstats_str_iter
+from stream2segment.gui.dinfo import get_dstats_str_iter, get_dstats_html
+import tempfile
+from _datetime import datetime
+import webbrowser
+import threading
 
 
 class clickutils(object):
@@ -333,37 +337,43 @@ def utils():  #pylint: disable=missing-docstring
     pass
 
 
-@utils.command(short_help='Show download infos',
+@utils.command(short_help='Show download information and statistics',
                context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', type=inputargs.extract_dburl_if_yamlpath,
               help="%s.\n%s" % (clickutils.DEFAULTDOC['dburl'], clickutils.DBURLDOC_SUFFIX))
 @click.option('-did', '--download-id', multiple=True, type=int,
-              help="Limit the download statistics to a specified set of download ids (integers)"
-                   "when missing, all downloads are shown. this option can be given multiple times:"
-                   ".. -did 1 --download_id 2 ...")
+              help="Limit the download statistics to a specified set of download ids (integers) "
+                   "when missing, all downloads are shown. this option can be given multiple "
+                   "times: .. -did 1 --download_id 2 ...")
 @click.option('-g', '--maxgap-threshold', type=float, default=0.5,
               help="Set the threshold (in number of samples relative to each segment) "
-                   "to mark and show in the download statistics which segments "
+                   "to set which segments in the download statistics "
                    "have gaps/overlaps. "
-                   "Defaults to 0.5, meaning that segments whose maximum gap is >0.5 will be"
-                   "identified has having gaps, and segments whose maximum gap is <-0.5 will"
+                   "Defaults to 0.5, meaning that segments whose maximum gap is >0.5 will be "
+                   "identified has having gaps, and segments whose maximum gap is <-0.5 will "
                    "be identified has having overlaps")
-@click.option('-htm', '--html', is_flag=True, help="if flag is present, generate an interactive"
-              "static web page where the download infos are visualized on a map, with statistics"
-              "on a per-station and data-center basis. The page is static but requires an "
-              "internet connection to work, due to the use of externally linked javascript "
-              "libraries")
-@click.argument("outfile", required=False, type=click.Path(exists=True, file_okay=True,
-                                                           dir_okay=False, writable=False,
+@click.option('-htm', '--html', is_flag=True, help="if flag is present, generate an interactive "
+              "static web page where the download infos are visualized on a map, with statistics "
+              "on a per-station and data-center basis. The resulting file is a dynamic page "
+              "which requires an internet connection to work, due to the use of externally "
+              "linked javascript libraries")
+@click.argument("outfile", required=False, type=click.Path(file_okay=True,
+                                                           dir_okay=False, writable=True,
                                                            readable=True))
 def dinfo(dburl, download_id, maxgap_threshold, html, outfile):
-    """Show download information either in text format or html.
+    """Show download information and statistics either in text format or html.
     The results will be saved to [outfile], if specified. Otherwise, they will be
-    printed to screen (if 'html' is not specified), or saved to a temporary file"""
+    printed to screen (if 'html' is not specified, or saved to a temporary file otherwise)"""
     print('Fetching data, please wait (this might take a while depending on the db size)')
     download_ids = download_id or None
     if html:
-        pass
+        if not outfile:
+            outfile = os.path.join(tempfile.gettempdir(),
+                                   "s2s_dinfo_%s.html" % datetime.utcnow().isoformat())
+        with open(outfile, 'w') as opn:
+            opn.write(get_dstats_html(dburl, download_ids, maxgap_threshold, isterminal=False))
+        # webbrowser.open('file://' + outfile)
+        threading.Timer(1, lambda: sys.exit(0)).start()
     else:
         itr = get_dstats_str_iter(dburl, download_ids, maxgap_threshold, isterminal=False)
         if outfile is not None:
@@ -391,7 +401,7 @@ def dinfo(dburl, download_id, maxgap_threshold, html, outfile):
 @click.option("-f", "--filter", default='*', show_default=True,
               help="Show doc only for the function whose name matches the given filter. "
                     "Wildcards (* and ?) are allowed")
-def functions(type, filter):  # @ReservedAssignment pylint: disable=redefined-outer-name
+def mathinfo(type, filter):  # @ReservedAssignment pylint: disable=redefined-outer-name
     for line in main.helpmathiter(type, filter):
         print(line)
 

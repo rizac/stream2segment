@@ -1,18 +1,32 @@
-{% extends "base.html" %}
+{% extends "flask_base.html" %}
+{% set use_ng = true %}
 {% set use_plotly = true %}
 {% set use_leaflet = false %}
 {% set use_esrileaflet = false %}
+{% set use_bootstrap_css = true %}
 
-{% block head %}
+{% block head_scripts %}
     {{ super() }}
-	<link href="static/css/processing.css" rel="stylesheet" media="screen">
-	<title>{{ title }}</title>
 	<script type="text/javascript">
 		var __SETTINGS = {{ settings|tojson }};
+	    function getScope(){ // returns the controller angular scope
+	    		//https://stackoverflow.com/questions/16709373/angularjs-how-to-call-controller-function-from-outside-of-controller-component
+	    		return angular.element(document.getElementById('angularController')).scope();
+	    }
 	</script>
 {% endblock %}
 
+{% block head_stylesheets %}
+    {{ super() }}
+    	<link href="static/css/processing.css" rel="stylesheet" media="screen">
+{% endblock %}
+
+{% block body_tag %}
+<body ng-app="myApp" ng-controller="myController" id='angularController'>
+{% endblock %}
+
 {% block body_content %}
+	{{ super() }}
 	<!--  raw tells jinja not to parse curly braces so we can angular takes place -->
 	{% raw %}
 	<div class="main v-container">

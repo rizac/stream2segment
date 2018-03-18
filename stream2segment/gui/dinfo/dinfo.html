@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% set use_ng = false %}
+{% set use_esrileaflet = true %}
+{% set use_plotly = false %}
+{% set use_bootstrap_css = true %}
+
+{% block head_scripts %}
+    {{ super() }}
+	<script type='text/javascript'>
+		GLOBALS={
+			sta_data:{{sta_data_json}},
+			codes:{{codes | tojson}},
+			datacenters:{{datacenters | tojson}},
+			downloads:{{downloads | tojson}},
+			networks:{{networks | tojson}},
+			selcodes:new Set({{selcodes | tojson}}),
+			seldownloads:new Set({{seldownloads | tojson}})
+		};
+	</script>
+{% endblock %}
+
+{% block head_stylesheets %}
+    {{ super() }}
+    <style>
+    		{% include 'base.css' %}
+		{% include 'dinfo.css' %}
+	</style>
+{% endblock %}
+
+{% block body_tag %}
+<body onload="updateMap()">
+{% endblock %}
+
+{% block body_content %}
+	<!--  raw tells jinja not to parse curly braces so we can angular takes place -->
+	<div class="main flex v-container">
+		<div class="top"></div> <!-- not used, maybe in the future for a top toolbar ... -->
+		<div class="center flex h-container">
+			<div class="center">
+				<div id="map"></div>
+			</div>
+			
+			<!-- this div will be removed and added as control to the map.
+			Cumbersome, but we want to exploit jinja2 rendering -->
+			<div id='options'>
+				<div class='section'>
+					Define well-formed segments categories:
+				</div>
+				<div class='section'>
+					{% for code in codes %}
+						<div><label>
+							<input type='checkbox' {{ 'checked' if loop.index0 in selcodes_set else '' }}
+								onclick='if(this.checked){ GLOBALS.selcodes.add({{loop.index0}}); }else{ GLOBALS.selcodes.delete({{loop.index0}}); }; updateMap()' />
+								{{code[0]}}:<br>{{code[1]}}
+						</label></div>
+  						{% endfor %}
+				</div>
+				<div class='section'>
+					Limit info/stats to the following downloads:
+				</div>
+				<div class='section'>
+					{% for id, values in downloads.items() %}
+						<div><label>
+							<input type='checkbox' {{ 'checked' if id in seldownloads else '' }}
+								onclick='if(this.checked){ GLOBALS.seldownloads.add({{id}}); }else{ GLOBALS.seldownloads.delete({{id}}); }; updateMap()' />
+								Download id {{id}} (executed: {{values[0]}})
+						</label></div>
+  						{% endfor %}
+				</div>
+			</div>
+			
+			
+		</div>
+	</div>
+{% endblock %}
+
+{% block after_body %}
+<script type='text/javascript'>{% include 'leafletmap.js' %}</script>
+{% endblock %}

@@ -368,7 +368,7 @@ class DownloadStats(defaultdict):
         1. titles should be all with first letter capitalized (to conform to HTTP
            messages implemented in `http.client.responses`)
         1. legends should have the format:
-           '<Data saved|Data not saved> (download <ok|failed|completed><optional details>)'
+           '<Data saved|No data saved> (download <ok|failed|completed><optional details>)'
 
         2. The column order (when this class is printed or its `str` method called)
            roughly follows the code natural ordering (using `float(code)`),
@@ -395,12 +395,12 @@ class DownloadStats(defaultdict):
             if code == 200:
                 leg = 'Data saved (download ok, no additional warning)'
             elif code == 204:
-                leg = 'Data saved but empty (download ok, the server returned any data)'
+                leg = 'Data saved but empty (download ok, the server did not return any data)'
             elif code >= 500:
-                leg = ('Data not saved (download failed, HTTP code %d indicates '
+                leg = ('No data saved (download failed, HTTP code %d indicates '
                        'Server error)') % code
             elif code >= 400:
-                leg = ('Data not saved (download failed, HTTP code %d indicates '
+                leg = ('No data saved (download failed, HTTP code %d indicates '
                        'Client error)') % code
             elif code >= 300:
                 leg = ('Data potentially saved (download completed, HTTP code %d indicates '

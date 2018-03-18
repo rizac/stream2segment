@@ -1,73 +1,47 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>{{ title }}</title>
-{% block head %}
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<!-- DOWNLOAD LIBRARIES WITH FALLBACKS. FOR INFO SEE
-http://stackoverflow.com/questions/26192897/should-i-use-bootstrap-from-cdn-or-make-a-copy-on-my-server
- -->
-<script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.5.6/angular.min.js"></script>
-<script>window.angular || document.write('<script src="static/js/angular.1.5.6.min.js"><\/script>')</script>
-
-{% if use_plotly %}
-<script src="https://cdn.plot.ly/plotly-1.24.0.min.js"></script>
-<script>window.Plotly || document.write('<script src="static/js/plotly.1.24.0.min.js"><\/script>')</script>
-{% endif %}
-
-{% if use_leaflet or use_esrileaflet %}
-	<!-- Leaflet -->
-	<link rel="stylesheet" href="https://unpkg.com/leaflet@1.2.0/dist/leaflet.css" />
+	<title>{{ title }}</title>
+{% block head_meta %}
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% endblock %}
+{% block head_scripts %}
+	{% if use_ng %}
+	<script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.5.6/angular.min.js"></script>
+	{% endif %}
+	
+	{% if use_plotly %}
+	<script src="https://cdn.plot.ly/plotly-1.24.0.min.js"></script>
+	{% endif %}
+	
+	{% if use_leaflet or use_esrileaflet %}
 	<script src="https://unpkg.com/leaflet@1.2.0/dist/leaflet.js"></script>
-	<!-- FALLBACK -->
-	<script>window.L || document.write('<script src="static/js/leaflet.1.2.0/leaflet.js"><\/script>' +
-			'\n' + '<link rel="stylesheet" href="static/js/leaflet.1.2.0/leaflet.css"><\/link>')</script>
-{% endif %}
-
-{% if use_esrileaflet %}
-	<!-- Load Esri Leaflet from CDN -->
+	{% endif %}
+	
+	{% if use_esrileaflet %}
 	<script src="https://unpkg.com/esri-leaflet@2.1.1"></script>
-	<!-- FALLBACK
-	 just looked at source code: https://unpkg.com/esri-leaflet@2.0.8/dist/esri-leaflet-debug.js -->
-	<script>(window.L && window.L.esri) || document.write('<script src="static/js/esri-leaflet.2.1.1.js"><\/script>')</script>
-{% endif %}
-
-<script type="text/javascript">
-    function getScope(){ // returns the controller angular scope
-    	//https://stackoverflow.com/questions/16709373/angularjs-how-to-call-controller-function-from-outside-of-controller-component
-    	return angular.element(document.getElementById('angularController')).scope();
-    }
-</script>
-
-<link href="static/css/base.css" rel="stylesheet" media="screen">
+	{% endif %}
+{% endblock %}
+{% block head_stylesheets %}
+	{% if use_leaflet or use_esrileaflet %}
+		<!-- Leaflet -->
+	<link rel="stylesheet" href="https://unpkg.com/leaflet@1.2.0/dist/leaflet.css" />
+	{% endif %}
+	{% if use_bootstrap_css %}
+	<link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" rel="stylesheet" media="screen">
+	{% endif %}
 {% endblock %}
 </head>
-<body ng-app="myApp" ng-controller="myController" id='angularController'>
-<!-- Div for checking bootsrap was loaded (see end of the document and
-	https://stackoverflow.com/questions/14141532/how-to-load-local-copy-of-bootstrap-css-when-the-cdn-server-is-down): -->
-<div id="_bootstrapfallbacktest_______H;68_ft" class='hidden'></div>
-{% block body_content %}
+
+{% block body_tag %}
+<body>
 {% endblock %}
+	{% block body_content %}
+	{% endblock %}
 </body>
+
 {% block after_body %}
 {% endblock %}
-<!--
-LOAD BOOTSTRAP FROM LOCAL COPY IF SERVICE IS DOWN:
- https://stackoverflow.com/questions/14141532/how-to-load-local-copy-of-bootstrap-css-when-the-cdn-server-is-down
-and
-https://stackoverflow.com/questions/19669786/check-if-element-is-visible-in-dom
-(we have pure javascript no jquery here:) -->
-<script>
-if(document.getElementById("_bootstrapfallbacktest_______H;68_ft").offsetParent !== null){  //element is not hidden, load bootstrap
-	// console.log('LOADING BOOTSTRAP from server');
-	local_bootstrap = document.createElement('link');
-       local_bootstrap.setAttribute("rel", "stylesheet");
-       local_bootstrap.setAttribute("type", "text/css");
-       local_bootstrap.setAttribute("media", "screen");
-       local_bootstrap.setAttribute("href", "{{ url_for('static', filename='css/bootstrap.3.3.7.min.css') }}");
-       document.getElementsByTagName("head")[0].appendChild(local_bootstrap);
-}
-</script>
+
 </html>

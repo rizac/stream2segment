@@ -14,12 +14,15 @@ from future.utils import viewitems, itervalues, viewvalues, viewkeys
 
 from urllib.parse import urlparse  # @IgnorePep8
 
+from jinja2 import Environment, FileSystemLoader
 from sqlalchemy.sql.expression import func, or_
 
 from stream2segment.utils.resources import yaml_load
 from stream2segment.utils import get_session, get_progressbar, StringIO
 from stream2segment.io.db.models import Segment, concat, Station, DataCenter, Download, substr
 from stream2segment.download.utils import custom_download_codes, DownloadStats
+import os
+import json
 
 install_aliases()
 
@@ -56,9 +59,15 @@ def get_dstats_dicts(dburl, download_ids=None, maxgap_threshold=0.5, isterminal=
     #            ...,
     #            }
     sta_data = {}
+    networks = {}
     dstats2 = DownloadStats2()
     for segcount, staid, staname, lat, lon, dc_id, dwn_id, dwn_code, has_go in data:
-        sta_list = sta_data.get(staname, [staid, round(lat, 2), round(lon, 2), dc_id, None])
+        network = staname.split('.')[0]
+        netindex = networks.get(network, -1)
+        if netindex == -1:
+            networks[network] = netindex = len(networks)
+        sta_list = sta_data.get(staname, [staid, round(lat, 2), round(lon, 2), dc_id, netindex,
+                                          None])
         if sta_list[-1] is None:
             sta_list[-1] = defaultdict(lambda: defaultdict(int))
             sta_data[staname] = sta_list
@@ -72,16 +81,35 @@ def get_dstats_dicts(dburl, download_ids=None, maxgap_threshold=0.5, isterminal=
     # modify stas_data nested dicts, replacing codes with an incremental integer
     # and keep a separate list that maps uses codes to titles and legends
     # So, first sort codes and keep track of their index
+    # Then, remove dicts for two reasons:
+    # js objects converts int keys as string (it's a property of js objects), this makes:
+    # 1. unnecessary quotes chars which take up space, and
+    # 2. prevents to work with other objects, e.g., storing some int key in a js Set, makes
+    #    set.has(same_key_as_string) return false
+    # 3. We do not actually need object key search in the page, as we actully loop through elements
+    #    arrays are thus fine
+    # Thus sta_data should look like:
+    # sta_data = [sta_name, [staid, stalat, stalon, sta_dcid,
+    #                        d_id1, [code1, num_seg1 , ..., codeN, num_seg],
+    #                        d_id2, [code1, num_seg1 , ..., codeN, num_seg],
+    #                       ],
+    #            ...,
+    #            ]
+    sta_list = []
     sortedcodes = DownloadStats2.sortcodes(codesfound)
     codeint = {k: i for i, k in enumerate(sortedcodes)}
-    for values in viewvalues(sta_data):
-        dwnlids2dict = values[-1]
-        for did, code2numsegs in viewitems(dwnlids2dict):
-            dwnlids2dict[did] = {codeint[code]: val for code, val in viewitems(code2numsegs)}
+    for staname, values in viewitems(sta_data):
+        staname = staname.split('.')[1]
+        dwnlds = values.pop()  # remove last element
+        for did, segs in viewitems(dwnlds):
+            values.append(did)
+            values.append([item for code in segs for item in (codeint[code], segs[code])])
+        sta_list.append(staname)
+        sta_list.append(values)
 
     codes = [dstats2.titlelegend(code) for code in sortedcodes]
-
-    return sta_data, codes, get_datacenters(sess), get_downloads(sess)
+    networks = sorted(networks, key=lambda key: networks[key])
+    return sta_list, codes, get_datacenters(sess), get_downloads(sess), networks
 
 
 def filterquery(query, download_ids=None):
@@ -177,3 +205,34 @@ def ascii_decorate(string):
     secondline = "║ " + string + " ║"
     thirdline = "╚" + "═" * leng + "╝"
     return "\n".join([firstline, secondline, thirdline])
+
+
+def get_template():
+    thisdir = os.path.dirname(__file__)
+    templatespath = os.path.join(os.path.dirname(thisdir), 'webapp', 'templates')
+    csspath = os.path.join(os.path.dirname(thisdir), 'webapp', 'static', 'css')
+    env = Environment(loader=FileSystemLoader([thisdir, templatespath, csspath]))
+    return env.get_template('dinfo.html')
+
+
+def tojson(obj):
+    '''converts obj to json formatted string without whitespaces to minimize string size'''
+    return json.dumps(obj, separators=(',', ':'))
+
+
+def get_dstats_html(dburl, download_ids, maxgap_threshold, isterminal):
+    sta_data, codes, datacenters, downloads, networks = \
+        get_dstats_dicts(dburl, download_ids, maxgap_threshold, isterminal)
+    # selected codes by default the Ok one. To know which position is in codes is a little hacky:
+    dstats = DownloadStats2()
+    selcodes = [i for i, c in enumerate(codes) if c == dstats.resp[200]]
+    # downloads are all selected by default
+    seldownloads = list(downloads.keys())
+    return get_template().render(sta_data_json=tojson(sta_data),
+                                 codes=codes,
+                                 datacenters=datacenters,
+                                 downloads=downloads,
+                                 selcodes_set=set(selcodes),
+                                 selcodes=selcodes,
+                                 seldownloads=seldownloads,
+                                 networks=networks)
