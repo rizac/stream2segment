@@ -213,9 +213,20 @@ function createMarker(staName, netName, staId, lat, lon, dcId, datacenter, ok, m
 		greenBlue = 210 + ((-210) * (val - minVal) / (maxVal - minVal));
 		greenBlue = parseInt(0.5 + greenBlue); // round to int: converts maxVal to 0, minVal to 255
 	}
-	// set sizes logaritmically according to total segments: 3, 6, 9, 12, ...
-	var minRadius = 3;
-	var radius = minRadius + (total <= 0 ? 0 : 3 * parseInt(0.5 + Math.log(total) / Math.log(10)));
+	// set sizes kind-of logaritmically:
+	var minRadius = 3;  // lower than this the circle is not clickable ...
+	var sizeRadius = 5; // for the biggest case (>= than 1000 segments)
+	if (total < 10){
+		sizeRadius = 0;
+	}else if (total < 50){
+		sizeRadius = 1;
+	}else if (total < 100){
+		sizeRadius = 2;
+	}else if (total < 500){
+		sizeRadius = 3;
+	}else if (total < 1000){
+		sizeRadius = 4;
+	}
 
 	var circle = L.circleMarker([lat, lon], {
 	    color: '#333',
@@ -224,7 +235,7 @@ function createMarker(staName, netName, staId, lat, lon, dcId, datacenter, ok, m
 	    weight: 1,
 	    fillColor: `rgb(255, ${greenBlue}, ${greenBlue})`,
 	    fillOpacity: 1,
-	    radius: radius,
+	    radius: sizeRadius + minRadius,
 	    zIndexOffset: val > minVal ? 1000 : 0  // not that this is NOT used for circles but for markers, we will use this feature afterwards
 	});
 	//bind popup with infos:
