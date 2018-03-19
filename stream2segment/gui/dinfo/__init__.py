@@ -32,20 +32,20 @@ def get_dstats_dicts(session, download_ids=None, maxgap_threshold=0.5):
     # sec and 14 seconds adding all necessary information. Therefore, we choose the latter
     maxgap_bexpr = get_maxgap_sql_expr(maxgap_threshold)
     data = session.query(func.count(Segment.id),
-                      Station.id,
-                      concat(Station.network, '.', Station.station),
-                      Station.latitude,
-                      Station.longitude,
-                      Station.datacenter_id,
-                      Segment.download_id,
-                      Segment.download_code,
-                      maxgap_bexpr).join(Segment.station)
+                         Station.id,
+                         concat(Station.network, '.', Station.station),
+                         Station.latitude,
+                         Station.longitude,
+                         Station.datacenter_id,
+                         Segment.download_id,
+                         Segment.download_code,
+                         maxgap_bexpr).join(Segment.station)
     data = filterquery(data, download_ids).group_by(Station.id, Segment.download_id,
                                                     Segment.download_code, maxgap_bexpr,
                                                     Segment.datacenter_id)
 
     codesfound = set()
-
+    dcidsfound = set()
     # sta_data = {sta_name: [staid, stalat, stalon, sta_dcid,
     #                        {d_id: {code1: num_seg , codeN: num_seg}, ... }
     #                       ],
@@ -69,6 +69,7 @@ def get_dstats_dicts(session, download_ids=None, maxgap_threshold=0.5):
             dwn_code = dstats2.GAP_OVLAP_CODE
         sta_dic[dwn_code] += segcount
         codesfound.add(dwn_code)
+        dcidsfound.add(dc_id)
 
     # In the html, we want to reduce all possible data, as the file might be huge
     # modify stas_data nested dicts, replacing codes with an incremental integer
@@ -102,7 +103,8 @@ def get_dstats_dicts(session, download_ids=None, maxgap_threshold=0.5):
 
     codes = [dstats2.titlelegend(code) for code in sortedcodes]
     networks = sorted(networks, key=lambda key: networks[key])
-    return sta_list, codes, get_datacenters(session), get_downloads(session), networks
+    return sta_list, codes, get_datacenters(session, list(dcidsfound) or None), \
+        get_downloads(session), networks
 
 
 def filterquery(query, download_ids=None):
@@ -123,10 +125,12 @@ def get_downloads(sess, download_ids=None):
             for (did, time, cfg) in query}
 
 
-def get_datacenters(sess):
+def get_datacenters(sess, dc_ids=None):
     '''returns a dict of datacenters id mapped to the network location of their url'''
-    return {did: urlparse(ds).netloc for (did, ds) in sess.query(DataCenter.id,
-                                                                 DataCenter.dataselect_url)}
+    query = sess.query(DataCenter.id, DataCenter.dataselect_url)
+    if dc_ids is not None:
+        query = query.filter(DataCenter.id.in_(dc_ids))
+    return {did: urlparse(ds).netloc for (did, ds) in query}
 
 
 def get_maxgap_sql_expr(maxgap_threshold=0.5):
@@ -152,10 +156,10 @@ def get_dstats_str_iter(session, download_ids=None, maxgap_threshold=0.5):
     # sec and 14 seconds adding all necessary information. Therefore, we choose the latter
     maxgap_bexpr = get_maxgap_sql_expr(maxgap_threshold)
     data = session.query(func.count(Segment.id),
-                      Segment.download_code,
-                      Segment.datacenter_id,
-                      Segment.download_id,
-                      maxgap_bexpr)
+                         Segment.download_code,
+                         Segment.datacenter_id,
+                         Segment.download_id,
+                         maxgap_bexpr)
     data = filterquery(data, download_ids).group_by(Segment.download_id, Segment.datacenter_id,
                                                     Segment.download_code, maxgap_bexpr)
 
@@ -218,7 +222,8 @@ def get_dstats_html(session, download_ids, maxgap_threshold):
     selcodes = [i for i, c in enumerate(codes) if c == dstats.resp[200]]
     # downloads are all selected by default
     seldownloads = list(downloads.keys())
-    return get_template().render(sta_data_json=tojson(sta_data),
+    return get_template().render(title='Download info',
+                                 sta_data_json=tojson(sta_data),
                                  codes=codes,
                                  datacenters=datacenters,
                                  downloads=downloads,

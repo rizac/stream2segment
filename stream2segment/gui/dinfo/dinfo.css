@@ -1,30 +1,10 @@
-#map{
-	width:100%; height:100%;
-}
-div.left-panel{
-	padding-left:15px;
-	max-width:24em;
+body{
+	padding: 0px;
 }
 #options{
 	max-width: 30vw;
-	max-height: 50vh;
+	max-height: 75vh;
 	overflow:scroll;
-}
-div.section:not(:first-child){
-	margin-top:15px;
-}
-div.left-panel input[type="radio"],
-div.left-panel input[type="radio"],
-div.left-panel input[type="checkbox"],
-div.left-panel input[type="checkbox"] {
-	margin-right: 5px;
-}
-div.left-panel table.formula{
-	margin:5px 0px;
-}
-div.left-panel table.formula td{
-	padding:5px 0;
-	padding-right: 5px;
 }
 div.info-legend{
 	margin: 5px 0px;
@@ -32,13 +12,6 @@ div.info-legend{
 	box-shadow: 2px 2px 2px rgba(0,0,0,.2);
 	background-color: white;
 	border-radius: 5px;
-}
-div.info-legend .station_symbol{
-	display:inline-block;
-	height:1em;
-	width:1em;
-	border-radius:.5em;
-	border: 1px solid #ddd;
 }
 div.info-legend .cmap-chunk{
 	display: inline-block;
@@ -54,24 +27,26 @@ div.info-legend .cmap-chunk:first-child{
 div.info-legend .cmap-chunk:last-child{
 	border-right: 1px solid #666;
 }
-.leaflet-popup-content{
-	width: auto !important;
-	height: auto !important;
-    max-height: 60vh;
-    max-width: 60vw;
-   	overflow: auto;
+div.info-legend .station_symbol{
+	display:inline-block;
+	height:1em;
+	width:1em;
+	border-radius:.5em;
+	border: 1px solid #333;
 }
-table.station-info th,
-table.station-info td{
-	padding-top: 2px;
-	padding-bottom: 2px;
+td.nowrap, th.nowrap{
+	white-space: nowrap;
+}
+td.right, th.right{
+	text-align: right;
+}
+td{
 	vertical-align:top;
-	border-top: 1px solid #ddd;
+	padding-top:5px;
 }
-table.station-info th:not(:first-child),
-table.station-info td:not(:first-child){
-	padding-left: 10px;
+td:not(:first-child), th:not(:first-child){
+	padding-left:5px;
 }
-table.station-info th{
-	background-color: rgba(255,255,200,.3);
+th{
+	text-align:left;
 }

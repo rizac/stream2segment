@@ -200,8 +200,11 @@
 			<span>{{ selection.errorMsg }}</span>
 		</div>
 	</div>
+	{% endraw %}
+{% endblock %}
+{% block after_body %}
+	{{ super() }}
 	<!-- load plots config and angular at the end (IN THIS ORDER!) -->
 	<script src="static/js/processing/plotlyconfig.js" defer></script>
 	<script src="static/js/processing/ng-app.js" defer></script>
-	{% endraw %}
 {% endblock %}

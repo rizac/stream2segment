@@ -2,7 +2,7 @@
 {% set use_ng = false %}
 {% set use_esrileaflet = true %}
 {% set use_plotly = false %}
-{% set use_bootstrap_css = true %}
+{% set use_bootstrap_css = false %}
 
 {% block head_scripts %}
     {{ super() }}
@@ -34,42 +34,58 @@
 {% block body_content %}
 	<!--  raw tells jinja not to parse curly braces so we can angular takes place -->
 	<div class="main flex v-container">
-		<div class="top"></div> <!-- not used, maybe in the future for a top toolbar ... -->
-		<div class="center flex h-container">
-			<div class="center">
-				<div id="map"></div>
-			</div>
-			
-			<!-- this div will be removed and added as control to the map.
-			Cumbersome, but we want to exploit jinja2 rendering -->
-			<div id='options'>
-				<div class='section'>
-					Define well-formed segments categories:
-				</div>
-				<div class='section'>
-					{% for code in codes %}
-						<div><label>
-							<input type='checkbox' {{ 'checked' if loop.index0 in selcodes_set else '' }}
-								onclick='if(this.checked){ GLOBALS.selcodes.add({{loop.index0}}); }else{ GLOBALS.selcodes.delete({{loop.index0}}); }; updateMap()' />
-								{{code[0]}}:<br>{{code[1]}}
-						</label></div>
-  						{% endfor %}
-				</div>
-				<div class='section'>
-					Limit info/stats to the following downloads:
-				</div>
-				<div class='section'>
-					{% for id, values in downloads.items() %}
-						<div><label>
-							<input type='checkbox' {{ 'checked' if id in seldownloads else '' }}
-								onclick='if(this.checked){ GLOBALS.seldownloads.add({{id}}); }else{ GLOBALS.seldownloads.delete({{id}}); }; updateMap()' />
-								Download id {{id}} (executed: {{values[0]}})
-						</label></div>
-  						{% endfor %}
-				</div>
-			</div>
-			
-			
+		<div class='center' id="map"></div>
+		<!-- this div will be removed and added as control to the map.
+		Cumbersome, but we want to exploit jinja2 rendering -->
+		<div id='options'>
+
+			<h3>Selected categories:</h3>
+			<table>
+				<tr><th>Category</th><th>Description</th></tr>
+				{% for code in codes %}
+				<tr>
+					<td class='nowrap'>
+						<label><input type='checkbox' {{ 'checked' if loop.index0 in selcodes_set else '' }}
+							onclick='if(this.checked){ GLOBALS.selcodes.add({{loop.index0}}); }else{ GLOBALS.selcodes.delete({{loop.index0}}); }; updateMap()' />
+						{{code[0]}}</label>
+					</td>
+					<td>{{code[1]}}</td>
+				</tr>
+					{% endfor %}
+				</table>
+
+			<h3>Data-centers:</h3>
+			<table>
+				<tr><th>Domain url</th><th class='right'>Total segments</th><th class='right'>Selected categories segments</th><th class='right'></th></tr>
+				{% for id, url in datacenters.items() %}
+				<tr>
+					<td class='nowrap'>
+						<label><input type='checkbox' checked
+							onclick='if(this.checked){ GLOBALS.dcLayerGroups["{{id}}"].addTo(GLOBALS.map); }else{ GLOBALS.map.removeLayer(GLOBALS.dcLayerGroups["{{id}}"]); }; updateMap()' />
+						{{ url }}</label>
+					</td>
+					<td id="dc{{ id }}total" class='right'></td>
+					<td id="dc{{ id }}sel" class='right'></td>
+					<td id="dc{{ id }}selperc" class='right'></td>
+				</tr>
+				{% endfor %}
+			</table>
+
+			<h3>Downloads</h3>
+			<table>
+				<tr><th>Id</th><th>Executed</th><th>Eventws query args</th></tr>
+				{% for id, values in downloads.items() %}
+				<tr>
+					<td class='nowrap'>
+						<label><input type='checkbox' {{ 'checked' if id in seldownloads else '' }}
+							onclick='if(this.checked){ GLOBALS.seldownloads.add({{id}}); }else{ GLOBALS.seldownloads.delete({{id}}); }; updateMap()' />
+						{{id}}</label>
+				</td>
+				<td class='nowrap'>{{values[0]}}</td>
+				<td>{{values[1] | tojson}}</td>
+				</tr>
+					{% endfor %}
+			</table>
 		</div>
 	</div>
 {% endblock %}
