@@ -32,14 +32,31 @@
 {% endblock %}
 
 {% block body_content %}
-	<!--  raw tells jinja not to parse curly braces so we can angular takes place -->
+	
 	<div class="main flex v-container">
 		<div class='center' id="map"></div>
+		
+		<!--  ALL DIVS BELOW WILL BE REMOVED AND ADDED TO LEAFLET CONTROLS.
+		Cumbersome, but we want to keep view code in the view (and exploit jinja2 rendering) -->
+		
+		<!--  1. LEGEND: -->
+		<div id='legend'>
+			<div>
+				<span class='station_symbol' style='background-color: red'></span>&nbsp;
+		    		Stations with downloaded waveform data segments. Color: percentage of segments in selected categories:
+		    </div>
+		    <div style='white-space: nowrap;'>
+		    		<span id='minval'></span>
+		    		<span class='colorbar'></span>
+		    		<span id='maxval'></span>
+		    	</div>
+		</div>
+		
 		<!-- this div will be removed and added as control to the map.
 		Cumbersome, but we want to exploit jinja2 rendering -->
 		<div id='options'>
 
-			<h3>Selected categories:</h3>
+			<h3>Selected categories</h3>
 			<table>
 				<tr><th>Category</th><th>Description</th></tr>
 				{% for code in codes %}
@@ -54,7 +71,7 @@
 					{% endfor %}
 				</table>
 
-			<h3>Data-centers:</h3>
+			<h3>Data-centers</h3>
 			<table>
 				<tr><th>Domain url</th><th class='right'>Total segments</th><th class='right'>Selected categories segments</th><th class='right'></th></tr>
 				{% for id, url in datacenters.items() %}
@@ -73,7 +90,7 @@
 
 			<h3>Downloads</h3>
 			<table>
-				<tr><th>Id</th><th>Executed</th><th>Eventws query args</th></tr>
+				<tr><th>Id</th><th>Executed</th><th>Even query (param <code>eventws_query_args</code>)</th></tr>
 				{% for id, values in downloads.items() %}
 				<tr>
 					<td class='nowrap'>

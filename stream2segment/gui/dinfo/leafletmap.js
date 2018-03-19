@@ -1,21 +1,12 @@
 function createLegend(map){
 	var legend = L.control({position: 'bottomleft'});
 	legend.onAdd = function (map) {
-	    var div = L.DomUtil.create('div', 'info-legend');
-	    // create colorbar html string:
-	    var colorbar = [0, .25, .5, .75, 1].map(
-	    		function(value){
-	    			var gbLevel = Math.floor(255 - 255*value);
-	    			var color = "rgb(255, " + gbLevel + ", " + gbLevel +")";
-	    			return `<span class='cmap-chunk' style='background-color: ${color}'></span>`;
-	    		}
-	    	).join('');
-	    div.innerHTML = `<div style='max-width:8em'><div><span class='station_symbol' style='background-color: red'></span>
-		    &nbsp;<span>Stations with downloaded waveform data segments. Color: percentage of segments in selected categories:</div>
-		    <div class='white-space: nowrap;'>0% ${colorbar} 100%</div></div>`;
+		var div = L.DomUtil.create('div', 'info-legend');
+	    var child = document.getElementById('legend');
+	    child.parentNode.removeChild(child);
+	    div.appendChild(child);
 	    return div;
 	};
-	
 	legend.addTo(map);
 }
 
@@ -85,79 +76,12 @@ function updateMap(){
 		createLegend(map);
 		createOptionsMenu(map);
 	}
+	// some shared functions
+	var htmlElement = document.getElementById.bind(document);  // https://stackoverflow.com/questions/1007340/javascript-function-aliasing-doesnt-seem-to-work
+	
 
 	var dcens = {}; //stores datacenter id mapped to markers, selected and total segments
 	var fitBoundMarkers = [];  // used only for zoom. It's a collection of ALL markers we will create
-	var floor = Math.floor; //this actually returns an int (at least, something whose str value is with no dots)s
-	// ********************************************************************
-	// function processing each station and eventually creating its marker:
-	// ********************************************************************
-	function processStation(staName, array, datacenters, networks, codes, selectedCodes, downloads, selectedDownloads){
-		var staId = array[0];
-		var lat = array[1];
-		var lon = array[2];
-		var dcId = array[3];
-		var netName = networks[array[4]];
-		var ok = 0;
-		var malformed = 0;
-		// compute malformed and ok:
-		var skipStation = true;
-		var STARTDATAINDEX = 5;
-		for (var idx = STARTDATAINDEX; idx < array.length; idx +=2){
-			var downloadId = array[idx];
-			var downloadData = array[idx+1];
-			if (!selectedDownloads.has(downloadId)){
-				continue;
-			}
-			skipStation = false;
-			
-			for (var idj = 0; idj < downloadData.length; idj +=2){
-				var codeIndex = downloadData[idj];
-				var numSegments = downloadData[idj+1];
-				if (selectedCodes.has(codeIndex)){
-					ok += numSegments;
-				}else{
-					malformed += numSegments;
-				}
-			}
-		}
-		if (skipStation){
-			return;
-		}
-		var total = ok + malformed;
-		if (!(dcId in dcens)){
-			dcens[dcId] = {'markers': [], 'total':0, 'ok':0};
-		}
-		var dc = dcens[dcId];
-		dc.total += total;
-		dc.ok += ok;
-		var gb = floor(0.5 + 255 * (1 - (total == 0 ? 0 : ok/total)));
-		//console.log(gb);
-		
-		var circle = L.circleMarker([lat, lon], {
-		    color: '#333',
-		    opacity: 1,
-		    weight: 1,
-		    fillColor: `rgb(255, ${gb}, ${gb})`,
-		    fillOpacity: 1,
-		    radius: 6
-		});
-		//bind popup with infos:
-		var staPopupContent = `<table class='station-info'>
-							   <tr><th colspan="2"> ${staName}.${netName} </th></tr>
-							   <tr><td>database id</td><td>${staId}</td></tr>
-							   <tr><td>data-center:</td><td>${datacenters[dcId]}</td></tr>
-							   <tr><td colspan="2">Segments:</td></tr>
-							   <tr><td>In selected categories:</td><td> ${ok} </td></tr>
-							   <tr><td>Not in selected categories:</td><td> ${malformed} </td></tr>
-							   <tr><td>Total:</td><td> ${total} </td></tr>
-							   </table>`; 
-		circle.bindPopup(staPopupContent);
-		dc.markers.push(circle);
-		//if (fitBounds){
-			fitBoundMarkers.push(circle);
-		//}
-	}
 	// loop over all data and create markes, calling the function above:
 	var data = GLOBALS.sta_data;
 	var datacenters = GLOBALS.datacenters;
@@ -166,31 +90,75 @@ function updateMap(){
 	var downloads = GLOBALS.downloads;
 	var codes = GLOBALS.codes;
 	var selDownloads = GLOBALS.seldownloads;
-	for (var ii=0; ii < data.length; ii+=2){
+	var markersData = [];
+	var minVal = 1.0;
+	var maxVal = 0.0;
+	for (var ii = 0; ii < data.length; ii+=2){
 		var staName = data[ii];
 		var staData = data[ii+1];
-		processStation(staName, staData, datacenters, networks, codes, selCodes, downloads, selDownloads);
+		var [ok, malformed, total] = processStation(staName, staData, selCodes, selDownloads);
+		if (!total){
+			continue;
+		}
+		var staId = staData[0];
+		var lat = staData[1];
+		var lon = staData[2];
+		var dcId = staData[3];
+		var netName = networks[staData[4]];
+		markersData.push([staName, netName, staId, lat, lon, dcId, ok, malformed, total]);
+		var myVal = ok/total;
+		if(minVal > myVal){
+			minVal = myVal;
+		}
+		if(maxVal < myVal){
+			maxVal = myVal;
+		}
 	}
+	// update legend colorbar:
+	// conv returns parseInt if a number is >=1 or 0, otherwise the str representation up to the first two nonzero decimals:
+	function conv(n){return '' + ((n==0 || n>=1) ? parseInt(0.5+n):  n.toFixed(1-Math.floor(Math.log(n)/Math.log(10))));}
+	htmlElement('minval').innerHTML = conv(100 * minVal) + '%';
+	htmlElement('maxval').innerHTML = conv(100 * maxVal) + '%';
+	
+	// create markers with color:
+	markersData.forEach(function(val){
+		var [staName, netName, staId, lat, lon, dcId, ok, malformed, total] = val;
+		if (!(dcId in dcens)){
+			dcens[dcId] = {'markers': [], 'total':0, 'ok':0};
+		}
+		var dc = dcens[dcId];
+		dc.total += total;
+		dc.ok += ok;
+		
+		var circle = createMarker(staName, netName, staId, lat, lon, datacenters[dcId], ok, malformed, total, minVal, maxVal);
+		dc.markers.push(circle);
+		fitBoundMarkers.push(circle);
+	});
 
 	dcLayerGroups = GLOBALS.dcLayerGroups;
 	// clear all existing layers (removing all their markers) first:
 	for (var dcId in dcLayerGroups){
 		dcLayerGroups[dcId].clearLayers(); // clear all markers of the layer group (clearLayers is misleading)
 	}
-	var htmlElement = document.getElementById.bind(document);  // https://stackoverflow.com/questions/1007340/javascript-function-aliasing-doesnt-seem-to-work
 	for (var dcId in dcens){
 		var val = dcens[dcId];
-		if (dcId in dcLayerGroups){
-			var layerGroup = dcLayerGroups[dcId];
-			val.markers.forEach(function(elm){layerGroup.addLayer(elm);});
-		}else{
-			// add layerGroup to map and our object:
-			dcLayerGroups[dcId] = L.layerGroup(val.markers).addTo(map);
+		// Now bring to front all markers, from those who have lower values to those
+		// who have higher values. https://stackoverflow.com/questions/39202182/leaflet-circle-z-index
+		// note that sort modifies the array INPLACE!
+		val.markers.sort(function(a, b){return a.options.zIndexOffset-b.options.zIndexOffset});
+		if (!(dcId in dcLayerGroups)){
+			dcLayerGroups[dcId] = L.layerGroup().addTo(map);
 		}
+		var layerGroup = dcLayerGroups[dcId];
+		// set the zindex based on the maximum value found:
+		layerGroup.setZIndex(val.markers[val.markers.length-1].options.zIndexOffset);
+		// add markers and call bring to front AFTER it is added:
+		val.markers.forEach(function(marker){layerGroup.addLayer(marker);marker.bringToFront();});
 		//update stats in the dropdown menu Options:
 		htmlElement(`dc${dcId}total`).innerHTML = val.total;
 		htmlElement(`dc${dcId}sel`).innerHTML = val.ok;
 		htmlElement(`dc${dcId}selperc`).innerHTML = `${Math.round((100*val.ok)/val.total)}%`;
+
 	}
 
 	// fit bounds and set stuff only if initializing:
@@ -199,4 +167,65 @@ function updateMap(){
 		var group = new L.featureGroup(fitBoundMarkers);
 		map.fitBounds(group.getBounds());
 	}
+}
+
+function processStation(staName, staData, selectedCodes, selectedDownloads){
+	var ok = 0;
+	var malformed = 0;
+	// compute malformed and ok:
+	var skipStation = true;
+	var STARTDATAINDEX = 5;
+	for (var i = STARTDATAINDEX; i < staData.length; i +=2){
+		var downloadId = staData[i];
+		var downloadData = staData[i+1];
+		if (!selectedDownloads.has(downloadId)){
+			continue;
+		}
+		skipStation = false;
+		for (var j = 0; j < downloadData.length; j +=2){
+			var codeIndex = downloadData[j];
+			var numSegments = downloadData[j+1];
+			if (selectedCodes.has(codeIndex)){
+				ok += numSegments;
+			}else{
+				malformed += numSegments;
+			}
+		}
+	}
+	if (skipStation){
+		return [0.0, 0.0, 0.0];
+	}
+	return [ok, malformed, ok+malformed];
+}
+
+function createMarker(staName, netName, staId, lat, lon, datacenter, ok, malformed, total, minVal, maxVal){
+	//datacenters[dcId]
+	var val = ok/total;
+	val = 255*((val - minVal) / (maxVal - minVal));  // converts minVal to 0, maxVal to 1
+	var markerZIndex = Math.floor(0.5 + 1000 * val)  // converts minVal to 0, maxVal to 1000
+	val = 255 * (1 - val);  // invert: maxVal to 0, minVal to 255
+	val = Math.floor(0.5 + val); // round to intconverts maxVal to 0, minVal to 255
+	
+	var circle = L.circleMarker([lat, lon], {
+	    color: '#333',
+	    opacity: 1,
+	    weight: 1,
+	    fillColor: `rgb(255, ${val}, ${val})`,
+	    fillOpacity: 1,
+	    radius: 6,
+	    zIndexOffset: markerZIndex  // not that this is NOT used for circles but for markers, we will use this feature afterwards
+	});
+	//bind popup with infos:
+	var staPopupContent = `<table class='station-info'>
+						   <tr><th colspan="2"> ${staName}.${netName} </th></tr>
+						   <tr><td>database id</td><td>${staId}</td></tr>
+						   <tr><td>data-center:</td><td>${datacenter}</td></tr>
+						   <tr><td colspan="2">Segments:</td></tr>
+						   <tr><td>In selected categories:</td><td> ${ok} </td></tr>
+						   <tr><td>Not in selected categories:</td><td> ${malformed} </td></tr>
+						   <tr><td>Total:</td><td> ${total} </td></tr>
+						   </table>`; 
+	circle.bindPopup(staPopupContent);
+	
+	return circle;
 }

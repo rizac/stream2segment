@@ -3,8 +3,11 @@ body{
 }
 #options{
 	max-width: 30vw;
-	max-height: 75vh;
+	max-height: 80vh;
 	overflow:scroll;
+}
+#options > h3{
+	border-bottom: 1px solid #ddd;
 }
 div.info-legend{
 	margin: 5px 0px;
@@ -13,19 +16,13 @@ div.info-legend{
 	background-color: white;
 	border-radius: 5px;
 }
-div.info-legend .cmap-chunk{
-	display: inline-block;
-	width: .5em;
+#legend .colorbar{
+	background: linear-gradient(to right, white , red);
 	height: 1em;
-	border-top: 1px solid #666;
-	border-bottom: 1px solid #666;
+	width: 4em;
+	display: inline-block;
+	border: 1px solid #666;
 	vertical-align: middle;
-}
-div.info-legend .cmap-chunk:first-child{
-	border-left: 1px solid #666;
-}
-div.info-legend .cmap-chunk:last-child{
-	border-right: 1px solid #666;
 }
 div.info-legend .station_symbol{
 	display:inline-block;
