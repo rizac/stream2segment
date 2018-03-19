@@ -14,7 +14,8 @@
 			downloads:{{downloads | tojson}},
 			networks:{{networks | tojson}},
 			selcodes:new Set({{selcodes | tojson}}),
-			seldownloads:new Set({{seldownloads | tojson}})
+			seldownloads:new Set({{seldownloads | tojson}}),
+			seldatacenters: new Set({{seldatacenters | tojson}})
 		};
 	</script>
 {% endblock %}
@@ -41,15 +42,28 @@
 		
 		<!--  1. LEGEND: -->
 		<div id='legend'>
-			<div>
-				<span class='station_symbol' style='background-color: red'></span>&nbsp;
-		    		Stations with downloaded waveform data segments. Color: percentage of segments in selected categories:
-		    </div>
-		    <div style='white-space: nowrap;'>
-		    		<span id='minval'></span>
-		    		<span class='colorbar'></span>
-		    		<span id='maxval'></span>
-		    	</div>
+			<table>
+				<tr>
+					<td class='right'><span class='station_symbol'></span></td>
+					<td>Circles: stations with downloaded waveform data segments</td>
+				</tr>
+		    		<tr>
+		    			<td class='right nowrap'>
+		    				<span id='minval'></span>
+		    				<span class='colorbar'></span>
+		    				<span id='maxval'></span>
+		    			</td>
+		    			<td>Colors: % of segments in selected categories</td>
+		    		</tr>
+		    		<tr>
+		    			<td class='right nowrap'>
+		    				<span class='station_symbol' style='border-radius:.3em;height:.6em;width:.6em'></span>
+		    				<span class='station_symbol'></span>
+		    				<span class='station_symbol' style='border-radius:.7em;height:1.4em;width:1.4em'></span>
+		    			</td>
+		    			<td>Sizes: total number of segments</td>
+		    		</tr>
+		    </table>
 		</div>
 		
 		<!-- this div will be removed and added as control to the map.
@@ -77,8 +91,8 @@
 				{% for id, url in datacenters.items() %}
 				<tr>
 					<td class='nowrap'>
-						<label><input type='checkbox' checked
-							onclick='if(this.checked){ GLOBALS.dcLayerGroups["{{id}}"].addTo(GLOBALS.map); }else{ GLOBALS.map.removeLayer(GLOBALS.dcLayerGroups["{{id}}"]); }; updateMap()' />
+						<label><input type='checkbox' {{ 'checked' if id in seldatacenters else '' }}
+							onclick='if(this.checked){ GLOBALS.seldatacenters.add({{id}}); }else{ GLOBALS.seldatacenters.delete({{id}}); }; updateMap()' />
 						{{ url }}</label>
 					</td>
 					<td id="dc{{ id }}total" class='right'></td>

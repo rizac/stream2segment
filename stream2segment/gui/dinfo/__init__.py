@@ -222,6 +222,7 @@ def get_dstats_html(session, download_ids, maxgap_threshold):
     selcodes = [i for i, c in enumerate(codes) if c == dstats.resp[200]]
     # downloads are all selected by default
     seldownloads = list(downloads.keys())
+    seldatacenters = list(datacenters.keys())
     return get_template().render(title='Download info',
                                  sta_data_json=tojson(sta_data),
                                  codes=codes,
@@ -230,4 +231,5 @@ def get_dstats_html(session, download_ids, maxgap_threshold):
                                  selcodes_set=set(selcodes),
                                  selcodes=selcodes,
                                  seldownloads=seldownloads,
+                                 seldatacenters=seldatacenters,
                                  networks=networks)

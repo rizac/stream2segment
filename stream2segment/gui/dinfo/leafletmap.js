@@ -71,7 +71,7 @@ function updateMap(){
 		// initialize the map if not already init'ed
 		L.esri.basemapLayer("Topographic").addTo(map);
 		// L.esri.basemapLayer("OceansLabels").addTo(map);
-		GLOBALS.dcLayerGroups = {};
+		GLOBALS.allMarkers = [];
 		fitBounds = true;
 		createLegend(map);
 		createOptionsMenu(map);
@@ -80,32 +80,36 @@ function updateMap(){
 	var htmlElement = document.getElementById.bind(document);  // https://stackoverflow.com/questions/1007340/javascript-function-aliasing-doesnt-seem-to-work
 	
 
-	var dcens = {}; //stores datacenter id mapped to markers, selected and total segments
-	var fitBoundMarkers = [];  // used only for zoom. It's a collection of ALL markers we will create
+	var dcStats = {}; //stores datacenter id mapped to markers, selected and total segments
+	var allMarkers = [];  // It's a collection of ALL markers we will create, used also for zoom if map is uninitialized 
 	// loop over all data and create markes, calling the function above:
-	var data = GLOBALS.sta_data;
-	var datacenters = GLOBALS.datacenters;
-	var networks = GLOBALS.networks;
-	var selCodes = GLOBALS.selcodes;
-	var downloads = GLOBALS.downloads;
-	var codes = GLOBALS.codes;
-	var selDownloads = GLOBALS.seldownloads;
+	var {sta_data, datacenters, seldatacenters, networks, codes, selcodes, downloads, seldownloads} = GLOBALS;
 	var markersData = [];
 	var minVal = 1.0;
 	var maxVal = 0.0;
-	for (var ii = 0; ii < data.length; ii+=2){
-		var staName = data[ii];
-		var staData = data[ii+1];
-		var [ok, malformed, total] = processStation(staName, staData, selCodes, selDownloads);
+	for (var ii = 0; ii < sta_data.length; ii+=2){
+		var staName = sta_data[ii];
+		var staData = sta_data[ii+1];
+		var [ok, malformed, total] = processStation(staName, staData, selcodes, seldownloads, seldatacenters);
 		if (!total){
 			continue;
 		}
 		var staId = staData[0];
 		var lat = staData[1];
 		var lon = staData[2];
+		// get datacenter id and update dc stats:
 		var dcId = staData[3];
+		if (!(dcId in dcStats)){
+			dcStats[dcId] = {'total':0, 'ok':0};
+		}
+		var dcStat = dcStats[dcId];
+		dcStat.total += total;
+		dcStat.ok += ok;
+		// push to marker data array. We cannot yet create a marker from each markerData element
+		// because we need the min and max value of selected categories segments
 		var netName = networks[staData[4]];
 		markersData.push([staName, netName, staId, lat, lon, dcId, ok, malformed, total]);
+		// update min and max of selected catagories segments:
 		var myVal = ok/total;
 		if(minVal > myVal){
 			minVal = myVal;
@@ -120,58 +124,56 @@ function updateMap(){
 	htmlElement('minval').innerHTML = conv(100 * minVal) + '%';
 	htmlElement('maxval').innerHTML = conv(100 * maxVal) + '%';
 	
-	// create markers with color:
+	// remove all markers:
+	GLOBALS.allMarkers.forEach(function(element){map.removeLayer(element);});
+	// Now we can create markers from markersData (with correct colors) and add them to map:
 	markersData.forEach(function(val){
 		var [staName, netName, staId, lat, lon, dcId, ok, malformed, total] = val;
-		if (!(dcId in dcens)){
-			dcens[dcId] = {'markers': [], 'total':0, 'ok':0};
-		}
-		var dc = dcens[dcId];
-		dc.total += total;
-		dc.ok += ok;
-		
-		var circle = createMarker(staName, netName, staId, lat, lon, datacenters[dcId], ok, malformed, total, minVal, maxVal);
-		dc.markers.push(circle);
-		fitBoundMarkers.push(circle);
+		var circle = createMarker(staName, netName, staId, lat, lon, dcId, datacenters[dcId], ok, malformed, total, minVal, maxVal).addTo(map);
+		allMarkers.push(circle);
 	});
-
-	dcLayerGroups = GLOBALS.dcLayerGroups;
-	// clear all existing layers (removing all their markers) first:
-	for (var dcId in dcLayerGroups){
-		dcLayerGroups[dcId].clearLayers(); // clear all markers of the layer group (clearLayers is misleading)
-	}
-	for (var dcId in dcens){
-		var val = dcens[dcId];
-		// Now bring to front all markers, from those who have lower values to those
-		// who have higher values. https://stackoverflow.com/questions/39202182/leaflet-circle-z-index
-		// note that sort modifies the array INPLACE!
-		val.markers.sort(function(a, b){return a.options.zIndexOffset-b.options.zIndexOffset});
-		if (!(dcId in dcLayerGroups)){
-			dcLayerGroups[dcId] = L.layerGroup().addTo(map);
-		}
-		var layerGroup = dcLayerGroups[dcId];
-		// set the zindex based on the maximum value found:
-		layerGroup.setZIndex(val.markers[val.markers.length-1].options.zIndexOffset);
-		// add markers and call bring to front AFTER it is added:
-		val.markers.forEach(function(marker){layerGroup.addLayer(marker);marker.bringToFront();});
+	
+	// print stats for datacenters:
+	for (var dcId in datacenters){
+		var {ok, total} = (dcId in dcStats) ? dcStats[dcId] : {'ok': 0, 'total': 0};
 		//update stats in the dropdown menu Options:
-		htmlElement(`dc${dcId}total`).innerHTML = val.total;
-		htmlElement(`dc${dcId}sel`).innerHTML = val.ok;
-		htmlElement(`dc${dcId}selperc`).innerHTML = `${Math.round((100*val.ok)/val.total)}%`;
-
+		htmlElement(`dc${dcId}total`).innerHTML = total;
+		htmlElement(`dc${dcId}sel`).innerHTML = ok;
+		htmlElement(`dc${dcId}selperc`).innerHTML = `${total ? Math.round((100*ok)/total) : 0}%`;
 	}
 
 	// fit bounds and set stuff only if initializing:
 	if(fitBounds){
 		// https://stackoverflow.com/questions/16845614/zoom-to-fit-all-markers-in-mapbox-or-leaflet
-		var group = new L.featureGroup(fitBoundMarkers);
+		var group = new L.featureGroup(allMarkers);
 		map.fitBounds(group.getBounds());
 	}
+	
+	// now sort markers and then bring them to front.
+	// This has to be done at the real end because if the map is uninitialized a view must be set to
+	// call bringToFront below. Initializing map.setView(...) would solve the problem
+	// of this code placement BUT it does not fit the zoom the first time the map is created
+	function sortMarker(marker1, marker2){
+		// first who has at least some segment ok, IF the other has not
+		var val = marker1.options.zIndexOffset-marker2.options.zIndexOffset; 
+		if (!val){ // if both with no segments ok, or both with at least one segment ok, bigger markers to back:
+			val = marker2.options.radius-marker1.options.radius;
+		}
+		return val;
+	}
+	allMarkers.sort(sortMarker);
+	allMarkers.forEach(function(marker){marker.bringToFront();});
+	GLOBALS.allMarkers = allMarkers; // assign to global allMarkers
 }
 
-function processStation(staName, staData, selectedCodes, selectedDownloads){
+function processStation(staName, staData, selectedCodes, selectedDownloads, selectedDatacenters){
 	var ok = 0;
 	var malformed = 0;
+	dcId = staData[3];
+	var skipMarker = [0, 0, 0];
+	if (!selectedDatacenters.has(dcId)){
+		return skipMarker;
+	}
 	// compute malformed and ok:
 	var skipStation = true;
 	var STARTDATAINDEX = 5;
@@ -193,27 +195,37 @@ function processStation(staName, staData, selectedCodes, selectedDownloads){
 		}
 	}
 	if (skipStation){
-		return [0.0, 0.0, 0.0];
+		return skipMarker;
 	}
 	return [ok, malformed, ok+malformed];
 }
 
-function createMarker(staName, netName, staId, lat, lon, datacenter, ok, malformed, total, minVal, maxVal){
+function createMarker(staName, netName, staId, lat, lon, dcId, datacenter, ok, malformed, total, minVal, maxVal){
 	//datacenters[dcId]
 	var val = ok/total;
-	val = 255*((val - minVal) / (maxVal - minVal));  // converts minVal to 0, maxVal to 1
-	var markerZIndex = Math.floor(0.5 + 1000 * val)  // converts minVal to 0, maxVal to 1000
-	val = 255 * (1 - val);  // invert: maxVal to 0, minVal to 255
-	val = Math.floor(0.5 + val); // round to intconverts maxVal to 0, minVal to 255
-	
+	var greenBlue = 255;
+	if (val > minVal && maxVal > 0 && minVal < maxVal){
+		// now we want to normalize val from [minVal, maxVal] into [210, 0], the level of green and blue
+		// the higher the ok segments, the LOWER green and blue level (so that the resulting color is "more" red and less "white")
+		// we normalize until 210 and NOT 255 because we want a visual JUMP if some station has some selected catagory
+		// this restrict the shades of red for high values of ok, but it more important for an user to see on the map
+		// when a station has some segment in the selected catagories
+		greenBlue = 210 + ((-210) * (val - minVal) / (maxVal - minVal));
+		greenBlue = parseInt(0.5 + greenBlue); // round to int: converts maxVal to 0, minVal to 255
+	}
+	// set sizes logaritmically according to total segments: 3, 6, 9, 12, ...
+	var minRadius = 3;
+	var radius = minRadius + (total <= 0 ? 0 : 3 * parseInt(0.5 + Math.log(total) / Math.log(10)));
+
 	var circle = L.circleMarker([lat, lon], {
 	    color: '#333',
 	    opacity: 1,
+	    dcId: dcId,
 	    weight: 1,
-	    fillColor: `rgb(255, ${val}, ${val})`,
+	    fillColor: `rgb(255, ${greenBlue}, ${greenBlue})`,
 	    fillOpacity: 1,
-	    radius: 6,
-	    zIndexOffset: markerZIndex  // not that this is NOT used for circles but for markers, we will use this feature afterwards
+	    radius: radius,
+	    zIndexOffset: val > minVal ? 1000 : 0  // not that this is NOT used for circles but for markers, we will use this feature afterwards
 	});
 	//bind popup with infos:
 	var staPopupContent = `<table class='station-info'>
