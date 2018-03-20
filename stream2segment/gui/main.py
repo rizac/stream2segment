@@ -16,10 +16,10 @@ import webbrowser
 from stream2segment.utils import load_source
 from stream2segment.utils.resources import yaml_load
 from stream2segment.gui.webapp import create_app
-from stream2segment.gui.webapp.processing.plots.core import PlotManager
+from stream2segment.gui.webapp.mainapp.plots.core import PlotManager
 
 
-def create_p_app(dbpath, pyfile, configfile):
+def create_main_app(dbpath, pyfile, configfile):
     """
         Creates a new app for processing. Note that config_py_file is the stream2segment gui
         config, not the config passed to Flask `app.config.from_pyfile`.
@@ -29,21 +29,9 @@ def create_p_app(dbpath, pyfile, configfile):
     with create_app(dbpath) as app:
         app.config['PLOTMANAGER'] = PlotManager(pymodule, configdict)
         app.config['CONFIG.YAML'] = configdict
-        from stream2segment.gui.webapp.processing.views import main_page
-        app.register_blueprint(main_page)
+        from stream2segment.gui.webapp.mainapp.views import main_app
+        app.register_blueprint(main_app)
 
-    return app
-
-
-def create_d_app(dbpath):
-    """
-        Creates a new app for the download report. Note that config_py_file is the stream2segment
-        gui config, not the config passed to Flask `app.config.from_pyfile`. For Flask config,
-        please provide a valid object in `config_object`
-    """
-    with create_app(dbpath) as app:
-        from stream2segment.gui.webapp.dreport.views import main_page
-        app.register_blueprint(main_page)
     return app
 
 

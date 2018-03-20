@@ -79,12 +79,13 @@ function updateMap(){
 	// some shared functions
 	var htmlElement = document.getElementById.bind(document);  // https://stackoverflow.com/questions/1007340/javascript-function-aliasing-doesnt-seem-to-work
 	
+	// remove all markers:
+	GLOBALS.allMarkers.forEach(function(element){map.removeLayer(element);});
 
 	var dcStats = {}; //stores datacenter id mapped to markers, selected and total segments
 	var allMarkers = [];  // It's a collection of ALL markers we will create, used also for zoom if map is uninitialized 
 	// loop over all data and create markes, calling the function above:
 	var {sta_data, datacenters, seldatacenters, networks, codes, selcodes, downloads, seldownloads} = GLOBALS;
-	var markersData = [];
 	var minVal = 1.0;
 	var maxVal = 0.0;
 	for (var ii = 0; ii < sta_data.length; ii+=2){
@@ -105,33 +106,11 @@ function updateMap(){
 		var dcStat = dcStats[dcId];
 		dcStat.total += total;
 		dcStat.ok += ok;
-		// push to marker data array. We cannot yet create a marker from each markerData element
-		// because we need the min and max value of selected categories segments
+		// create the marker and add it to the map:
 		var netName = networks[staData[4]];
-		markersData.push([staName, netName, staId, lat, lon, dcId, ok, malformed, total]);
-		// update min and max of selected catagories segments:
-		var myVal = ok/total;
-		if(minVal > myVal){
-			minVal = myVal;
-		}
-		if(maxVal < myVal){
-			maxVal = myVal;
-		}
-	}
-	// update legend colorbar:
-	// conv returns parseInt if a number is >=1 or 0, otherwise the str representation up to the first two nonzero decimals:
-	function conv(n){return '' + ((n==0 || n>=1) ? parseInt(0.5+n):  n.toFixed(1-Math.floor(Math.log(n)/Math.log(10))));}
-	htmlElement('minval').innerHTML = conv(100 * minVal) + '%';
-	htmlElement('maxval').innerHTML = conv(100 * maxVal) + '%';
-	
-	// remove all markers:
-	GLOBALS.allMarkers.forEach(function(element){map.removeLayer(element);});
-	// Now we can create markers from markersData (with correct colors) and add them to map:
-	markersData.forEach(function(val){
-		var [staName, netName, staId, lat, lon, dcId, ok, malformed, total] = val;
-		var circle = createMarker(staName, netName, staId, lat, lon, dcId, datacenters[dcId], ok, malformed, total, minVal, maxVal).addTo(map);
+		var circle = createMarker(staName, netName, staId, lat, lon, dcId, datacenters[dcId], ok, malformed, total).addTo(map);
 		allMarkers.push(circle);
-	});
+	}
 	
 	// print stats for datacenters:
 	for (var dcId in datacenters){
@@ -177,14 +156,14 @@ function processStation(staName, staData, selectedCodes, selectedDownloads, sele
 	// compute malformed and ok:
 	var skipStation = true;
 	var STARTDATAINDEX = 5;
-	for (var i = STARTDATAINDEX; i < staData.length; i +=2){
+	for (var i = STARTDATAINDEX; i < staData.length; i+=2){
 		var downloadId = staData[i];
 		var downloadData = staData[i+1];
 		if (!selectedDownloads.has(downloadId)){
 			continue;
 		}
 		skipStation = false;
-		for (var j = 0; j < downloadData.length; j +=2){
+		for (var j = 0; j < downloadData.length; j+=2){
 			var codeIndex = downloadData[j];
 			var numSegments = downloadData[j+1];
 			if (selectedCodes.has(codeIndex)){
@@ -200,17 +179,19 @@ function processStation(staName, staData, selectedCodes, selectedDownloads, sele
 	return [ok, malformed, ok+malformed];
 }
 
-function createMarker(staName, netName, staId, lat, lon, dcId, datacenter, ok, malformed, total, minVal, maxVal){
+function createMarker(staName, netName, staId, lat, lon, dcId, datacenter, ok, malformed, total){
 	//datacenters[dcId]
 	var val = ok/total;
 	var greenBlue = 255;
-	if (val > minVal && maxVal > 0 && minVal < maxVal){
-		// now we want to normalize val from [minVal, maxVal] into [210, 0], the level of green and blue
-		// the higher the ok segments, the LOWER green and blue level (so that the resulting color is "more" red and less "white")
-		// we normalize until 210 and NOT 255 because we want a visual JUMP if some station has some selected catagory
-		// this restrict the shades of red for high values of ok, but it more important for an user to see on the map
-		// when a station has some segment in the selected catagories
-		greenBlue = 210 + ((-210) * (val - minVal) / (maxVal - minVal));
+	var [minVal, maxVal] = [0, 1];
+	if (val > 0 && maxVal > minVal){  // second && is for safety...
+		// now we want to set a shade of red according to val: the higher val, the more the marker is red
+		// In a rgb context, this means that the higher val, the lower, the lower the var greenBlue
+		// The function below creates the value for greenBlue, taking in consideration that
+		// visually we are interested to spot the stations with some 'ok' segments (val >0),
+		// and thus we set the maximum of greenBlue to 190, meaning that the color immeditaley after
+		// the white (val==0) is a kind of pink one
+		greenBlue = 190 + ((-190) * (val - minVal) / (maxVal - minVal));
 		greenBlue = parseInt(0.5 + greenBlue); // round to int: converts maxVal to 0, minVal to 255
 	}
 	// set sizes kind-of logaritmically:
@@ -241,12 +222,11 @@ function createMarker(staName, netName, staId, lat, lon, dcId, datacenter, ok, m
 	//bind popup with infos:
 	var staPopupContent = `<table class='station-info'>
 						   <tr><th colspan="2"> ${staName}.${netName} </th></tr>
-						   <tr><td>database id</td><td>${staId}</td></tr>
-						   <tr><td>data-center:</td><td>${datacenter}</td></tr>
-						   <tr><td colspan="2">Segments:</td></tr>
-						   <tr><td>In selected categories:</td><td> ${ok} </td></tr>
-						   <tr><td>Not in selected categories:</td><td> ${malformed} </td></tr>
-						   <tr><td>Total:</td><td> ${total} </td></tr>
+						   <tr><td colspan="2">${datacenter}</td></tr>
+						   <tr><td>database id:</td><td class='right'>${staId}</td></tr>
+						   <tr><td>Segments:</td><td class='right'> ${total} </td></tr>
+						   <tr><td class='right'>In selected categories:</td><td class='right'> ${ok} </td></tr>
+						   <tr><td class='right'>Not in selected categories:</td><td class='right'> ${malformed} </td></tr>
 						   </table>`; 
 	circle.bindPopup(staPopupContent);
 	

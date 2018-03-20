@@ -35,7 +35,7 @@ from obspy.core import Stream, Trace
 
 from stream2segment.io.db.models import Segment
 from stream2segment.utils import iterfuncs
-from stream2segment.gui.webapp.processing.plots.jsplot import Plot
+from stream2segment.gui.webapp.mainapp.plots.jsplot import Plot
 from stream2segment.process.utils import enhancesegmentclass, getseg
 
 

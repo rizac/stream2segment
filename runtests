@@ -33,6 +33,7 @@ then
 		./tests/functional/test_download2.py \
 		./tests/functional/test_processing.py \
 		./tests/functional/test_sqlevalexpr.py \
+		./tests/functional/test_dinfo.py \
 		./tests/functional/test_webgui.py \
 		./tests/unit/test_dbqueries.py \
 		./tests/unit/test_plotviews.py \

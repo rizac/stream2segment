@@ -1,57 +1,64 @@
 '''
-=============================================================
-Stream2segment: Processing+Visualization python file template
-=============================================================
+====================================================================
+Stream2segment: Processing and/or Visualization python file template
+====================================================================
 
-This is a template python module for processing downloaded waveform segments and defining the
-segment plots to be visualized in the web GUI (Graphical user interface).
+This is a template python module for processing downloaded waveform segments and optionally defining
+functions that can be visualized as plots in the web GUI (Graphical user interface).
 
-This file can be edited and passed to the program commands `s2s v` (visualize) and `s2s p` (process)
-as -p or --pyfile option, together with an associated configuration .yaml file (-c option):
-```
-    s2s show -p [thisfilepath] -c [configfilepath] ...
-    s2s process -p [thisfilepath] -c [configfilepath] ...
-```
-This module needs to implement one or more functions which will be described here (for full details,
-look at their doc-string). All these functions must have the same signature:
+This module needs to implement one or more functions which will be described in the sections below.
+**All these functions must have the same signature**:
 ```
     def myfunction(segment, config):
 ```
 where `segment` is the python object representing a waveform data segment to be processed
 and `config` is the python dictionary representing the given configuration .yaml file.
 
+After editing, this file can be invoked from the command line commands `s2s process` and `s2s show`
+with the `-p` / `--pyfile` option (type `s2s show --help` or `s2s show --help` for details).
+In the first case, see section 'Processing' below, otherwise see section 'Visualization (web GUI)'.
+In both cases, please read the remaining of this documentation.
+
+
 Processing
 ==========
 
-When invoked via `s2s process ...`, the program will search for a function called "main", e.g.:
+When processing, the program will search for a function called "main", e.g.:
 ```
 def main(segment, config)
 ```
 the program will iterate over each selected segment (according to 'segment_select' parameter
-in the config) and execute the function, writing its output to the given .csv file
+in the config) and execute the function, writing its output to the given .csv file, if given.
+If you do not need to use this module for visualizing stuff, skip the section below and go to the
+next one.
+
 
 Visualization (web GUI)
 =======================
 
-When invoked via `s2s show ...`, the program will search for all functions decorated with
+When visualizing, the program will fetch all segments (according
+to 'segment_select' parameter in the config), and open a web page where the user can browse and
+visualize each segment one at a time.
+The page shows by default on the upper left corner a plot representing the segment trace(s).
+The GUI can be customized by providing here functions decorated with
 "@gui.preprocess", "@gui.sideplot" or "@gui.customplot".
+Plot functions can return only special 'plottable' values (basically arrays,
+more details in their doc-strings).
 The function decorated with "@gui.preprocess", e.g.:
 ```
 @gui.preprocess
 def applybandpass(segment, config)
 ```
 will be associated to a check-box in the GUI. By clicking the check-box,
-all plot functions (i.e., all other functions decorated with either '@sideplot' or '@customplot')
-are re-executed with the only difference that `segment.stream()`
-will return the pre-processed stream, instead of the "raw" unprocessed stream. Thus, this
-function must return a Stream or Trace object.
+all plots of the page will be re-calculated with the output of this function,
+which **must thus return an obspy Stream or Trace object**.
 The function decorated with "@gui.sideplot", e.g.:
 ```
 @gui.sideplot
 def sn_spectra(segment, config)
 ```
-will be associated to (i.e., its output will be displayed in) the right side plot,
-next to the raw / pre-processed segment stream plot.
+will be associated to (i.e., its output will be displayed in) the plot next to the main plot
+(upper right corner). This is by default a spectrum of the segment's noise and non-noisy part.
 Finally, the functions decorated with "@gui.customplot", e.g.:
 ```
 @gui.customplot
@@ -60,43 +67,66 @@ def cumulative(segment, config)
 def first_derivative(segment, config)
 ...
 ```
-will be associated to the bottom plot, below the raw / pre-processed segment stream plot, and can
-be selected (one at a time) from the GUI with a radio-button.
-All plot functions should return objects of certain types (more details in their doc-strings
-in this module).
+will be associated to the custom plots placed below the main plot.
 
-Important notes
-===============
 
-1) This module is designed to force the DRY (don't repeat yourself) principle, thus if a portion
-of code implemented in "main" should be visualized for inspection, it should be moved, not copied,
-to a separated function (decorated with '@gui.customplot') and called from within "main"
+Functions implementation
+========================
 
-2) All functions here can safely raise Exceptions, as all exceptions will be caught by the caller:
-- displaying the error message on the plot if the function is called for visualization,
-- printing it to a log file, if teh function is called for processing into .csv
-  (More details on this in the "main" function doc-string).
-Thus do not issue print statement in any function because, to put it short,
-it's useless (and if you are used to do it extensively for debugging, consider changing this habit
-and use a logger): if any information should be given, simply raise a base exception, e.g.:
-`raise Exception("segment sample rate too low")`.
+The implementation of the functions is user-dependent. Before describing the functions signature,
+please keep in mind that:
 
-Functions arguments
-===================
+1) This module is designed to encourage the decoupling of code and configuration, so that you can
+easily and safely experiment different configurations on the same code, if needed. We strongly
+discuourage to implement a python file and copy/paste it by changing some parameters only,
+as it is very unmantainable and bug-prone. That said, it's up to you (e.g. a script-like
+processing file for saving once some selected segments to a file might have the output directory
+hard-coded)
 
-As said, all functions needed or implemented for processing and visualization must have the same
+2) This module is designed to force the DRY (don't repeat yourself) principle. This is particularly
+important when using the GUI to visually debug / inspect some code for processing
+implemented in `main`: we strongly encourage to *move* the portion of code into a separate
+function F and call F from 'main' AND decorate it with '@gui.customplot'
+
+As said, all functions needed for processing and visualization must have the same
 signature:
 ```
     def myfunction(segment, config):
 ```
-In details, the two arguments passed to those functions are:
+
+all functions can safely raise Exceptions, as all exceptions will be caught by the caller:
+
+* displaying the error message on the plot if the function is called for visualization,
+
+* printing it to a log file, if the function is called for processing into .csv
+  (More details on this in the "main" function doc-string).
+  Issuing `print` statements for debugging it's thus useless (and a bad practice overall):
+  if any information should be given, simply raise a base exception, e.g.:
+  `raise Exception("segment sample rate too low")`.
+
+Functions arguments
+-------------------
+
+config (dict)
+~~~~~~~~~~~~~
+
+This is the dictionary representing the chosen .yaml config file (usually, via command line).
+As said, we strongly encourage to decouple code and configuration, so that you can easily
+and safely experiment different configurations on the same code, if needed.
+The config default file is documented with all necessary information, put therein
+whatever property you want, e.g.:
+```
+outfile: '/home/mydir/root'
+mythreshold: 5.67
+```
+and it will be accessible via `config['outfile']`, `config['mythreshold']`
 
 segment (object)
 ~~~~~~~~~~~~~~~~
 
 Technically it's like an 'SqlAlchemy` ORM instance but for the user it is enough to
-consider and treat it as a normal python object. It has special methods and several
-attributes returning python "scalars" (float, int, str, bool, datetime, bytes).
+consider and treat it as a normal python object. It features special methods and
+several attributes returning python "scalars" (float, int, str, bool, datetime, bytes).
 Each attribute can be considered as segment metadata: it reflects a segment column
 (or an associated database table via a foreign key) and returns the relative value.
 
@@ -107,10 +137,10 @@ segment methods:
   associated to the segment. Please remember that many obspy functions modify the
   stream in-place:
   ```
-      s = segment.stream()
-      s_rem_resp = s.remove_response(segment.inventory())
-      segment.stream() is s  # False!!!
-      segment.stream() is s_rem_resp  # True!!!
+      stream = segment.stream()
+      stream_remresp = s.remove_response(segment.inventory())
+      stream is segment.stream()  # False!!!
+      stream_remresp is segment.stream()  # True!!!
   ```
   When visualizing plots, where efficiency is less important, each function is executed on a
   copy of segment.stream(). However, from within the `main` function, the user has to handle when
@@ -164,7 +194,7 @@ segment methods:
       segment.stream().write(segment.seiscomp_path() + '.mseed', format='MSEED')
 
 * segment.dbsession(): WARNING: this is for advanced users experienced with Sql-Alchemy library:
-  returns the database session for IO operations with the database
+  returns the database session for custom IO operations with the database
 
 
 segment attributes:
@@ -199,12 +229,12 @@ segment.missing_data_ratio                float: the portion of missing data, wi
 \                                         missing_data_ratio=-0.2. This attribute is particularly
 \                                         useful in the config to select only well formed data and
 \                                         speed up the processing, e.g.: missing_data_ratio: '< 0.5'
+segment.sample_rate                       float: the waveform data sample rate.
+\                                         It might differ from the segment channel's sample_rate
 segment.has_data                          boolean: tells if the segment has data saved (at least
 \                                         one byte of data). This attribute useful in the config to
 \                                         select only well formed data and speed up the processing,
 \                                         e.g. has_data: 'true'.
-segment.sample_rate                       float: the waveform data sample rate.
-\                                         It might differ from the segment channel's sample_rate
 segment.download_code                     int: the download code (for experienced users). As for
 \                                         any HTTP status code,
 \                                         values between 200 and 399 denote a successful download
@@ -230,21 +260,24 @@ segment.download_code                     int: the download code (for experience
 \                                         when the server returns no data with an appropriate
 \                                         'No Content' message with download_code=204)
 segment.maxgap_numsamples                 float: the maximum gap found in the waveform data, in
-\                                         in number of points.
-\                                         If the value is positive, the max is a gap. If negative,
-\                                         it's an overlap. If zero, no gaps/overlaps were found.
-\                                         This attribute is particularly useful in the config to
-\                                         select only well formed data and speed up the processing,
-\                                         e.g.: maxgap_numsamples: '[-0.5, 0.5]'.
-\                                         This number is a float because it is the ratio between
+\                                         number of points. This attribute is particularly useful
+\                                         in the config to select only well formed data and speed
+\                                         up the processing.
+\                                         If this attribute is zero, the segment has no
+\                                         gaps/overlaps, if >=1 the segment has gaps, if <=-1,
+\                                         the segment has overlaps.
+\                                         Values in (-1, 1) are difficult to interpret: as this
+\                                         number is the ratio between
 \                                         the waveform data's max gap/overlap and its sampling
-\                                         period (both in seconds). Thus, non-zero float values
-\                                         in (-1, 1) are difficult to interpret: a rule of thumb
-\                                         is to consider a segment with gaps/overlaps when this
-\                                         attribute's absolute value exceeds 0.5. The user can
-\                                         always perform a check in the processing for
-\                                         safety, e.g., via `len(segment.stream())` or
-\                                         `segment.stream().get_gaps()`)
+\                                         period (both in seconds), a rule of thumb is to
+\                                         consider a segment with gaps/overlaps when this
+\                                         attribute's absolute value exceeds 0.5, e.g. you can
+\                                         discard segments with gaps overlaps by inputting in the
+\                                         config "maxgap_numsamples:  '[-0.5, 0.5]'" and, if you
+\                                         absolutely want no segment with gaps/overlaps,
+\                                         perform a further check in the processing via
+\                                         via `len(segment.stream())` (zero if no gaps/overlaps) or
+\                                         `segment.stream().get_gaps()` (see obspy doc)
 segment.data_seed_id                      str: the seed identifier in the typical format
 \                                         [Network.Station.Location.Channel] stored in the
 \                                         segment's data. It might be null if the data is empty
@@ -254,7 +287,7 @@ segment.seed_id                           str: the seed identifier in the typica
 \                                         [Network.Station.Location.Channel]: it is the same as
 \                                         'segment.data_seed_id' if the latter is not null,
 \                                         otherwise it is fetched from the segment's metadata
-\                                         (this operation might be more time consuming)
+\                                         (in this case, the operation might more time consuming)
 segment.has_class                         boolean: tells if the segment has (at least one) class
 \                                         assigned
 segment.data                              bytes: the waveform (raw) data. You don't generally need
@@ -333,15 +366,6 @@ segment.download.errors                   int
 segment.download.config                   str
 segment.download.program_version          str
 ========================================= ================================================
-
-config (dict)
-~~~~~~~~~~~~~
-
-This is the dictionary representing the chosen .yaml config file (usually, via command line).
-By design, we strongly encourage to decouple code and configuration, so that you can easily
-and safely experiment different configurations on the same code, if needed.
-The config default file is documented with all necessary information, and you can put therein
-whatever you want to be accessible as a python dict key, e.g. `config['mypropertyname']`
 '''
 
 from __future__ import division

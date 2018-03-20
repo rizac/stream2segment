@@ -605,7 +605,7 @@ class Segment(Base):
             return metadata[0]
         else:
             return metadata
-    
+
     def seiscomp_path(self, root='.'):
         '''Creates the seiscomp compatible path where to store the given segment or any
         data associated to it. The returned path has no extension (to be supplied by the user)
@@ -627,7 +627,7 @@ class Segment(Base):
         loc, cha = self.channel.location, self.channel.channel
         day = (seg_dtime - datetime(year, 1, 1)).days + 1
         eid = self.event_id
-        return os.path.join(root, str(year), net, sta, loc, cha +".D",
+        return os.path.join(root, str(year), net, sta, loc, cha + ".D",
                             '.'.join((net, sta, loc, cha, str(year), str(day), str(eid))))
 
     def del_classes(self, *ids_or_labels):

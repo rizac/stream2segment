@@ -17,7 +17,7 @@ div.info-legend{
 	border-radius: 5px;
 }
 #legend .colorbar{
-	background: linear-gradient(to right, white , red);
+	background: linear-gradient(to right, rgba(255, 190, 190, 1) , red);
 	height: 1em;
 	width: 4em;
 	display: inline-block;

@@ -361,7 +361,7 @@ def dinfo(dburl, download_id, maxgap_threshold, html, outfile):
     print('Fetching data, please wait (this might take a while depending on the '
           'db size and connection)')
     try:
-        main.dinfo(dburl, download_id, maxgap_threshold, html, outfile)
+        main.dinfo(dburl, download_id or None, maxgap_threshold, html, outfile)
         if outfile is not None:
             print("download info and statistics written to '%s'" % outfile)
         sys.exit(0)

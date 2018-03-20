@@ -8,15 +8,15 @@ Views for the web app (processing)
 from flask import render_template, request, jsonify, Blueprint, current_app
 
 from stream2segment.gui.webapp import get_session
-from stream2segment.gui.webapp.processing import core
+from stream2segment.gui.webapp.mainapp import core
 from stream2segment.utils import secure_dburl
 from stream2segment.process.utils import set_classes
 
 # http://flask.pocoo.org/docs/0.12/patterns/appfactories/#basic-factories:
-main_page = Blueprint('main_page', __name__, template_folder='templates')
+main_app = Blueprint('main_app', __name__, template_folder='templates')
 
 
-@main_page.route("/")
+@main_app.route("/")
 def main():
     config = current_app.config['CONFIG.YAML']
     set_classes(get_session(current_app), config)
@@ -36,7 +36,7 @@ def main():
                            segment_select_doc=segment_select_doc)
 
 
-@main_page.route("/get_segments", methods=['POST'])
+@main_app.route("/get_segments", methods=['POST'])
 def init():
     data = request.get_json()
     # Note: data.get('segment_orderby', None) is not anymore implemented in the config
@@ -48,7 +48,7 @@ def init():
     return jsonify(dic)
 
 
-@main_page.route("/get_segment", methods=['POST'])
+@main_app.route("/get_segment", methods=['POST'])
 def get_segment_data():
     '''view returning the response for the segment data (and/or metadata)'''
     data = request.get_json()
@@ -69,7 +69,7 @@ def get_segment_data():
                                          metadata, classes, sn_windows))
 
 
-@main_page.route("/set_class_id", methods=['POST'])
+@main_app.route("/set_class_id", methods=['POST'])
 def set_class_id():
     json_req = request.get_json()
     core.set_class_id(get_session(current_app), json_req['segment_id'], json_req['class_id'],

@@ -104,7 +104,7 @@ geofon   5      5
 TOTAL    5      5
 
 COLUMNS DETAILS:
- - OK: Standard response message indicating Success (code=200)"""[1:]
+ - OK: Data saved (download ok, no additional warning)"""[1:]
     
     d['geofon']['200'] += 100
     

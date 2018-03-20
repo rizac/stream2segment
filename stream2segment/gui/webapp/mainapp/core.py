@@ -19,7 +19,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from stream2segment.io.db.pdsql import colnames
 from stream2segment.io.db.models import Segment, Class, Station, Channel, DataCenter, Event,\
     ClassLabelling, Download
-from stream2segment.gui.webapp.processing.plots.jsplot import jsontimestamp
+from stream2segment.gui.webapp.mainapp.plots.jsplot import jsontimestamp
 # from stream2segment.io.db import sqlevalexpr
 from stream2segment.utils.resources import yaml_load_doc, get_templates_fpath
 from stream2segment.io.db.sqlevalexpr import exprquery, inspect_instance, inspect_model

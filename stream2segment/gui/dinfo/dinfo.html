@@ -49,17 +49,17 @@
 				</tr>
 		    		<tr>
 		    			<td class='right nowrap'>
-		    				<span id='minval'></span>
+		    				<span id='minval'>0%</span>
 		    				<span class='colorbar'></span>
-		    				<span id='maxval'></span>
+		    				<span id='maxval'>100%</span>
 		    			</td>
 		    			<td>Colors: % of segments in selected categories</td>
 		    		</tr>
 		    		<tr>
 		    			<td class='right nowrap'>
-		    				<span class='station_symbol' style='border-radius:.3em;height:.6em;width:.6em'></span>
-		    				<span class='station_symbol'></span>
-		    				<span class='station_symbol' style='border-radius:.7em;height:1.4em;width:1.4em'></span>
+		    				<span class='station_symbol' style='border-radius:4px;height:8px;width:8px'></span>
+		    				<span class='station_symbol' style='border-radius:6px;height:12px;width:12px'></span>
+		    				<span class='station_symbol' style='border-radius:8px;height:16px;width:16px'></span>
 		    			</td>
 		    			<td>Sizes: total number of segments</td>
 		    		</tr>
@@ -113,7 +113,7 @@
 						{{id}}</label>
 				</td>
 				<td class='nowrap'>{{values[0]}}</td>
-				<td>{{values[1] | tojson}}</td>
+				<td>{{values[1] | tojson if values[1] else 'N/A'}}</td>
 				</tr>
 					{% endfor %}
 			</table>

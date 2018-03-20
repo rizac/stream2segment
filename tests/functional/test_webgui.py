@@ -30,11 +30,11 @@ from itertools import product
 from obspy.core.stream import read
 from stream2segment.utils import load_source
 from stream2segment.utils.resources import yaml_load
-from stream2segment.gui.webapp.processing.plots.core import PlotManager
+from stream2segment.gui.webapp.mainapp.plots.core import PlotManager
 from obspy.io.stationtxt.core import all_components
 from mock.mock import patch
 from stream2segment.gui.webapp import get_session
-from stream2segment.gui.main import create_p_app
+from stream2segment.gui.main import create_main_app
 import json
 import tempfile
 import shutil
@@ -75,7 +75,7 @@ class Test(unittest.TestCase):
                                                   'resources', 'templates',
                                                'processing.yaml')
         
-        self.app = create_p_app(url, self.pyfile, self.configfile)
+        self.app = create_main_app(url, self.pyfile, self.configfile)
         
         self.initdb()
         

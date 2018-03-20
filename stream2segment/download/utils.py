@@ -357,6 +357,8 @@ class DownloadStats(defaultdict):
             d['domain.org'][200] += 4
             d['domain2.org2'][413] = 4
             ...
+            d.normalizecodes()  # optional: if the source of codes is not safe, this merges
+                                # string codes with their int, in case e.g. '200' was returned
             print(str(d))
         ```
 
@@ -499,7 +501,11 @@ class DownloadStats(defaultdict):
 
     def __str__(self):
         '''prints a nicely formatted table with the statistics of the download. Returns the
-        empty string if this object is empty'''
+        empty string if this object is empty. Consider calling
+        `self.normalizecodes() if the codes whereby we populated this object came from the unsfae
+        sources (e.g., some web services might have returned strings instead of integers,
+        and without `normalizecodes` they would be displayed in two different columns
+        '''
         resp = dict(responses)
         customcodes = custom_download_codes()
         URLERR, MSEEDERR, OUTTIMEERR, OUTTIMEWARN = customcodes

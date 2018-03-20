@@ -22,9 +22,9 @@ import os
 import shutil
 import inspect
 from datetime import timedelta
-import webbrowser
+from webbrowser import open as open_in_browser
 import threading
-import tempfile
+from tempfile import gettempdir
 
 from future.utils import string_types
 
@@ -40,7 +40,7 @@ from stream2segment.process.main import run as run_process
 from stream2segment.download.main import run as run_download, new_db_download
 from stream2segment.utils import secure_dburl, strconvert, iterfuncs
 from stream2segment.utils.resources import get_templates_fpaths
-from stream2segment.gui.main import create_p_app, run_in_browser, create_d_app
+from stream2segment.gui.main import create_main_app, run_in_browser
 from stream2segment.process import math as s2s_math
 from stream2segment.download.utils import QuitDownload
 from stream2segment.gui.dinfo import get_dstats_html, get_dstats_str_iter
@@ -239,13 +239,9 @@ def closesession(session):
     except:
         pass
 
+
 def show(dburl, pyfile, configfile):
-    run_in_browser(create_p_app(dburl, pyfile, configfile))
-    return 0
-
-
-def show_download_report(dburl):
-    run_in_browser(create_d_app(dburl))
+    run_in_browser(create_main_app(dburl, pyfile, configfile))
     return 0
 
 
@@ -339,18 +335,17 @@ def helpmathiter(type, filter):  # @ReservedAssignment pylint: disable=redefined
                 yield "\n"
 
 
-def dinfo(dburl, download_id, maxgap_threshold, html=False, outfile=None):
+def dinfo(dburl, download_ids=None, maxgap_threshold=0.5, html=False, outfile=None):
     session = load_session_for_dinfo(dburl)
-    download_ids = download_id or None
     if html:
         openbrowser = False
         if not outfile:
             openbrowser = True
-            outfile = os.path.join(tempfile.gettempdir(), "s2s_dinfo.html")
+            outfile = os.path.join(gettempdir(), "s2s_dinfo.html")
         with open(outfile, 'w') as opn:
             opn.write(get_dstats_html(session, download_ids, maxgap_threshold))
         if openbrowser:
-            webbrowser.open('file://' + outfile)
+            open_in_browser('file://' + outfile)
         threading.Timer(1, lambda: sys.exit(0)).start()
     else:
         itr = get_dstats_str_iter(session, download_ids, maxgap_threshold)
