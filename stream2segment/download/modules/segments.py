@@ -453,7 +453,4 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid, 
 
     segmanager.close()  # flush remaining stuff to insert / update, if any, and prints info
 
-    stats.normalizecodes()  # this makes potential string code merge into int codes
     return stats
-
-

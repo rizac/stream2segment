@@ -11,6 +11,7 @@ from __future__ import print_function
 from future import standard_library
 from stream2segment.download.main import get_datacenters_df
 from stream2segment.io.db.models import DataCenter
+import re
 standard_library.install_aliases()
 from builtins import zip
 from mock import patch
@@ -109,26 +110,14 @@ COLUMNS DETAILS:
     d['geofon']['200'] += 100
     
     assert str(d) == """
-            Unknown       
-        OK  200      TOTAL
-------  --  -------  -----
-geofon   5      100    105
-TOTAL    5      100    105
-
-COLUMNS DETAILS:
- - OK: Standard response message indicating Success (code=200)
- - Unknown 200: Non-standard response, unknown message (code=200)"""[1:]
-    
-    d.normalizecodes()
-    
-    assert str(d) == """
         OK   TOTAL
 ------  ---  -----
 geofon  105    105
 TOTAL   105    105
 
 COLUMNS DETAILS:
- - OK: Standard response message indicating Success (code=200)"""[1:]
+ - OK: Data saved (download ok, no additional warning)"""[1:]
+
     
     d['geofon'][413] += 5
     
@@ -142,8 +131,8 @@ geofon  105        5    110
 TOTAL   105        5    110
 
 COLUMNS DETAILS:
- - OK: Standard response message indicating Success (code=200)
- - Request Entity Too Large: Standard response message indicating Client error (code=413)"""[1:]
+ - OK: Data saved (download ok, no additional warning)
+ - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)"""[1:]
     
     d['geofon'][urlerr] += 3
     
@@ -157,9 +146,9 @@ geofon  105      3        5    113
 TOTAL   105      3        5    113
 
 COLUMNS DETAILS:
- - OK: Standard response message indicating Success (code=200)
- - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
- - Request Entity Too Large: Standard response message indicating Client error (code=413)"""[1:]
+ - OK: Data saved (download ok, no additional warning)
+ - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
+ - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)"""[1:]
     
     d['geofon'][mseederr] += 11
     
@@ -173,10 +162,10 @@ geofon  105     11      3        5    124
 TOTAL   105     11      3        5    124
 
 COLUMNS DETAILS:
- - OK: Standard response message indicating Success (code=200)
- - MSeed Error: Response OK, but data cannot be read as MiniSeed
- - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
- - Request Entity Too Large: Standard response message indicating Client error (code=413)"""[1:]
+ - OK: Data saved (download ok, no additional warning)
+ - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
+ - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)"""[1:]
    
     d['eida'][tbound_err] += 3
     
@@ -191,11 +180,11 @@ eida      0      3      0      0        0      3
 TOTAL   105      3     11      3        5    127
 
 COLUMNS DETAILS:
- - OK: Standard response message indicating Success (code=200)
- - Time Span Error: Response OK, but data completely outside requested time span 
- - MSeed Error: Response OK, but data cannot be read as MiniSeed
- - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
- - Request Entity Too Large: Standard response message indicating Client error (code=413)"""[1:]
+ - OK: Data saved (download ok, no additional warning)
+ - Time Span Error: No data saved (download ok, data completely outside requested time span)
+ - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
+ - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)"""[1:]
    
     d['eida'][tbound_warn] += 0
     
@@ -210,12 +199,12 @@ eida      0          0      3      0      0        0      3
 TOTAL   105          0      3     11      3        5    127
 
 COLUMNS DETAILS:
- - OK: Standard response message indicating Success (code=200)
- - OK Partially Saved: Response OK, data saved partially: some received data chunks where completely outside requested time span
- - Time Span Error: Response OK, but data completely outside requested time span 
- - MSeed Error: Response OK, but data cannot be read as MiniSeed
- - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
- - Request Entity Too Large: Standard response message indicating Client error (code=413)"""[1:]
+ - OK: Data saved (download ok, no additional warning)
+ - OK Partially Saved: Data saved (download ok, some received data chunks were completely outside the requested time span and discarded)
+ - Time Span Error: No data saved (download ok, data completely outside requested time span)
+ - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
+ - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)"""[1:]
     
     d['eida'][tbound_warn] += 6
     
@@ -230,12 +219,12 @@ eida      0          6      3      0      0        0      9
 TOTAL   105          6      3     11      3        5    133
 
 COLUMNS DETAILS:
- - OK: Standard response message indicating Success (code=200)
- - OK Partially Saved: Response OK, data saved partially: some received data chunks where completely outside requested time span
- - Time Span Error: Response OK, but data completely outside requested time span 
- - MSeed Error: Response OK, but data cannot be read as MiniSeed
- - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
- - Request Entity Too Large: Standard response message indicating Client error (code=413)"""[1:]
+ - OK: Data saved (download ok, no additional warning)
+ - OK Partially Saved: Data saved (download ok, some received data chunks were completely outside the requested time span and discarded)
+ - Time Span Error: No data saved (download ok, data completely outside requested time span)
+ - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
+ - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)"""[1:]
    
     d['geofon'][500] += 1
     
@@ -250,170 +239,223 @@ eida      0          6      3      0      0        0         0      9
 TOTAL   105          6      3     11      3        5         1    134
 
 COLUMNS DETAILS:
- - OK: Standard response message indicating Success (code=200)
- - OK Partially Saved: Response OK, data saved partially: some received data chunks where completely outside requested time span
- - Time Span Error: Response OK, but data completely outside requested time span 
- - MSeed Error: Response OK, but data cannot be read as MiniSeed
- - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
- - Request Entity Too Large: Standard response message indicating Client error (code=413)
- - Internal Server Error: Standard response message indicating Server error (code=500)"""[1:]
+ - OK: Data saved (download ok, no additional warning)
+ - OK Partially Saved: Data saved (download ok, some received data chunks were completely outside the requested time span and discarded)
+ - Time Span Error: No data saved (download ok, data completely outside requested time span)
+ - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
+ - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
+ - Internal Server Error: No data saved (download failed: Server error, server response code 500)"""[1:]
     
     
     d['eida'][300] += 3
     
     assert str(d) == """
-                                                       Request                 
-             OK         Time                           Entity   Internal       
-             Partially  Span   MSeed  Url    Multiple  Too      Server         
-        OK   Saved      Error  Error  Error  Choices   Large    Error     TOTAL
-------  ---  ---------  -----  -----  -----  --------  -------  --------  -----
-geofon  105          0      0     11      3         0        5         1    125
-eida      0          6      3      0      0         3        0         0     12
-TOTAL   105          6      3     11      3         3        5         1    137
+                                             Request                           
+             OK         Time                 Entity   Internal                 
+             Partially  Span   MSeed  Url    Too      Server    Multiple       
+        OK   Saved      Error  Error  Error  Large    Error     Choices   TOTAL
+------  ---  ---------  -----  -----  -----  -------  --------  --------  -----
+geofon  105          0      0     11      3        5         1         0    125
+eida      0          6      3      0      0        0         0         3     12
+TOTAL   105          6      3     11      3        5         1         3    137
 
 COLUMNS DETAILS:
- - OK: Standard response message indicating Success (code=200)
- - OK Partially Saved: Response OK, data saved partially: some received data chunks where completely outside requested time span
- - Time Span Error: Response OK, but data completely outside requested time span 
- - MSeed Error: Response OK, but data cannot be read as MiniSeed
- - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
- - Multiple Choices: Standard response message indicating Redirection (code=300)
- - Request Entity Too Large: Standard response message indicating Client error (code=413)
- - Internal Server Error: Standard response message indicating Server error (code=500)"""[1:]
+ - OK: Data saved (download ok, no additional warning)
+ - OK Partially Saved: Data saved (download ok, some received data chunks were completely outside the requested time span and discarded)
+ - Time Span Error: No data saved (download ok, data completely outside requested time span)
+ - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
+ - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
+ - Internal Server Error: No data saved (download failed: Server error, server response code 500)
+ - Multiple Choices: Data status unknown (download completed, server response code 300 indicates Redirection)"""[1:]
     
      
     d['geofon'][599] += 3
     
     assert str(d) == """
-                                                       Request                          
-             OK         Time                           Entity   Internal                
-             Partially  Span   MSeed  Url    Multiple  Too      Server    Unknown       
-        OK   Saved      Error  Error  Error  Choices   Large    Error     599      TOTAL
-------  ---  ---------  -----  -----  -----  --------  -------  --------  -------  -----
-geofon  105          0      0     11      3         0        5         1        3    128
-eida      0          6      3      0      0         3        0         0        0     12
-TOTAL   105          6      3     11      3         3        5         1        3    140
+                                             Request                                 
+             OK         Time                 Entity   Internal                       
+             Partially  Span   MSeed  Url    Too      Server    Multiple  Code       
+        OK   Saved      Error  Error  Error  Large    Error     Choices   599   TOTAL
+------  ---  ---------  -----  -----  -----  -------  --------  --------  ----  -----
+geofon  105          0      0     11      3        5         1         0     3    128
+eida      0          6      3      0      0        0         0         3     0     12
+TOTAL   105          6      3     11      3        5         1         3     3    140
 
 COLUMNS DETAILS:
- - OK: Standard response message indicating Success (code=200)
- - OK Partially Saved: Response OK, data saved partially: some received data chunks where completely outside requested time span
- - Time Span Error: Response OK, but data completely outside requested time span 
- - MSeed Error: Response OK, but data cannot be read as MiniSeed
- - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
- - Multiple Choices: Standard response message indicating Redirection (code=300)
- - Request Entity Too Large: Standard response message indicating Client error (code=413)
- - Internal Server Error: Standard response message indicating Server error (code=500)
- - Unknown 599: Non-standard response, unknown message (code=599)"""[1:]
+ - OK: Data saved (download ok, no additional warning)
+ - OK Partially Saved: Data saved (download ok, some received data chunks were completely outside the requested time span and discarded)
+ - Time Span Error: No data saved (download ok, data completely outside requested time span)
+ - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
+ - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
+ - Internal Server Error: No data saved (download failed: Server error, server response code 500)
+ - Multiple Choices: Data status unknown (download completed, server response code 300 indicates Redirection)
+ - Code 599: Data status unknown (download completed, server response code 599 is unknown)"""[1:]
     
     d['eida'][204] += 3
     
     assert str(d) == """
-                                                                Request                          
-             OK         Time                                    Entity   Internal                
-             Partially  Span   MSeed  Url    No       Multiple  Too      Server    Unknown       
-        OK   Saved      Error  Error  Error  Content  Choices   Large    Error     599      TOTAL
-------  ---  ---------  -----  -----  -----  -------  --------  -------  --------  -------  -----
-geofon  105          0      0     11      3        0         0        5         1        3    128
-eida      0          6      3      0      0        3         3        0         0        0     15
-TOTAL   105          6      3     11      3        3         3        5         1        3    143
+                                                      Request                                 
+             OK                  Time                 Entity   Internal                       
+             Partially  No       Span   MSeed  Url    Too      Server    Multiple  Code       
+        OK   Saved      Content  Error  Error  Error  Large    Error     Choices   599   TOTAL
+------  ---  ---------  -------  -----  -----  -----  -------  --------  --------  ----  -----
+geofon  105          0        0      0     11      3        5         1         0     3    128
+eida      0          6        3      3      0      0        0         0         3     0     15
+TOTAL   105          6        3      3     11      3        5         1         3     3    143
 
 COLUMNS DETAILS:
- - OK: Standard response message indicating Success (code=200)
- - OK Partially Saved: Response OK, data saved partially: some received data chunks where completely outside requested time span
- - Time Span Error: Response OK, but data completely outside requested time span 
- - MSeed Error: Response OK, but data cannot be read as MiniSeed
- - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
- - No Content: Standard response message indicating Success (code=204)
- - Multiple Choices: Standard response message indicating Redirection (code=300)
- - Request Entity Too Large: Standard response message indicating Client error (code=413)
- - Internal Server Error: Standard response message indicating Server error (code=500)
- - Unknown 599: Non-standard response, unknown message (code=599)"""[1:]
-    
+ - OK: Data saved (download ok, no additional warning)
+ - OK Partially Saved: Data saved (download ok, some received data chunks were completely outside the requested time span and discarded)
+ - No Content: Data saved but empty (download ok, the server did not return any data)
+ - Time Span Error: No data saved (download ok, data completely outside requested time span)
+ - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
+ - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
+ - Internal Server Error: No data saved (download failed: Server error, server response code 500)
+ - Multiple Choices: Data status unknown (download completed, server response code 300 indicates Redirection)
+ - Code 599: Data status unknown (download completed, server response code 599 is unknown)"""[1:]
+     
     
     d['what'][seg_not_found] += 0
     
     assert str(d) == """
-                                                                Request                                   
-             OK         Time                                    Entity   Internal           Segment       
-             Partially  Span   MSeed  Url    No       Multiple  Too      Server    Unknown  Not           
-        OK   Saved      Error  Error  Error  Content  Choices   Large    Error     599      Found    TOTAL
-------  ---  ---------  -----  -----  -----  -------  --------  -------  --------  -------  -------  -----
-geofon  105          0      0     11      3        0         0        5         1        3        0    128
-eida      0          6      3      0      0        3         3        0         0        0        0     15
-what      0          0      0      0      0        0         0        0         0        0        0      0
-TOTAL   105          6      3     11      3        3         3        5         1        3        0    143
+                                                               Request                                 
+             OK                  Time                 Segment  Entity   Internal                       
+             Partially  No       Span   MSeed  Url    Not      Too      Server    Multiple  Code       
+        OK   Saved      Content  Error  Error  Error  Found    Large    Error     Choices   599   TOTAL
+------  ---  ---------  -------  -----  -----  -----  -------  -------  --------  --------  ----  -----
+geofon  105          0        0      0     11      3        0        5         1         0     3    128
+eida      0          6        3      3      0      0        0        0         0         3     0     15
+what      0          0        0      0      0      0        0        0         0         0     0      0
+TOTAL   105          6        3      3     11      3        0        5         1         3     3    143
 
 COLUMNS DETAILS:
- - OK: Standard response message indicating Success (code=200)
- - OK Partially Saved: Response OK, data saved partially: some received data chunks where completely outside requested time span
- - Time Span Error: Response OK, but data completely outside requested time span 
- - MSeed Error: Response OK, but data cannot be read as MiniSeed
- - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
- - No Content: Standard response message indicating Success (code=204)
- - Multiple Choices: Standard response message indicating Redirection (code=300)
- - Request Entity Too Large: Standard response message indicating Client error (code=413)
- - Internal Server Error: Standard response message indicating Server error (code=500)
- - Unknown 599: Non-standard response, unknown message (code=599)
- - Segment Not Found: Response OK, but segment data not found (e.g., after a multi-segment request)"""[1:]
+ - OK: Data saved (download ok, no additional warning)
+ - OK Partially Saved: Data saved (download ok, some received data chunks were completely outside the requested time span and discarded)
+ - No Content: Data saved but empty (download ok, the server did not return any data)
+ - Time Span Error: No data saved (download ok, data completely outside requested time span)
+ - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
+ - Segment Not Found: No data saved (download ok, segment data not found, e.g., after a multi-segment request)
+ - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
+ - Internal Server Error: No data saved (download failed: Server error, server response code 500)
+ - Multiple Choices: Data status unknown (download completed, server response code 300 indicates Redirection)
+ - Code 599: Data status unknown (download completed, server response code 599 is unknown)"""[1:]
     
     
     d['geofon'][413] += 33030000
     
     assert str(d) == """
-                                                                Request                                       
-             OK         Time                                    Entity    Internal           Segment          
-             Partially  Span   MSeed  Url    No       Multiple  Too       Server    Unknown  Not              
-        OK   Saved      Error  Error  Error  Content  Choices   Large     Error     599      Found    TOTAL   
-------  ---  ---------  -----  -----  -----  -------  --------  --------  --------  -------  -------  --------
-geofon  105          0      0     11      3        0         0  33030005         1        3        0  33030128
-eida      0          6      3      0      0        3         3         0         0        0        0        15
-what      0          0      0      0      0        0         0         0         0        0        0         0
-TOTAL   105          6      3     11      3        3         3  33030005         1        3        0  33030143
+                                                               Request                                     
+             OK                  Time                 Segment  Entity    Internal                          
+             Partially  No       Span   MSeed  Url    Not      Too       Server    Multiple  Code          
+        OK   Saved      Content  Error  Error  Error  Found    Large     Error     Choices   599   TOTAL   
+------  ---  ---------  -------  -----  -----  -----  -------  --------  --------  --------  ----  --------
+geofon  105          0        0      0     11      3        0  33030005         1         0     3  33030128
+eida      0          6        3      3      0      0        0         0         0         3     0        15
+what      0          0        0      0      0      0        0         0         0         0     0         0
+TOTAL   105          6        3      3     11      3        0  33030005         1         3     3  33030143
 
 COLUMNS DETAILS:
- - OK: Standard response message indicating Success (code=200)
- - OK Partially Saved: Response OK, data saved partially: some received data chunks where completely outside requested time span
- - Time Span Error: Response OK, but data completely outside requested time span 
- - MSeed Error: Response OK, but data cannot be read as MiniSeed
- - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
- - No Content: Standard response message indicating Success (code=204)
- - Multiple Choices: Standard response message indicating Redirection (code=300)
- - Request Entity Too Large: Standard response message indicating Client error (code=413)
- - Internal Server Error: Standard response message indicating Server error (code=500)
- - Unknown 599: Non-standard response, unknown message (code=599)
- - Segment Not Found: Response OK, but segment data not found (e.g., after a multi-segment request)"""[1:]
+ - OK: Data saved (download ok, no additional warning)
+ - OK Partially Saved: Data saved (download ok, some received data chunks were completely outside the requested time span and discarded)
+ - No Content: Data saved but empty (download ok, the server did not return any data)
+ - Time Span Error: No data saved (download ok, data completely outside requested time span)
+ - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
+ - Segment Not Found: No data saved (download ok, segment data not found, e.g., after a multi-segment request)
+ - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
+ - Internal Server Error: No data saved (download failed: Server error, server response code 500)
+ - Multiple Choices: Data status unknown (download completed, server response code 300 indicates Redirection)
+ - Code 599: Data status unknown (download completed, server response code 599 is unknown)"""[1:]
 
     d['what'][100] -= 8  # try a negative one. It should work
     
     assert str(d) == """
-                                                                          Request                                       
-             OK         Time                                              Entity    Internal           Segment          
-             Partially  Span   MSeed  Url              No       Multiple  Too       Server    Unknown  Not              
-        OK   Saved      Error  Error  Error  Continue  Content  Choices   Large     Error     599      Found    TOTAL   
-------  ---  ---------  -----  -----  -----  --------  -------  --------  --------  --------  -------  -------  --------
-geofon  105          0      0     11      3         0        0         0  33030005         1        3        0  33030128
-eida      0          6      3      0      0         0        3         3         0         0        0        0        15
-what      0          0      0      0      0        -8        0         0         0         0        0        0        -8
-TOTAL   105          6      3     11      3        -8        3         3  33030005         1        3        0  33030135
+                                                               Request                                               
+             OK                  Time                 Segment  Entity    Internal                                    
+             Partially  No       Span   MSeed  Url    Not      Too       Server              Multiple  Code          
+        OK   Saved      Content  Error  Error  Error  Found    Large     Error     Continue  Choices   599   TOTAL   
+------  ---  ---------  -------  -----  -----  -----  -------  --------  --------  --------  --------  ----  --------
+geofon  105          0        0      0     11      3        0  33030005         1         0         0     3  33030128
+eida      0          6        3      3      0      0        0         0         0         0         3     0        15
+what      0          0        0      0      0      0        0         0         0        -8         0     0        -8
+TOTAL   105          6        3      3     11      3        0  33030005         1        -8         3     3  33030135
 
 COLUMNS DETAILS:
- - OK: Standard response message indicating Success (code=200)
- - OK Partially Saved: Response OK, data saved partially: some received data chunks where completely outside requested time span
- - Time Span Error: Response OK, but data completely outside requested time span 
- - MSeed Error: Response OK, but data cannot be read as MiniSeed
- - Url Error: Generic Url error (e.g., timeout, no internet connection, ...)
- - Continue: Standard response message indicating Informational response (code=100)
- - No Content: Standard response message indicating Success (code=204)
- - Multiple Choices: Standard response message indicating Redirection (code=300)
- - Request Entity Too Large: Standard response message indicating Client error (code=413)
- - Internal Server Error: Standard response message indicating Server error (code=500)
- - Unknown 599: Non-standard response, unknown message (code=599)
- - Segment Not Found: Response OK, but segment data not found (e.g., after a multi-segment request)"""[1:]
+ - OK: Data saved (download ok, no additional warning)
+ - OK Partially Saved: Data saved (download ok, some received data chunks were completely outside the requested time span and discarded)
+ - No Content: Data saved but empty (download ok, the server did not return any data)
+ - Time Span Error: No data saved (download ok, data completely outside requested time span)
+ - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
+ - Segment Not Found: No data saved (download ok, segment data not found, e.g., after a multi-segment request)
+ - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
+ - Internal Server Error: No data saved (download failed: Server error, server response code 500)
+ - Continue: Data status unknown (download completed, server response code 100 indicates Informational response)
+ - Multiple Choices: Data status unknown (download completed, server response code 300 indicates Redirection)
+ - Code 599: Data status unknown (download completed, server response code 599 is unknown)"""[1:]
 
-   
+    d['what'][re.compile('abc')] = 14
 
+    assert str(d) == """
+                                                               Request                                                                  
+             OK                  Time                 Segment  Entity    Internal                                                       
+             Partially  No       Span   MSeed  Url    Not      Too       Server              Multiple  Code  Code                       
+        OK   Saved      Content  Error  Error  Error  Found    Large     Error     Continue  Choices   599   re.compile('abc')  TOTAL   
+------  ---  ---------  -------  -----  -----  -----  -------  --------  --------  --------  --------  ----  -----------------  --------
+geofon  105          0        0      0     11      3        0  33030005         1         0         0     3                  0  33030128
+eida      0          6        3      3      0      0        0         0         0         0         3     0                  0        15
+what      0          0        0      0      0      0        0         0         0        -8         0     0                 14         6
+TOTAL   105          6        3      3     11      3        0  33030005         1        -8         3     3                 14  33030149
 
+COLUMNS DETAILS:
+ - OK: Data saved (download ok, no additional warning)
+ - OK Partially Saved: Data saved (download ok, some received data chunks were completely outside the requested time span and discarded)
+ - No Content: Data saved but empty (download ok, the server did not return any data)
+ - Time Span Error: No data saved (download ok, data completely outside requested time span)
+ - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
+ - Segment Not Found: No data saved (download ok, segment data not found, e.g., after a multi-segment request)
+ - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
+ - Internal Server Error: No data saved (download failed: Server error, server response code 500)
+ - Continue: Data status unknown (download completed, server response code 100 indicates Informational response)
+ - Multiple Choices: Data status unknown (download completed, server response code 300 indicates Redirection)
+ - Code 599: Data status unknown (download completed, server response code 599 is unknown)
+ - Code re.compile('abc'): Data status unknown (download completed, server response code re.compile('abc') is unknown)"""[1:]
     
+
+    d['what']['206'] = 14
+    
+    assert str(d) == """
+                                                                        Request                                                                  
+             OK                           Time                 Segment  Entity    Internal                                                       
+             Partially  No       Partial  Span   MSeed  Url    Not      Too       Server              Multiple  Code  Code                       
+        OK   Saved      Content  Content  Error  Error  Error  Found    Large     Error     Continue  Choices   599   re.compile('abc')  TOTAL   
+------  ---  ---------  -------  -------  -----  -----  -----  -------  --------  --------  --------  --------  ----  -----------------  --------
+geofon  105          0        0        0      0     11      3        0  33030005         1         0         0     3                  0  33030128
+eida      0          6        3        0      3      0      0        0         0         0         0         3     0                  0        15
+what      0          0        0       14      0      0      0        0         0         0        -8         0     0                 14        20
+TOTAL   105          6        3       14      3     11      3        0  33030005         1        -8         3     3                 14  33030163
+
+COLUMNS DETAILS:
+ - OK: Data saved (download ok, no additional warning)
+ - OK Partially Saved: Data saved (download ok, some received data chunks were completely outside the requested time span and discarded)
+ - No Content: Data saved but empty (download ok, the server did not return any data)
+ - Partial Content: Data probably saved (download completed, server response code 206 indicates Success)
+ - Time Span Error: No data saved (download ok, data completely outside requested time span)
+ - MSeed Error: No data saved (download ok, malformed MiniSeed data)
+ - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
+ - Segment Not Found: No data saved (download ok, segment data not found, e.g., after a multi-segment request)
+ - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
+ - Internal Server Error: No data saved (download failed: Server error, server response code 500)
+ - Continue: Data status unknown (download completed, server response code 100 indicates Informational response)
+ - Multiple Choices: Data status unknown (download completed, server response code 300 indicates Redirection)
+ - Code 599: Data status unknown (download completed, server response code 599 is unknown)
+ - Code re.compile('abc'): Data status unknown (download completed, server response code re.compile('abc') is unknown)"""[1:]
 
 
 def eq(str1, str2):

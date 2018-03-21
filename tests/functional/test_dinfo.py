@@ -223,12 +223,13 @@ class Test(unittest.TestCase):
                 assert False
 
             content = open(file.name).read()
-            assert """           OK        OK         Time                          Internal  Segment       
-           Gaps      Partially  Span   MSeed  Url    Bad      Server    Not           
-       OK  Overlaps  Saved      Error  Error  Error  Request  Error     Found    TOTAL
------  --  --------  ---------  -----  -----  -----  -------  --------  -------  -----
-        3         1          2      1      1      1        1         1        1     12
-TOTAL   3         1          2      1      1      1        1         1        1     12""" in content
+            assert """
+                              OK        OK         Time                 Segment           Internal       
+                              Gaps      Partially  Span   MSeed  Url    Not      Bad      Server         
+                          OK  Overlaps  Saved      Error  Error  Error  Found    Request  Error     TOTAL
+------------------------  --  --------  ---------  -----  -----  -----  -------  -------  --------  -----
+www.dc1/dataselect/query   3         1          2      1      1      1        1        1         1     12
+TOTAL                      3         1          2      1      1      1        1        1         1     12""" in content
             assert result.output.startswith("""Fetching data, please wait (this might take a while depending on the db size and connection)
 download info and statistics written to """)
         assert not mock_open_in_browser.called
@@ -243,12 +244,13 @@ download info and statistics written to """)
             print(result.output)
             assert False
 
-            assert """           OK        OK         Time                          Internal  Segment       
-           Gaps      Partially  Span   MSeed  Url    Bad      Server    Not           
-       OK  Overlaps  Saved      Error  Error  Error  Request  Error     Found    TOTAL
------  --  --------  ---------  -----  -----  -----  -------  --------  -------  -----
-        3         1          2      1      1      1        1         1        1     12
-TOTAL   3         1          2      1      1      1        1         1        1     12""" in result.output
+            assert """
+                              OK        OK         Time                 Segment           Internal       
+                              Gaps      Partially  Span   MSeed  Url    Not      Bad      Server         
+                          OK  Overlaps  Saved      Error  Error  Error  Found    Request  Error     TOTAL
+------------------------  --  --------  ---------  -----  -----  -----  -------  -------  --------  -----
+www.dc1/dataselect/query   3         1          2      1      1      1        1        1         1     12
+TOTAL                      3         1          2      1      1      1        1        1         1     12""" in result.output
 
         assert not mock_open_in_browser.called
         assert not mock_gettempdir.called

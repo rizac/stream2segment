@@ -17,6 +17,7 @@ import logging
 import os
 from itertools import chain, cycle
 from collections import defaultdict
+from functools import cmp_to_key
 
 from future.utils import viewitems
 
@@ -346,107 +347,189 @@ def normalize_fdsn_dframe(dframe, query_type):
     return ret
 
 
+def custom_download_codes():
+    """returns the tuple (url_err, mseed_err, timespan_err, timespan_warn), i.e. the tuple
+    (-1, -2, -204, -200) where each number represents a custom download code
+    not included in the standard HTTP status codes:
+    * -1 denotes general url exceptions (e.g. no internet conenction)
+    * -2 denotes mseed data errors while reading downloaded data, and
+    * -204 denotes a timespan error: all response is out of time with respect to the
+      reqeuest's time-span
+    * -200 denotes a timespan warning: some response data was out of time with respect to
+      the request's time-span (only the data intersecting with the time span has been
+      saved)
+    """
+    return (-1, -2, -204, -200)
+
+
+def to_fdsn_arg(iterable):
+    ''' Converts an iterable of strings denotings networks, stations, locations or channels
+    into a valid string argument for an fdsn query,
+    This methid basically joins all element of `iterable` with a comma after removing all
+    elements starting with '!' (used in this application to denote logical not, and not
+    fdsn standard).
+
+    :param iterable: an iterable of strings. This function does not check if any string
+        element is invalid for the query (e.g., it contains spaces)
+    '''
+    return ",".join(v for v in iterable if v[0:1] != '!')
+
+
+def get_s2s_responses():
+    '''Creates a default response dict which maps http responses (int-like objects) to
+    the tuple ('title', 'legend',  sort_value)
+
+    `sort_value` is a value which controls the order of each http response code, as follows:
+
+    code           Meaning             sort value
+    =============  =================== ===================================
+    2xx            HTTP code success   0xx   (float(code-200))
+    -200           out of time warning 0.5   (=> next to 'success')
+    -204           out of time error   99.1  (=> after all successfull response)
+    -2             Mseed err           99.2  (see above)
+    -1             url err             99.3  (see above)
+    None           seg not found       99.4  (see above)
+    4xx            HTTP Client error   1xx   (float(code)-300))
+    5xx            HTTP Server error   2xx   (float(code)-300))
+    1xx            HTTP Informational
+                   Response            3xx   (float(code)+200)
+    3xx            HTTP Redirection    4xx   (float(code)+100)
+    <any int>      User-defined        User-defined or float(code)
+    =============  =================== ===================================
+
+    See also `custom_download_codes()` and `DownloadStats.sortcodes`
+    '''
+    resp = {}
+    for code, title in viewitems(responses):
+        leg = None
+        sortpos = code
+        if code >= 500:
+            sortpos = code - 300
+            leg = ('No data saved (download failed: Server error, server response code %d)') % code
+        elif code >= 400:
+            sortpos = code - 300
+            leg = ('No data saved (download failed: Client error, server response code %d)') % code
+        elif code >= 300:
+            sortpos = code + 100
+            leg = ('Data status unknown (download completed, server response code %d '
+                   'indicates Redirection)') % code
+        elif code >= 200:
+            sortpos = code - 200
+            if code == 200:
+                leg = 'Data saved (download ok, no additional warning)'
+            elif code == 204:
+                leg = 'Data saved but empty (download ok, the server did not return any data)'
+            else:
+                leg = ('Data probably saved (download completed, server response code %d '
+                       'indicates Success)') % code
+        elif code >= 100:
+            sortpos = code + 200
+            leg = ('Data status unknown (download completed, server response code %d '
+                   'indicates Informational response)') % code
+        if leg is not None:
+            resp[code] = title, leg, float(sortpos)
+    # custom codes:
+    customcodes = custom_download_codes()
+    URLERR, MSEEDERR, OUTTIMEERR, OUTTIMEWARN = customcodes
+    resp[OUTTIMEWARN] = ('OK Partially Saved', 'Data saved (download ok, '
+                         'some received data chunks were completely outside '
+                         'the requested time span and discarded)', 0.5)
+    resp[OUTTIMEERR] = ('Time Span Error', 'No data saved (download ok, data completely '
+                        'outside requested time span)', 99.1)
+    resp[MSEEDERR] = ('MSeed Error', 'No data saved (download ok, malformed MiniSeed data)', 99.2)
+    resp[URLERR] = ('Url Error', 'No data saved (download failed, generic url error: '
+                    'timeout, no internet connection, ...)', 99.3)
+    resp[None] = ('Segment Not Found', 'No data saved (download ok, segment data '
+                  'not found, e.g., after a multi-segment request)', 99.4)
+
+    return resp
+
+
+class intkeysdict(dict):
+    '''a defaultdict -like dict with integer keys (e.g. http status codes) mapped to int
+    (occurrences of that status code). This dict tries to cast in all getting / insertion
+    operation each key to integer, in order to make keys such as '200' and 200 the same:
+    this is important because some datacenters return http codes as strings (such as '200')
+    instead of integers (200), and both should be considered the same code'''
+    # implementation note: In a previous version, we used a normal defaultdict as values of
+    # DownloadStats, but we needed to call somewhere and sometime the method
+    # 'DownloadStats.normalizecodes' to cast 'manually' all defaultdic key.
+    # The use of this dict is way more maintainable and clean, but introduces the overhead of
+    # casting to int each time: from tests, the time jumps from 1.5 seconds
+    # (normal defaultdict) to about 5.5 seconds on 2 millions iterations (nothing compared to the
+    # time spent downloading data).
+    # Note also that this dict implementation is faster (couple of seconds) than a defaultdict
+    # and even (roughly 1 sec) than the same dict calling
+    # super(...).__setitiem__, super(...).__getitem__ (that's interesting)
+    def __missing__(self, key):  # @UnusedVariable
+        return 0
+
+    def __setitem__(self, key, val):
+        try:
+            key = int(key)
+        except:  # @IgnorePep8
+            pass
+        return dict.__setitem__(self, key, val)
+
+    def __getitem__(self, key):
+        try:
+            key = int(key)
+        except:  # @IgnorePep8
+            pass
+        return dict.__getitem__(self, key)
+
+
 class DownloadStats(defaultdict):
     ''':ref:`class``defaultdict` subclass which holds statistics of a download.
         Keys of this dict are the domains (string), and values are `defaultdict`s of
-        download codes keys (numeric, ususally but not necessarily int's) mapped to their
-        occurrences. This class is inteded for representation, e.g. typical usage:
+        download codes keys (usually integers) mapped to their
+        occurrences (any code key castable to int will be casted and inserted as int).
+        This class is inteded for representation, e.g. typical usage:
 
         ```
             d = DownloadStats()
             d['domain.org'][200] += 4
             d['domain2.org2'][413] = 4
+            # Strings are casted, when possible:
+            d['domain2.org2']['413'] = 4 # d['domain2.org2']['413']=8
             ...
-            d.normalizecodes()  # optional: if the source of codes is not safe, this merges
-                                # string codes with their int, in case e.g. '200' was returned
             print(str(d))
         ```
 
+        Advanced usage:
+        ---------------
         If you want to fill custom codes (non-standard HTTP status code, including our
-        application codes -1, -2, -200, -204 and None), adds the tuple (title, legend)
-        to `self.resp`. E.g.:
-        `self.resp(1300) = ('OK with gaps', 'Data saved (download OK, data has gaps)')`
+        application codes -1, -2, -200, -204 and None), you should subclass this class.
+        For instance, to add a custom GAP_OVLAP_CODE integer:
+        ```
+            class DownloadStats2(DownloadStats):
+                GAP_OVLAP_CODE = -2000
+                resp = dict(DownloadStats.resp, GAP_OVLAP_CODE=('OK Gaps Overlaps',  # title
+                                                    'Data saved (download ok, '  # legend
+                                                    'data has gaps or overlaps)',
+                                                    0.1)  # sort order (put it next ot '200 ok')
+                )
+        ```
+
         In this case, please note:
-        1. titles should be all with first letter capitalized (to conform to HTTP
+        1. titles should be all with first letters capitalized (to conform to HTTP
            messages implemented in `http.client.responses`)
-        1. legends should have the format:
+        2. legends should have the format:
            '<Data saved|No data saved> (download <ok|failed|completed><optional details>)'
-
-        2. The column order (when this class is printed or its `str` method called)
-           roughly follows the code natural ordering (using `float(code)`),
-           with the following exceptions:
-
-           code       sort value
-           =======    ==========
-           -200       200.5 (-> so that it is next to 'success')
-           -204       399.1 (->so that it is after all successfull response, and before errors)
-           -2         399.8 (mseed erros)
-           -1         399.9  (url errors)
-           <any>      1000  (any code for which float(code) raises, including None of course)
-           =========  ==========
+        3. The last tuple element is a float denoting the column position (order)
+           when this class is printed or its `str` method called. The sort values
+           for the default codes are described in `get_s2s_responses`
     '''
+    resp = get_s2s_responses()
 
     def __init__(self):
         '''initializes a new instance'''
         # apparently, using defaultdict(int) is slightly faster than collections.Count
-        super(DownloadStats, self).__init__(lambda: defaultdict(int))
-        # build an internal dict of codes mapped to the tuple title, legend
-        resp = {}
-        for code, title in viewitems(responses):
-            leg = None
-            if code == 200:
-                leg = 'Data saved (download ok, no additional warning)'
-            elif code == 204:
-                leg = 'Data saved but empty (download ok, the server did not return any data)'
-            elif code >= 500:
-                leg = ('No data saved (download failed, HTTP code %d indicates '
-                       'Server error)') % code
-            elif code >= 400:
-                leg = ('No data saved (download failed, HTTP code %d indicates '
-                       'Client error)') % code
-            elif code >= 300:
-                leg = ('Data potentially saved (download completed, HTTP code %d indicates '
-                       'Redirection)') % code
-            elif code >= 200:
-                leg = ('Data potentially saved (download completed, HTTP code %d indicates '
-                       'Success)') % code
-            elif code >= 100:
-                leg = ('Data potentially saved (download completed, HTTP code %d indicates '
-                       'Informational response)') % code
-            if leg is not None:
-                resp[code] = title, leg
-        # custom codes:
-        customcodes = custom_download_codes()
-        URLERR, MSEEDERR, OUTTIMEERR, OUTTIMEWARN = customcodes
-        resp[URLERR] = ('Url Error', 'No data saved (download failed due to generic error: '
-                        'timeout, no internet connection, ...)')
-        resp[MSEEDERR] = ('MSeed Error', 'No data saved (download ok, data malformed could '
-                          'not be read as MiniSeed)')
-        resp[OUTTIMEERR] = ('Time Span Error', 'No data saved (download ok, data completely '
-                            'outside requested time span)')
-        resp[OUTTIMEWARN] = ('OK Partially Saved', 'Data saved (download ok, data saved '
-                             'partially: some received data chunks where completely outside '
-                             'requested time span')
-        resp[None] = ('Segment Not Found', 'No data saved (download ok, segment data '
-                      'not found, e.g., after a multi-segment request)')
+        super(DownloadStats, self).__init__(intkeysdict)
+        self.resp = {}
 
-        self.resp = resp
-
-    def normalizecodes(self):
-        '''normalizes all values (defaultdict) of this object casting keys to int, and merging
-          their values if an int key is present.
-          Useful if the codes provided are also instance of `str`'''
-        for val in self.values():
-            for key in list(val.keys()):  # we will modify val inplace, copy keys
-                try:
-                    intkey = int(key)
-                    if intkey != key:  # e.g. key is str. False if key is int or np.int
-                        val[intkey] += val.pop(key)
-                except Exception:
-                    pass
-        return self
-
-    def titlelegend(self, code):
+    @classmethod
+    def titlelegend(cls, code):
         '''Returns the title (string), legend (string) and column order (number or None) for the
         given missing / unknown code.
         If code is not found, returns the tuple
@@ -455,49 +538,55 @@ class DownloadStats(defaultdict):
         "Data potentially saved (download completed with unknown HTTP code %d)" % str(code)
         ```
         '''
-        titleleg = self.resp.get(code, None)
+        titleleg = cls.resp.get(code, None)
         if titleleg is None:
-            titleleg = ("Status code %s" % str(code),
-                        "Data potentially saved (download completed with unknown HTTP code %d)")
+            titleleg = ("Code %s" % str(code),
+                        "Data status unknown "
+                        "(download completed, server response code %s is unknown)" % str(code))
+        else:
+            titleleg = titleleg[:2]
         return titleleg
 
-    @staticmethod
-    def sortcodes(codes):
-        '''Returns a list from the iterable codes, sorted ascending. Each element of code is
-        intended to be any of the standard HTTP codes plus our user defined codes
-        (-1, -2, -200, -204, None) or any numeric user-defined code.
-        The sort ordering roughly follows the codes natural ordering (using `float(code)`.
-        consider it when implementing user defined codes),
-        with the following exceptions:
+    @classmethod
+    def sortcodes(cls, codes):
+        '''Returns a list from the iterable `codes`, sorting them ascending with the rules
+        described in `get_s2s_responses`.
+        codes not in the default ones (i.e., in `cls.resp`) are pushed to the end. When comparing
+        two codes both not in the default ones, the one which is castable to int comes first
+        (if both are not castable, the first one is choosen, if both are castable, then their
+        natural order as integers is chosen)
 
-        code       sort value
-        =======    ==========
-        -200       200.5 (-> so that in principle it is next to 'OK success')
-        -204       399.1 (->so that it is after all successfull HTTP response, and before errors)
-        -2         399.8 (mseed erros)
-        -1         399.9  (url errors)
-        <else>     1000  (any code for which float(code) raises)
-
-        :param codes: an iterable of numeric codes. If not numeric, a code is pushed at the end
+        :param codes: an iterable of numeric codes, usually but not necessarily integers
         '''
-        URLERR, MSEEDERR, OUTTIMEERR, OUTTIMEWARN = custom_download_codes()
-
-        def sortkey(kode):
+        def cmp_func(kode1, kode2):
             '''sort func'''
-            if kode == OUTTIMEWARN:
-                return 200.5
-            elif kode == OUTTIMEERR:
-                return 399.1
-            elif kode == MSEEDERR:
-                return 399.8
-            elif kode == URLERR:
-                return 399.9
-            try:
-                return float(kode)
-            except:  # @IgnorePep8
-                return 1000
+            in1, in2 = kode1 in cls.resp, kode2 in cls.resp
+            if not in1 and not in2:
+                # both codes not default one, i.e. not in `self.resp`: the first one caastable to
+                # int has priority. If both castable, sort them as integers. If both not
+                # castable, choose kode1
+                try:
+                    int1 = int(kode1)
+                except:
+                    int1 = None
+                try:
+                    int2 = int(kode2)
+                except:
+                    int2 = None
+                if int2 is None and int1 is not None:
+                    return -1
+                elif int1 is not None and int2 is not None:
+                    return int1 - int2
+                else:
+                    return 1
+            elif not in1:
+                return 1
+            elif not in2:
+                return -1
+            else:
+                return cls.resp[kode1][2] - cls.resp[kode2][2]
 
-        return sorted(codes, key=sortkey)
+        return sorted(codes, key=cmp_to_key(cmp_func))
 
     def __str__(self):
         '''prints a nicely formatted table with the statistics of the download. Returns the
@@ -506,17 +595,8 @@ class DownloadStats(defaultdict):
         sources (e.g., some web services might have returned strings instead of integers,
         and without `normalizecodes` they would be displayed in two different columns
         '''
-        resp = dict(responses)
-        customcodes = custom_download_codes()
-        URLERR, MSEEDERR, OUTTIMEERR, OUTTIMEWARN = customcodes
-        resp[URLERR] = 'Url Error'
-        resp[MSEEDERR] = 'MSeed Error'
-        resp[OUTTIMEERR] = 'Time Span Error'
-        resp[OUTTIMEWARN] = 'OK Partially Saved'
-        resp[None] = 'Segment Not Found'
-
         # create a set of unique codes:
-        sorted_codes = DownloadStats.sortcodes(set((k for dic in self.values() for k in dic)))
+        sorted_codes = self.sortcodes(set((k for dic in self.values() for k in dic)))
         if not sorted_codes:
             return ""
 
@@ -592,31 +672,3 @@ class DownloadStats(defaultdict):
             legend = ["\n\nCOLUMNS DETAILS:"] + legend
             ret += "\n - ".join(legend)
         return ret
-
-
-def custom_download_codes():
-    """returns the tuple (url_err, mseed_err, timespan_err, timespan_warn), i.e. the tuple
-    (-1, -2, -204, -200) where each number represents a custom download code
-    not included in the standard HTTP status codes:
-    * -1 denotes general url exceptions (e.g. no internet conenction)
-    * -2 denotes mseed data errors while reading downloaded data, and
-    * -204 denotes a timespan error: all response is out of time with respect to the
-      reqeuest's time-span
-    * -200 denotes a timespan warning: some response data was out of time with respect to
-      the request's time-span (only the data intersecting with the time span has been
-      saved)
-    """
-    return (-1, -2, -204, -200)
-
-
-def to_fdsn_arg(iterable):
-    ''' Converts an iterable of strings denotings networks, stations, locations or channels
-    into a valid string argument for an fdsn query,
-    This methid basically joins all element of `iterable` with a comma after removing all
-    elements starting with '!' (used in this application to denote logical not, and not
-    fdsn standard).
-
-    :param iterable: an iterable of strings. This function does not check if any string
-        element is invalid for the query (e.g., it contains spaces)
-    '''
-    return ",".join(v for v in iterable if v[0:1] != '!')
