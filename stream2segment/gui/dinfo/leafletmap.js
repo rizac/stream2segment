@@ -220,9 +220,9 @@ function createMarker(staName, netName, staId, lat, lon, dcId, datacenter, ok, m
 	    zIndexOffset: val > minVal ? 1000 : 0  // not that this is NOT used for circles but for markers, we will use this feature afterwards
 	});
 	//bind popup with infos:
-	var staPopupContent = `<table class='station-info'>
-						   <tr><th colspan="2"> ${staName}.${netName} </th></tr>
-						   <tr><td colspan="2">${datacenter}</td></tr>
+	var staPopupContent = `<div class='title'> ${staName}.${netName} </div>
+						   <div class='subtitle underline'>${datacenter}</div>
+						   <table class='station-info'>
 						   <tr><td>database id:</td><td class='right'>${staId}</td></tr>
 						   <tr><td>Segments:</td><td class='right'> ${total} </td></tr>
 						   <tr><td class='right'>In selected categories:</td><td class='right'> ${ok} </td></tr>

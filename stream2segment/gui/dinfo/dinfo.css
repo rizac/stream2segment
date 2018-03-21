@@ -6,8 +6,17 @@ body{
 	max-height: 80vh;
 	overflow:scroll;
 }
-#options > h3{
+.underline{
 	border-bottom: 1px solid #ddd;
+}
+.leaflet-popup .title{
+	font-size: larger;
+	padding-bottom:5px;
+	font-weight:bold;
+}
+.leaflet-popup .subtitle{
+	padding-bottom:10px;
+	font-weight:bold;
 }
 div.info-legend{
 	margin: 5px 0px;

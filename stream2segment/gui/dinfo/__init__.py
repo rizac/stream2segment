@@ -295,7 +295,7 @@ def get_dstats_html(session, download_ids=None, maxgap_threshold=0.5):
     sta_data, codes, datacenters, downloads, networks = \
         get_dstats_html_data(session, download_ids, maxgap_threshold)
     # selected codes by default the Ok one. To know which position is in codes is a little hacky:
-    selcodes = [i for i, c in enumerate(codes) if c == DownloadStats2.resp[200]]
+    selcodes = [i for i, c in enumerate(codes) if list(c) == list(DownloadStats2.resp[200])[:2]]
     # downloads are all selected by default
     seldownloads = list(downloads.keys())
     seldatacenters = list(datacenters.keys())
