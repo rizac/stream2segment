@@ -65,10 +65,10 @@ class clickutils(object):
         Assuming opt1, opt2, opt3 are variables of the config yaml file, and opt4 not, this
         sets the default help for opt1 and opt2:
         ```
-        \@click.Option('--opt1', ..., callback=set_help_from_yaml, is_eager=True,...)
-        \@click.Option('--opt2'...)
-        \@click.Option('--opt3'..., help='my custom help. Do not fetch help from config')
-        \@click.Option('--opt4'...)
+        click.option('--opt1', ..., callback=set_help_from_yaml, is_eager=True,...)
+        click.option('--opt2'...)
+        click.option('--opt3'..., help='my custom help. Do not fetch help from config')
+        click.option('--opt4'...)
         ...
         ```
         """
@@ -129,7 +129,7 @@ def init(outdir):
                 bname = os.path.basename(fcopied)
                 print("   %s: %s" % (bname, helpdict.get(bname, "")))
             sys.exit(0)
-    except Exception as exc:
+    except Exception as exc:  #pylint: disable=broad-except
         print('')
         print("error: %s" % str(exc))
     sys.exit(1)
@@ -223,12 +223,16 @@ def init(outdir):
 @click.option('--maxmag', '--maxmagnitude', type=float,
               help=(clickutils.EQA + " Limit to events with a magnitude smaller than "
                     "the specified maximum"))
-def download(config, dburl, eventws, start, end, networks, stations, locations, channels,  #pylint: disable=unused-argument
-             min_sample_rate, dataws, traveltimes_model, timespan, update_metadata,  #pylint: disable=unused-argument
-             retry_url_err, retry_mseed_err, retry_seg_not_found,  #pylint: disable=unused-argument
-             retry_client_err, retry_server_err, retry_timespan_err, inventory,  #pylint: disable=unused-argument
-             minlatitude, maxlatitude, minlongitude, maxlongitude, latitude, longitude,  #pylint: disable=unused-argument
-             minradius, maxradius, mindepth, maxdepth, minmagnitude, maxmagnitude):  #pylint: disable=unused-argument
+def download(config, dburl, eventws, start, end, networks,  # pylint: disable=unused-argument
+             stations, locations, channels, min_sample_rate,  # pylint: disable=unused-argument
+             dataws, traveltimes_model, timespan,  # pylint: disable=unused-argument
+             update_metadata, retry_url_err, retry_mseed_err,  # pylint: disable=unused-argument
+             retry_seg_not_found, retry_client_err,  # pylint: disable=unused-argument
+             retry_server_err, retry_timespan_err, inventory,  # pylint: disable=unused-argument
+             minlatitude, maxlatitude, minlongitude,  # pylint: disable=unused-argument
+             maxlongitude, latitude, longitude, minradius,  # pylint: disable=unused-argument
+             maxradius, mindepth, maxdepth, minmagnitude,  # pylint: disable=unused-argument
+             maxmagnitude):  # pylint: disable=unused-argument
     """Download waveform data segments with quality-check metadata and relative events, stations and
     channels metadata into a specified database.
     The -c option (required) sets the defaults for all other options below, **which are optional**
@@ -386,6 +390,8 @@ def dinfo(dburl, download_id, maxgap_threshold, html, outfile):
               help="Show doc only for the function whose name matches the given filter. "
                     "Wildcards (* and ?) are allowed")
 def mathinfo(type, filter):  # @ReservedAssignment pylint: disable=redefined-outer-name
+    '''Prints the docstrings of the math functions implemented in this package, according to
+    the given type and filter'''
     for line in main.helpmathiter(type, filter):
         print(line)
 
@@ -436,7 +442,7 @@ def mathinfo(type, filter):  # @ReservedAssignment pylint: disable=redefined-out
                     '`min(travel_times(D+step))-min(travel_times(D)) <= tt_errtol` for any point '
                     'D of the grid. The P-wave velocity is needed to asses such a step '
                     '(for info, see: '
-                    'http://rallen.berkeley.edu/teaching/F04_GEO302_PhysChemEarth/Lectures/HellfrichWood2001.pdf)'))  # @IgnorePep8
+                    'http://rallen.berkeley.edu/teaching/F04_GEO302_PhysChemEarth/Lectures/HellfrichWood2001.pdf)'))  # @IgnorePep8 pylint: disable=line-too-long
 @click.option('-S', '--swavevelocity', type=float, default=ttcreator.DEFAULT_SWAVEVELOCITY,
               show_default=True,
               help=('Optional: the S-wave velocity (in km/sec), if the calculation of the S-waves '
@@ -447,7 +453,7 @@ def mathinfo(type, filter):  # @ReservedAssignment pylint: disable=redefined-out
                     'D of the grid. If the calculation of the P-waves is also needed according to '
                     'the argument `phases` , the p-wave velocity value will be used and this '
                     'argument will be ignored. (for info, see: '
-                    '(http://rallen.berkeley.edu/teaching/F04_GEO302_PhysChemEarth/Lectures/HellfrichWood2001.pdf)'))  # @IgnorePep8
+                    '(http://rallen.berkeley.edu/teaching/F04_GEO302_PhysChemEarth/Lectures/HellfrichWood2001.pdf)'))  # @IgnorePep8 pylint: disable=line-too-long
 def ttcreate(output, model, phases, tt_errtol, maxsourcedepth, maxreceiverdepth, maxdistance,
              pwavevelocity, swavevelocity):
     try:
@@ -455,7 +461,7 @@ def ttcreate(output, model, phases, tt_errtol, maxsourcedepth, maxreceiverdepth,
         ttcreator.computeall(output, model, tt_errtol, phases, maxsourcedepth, maxreceiverdepth,
                              maxdistance, pwavevelocity, swavevelocity, isterminal=True)
         sys.exit(0)
-    except Exception as exc:
+    except Exception as exc:  # pylint: disable=broad-except
         print("ERROR: %s" % str(exc))
         sys.exit(1)
 

@@ -246,7 +246,7 @@ def strptime(obj):
             # datetime.strptime, on the other hand, does not parse Z as UTC (raises in case)
             # and does not include the timezone in the parsed date. The best (hacky) solution
             # is to assert the bare minimum: that %Y-%m-%d is in dtime:
-            assert dtime.strftime(format='%Y-%m-%d') in obj
+            assert dtime.strftime('%Y-%m-%d') in obj
         except Exception as exc:
             raise ValueError(str(exc))
 

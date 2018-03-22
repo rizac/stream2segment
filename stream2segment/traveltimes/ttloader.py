@@ -26,8 +26,22 @@ class TTTable(object):
         self.filepath = filepath
         _data = np.load(filepath)
         self._attrs = _data.files
-        for f in self._attrs:
-            setattr(self, "_" + f, _data[f])
+        # set manually the attributes, a little verbose but pylint is happier:
+        self._deg2km = _data['deg2km']
+        self._swave_velocity = _data['swave_velocity']
+        self._phases = _data['phases']
+        self._modelname = _data['modelname']
+        self._sourcedepth_bounds_km = _data['sourcedepth_bounds_km']
+        self._sourcedepths = _data['sourcedepths']
+        self._distances = _data['distances']
+        self._tt_errtol = _data['tt_errtol']
+        self._receiverdepth_bounds_km = _data['receiverdepth_bounds_km']
+        self._receiverdepths = _data['receiverdepths']
+        self._distances_bounds_deg = _data['distances_bounds_deg']
+        self._distances_step_deg = _data['distances_step_deg']
+        self._traveltimes = _data['traveltimes']
+        self._pwave_velocity = _data['pwave_velocity']
+
         # create grid points (not most efficient way, but this way is more readable
         # and perfs should be irrelevant)
         # Note that if receiver depths are not set (i.e. all zero) we need to suppress
@@ -36,10 +50,10 @@ class TTTable(object):
         self._unique_receiver_depth = True if \
             len(np.unique(self._receiverdepths)) == 1 else False
         gridpts = []
-        for s, r in zip(self._km2deg(self._sourcedepths),
-                        self._km2deg(self._receiverdepths)):
+        for src, rec in zip(self._km2deg(self._sourcedepths),
+                            self._km2deg(self._receiverdepths)):
             for _ in self._distances:
-                gridpts.append([s, _] if self._unique_receiver_depth else [s, r, _])
+                gridpts.append([src, _] if self._unique_receiver_depth else [src, rec, _])
         # store in class attributes:
         self._gridpts = np.array(gridpts)
         self._gridvals = self._traveltimes.reshape(1, -1).flatten()
@@ -136,23 +150,25 @@ class TTTable(object):
             stringorbytes = stringorbytes.decode('utf8')
         return stringorbytes
 
-    def __str__(self, *args, **kwargs):
+    def __str__(self):
         maxrows = 6
 
-        def r_(num):
+        def num2str(num):
+            '''rounds num and returns its str representation with indentation'''
             return str(np.around(num, decimals=3)).rjust(8, ' ')
 
-        def echorow(array):
+        def array2str(array):
+            '''rounds each element of array and returns its str representation with indentation'''
             ret = []
             for i in range(int(maxrows / 2)):
-                ret.append(r_(array[i]))
+                ret.append(num2str(array[i]))
             if len(array) > maxrows:
                 ret.append("...")
             for i in range(int(-maxrows / 2), 0):
-                ret.append(r_(array[i]))
+                ret.append(num2str(array[i]))
             return " ".join(ret)
 
-        collen = [8, 8, len(echorow(self._traveltimes[-1]))]
+        collen = [8, 8, len(array2str(self._traveltimes[-1]))]
         _frmt = "%{:d}s %{:d}s %{:d}s".format(*collen)
         hline = " ".join(c * "-" for c in collen)
 
@@ -161,17 +177,17 @@ class TTTable(object):
                "Data:", hline, _frmt % ("Source", "Receiver", ""),
                _frmt % ("depth", "depth", "Travel times"), hline]
         for i in range(int(maxrows / 2)):
-            s, r = r_(self._sourcedepths[i]), r_(self._receiverdepths[i])
-            ret.append(_frmt % (s, r, echorow(self._traveltimes[i])))
+            src, rec = num2str(self._sourcedepths[i]), num2str(self._receiverdepths[i])
+            ret.append(_frmt % (src, rec, array2str(self._traveltimes[i])))
 
         if len(self._sourcedepths) > maxrows:
             ret.append(_frmt % ("...", "...", "..."))
 
         for i in range(int(-maxrows / 2), 0):
-            s, r = r_(self._sourcedepths[i]), r_(self._receiverdepths[i])
-            ret.append(_frmt % (s, r, echorow(self._traveltimes[i])))
+            src, rec = num2str(self._sourcedepths[i]), num2str(self._receiverdepths[i])
+            ret.append(_frmt % (src, rec, array2str(self._traveltimes[i])))
 
         ret.append(hline)
         ret.append(("%{:d}s %s".format(collen[0]+collen[1]+1)) %
-                   ("Distances->", echorow(self._distances)))
+                   ("Distances->", array2str(self._distances)))
         return "\n".join(ret)

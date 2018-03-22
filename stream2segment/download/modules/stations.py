@@ -101,7 +101,7 @@ def query4inventorydownload(session, force_update):
     :param force_update: boolean, if True an element E of the returned list is a tuple representing
         any station which has at least one segment with data. If False, each E represents
         a station which has at least one segment with data, AND does not have an inventory saved
-        yet 
+        yet
     :return: a query yielding the tuples:
     ```(Station.id, Station.network, Station.station, DataCenter.station_url,
         Station.start_time, Station.end_time)```
@@ -112,7 +112,7 @@ def query4inventorydownload(session, force_update):
     if force_update:
         qry = qry.filter(Station.segments.any(Segment.has_data))  # @UndefinedVariable
     else:
-        qry = qry.filter((~Station.has_inventory) &
+        qry = qry.filter((~Station.has_inventory) &  # pylint:disable=invalid-unary-operand-type
                          (Station.segments.any(Segment.has_data)))  # @UndefinedVariable
 
     return qry

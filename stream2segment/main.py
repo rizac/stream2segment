@@ -144,7 +144,8 @@ def download(config, verbosity=2, **param_overrides):
                     return "%s %s%s" % ("No" if n == 0 else str(n), text, '' if n == 1 else 's')
                 logger.info("%s, %s", frmt(errs, 'error'), frmt(warns, 'warning'))
 
-    except:  # log the exception traceback (only last) and raise,
+    except:  # @IgnorePep8 pylint: disable=broad-except
+        # log the exception traceback (only last) and raise,
         # so that in principle the full traceback is printed on terminal (or caught by the caller)
         noexc_occurred = False
         # https://stackoverflow.com/questions/5191830/best-way-to-log-a-python-exception:
@@ -206,7 +207,7 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, verbose=Fal
         return 0  # contrarily to download, an exception should always raise and log as error
         # with the stack trace
         # (this includes pymodule exceptions e.g. TypeError)
-    except:
+    except:  # @IgnorePep8 pylint: disable=broad-except
         logger.critical("Process aborted", exc_info=True)  # see comment above
         raise
     finally:

@@ -70,14 +70,16 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
         with closing(urllib.request.urlopen(url, **kwargs) if timeout is None else
                      urllib.request.urlopen(url, timeout=timeout, **kwargs)) as conn:
             if blocksize < 0:  # https://docs.python.org/2.4/lib/bltin-file-objects.html
-                ret = conn.read()
+                ret = conn.read()  # pylint: disable=no-member
             else:
                 while True:
-                    buf = conn.read(blocksize)
+                    buf = conn.read(blocksize)  # pylint: disable=no-member
                     if not buf:
                         break
                     ret += buf
-        return ret.decode(decode) if decode else ret, conn.code, conn.msg
+        if decode:
+            ret = ret.decode(decode)
+        return ret, conn.code, conn.msg  # pylint: disable=no-member
     except urllib.error.HTTPError as exc:
         if not raise_http_err:
             return None, exc.code, exc.msg

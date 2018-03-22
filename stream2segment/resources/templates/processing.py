@@ -276,7 +276,7 @@ segment.maxgap_numsamples                 float: the maximum gap found in the wa
 \                                         config "maxgap_numsamples:  '[-0.5, 0.5]'" and, if you
 \                                         absolutely want no segment with gaps/overlaps,
 \                                         perform a further check in the processing via
-\                                         via `len(segment.stream())` (zero if no gaps/overlaps) or
+\                                         `len(segment.stream())` (zero if no gaps/overlaps) or
 \                                         `segment.stream().get_gaps()` (see obspy doc)
 segment.data_seed_id                      str: the seed identifier in the typical format
 \                                         [Network.Station.Location.Channel] stored in the
@@ -393,7 +393,7 @@ from stream2segment.process.utils import gui
 # strem2segment functions for processing obspy Traces. This is just a list of possible functions
 # to show how to import them:
 from stream2segment.process.math.traces import ampratio, bandpass, cumsumsq,\
-    cumtimes, fft, maxabs, utcdatetime, ampspec, powspec, timeof, respspec
+    cumtimes, fft, maxabs, utcdatetime, ampspec, powspec, timeof
 # stream2segment function for processing numpy arrays:
 from stream2segment.process.math.ndarrays import triangsmooth, snr, linspace
 
@@ -424,8 +424,7 @@ def main(segment, config):
         it should be a file named $FILE.yaml)
       - $OUTPUT is the csv file where data (one row per segment) will to be saved
 
-    For info about possible functions to use, please have a look at
-    `stream2segment.process.math.traces`
+    For info about possible functions to use, please have a look at `stream2segment.analysis.mseeds`
     and obviously at `obpsy <https://docs.obspy.org/packages/index.html>`_, in particular:
 
     *  `obspy.core.Stream <https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.html#obspy.core.stream.Stream>_`
@@ -444,7 +443,7 @@ def main(segment, config):
     will populate the first row header of the resulting csv file, otherwise the csv file
     will have no header. Please be consistent: always return the same type of iterable for
     all segments; if dict, always return the same keys for all dicts; if list, always
-    return the same length, etc.
+    return the same length, etcetera.
     If you want to preserve the order of the dict keys as inserted in the code, use `OrderedDict`
     instead of `dict` or `{}`.
     Please note that the first column of the resulting csv will be *always* the segment id
@@ -479,12 +478,9 @@ def main(segment, config):
         raise ValueError('possibly saturated (amp. ratio exceeds)')
 
     # bandpass the trace, according to the event magnitude.
-    # WARNING: For efficiency reasons, this modifies `segment.stream()` permanently!
-    # But this is not a requirement and the user can change this behavior. With the current
-    # implementation, if you want to preserve the original stream, store trace.copy()
-    # and later set segment.stream()[0] = trace
+    # WARNING: this modifies the segment.stream() permanently!
+    # If you want to preserve the original stream, store trace.copy()
     trace = bandpass_remresp(segment, config)
-    # From now on, segment.stream()[0] will return `trace`
 
     spectra = sn_spectra(segment, config)
     normal_f0, normal_df, normal_spe = spectra['Signal']
@@ -494,12 +490,19 @@ def main(segment, config):
     fcmax = config['preprocess']['bandpass_freq_max']  # used in bandpass_remresp
     snr_ = snr(normal_spe, noise_spe, signals_form=config['sn_spectra']['type'],
                fmin=fcmin, fmax=fcmax, delta_signal=normal_df, delta_noise=noise_df)
+    snr1_ = snr(normal_spe, noise_spe, signals_form=config['sn_spectra']['type'],
+                fmin=fcmin, fmax=1, delta_signal=normal_df, delta_noise=noise_df)
+    snr2_ = snr(normal_spe, noise_spe, signals_form=config['sn_spectra']['type'],
+                fmin=1, fmax=10, delta_signal=normal_df, delta_noise=noise_df)
+    snr3_ = snr(normal_spe, noise_spe, signals_form=config['sn_spectra']['type'],
+                fmin=10, fmax=fcmax, delta_signal=normal_df, delta_noise=noise_df)
     if snr_ < config['snr_threshold']:
         raise ValueError('low snr %f' % snr_)
 
     # calculate cumulative
+
     cum_labels = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]
-    cum_trace = cumulative(segment, config)
+    cum_trace = _cumulative(trace.copy())  # prevent original trace from being modified
     cum_times = cumtimes(cum_trace, *cum_labels)
 
     # double event
@@ -515,17 +518,21 @@ def main(segment, config):
         raise ValueError('Double event detected %d %s %s %s' % (score, t_double, tt1, tt2))
 
     # calculate PGA and times of occurrence (t_PGA):
-    t_PGA, PGA = maxabs(trace)  # note: you can also provide tstart tend for slicing
+    # note: you can also provide tstart tend for slicing
+    t_PGA, PGA = maxabs(trace, cum_times[1], cum_times[-2])
     trace_int = trace.copy()
     trace_int.integrate()
-    t_PGV, PGV = maxabs(trace_int)
+    t_PGV, PGV = maxabs(trace_int, cum_times[1], cum_times[-2])
+    meanoff = meanslice(trace_int, 100, cum_times[-1], trace_int.stats.endtime)
 
     # calculates amplitudes at the frequency bins given in the config file:
     required_freqs = config['freqs_interp']
     ampspec_freqs = linspace(start=normal_f0, delta=normal_df, num=len(normal_spe))
-    required_amplitudes = np.interp(required_freqs, ampspec_freqs, normal_spe) / segment.sample_rate
+    required_amplitudes = np.interp(np.log10(required_freqs),
+                                    np.log10(ampspec_freqs), normal_spe) / segment.sample_rate
 
-    # compute synthetic WA. Note: modifies the segment trace in-place!
+    # compute synthetic WA.
+    # IMPORTANT: modifies the segment trace in-place!
     trace_wa = synth_wa(segment, config)
     t_WA, maxWA = maxabs(trace_wa)
 
@@ -533,8 +540,11 @@ def main(segment, config):
     ret = OrderedDict()
 
     ret['snr'] = snr_
-    for cum_lbl, cum_t in zip(cum_labels, cum_times):
-        ret['cum_t%d' % cum_lbl] = float(cum_t)  # convert cum_times to float for saving
+    ret['snr1'] = snr1_
+    ret['snr2'] = snr2_
+    ret['snr3'] = snr3_
+    for cum_lbl, cum_t in zip(cum_labels[slice(1, 8, 3)], cum_times[slice(1, 8, 3)]):
+        ret['cum_t%f' % cum_lbl] = float(cum_t)  # convert cum_times to float for saving
 
     ret['dist_deg'] = segment.event_distance_deg        # dist
     ret['dist_km'] = d2km(segment.event_distance_deg)  # dist_km
@@ -558,7 +568,9 @@ def main(segment, config):
     ret['st_lat'] = segment.station.latitude
     ret['st_lon'] = segment.station.longitude
     ret['st_ele'] = segment.station.elevation
-
+    ret['score'] = score
+    ret['d2max'] = float(tt1)
+    ret['offset'] = np.abs(meanoff/PGV)
     for f, a in zip(required_freqs, required_amplitudes):
         ret['f_%.5f' % f] = float(a)
 
@@ -569,6 +581,7 @@ def main(segment, config):
 def bandpass_remresp(segment, config):
     """Applies a pre-process on the given segment waveform by
     filtering the signal and removing the instrumental response.
+    DOES modify the segment stream in-place (see below)
 
     The filter algorithm has the following steps:
     1. Sets the max frequency to 0.9 of the Nyquist frequency (sampling rate /2)
@@ -587,16 +600,17 @@ def bandpass_remresp(segment, config):
 
     - In this implementation THIS FUNCTION DOES MODIFY `segment.stream()` IN-PLACE: from within
       `main`, further calls to `segment.stream()` will return the stream returned by this function.
-      However, MODIFYING THE STREAM IN-PLACE IS NOT A REQUIREMENT AND THE USER CAN CHANGE THIS
-      BEHAVIOUR. In any case, you can use `segment.stream().copy()` before this call to keep the
+      However, In any case, you can use `segment.stream().copy()` before this call to keep the
       old "raw" stream
 
     :return: a Trace object.
     """
     stream = segment.stream()
     assert1trace(stream)  # raise and return if stream has more than one trace
-    inventory = segment.inventory()
     trace = stream[0]
+
+    inventory = segment.inventory()
+
     # define some parameters:
     evt = segment.event
     conf = config['preprocess']
@@ -649,7 +663,6 @@ def savitzky_golay(y, window_size, order, deriv=0, rate=1):
     approach is to make for each point a least-square fit with a
     polynomial of high order over a odd-sized window centered at
     the point.
-
     Examples
     --------
     t = np.linspace(-4, 4, 500)
@@ -661,7 +674,6 @@ def savitzky_golay(y, window_size, order, deriv=0, rate=1):
     plt.plot(t, ysg, 'r', label='Filtered signal')
     plt.legend()
     plt.show()
-
     References
     ----------
     .. [1] A. Savitzky, M. J. E. Golay, Smoothing and Differentiation of
@@ -734,15 +746,17 @@ def get_multievent_sg(cum_trace, tmin, tmax, tstart,
     indices = np.where(second_derivs[1] >= threshold_after_tmax_percent)[0]
     if len(indices):
         result = 2
+    #   starttime = timeof(traces[0], indices[0])
 
     # case B: see if inside tmin tmax we exceed a threshold, and in case check the duration
     deltatime = 0
+    starttime = tmin
+    endtime = None
     indices = np.where(second_derivs[0] >= threshold_inside_tmin_tmax_percent)[0]
-    starttime = endtime = None
     if len(indices) >= 2:
         idx0 = indices[0]
-        idx1 = indices[-1]
         starttime = timeof(traces[0], idx0)
+        idx1 = indices[-1]
         endtime = timeof(traces[0], idx1)
         deltatime = endtime - starttime
         if deltatime >= threshold_inside_tmin_tmax_sec:
@@ -753,10 +767,8 @@ def get_multievent_sg(cum_trace, tmin, tmax, tstart,
 
 @gui.customplot
 def synth_wa(segment, config):
-    '''compute synthetic WA. This method does NOT remove the segment's stream instrumental response.
-    Does not modify the segment's stream or traces in-place.
-
-    IMPORTANT NOTES:
+    '''compute synthetic WA. See ``_synth_wa``.
+    DOES modify the segment's stream or traces in-place.
 
     -Being decorated with '@gui.sideplot' or '@gui.customplot', this function must return
      a numeric sequence y taken at successive equally spaced points in any of these forms:
@@ -775,10 +787,32 @@ def synth_wa(segment, config):
 
     :return:  an obspy Trace
     '''
+    return _synth_wa(segment, config, config['preprocess']['remove_response_output'])
+
+
+def _synth_wa(segment, config, trace_input_type=None):
+    '''
+    Low-level function to calculate the synthetic wood-anderson of `trace`.
+    The dict ``config['simulate_wa']`` must be implemented
+    and houses the wood-anderson configuration 'sensitivity', 'zeros', 'poles' and 'gain'
+
+    :param trace_input_type:
+        None: trace is unprocessed and trace.remove_response(.. output="DISP"...)
+            will be applied on it before applying `trace.simulate`
+        'ACC': trace is already processed, e.g..
+            it's the output of trace.remove_response(..output='ACC')
+        'VEL': trace is already processed,
+            it's the output of trace.remove_response(..output='VEL')
+        'DISP': trace is already processed,
+            it's the output of trace.remove_response(..output='DISP')
+
+    Warning: modifies the trace in place
+    '''
     stream = segment.stream()
     assert1trace(stream)  # raise and return if stream has more than one trace
     trace = stream[0]
-    # compute synthetic WA,NOTE: keep as last action, it modifies trace!!
+
+    conf = config['preprocess']
     config_wa = dict(config['paz_wa'])
     # parse complex string to complex numbers:
     zeros_parsed = map(complex, (c.replace(' ', '') for c in config_wa['zeros']))
@@ -786,16 +820,34 @@ def synth_wa(segment, config):
     poles_parsed = map(complex, (c.replace(' ', '') for c in config_wa['poles']))
     config_wa['poles'] = list(poles_parsed)
     # compute synthetic WA response. This modifies the trace in-place!
-    return trace.copy().simulate(paz_remove=None, paz_simulate=config_wa)
+
+    if trace_input_type in ('VEL', 'ACC'):
+        trace.integrate()
+    if trace_input_type == 'ACC':
+        trace.integrate()
+
+    if trace_input_type is None:
+        pre_filt = (0.005, 0.006, 40.0, 45.0)
+        trace.remove_response(inventory=segment.inventory(), output="DISP",
+                              pre_filt=pre_filt, water_level=conf['remove_response_water_level'])
+
+    return trace.simulate(paz_remove=None, paz_simulate=config_wa)
+
+
+@gui.customplot
+def velocity(segment, config):
+    stream = segment.stream()
+    assert1trace(stream)  # raise and return if stream has more than one trace
+    trace = stream[0]
+    trace_int = trace.copy()
+    return trace_int.integrate()
 
 
 @gui.customplot
 def derivcum2(segment, config):
     """
     compute the second derivative of the cumulative function using savitzy-golay.
-    Does not modify the segment's stream or traces in-place
-
-    IMPORTANT NOTES:
+    DOES modify the segment's stream or traces in-place
 
     -Being decorated with '@gui.sideplot' or '@gui.customplot', this function must return
      a numeric sequence y taken at successive equally spaced points in any of these forms:
@@ -827,10 +879,9 @@ def derivcum2(segment, config):
 
 @gui.customplot
 def cumulative(segment, config):
-    '''Computes the cumulative of a trace in the form of a Plot object.
-    Does not modify the segment's stream or traces in-place
-
-    IMPORTANT NOTES:
+    '''Computes the cumulative of the squares of the segment's trace in the form of a Plot object.
+    DOES modify the segment's stream or traces in-place. Normalizes the returned trace values
+    in [0,1]
 
     -Being decorated with '@gui.sideplot' or '@gui.customplot', this function must return
      a numeric sequence y taken at successive equally spaced points in any of these forms:
@@ -854,8 +905,14 @@ def cumulative(segment, config):
     '''
     stream = segment.stream()
     assert1trace(stream)  # raise and return if stream has more than one trace
-    trace = stream[0]
-    return cumsumsq(trace)
+    return _cumulative(stream[0])
+
+
+def _cumulative(trace):
+    '''Computes the cumulative of the squares of the segment's trace in the form of a Plot object.
+    DOES modify the segment's stream or traces in-place. Normalizes the returned trace values
+    in [0,1]'''
+    return cumsumsq(trace, normalize=True, copy=False)
 
 
 @gui.sideplot
@@ -863,8 +920,6 @@ def sn_spectra(segment, config):
     """
     Computes the signal and noise spectra, as dict of strings mapped to tuples (x0, dx, y).
     Does not modify the segment's stream or traces in-place
-
-    IMPORTANT NOTES:
 
     -Being decorated with '@gui.sideplot' or '@gui.customplot', this function must return
      a numeric sequence y taken at successive equally spaced points in any of these forms:
@@ -920,3 +975,15 @@ def _spectrum(trace, config, starttime=None, endtime=None):
         spec_ = triangsmooth(spec_, winlen_ratio=smoothing_wlen_ratio)
 
     return (0, df_, spec_)
+
+
+def meanslice(trace, nptmin=100, starttime=None, endtime=None):
+    """
+    at least nptmin points
+    """
+    if starttime is not None or endtime is not None:
+        trace = trace.slice(starttime, endtime)
+    if trace.stats.npts < nptmin:
+        return np.nan
+    val = np.nanmean(trace.data)
+    return val

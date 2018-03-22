@@ -80,10 +80,10 @@ def min_traveltimes(modelname, source_depths, receiver_depths, distances, phases
         return _
 
     pool = Pool()
-    for idx, sd, rd in zip(count(), source_depths, receiver_depths):
+    for idx, sdepth, rdepth in zip(count(), source_depths, receiver_depths):
         tmp_ttimes = ttimes[idx]
-        for i, d in enumerate(distances):
-            pool.apply_async(min_traveltime, (model, sd, rd, d, phases),
+        for i, dist in enumerate(distances):
+            pool.apply_async(min_traveltime, (model, sdepth, rdepth, dist, phases),
                              callback=mp_callback(i, tmp_ttimes, callback))
     pool.close()
     pool.join()
@@ -110,12 +110,12 @@ def min_traveltime(model, source_depth_in_km, receiver_depth_in_km, distance_in_
         # allocate TauModel. We might pass a TauModel object or a string:
         tau_model = taumodel(model)
 
-        tt = TauPTime(tau_model, phases, source_depth_in_km,
-                      distance_in_degree, receiver_depth_in_km)
-        tt.run()
-        if not tt.arrivals:
+        tpt = TauPTime(tau_model, phases, source_depth_in_km,
+                       distance_in_degree, receiver_depth_in_km)
+        tpt.run()
+        if not tpt.arrivals:
             return np.nan
-        return tt.arrivals[0].time
+        return tpt.arrivals[0].time
 
     except SlownessModelError:
         return np.nan
@@ -139,6 +139,7 @@ def ttequal(traveltimes1, traveltimes2, maxerr):
 
 
 def newarray(basearray):
+    '''Returns a new array the same shape of `basearray` and filled with NaNs'''
     return np.full(basearray.shape, np.nan)
 
 
@@ -212,12 +213,13 @@ class StepIterator(object):
             self._refreshitr()
             next(self._itr)  # hack: move forward as first _itr item has already been yielded
             return False  # we cannot move back
-        else:  # move to next depth level
-            self._val -= self.currentstep
-            self._iterindex += 1
-            self._refreshitr()  # hack: move forward as first _itr item has already been yielded
-            next(self._itr)
-            return True
+
+        # move to next depth level
+        self._val -= self.currentstep
+        self._iterindex += 1
+        self._refreshitr()  # hack: move forward as first _itr item has already been yielded
+        next(self._itr)
+        return True
 
     def __iter__(self):
         return self
@@ -247,26 +249,26 @@ def itercreator(model, tt_errtol, phases, distances, depthstep_km, maxsourcedept
     max_err = abs(tt_errtol)
 
     model = taumodel(model)
-    last_saved_traveltimes = None
+    last_saved_traveltimes = []
 
     sditer = StepIterator(0, maxsourcedepth, depthstep_km)
-    for sd in sditer:
+    for sdepth in sditer:
         # calculate the travel times anyway
-        ttimes1 = min_traveltimes(model, sd, 0, cmp_distances_in_degree, phases)
+        ttimes1 = min_traveltimes(model, sdepth, 0, cmp_distances_in_degree, phases)
         ttimes2 = ttimes1 if maxreceiverdepth == 0 else \
-            min_traveltimes(model, sd, maxreceiverdepth, cmp_distances_in_degree, phases)
+            min_traveltimes(model, sdepth, maxreceiverdepth, cmp_distances_in_degree, phases)
 
-        if sd not in (0, maxsourcedepth):
+        if sdepth not in (0, maxsourcedepth):
             # first thing to do: error exceeds with previous travel times, go on if we can
             if not ttequal(last_saved_traveltimes[0], ttimes1, max_err):
                 if sditer.moveback():
                     continue
             elif ttequal(last_saved_traveltimes[1], ttimes2, max_err) and \
                     ttequal(ttimes1, ttimes2, max_err):
-                    continue
+                continue
 
         if maxreceiverdepth == 0:
-            yield sd, 0, ttimes1, None if last_saved_traveltimes is None else \
+            yield sdepth, 0, ttimes1, None if not last_saved_traveltimes else \
                 last_saved_traveltimes[0]
             last_saved_traveltimes = [ttimes1, ttimes2]
             continue
@@ -274,22 +276,22 @@ def itercreator(model, tt_errtol, phases, distances, depthstep_km, maxsourcedept
         # ok, now we have to store ttimes1 and ttimes2. We iterate over receiver depths to check
         # when we need to store points
         rditer = StepIterator(0, maxreceiverdepth, depthstep_km)
-        _markttimes = None if last_saved_traveltimes is None else last_saved_traveltimes[0]
-        for rd in rditer:
-            if rd in (0, maxreceiverdepth):
-                _markttimes = ttimes1 if rd == 0 else ttimes2
-                yield sd, rd, _markttimes, \
-                    None if last_saved_traveltimes is None else last_saved_traveltimes[0]
+        _markttimes = None if not last_saved_traveltimes else last_saved_traveltimes[0]
+        for rdepth in rditer:
+            if rdepth in (0, maxreceiverdepth):
+                _markttimes = ttimes1 if rdepth == 0 else ttimes2
+                yield sdepth, rdepth, _markttimes, \
+                    None if not last_saved_traveltimes else last_saved_traveltimes[0]
                 continue
 
-            ttimes3 = min_traveltimes(model, sd, rd, cmp_distances_in_degree, phases)
+            ttimes3 = min_traveltimes(model, sdepth, rdepth, cmp_distances_in_degree, phases)
 
             # first thing to do: error exceeds with previous travel times, go on if we can
             if not ttequal(ttimes3, _markttimes, max_err):
                 if rditer.moveback():
                     continue
                 else:
-                    yield sd, rd, ttimes3, _markttimes
+                    yield sdepth, rdepth, ttimes3, _markttimes
                     _markttimes = ttimes3
 
         last_saved_traveltimes = [ttimes1, ttimes2]
@@ -299,8 +301,8 @@ def minwavevelocity(phases, pwavevelocity=DEFAULT_PWAVEVELOCITY,
                     swavevelocity=DEFAULT_SWAVEVELOCITY):
     ttp_plus = set(get_phase_names("ttp+"))
     for phase_name in phases:
-        for p in get_phase_names(phase_name):
-            if p not in ttp_plus:
+        for phname in get_phase_names(phase_name):
+            if phname not in ttp_plus:
                 return swavevelocity
     # s-waves are slower, so if present return them to create delta steps
     # including also P-waves, if any.
@@ -345,23 +347,24 @@ def get_sdrd_steps(model, tt_errtol, phases, maxsourcedepth=DEFAULT_SD_MAX,
     idx = 1
     total = maxsourcedepth
     depthstep_km = getstep(tt_errtol, wavevelocity, deg2km, unit='km')
-    for sd, rd, tts, lasttts in itercreator(model, tt_errtol, phases, distances, depthstep_km,
-                                            maxsourcedepth, maxreceiverdepth):
+    for sdepth, rdepth, tts, lasttts in itercreator(model, tt_errtol, phases,
+                                                    distances, depthstep_km,
+                                                    maxsourcedepth, maxreceiverdepth):
         if isterminal:
-            count = sd / total
-            percentdone = int(0.5 + (100.0 * count))
-            eta = None if count == 0 else \
-                int(0.5 + (total-sd) * ((time.time() - start) / sd))
+            count_ = sdepth / total
+            percentdone = int(0.5 + (100.0 * count_))
+            eta = None if count_ == 0 else \
+                int(0.5 + (total-sdepth) * ((time.time() - start) / sdepth))
             maxerr = np.nan if lasttts is None else np.nanmax(abs(tts-lasttts))
             # round to 0.1 sec:
             tt_list = np.around(tts, decimals=timemaxdecimaldigits(tt_errtol)+1).tolist()
-            print(frmt % (idx, np.around(sd, 3),
-                          np.around(rd, 3), '%s (%8.3f)' % (tt_list, maxerr), percentdone,
+            print(frmt % (idx, np.around(sdepth, 3),
+                          np.around(rdepth, 3), '%s (%8.3f)' % (tt_list, maxerr), percentdone,
                           "n/a" if eta is None else str(timedelta(seconds=eta))))
             idx += 1
 
-        sds.append(sd)
-        rds.append(rd)
+        sds.append(sdepth)
+        rds.append(rdepth)
 
         # NOW compute all remaining travel times. Use apply async so that we can go on inspecting
         # new source, receiver pairs
@@ -388,14 +391,14 @@ def computetts(model, sourcedepths, receiverdepths, distances, tts_matrix, phase
     print("%d total points to compute" % pts2compute)
 
     pool = Pool()
-    with get_progressbar(isterminal, length=pts2compute) as bar:
+    with get_progressbar(isterminal, length=pts2compute) as pbar:
         _tts_matrix = min_traveltimes(model, sourcedepths, receiverdepths, distances[_mask],
-                                      phases, callback=lambda: bar.update(1))
+                                      phases, callback=lambda: pbar.update(1))
         pool.close()
         pool.join()
 
-    for r in range(numtts):
-        tts_matrix[r, _mask] = _tts_matrix[r, :]
+    for i in range(numtts):
+        tts_matrix[i, _mask] = _tts_matrix[i, :]
 
 
 def computeall(fileout, model, tt_errtol, phases, maxsourcedepth=DEFAULT_SD_MAX,
@@ -411,24 +414,25 @@ def computeall(fileout, model, tt_errtol, phases, maxsourcedepth=DEFAULT_SD_MAX,
         print("  model:  '%s'" % modelname)
         print("  phases: '%s'" % str(phases))
     model = taumodel(modelname)
-    sd, rd, d, tt_matrix = get_sdrd_steps(model, tt_errtol, phases, maxsourcedepth,
-                                          maxreceiverdepth, maxdistance,
-                                          pwavevelocity, swavevelocity, deg2km, isterminal)
+    sdepths, rdepths, dists, tt_matrix = get_sdrd_steps(model, tt_errtol, phases, maxsourcedepth,
+                                                        maxreceiverdepth, maxdistance,
+                                                        pwavevelocity, swavevelocity, deg2km,
+                                                        isterminal)
     tt_matrix = tt_matrix.astype(np.float32)
     if isterminal:
         print("")
     kwargs = dict(file=fileout, modelname=modelname, sourcedepth_bounds_km=[0, maxsourcedepth],
                   receiverdepth_bounds_km=[0, maxreceiverdepth],
-                  distances_bounds_deg=[d[0], d[-1]],
-                  distances_step_deg=d[1]-d[0],
-                  tt_errtol=tt_errtol, distances=d,
+                  distances_bounds_deg=[dists[0], dists[-1]],
+                  distances_step_deg=dists[1]-dists[0],
+                  tt_errtol=tt_errtol, distances=dists,
                   pwave_velocity=pwavevelocity, swave_velocity=swavevelocity, deg2km=deg2km,
-                  sourcedepths=sd, receiverdepths=rd, traveltimes=tt_matrix,
+                  sourcedepths=sdepths, receiverdepths=rdepths, traveltimes=tt_matrix,
                   phases=phases)
-    # save now so in case we can interrupt somehow the computation
+    # save now so in case we can interrupt somehow the computation (?)
     np.savez_compressed(**kwargs)
-    # FIXME: UNCOMMENT NEXT TWO LINES WHEN DONE!
-    computetts(model, sd, rd, d, tt_matrix, phases, isterminal=True)
+    computetts(model, sdepths, rdepths, dists, tt_matrix, phases, isterminal=True)
+    # save:
     np.savez_compressed(**kwargs)
     if isterminal:
         print("Computed %d travel times arrays associated to "
@@ -452,7 +456,8 @@ def computeall(fileout, model, tt_errtol, phases, maxsourcedepth=DEFAULT_SD_MAX,
         print("Bounds:")
         print("Source depths [min, max]: [%.3f, %.3f] km" % (0, maxsourcedepth))
         print("Receiver depths [min, max]: [%.3f, %.3f] km" % (0, maxreceiverdepth))
-        print("Distances [min : step: max]: [%.3f: %.3f: %.3f] deg" % (0, d[1]-d[0], d[-1]))
+        print("Distances [min : step: max]: [%.3f: %.3f: %.3f] deg" %
+              (0, dists[1]-dists[0], dists[-1]))
         print("Travel times table written to '%s'" % fileout)
         print("")
 

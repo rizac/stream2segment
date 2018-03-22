@@ -661,9 +661,15 @@ class DbManager(object):
             all2update = not mask.any()
 
             if self.colnames2update:
-                dfupdate = df if all2update else df[~mask]
+                if all2update:
+                    dfupdate = df
+                else:
+                    dfupdate = df[~mask]  # pylint: disable=invalid-unary-operand-type
             elif self.return_df:
-                self.dfs.append(df if all2update else df[~mask])
+                if all2update:
+                    self.dfs.append(df)
+                else:
+                    self.dfs.append(df[~mask])  # pylint: disable=invalid-unary-operand-type
 
             if not all2update:
                 dfinsert = df[mask]

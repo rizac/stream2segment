@@ -457,7 +457,7 @@ class Station(Base):
         return bool(self.inventory_xml)
 
     @has_inventory.expression
-    def has_inventory(cls):  # @NoSelf
+    def has_inventory(cls):  # pylint:disable=no-self-argument
         return withdata(cls.inventory_xml)
 
     __table_args__ = (
@@ -491,12 +491,11 @@ class Channel(Base):
         return self.channel[0:1]  # if len(self.channel) == 3 else None
 
     @band_code.expression
-    def band_code(cls):  # @NoSelf
+    def band_code(cls):  # pylint:disable=no-self-argument
         '''returns the sql expression returning the first letter of the channel field,
         or NULL if the latter has not length 3'''
         # return an sql expression matching the last char or None if not three letter channel
         return substr(cls.channel, 1, 1)
-        # return case([(func.length(cls.channel) == 3, func.substr(cls.channel, 1, 1))], else_=null())
 
     @hybrid_property
     def instrument_code(self):
@@ -504,12 +503,11 @@ class Channel(Base):
         return self.channel[1:2]  # if len(self.channel) == 3 else None
 
     @instrument_code.expression
-    def instrument_code(cls):  # @NoSelf
+    def instrument_code(cls):  # pylint:disable=no-self-argument
         '''returns the sql expression returning the second letter of the channel field,
         or NULL if the latter has not length 3'''
         # return an sql expression matching the last char or None if not three letter channel
         return substr(cls.channel, 2, 1)
-        # return case([(func.length(cls.channel) == 3, func.substr(cls.channel, 2, 1))], else_=null())
 
     @hybrid_property
     def orientation_code(self):
@@ -517,12 +515,11 @@ class Channel(Base):
         return self.channel[2:3]  # if len(self.channel) == 3 else None
 
     @orientation_code.expression
-    def orientation_code(cls):  # @NoSelf
+    def orientation_code(cls):  # pylint:disable=no-self-argument
         '''returns the sql expression returning the third letter of the channel field,
         or NULL if the latter has not length 3'''
         # return an sql expression matching the last char or None if not three letter channel
         return substr(cls.channel, 3, 1)
-        #return case([(func.length(cls.channel) == 3, func.substr(cls.channel, 3, 1))], else_=null())
 
     __table_args__ = (
                       UniqueConstraint('station_id', 'location', 'channel',
@@ -561,7 +558,7 @@ class Segment(Base):
         return self.event_distance_deg * (2.0 * 6371 * 3.14159265359 / 360.0)
 
     @event_distance_km.expression
-    def event_distance_km(cls):  # @NoSelf
+    def event_distance_km(cls):  # pylint:disable=no-self-argument
         return deg2km(cls.event_distance_deg)
 
     @hybrid_property
@@ -572,7 +569,7 @@ class Segment(Base):
             return None
 
     @duration_sec.expression
-    def duration_sec(cls):  # @NoSelf
+    def duration_sec(cls):  # pylint:disable=no-self-argument
         return duration_sec(cls.start_time, cls.end_time)
 
     @hybrid_property
@@ -584,7 +581,7 @@ class Segment(Base):
             return None
 
     @missing_data_sec.expression
-    def missing_data_sec(cls):  # @NoSelf
+    def missing_data_sec(cls):  # pylint:disable=no-self-argument
         return missing_data_sec(cls.start_time, cls.end_time, cls.request_start, cls.request_end)
 
     @hybrid_property
@@ -596,7 +593,7 @@ class Segment(Base):
             return None
 
     @missing_data_ratio.expression
-    def missing_data_ratio(cls):  # @NoSelf
+    def missing_data_ratio(cls):  # pylint:disable=no-self-argument
         return missing_data_ratio(cls.start_time, cls.end_time, cls.request_start, cls.request_end)
 
     @hybrid_property
@@ -604,7 +601,7 @@ class Segment(Base):
         return bool(self.data)
 
     @has_data.expression
-    def has_data(cls):  # @NoSelf
+    def has_data(cls):  # pylint:disable=no-self-argument
         return withdata(cls.data)
 
     @hybrid_property
@@ -612,7 +609,7 @@ class Segment(Base):
         return len(self.classes) > 0
 
     @has_class.expression
-    def has_class(cls):  # @NoSelf
+    def has_class(cls):  # pylint:disable=no-self-argument
         return cls.classes.any()
 
 #     def get(self, *columns):  # DEPRECATED: used for testing
@@ -723,7 +720,7 @@ class Segment(Base):
             return None
 
     @seed_id.expression
-    def seed_id(cls):  # @NoSelf
+    def seed_id(cls):  # pylint:disable=no-self-argument
         '''returns data_seed_id if the latter is not None, else net.sta.loc.cha by querying the
         relative channel and station'''
         # Needed note: To know what we are doing in 'sel' below, please look:

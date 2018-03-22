@@ -124,7 +124,7 @@ class Record(object):
             self._record_id = _get_id(net, sta, loc, cha)
         except UnicodeDecodeError as exc:  # raise MSeedError so it will be caught
             raise MSeedError(str(exc))
-        
+
         self.header += fixhead
 
         if ((self.rectype != b'D') and (self.rectype != b'R') and
@@ -138,13 +138,13 @@ class Record(object):
             fd.read(_MAX_RECLEN - _FIXHEAD_LEN)
             raise MSeedError("invalid pointers", self._record_id)
 
-        if (self.__pblk == 0):
+        if self.__pblk == 0:
             blklen = 0
         else:
             blklen = self.__pdata - self.__pblk
             gaplen = self.__pblk - _FIXHEAD_LEN
             gap = fd.read(gaplen)
-            if (len(gap) < gaplen):
+            if len(gap) < gaplen:
                 raise MSeedError("unexpected end of data", self._record_id)
 
             self.header += gap
@@ -161,7 +161,7 @@ class Record(object):
         self.__nframes_idx = None
 
         pos = 0
-        while (pos < blklen):
+        while pos < blklen:
             blkhead = fd.read(_BLKHEAD_LEN)
             if len(blkhead) < _BLKHEAD_LEN:
                 raise MSeedError("unexpected end of blockettes at %s" %
@@ -186,7 +186,7 @@ class Record(object):
 
             elif blktype == 1001:
                 blk1001 = fd.read(_BLK1001_LEN)
-                if (len(blk1001) < _BLK1001_LEN):
+                if len(blk1001) < _BLK1001_LEN:
                     raise MSeedError("unexpected end of blockettes at %s" %
                                      pos + len(blk1001), self._record_id)
 
@@ -206,18 +206,18 @@ class Record(object):
 
             gaplen = nextblk - (self.__pblk + pos)
             gap = fd.read(gaplen)
-            if (len(gap) < gaplen):
+            if len(gap) < gaplen:
                 raise MSeedError("unexpected end of data", self._record_id)
 
             self.header += gap
             pos += gaplen
 
-        if (pos > blklen):
+        if pos > blklen:
             raise MSeedError("corrupt record", self._record_id)
 
         gaplen = self.__pdata - len(self.header)
         gap = fd.read(gaplen)
-        if (len(gap) < gaplen):
+        if len(gap) < gaplen:
             raise MSeedError("unexpected end of data", self._record_id)
 
         self.header += gap
@@ -229,16 +229,16 @@ class Record(object):
         self.loc = loc.strip()
         self.cha = cha.strip()
 
-        if ((self.sr_factor > 0) and (self.sr_mult > 0)):
+        if (self.sr_factor > 0) and (self.sr_mult > 0):
             self.samprate_num = self.sr_factor * self.sr_mult
             self.samprate_denom = 1
-        elif ((self.sr_factor > 0) and (self.sr_mult < 0)):
+        elif (self.sr_factor > 0) and (self.sr_mult < 0):
             self.samprate_num = self.sr_factor
             self.samprate_denom = -self.sr_mult
-        elif ((self.sr_factor < 0) and (self.sr_mult > 0)):
+        elif (self.sr_factor < 0) and (self.sr_mult > 0):
             self.samprate_num = self.sr_mult
             self.samprate_denom = -self.sr_factor
-        elif ((self.sr_factor < 0) and (self.sr_mult < 0)):
+        elif (self.sr_factor < 0) and (self.sr_mult < 0):
             self.samprate_num = 1
             self.samprate_denom = self.sr_factor * self.sr_mult
         else:
@@ -248,7 +248,7 @@ class Record(object):
         self.fsamp = self.samprate_num / self.samprate_denom
 
         # quick fix to avoid exception from datetime
-        if (bt_second > 59):
+        if bt_second > 59:
             self.leap = bt_second - 59
             bt_second = 59
         else:
@@ -262,17 +262,17 @@ class Record(object):
             self.begin_time += \
                 datetime.timedelta(microseconds=bt_tms*100+micros)
 
-            if ((self.nsamp != 0) and (self.fsamp != 0)):
+            if (self.nsamp != 0) and (self.fsamp != 0):
                 msAux = 1000000 * (self.nsamp - 1) / self.fsamp
                 self.end_time = self.begin_time + datetime.timedelta(microseconds=msAux)
             else:
                 self.end_time = self.begin_time
 
-        except ValueError as e:
-            raise MSeedError("invalid time: %s" % str(e), self._record_id)
+        except ValueError as verr:
+            raise MSeedError("invalid time: %s" % str(verr), self._record_id)
 
         self.size = 1 << rec_len_exp
-        if ((self.size < len(self.header)) or (self.size > _MAX_RECLEN)):
+        if (self.size < len(self.header)) or (self.size > _MAX_RECLEN):
             raise MSeedError("invalid record size", self._record_id)
 
         datalen = self.size - self.__pdata
@@ -290,67 +290,65 @@ class Record(object):
         c3 = (w0 >> 24) & 0x3
         d0 = None
 
-        if (self.encoding == 10):
-            """STEIM (1) Compression?"""
-            if (c3 == 1):
+        if self.encoding == 10:  # STEIM (1) Compression?
+            if c3 == 1:
                 d0 = (w3 >> 24) & 0xff
-                if (d0 > 0x7f):
+                if d0 > 0x7f:
                     d0 -= 0x100
-            elif (c3 == 2):
+            elif c3 == 2:
                 d0 = (w3 >> 16) & 0xffff
-                if (d0 > 0x7fff):
+                if d0 > 0x7fff:
                     d0 -= 0x10000
-            elif (c3 == 3):
+            elif c3 == 3:
                 d0 = w3 & 0xffffffff
-                if (d0 > 0x7fffffff):
+                if d0 > 0x7fffffff:
                     d0 -= 0xffffffff
                     d0 -= 1
 
-        elif (self.encoding == 11):
-            """STEIM (2) Compression?"""
-            if (c3 == 1):
+        elif self.encoding == 11:  # STEIM (2) Compression?
+            if c3 == 1:
                 d0 = (w3 >> 24) & 0xff
-                if (d0 > 0x7f):
+                if d0 > 0x7f:
                     d0 -= 0x100
-            elif (c3 == 2):
+            elif c3 == 2:
                 dnib = (w3 >> 30) & 0x3
-                if (dnib == 1):
+                if dnib == 1:
                     d0 = w3 & 0x3fffffff
-                    if (d0 > 0x1fffffff):
+                    if d0 > 0x1fffffff:
                         d0 -= 0x40000000
-                elif (dnib == 2):
+                elif dnib == 2:
                     d0 = (w3 >> 15) & 0x7fff
-                    if (d0 > 0x3fff):
+                    if d0 > 0x3fff:
                         d0 -= 0x8000
-                elif (dnib == 3):
+                elif dnib == 3:
                     d0 = (w3 >> 20) & 0x3ff
-                    if (d0 > 0x1ff):
+                    if d0 > 0x1ff:
                         d0 -= 0x400
-            elif (c3 == 3):
+            elif c3 == 3:
                 dnib = (w3 >> 30) & 0x3
-                if (dnib == 0):
+                if dnib == 0:
                     d0 = (w3 >> 24) & 0x3f
-                    if (d0 > 0x1f):
+                    if d0 > 0x1f:
                         d0 -= 0x40
-                elif (dnib == 1):
+                elif dnib == 1:
                     d0 = (w3 >> 25) & 0x1f
-                    if (d0 > 0xf):
+                    if d0 > 0xf:
                         d0 -= 0x20
-                elif (dnib == 2):
+                elif dnib == 2:
                     d0 = (w3 >> 24) & 0xf
-                    if (d0 > 0x7):
+                    if d0 > 0x7:
                         d0 -= 0x10
 
-        if (d0 is not None):
+        if d0 is not None:
             self.X_minus1 = self.X0 - d0
         else:
             self.X_minus1 = None
 
-        if ((self.nframes is None) or (self.nframes == 0)):
+        if (self.nframes is None) or (self.nframes == 0):
             i = 0
             self.nframes = 0
-            while (i < len(self.data)):
-                if (self.data[i] == "\0"):
+            while i < len(self.data):
+                if self.data[i] == "\0":
                     break
 
                 i += 64
@@ -370,7 +368,7 @@ class Record(object):
 
     def write(self, fd, rec_len_exp):
         """Write the record to an already opened file."""
-        if (self.size > (1 << rec_len_exp)):
+        if self.size > (1 << rec_len_exp):
             raise MSeedError("record is larger than requested write size", self._record_id)
 
         recno_str = bytes(b"%06d" % (self.recno,))
@@ -397,14 +395,14 @@ class Record(object):
 
         buf = list(self.header[_FIXHEAD_LEN:])
 
-        if (self.__rec_len_exp_idx is not None):
+        if self.__rec_len_exp_idx is not None:
             buf[self.__rec_len_exp_idx - _FIXHEAD_LEN] = \
                 struct.pack(">B", rec_len_exp)
 
-        if (self.__micros_idx is not None):
+        if self.__micros_idx is not None:
             buf[self.__micros_idx - _FIXHEAD_LEN] = struct.pack(">b", micros)
 
-        if (self.__nframes_idx is not None):
+        if self.__nframes_idx is not None:
             buf[self.__nframes_idx - _FIXHEAD_LEN] = \
                 struct.pack(">B", self.nframes)
 
@@ -454,25 +452,25 @@ class Input(object):
                 yield rec, False
             except EndOfData:
                 raise StopIteration
-            except MSeedError as e:
-                if e._record_id is None:  # header errror, cannot guess id
+            except MSeedError as mse:
+                if mse._record_id is None:  # header errror, cannot guess id
                     raise
-                yield e, True
+                yield mse, True
             except Exception:
                 raise
 
 
-def _get_id(n, s, l, c):
-    '''Returns the id in the format ```n.s.l.c```: all arguments should be bytes
+def _get_id(net, sta, loc, cha):
+    '''Returns the id in the format ```net.sta.loc.cha```: all arguments should be bytes
     The four arguments are network, station, location and channel code as read from
-    the miniseed bytes. 
-    
+    the miniseed bytes.
+
     :return: a string (unicode in python2)
 
-    :raise: UnicodeDecodeError if any character cannot be 
+    :raise: UnicodeDecodeError if any character cannot be decoded
     '''
     # assure python3 compatibility. Return str in py3 and unicode in py2:
-    return (b"%s.%s.%s.%s" % (n.strip(), s.strip(), l.strip(), c.strip())).decode('utf8')
+    return (b"%s.%s.%s.%s" % (net.strip(), sta.strip(), loc.strip(), cha.strip())).decode('utf8')
 
 
 def unpack(data, starttime=None, endtime=None):

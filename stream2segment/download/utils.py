@@ -467,14 +467,14 @@ class intkeysdict(dict):
     def __setitem__(self, key, val):
         try:
             key = int(key)
-        except:  # @IgnorePep8
+        except:  # @IgnorePep8 pylint: disable=bare-except
             pass
         return dict.__setitem__(self, key, val)
 
     def __getitem__(self, key):
         try:
             key = int(key)
-        except:  # @IgnorePep8
+        except:  # @IgnorePep8 pylint: disable=bare-except
             pass
         return dict.__getitem__(self, key)
 
@@ -567,24 +567,22 @@ class DownloadStats(defaultdict):
                 # castable, choose kode1
                 try:
                     int1 = int(kode1)
-                except:
+                except:  # @IgnorePep8 pylint: disable=bare-except
                     int1 = None
                 try:
                     int2 = int(kode2)
-                except:
+                except:  # @IgnorePep8 pylint: disable=bare-except
                     int2 = None
                 if int2 is None and int1 is not None:
                     return -1
                 elif int1 is not None and int2 is not None:
                     return int1 - int2
-                else:
-                    return 1
+                return 1
             elif not in1:
                 return 1
             elif not in2:
                 return -1
-            else:
-                return cls.resp[kode1][2] - cls.resp[kode2][2]
+            return cls.resp[kode1][2] - cls.resp[kode2][2]
 
         return sorted(codes, key=cmp_to_key(cmp_func))
 
