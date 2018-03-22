@@ -15,7 +15,7 @@ import re
 from collections import defaultdict
 import pandas as pd
 
-from stream2segment.io.db.models import DataCenter, fdsn_urls
+from stream2segment.io.db.models import DataCenter, Fdsnws
 from stream2segment.download.utils import QuitDownload, dbsyncdf, to_fdsn_arg
 from stream2segment.utils import strconvert, urljoin
 from stream2segment.utils.url import URLException, urlread
@@ -61,14 +61,12 @@ def get_datacenters_df(session, service, routing_service_url,
                                    DC_SURL: '%s/fdsnws/station/1/query' % IRIS_NETLOC,
                                    DC_ORG: 'iris'}, index=[0])
     elif service.lower() != 'eida':
-        fdsn_normalized = fdsn_urls(service)
-        if fdsn_normalized:
-            station_ws = fdsn_normalized[0]
-            dataselect_ws = fdsn_normalized[1]
-            dc_df = pd.DataFrame(data={DC_DURL: dataselect_ws,
-                                       DC_SURL: station_ws,
+        try:
+            fdsn = Fdsnws(service)
+            dc_df = pd.DataFrame(data={DC_DURL: fdsn.url(Fdsnws.DATASEL),
+                                       DC_SURL: fdsn.url(Fdsnws.STATION),
                                        DC_ORG: None}, index=[0])
-        else:
+        except ValueError:
             raise QuitDownload(Exception(MSG("Unable to use datacenter",
                                              "Url does not seem to be a valid fdsn url", service)))
     else:
@@ -115,9 +113,13 @@ def get_eida_datacenters_df(session, routing_service_url, net, sta, loc, cha,
     try:
         responsetext, status, msg = urlread(url, decode='utf8', raise_http_err=True)
         for url, postdata in eidarsiter(responsetext):  # @UnusedVariable
-            urls = fdsn_urls(url)
-            if urls:
-                dclist.append({DC_SURL: urls[0], DC_DURL: urls[1], DC_ORG: 'eida'})
+            try:
+                fdsn = Fdsnws(url)
+                dclist.append({DC_SURL: fdsn.url(Fdsnws.STATION),
+                               DC_DURL: fdsn.url(Fdsnws.DATASEL),
+                               DC_ORG: 'eida'})
+            except ValueError as verr:
+                pass
         if not dclist:
             raise URLException(Exception("No datacenters found in response text"))
         return pd.DataFrame(dclist), responsetext

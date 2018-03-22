@@ -1072,45 +1072,51 @@ class Test(unittest.TestCase):
         self.session.commit()
         
         seg = self.session.query(Segment).first()
-        # test seismic metadata (get)
-        staid, evtm, did = seg.get(Station.id, Event.magnitude, Download.id)
-        assert staid == seg.channel.station_id
-        assert evtm == seg.event.magnitude
-        assert did == seg.download_id
         
-        # test perfs
-        t = time.time()
-        for i in range(N):
-            staid = seg.station.id
-            evtm = seg.event.id
-            did = seg.download.id
-        t1 = time.time() - t 
+        # The commented block below was using a builtin method, Segment.get, which was implemented to optimize
+        # the query. IT TURNS OUT, WE WERE RE-INVENITNG THE WHEEL as sql-alchemy caches stuff
+        # and already optimizes the queries. So let's leave the lines below commented to see why we removed the
+        # Segment.get method, in case we wonder in the future:
         
-        t = time.time()
-        for i in range(N):
-            staid, evtid, did = seg.get(Station.id, Event.magnitude, Download.id)
-        t2 = time.time() - t 
-        # this is true:
-        assert t1 < t2
-        # WHAT? it's because sql-allchemy caches objects, so requiring to the SAME segment the same
-        # attributes does not need to issue a db query, which our 'get' does. To test properly, we should
-        # create tons of segments. So:
-        t = time.time()
-        for seg in segs:
-            staid = seg.station.id
-            evtm = seg.event.id
-            did = seg.download.id
-            chid = seg.channel.id
-            mgr = seg.maxgap_numsamples
-        t1 = time.time() - t 
-        
-        t = time.time()
-        for seg in segs:
-            staid, evtid, did, chid, mgr = seg.get(Station.id, Event.magnitude, Download.id,
-                                                   Channel.id, Segment.maxgap_numsamples)
-        t2 = time.time() - t 
-        # NOW is true:
-        # assert t1 > t2
+#         # test seismic metadata (get)
+#         staid, evtm, did = seg.get(Station.id, Event.magnitude, Download.id)
+#         assert staid == seg.channel.station_id
+#         assert evtm == seg.event.magnitude
+#         assert did == seg.download_id
+#         
+#         # test perfs
+#         t = time.time()
+#         for i in range(N):
+#             staid = seg.station.id
+#             evtm = seg.event.id
+#             did = seg.download.id
+#         t1 = time.time() - t 
+#         
+#         t = time.time()
+#         for i in range(N):
+#             staid, evtid, did = seg.get(Station.id, Event.magnitude, Download.id)
+#         t2 = time.time() - t 
+#         # this is true:
+#         assert t1 < t2
+#         # WHAT? it's because sql-allchemy caches objects, so requiring to the SAME segment the same
+#         # attributes does not need to issue a db query, which our 'get' does. To test properly, we should
+#         # create tons of segments. So:
+#         t = time.time()
+#         for seg in segs:
+#             staid = seg.station.id
+#             evtm = seg.event.id
+#             did = seg.download.id
+#             chid = seg.channel.id
+#             mgr = seg.maxgap_numsamples
+#         t1 = time.time() - t 
+#         
+#         t = time.time()
+#         for seg in segs:
+#             staid, evtid, did, chid, mgr = seg.get(Station.id, Event.magnitude, Download.id,
+#                                                    Channel.id, Segment.maxgap_numsamples)
+#         t2 = time.time() - t 
+#         # NOW it SHOULD BE true , but apparently not, as the line below was commented out:
+#         # assert t1 > t2
         
         #####################################
         #

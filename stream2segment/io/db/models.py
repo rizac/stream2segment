@@ -1,5 +1,5 @@
 '''
-Models for the ORM
+s2s database ORM
 
 :date: Jul 15, 2016
 
@@ -381,31 +381,58 @@ def receive_before_update(mapper, connection, target):
      https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf
     """
     if (target.station_url is None) != (target.dataselect_url is None):
-        normalizedfdsn = fdsn_urls(target.station_url if target.dataselect_url is None else
-                                   target.dataselect_url)
-        if normalizedfdsn:
-            target.station_url = normalizedfdsn[0]
-            target.dataselect_url = normalizedfdsn[1]
-
-
-def fdsn_urls(url):
-    '''Returns the strings tuple (station_url, dataselect_url) by parsing url as a fdsn url
-    (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf). Returns None if url
-    is not parsable as fdsn url.
-    '''
-    services = ['station', 'dataselect']
-    _ = re.match("^(.*/fdsnws)/(?P<service>.*?)/(?P<majorversion>.*?)(|/.*)$", url)
-    if _:
         try:
-            if _.group('service') in services:
-                remaining = _.group(4)
-                if not remaining or remaining == '/' or remaining == '/query?':
-                    remaining = "/query"
-                return "%s/%s/%s%s" % (_.group(1), services[0], _.group(3), remaining), \
-                    "%s/%s/%s%s" % (_.group(1), services[1], _.group(3), remaining)
-        except IndexError:
+            fdsn = Fdsnws(target.station_url if target.dataselect_url is None else
+                          target.dataselect_url)
+            target.station_url = fdsn.url(Fdsnws.STATION)
+            target.dataselect_url = fdsn.url(Fdsnws.DATASEL)
+        except ValueError:
             pass
-    return None
+
+
+class Fdsnws(object):
+    '''simple class parsing an fdsn url and allowing to build any new well-formed url
+    associated to services and methods
+    of the site url. Raises ValueError if the url is not a valid fdsn url of the form
+    '<site>/fdsnws/<service>/<majorversion>'
+    Examples:
+    ```
+        fdsn = Fdsnws('...')
+        normalized_station_query_url = fdsn.url(Fdsnws.STATION)
+        normalized_dataselect_query_url = fdsn.url(Fdsnws.DATASEL)
+        site_url = fdsn.site  # the portion of text before '/fdsnws/....'
+        majorversion = fdsn.majorversion  # int
+    ```
+    '''
+
+    ''' equals to the string 'station', used in urls for identifying the fdsn station service'''
+    STATION = 'station'
+    ''' equals to the string 'dataselect', used in urls for identifying the fdsn data service'''
+    DATASEL = 'dataselect'
+    ''' equals to the string 'event', used in urls for identifying the fdsn event service'''
+    EVENT = 'event'
+    ''' equals to the string 'query', used in urls for identifying the fdsn service query method'''
+    QUERY = 'query'
+    ''' equals to the string 'version', used in urls for identifying the fdsn service
+        query method'''
+    VERSION = 'version'
+    '''equals to the string 'application.wadl', used in urls for identifying the fdsn service
+        query method'''
+    APPLWADL = 'application.wadl'
+
+    def __init__(self, url):
+        reg = re.match("^(.+?)/(?:fdsnws)/(?P<service>.*?)/(?P<majorversion>\\d+)(?:|/.*)$", url)
+        try:
+            assert reg.group('service') in [self.STATION, self.DATASEL, self.EVENT]
+            self.majorversion = int(reg.group('majorversion'))
+            self.service = reg.group('service')
+            self.site = reg.group(1)
+        except Exception:
+            raise ValueError("invalid FDSN url '%s'" % str(url))
+
+    def url(self, service=None, majorversion=None, method='query'):
+        return "%s/fdsnws/%s/%d/%s" % (self.site, service or self.service,
+                                       majorversion or self.majorversion, method)
 
 
 class Station(Base):
@@ -588,23 +615,23 @@ class Segment(Base):
     def has_class(cls):  # @NoSelf
         return cls.classes.any()
 
-    def get(self, *columns):  # DEPRECATED: used for testing
-        '''Gets the values in the relative columns'''
-        qry = object_session(self).query(*columns)  # .select_from(self.__class__)
-        jointables = set(c.class_ for c in columns)
-        if jointables:
-            joins = []
-            model = self.__class__
-            for r in self.__mapper__.relationships.values():
-                if r.mapper.class_ in jointables:
-                    joins.append(getattr(model, r.key))
-            if joins:
-                qry = qry.join(*joins)
-        metadata = qry.filter(Segment.id == self.id).all()
-        if len(metadata) == 1:
-            return metadata[0]
-        else:
-            return metadata
+#     def get(self, *columns):  # DEPRECATED: used for testing
+#         '''Gets the values in the relative columns'''
+#         qry = object_session(self).query(*columns)  # .select_from(self.__class__)
+#         jointables = set(c.class_ for c in columns)
+#         if jointables:
+#             joins = []
+#             model = self.__class__
+#             for r in self.__mapper__.relationships.values():
+#                 if r.mapper.class_ in jointables:
+#                     joins.append(getattr(model, r.key))
+#             if joins:
+#                 qry = qry.join(*joins)
+#         metadata = qry.filter(Segment.id == self.id).all()
+#         if len(metadata) == 1:
+#             return metadata[0]
+#         else:
+#             return metadata
 
     def seiscomp_path(self, root='.'):
         '''Creates the seiscomp compatible path where to store the given segment or any

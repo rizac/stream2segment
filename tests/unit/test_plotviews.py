@@ -31,7 +31,7 @@ from itertools import product
 from obspy.core.stream import read, Stream
 from stream2segment.utils import load_source
 from stream2segment.utils.resources import yaml_load
-from stream2segment.gui.webapp.mainapp.plots.core import PlotManager
+from stream2segment.gui.webapp.mainapp.plots.core import PlotManager, LimitedSizeDict
 from mock.mock import patch
 
 from stream2segment.process.utils import get_inventory as original_get_inventory, get_stream as original_get_stream
@@ -596,6 +596,57 @@ class Test(unittest.TestCase):
             s.station.inventory_xml = None
             self.session.commit()
             assert not s.station.inventory_xml
+
+def test_limited_size_dict():
+    
+    
+    l = LimitedSizeDict()
+    with patch.object(LimitedSizeDict, '_popitem_size_limit',
+                       wraps=l._popitem_size_limit) as mock_popitem:
+        for a in range(10000):
+            l[a] = 5
+        assert not mock_popitem.called
+    
+    l = LimitedSizeDict(size_limit=50)
+    with patch.object(LimitedSizeDict, '_popitem_size_limit',
+                       wraps=l._popitem_size_limit) as mock_popitem:
+        for a in range(50):
+            l[a] = 5
+        assert not mock_popitem.called
+    
+    l = LimitedSizeDict(size_limit=50)
+    with patch.object(LimitedSizeDict, '_popitem_size_limit',
+                       wraps=l._popitem_size_limit) as mock_popitem:
+        for a in range(51):
+            l[a] = 5
+        assert mock_popitem.call_count == 1
+    
+    l = LimitedSizeDict(size_limit=50)
+    # test wrong argument in update:
+    with pytest.raises(TypeError):
+        with patch.object(LimitedSizeDict, '_popitem_size_limit',
+                           wraps=l._popitem_size_limit) as mock_popitem:
+            l.update(*[{str(_) : 1} for _ in range(101)])
+    
+    # test update and setdefault:
+    l = LimitedSizeDict(size_limit=50)
+    with patch.object(LimitedSizeDict, '_popitem_size_limit',
+                       wraps=l._popitem_size_limit) as mock_popitem:
+        l.update({str(_) : 1 for _ in range(101)})
+        assert mock_popitem.call_count == 101-50
+        
+    l = LimitedSizeDict(size_limit=50)
+    with patch.object(LimitedSizeDict, '_popitem_size_limit',
+                       wraps=l._popitem_size_limit) as mock_popitem:
+        l.update(**{str(_): 1 for _ in range(101)})
+        assert mock_popitem.call_count == 101-50
+        
+    l = LimitedSizeDict(size_limit=50)
+    with patch.object(LimitedSizeDict, '_popitem_size_limit',
+                       wraps=l._popitem_size_limit) as mock_popitem:
+        for _ in range(101):
+            l.setdefault(str(_), 1)
+        assert mock_popitem.call_count == 101-50
 
 
 if __name__ == "__main__":

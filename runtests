@@ -16,7 +16,7 @@ do
 		echo 
 		echo "Notes: "
 		echo "	SET_DB defines the url of the database to be used for testing (supported is postgres and sqlite):"
-		echo "	ADD_DB does the same, but assures that tests requiring a database will run also with an in-memory sqlite database"
+		echo "	ADD_DB does the same, but assures that tests requiring a database will be run also with an in-memory sqlite database"
 		echo "	If none of the above env. variables is specified, tests will be run with an in-memory sqlite database"
 		exit 0
 	fi
@@ -27,8 +27,7 @@ then
 	echo
 	# set color to light blue:
 	echo -e "\033[1;36mRunning db-tests only with in-memory sqlite:\033[0m"
-	echo
-	(pytest ./tests/functional/test_db.py \
+	pytest ./tests/functional/test_db.py \
 		./tests/functional/test_download.py \
 		./tests/functional/test_download2.py \
 		./tests/functional/test_processing.py \
@@ -37,8 +36,7 @@ then
 		./tests/functional/test_webgui.py \
 		./tests/unit/test_dbqueries.py \
 		./tests/unit/test_plotviews.py \
-		./tests/unit/test_u_download.py "$@") ; \
-
+		./tests/unit/test_u_download.py "$@"
 	echo
 	# set color to light blue:
 	echo -e "\033[1;36mRunning all tests with DB_URL=$ADD_DB:\033[0m"

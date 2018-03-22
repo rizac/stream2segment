@@ -19,7 +19,8 @@ from sqlalchemy.sql.expression import func, or_
 
 from stream2segment.utils.resources import yaml_load
 from stream2segment.utils import get_session, get_progressbar, StringIO
-from stream2segment.io.db.models import Segment, concat, Station, DataCenter, Download, substr
+from stream2segment.io.db.models import Segment, concat, Station, DataCenter, Download, substr, \
+    Fdsnws
 from stream2segment.download.utils import custom_download_codes, DownloadStats
 import os
 import json
@@ -59,7 +60,14 @@ def get_datacenters(sess, dc_ids=None):
     query = sess.query(DataCenter.id, DataCenter.dataselect_url)
     if dc_ids is not None:
         query = query.filter(DataCenter.id.in_(dc_ids))
-    return {did: urlparse(ds).netloc or ds for (did, ds) in query}
+    ret = {}
+    for (did, ds) in query:
+        try:
+            url = Fdsnws(ds).site
+        except:  # @IgnorePep8
+            url = ds
+        ret[did] = url
+    return ret
 
 
 def get_maxgap_sql_expr(maxgap_threshold=0.5):

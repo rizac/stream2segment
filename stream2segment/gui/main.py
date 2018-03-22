@@ -11,7 +11,7 @@ import sys
 from os.path import realpath, abspath
 import random
 import threading
-import webbrowser
+from webbrowser import open as open_in_browser
 
 from stream2segment.utils import load_source
 from stream2segment.utils.resources import yaml_load
@@ -40,7 +40,7 @@ def run_in_browser(app, port=None, debug=False):
         port = 5000 + random.randint(0, 999)
     url = "http://127.0.0.1:{0}".format(port)
     if not debug:
-        threading.Timer(1.25, lambda: webbrowser.open(url)).start()
+        threading.Timer(1.25, lambda: open_in_browser(url)).start()
     app.run(port=port, debug=debug)
 
 

@@ -113,10 +113,12 @@ def init(outdir):
     """Creates template/config files which can be inspected and edited for launching download,
     processing and visualization. OUTDIR will be created if it does not exist
     """
-    helpdict = {"download.yaml": "download configuration file ('s2s d' -c option)",
-                "processing.py": "processing/gui python file ('s2s p' and 's2s v' -p option)",
+    helpdict = {"download.yaml": "download configuration file "
+                                 "(-c option for 's2s download' command)",
+                "processing.py": "processing/gui python file "
+                                 "(-p option for both 's2s process' and 's2s show' commands)",
                 "processing.yaml": ("processing/gui configuration file "
-                                    "('s2s p' and 's2s v' -c option)")}
+                                    "(-c option for both 's2s process' and 's2s show' commands)")}
     try:
         copied_files = main.init(outdir, True, *helpdict)
         if not copied_files:

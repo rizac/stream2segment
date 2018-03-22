@@ -8,7 +8,7 @@ from click.testing import CliRunner
 from stream2segment.cli import cli
 from mock.mock import patch
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
-from stream2segment.main import init as orig_init, helpmathiter as main_helpmathiter
+from stream2segment.main import init as orig_init, helpmathiter as main_helpmathiter, show as orig_show
 from tempfile import NamedTemporaryFile
 import yaml
 from contextlib import contextmanager
@@ -16,6 +16,8 @@ import os
 from datetime import datetime, timedelta
 import tempfile
 import shutil
+import time
+import mock
 
 
 class Test(unittest.TestCase):
@@ -187,44 +189,66 @@ def test_click_process(mock_process):
     assert result.exit_code == 0
 
 
-@patch("stream2segment.main.show", return_value=0)
-def test_click_show(mock_visualize):
+@patch("stream2segment.main.show", side_effect=orig_show)
+@patch("stream2segment.gui.main.open_in_browser")
+@patch("stream2segment.main.create_main_app")  # , return_value=mock.Mock())
+def test_click_show(mock_create_main_app, mock_open_in_browser, mock_show):
     runner = CliRunner()
     d_conffile = get_templates_fpath("download.yaml")
     conffile = get_templates_fpath("processing.yaml")
     pyfile = get_templates_fpath("processing.py")
 
+    # when asserting if we called open_in_browser, since tha latter is inside a thread which
+    # executes with a delay of 1.5 seconds, we need to make our function here. Quite hacky,
+    # but who cares
+    def assert_opened_in_browser(url=None):  # if None, assert
+        time.sleep(2)  # to be safe
+        mock_open_in_browser.assert_called_once
+        args = mock_open_in_browser.call_args_list[0][0]
+        assert len(args) == 1
+        assert args[0].startswith('http://127.0.0.1:')
     # test no dburl supplied
-    mock_visualize.reset_mock()
+    mock_show.reset_mock()
+    mock_open_in_browser.reset_mock()
     result = runner.invoke(cli, ['show', '-c', conffile, '-p', pyfile])
     assert "Missing option" in result.output
     assert result.exc_info
-    
+    assert not mock_open_in_browser.called
+
     # test dburl supplied
-    mock_visualize.reset_mock()
+    mock_show.reset_mock()
+    mock_open_in_browser.reset_mock()
     result = runner.invoke(cli, ['show', '-d', 'd', '-c', conffile, '-p', pyfile])
-    lst = list(mock_visualize.call_args_list[0][0])
+    lst = list(mock_show.call_args_list[0][0])
     assert lst == ['d', pyfile, conffile]
     assert result.exit_code == 0
-    
+    assert_opened_in_browser('d')
+
     # test dburl supplied via config
-    mock_visualize.reset_mock()
+    mock_show.reset_mock()
+    mock_open_in_browser.reset_mock()
     result = runner.invoke(cli, ['show', '-d', d_conffile , '-c', conffile, '-p', pyfile])
-    lst = list(mock_visualize.call_args_list[0][0])
-    assert lst == [yaml_load(d_conffile)['dburl'], pyfile, conffile]
+    lst = list(mock_show.call_args_list[0][0])
+    dburl = yaml_load(d_conffile)['dburl']
+    assert lst == [dburl, pyfile, conffile]
     assert result.exit_code == 0
+    assert_opened_in_browser(dburl)
 
     # test an error in params: -dburl instead of --dburl:
-    mock_visualize.reset_mock()
+    mock_show.reset_mock()
+    mock_open_in_browser.reset_mock()
     result = runner.invoke(cli, ['show', '-dburl', d_conffile , '-c', conffile, '-p', pyfile])
-    assert not mock_visualize.called
+    assert not mock_show.called
     assert result.exit_code != 0
+    assert not mock_open_in_browser.called
 
     # assert help works:
-    mock_visualize.reset_mock()
+    mock_show.reset_mock()
+    mock_open_in_browser.reset_mock()
     result = runner.invoke(cli, ['show', '--help'])
-    assert not mock_visualize.called
+    assert not mock_show.called
     assert result.exit_code == 0
+    assert not mock_open_in_browser.called
 
 
 @patch("stream2segment.main.shutil.copy2")

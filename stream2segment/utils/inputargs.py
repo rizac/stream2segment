@@ -17,6 +17,7 @@ from stream2segment.utils.resources import yaml_load, get_ttable_fpath, \
     get_templates_fpath
 from stream2segment.utils import get_session, strptime, load_source
 from stream2segment.traveltimes.ttloader import TTTable
+from stream2segment.io.db.models import Fdsnws
 
 
 class BadArgument(Exception):
@@ -354,14 +355,7 @@ def valid_fdsn(url):
         raise TypeError('string required')
     if url.lower() in ('eida', 'iris'):
         return url
-    reg = re.compile("^.*/fdsnws/(?P<service>[^/]+)/(?P<majorversion>\\d+)/query$")
-    match = reg.match(url)
-    if not match or not match.group('service') or not match.group('majorversion'):
-        raise ValueError("No FDSN url, the format needs to be: "
-                         "<site>/fdsnws/<service>/<majorversion>/query")
-    if match.group('service') not in ('dataselect', 'station', 'event'):
-        raise ValueError("No FDSN url: service not in ('station', 'event', 'dataselect')")
-    return url
+    return Fdsnws(url).url()
 
 
 def load_config_for_download(config, parseargs, **param_overrides):

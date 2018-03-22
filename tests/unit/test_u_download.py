@@ -31,7 +31,7 @@ except ImportError:
 
 import unittest, os
 from sqlalchemy.engine import create_engine
-from stream2segment.io.db.models import Base, Event, Class, WebService, DataCenter, fdsn_urls
+from stream2segment.io.db.models import Base, Event, Class, WebService, DataCenter, Fdsnws
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from click.testing import CliRunner
@@ -486,19 +486,31 @@ Db table 'stations': 4 rows updated (no sql error)""" in s
         # assert "request entity too large" in self.log_msg()
 
     def test_models_fdsn_url(self):
-        for url in ["https://mock/fdsnws/station/1/query", "https://mock/fdsnws/station/1/query?",
-                    "https://mock/fdsnws/station/1/", "https://mock/fdsnws/station/1"]:
-            res = fdsn_urls(url)
-            assert res[0] == "https://mock/fdsnws/station/1/query"
-            assert res[1] == "https://mock/fdsnws/dataselect/1/query"
+        for url in ["https://mock/fdsnws/station/1/query",
+                    "https://mock/fdsnws/station/1/query?",
+                    "https://mock/fdsnws/station/1/", "https://mock/fdsnws/station/1",
+                    "https://mock/fdsnws/station/1/abcde?h=8&b=76",
+                    "https://mock/fdsnws/station/1/whatever/abcde?h=8&b=76"]:
+            fdsn = Fdsnws(url)
+            assert fdsn.site == 'https://mock'
+            assert fdsn.service == Fdsnws.STATION
+            assert fdsn.majorversion == 1
+            normalizedurl = fdsn.url()
+            assert normalizedurl == 'https://mock/fdsnws/station/1/query'
+            for service in [Fdsnws.STATION, Fdsnws.DATASEL, Fdsnws.EVENT, 'abc']:
+                assert fdsn.url(service) == normalizedurl.replace('station', service)
+            
+            assert fdsn.url(majorversion=55) == normalizedurl.replace('1', '55')
+            
+            for method in [Fdsnws.QUERY, Fdsnws.APPLWADL, Fdsnws.VERSION, 'abcdefg']:
+                assert fdsn.url(method=method) == normalizedurl.replace('query', method)
         
-        url = "http://www.google.com"
-        assert fdsn_urls(url) is None
-        
-        url = "https://mock/fdsnws/station/1/whatever/query"
-        res = fdsn_urls(url)
-        assert res[0] == "https://mock/fdsnws/station/1/whatever/query"
-        assert res[1] == "https://mock/fdsnws/dataselect/1/whatever/query"
+        for url in ["fdsnws/station/1/query",
+                    "/fdsnws/station/1/query",
+                    "http://www.google.com", "https://mock/fdsnws/station/abc/1/whatever/abcde?h=8&b=76",
+                    "https://mock/fdsnws/station/", "https://mock/fdsnws/station"]:
+            with pytest.raises(ValueError):
+                 Fdsnws(url)
         
 # =================================================================================================
 
