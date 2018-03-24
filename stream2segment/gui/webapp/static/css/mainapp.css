@@ -100,6 +100,13 @@ div.main > div.center{ /*div center contains div#controls-left-panel and div#plo
 	left:12.5vw;
 }
 
+#config-form {
+    position: fixed;
+    top: 30vh;
+    width: 45.5vw;
+    left: 12.5vw;
+}
+
 div.plot-wrapper{ /*child of .tr, .tb, ... defined above*/
 	position:absolute;
 	top:10px;

@@ -1,5 +1,6 @@
 /************
  * This module builds the global array `var plots`, accessible thorugh $window.plots in angular
+
  * the array elements are dictionaries (js objects) of the type:
  * {
  * 	'visible': bool,

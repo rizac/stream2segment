@@ -13,12 +13,23 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			showForm: false,
 			errorMsg: ""
 		};
+
+	$scope.config = {showForm: false, data: $window.__SETTINGS.config, changed: false, errorMsg:''};
 	
-	$scope.snWindows = $window.__SETTINGS.sn_windows;
-	$scope.snWindows._changed = false;
-	$scope.plots = $window.plots.map(function(div, index) {
-		   return {'visible': index < 3, 'zoom': [null, null], 'div': div}
+	// init the $scope.plots data:
+	$scope.plots = new Array($window.__SETTINGS.bottomPlots.length + $window.__SETTINGS.rightPlots.length + 1);
+	$window.__SETTINGS.bottomPlots.forEach(function(element, idx){
+		var data = {'visible': idx == 0, 'zoom': [null, null], 'div': document.getElementById('plot-'+element.index),
+				'xaxis': element.xaxis,  'yaxis': element.yaxis, 'position': element.position};
+		$scope.plots[element.index] = data;
 	});
+	$window.__SETTINGS.rightPlots.forEach(function(element, idx){
+		var data = {'visible': idx == 0, 'zoom': [null, null], 'div': document.getElementById('plot-'+element.index),
+				'xaxis': element.xaxis,  'yaxis': element.yaxis, 'position': element.position};
+		$scope.plots[element.index] = data;
+	});
+	$scope.plots[0] = {'visible': true, 'zoom': [null, null], 'div': document.getElementById('plot-0'), 'xaxis':{}, 'yaxis':{},
+			position:''};  //position is not currently set for main plot
 
 	// the segment data (classes, plot data, metadata etc...):
 	$scope.segData = {
@@ -26,12 +37,24 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		metadata: {}, // dict of keys mapped to dicts. Keys are 'station', 'segment' etc.
 					  // and values are dicts of attributes (string) mapped to their segmetn values
 		plotData: new Array($scope.plots.length), //array of plot data (each element represents a plot)
-		snWindows: [] // array of two elements: [signal_window, noise_window] each
+		snWindows: [] // array of two elements calculated from the server for the current segment:
+					  // [signal_window, noise_window] each
 			           // window is in turn a 2 element array of integers representing timestamps: [t1, t2]
-	
 	};
 	
-	// this forwards the plotly 'on' method to all plots defined in $scope.plots: (see when defining zoom event listeners below)
+	// now initialize an empty plot on all divs, so that the divs behaves has plotly
+	// objects with all methods (e.g., attach plotly events to them):
+	$scope.plots.forEach(function(elm){
+		var layout = getPlotLayout({xaxis: elm.xaxis, yaxis: elm.yaxis});
+		Plotly.plot(elm.div, [{x0:0, dx:1, y:[0], type:'scatter', 'opacity': 0}],
+				layout, {displaylogo: false, showLink: false});
+	});
+
+	// this is a function we attach to the array plots in order to forward to
+	// any of its elements the plotly 'on' method (see e.g. bwloe, when defining zoom event
+	// listeners below). callback is a function which takes as arguments:
+	// the plot element, the index, the whole
+	// $scope.plots array and the eventData passed by plotly
 	$scope.plots.on = function(key, callback){
 		$scope.plots.forEach(function(elm, index, elms){
 			elm.div.on(key, function(eventData){
@@ -40,7 +63,6 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		});
 	};
 	
-	$scope.customPlotId = 2;
 	$scope.showPreProcessed = true;
 	$scope.showAllComponents = false;
 	
@@ -127,6 +149,16 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		$scope.refreshView(undefined, true);
 	};
 	
+	$scope.updateConfig = function(){
+		if (!$scope.config.changed){
+			$scope.config.errorMsg = 'no change detected, nothing to update';
+			return;
+		}
+		$scope.config.errorMsg = '';
+		$scope.refreshView(undefined, false);
+		$scope.config.showForm = false;
+	};
+	
 	/** HANDLING ALL EVENTS TOGGLING A PLOT REQUEST **/
 	// listen for plotly events. The plotly 'on' function is wrapped by our 'on' function
 	// implemented on the plots array (see plotlyconfig.js) and forwards it to the plotly on
@@ -151,16 +183,15 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		$scope.refreshView([index]); // zooms are reset after use, so this redraw normal bounds
 	});
 	
-	// this function sets the currently visible bottom plots. Note that by default
-	// plots in [0,1] are visible (normal trace + sn-spectra)
-	$scope.customPlotChanged = function(){
-		var cpIdx = parseInt($scope.customPlotId);
-		$scope.plots.forEach(function(elm, index){
-			if (index > 1){
-				elm.visible = (index == cpIdx);
+	$scope.setPlotVisible = function(index){
+		var pos = $scope.plots[index].position;
+		$scope.plots.forEach(function(elm, idx){
+			if (elm.position == pos){
+				elm.visible = false;
 			}
 		});
-		$scope.refreshView([cpIdx]);
+		$scope.plots[index].visible = true;
+		$scope.refreshView([index]);
 	};
 	
 	$scope.togglePreProcess = function(){
@@ -188,14 +219,16 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		var zooms = $scope.getAndClearZooms();
 		var param = {seg_id: $scope.segIds[index], pre_processed: $scope.showPreProcessed, zooms:zooms,
 					 plot_indices: indices, all_components: $scope.showAllComponents};
-		// NOTE: The value in $scope.snWindows are by default float and array. As soon as
-		// we modify it in the form control, they became strings.
-		// So to be consistent, pass always string with toString(): the server knows we need to
-		// parse them back (server side)
-		if ($scope.snWindows._changed){
-			param.sn_windows = {arrival_time_shift: $scope.snWindows.arrival_time_shift.toString(),
-					signal_window:$scope.snWindows.signal_window.toString()};
-			$scope.snWindows._changed = false;
+		// NOTE: The value in $scope.config are taken from the server as js values
+		// As soon as we modify it in the form control, they became strings.
+		// So to be consistent, pass always string with toString(): the server knows we will
+		// always pass strings that have to be parsed back
+		param.config = {};
+		if ($scope.config.changed){
+			for(var key in $scope.config.data){
+				param.config[key] = $scope.config.data[key].toString(); 
+			}
+			$scope.config.changed = false;
 		}
 		$scope.warnMsg = "Loading...";
 		if(refreshMetadata){
@@ -207,7 +240,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			response.data.plots.forEach(function(elm, idx){
 				$scope.segData.plotData[indices[idx]] = elm;
 			});
-			$scope.segData.snWindows = response.data['sn_windows'];  // might be empty array
+			$scope.segData.snWindows = response.data['sn_windows'] || [];  // to be safe
 			// update metadata if needed:
 			if (refreshMetadata){
 				$scope._refreshMetadata(response);
@@ -401,6 +434,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		}
 		$scope.warnMsg = "";
 	};
+
 	
 	$scope.toggleSegmentClassLabel = function(classId){
 		var value = $scope.segData.classIds[classId];
@@ -444,3 +478,87 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	$scope.init();
 
 }]);
+
+/** define here the plotly default layout for all plots, xaxis and yaxis stuff mught be overridden
+/* by the user
+ */
+function getPlotLayout(...layoutOverrides){
+	var PLOTLY_DEFAULT_LAYOUT = { //https://plot.ly/javascript/axes/
+		margin:{'l':52, 't':36, 'b':60, 'r':15},
+		pad: 0,
+		autosize: true,
+		xaxis: {
+			autorange: true,
+			tickangle: 0,
+			type: 'date',
+			titlefont: {  // THIS SETS THE WARNING ERRORS FONT!! (AS OF JULY 2017)
+			      color: '#df2200',
+			      size: 10
+			},
+			linecolor: '#ddd',
+			linewidth: 1,
+			mirror: true
+		},
+		yaxis: {
+			autorange: true,
+			linecolor: '#ddd',
+		    linewidth: 1,
+		    mirror: true
+			//fixedrange: true
+		},
+		annotations: [{
+		    xref: 'paper',
+		    yref: 'paper',
+		    x: 0,  // 0.01,
+		    xanchor: 'left',
+		    y: 1.01, //.98,
+		    yanchor: 'bottom',
+		    text: '',
+		    showarrow: false,
+		    bordercolor: '#ddd', // '#c7c7c7',
+		    borderwidth: 1,
+		    borderpad: 7,
+		    bgcolor: '#f5f5f5', //  'rgba(31, 119, 180, .1)',  // = '#1f77b4',
+		    // opacity: 0.1,
+		    font: {
+		        // family: 'Courier New, monospace',
+		        // size: 16,
+		        color: '#000000'
+		      },
+		  }],
+//		plot_bgcolor: '#444',
+//		paper_bgcolor: '#eee'
+	};
+	return mergeDeep(PLOTLY_DEFAULT_LAYOUT, ...layoutOverrides);
+}
+/* code below copied from https://stackoverflow.com/questions/27936772/how-to-deep-merge-instead-of-shallow-merge*/
+
+/**
+ * Simple object check.
+ * @param item
+ * @returns {boolean}
+ */
+function isObject(item) {
+  return (item && typeof item === 'object' && !Array.isArray(item));
+}
+
+/**
+ * Deep merge target with all sources. All arguments must be objects
+ * @param target
+ * @param ...sources
+ */
+function mergeDeep(target, ...sources) {
+	if (!sources.length){
+		return target;
+	}
+	const source = sources.shift();
+	for (const key in source) {
+		var value = source[key];
+		if (isObject(value) && isObject(target[key])) {
+			mergeDeep(target[key], value);
+		} else {
+			target[key] = value;
+		}
+	}
+ 	return mergeDeep(target, ...sources);
+}

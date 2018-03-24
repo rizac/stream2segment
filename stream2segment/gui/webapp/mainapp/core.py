@@ -25,6 +25,7 @@ from stream2segment.utils.resources import yaml_load_doc, get_templates_fpath
 from stream2segment.io.db.sqlevalexpr import exprquery, inspect_instance, inspect_model
 from sqlalchemy.orm import load_only
 from stream2segment.process.utils import getseg
+import json
 
 
 NPTS_WIDE = 900  # FIXME: automatic retrieve by means of Segment class relationships?
@@ -117,7 +118,7 @@ def get_classes(session, seg_id=None):
 
 
 def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components, preprocessed,
-                     zooms, metadata=False, classes=False, sn_wdws=False):
+                     zooms, metadata=False, classes=False, config=False):
     """Returns the segment data, depending on the arguments
     :param session: a flask sql-alchemy session object
     :param seg_id: integer denoting the segment id
@@ -147,15 +148,9 @@ def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components,
     plots = []
     zooms_ = parse_zooms(zooms, plot_indices)
     sn_windows = []
-    if sn_wdws:
-        if sn_wdws['signal_window']:
-            try:
-                sn_wdws = {'signal_window': parse_array(sn_wdws['signal_window'], float),
-                           'arrival_time_shift': float(sn_wdws['arrival_time_shift'])}
-            except Exception:
-                pass
+    if config:
         # set_sn_windows(self, session, a_time_shift, signal_window):
-        plotmanager.update_config(sn_windows=sn_wdws)
+        plotmanager.update_config(**deflatten_dict(config, parsevals=True))
 
     if plot_indices:
         plots = plotmanager.get_plots(session, seg_id, plot_indices, preprocessed, all_components)
@@ -174,29 +169,6 @@ def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components,
             'classes': [] if not classes else get_classes(session, seg_id)}
 
 
-def parse_array(str_array, parsefunc=None, try_return_scalar=True):
-    '''splits str_array into elements, and apply func on each element
-    :param str_array: a valid string array, with or without square brackets. Leading and
-    trailing spaces will be ignored (str split is applied twice if the string has square
-    brackets). The separation characters are the comma surrounded by zero or more spaces, or
-    a one or more spaces. E.g. "  [1 ,3  ]", "[1,3]"
-    '''
-    # str_array should always be a string... just in case it's already a parsable value
-    # (e.g., parsefunc = float and str-array = 5.6), then try to parse it first:
-    if parsefunc is not None and try_return_scalar:
-        try:
-            return parsefunc(str_array)
-        except Exception:
-            pass
-    d = str_array.strip()
-    if d[0] == '[' and d[-1] == ']':
-        d = d[1:-1].strip()
-    _ = re.split("(?:\\s*,\\s*|\\s+)", d)
-    if parsefunc is not None:
-        _ = list(map(parsefunc, _))
-    return _[0] if try_return_scalar and len(_) == 1 else _
-
-
 def parse_zooms(zooms, plot_indices):
     '''parses the zoom received from the frontend. Basically, if any zoom is a string,
     tries to parse it to datetime
@@ -210,10 +182,10 @@ def parse_zooms(zooms, plot_indices):
     _zooms = []
     for plot_index in plot_indices:
         try:
-            z = zooms[plot_index]
+            zoom = zooms[plot_index]
         except (IndexError, TypeError):
-            z = [None, None]
-        _zooms.append(z)
+            zoom = [None, None]
+        _zooms.append(zoom)
     return _zooms  # set zooms to None if length is not enough
 
 
@@ -239,3 +211,73 @@ def get_doc(key, plotmanager):
     if not ret:
         ret = "error: documentation N/A"
     return ret.strip()
+
+
+def flatten_dict(config, prefix=''):
+    '''flattens a dict, returning a one level dict where nested keys are joined with the dot
+    Example:
+    flatten_dict({'a': {'a1':5, 'a2': 6}, 'b': 7}) = {'a.a1':5, 'a.a2': 6, 'b': 7}
+    '''
+    ret = {}
+
+    def concat(prefix, key):
+        '''concat function for nested keys'''
+        return key if not prefix else '%s.%s' % (prefix, key)
+
+    for key, val in config.items():
+        if isinstance(val, dict):
+            ret.update(flatten_dict(val, concat(prefix, key)))
+        else:
+            ret[concat(prefix, key)] = val
+    return ret
+
+
+def deflatten_dict(dic, parsevals=True):
+    '''de-flattens a dict, nesting dicts for those keys with dot, using the dot as separator.
+
+    Example:
+    flatten_dict({'a.a1':'5 6', 'a.a2': 6, 'b': 7}) = {'a': {'a1':[5, 6], 'a2': 6}, 'b': 7}
+
+    :param parsevals: boolean (default True), parses each dict key using json and being flexible
+    about how arrays can be input (i.e., wothout brakets, or with spaces as separators).
+    Defaults to true as `dic` might be returned form a browser where currently arrays are
+    rendered in the input box without brakets, and thus might be returned here as they are
+    '''
+    ret = {}
+    for key, val in dic.items():
+        if parsevals:
+            val = parse_inputtag_value(val)
+        keys = key.split('.')
+        dic2add = ret
+        for kkk in keys[:-1]:
+            if kkk not in dic2add:
+                dic2add[kkk] = {}
+            dic2add = dic2add[kkk]
+        dic2add[keys[-1]] = val
+    return ret
+
+
+def parse_inputtag_value(string):
+    '''Tries to parse string into a python object guessing it and running
+    some json loads functions. `string` is supposed to be returned from the browser
+    where angular converts arrays to a list of elements separated by comma without enclosing
+    brackets. This method first tries to load string as json. If it does not succeed, it checks
+    for commas: if any present, and the string does not start nor ends with square brakets,
+    it inserts the brakets and tries to run again json.loads. If it fails, splits the
+    string using the comma ',' and returns an array of strings. This makes array of complex
+    numbers and date-time returning the correct type (lists, it is then the caller responsible
+    of parsing them), at least most likely as they were input in the yaml.
+    If nothing succeeds, then string is returned
+    '''
+    string = string.strip()
+    try:
+        return json.loads(string)
+    except:  #  @IgnorePep8 pylint: disable=bare-except
+        if ',' in string:
+            if string[:1] != '[' and string[-1:] != ']':
+                try:
+                    return json.loads('[%s]' % string)
+                except:  # @IgnorePep8 pylint: disable=bare-except
+                    pass
+            return [str_.strip() for str_ in string.split(',')]
+        return string

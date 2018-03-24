@@ -1,0 +1,404 @@
+# ===========================================================
+# Stream2segment: Processing+Visualization yaml file template
+# ===========================================================
+#
+# This is the yaml file template setting up the configuration for processing downloaded
+# waveform segments and defining the segment plots to be visualized in the web GUI
+# (Graphical user interface)
+#
+# This file can be edited and passed to the commands `s2s v` (visualize) and `s2s p` (process) of
+# the program as -c or --configfile option, together with an associated python file implementing
+# the processing source code (-p option):
+# ```
+#     s2s v -p [pythonfilepath] -c [thisfilepath] ...
+#     s2s p -p [pythonfilepath] -c [thisfilepath] ...
+# ```
+#
+# This module needs to implement few mandatory (non-deletable) parameters
+# ('segment_select', 'save_inventory' and 'sn_windows') but everything else can be user
+# defined. Write here (http://docs.ansible.com/ansible/latest/YAMLSyntax.html) anything you need
+# to access as `config` dict in the the functions with signature:
+# ```
+#     def myfunction(segment, config):
+# ```
+# defined in the the given python file (-p option) 
+#
+# ------------------------------------------------------------------------------------------
+#
+# The first default parameter, 'segment_select', defines what segments to be processed or
+# visualized. Criteria can be given in form of string expression associated to any
+# segment attribute and will be converted into their sql counterpart to exploit the powerful
+# capabilities of sql select statement (datetimes must be given in iso format, e.g. 2017-01-01T00:00:00).
+# We first recall the segment attributes, which are:
+# 
+# ================================= ================================================
+# attribute                         python type and description (if any)
+# ================================= ================================================
+# id                                int: segment (unique) db id
+# event_distance_deg                float: distance between the segment's station and
+#                                   the event, in degrees
+# event_distance_km                 float: distance between the segment's station and
+#                                   the event, in km, assuming a perfectly spherical earth
+#                                   with a radius of 6371 km
+# start_time                        datetime.datetime: the waveform data start time
+# arrival_time                      datetime.datetime
+# end_time                          datetime.datetime: the waveform data end time
+# request_start                     datetime.datetime: the requested start time of the data
+# request_end                       datetime.datetime: the requested end time of the data
+# duration_sec                      float: the waveform data duration, in seconds
+# missing_data_sec                  float: the number of seconds of missing data, with respect
+#                                   to the request time window. E.g. if we requested 5
+#                                   minutes of data and we got 4 minutes, then
+#                                   missing_data_sec=60; if we got 6 minutes, then
+#                                   missing_data_sec=-60. This attribute is particularly
+#                                   useful in the config to select only well formed data and
+#                                   speed up the processing, e.g.: missing_data_sec: '< 120'
+# missing_data_ratio                float: the portion of missing data, with respect
+#                                   to the request time window. E.g. if we requested 5
+#                                   minutes of data and we got 4 minutes, then
+#                                   missing_data_ratio=0.2 (20%); if we got 6 minutes, then
+#                                   missing_data_ratio=-0.2. This attribute is particularly
+#                                   useful in the config to select only well formed data and
+#                                   speed up the processing, e.g.: missing_data_ratio: '< 0.5'
+# sample_rate                       float: the waveform data sample rate.
+#                                   It might differ from the segment channel's sample_rate
+# has_data                          boolean: tells if the segment has data saved (at least
+#                                   one byte of data). This attribute useful in the config to
+#                                   select only well formed data and speed up the processing,
+#                                   e.g. has_data: 'true'.
+# download_code                     int: the download code (for experienced users). As for
+#                                   any HTTP status code,
+#                                   values between 200 and 399 denote a successful download
+#                                   (this does not tell anything about the segment's data,
+#                                   which might be empty anyway. See 'segment.has_data'.
+#                                   Conversely, a download error assures no data has been
+#                                   saved), whereas
+#                                   values >=400 and < 500 denote client errors and
+#                                   values >=500 server errors.
+#                                   Moreover,
+#                                   -1 indicates a general download error - e.g. no Internet
+#                                   connection,
+#                                   -2 a successful download with corrupted waveform data,
+#                                   -200 a successful download where some waveform data chunks
+#                                   (miniSeed records) have been discarded because completely
+#                                   outside the requested time span,
+#                                   -204 a successful download where no data has been saved
+#                                   because all chunks were completely outside the requested
+#                                   time span, and finally:
+#                                   None denotes a successful download where no data has been
+#                                   saved because the given segment wasn't found in the
+#                                   server response (note: this latter case is NOT the case
+#                                   when the server returns no data with an appropriate
+#                                   'No Content' message with download_code=204)
+# maxgap_numsamples                 float: the maximum gap found in the waveform data, in
+#                                   number of points. This attribute is particularly useful
+#                                   in the config to select only well formed data and speed
+#                                   up the processing.
+#                                   If this attribute is zero, the segment has no
+#                                   gaps/overlaps, if >=1 the segment has gaps, if <=-1,
+#                                   the segment has overlaps.
+#                                   Values in (-1, 1) are difficult to interpret: as this
+#                                   number is the ratio between
+#                                   the waveform data's max gap/overlap and its sampling
+#                                   period (both in seconds), a rule of thumb is to
+#                                   consider a segment with gaps/overlaps when this
+#                                   attribute's absolute value exceeds 0.5, e.g. you can
+#                                   discard segments with gaps overlaps by inputting in the
+#                                   config "maxgap_numsamples:  '[-0.5, 0.5]'" and, if you
+#                                   absolutely want no segment with gaps/overlaps,
+#                                   perform a further check in the processing via
+#                                   via `len(segment.stream())` (zero if no gaps/overlaps) or
+#                                   `segment.stream().get_gaps()` (see obspy doc)
+# data_seed_id                      str: the seed identifier in the typical format
+#                                   [Network.Station.Location.Channel] stored in the
+#                                   segment's data. It might be null if the data is empty
+#                                   or null (e.g., because of a download error).
+#                                   See also 'seed_id'
+# seed_id                           str: the seed identifier in the typical format
+#                                   [Network.Station.Location.Channel]: it is the same as
+#                                   'data_seed_id' if the latter is not null,
+#                                   otherwise it is fetched from the segment's metadata
+#                                   (this operation might be more time consuming)
+# has_class                         boolean: tells if the segment has (at least one) class
+#                                   assigned
+# data                              bytes: the waveform (raw) data. You don't generally need
+#                                   to access this attribute which is also time-comsuming
+#                                   to fetch. Used by `segment.stream()`
+# --------------------------------- ------------------------------------------------
+# event                             object (attributes below)
+# event.id                          int
+# event.event_id                    str: the id returned by the web service
+# event.time                        datetime.datetime
+# event.latitude                    float
+# event.longitude                   float
+# event.depth_km                    float
+# event.author                      str
+# event.catalog                     str
+# event.contributor                 str
+# event.contributor_id              str
+# event.mag_type                    str
+# event.magnitude                   float
+# event.mag_author                  str
+# event.event_location_name         str
+# --------------------------------- ------------------------------------------------
+# channel                           object (attributes below)
+# channel.id                        int
+# channel.location                  str
+# channel.channel                   str
+# channel.depth                     float
+# channel.azimuth                   float
+# channel.dip                       float
+# channel.sensor_description        str
+# channel.scale                     float
+# channel.scale_freq                float
+# channel.scale_units               str
+# channel.sample_rate               float
+# channel.band_code                 str: the first letter of channel.channel
+# channel.instrument_code           str: the second letter of channel.channel
+# channel.orientation_code          str: the third letter of channel.channel
+# channel.station                   object: same as segment.station (see below)
+# --------------------------------- ------------------------------------------------
+# station                           object (attributes below)
+# station.id                        int
+# station.network                   str
+# station.station                   str
+# station.latitude                  float
+# station.longitude                 float
+# station.elevation                 float
+# station.site_name                 str
+# station.start_time                datetime.datetime
+# station.end_time                  datetime.datetime
+# station.inventory_xml             bytes. The station invencotry (raw) data. You don't
+#                                   generally need to access this attribute which is also
+#                                   time-comsuming to fetch. Used by `segment.inventory()`
+# station.has_inventory             boolean: tells if the segment's station inventory has
+#                                   data saved (at least one byte of data).
+#                                   This attribute useful in the config to select only 
+#                                   segments with inventory downloaded and speed up the
+#                                   processing,
+#                                   e.g. has_inventory: 'true'.
+# station.datacenter                object (same as segment.datacenter, see below)
+# --------------------------------- ------------------------------------------------
+# datacenter                        object (attributes below)
+# datacenter.id                     int
+# datacenter.station_url            str
+# datacenter.dataselect_url         str
+# datacenter.organization_name      str
+# --------------------------------- ------------------------------------------------
+# download                          object (attributes below): the download execution
+# download.id                       int
+# download.run_time                 datetime.datetime
+# download.log                      str: The log text of the segment's download execution.
+#                                   You don't generally need to access this
+#                                   attribute which is also time-comsuming to fetch.
+#                                   Useful for advanced debugging / inspection
+# download.warnings                 int
+# download.errors                   int
+# download.config                   str
+# download.program_version          str
+# ================================= ================================================
+
+# Here you can select which segments to work on, discarding non-matching segments.
+# For a given segment attribute, type a select condition given in any of the following string expressions:
+# 1. A list of space-separated values: select segment matching those values only (sql 'in' operator)
+# 2. A value preceeded by any of the symbols: = >= > < <= !=
+# 3. A tuple or list (same syntax as python) of two values: select segments whose value is in between (sql 'between' operator)
+#    [a ,b] will select values including a and b, whereas (a, b) will select values not including a and b.
+#    You can mix them, e,g: (4,5] to select values greater than 4 and lower or equal than 5
+#
+# Example: to select and work on segments of year 2017 only, whose id is in a specified list of
+# ids (e.g., 1 4 5 67 89 342), with downloaded waveform data (non empty data),
+# whose event magnitude is greater than 4.2,
+# and whose channel sensor description is 'GURALP CMG-40T-30S', write:
+# segment_select:
+#   has_data: true
+#   id: "1 4 5 67 89 342"
+#   event.latitude: ">4.2"
+#   station.start_time: "[2017-01-01T00:00:00, 2018-01-01T00:00:00)"
+#   channel.sensor_description: "'GURALP CMG-40T-30S'"
+# (note: for str types with spaces we need to quote twice: 'GURALP CMG-40T-30S', as otherwise "GURALP CMG-40T-30S"
+# would match 'GURALP' and 'CMG-40T-30S', but not the whole string)
+segment_select:
+  has_data: 'true'
+  maxgap_numsamples: '[-0.5, 0.5]'
+  # missing_data_sec: '<120'
+  # missing_data_ratio: '<0.5'
+  # id: '<300'
+  # event.time: "(2014-01-01T00:00:00, 2014-12-31T23:59:59)"
+  # event.latitude: "[24, 70]"
+  # event.longitude: "[-11, 24]"
+
+# Boolean flag indicating whether station inventories (in xml format) should be saved to the database
+# when they need to be downloaded
+# Saving inventories might speed up further processing but increases db size
+save_inventory: False
+
+# Settings for computing the 'signal' and 'noise' time windows on a segment waveform
+#
+# Arrival time shift: shifts the calculated arrival time of
+# each segment by the specified amount of time (in seconds). Negative values are allowed.
+# The arrival time is used to split a segment into segment's noise (before the arrival time)
+# and segment's signal (after)
+#
+# Signal window: specifies the time window of the segment's signal, in seconds from the
+# arrival time. If not numeric it must be a 2-element numeric array, denoting the
+# start and end points, relative to the squares cumulative of the segment's signal.
+# E.g.: [0.05, 0.95]
+# sets the signal window from the time the cumulative reaches 5% of its maximum, until
+# the time it reaches 95% of its maximum.
+# The segment's noise window will be set equal to the signal window (i.e., same duration) and
+# shifted in order to always end on the segment's arrival time.
+sn_windows:
+  arrival_time_shift: -2.0  # programmatically shifts the arrival time for every segment (in seconds)
+  signal_window: [0.1, 0.9]  # either a number (in seconds) or interval relative to the % of the cumulative
+
+
+# settings for the current implementation of the sn (signal-to-noise) spectra
+# (decorated with @gui.sideplot in the associated python file):
+sn_spectra:
+  taper:
+    max_percentage: 0.05
+    type: 'hann'
+  smoothing_wlen_ratio: 0.05  # 0 for no smoothing
+  type: 'amp'  # if 'pow', then power spectra are computed, otherwise if 'amp', amplitude spectra are computed
+  
+# settings for the current implementation of the pre-process function
+# (decorated with @gui.preprocess in the associated python file):
+preprocess:
+  remove_response_water_level: 60
+  remove_response_output: 'ACC'
+  bandpass_freq_max: 30  # the max frequency, in Hz:
+  bandpass_max_nyquist_ratio: 0.9
+  bandpass_corners: 2
+
+paz_wa:
+  sensitivity: 2800
+  zeros:
+    - '0j'
+  poles:
+    - '-6.2832-4.7124j'
+    - '-6.2832+4.7124j'
+  gain: 1
+
+# other custom parameters:
+amp_ratio_threshold: 0.8
+threshold_inside_tmin_tmax_percent: 0.90
+threshold_inside_tmin_tmax_sec: 10.0
+threshold_after_tmax_percent: 0.10
+snr_threshold: 3
+freqs_interp:
+ - 0.1
+ - 0.106365
+ - 0.113136
+ - 0.120337
+ - 0.127997
+ - 0.136145
+ - 0.144811
+ - 0.154028
+ - 0.163833
+ - 0.174261
+ - 0.185354
+ - 0.197152
+ - 0.209701
+ - 0.22305
+ - 0.237248
+ - 0.252349
+ - 0.268412
+ - 0.285497
+ - 0.30367
+ - 0.323
+ - 0.34356
+ - 0.365429
+ - 0.388689
+ - 0.413431
+ - 0.439747
+ - 0.467739
+ - 0.497512
+ - 0.52918
+ - 0.562864
+ - 0.598692
+ - 0.636801
+ - 0.677336
+ - 0.72045
+ - 0.766309
+ - 0.815088
+ - 0.866971
+ - 0.922156
+ - 0.980855
+ - 1.04329
+ - 1.1097
+ - 1.18033
+ - 1.25547
+ - 1.33538
+ - 1.42038
+ - 1.5108
+ - 1.60696
+ - 1.70925
+ - 1.81805
+ - 1.93378
+ - 2.05687
+ - 2.18779
+ - 2.32705
+ - 2.47518
+ - 2.63273
+ - 2.80031
+ - 2.97856
+ - 3.16816
+ - 3.36982
+ - 3.58432
+ - 3.81248
+ - 4.05516
+ - 4.31328
+ - 4.58784
+ - 4.87987
+ - 5.19049
+ - 5.52088
+ - 5.8723
+ - 6.24609
+ - 6.64368
+ - 7.06657
+ - 7.51638
+ - 7.99483
+ - 8.50372
+ - 9.04501
+ - 9.62076
+ - 10.2332
+ - 10.8845
+ - 11.5774
+ - 12.3143
+ - 13.0982
+ - 13.9319
+ - 14.8187
+ - 15.762
+ - 16.7653
+ - 17.8324
+ - 18.9675
+ - 20.1749
+ - 21.4591
+ - 22.825
+ - 24.2779
+ - 25.8233
+ - 27.467
+ - 29.2154
+ - 31.075
+ - 33.0531
+ - 35.157
+ - 37.3949
+ - 39.7752
+ - 42.307
+ - 45.
+
+# If you want to use the GUI as hand labelling tool for supervised classification problems
+# you can provide the parameter 'class_labels' which is a dictionary of label names mapped
+# to their description. If provided, the labels will first be added to the database
+# (updating the description, if the label name is already present) and then will show up in the GUI
+# where one or more classes can be assigned to a given segment via check boxes.
+# If missing, no class labels will show up in the GUI, unless already set by a previous config. Example:
+#class_labels:
+#  Discarded: "Segment which does not fall in any other cathegory (e.g., unknown artifacts, bad formats etcetera)"
+#  Unknown: "Segment which is either: unlabeled (not annotated) or unclassified"
+#  Ok: "Segment with no artifact"
+#  LowS2N: "Segment has a low signal-to-noise ratio"
+#  Aftershock: "Segment with non overlapping multi-events recorded (aftershock)"
+#  MultiEvent: "Segment with overlapping multi-events recorded (no aftershock)"
+#  BadCoda: "Segment with a bad coda (bad decay)"

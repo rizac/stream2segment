@@ -139,8 +139,8 @@ segment methods:
   ```
       stream = segment.stream()
       stream_remresp = s.remove_response(segment.inventory())
-      stream is segment.stream()  # False!!!
-      stream_remresp is segment.stream()  # True!!!
+      stream is segment.stream()  # False
+      stream_remresp is segment.stream()  # True
   ```
   When visualizing plots, where efficiency is less important, each function is executed on a
   copy of segment.stream(). However, from within the `main` function, the user has to handle when
@@ -205,10 +205,10 @@ attribute                                 python type and description (if any)
 ========================================= ================================================
 segment.id                                int: segment (unique) db id
 segment.event_distance_deg                float: distance between the segment's station and
-\                                         the event, in degrees
+                                          the event, in degrees
 segment.event_distance_km                 float: distance between the segment's station and
-\                                         the event, in km, assuming a perfectly spherical earth
-\                                         with a radius of 6371 km
+                                          the event, in km, assuming a perfectly spherical earth
+                                          with a radius of 6371 km
 segment.start_time                        datetime.datetime: the waveform data start time
 segment.arrival_time                      datetime.datetime
 segment.end_time                          datetime.datetime: the waveform data end time
@@ -216,83 +216,83 @@ segment.request_start                     datetime.datetime: the requested start
 segment.request_end                       datetime.datetime: the requested end time of the data
 segment.duration_sec                      float: the waveform data duration, in seconds
 segment.missing_data_sec                  float: the number of seconds of missing data, with respect
-\                                         to the request time window. E.g. if we requested 5
-\                                         minutes of data and we got 4 minutes, then
-\                                         missing_data_sec=60; if we got 6 minutes, then
-\                                         missing_data_sec=-60. This attribute is particularly
-\                                         useful in the config to select only well formed data and
-\                                         speed up the processing, e.g.: missing_data_sec: '< 120'
+                                          to the request time window. E.g. if we requested 5
+                                          minutes of data and we got 4 minutes, then
+                                          missing_data_sec=60; if we got 6 minutes, then
+                                          missing_data_sec=-60. This attribute is particularly
+                                          useful in the config to select only well formed data and
+                                          speed up the processing, e.g.: missing_data_sec: '< 120'
 segment.missing_data_ratio                float: the portion of missing data, with respect
-\                                         to the request time window. E.g. if we requested 5
-\                                         minutes of data and we got 4 minutes, then
-\                                         missing_data_ratio=0.2 (20%); if we got 6 minutes, then
-\                                         missing_data_ratio=-0.2. This attribute is particularly
-\                                         useful in the config to select only well formed data and
-\                                         speed up the processing, e.g.: missing_data_ratio: '< 0.5'
+                                          to the request time window. E.g. if we requested 5
+                                          minutes of data and we got 4 minutes, then
+                                          missing_data_ratio=0.2 (20%); if we got 6 minutes, then
+                                          missing_data_ratio=-0.2. This attribute is particularly
+                                          useful in the config to select only well formed data and
+                                          speed up the processing, e.g.: missing_data_ratio: '< 0.5'
 segment.sample_rate                       float: the waveform data sample rate.
-\                                         It might differ from the segment channel's sample_rate
+                                          It might differ from the segment channel's sample_rate
 segment.has_data                          boolean: tells if the segment has data saved (at least
-\                                         one byte of data). This attribute useful in the config to
-\                                         select only well formed data and speed up the processing,
-\                                         e.g. has_data: 'true'.
+                                          one byte of data). This attribute useful in the config to
+                                          select only well formed data and speed up the processing,
+                                          e.g. has_data: 'true'.
 segment.download_code                     int: the download code (for experienced users). As for
-\                                         any HTTP status code,
-\                                         values between 200 and 399 denote a successful download
-\                                         (this does not tell anything about the segment's data,
-\                                         which might be empty anyway. See 'segment.has_data'.
-\                                         Conversely, a download error assures no data has been
-\                                         saved), whereas
-\                                         values >=400 and < 500 denote client errors and
-\                                         values >=500 server errors.
-\                                         Moreover,
-\                                         -1 indicates a general download error - e.g. no Internet
-\                                         connection,
-\                                         -2 a successful download with corrupted waveform data,
-\                                         -200 a successful download where some waveform data chunks
-\                                         (miniSeed records) have been discarded because completely
-\                                         outside the requested time span,
-\                                         -204 a successful download where no data has been saved
-\                                         because all chunks were completely outside the requested
-\                                         time span, and finally:
-\                                         None denotes a successful download where no data has been
-\                                         saved because the given segment wasn't found in the
-\                                         server response (note: this latter case is NOT the case
-\                                         when the server returns no data with an appropriate
-\                                         'No Content' message with download_code=204)
+                                          any HTTP status code,
+                                          values between 200 and 399 denote a successful download
+                                          (this does not tell anything about the segment's data,
+                                          which might be empty anyway. See 'segment.has_data'.
+                                          Conversely, a download error assures no data has been
+                                          saved), whereas
+                                          values >=400 and < 500 denote client errors and
+                                          values >=500 server errors.
+                                          Moreover,
+                                          -1 indicates a general download error - e.g. no Internet
+                                          connection,
+                                          -2 a successful download with corrupted waveform data,
+                                          -200 a successful download where some waveform data chunks
+                                          (miniSeed records) have been discarded because completely
+                                          outside the requested time span,
+                                          -204 a successful download where no data has been saved
+                                          because all chunks were completely outside the requested
+                                          time span, and finally:
+                                          None denotes a successful download where no data has been
+                                          saved because the given segment wasn't found in the
+                                          server response (note: this latter case is NOT the case
+                                          when the server returns no data with an appropriate
+                                          'No Content' message with download_code=204)
 segment.maxgap_numsamples                 float: the maximum gap found in the waveform data, in
-\                                         number of points. This attribute is particularly useful
-\                                         in the config to select only well formed data and speed
-\                                         up the processing.
-\                                         If this attribute is zero, the segment has no
-\                                         gaps/overlaps, if >=1 the segment has gaps, if <=-1,
-\                                         the segment has overlaps.
-\                                         Values in (-1, 1) are difficult to interpret: as this
-\                                         number is the ratio between
-\                                         the waveform data's max gap/overlap and its sampling
-\                                         period (both in seconds), a rule of thumb is to
-\                                         consider a segment with gaps/overlaps when this
-\                                         attribute's absolute value exceeds 0.5, e.g. you can
-\                                         discard segments with gaps overlaps by inputting in the
-\                                         config "maxgap_numsamples:  '[-0.5, 0.5]'" and, if you
-\                                         absolutely want no segment with gaps/overlaps,
-\                                         perform a further check in the processing via
-\                                         `len(segment.stream())` (zero if no gaps/overlaps) or
-\                                         `segment.stream().get_gaps()` (see obspy doc)
+                                          number of points. This attribute is particularly useful
+                                          in the config to select only well formed data and speed
+                                          up the processing.
+                                          If this attribute is zero, the segment has no
+                                          gaps/overlaps, if >=1 the segment has gaps, if <=-1,
+                                          the segment has overlaps.
+                                          Values in (-1, 1) are difficult to interpret: as this
+                                          number is the ratio between
+                                          the waveform data's max gap/overlap and its sampling
+                                          period (both in seconds), a rule of thumb is to
+                                          consider a segment with gaps/overlaps when this
+                                          attribute's absolute value exceeds 0.5, e.g. you can
+                                          discard segments with gaps overlaps by inputting in the
+                                          config "maxgap_numsamples:  '[-0.5, 0.5]'" and, if you
+                                          absolutely want no segment with gaps/overlaps,
+                                          perform a further check in the processing via
+                                          `len(segment.stream())` (zero if no gaps/overlaps) or
+                                          `segment.stream().get_gaps()` (see obspy doc)
 segment.data_seed_id                      str: the seed identifier in the typical format
-\                                         [Network.Station.Location.Channel] stored in the
-\                                         segment's data. It might be null if the data is empty
-\                                         or null (e.g., because of a download error).
-\                                         See also 'segment.seed_id'
+                                          [Network.Station.Location.Channel] stored in the
+                                          segment's data. It might be null if the data is empty
+                                          or null (e.g., because of a download error).
+                                          See also 'segment.seed_id'
 segment.seed_id                           str: the seed identifier in the typical format
-\                                         [Network.Station.Location.Channel]: it is the same as
-\                                         'segment.data_seed_id' if the latter is not null,
-\                                         otherwise it is fetched from the segment's metadata
-\                                         (in this case, the operation might more time consuming)
+                                          [Network.Station.Location.Channel]: it is the same as
+                                          'segment.data_seed_id' if the latter is not null,
+                                          otherwise it is fetched from the segment's metadata
+                                          (in this case, the operation might more time consuming)
 segment.has_class                         boolean: tells if the segment has (at least one) class
-\                                         assigned
+                                          assigned
 segment.data                              bytes: the waveform (raw) data. You don't generally need
-\                                         to access this attribute which is also time-consuming
-\                                         to fetch. Used by `segment.stream()`
+                                          to access this attribute which is also time-consuming
+                                          to fetch. Used by `segment.stream()`
 ----------------------------------------- ------------------------------------------------
 segment.event                             object (attributes below)
 segment.event.id                          int
@@ -338,14 +338,14 @@ segment.station.site_name                 str
 segment.station.start_time                datetime.datetime
 segment.station.end_time                  datetime.datetime
 segment.station.inventory_xml             bytes. The station inventory (raw) data. You don't
-\                                         generally need to access this attribute which is also
-\                                         time-consuming to fetch. Used by `segment.inventory()`
+                                          generally need to access this attribute which is also
+                                          time-consuming to fetch. Used by `segment.inventory()`
 segment.station.has_inventory             boolean: tells if the segment's station inventory has
-\                                         data saved (at least one byte of data).
-\                                         This attribute useful in the config to select only
-\                                         segments with inventory downloaded and speed up the
-\                                         processing,
-\                                         e.g. has_inventory: 'true'.
+                                          data saved (at least one byte of data).
+                                          This attribute useful in the config to select only
+                                          segments with inventory downloaded and speed up the
+                                          processing,
+                                          e.g. has_inventory: 'true'.
 segment.station.datacenter                object (same as segment.datacenter, see below)
 ----------------------------------------- ------------------------------------------------
 segment.datacenter                        object (attributes below)
@@ -358,9 +358,9 @@ segment.download                          object (attributes below): the downloa
 segment.download.id                       int
 segment.download.run_time                 datetime.datetime
 segment.download.log                      str: The log text of the segment's download execution.
-\                                         You don't generally need to access this
-\                                         attribute which is also time-consuming to fetch.
-\                                         Useful for advanced debugging / inspection
+                                          You don't generally need to access this
+                                          attribute which is also time-consuming to fetch.
+                                          Useful for advanced debugging / inspection
 segment.download.warnings                 int
 segment.download.errors                   int
 segment.download.config                   str
@@ -410,25 +410,28 @@ def assert1trace(stream):
 
 def main(segment, config):
     """
-    Main processing function for generating output in a .csv file
-    See `return` below for a detailed explanation of what this function should return after the
-    processing is completed
+    Main processing function. The user should implement here the processing steps for any given
+    selected segment. Useful links for functions, libraries and utilities:
 
-    This function is called by executing the command:
+    - `stream2segment.analysis.mseeds` (small processing library implemented in this program,
+      most of its functions are imported here by default)
+    - `obpsy <https://docs.obspy.org/packages/index.html>`_
+    - `obspy Stream object <https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.html>_`
+    - `obspy Trace object <https://docs.obspy.org/packages/autogen/obspy.core.trace.Trace.html>_`
+
+    IMPORTANT: The output messages of this program will be redirected either to standard error or
+    to a log file (see documentation of `s2s process` for details). This includes exceptions
+    raised by this function: note that any of the following exceptions:
+        `TypeError`, `SyntaxError`, `NameError`, `ImportError`, `AttributeError`
+    is most likely a bug: if raised by this function, then the whole process will **stop**.
+    On the other hand, any other exception will just skip the current segment and can be
+    raised programmatically. E.g. one could write:
     ```
-        >>> stream2segment -p $PYFILE -c $CONFIG $OUTPUT
+        if snr <0.4:
+            raise Exception('SNR ratio to low')
     ```
-    where:
-      - $PYFILE is the path of this file,
-      - $CONFIG is a path to the .yaml configuration file (if this file was auto generated,
-        it should be a file named $FILE.yaml)
-      - $OUTPUT is the csv file where data (one row per segment) will to be saved
-
-    For info about possible functions to use, please have a look at `stream2segment.analysis.mseeds`
-    and obviously at `obpsy <https://docs.obspy.org/packages/index.html>`_, in particular:
-
-    *  `obspy.core.Stream <https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.html#obspy.core.stream.Stream>_`
-    *  `obspy.core.Trace <https://docs.obspy.org/packages/autogen/obspy.core.trace.Trace.html#obspy.core.trace.Trace>_`
+    to print the current segment id with the message 'SNR ratio too low' in the
+    log file or standard error (the segment id is added automatically by the program).
 
     :param: segment (ptyhon object): An object representing a waveform data to be processed,
     reflecting the relative database table row. See module docstring above for a detailed list
@@ -438,31 +441,22 @@ def main(segment, config):
     You can write there whatever you want (in yaml format, e.g. "propertyname: 6.7" ) and it
     will be accessible as usual via `config['propertyname']`
 
-    :return: an iterable (list, tuple, numpy array, dict...) of values. The returned iterable
-    will be written as a row of the resulting csv file. If dict, the keys of the dict
-    will populate the first row header of the resulting csv file, otherwise the csv file
-    will have no header. Please be consistent: always return the same type of iterable for
-    all segments; if dict, always return the same keys for all dicts; if list, always
-    return the same length, etcetera.
-    If you want to preserve the order of the dict keys as inserted in the code, use `OrderedDict`
-    instead of `dict` or `{}`.
-    Please note that the first column of the resulting csv will be *always* the segment id
-    (an integer stored in the database uniquely identifying the segment). Thus the first value
-    returned by the iterable of `main` will be in the csv file second column, the second in the
-    third, and so on.
-    If this function (or module, when imported) or any of the functions called raise any of the
-    following:
-    `TypeError`, `SyntaxError`, `NameError`, `ImportError`, `AttributeError`
-    then the whole process will **stop**, because those exceptions are most likely caused
-    by code errors which might affect all segments and the user can fix them without waiting
-    for all segments to be processed.
-    Otherwise, the function can **raise** any *other* Exception, or **return** None.
-    In both cases, the iteration will not stop but will go on processing the following segment.
-    None will silently ignore the segment, otherwise
-    the exception message (with the segment id) will be written to a .log file in the same folder
-    than the output csv file.
+    :return: If the processing routine calling this function needs not generate output in a .csv
+    file, the return value of this function will not be processed and can be whatever.
+    Otherwise, this function must return an iterable (list, tuple, numpy array, dict...
+    obviously, the same type should be returned for all segments, with the same number of elements).
+    The iterable will be written as a row of the resulting csv file. The .csv file will have a
+    row header only if `dict`s are returned: in this case, the dict keys are used as row header
+    columns.
+    If you want to preserve in the .csv the order of the dict keys as the were inserted
+    in the dict, use `OrderedDict` instead of `dict` or `{}`.
+    Returning None is also valid: in this case the segment will be silently skipped
+
+    NOTES: The first column of the resulting csv will be *always* the segment id
+    (an integer stored in the database uniquely identifying the segment)
+
     Pay attention when setting complex objects (e.g., everything neither string nor numeric) as
-    elements of the returned iterable: the values will be most likely converted to string according
+    elements of the iterable: the values will be most likely converted to string according
     to python `__str__` function and might be out of control for the user.
     Thus, it is suggested to convert everything to string or number. E.g., for obspy's
     `UTCDateTime`s you could return either `float(utcdatetime)` (numeric) or
@@ -502,7 +496,7 @@ def main(segment, config):
     # calculate cumulative
 
     cum_labels = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]
-    cum_trace = _cumulative(trace.copy())  # prevent original trace from being modified
+    cum_trace = cumsumsq(trace, copy=True)  # prevent original trace from being modified
     cum_times = cumtimes(cum_trace, *cum_labels)
 
     # double event
@@ -571,8 +565,8 @@ def main(segment, config):
     ret['score'] = score
     ret['d2max'] = float(tt1)
     ret['offset'] = np.abs(meanoff/PGV)
-    for f, a in zip(required_freqs, required_amplitudes):
-        ret['f_%.5f' % f] = float(a)
+    for freq, amp in zip(required_freqs, required_amplitudes):
+        ret['f_%.5f' % freq] = float(amp)
 
     return ret
 
@@ -686,7 +680,7 @@ def savitzky_golay(y, window_size, order, deriv=0, rate=1):
     try:
         window_size = np.abs(np.int(window_size))
         order = np.abs(np.int(order))
-    except ValueError as msg:
+    except ValueError:
         raise ValueError("window_size and order have to be of type int")
     if window_size % 2 != 1 or window_size < 1:
         raise TypeError("window_size size must be a positive odd number")
@@ -905,14 +899,14 @@ def cumulative(segment, config):
     '''
     stream = segment.stream()
     assert1trace(stream)  # raise and return if stream has more than one trace
-    return _cumulative(stream[0])
+    return cumsumsq(stream[0], copy=False)
 
 
-def _cumulative(trace):
-    '''Computes the cumulative of the squares of the segment's trace in the form of a Plot object.
-    DOES modify the segment's stream or traces in-place. Normalizes the returned trace values
-    in [0,1]'''
-    return cumsumsq(trace, normalize=True, copy=False)
+# def _cumulative(trace):
+#     '''Computes the cumulative of the squares of the segment's trace in the form of a Plot object.
+#     DOES modify the segment's stream or traces in-place. Normalizes the returned trace values
+#     in [0,1]'''
+#     return cumsumsq(trace, normalize=True, copy=False)
 
 
 @gui.sideplot

@@ -213,7 +213,8 @@ class SegmentPlotList(list):
                     try:
                         self.data['sn_windows'] = segment.sn_windows()
                     except Exception as exc:
-                        self.data['sn_windows'] = exc
+                        self.data['sn_windows'] = ValueError("Error calculating "
+                                                             "'sn_windows': %s" % str(exc))
                 if inventory is None:
                     invcache[segment] = segment._inventory  # might be exc, or None
                 # reset segment stream to None, for safety: we do not know if it refers
@@ -304,36 +305,41 @@ class PlotManager(LimitedSizeDict):
         super(PlotManager, self).__init__(size_limit=size_limit)
         self.config = config
         self.functions = []
+        self._functions_atts = []
         self.inv_cache = InventoryCache(10)
-
-        self._def_func_count = 2  # CHANGE THIS IF YOU CHANGE SOME FUNC BELOW
 
         # define default functions if not found:
 
         def preprocess_func(segment, config):
             raise Exception("No function decorated with '@gui.preprocess'")
 
-        def side_func(segment, config):
-            raise Exception("No function decorated with '@gui.sideplot'")
-
         def main_function(segment, config):
             return Plot.fromstream(segment.stream())
 
         self.preprocessfunc = preprocess_func
 
-        for f in iterfuncs(pymodule):
-            att = getattr(f, "_s2s_att", "")
+        index = 1
+        for func in iterfuncs(pymodule):
+            att = getattr(func, "_s2s_att", "")
             if att == 'gui.preprocess':
-                self.preprocessfunc = f
-            elif att == 'gui.sideplot':
-                side_func = f
-            elif att == 'gui.customplot':
-                self.functions.append(f)
-        self.functions = [main_function, side_func] + self.functions
+                self.preprocessfunc = func
+            elif att == 'gui.plot':
+                self.functions.append(func)
+                self._functions_atts.append({'name': func.__name__,
+                                             'index': index,
+                                             'position': func._s2s_position,
+                                             'xaxis': func._s2s_xaxis, 'yaxis': func._s2s_yaxis})
+                index += 1
+
+        self.functions = [main_function] + self.functions
 
     @property
-    def userdefined_plotnames(self):
-        return [x.__name__ for x in self.functions[self._def_func_count:]]
+    def userdefined_plots(self):
+        '''Returns a list of dicts, each dict denotes the properties of a user defined plot
+        and has the key 'name', 'position', 'xaxis' and
+        'yaxis'
+        '''
+        return self._functions_atts
 
     @property
     def get_preprocessfunc_doc(self):
@@ -434,13 +440,13 @@ class PlotManager(LimitedSizeDict):
         their plots forces a recalculation (except for the main stream plot,
         currently at index 0)'''
         self.config.update(**values)
-        for v in self.values():
-            if v[0] is not None:
-                v[0].invalidate()
+        for val in self.values():
+            if val[0] is not None:
+                val[0].invalidate()
             # pre-processed plotlist is set to None to force re-calculate all
             # as we cannot be sure if the main stream (resulting from preprocess func)
             # needed a config value
-            v[1] = None
+            val[1] = None
 
     def _popitem_size_limit(self):
         '''Called when super._check_size_limit is called. Remove also other components

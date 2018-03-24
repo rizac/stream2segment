@@ -8,7 +8,11 @@
 {% block head_scripts %}
     {{ super() }}
 	<script type="text/javascript">
+		/*__SETTINGS below is the bridge between everything that must be passed from the backend
+		(jinja2) to the frontend (angular):*/
 		var __SETTINGS = {{ settings|tojson }};
+		__SETTINGS.bottomPlots = {{ bottomPlots|tojson }};
+		__SETTINGS.rightPlots = {{ rightPlots|tojson }};
 	    function getScope(){ // returns the controller angular scope
 	    		//https://stackoverflow.com/questions/16709373/angularjs-how-to-call-controller-function-from-outside-of-controller-component
 	    		return angular.element(document.getElementById('angularController')).scope();
@@ -18,7 +22,7 @@
 
 {% block head_stylesheets %}
     {{ super() }}
-    	<link href="static/css/processing.css" rel="stylesheet" media="screen">
+    	<link href="static/css/mainapp.css" rel="stylesheet" media="screen">
 {% endblock %}
 
 {% block body_tag %}
@@ -54,32 +58,8 @@
   					<div class="inline">
 						<label><input type="checkbox" ng-model="showAllComponents" ng-change="toggleAllComponentView()"> Show all components</label>
 					</div>
- 					<div class="inline">S/N Windows
-						<div class="tooltip_">?
-							<pre class="tooltiptext">{% endraw %}{{ sn_windows_doc }}{% raw %}</pre>
-						</div>
-					</div>
-					<div class="inline sn-wdw-controls">
-						<div class="flex h-container">
-							<label class="center">Arrival time shift:</label>
-							<input type="text" class='form-control right' ng-model="snWindows.arrival_time_shift" ng-change="snWindows._changed=true">
-						</div>
-						<div class="flex h-container">
-							<label class="center">Signal window:</label>
-							<input type="text" class='form-control right' ng-model="snWindows.signal_window" ng-change="snWindows._changed=true">
-	  					</div>
-	  					<div class="">
-	  						<button class='btn btn-default btn-block' ng-disabled="!snWindows._changed" ng-click="setSnWindows()">Refresh</button>
-						</div>
-					</div>
-					<div class="inline"> <!-- use checkbox class for all same level divs (bootstraps controls margins top and bottom intelligently -->
-						<div>Custom plots</div>
-						{% endraw %}{% for name in userDefinedPlotNames %}
-						<div class="radio">
-							<label><input type="radio" ng-change="customPlotChanged()" ng-model="customPlotId" value="{{ loop.index0 + 2}}">{{ name }}</label>
-							<span ng-show="customPlotId == {{ loop.index0 + 2}}" style='float:right'>&rarr;</span>
-						</div>
-						{% endfor %}{% raw %}
+					<div class="inline">
+						<button class='btn btn-default btn-block' ng-click="config.showForm=true">Config</button>
 					</div>
 	  			</div>
 				<div class="bottom">
@@ -90,35 +70,49 @@
 			</div>
 			<div id='plots-center-panel' class="center h-container">
 				<!-- plotly (as of feb 2017) does NOT work with flex layout. TOO BAD. -->
-				<!--
-					***********************
-					NOTE: IMPORTANT READ ME
-					***********************
-			  		(see plotlyconfig.js in case, everything is there)
-    			    - data-plot makes the div plottable (i.e., associates a plotly object on it)
-				    - data-plotindex refers to the index on the server.
-				      Note that index=0: current trace, index=1: spectra, so indices start from 2 to correctly
-				      point to the server plot
-				    - ID of these divs will be set AUTOMATICALLY AS "plot" + getAttribute('data-plotindex)
-				 -->
 				 <div class='tl'>
 				 	<div class='plot-wrapper'>
-						<div data-plotindex=0 class='plot' data-plot='time-series'></div>
-						<button>Toggle Fuchsia</button>
+						<div id="plot-0" class="plot"></div>
 				 	</div>
 				 </div>
+				 {% endraw %}
+				 {% if bottomPlots|length %}
 				 <div class="bl">
-					{% endraw %}{% for name in userDefinedPlotNames %}
-					<div class='plot-wrapper' ng-show='plots[{{loop.index0 + 2}}].visible'>
-						<div data-plot='time-series' data-plotindex={{ loop.index0 + 2 }} class='plot'></div>
+					{% for obj in bottomPlots %}
+					<div class='plot-wrapper' ng-show='plots[{{ obj.index }}].visible'>
+						<div id='plot-{{obj.index}}' class='plot'></div>
 					</div>
-					{% endfor %}{% raw %}
-				</div>
-				<div  class="tr">
-					<div class='plot-wrapper'>
-						<div data-plotindex=1 class='plot' data-plot='freq-series'></div>
+					{% endfor %}
+					{% if bottomPlots|length > 1 %}
+					<div>
+						{% for obj in bottomPlots %}
+							<button  ng-class="plots[{{ obj.index }}].visible ? 'active btn-primary' : 'btn-default'" 
+								ng-click="setPlotVisible({{ obj.index }})"
+								class='btn btn-sm'>{{ obj.name }}</button>
+						{% endfor %}
 					</div>
-				</div>
+					{% endif %}
+				 </div>
+				 {% endif %}
+				 {% if rightPlots|length %}
+				 <div class="tr">
+					{% for obj in rightPlots %}
+					<div class='plot-wrapper' ng-show='plots[{{ obj.index }}].visible'>
+						<div id='plot-{{obj.index}}' class='plot'></div>
+					</div>
+					{% endfor %}
+					{% if rightPlots|length > 1 %}
+					<div>
+						{% for obj in rightPlots %}
+							<button ng-class="plots[{{ obj.index }}].visible ? 'active btn-primary' : 'btn-default'" 
+								ng-click="setPlotVisible('{{ obj.index }}')"
+								class='btn btn-sm'>{{ obj.name }}</button>
+						{% endfor %}
+					</div>
+					{% endif %}
+				 </div>
+				 {% endif %}
+				{% raw %}
 				<div class="br flex h-container">
 					<div class="metadata panel panel-default center flex v-container">
 						<div class="panel-heading top">Segment Metadata</div>
@@ -162,36 +156,17 @@
 	</div>
 	<!-- SELECTION FORM (move at the end so that it does not display long time, it's annoying otherwise) -->
 	<div id="select-form" ng-show="selection.showForm" class="popup alert">
-		Select segments where: <div class="tooltip_">?
-		<pre class="tooltiptext">{% endraw %}{{ segment_select_doc }}{% raw %}</pre>
-									<!-- <span class="tooltiptext">
-										Here you can select which segments to show. Each non-empty field will
-										denote a select condition which can be in any of the following formats:
-										<p>1. A space-separated list of values: select those values. Example:
-										<br>event.contributor <span class='border'>"name 1" name2</span>
-										<br>(strings with spaces must be quoted), or:
-										<br>segment.start_time <span class='border'>2006-01-03T00:04:03 2006-01-04</span>
-										<p>2. An expression beginning with &gt;= &lt;= &gt; &lt; != = (or ==):
-										evaluates the expression and select matching elements only. Example:
-										<br>segment.id <span class='border'>&gt;= 300</span>
-										<p>3. An interval, either with square brackets ("include end-points") or round ones
-										(no end-points): select elements whose field value is in the given interval. Example:
-										<br>event.magnitude <span class='border'>[3.5, 6)</span>
-										<p>
-										Note: if more than one field is given (non-empty), segment matching <i>all</i> conditions 
-										will be selected
-									</span> -->
-								</div>
+		Select segments where: <div class="tooltip_">? <pre class="tooltiptext">{% endraw %}{{ segment_select_doc }}{% raw %}</pre></div>
 		<a href="#" class="close" data-dismiss="alert" aria-label="close" onclick="return false;"
 			ng-click="selection.showForm=!selection.showForm">&times;</a>
 		<div class="center">
 			<table style='width:100%'>
-				<tr><th>Key</th><th>Value (expression)</th></tr>
+				<tr><th>Key</th><th>Simplified "select"" expression (db column type in brakets):</th></tr>
 				<tr ng-repeat="values in metadata">
 					<td ng-class="values[2] ? 'select-highlighted' : ''">{{ values[0] }}</td>
-					<td style='width:100%'><input style='width:100%' type=text
-						ng-model="values[2]"
-						placeholder="({{ values[1] }})"/></td>
+					<td style='width:100%'>
+						<input style='width:100%' type=text ng-model="values[2]" placeholder="({{ values[1] }})"/>
+					</td>
 				</tr>
 			</table>
 		</div>
@@ -200,11 +175,33 @@
 			<span>{{ selection.errorMsg }}</span>
 		</div>
 	</div>
+	
+	<div id="config-form" ng-show="config.showForm" class="popup alert">
+		Config (note: the form below reflect the config yaml file, but it cannot have the
+		same syntax complexity. As such, commas will be recognized as array-separator:
+		in case, square brakets are optional, as well as spaces around commas)
+		<a href="#" class="close" data-dismiss="alert" aria-label="close" onclick="return false;"
+			ng-click="config.showForm=!config.showForm">&times;</a>
+			
+			<table style='width:100%'>
+				<tr><th>Key</th><th>Value</th></tr>
+				<tr ng-repeat="(key, value) in config.data">
+					<td>{{ key }}</td>
+					<td style='width:100%'>
+						<input style='width:100%' type=text ng-change="config.changed=true" ng-model="config.data[key]"/>
+					</td>
+				</tr>
+			</table>
+			
+		<div class='bottom'>
+			<button class='btn btn-default' ng-click="updateConfig()">Select</button>
+			<span>{{ config.errorMsg }}</span>
+		</div>
+	</div>
 	{% endraw %}
 {% endblock %}
 {% block after_body %}
 	{{ super() }}
 	<!-- load plots config and angular at the end (IN THIS ORDER!) -->
-	<script src="static/js/processing/plotlyconfig.js" defer></script>
-	<script src="static/js/processing/ng-app.js" defer></script>
+	<script src="static/js/mainapp/ng-app.js" defer></script>
 {% endblock %}
