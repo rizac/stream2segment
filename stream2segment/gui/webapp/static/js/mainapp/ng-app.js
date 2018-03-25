@@ -9,11 +9,8 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	$scope.classes = []; // Array of dicts. Each dict represents a class and is: {count: <int>, id: <int>, label:<string>}
 						 // example: [{count:1, id:1, label'Ok'}, {count:0, id:2, label'Bad'}, ...]
 	// selection "window" handling:
-	$scope.selection = {
-			showForm: false,
-			errorMsg: ""
-		};
-
+	$scope.selection = {showForm: false, errorMsg: ""};
+	// config: 
 	$scope.config = {showForm: false, data: $window.__SETTINGS.config, changed: false, errorMsg:''};
 	
 	// init the $scope.plots data:
@@ -40,27 +37,6 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		snWindows: [] // array of two elements calculated from the server for the current segment:
 					  // [signal_window, noise_window] each
 			           // window is in turn a 2 element array of integers representing timestamps: [t1, t2]
-	};
-	
-	// now initialize an empty plot on all divs, so that the divs behaves has plotly
-	// objects with all methods (e.g., attach plotly events to them):
-	$scope.plots.forEach(function(elm){
-		var layout = getPlotLayout({xaxis: elm.xaxis, yaxis: elm.yaxis});
-		Plotly.plot(elm.div, [{x0:0, dx:1, y:[0], type:'scatter', 'opacity': 0}],
-				layout, {displaylogo: false, showLink: false});
-	});
-
-	// this is a function we attach to the array plots in order to forward to
-	// any of its elements the plotly 'on' method (see e.g. bwloe, when defining zoom event
-	// listeners below). callback is a function which takes as arguments:
-	// the plot element, the index, the whole
-	// $scope.plots array and the eventData passed by plotly
-	$scope.plots.on = function(key, callback){
-		$scope.plots.forEach(function(elm, index, elms){
-			elm.div.on(key, function(eventData){
-				callback(elm, index, elms, eventData);
-			});
-		});
 	};
 	
 	$scope.showPreProcessed = true;
@@ -159,30 +135,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		$scope.config.showForm = false;
 	};
 	
-	/** HANDLING ALL EVENTS TOGGLING A PLOT REQUEST **/
-	// listen for plotly events. The plotly 'on' function is wrapped by our 'on' function
-	// implemented on the plots array (see plotlyconfig.js) and forwards it to the plotly on
-	// callback
-	// The syntax is the same except that the callback does not take a single eventdata
-	// argument, but has four arguments, the first three being the same as Array.map or Array.forEach
-	// the fourth being the plotly event:
 
-	$scope.plots.on('plotly_relayout', function(plot, index, plots, eventdata){
-		// check that this function is called from zoom
-		// (it is called from any relayout command also)
-		var isZoom = 'xaxis.range[0]' in eventdata && 'xaxis.range[1]' in eventdata;
-		if(!isZoom){
-			return;
-		}
-		var zoom = [eventdata['xaxis.range[0]'], eventdata['xaxis.range[1]']];
-			plot.zoom = [zoom[0], zoom[1]];  // copy (for safety)
-		$scope.refreshView([index]);
-	});
-	
-	$scope.plots.on('plotly_doubleclick', function(plot, index, plots, eventdata){
-		$scope.refreshView([index]); // zooms are reset after use, so this redraw normal bounds
-	});
-	
 	$scope.setPlotVisible = function(index){
 		var pos = $scope.plots[index].position;
 		$scope.plots.forEach(function(elm, idx){
@@ -195,13 +148,10 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	};
 	
 	$scope.togglePreProcess = function(){
-		//$scope.showPreProcessed = !$scope.showPreProcessed; THIS IS HANDLED BY ANGULAR!
 		$scope.refreshView();
 	};
 	
 	$scope.toggleAllComponentView = function(){
-		//$scope.showAllComponents = !$scope.showAllComponents; THIS IS HANDLED BY ANGULAR!
-		// update plots:
 		$scope.refreshView([0]);
 	}
 	
@@ -330,6 +280,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		var plotsData = $scope.segData.plotData;
 		var plotly = $window.Plotly;
 		$scope.warnMsg = "Drawing plots...";
+		var plotStuff = [];  //a list of arrays, each array is (div, data, layout)
 		for (var i_=0; i_< indices.length; i_++){
 			var i = indices[i_];
 			var div = $scope.plots[i].div;
@@ -364,77 +315,108 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 				data.push(elmData);
 			}
 			
-			if (div.layout){
-				// hack for setting the title left (so that the tool-bar does not overlap
-				// so easily). Comment this:
-				// div.layout.title = title;
-				// and set the first annotation (provided in configPlots)
-				if (div.layout.annotations){
-					div.layout.annotations[0].text = title;
-				}
-				if (div.layout.xaxis){
-					div.layout.xaxis.title = warnings;  // to control the color font of the warning, see plotlyconfig.js 'titlefont'
-				}
-				if (i==0){ // spectra windows
-					// https://plot.ly/javascript/shapes/#vertical-and-horizontal-lines-positioned-relative-to-the-axes
-					div.layout.shapes = $scope.segData.snWindows.map(function(elm, idx){
-						return {type: 'rect',
-							    xref: 'x', // x-reference is assigned to the x-values
-							    yref: 'paper', // y-reference is assigned to the plot paper [0,1]
-							    x0: elm[0],
-							    y0: 0,
-							    x1: elm[1],
-							    y1: 1,
-							    fillcolor: $scope.snColors[idx],
-							    opacity: 0.1,
-							    line: {
-							        width: 0
-							    }
-							};
-					});
-					// append arrival time:
-					if (div.layout.shapes && div.layout.shapes.length){ // test for non-empty array (is there a better way?)
-						// store arrival time as timestamp. The relative value in
-						// segData.metadata.segment.arrival_time cannot be used,
-						// see section "Differences in assumed time zone" in
-						// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/parse
-						div.layout.shapes.push({type: 'line',
+			var layout = getPlotLayout({xaxis: $scope.plots[i].xaxis, yaxis: $scope.plots[i].yaxis});
+
+			// hack for setting the title left (so that the tool-bar does not overlap
+			// so easily). Comment this:
+			// layout.title = title;
+			// and set the first annotation (provided in configPlots)
+			if (layout.annotations){
+				layout.annotations[0].text = title;
+			}
+			if (layout.xaxis){
+				layout.xaxis.title = warnings;  // to control the color font of the warning, see plotlyconfig.js 'titlefont'
+			}
+			if (i==0){ // spectra windows
+				// https://plot.ly/javascript/shapes/#vertical-and-horizontal-lines-positioned-relative-to-the-axes
+				layout.shapes = $scope.segData.snWindows.map(function(elm, idx){
+					return {type: 'rect',
 						    xref: 'x', // x-reference is assigned to the x-values
 						    yref: 'paper', // y-reference is assigned to the plot paper [0,1]
-						    x0: div.layout.shapes[1].x1,
-						    x1: div.layout.shapes[1].x1,
+						    x0: elm[0],
 						    y0: 0,
+						    x1: elm[1],
 						    y1: 1,
-						    opacity: 1,
+						    fillcolor: $scope.snColors[idx],
+						    opacity: 0.1,
 						    line: {
-						        width: 1,
-						        dash: 'dot',
-						        color: $scope.snColors.arrivalTimeLine
+						        width: 0
 						    }
-						});
-					}
-					// the noise / signal windows (rectangles in the background) might overflow
-					// this is visually misleading, so in case restore the original bounds.
-					// get the original bounds: 
-					var x00 = data[0].x0;
-					var x01 = data[0].x0 + data[0].dx * (data[0].y.length-1);
-					// set bounds manually in case of overflow:
-					if(div.layout.shapes.some(function (elm) {return elm.x0 < x00 || elm.x1 > x01})){
-						div.layout.xaxis.range= [x00, x01];
-						div.layout.xaxis.autorange = false;
-					}else{
-						div.layout.xaxis.autorange = true;
-					}
+						};
+				});
+				// append arrival time:
+				if (layout.shapes && layout.shapes.length){ // test for non-empty array (is there a better way?)
+					// store arrival time as timestamp. The relative value in
+					// segData.metadata.segment.arrival_time cannot be used,
+					// see section "Differences in assumed time zone" in
+					// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/parse
+					layout.shapes.push({type: 'line',
+					    xref: 'x', // x-reference is assigned to the x-values
+					    yref: 'paper', // y-reference is assigned to the plot paper [0,1]
+					    x0: layout.shapes[1].x1,
+					    x1: layout.shapes[1].x1,
+					    y0: 0,
+					    y1: 1,
+					    opacity: 1,
+					    line: {
+					        width: 1,
+					        dash: 'dot',
+					        color: $scope.snColors.arrivalTimeLine
+					    }
+					});
 				}
-				
+				// the noise / signal windows (rectangles in the background) might overflow
+				// this is visually misleading, so in case restore the original bounds.
+				// get the original bounds: 
+				var x00 = data[0].x0;
+				var x01 = data[0].x0 + data[0].dx * (data[0].y.length-1);
+				// set bounds manually in case of overflow:
+				if(layout.shapes.some(function (elm) {return elm.x0 < x00 || elm.x1 > x01})){
+					layout.xaxis.range= [x00, x01];
+					layout.xaxis.autorange = false;
+				}else{
+					layout.xaxis.autorange = true;
+				}
 			}
-			div.data = data;
-			plotly.redraw(div);
-			//Note: using animation takes too much time (in case check online doc)
+			plotStuff.push({div: div, data: data, layout:layout, index:i});
 		}
-		$scope.warnMsg = "";
+		
+		// delay execution of redraw so that angular has put in place all divs with the
+		// correct size (hopefully)
+		$timeout(function(){
+			plotStuff.forEach(function(elm){
+				var uninit = !(elm.div.data);
+				if (uninit){
+					plotly.plot(elm.div, elm.data, elm.layout, {displaylogo: false, showLink: false});
+					$scope.initPlotEvents(elm.index);
+				}else{
+					elm.div.data = elm.data;
+					elm.div.layout = elm.layout;
+					plotly.redraw(elm.div);
+				}
+			});
+			$scope.warnMsg = "";
+		},1000);
 	};
 
+	// inits plots events on the given plot index:
+	$scope.initPlotEvents = function(index){
+		$scope.plots[index].div.on('plotly_relayout', function(eventdata){
+			// check that this function is called from zoom
+			// (it is called from any relayout command also)
+			var isZoom = 'xaxis.range[0]' in eventdata && 'xaxis.range[1]' in eventdata;
+			if(!isZoom){
+				return;
+			}
+			var zoom = [eventdata['xaxis.range[0]'], eventdata['xaxis.range[1]']];
+			$scope.plots[index].zoom = [zoom[0], zoom[1]];  // copy (for safety)
+			$scope.refreshView([index]);
+		});
+		
+		$scope.plots[index].div.on('plotly_doubleclick', function(eventdata){
+			$scope.refreshView([index]); // zooms are reset after use, so this redraw normal bounds
+		});
+	}
 	
 	$scope.toggleSegmentClassLabel = function(classId){
 		var value = $scope.segData.classIds[classId];
@@ -474,6 +456,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		$scope.refreshView([0, 1]);// simply update plots, the changed flags will be set therein:
 	         // refresh current segment and spectra only
 	};
+	
 	// init our app:
 	$scope.init();
 

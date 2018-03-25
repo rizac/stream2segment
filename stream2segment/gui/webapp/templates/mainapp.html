@@ -13,10 +13,10 @@
 		var __SETTINGS = {{ settings|tojson }};
 		__SETTINGS.bottomPlots = {{ bottomPlots|tojson }};
 		__SETTINGS.rightPlots = {{ rightPlots|tojson }};
-	    function getScope(){ // returns the controller angular scope
+	    /* function getScope(){ // returns the controller angular scope
 	    		//https://stackoverflow.com/questions/16709373/angularjs-how-to-call-controller-function-from-outside-of-controller-component
 	    		return angular.element(document.getElementById('angularController')).scope();
-	    }
+	    } */
 	</script>
 {% endblock %}
 
@@ -33,58 +33,57 @@
 	{{ super() }}
 	<!--  raw tells jinja not to parse curly braces so we can angular takes place -->
 	{% raw %}
-	<div class="main v-container">
-		<div class=top></div> <!-- not used, maybe in the future for a top toolbar ... -->
-		<div class="center h-container">
-			<div id='controls-left-panel' class="left flex v-container">
-				<div class="center">
-					<!-- use checkbox class for all same level divs (bootstraps controls margins top and bottom intelligently -->
-					<h4 class="inline">Segment {{ segIdx + 1 }} of {{ segIds.length }}</h4>
-					<div class="inline sel-prev-next flex h-container">
-						<button class='btn btn-default center' ng-click="setPreviousSegment()">&larr;</button>
-						<button class='btn btn-default center' ng-click="setNextSegment()" >&rarr;</button>
-					</div>
-					<div class="inline">
-						<button class='btn btn-default btn-block' ng-click="selection.showForm=true">Select</button>
-					</div>
-					<div class="divider"></div>			
-					<h4 class="inline">Plots</h4>		
-					<div class="inline">
-						<label><input type="checkbox" ng-model="showPreProcessed" ng-change="togglePreProcess()"> Pre-process</label>
-						<div class="tooltip_">?
-							<pre class="tooltiptext">{% endraw %}{{ preprocessfunc_doc }}{% raw %}</pre>
-						</div>
-  					</div>
-  					<div class="inline">
-						<label><input type="checkbox" ng-model="showAllComponents" ng-change="toggleAllComponentView()"> Show all components</label>
-					</div>
-					<div class="inline">
-						<button class='btn btn-default btn-block' ng-click="config.showForm=true">Config</button>
-					</div>
-	  			</div>
-				<div class="bottom">
-					<div ng-show="warnMsg" class="alert alert-info">
-  						<strong>{{ warnMsg }}</strong>
-					</div>				
+	<div class="main flex-direction-col">
+		<div class="flex-direction-row">
+			<div class="flexible flex-direction-row">
+				<!-- use checkbox class for all same level divs (bootstraps controls margins top and bottom intelligently -->
+				<h4 class="inline">Segment {{ segIdx + 1 }} of {{ segIds.length }}</h4>
+				<div class="inline sel-prev-next h-container">
+					<button class='btn btn-default center' ng-click="setPreviousSegment()">&larr;</button>
+					<button class='btn btn-default center' ng-click="setNextSegment()" >&rarr;</button>
 				</div>
+				<div class="inline">
+					<button class='btn btn-default btn-block' ng-click="selection.showForm=true">Select</button>
+				</div>
+				<div class="divider"></div>			
+				<h4 class="inline">Plots</h4>		
+				<div class="inline">
+					<label><input type="checkbox" ng-model="showPreProcessed" ng-change="togglePreProcess()"> Pre-process</label>
+					<div class="tooltip_">?
+						<pre class="tooltiptext">{% endraw %}{{ preprocessfunc_doc }}{% raw %}</pre>
+					</div>
+ 					</div>
+ 					<div class="inline">
+					<label><input type="checkbox" ng-model="showAllComponents" ng-change="toggleAllComponentView()"> Show all components</label>
+				</div>
+				<div class="inline">
+					<button class='btn btn-default btn-block' ng-click="config.showForm=true">Config</button>
+				</div>
+  			</div>
+			<div>
+				<div ng-show="warnMsg" class="alert alert-info" style='margin:0'>
+ 						<strong>{{ warnMsg }}</strong>
+				</div>				
 			</div>
-			<div id='plots-center-panel' class="center h-container">
-				<!-- plotly (as of feb 2017) does NOT work with flex layout. TOO BAD. -->
-				 <div class='tl'>
-				 	<div class='plot-wrapper'>
+		</div> <!-- not used, maybe in the future for a top toolbar ... -->
+		<div class="flexible flex-direction-row" style='position:relative'>
+			 <div class='flexible-half flex-direction-col'>
+				 <div class='flexible-half flex-direction-col'>
+				 	<div class='plot-wrapper flexible'>
 						<div id="plot-0" class="plot"></div>
 				 	</div>
 				 </div>
 				 {% endraw %}
-				 {% if bottomPlots|length %}
-				 <div class="bl">
-					{% for obj in bottomPlots %}
-					<div class='plot-wrapper' ng-show='plots[{{ obj.index }}].visible'>
-						<div id='plot-{{obj.index}}' class='plot'></div>
+			 	 {% if bottomPlots|length %}
+				 <div class='flexible-half flex-direction-col'>
+					<div class='plot-wrapper flexible'>
+						{% for obj in bottomPlots %}
+							<div id='plot-{{obj.index}}' class='plot'
+								 ng-show="plots[{{ obj.index }}].visible"></div>
+						{% endfor %}
 					</div>
-					{% endfor %}
 					{% if bottomPlots|length > 1 %}
-					<div>
+					<div class='flex-direction-row'>
 						{% for obj in bottomPlots %}
 							<button  ng-class="plots[{{ obj.index }}].visible ? 'active btn-primary' : 'btn-default'" 
 								ng-click="setPlotVisible({{ obj.index }})"
@@ -94,15 +93,20 @@
 					{% endif %}
 				 </div>
 				 {% endif %}
-				 {% if rightPlots|length %}
-				 <div class="tr">
-					{% for obj in rightPlots %}
-					<div class='plot-wrapper' ng-show='plots[{{ obj.index }}].visible'>
-						<div id='plot-{{obj.index}}' class='plot'></div>
+				 {% raw %}
+			 </div>
+			 <div class='flexible-half flex-direction-col'>
+				{% endraw %}
+				{% if rightPlots|length %}
+				<div class='flexible-half flex-direction-row'>
+					<div class='plot-wrapper flexible'>
+						{% for obj in rightPlots %}
+						<div id='plot-{{obj.index}}' class='plot'
+							ng-show="plots[{{ obj.index }}].visible"></div>
+						{% endfor %}
 					</div>
-					{% endfor %}
 					{% if rightPlots|length > 1 %}
-					<div>
+					<div class='flex-direction-col'>
 						{% for obj in rightPlots %}
 							<button ng-class="plots[{{ obj.index }}].visible ? 'active btn-primary' : 'btn-default'" 
 								ng-click="setPlotVisible('{{ obj.index }}')"
@@ -110,13 +114,13 @@
 						{% endfor %}
 					</div>
 					{% endif %}
-				 </div>
-				 {% endif %}
+					</div>
+				{% endif %}
 				{% raw %}
-				<div class="br flex h-container">
-					<div class="metadata panel panel-default center flex v-container">
-						<div class="panel-heading top">Segment Metadata</div>
-						<div class="panel-body center">
+				<div class="flexible-half flex-direction-col">
+					<div class="metadata panel panel-default flexible flex-direction-col">
+						<div class="panel-heading">Segment Metadata</div>
+						<div class="panel-body flexible">
 							<div ng-show="classes.length">
 								<div class="divider"></div>
 								<div ng-click="toggleDivVisibility('classes')">
@@ -170,7 +174,7 @@
 				</tr>
 			</table>
 		</div>
-		<div class='bottom'>
+		<div>
 			<button class='btn btn-default' ng-click="selectSegments()">Select</button>
 			<span>{{ selection.errorMsg }}</span>
 		</div>
@@ -182,7 +186,7 @@
 		in case, square brakets are optional, as well as spaces around commas)
 		<a href="#" class="close" data-dismiss="alert" aria-label="close" onclick="return false;"
 			ng-click="config.showForm=!config.showForm">&times;</a>
-			
+		<div class="center">
 			<table style='width:100%'>
 				<tr><th>Key</th><th>Value</th></tr>
 				<tr ng-repeat="(key, value) in config.data">
@@ -192,8 +196,8 @@
 					</td>
 				</tr>
 			</table>
-			
-		<div class='bottom'>
+		</div>
+		<div>
 			<button class='btn btn-default' ng-click="updateConfig()">Select</button>
 			<span>{{ config.errorMsg }}</span>
 		</div>
@@ -202,6 +206,6 @@
 {% endblock %}
 {% block after_body %}
 	{{ super() }}
-	<!-- load plots config and angular at the end (IN THIS ORDER!) -->
+	<!-- load angular and init it (IN THIS ORDER!) -->
 	<script src="static/js/mainapp/ng-app.js" defer></script>
 {% endblock %}

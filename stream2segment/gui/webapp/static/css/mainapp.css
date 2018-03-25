@@ -3,30 +3,25 @@
 Remember: flex doesn't work with plotly (as of march 2017)
 */
 
-div.main > div.center{ /*div center contains div#controls-left-panel and div#plots-center-panel */
-	height: 100%;
-}
-
-#controls-left-panel{
+/* #controls-left-panel{
 	height:100%;
 	float: left;
-	width: 13vw; /*needs to be same value as margin-left of #plots-center-panel (see above)*/
+	width: 13vw;
 }
 
 #plots-center-panel{
 	height:100%;
-	margin-left: 13vw; /*needs to be same value as width of #controls-left-panel (see above)*/
+	margin-left: 13vw;
 }
 
 
-/* #controls-left-panel: layout of sub-components and look and feel */
 
 #controls-left-panel{
 	border: 1px solid #ddd;
 	padding: 10px;
 }
 
-#controls-left-panel .bottom .alert {
+#controls-left-panel .alert {
     margin-bottom: 0;
 }
 
@@ -45,7 +40,7 @@ div.main > div.center{ /*div center contains div#controls-left-panel and div#plo
 	margin-right: 6px;
 }
 
-#controls-left-panel .sn-wdw-controls .flex.h-container{
+#controls-left-panel .sn-wdw-controls{
 	align-items: baseline;
 }
 
@@ -63,14 +58,16 @@ div.main > div.center{ /*div center contains div#controls-left-panel and div#plo
 }
 
 
-/*  #plots-center-panel: layout of sub-components (positions and margins/paddings) */
 
-#plots-center-panel{ /*first make center div position is relative in order to make the following divs absolute
-	and referring to this div*/
+#plots-center-panel{ 
 	position: relative;
+} */
+
+.flexible-half{
+	flex: 1 1 50%;
 }
 
-.tr, .tl, .br, .bl{
+/* .tr, .tl, .br, .bl{
 	position:absolute;
 	width:42.7vw;
 	height:48.5vh;
@@ -90,7 +87,7 @@ div.main > div.center{ /*div center contains div#controls-left-panel and div#plo
 
 .tr, .br{
 	right: 0vw;
-}
+} */
 
 #select-form{ /*add select form dimensions here cause, when visible, they should fit more or less the width of the left-side plots,
 	leaving room for seeing the current segment metadata panel while choosing what to select*/
@@ -107,15 +104,13 @@ div.main > div.center{ /*div center contains div#controls-left-panel and div#plo
     left: 12.5vw;
 }
 
-div.plot-wrapper{ /*child of .tr, .tb, ... defined above*/
-	position:absolute;
-	top:10px;
-	bottom:10px;
-	right:10px;
-	left:10px;
+
+div.plot-wrapper{ 
+	position:relative;
 }
 
-div.plot{ /*child of plot-wrapper defined above*/
+/*child of plot-wrapper defined above*/
+div.plot{ 
 	position: absolute;
 	margin:0;
 	padding:0;
@@ -124,6 +119,26 @@ div.plot{ /*child of plot-wrapper defined above*/
 	right:0px;
 	left:0px;
 }
+
+/*child of .tr, .tb, ... defined above*/
+/* div.plot-wrapper{ 
+	position:absolute;
+	top:10px;
+	bottom:10px;
+	right:10px;
+	left:10px;
+} */
+
+/*child of plot-wrapper defined above*/
+/* div.plot{ 
+	position: absolute;
+	margin:0;
+	padding:0;
+	top:0px;
+	bottom:0px;
+	right:0px;
+	left:0px;
+} */
 
 
 /* border radia, harmonize for all divs involved */
