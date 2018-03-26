@@ -259,25 +259,22 @@ class Test(unittest.TestCase):
             self.app.config['CONFIG.YAML']['class_labels'] = {'wtf': 'wtfd'}
             clz = self.session.query(Class).count()
             assert clz == 0
-            
-            
-            
+
             rv = app.get('/')
             clz = self.session.query(Class).all()
 
             # assert global yaml config vars are injected as javascript from jinja rendering:
             # (be relaxed, if we change the template yaml file we do not want to fail)
-            expected_str = """var __SETTINGS = {"segment_select": {"has_data": "true"""
+            expected_str = """var __SETTINGS = {"config": {"""
             # https://github.com/pallets/flask/issues/716 is bytes in python3. Fix for both 2 and 3:
             response_data = rv.data.decode('utf-8')
             assert expected_str in response_data
 
-            # assert we wrote the divs for the custom plots (currently 2, at index 3 and 4, respectively):
             expected_str = ["""<div class='plot-wrapper' ng-show='plots[{0:d}].visible'>""",
                             """<div data-plot='time-series' data-plotindex={0:d} class='plot'></div>"""]
-            for plotindex in [2,3]:
-                for e in expected_str:
-                    assert e.format(plotindex) in response_data
+            # In the default processing, we implemented 6 plots, assure they are there:
+            for plotindex in range(6):
+                assert "<div id='plot-{0:d}' class='plot'".format(plotindex) in response_data
             assert len(clz) == 1 and clz[0].label == 'wtf' and clz[0].description == 'wtfd'
             
             # change description:

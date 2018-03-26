@@ -366,8 +366,6 @@ class Test(unittest.TestCase):
             
             expected_components_count = components_count[(s.event_id, s.channel.location)]
 
-            if expected_components_count == 4:
-                ad = 9
             mock_get_stream.reset_mock()
             mock_get_inv.reset_mock()
             mock_get_stream.side_effect = original_get_stream
@@ -393,12 +391,26 @@ class Test(unittest.TestCase):
             assert_(m[s.id][0], s, preprocessed=False)
             assert m[s.id][1] is None
             
+            # from here on, try to calculate the plots for 3 types: main plot (index 0)
+            # index of cumulative, and index of spectra
+            CUMUL_INDEX, SN_INDEX, DERIVCUM2_INDEX = None, None, None
+            for i, p in enumerate(m.userdefined_plots):
+                if p['name'] == 'cumulative':
+                    CUMUL_INDEX = i
+                elif p['name'] == 'sn_spectra':
+                    SN_INDEX = i
+                elif p['name'] == 'derivcum2':
+                    DERIVCUM2_INDEX = i
+            
+            if CUMUL_INDEX is None or SN_INDEX is None or DERIVCUM2_INDEX is None:
+                raise Exception('either the test function names have to be changed, or '
+                                'the processing file needs to implement "cumulative" and "sn_spectra" and "derivcum2"')
+            idxs = [0, SN_INDEX, CUMUL_INDEX, DERIVCUM2_INDEX]
             
             mock_get_stream.reset_mock()
             mock_get_inv.reset_mock()
             allcomponents = True
             preprocessed = False
-            idxs = [0, 1]
             # s_id_was_in_views = s.id in m._plots
             plots = m.get_plots(self.session, s.id, idxs, preprocessed, allcomponents)
 #           # asssert the returned value match the input:
@@ -406,7 +418,10 @@ class Test(unittest.TestCase):
             assert not self.plotslen(m, preprocessed=True)  # assert no filtering calculated
             # assert we did not calculate other components (all_components=False)
             assert self.computedplotslen(m, s.id, preprocessed, allcomponents=False) == len(idxs)
-            assert self.computedplotslen(m, s.id, preprocessed, allcomponents) == expected_components_count+1
+            # if we calculate all components, we should have expected components count PLUS
+            # all plots which are not the main plot (index 0):
+            assert self.computedplotslen(m, s.id, preprocessed, allcomponents) == \
+                expected_components_count + sum(_!=0 for _ in idxs) 
             # assert SegmentWrapper function calls:
             assert not mock_get_inv.called  # preprocess=False
             assert not mock_get_stream.called  # already computed
@@ -418,7 +433,6 @@ class Test(unittest.TestCase):
             mock_get_inv.reset_mock()
             allcomponents = False
             preprocessed = True
-            idxs = [0, 1]
             # s_id_was_in_views = s.id in m._plots
             plots = m.get_plots(self.session, s.id, idxs, preprocessed, allcomponents)
 #           # asssert the returned value match the input:
@@ -441,7 +455,6 @@ class Test(unittest.TestCase):
             mock_get_inv.reset_mock()
             allcomponents = True
             preprocessed = True
-            idxs = [0, 1]
             # s_id_was_in_views = s.id in m._plots
             plots = m.get_plots(self.session, s.id, idxs, preprocessed, allcomponents)
             # asssert the returned value match the input:
@@ -502,6 +515,7 @@ class Test(unittest.TestCase):
                     assert not plot.warnings  # gaps /overlaps
                     assert len(pplot.data) == 1 # only one (fake) trace
                     assert pplot.warnings and 'inventory' in pplot.warnings[0]  # gaps /overlaps
+
             # assert we did not calculate any useless stream:
             assert_(m[s.id][0], s, preprocessed=False)
             assert_(m[s.id][1], s, preprocessed=True)
@@ -524,11 +538,9 @@ class Test(unittest.TestCase):
             m = PlotManager(self.pymodule, self.config)
             
             # calculate plots
-            idxs = [0, 1]
             m.get_plots(self.session, s.id, idxs, preprocessed=False, all_components_in_segment_plot=True)
             m.get_plots(self.session, s.id, idxs, preprocessed=True, all_components_in_segment_plot=True)
             # and store their values for later comparison
-            SN_INDEX = 1
             sn_plot_unprocessed = m[s.id][0][SN_INDEX].data
             sn_plot_preprocessed = m[s.id][1][SN_INDEX].data
             # shift back the arrival time. 1 second is still within the stream time bounds for the 'ok'
@@ -540,7 +552,6 @@ class Test(unittest.TestCase):
             assert_(m[s.id][0], s, preprocessed=False, is_invalidated=True)
             assert m[s.id][1] is None
             # and run again the get_plots: with preprocess=False
-            idxs = [0, 1]
             plots = m.get_plots(self.session, s.id, idxs, preprocessed=False, all_components_in_segment_plot=True)
             assert_(m[s.id][0], s, preprocessed=False)
             assert m[s.id][1] is None

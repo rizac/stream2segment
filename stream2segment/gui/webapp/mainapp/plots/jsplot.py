@@ -79,7 +79,8 @@ class Plot(object):
             displayed on the plot legend, if any
         :raise: ValueError if series with different domain types are added
         """
-        verr = ValueError("mixed x-domain types (e.g., time and numeric)")
+        verr = ValueError("conflicting x-domain types "
+                          "(e.g., adding time-series and numeric-series to the same plot)")
         if isinstance(x0, (datetime, UTCDateTime)) or isinstance(dx, timedelta):
             x0 = x0 if isinstance(x0, UTCDateTime) else UTCDateTime(x0)
             if isinstance(dx, timedelta):
