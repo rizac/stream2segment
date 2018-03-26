@@ -129,7 +129,7 @@ class S2SArgument(object):
             return name, dic.pop(name) if pop else dic[name]
 
         except KeyError as _:
-            raise MissingArg(ConflictingArgs.formatnames(self.names))
+            raise MissingArg(ConflictingArgs.formatnames(*self.names))
 
     def getfrom(self, dic, default=None, callback=None, **callback_kwargs):
         '''Gets and returns the value mapped to this argument from `dic`.

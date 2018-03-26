@@ -21,8 +21,6 @@ import sys
 import logging
 from contextlib import contextmanager
 import warnings
-import re
-import traceback
 
 import numpy as np
 
@@ -42,10 +40,11 @@ def run(session, pyfunc, ondone=None, config=None, show_progress=False):
     if config is None:
         config = {}
 
-    # suppress obspy warnings. Doing process-wise is more feasible FIXME: do it?
-    warnings.filterwarnings("default")  # https://docs.python.org/2/library/warnings.html#the-warnings-filter @IgnorePep8
-    s = StringIO()
-    logger_handler = logging.StreamHandler(s)
+    # suppress obspy warnings
+    # # https://docs.python.org/2/library/warnings.html#the-warnings-filter
+    warnings.filterwarnings("default")
+    warn_string_io = StringIO()
+    logger_handler = logging.StreamHandler(warn_string_io)
     logger_handler.setLevel(logging.WARNING)
     logging.captureWarnings(True)
     warnings_logger = logging.getLogger("py.warnings")
@@ -78,7 +77,9 @@ def run(session, pyfunc, ondone=None, config=None, show_progress=False):
         seg_len = seg_sta_ids.shape[0]
 
         def stationssaved():
-            return session.query(func.count(Station.id)).filter(Station.has_inventory).scalar()  # @IgnorePep8
+            '''returns how many station inventories are saved on the db (int)'''
+            return session.query(func.count(Station.id)).filter(Station.has_inventory).scalar()
+
         stasaved = stationssaved()
         # purge session (needed or not, it's for safety):
         session.expunge_all()
@@ -91,16 +92,16 @@ def run(session, pyfunc, ondone=None, config=None, show_progress=False):
 
         with redirect(sys.stderr):
             with get_progressbar(show_progress, length=seg_len) as pbar:
-                
+
                 for row in seg_sta_ids:
                     seg_id, sta_id = row.tolist()
                     # check if we already loaded a segment from a previous segment's
                     # orientations:
                     if segment is not None:
                         other_orients_list = getattr(segment, "_other_orientations", [])
-                        for sg in other_orients_list:
-                            if sg.id == seg_id:
-                                segment = sg
+                        for sgo in other_orients_list:
+                            if sgo.id == seg_id:
+                                segment = sgo
                                 break
                         else:
                             # other orientations not found or not loaded, expunge segment:
@@ -124,7 +125,7 @@ def run(session, pyfunc, ondone=None, config=None, show_progress=False):
                         segment = seg_query.get(seg_id) or \
                             seg_query.filter(Segment.id == seg_id).\
                             options(load_only(Segment.id)).first()
-                    segment._inventory = inventory  #pylint: disable=protected-access
+                    segment._inventory = inventory  # pylint: disable=protected-access
                     station_id = sta_id
                     try:
                         array_or_dic = pyfunc(segment, config)
@@ -144,11 +145,11 @@ def run(session, pyfunc, ondone=None, config=None, show_progress=False):
                         skipped_error += 1
                     # check if we loaded the inventory and set it as last computed
                     # little hack: check if the "private" field is defined:
-                    if inventory is None and segment._inventory is not None:  #pylint: disable=protected-access
-                        inventory = segment._inventory  #pylint: disable=protected-access
+                    if inventory is None and segment._inventory is not None:
+                        inventory = segment._inventory
                     pbar.update(1)
 
-        captured_warnings = s.getvalue()
+        captured_warnings = warn_string_io.getvalue()
         if captured_warnings:
             logger.info("(external warnings captured, if provided, see log file for details)")
             logger.info("")
@@ -171,8 +172,8 @@ def run(session, pyfunc, ondone=None, config=None, show_progress=False):
             logger.info("station inventories saved: %d", (stasaved2-stasaved))
 
         logger.info("%d of %d segments successfully processed\n", done, seg_len)
-        if skipped: # this is the case when ondone is provided AND pyfunc returned None
-            logger.info("%d of %d segments skipped without messages\n" , skipped, seg_len)
+        if skipped:  # this is the case when ondone is provided AND pyfunc returned None
+            logger.info("%d of %d segments skipped without messages\n", skipped, seg_len)
         logger.info("%d of %d segments skipped with error message "
                     "(check log or details)\n", skipped_error, seg_len)
 

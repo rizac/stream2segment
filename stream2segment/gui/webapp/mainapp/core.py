@@ -12,20 +12,16 @@ from builtins import map, zip
 
 import re
 from itertools import cycle
+import json
 
 from sqlalchemy import func
-from sqlalchemy.exc import SQLAlchemyError
 
-from stream2segment.io.db.pdsql import colnames
-from stream2segment.io.db.models import Segment, Class, Station, Channel, DataCenter, Event,\
-    ClassLabelling, Download
+from stream2segment.io.db.models import Segment, Class, Station, ClassLabelling, Download
 from stream2segment.gui.webapp.mainapp.plots.jsplot import jsontimestamp
 # from stream2segment.io.db import sqlevalexpr
 from stream2segment.utils.resources import yaml_load_doc, get_templates_fpath
 from stream2segment.io.db.sqlevalexpr import exprquery, inspect_instance, inspect_model
-from sqlalchemy.orm import load_only
 from stream2segment.process.utils import getseg
-import json
 
 
 NPTS_WIDE = 900  # FIXME: automatic retrieve by means of Segment class relationships?
@@ -81,8 +77,7 @@ def get_metadata(session, seg_id=None):
         segment = getseg(session, seg_id)
         if not segment:
             return []
-        else:
-            return inspect_instance(segment, exclude=excluded_colnames)
+        return inspect_instance(segment, exclude=excluded_colnames)
     else:
         # return inspect_model but convert types into their names (json serializable)
         return [[aname, getattr(aval, "__name__", "unknown")] for aname, aval in
@@ -91,7 +86,7 @@ def get_metadata(session, seg_id=None):
 
 def set_class_id(session, segment_id, class_id, value):
     segment = getseg(session, segment_id)
-    annotator = 'web app labeller'  # FIXME: use a session username or the computer username?
+    annotator = 'web app labeller'  # in the future we might use a session or computer username
     if value:
         segment.add_classes(class_id, annotator=annotator)
     else:
@@ -164,6 +159,7 @@ def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components,
             sn_windows = []
 
     return {'plots': [p.tojson(z, NPTS_WIDE) for p, z in zip(plots, zooms_)],
+            'plot_types': [p.is_timeseries for p in plots],
             'sn_windows': sn_windows,
             'metadata': [] if not metadata else get_metadata(session, seg_id),
             'classes': [] if not classes else get_classes(session, seg_id)}
@@ -187,30 +183,6 @@ def parse_zooms(zooms, plot_indices):
             zoom = [None, None]
         _zooms.append(zoom)
     return _zooms  # set zooms to None if length is not enough
-
-
-def get_doc(key, plotmanager):
-    '''returns the doc from the given key:
-    :param plotmanager: the plotmanager. Used if key is 'preprocessfunc' (see below)
-    :param key: 'preprocessfunc' (the doc will be the python doc implemented from the user)
-    'sn_windows' (the doc will be parsed by the gui.yaml file implemented in resources folder),
-    'segment_select' (the doc for the segment selection popup div)
-    '''
-    if key == 'preprocessfunc':
-        ret = plotmanager.get_preprocessfunc_doc
-        idx = ret.find("\n\n")
-        if idx > -1:
-            ret = ret[:idx]
-    elif key == 'sn_windows':
-        ret = yaml_load_doc(get_templates_fpath("processing.yaml"), "sn_windows", True)
-    elif key == 'segment_select':
-        ret = yaml_load_doc(get_templates_fpath("processing.yaml"), "segment_select", True)
-        # remove the example session cause is misleading from the GUI (double string quotation
-        # is not needed) and redundant (the form should be already self-explanatory):
-        ret = re.sub("\\s+Example:.*$", "", ret, flags=re.DOTALL)  # @UndefinedVariable
-    if not ret:
-        ret = "error: documentation N/A"
-    return ret.strip()
 
 
 def flatten_dict(config, prefix=''):

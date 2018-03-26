@@ -288,7 +288,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			var title = plotData[0];
 			var elements = plotData[1];
 			var warnings = plotData[2] || "";
-			var xrange = plotData[3] || null;
+			var isTimeSeries = plotData[3] || false;
 			//http://stackoverflow.com/questions/40673490/how-to-get-plotly-js-default-colors-list
 			// var colors = Plotly.d3.scale.category20();  // removed for the moment
 			var data = [];
@@ -315,17 +315,12 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 				data.push(elmData);
 			}
 			
-			var layout = getPlotLayout({xaxis: $scope.plots[i].xaxis, yaxis: $scope.plots[i].yaxis});
-
-			// hack for setting the title left (so that the tool-bar does not overlap
-			// so easily). Comment this:
-			// layout.title = title;
-			// and set the first annotation (provided in configPlots)
-			if (layout.annotations){
-				layout.annotations[0].text = title;
-			}
-			if (layout.xaxis){
-				layout.xaxis.title = warnings;  // to control the color font of the warning, see plotlyconfig.js 'titlefont'
+			var layout = getPlotLayout(warnings, {xaxis: $scope.plots[i].xaxis, yaxis: $scope.plots[i].yaxis});
+			// check the xaxis type. If present, we provided it from the function decorator, 
+			// otherwise check it from the plot data. If not timeseries, let plotly infer it
+			// (https://plot.ly/javascript/reference/#layout-xaxis-type)
+			if (!layout.xaxis.type && isTimeSeries){
+				layout.xaxis.type = 'date';
 			}
 			if (i==0){ // spectra windows
 				// https://plot.ly/javascript/shapes/#vertical-and-horizontal-lines-positioned-relative-to-the-axes
@@ -381,8 +376,9 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			plotStuff.push({div: div, data: data, layout:layout, index:i});
 		}
 		
-		// delay execution of redraw so that angular has put in place all divs with the
-		// correct size (hopefully)
+		// delay execution of redraw. This was due to make all DOM rendered with the correct
+		// sizes, which is needed to lay out plots. This is not anymore necessary, but
+		// we leave this functionality for safety:
 		$timeout(function(){
 			plotStuff.forEach(function(elm){
 				var uninit = !(elm.div.data);
@@ -396,7 +392,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 				}
 			});
 			$scope.warnMsg = "";
-		},1000);
+		}, 100);
 	};
 
 	// inits plots events on the given plot index:
@@ -465,19 +461,44 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 /** define here the plotly default layout for all plots, xaxis and yaxis stuff mught be overridden
 /* by the user
  */
-function getPlotLayout(...layoutOverrides){
+function getPlotLayout(warningMessage, ...layoutOverrides){
+	var annotations = [{  // https://plot.ly/javascript/reference/#layout-annotations
+		    xref: 'paper',
+		    yref: 'paper',
+		    x: 0,
+		    xanchor: 'left',
+		    y: 1.01, //.98,
+		    yanchor: 'bottom',
+		    text: '',
+		    showarrow: false,
+		    font: {
+		        color: '#000000'
+		      },
+		  }];
+	if(warningMessage){
+		annotations.push({
+		    xref: 'paper',
+		    yref: 'paper',
+		    x: 0.5,  // 0.01,
+		    xanchor: 'center',
+		    y: 0.5, //.98,
+		    yanchor: 'middle',
+		    text: warningMessage,
+		    showarrow: false,
+		    bordercolor: '#ffffff', // '#c7c7c7',
+		    bgcolor: '#C0392B',
+		    font: {
+		        color: '#FFFFFF'
+		      },
+		  });
+	}
 	var PLOTLY_DEFAULT_LAYOUT = { //https://plot.ly/javascript/axes/
-		margin:{'l':52, 't':36, 'b':60, 'r':15},
+		margin:{'l':55, 't':36, 'b':45, 'r':15},
 		pad: 0,
 		autosize: true,
 		xaxis: {
 			autorange: true,
 			tickangle: 0,
-			type: 'date',
-			titlefont: {  // THIS SETS THE WARNING ERRORS FONT!! (AS OF JULY 2017)
-			      color: '#df2200',
-			      size: 10
-			},
 			linecolor: '#ddd',
 			linewidth: 1,
 			mirror: true
@@ -489,28 +510,7 @@ function getPlotLayout(...layoutOverrides){
 		    mirror: true
 			//fixedrange: true
 		},
-		annotations: [{
-		    xref: 'paper',
-		    yref: 'paper',
-		    x: 0,  // 0.01,
-		    xanchor: 'left',
-		    y: 1.01, //.98,
-		    yanchor: 'bottom',
-		    text: '',
-		    showarrow: false,
-		    bordercolor: '#ddd', // '#c7c7c7',
-		    borderwidth: 1,
-		    borderpad: 7,
-		    bgcolor: '#f5f5f5', //  'rgba(31, 119, 180, .1)',  // = '#1f77b4',
-		    // opacity: 0.1,
-		    font: {
-		        // family: 'Courier New, monospace',
-		        // size: 16,
-		        color: '#000000'
-		      },
-		  }],
-//		plot_bgcolor: '#444',
-//		paper_bgcolor: '#eee'
+		annotations: annotations
 	};
 	return mergeDeep(PLOTLY_DEFAULT_LAYOUT, ...layoutOverrides);
 }

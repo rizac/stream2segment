@@ -31,15 +31,12 @@ def main():
         config.pop(key, None)
     # create a flatten dict by joininf nested dict keys with the dot:
     settings['config'] = core.flatten_dict(config)
-    preprocessfunc_doc = core.get_doc('preprocessfunc', plotmanager)
-    segment_select_doc = core.get_doc('segment_select', plotmanager)
     # filterfunc_doc = current_app.config['PLOTMANAGER'].get_filterfunc_doc.replace("\n", "<p>")
     return render_template('mainapp.html', title=secure_dburl(current_app.config["DATABASE"]),
                            settings=settings,
                            rightPlots=[_ for _ in ud_plots if _['position'] == 'r'],
                            bottomPlots=[_ for _ in ud_plots if _['position'] == 'b'],
-                           preprocessfunc_doc=preprocessfunc_doc,
-                           segment_select_doc=segment_select_doc)
+                           preprocessfunc_doc=plotmanager.get_doc(-1))
 
 
 @main_app.route("/get_segments", methods=['POST'])
@@ -47,7 +44,8 @@ def init():
     data = request.get_json()
     # Note: data.get('segment_orderby', None) is not anymore implemented in the config
     # it will default to None (order by event time desending and by event_distance ascending)
-    dic = core.get_segments(get_session(current_app), data.get('segment_select', None),
+    dic = core.get_segments(get_session(current_app),
+                            data.get('segment_select', None),
                             data.get('segment_orderby', None),
                             data.get('metadata', False),
                             data.get('classes', False))

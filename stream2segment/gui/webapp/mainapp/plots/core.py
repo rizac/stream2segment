@@ -3,7 +3,7 @@ Module to handle plots on the GUI. Most efforts are done here
 in order to cache `obspy.traces` data and avoid re-querying it to the db, and caching `Plot`'s
 objects (the objects representing a plot on the GUI) to avoid re-calculations, when possible.
 
-The class implement a `PlotMAnager` which, as the name says, is a cache-like dict
+The class implement a `PlotManager` which, as the name says, is a cache-like dict
 (i.e., with limited size for memory performances, discarding old items first). The class
 handles all the plots currently loaded in the GUI
 
@@ -36,7 +36,7 @@ from obspy.core import Stream, Trace
 from stream2segment.io.db.models import Segment
 from stream2segment.utils import iterfuncs
 from stream2segment.gui.webapp.mainapp.plots.jsplot import Plot
-from stream2segment.process.utils import enhancesegmentclass, getseg
+from stream2segment.process.utils import enhancesegmentclass, getseg, gui
 
 
 class SegmentPlotList(list):
@@ -81,7 +81,7 @@ class SegmentPlotList(list):
         '''
         index_of_main_plot = 0  # the index of the function returning the
         # trace plot (main plot returning the trace as it is)
-        for key in (self.data if hard else self._data_to_invalidate):
+        for key in self.data if hard else self._data_to_invalidate:
             self.data[key] = None
         for i in range(len(self)):
             if not hard and i == index_of_main_plot:
@@ -127,50 +127,10 @@ class SegmentPlotList(list):
         with enhancesegmentclass(config):
             try:
                 funcres = self.exec_func(func, session, invcache, config)
-                if isinstance(funcres, Plot):
-                    # this should be called internally when generating main plot:
-                    plt = funcres
-                elif isinstance(funcres, Trace):
-                    plt = Plot.fromtrace(funcres)
-                elif isinstance(funcres, Stream):
-                    plt = Plot.fromstream(funcres)
-                else:
-                    labels = cycle([None])
-                    if isinstance(funcres, dict):
-                        labels = iter(funcres.keys())
-                        itr = iter(funcres.values())
-                    elif type(funcres) == tuple:
-                        itr = [funcres]  # (x0, dx, values, label_optional)
-                    else:
-                        itr = funcres  # list of mixed types above
-
-                    plt = Plot("", "")
-
-                    for label, obj in zip(labels, itr):
-                        if isinstance(obj, tuple):
-                            try:
-                                x0, dx, y, label = obj
-                            except ValueError:
-                                try:
-                                    x0, dx, y = obj
-                                except ValueError:
-                                    raise ValueError(("Cannot create plot from tuple (length=%d): "
-                                                      "Expected (x0, dx, y) or (x0, dx, y, label)"
-                                                      "") % len(obj))
-                            plt.add(x0, dx, y, label)
-                        elif isinstance(obj, Trace):
-                            plt.addtrace(obj, label)
-                        elif isinstance(obj, Stream):
-                            for trace in obj:
-                                plt.addtrace(trace, label)
-                        else:
-                            raise ValueError(("Cannot create plot from %s (length=%d): ") %
-                                             str(type(obj)))
-
+                plt = self.convert2plot(funcres)
             except Exception as exc:
                 # add dummy series (empty):
-                plt = Plot('', warnings="ERROR: %s" % str(exc)).add(0, 1, [])
-
+                plt = Plot('', warnings=str(exc)).add(0, 1, [])
             # set title:
             title_prefix = self.data.get('plot_title_prefix', '')
             if func_name is None:
@@ -213,13 +173,13 @@ class SegmentPlotList(list):
                     try:
                         self.data['sn_windows'] = segment.sn_windows()
                     except Exception as exc:
-                        self.data['sn_windows'] = ValueError("Error calculating "
-                                                             "'sn_windows': %s" % str(exc))
+                        self.data['sn_windows'] = exc
+
                 if inventory is None:
                     invcache[segment] = segment._inventory  # might be exc, or None
                 # reset segment stream to None, for safety: we do not know if it refers
                 # to a pre-processed stream or not, and thus segment._stream needs to be set from
-                # self.data each time we are here. Note that this should not eb a problem as
+                # self.data each time we are here. Note that this should not be a problem as
                 # the web app re-initializes the session each time (thus each segment SHOULD have
                 # no _stream attribute), but for safety we remove it:
                 segment._stream = None
@@ -236,6 +196,51 @@ class SegmentPlotList(list):
                     if title is not None:
                         # try to get it from the stream. Otherwise, get it from the segment
                         self.data['plot_title_prefix'] = title
+
+    @staticmethod
+    def convert2plot(funcres):
+        '''converts the result of a function to a plot. Raises if funcres is not
+        in any valid format'''
+        if isinstance(funcres, Plot):
+                # this should be called internally when generating main plot:
+            plt = funcres
+        elif isinstance(funcres, Trace):
+            plt = Plot.fromtrace(funcres)
+        elif isinstance(funcres, Stream):
+            plt = Plot.fromstream(funcres)
+        else:
+            labels = cycle([None])
+            if isinstance(funcres, dict):
+                labels = iter(funcres.keys())
+                itr = iter(funcres.values())
+            elif isinstance(funcres, tuple):
+                itr = [funcres]  # (x0, dx, values, label_optional)
+            else:
+                itr = funcres  # list of mixed types above
+
+            plt = Plot("", "")
+
+            for label, obj in zip(labels, itr):
+                if isinstance(obj, tuple):
+                    try:
+                        x0, dx, y, label = obj
+                    except ValueError:
+                        try:
+                            x0, dx, y = obj
+                        except ValueError:
+                            raise ValueError(("Cannot create plot from tuple (length=%d): "
+                                              "Expected (x0, dx, y) or (x0, dx, y, label)"
+                                              "") % len(obj))
+                    plt.add(x0, dx, y, label)
+                elif isinstance(obj, Trace):
+                    plt.addtrace(obj, label)
+                elif isinstance(obj, Stream):
+                    for trace in obj:
+                        plt.addtrace(trace, label)
+                else:
+                    raise ValueError(("Cannot create plot from %s (length=%d): ") %
+                                     str(type(obj)))
+        return plt
 
 
 class LimitedSizeDict(OrderedDict):
@@ -314,21 +319,21 @@ class PlotManager(LimitedSizeDict):
             raise Exception("No function decorated with '@gui.preprocess'")
 
         def main_function(segment, config):
+            '''Returns the segment stream'''
             return Plot.fromstream(segment.stream())
 
         self.preprocessfunc = preprocess_func
 
         index = 1
         for func in iterfuncs(pymodule):
-            att = getattr(func, "_s2s_att", "")
+            att, pos, xaxis, yaxis = gui.get_func_attrs(func)
             if att == 'gui.preprocess':
                 self.preprocessfunc = func
             elif att == 'gui.plot':
                 self.functions.append(func)
-                self._functions_atts.append({'name': func.__name__,
-                                             'index': index,
-                                             'position': func._s2s_position,
-                                             'xaxis': func._s2s_xaxis, 'yaxis': func._s2s_yaxis})
+                self._functions_atts.append({'name': func.__name__, 'index': index,
+                                             'position': pos, 'xaxis': xaxis, 'yaxis': yaxis,
+                                             'doc': func.__doc__})
                 index += 1
 
         self.functions = [main_function] + self.functions
@@ -341,13 +346,17 @@ class PlotManager(LimitedSizeDict):
         '''
         return self._functions_atts
 
-    @property
-    def get_preprocessfunc_doc(self):
+    def get_doc(self, index=-1):
+        '''Returns the documentation for the given custom function.
+        :param index: if negative, returns the doc for the preprocess function, otherwise
+        is the index of the i-th function (index 0 refers to the main function plotting the
+        segment stream)
+        '''
         try:
-            ret = self.preprocessfunc.__doc__
+            ret = self.preprocessfunc.__doc__ if index < 0 else self._functions_atts[index].doc
             if not ret.strip():
                 ret = "No function doc found: check GUI python file"
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-except
             ret = "Error getting function doc:\n%s" % str(exc)
         return ret
 

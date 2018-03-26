@@ -80,7 +80,7 @@ class Plot(object):
         :raise: ValueError if series with different domain types are added
         """
         verr = ValueError("mixed x-domain types (e.g., time and numeric)")
-        if isinstance(x0, datetime) or isinstance(x0, UTCDateTime) or isinstance(dx, timedelta):
+        if isinstance(x0, (datetime, UTCDateTime)) or isinstance(dx, timedelta):
             x0 = x0 if isinstance(x0, UTCDateTime) else UTCDateTime(x0)
             if isinstance(dx, timedelta):
                 dx = dx.total_seconds()

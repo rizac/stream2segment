@@ -1,93 +1,9 @@
 
-/* Main divs layout (left panel -with controls buttons etcetera - and center panel - with plots + metadata)
-Remember: flex doesn't work with plotly (as of march 2017)
-*/
-
-/* #controls-left-panel{
-	height:100%;
-	float: left;
-	width: 13vw;
-}
-
-#plots-center-panel{
-	height:100%;
-	margin-left: 13vw;
-}
-
-
-
-#controls-left-panel{
-	border: 1px solid #ddd;
-	padding: 10px;
-}
-
-#controls-left-panel .alert {
-    margin-bottom: 0;
-}
-
-#controls-left-panel  .inline{
-    margin-top: 10px;
-    margin-bottom: 10px;	
-}
-#controls-left-panel .inline:last-child{
-	margin-bottom:0 !important;
-}
-#controls-left-panel .inline:first-child{
-	margin-top:0 !important;
-}
-
-#controls-left-panel .sel-prev-next button:first-child{
-	margin-right: 6px;
-}
-
-#controls-left-panel .sn-wdw-controls{
-	align-items: baseline;
-}
-
-#controls-left-panel .sn-wdw-controls >div:not(:first-child){
-	margin-top: 6px;
-}
-
-#controls-left-panel .sn-wdw-controls label{
-	text-align:right;
-	margin-right: 6px;
-}
-
-#controls-left-panel .sn-wdw-controls input.form-control{
-	width:5.5em;
-}
-
-
-
-#plots-center-panel{ 
-	position: relative;
-} */
+/* Main divs layout (left panel -with controls buttons etcetera - and center panel - with plots + metadata)*/
 
 .flexible-half{
 	flex: 1 1 50%;
 }
-
-/* .tr, .tl, .br, .bl{
-	position:absolute;
-	width:42.7vw;
-	height:48.5vh;
-}
-
-.tr, .tl{
-	top: 0vh;
-}
-
-.br, .bl{
-	bottom: 0vh;
-}
-
-.tl, .bl{
-	left: 0.5vw;
-}
-
-.tr, .br{
-	right: 0vw;
-} */
 
 #select-form{ /*add select form dimensions here cause, when visible, they should fit more or less the width of the left-side plots,
 	leaving room for seeing the current segment metadata panel while choosing what to select*/
@@ -99,9 +15,9 @@ Remember: flex doesn't work with plotly (as of march 2017)
 
 #config-form {
     position: fixed;
-    top: 30vh;
+    top: 10vh;
     width: 45.5vw;
-    left: 12.5vw;
+    left: 32.5vw;
 }
 
 
@@ -120,47 +36,45 @@ div.plot{
 	left:0px;
 }
 
-/*child of .tr, .tb, ... defined above*/
-/* div.plot-wrapper{ 
-	position:absolute;
-	top:10px;
-	bottom:10px;
-	right:10px;
-	left:10px;
-} */
-
-/*child of plot-wrapper defined above*/
-/* div.plot{ 
-	position: absolute;
-	margin:0;
-	padding:0;
-	top:0px;
-	bottom:0px;
-	right:0px;
-	left:0px;
-} */
-
-
-/* border radia, harmonize for all divs involved */
-
-.tr, .tl, .bl, #controls-left-panel, div.panel{
-	border-radius: 10px !important;
+.navbar{
+	padding: 5px;
+	margin-bottom: 10px;
+	background-color: #f5f5f5;
+	box-shadow: 0 2px 5px 0 rgba(0,0,0,.16),0 2px 10px 0 rgba(0,0,0,0.12)!important;
 }
-div.panel > .panel-heading{ 
-	border-top-left-radius: 10px !important;
-	border-top-right-radius: 10px !important;
+.main > div.center{
+	padding: 10px;
+	padding-top: 0px;
 }
 
-
-/* plot divs: look and feel */
-
-.tr, .tl, .bl{
-	/*this makes the panel nicer as plotly div does not extend the full width:*/
-	background-color: white;
-	border: 1px solid #ddd;
-	resize: both;
+.flex-direction-row.toolbar{
+	align-items: baseline;
+    white-space: nowrap;
+    overflow: auto;
+}
+.flex-direction-row.toolbar > *:not(:first-child){
+	margin-left: 10px;
+}
+.flex-direction-col.toolbar{
+	align-items:stretch;
+    white-space: nowrap;
+    overflow: auto;
+}
+.flex-direction-col.toolbar > *:not(:first-child){
+	margin-top: 10px;
 }
 
+.v-divider{
+	display: inline-block;
+	height: 1em;
+	border-left: 1px solid #ddd;
+}
+
+.note {
+    font-weight: normal;
+    color: #777; /* same as bootstrap .text-muted*/
+    font-size: 85%; /* same as bootstrap .small*/
+}
 
 /* metadata panel (right bottom) */
 
@@ -208,16 +122,6 @@ div.metadata > div.panel-body{
 }
 
 
-/* override bootstrap */
-
-.divider { /* in bootstrap .divider works only inside a dropdown-menu: make it general (copied and pasted from bootstrap) */
-    height: 1px;
-    margin: 9px 0;
-    overflow: hidden;
-    background-color: #e5e5e5;
-}
-
-
 /* popups (info, docs etcetera)*/
 
 .popup > div.center{
@@ -225,6 +129,24 @@ div.metadata > div.panel-body{
 	height: 70vh;
 	margin-bottom: 16px;
 	margin-top: 16px;
+}
+
+.popup > div.center > table{
+	width: 100%;
+}
+
+.popup > div.center > table th{
+	background-color: #f5f5f5;
+	vertical-align: top;
+}
+
+.popup > div.center > table td, .popup > div.center > table th{
+	padding-top: 5px;
+	padding-left: 10px;
+}
+
+.popup > div.center > table td:first-child{
+	text-align: right;
 }
 
 .popup{
@@ -239,60 +161,36 @@ div.metadata > div.panel-body{
     box-shadow: 0 6px 12px rgba(0,0,0,.175);
 }
 
-
 /* help stuff (including tooltips) */
-
-.tooltip_{
-	position: relative;
-    box-sizing: content-box;
-    vertical-align: baseline;
-    display: inline-block;
-    color: #ddd;
-    font-weight: 900;
-    width: 1.5em;
-    border-radius: 100%;
-    border: 3px solid rgba(0,0,0,0.1);
-    margin: -3px;
-    margin-left: 7px;
-    font-size: smaller;
-    text-align: center;
-    text-decoration: none;
-}
-
-.tooltip_ .tooltiptext {
-    visibility: hidden;
-    font-family: inherit;
-    font-size: inherit;
-    background-color: #555;
-    color: #fff;
-    text-align: center;
-    border-radius: 6px;
-    padding: 10px;
-    position: absolute;
-    z-index: 10;
-    opacity: 0;
-    transition: opacity 1.5s;
-    min-width: 30em;
-    max-height: 50vh;
-    left: 125%;
- 
-}
-
-.tooltip_ .tooltiptext .border{
-	display: inline-block;
-	margin-top: 2px;
-	padding: 3px;
-	background-color: #555;
-    color: #fff;
-    border: 1px solid #fff;
-}
-
-.tooltip_:hover .tooltiptext {
-    visibility: visible;
-    opacity: 1;
-}
 
 .select-highlighted{
 	font-weight: bold;
 	color: ForestGreen;
+}
+
+/* loader (or waitbar: see https://www.pexels.com/blog/css-only-loaders/ */
+.loader {
+  height: 6px;
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+  background-color: #ddd;
+}
+.loader:before{
+  display: block;
+  position: absolute;
+  content: "";
+  left: -200px;
+  width: 200px;
+  height: 4px;
+  background-color: #2980b9;
+  animation: loading 2s linear infinite;
+}
+@keyframes loading {
+    from {left: -200px; width: 30%;}
+    50% {width: 30%;}
+    70% {width: 70%;}
+    80% { left: 50%;}
+    95% {left: 120%;}
+    to {left: 100%;}
 }

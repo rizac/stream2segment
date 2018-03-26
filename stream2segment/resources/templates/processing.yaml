@@ -6,14 +6,6 @@
 # waveform segments and defining the segment plots to be visualized in the web GUI
 # (Graphical user interface)
 #
-# This file can be edited and passed to the commands `s2s v` (visualize) and `s2s p` (process) of
-# the program as -c or --configfile option, together with an associated python file implementing
-# the processing source code (-p option):
-# ```
-#     s2s v -p [pythonfilepath] -c [thisfilepath] ...
-#     s2s p -p [pythonfilepath] -c [thisfilepath] ...
-# ```
-#
 # This module needs to implement few mandatory (non-deletable) parameters
 # ('segment_select', 'save_inventory' and 'sn_windows') but everything else can be user
 # defined. Write here (http://docs.ansible.com/ansible/latest/YAMLSyntax.html) anything you need
@@ -198,25 +190,32 @@
 # download.program_version          str
 # ================================= ================================================
 
-# Here you can select which segments to work on, discarding non-matching segments.
-# For a given segment attribute, type a select condition given in any of the following string expressions:
-# 1. A list of space-separated values: select segment matching those values only (sql 'in' operator)
-# 2. A value preceeded by any of the symbols: = >= > < <= !=
-# 3. A tuple or list (same syntax as python) of two values: select segments whose value is in between (sql 'between' operator)
-#    [a ,b] will select values including a and b, whereas (a, b) will select values not including a and b.
-#    You can mix them, e,g: (4,5] to select values greater than 4 and lower or equal than 5
+# Here you can select which segments to work on. If this argument is missing, all segments
+# will be shown (from within the GUI) or processed. The selection is made via the list-like argument:
+# segment_select:
+#   <att>: "<expression>"
+#   <att>: "<expression>"
+#   ...
+# where each <att> is any of the attributes above, and "<expression>" (quoted, i.e. within "")
+# is a simplified sql expression where:
+# a b c                     select segment where A is a, b or c (sql 'in' operator)
+# [a, b]                    select segments where A is between a and b (including endpoints)
+# (a, b)                    select segments where A is between a and b (excluding endpoints)
+# =a, >=a, >a <a <=b, !=b:  (self-explanatory)
 #
-# Example: to select and work on segments of year 2017 only, whose id is in a specified list of
+# Example: to select and work on segments of year 2017 only, from a specified list of
 # ids (e.g., 1 4 5 67 89 342), with downloaded waveform data (non empty data),
 # whose event magnitude is greater than 4.2,
 # and whose channel sensor description is 'GURALP CMG-40T-30S', write:
+#
 # segment_select:
 #   has_data: true
 #   id: "1 4 5 67 89 342"
 #   event.latitude: ">4.2"
 #   station.start_time: "[2017-01-01T00:00:00, 2018-01-01T00:00:00)"
 #   channel.sensor_description: "'GURALP CMG-40T-30S'"
-# (note: for str types with spaces we need to quote twice: 'GURALP CMG-40T-30S', as otherwise "GURALP CMG-40T-30S"
+#
+# (note: for str types with spaces we need to quote twice, as otherwise "GURALP CMG-40T-30S"
 # would match 'GURALP' and 'CMG-40T-30S', but not the whole string)
 segment_select:
   has_data: 'true'
@@ -229,11 +228,13 @@ segment_select:
   # event.longitude: "[-11, 24]"
 
 # Boolean flag indicating whether station inventories (in xml format) should be saved to the database
-# when they need to be downloaded
-# Saving inventories might speed up further processing but increases db size
+# when they need to be downloaded during processing. Defaults to False when not given.
+# From within the GUI, this parameter is not used
 save_inventory: False
 
-# Settings for computing the 'signal' and 'noise' time windows on a segment waveform
+# Settings for computing the 'signal' and 'noise' time windows on a segment waveform.
+# If you do not need to use of `segment.sn_windows()`
+# from the processing (or inspect the windows viaually from within the GUI), then this parameter is optional
 #
 # Arrival time shift: shifts the calculated arrival time of
 # each segment by the specified amount of time (in seconds). Negative values are allowed.
@@ -253,8 +254,7 @@ sn_windows:
   signal_window: [0.1, 0.9]  # either a number (in seconds) or interval relative to the % of the cumulative
 
 
-# settings for the current implementation of the sn (signal-to-noise) spectra
-# (decorated with @gui.sideplot in the associated python file):
+# settings for the current implementation of the sn (signal-to-noise) spectra:
 sn_spectra:
   taper:
     max_percentage: 0.05
@@ -262,8 +262,7 @@ sn_spectra:
   smoothing_wlen_ratio: 0.05  # 0 for no smoothing
   type: 'amp'  # if 'pow', then power spectra are computed, otherwise if 'amp', amplitude spectra are computed
   
-# settings for the current implementation of the pre-process function
-# (decorated with @gui.preprocess in the associated python file):
+# settings for the current implementation of the pre-process function:
 preprocess:
   remove_response_water_level: 60
   remove_response_output: 'ACC'
@@ -271,6 +270,7 @@ preprocess:
   bandpass_max_nyquist_ratio: 0.9
   bandpass_corners: 2
 
+# settings for the wood-anderson:
 paz_wa:
   sensitivity: 2800
   zeros:
@@ -388,12 +388,13 @@ freqs_interp:
  - 42.307
  - 45.
 
-# If you want to use the GUI as hand labelling tool for supervised classification problems
+# If you want to use the GUI as hand labelling tool (for e.g. supervised classification problems)
 # you can provide the parameter 'class_labels' which is a dictionary of label names mapped
 # to their description. If provided, the labels will first be added to the database
 # (updating the description, if the label name is already present) and then will show up in the GUI
 # where one or more classes can be assigned to a given segment via check boxes.
-# If missing, no class labels will show up in the GUI, unless already set by a previous config. Example:
+# If missing, no class labels will show up in the GUI, unless already set by a previous config.
+# Example:
 #class_labels:
 #  Discarded: "Segment which does not fall in any other cathegory (e.g., unknown artifacts, bad formats etcetera)"
 #  Unknown: "Segment which is either: unlabeled (not annotated) or unclassified"

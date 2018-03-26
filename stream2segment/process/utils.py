@@ -6,7 +6,7 @@ Module documentation to be implemented
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
 
-# provide some imports to let python3 syntax work also in python 2.7+ effortless. 
+# provide some imports to let python3 syntax work also in python 2.7+ effortless.
 # Any of the defaults import below can be safely removed if python2+
 # compatibility is not needed
 
@@ -18,25 +18,23 @@ from __future__ import absolute_import, division, print_function
 from builtins import (ascii, chr, dict, filter, hex, input,
                       int, map, next, oct, open, pow, range, round,
                       super, zip)
-from future.utils import viewitems
 
-from collections import OrderedDict
 from io import BytesIO
+from contextlib import contextmanager
 
 from sqlalchemy.orm.session import object_session
 from sqlalchemy.orm.exc import UnmappedInstanceError
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import load_only
 from obspy.core.utcdatetime import UTCDateTime
-from obspy.core.stream import _read, Stream
-from obspy.core.trace import Trace
+from obspy.core.stream import _read
 
 from stream2segment.io.utils import loads_inv, dumps_inv
 from stream2segment.utils.url import urlread
 from stream2segment.utils import urljoin
-from stream2segment.io.db.models import Segment, Station, Channel, Class
+from stream2segment.io.db.models import Segment, Channel, Class
 from stream2segment.process.math.traces import cumsumsq, cumtimes
-from contextlib import contextmanager
-from sqlalchemy.orm import load_only
+from stream2segment.utils.inputargs import S2SArgument
 
 
 def getseg(session, segment_id, cols2load=None):
@@ -58,6 +56,7 @@ def raiseifreturnsexception(func):
     '''decorator that makes a function raise the returned exception, if any
     (otherwise no-op, and the function value is returned as it is)'''
     def wrapping(*args, **kwargs):
+        '''wrapping function which raises if the returned value is an exception'''
         ret = func(*args, **kwargs)
         if isinstance(ret, Exception):
             raise ret
@@ -96,6 +95,7 @@ class gui(object):
         # https://stackoverflow.com/questions/3931627/how-to-build-a-decorator-with-optional-parameters
         # We can do taht but it's slighlty more complex:
         def decorator(func):
+            '''sets the attributes on the function in order to make it recognizable as gui func'''
             func._s2s_att = 'gui.plot'  # pylint: disable=protected-access
             func._s2s_position = position  # pylint: disable=protected-access
             func._s2s_xaxis = xaxis or {}  # pylint: disable=protected-access
@@ -121,6 +121,17 @@ class gui(object):
             yaxis = args[2]
 
         return decorator
+
+    @staticmethod
+    def get_func_attrs(func):
+        '''returns the function attributes for a function decorated with this class decorators:
+        attname, position, xaxis, yaxis
+        check for attname first: if empty string, the function is not a gui decorated function
+        '''
+        return getattr(func, '_s2s_att', ''), \
+            getattr(func, '_s2s_position', 'b'), \
+            getattr(func, '_s2s_xaxis', {}), \
+            getattr(func, '_s2s_yaxis', {})
 
 
 @contextmanager
@@ -152,16 +163,17 @@ def enhancesegmentclass(config_dict=None, overwrite_config=False):
     already_enhanced = hasattr(Segment, "_config")
     if already_enhanced:
         if overwrite_config:
-            Segment._config = config_dict or {}  #pylint: disable=protected-access
+            Segment._config = config_dict or {}
         yield
     else:
         @raiseifreturnsexception
         def stream(self):
+            '''returns the stream from self (a segment class)'''
             stream = getattr(self, "_stream", None)
             if stream is None:
                 try:
                     stream = self._stream = get_stream(self)
-                except Exception as exc:
+                except Exception as exc:  # pylint: disable=broad-except
                     stream = self._stream = Exception("MiniSeed error: %s" %
                                                       (str(exc) or str(exc.__class__.__name__)))
 
@@ -169,16 +181,14 @@ def enhancesegmentclass(config_dict=None, overwrite_config=False):
 
         @raiseifreturnsexception
         def inventory(self):
+            '''returns the inventory from self (a segment class)'''
             inventory = getattr(self, "_inventory", None)
             if inventory is None:
-                try:
-                    save_station_inventory = self._config['save_inventory']  #pylint: disable=protected-access
-                except:
-                    save_station_inventory = False
+                save_station_inventory = self._config.get('save_inventory', False)
                 try:
                     inventory = self._inventory = get_inventory(self.station,
                                                                 save_station_inventory)
-                except Exception as exc:
+                except Exception as exc:   # pylint: disable=broad-except
                     inventory = self._inventory = \
                         Exception("Station inventory (xml) error: %s" %
                                   (str(exc) or str(exc.__class__.__name__)))
@@ -192,7 +202,7 @@ def enhancesegmentclass(config_dict=None, overwrite_config=False):
             # hard to know when a recalculation is needed (this is particularly important when
             # bounds relative to the cumulative sum are given, if an interval was given there would
             # be no problem)
-            return get_sn_windows(self._config, self.arrival_time, self.stream())  #pylint: disable=protected-access
+            return get_sn_windows(self._config, self.arrival_time, self.stream())
 
         def _query_to_other_orientations(self, *query_args):
             return self.dbsession().query(*query_args).join(Segment.channel).\
@@ -203,23 +213,25 @@ def enhancesegmentclass(config_dict=None, overwrite_config=False):
                            (Channel.instrument_code == self.channel.instrument_code))
 
         def other_orientations(self):
+            '''returns a list of segments on the other orientations, attach that list to other
+            segments too'''
             seg_other_orientations = getattr(self, "_other_orientations", None)
             if seg_other_orientations is None:
-                segs = self._query_to_other_orientations(Segment).all()  #pylint: disable=protected-access
+                segs = self._query_to_other_orientations(Segment).all()
                 seg_other_orientations = self._other_orientations = segs
-                # assign also to other segments:y
+                # assign also to other segments:
                 for seg in segs:
-                    seg._other_orientations = [s for s in segs if s.id != seg.id] + [self]  #pylint: disable=protected-access
+                    seg._other_orientations = [s for s in segs if s.id != seg.id] + [self]
 
             return seg_other_orientations
 
-        Segment._config = config_dict or {}  #pylint: disable=protected-access
+        Segment._config = config_dict or {}
         Segment.stream = stream
         Segment.inventory = inventory
         Segment.sn_windows = sn_windows
         Segment.other_orientations = other_orientations
         Segment.dbsession = lambda self: object_session(self)
-        Segment._query_to_other_orientations = _query_to_other_orientations  #pylint: disable=protected-access
+        Segment._query_to_other_orientations = _query_to_other_orientations
         try:
             yield
         finally:
@@ -238,29 +250,41 @@ def get_sn_windows(config, a_time, stream):
     :return the tuple (start, end), (start, end) where all arguments are `UTCDateTime`s
     and the first tuple refers to the noisy window, the latter to the signal window
     '''
-    if 'sn_windows' not in config:
-        raise TypeError("'sn_windows' not defined in config")
-    if 'arrival_time_shift' not in config['sn_windows']:
-        raise TypeError("'arrival_time_shift' not defined in config['sn_windows']")
-    if 'signal_window' not in config['sn_windows']:
-        raise TypeError("'signal_window' not defined in config['sn_windows']")
+    # Use S2SArgument class to raise pre-formatted exception messages from our validation callbacks:
+    name = 'sn_windows'
+    snw_dic = S2SArgument(name).getfrom(config)
+    atime_shift = S2SArgument('arrival_time_shift').getfrom(snw_dic, callback=float)
+
+    def sw_callback(sn_windows):
+        '''callback to parse sn_windows, which should be either a float or a iterable of two
+        floats. Being called by S2SArgument, any exception will be caught and raised with a
+        BadArgument exception properly formatted with the argument name provided and the
+        exception
+        '''
+        try:
+            cum0, cum1 = sn_windows
+            if cum0 < 0 or cum0 > 1 or cum1 < 0 or cum1 > 1:
+                raise ValueError('elements provided in signal window must be in [0, 1]')
+            return float(cum0), float(cum1)
+        except TypeError:  # not a tuple/list? then it's a scalar:
+            return float(sn_windows)
+    s_windows = S2SArgument('signal_window').getfrom(snw_dic, callback=sw_callback)
 
     if len(stream) != 1:
         raise ValueError(("Unable to get sn-windows: %d traces in stream "
                          "(possible gaps/overlaps)") % len(stream))
 
-    a_time = UTCDateTime(a_time) + config['sn_windows']['arrival_time_shift']
+    a_time = UTCDateTime(a_time) + atime_shift
     # Note above: UTCDateTime +float considers the latter in seconds
     # we use UTcDateTime for consistency as the package functions
     # work with that object type
-    try:
-        cum0, cum1 = config['sn_windows']['signal_window']
+    if hasattr(s_windows, '__len__'):
+        cum0, cum1 = s_windows
         trim_trace = stream[0].copy().trim(starttime=a_time)
-        t0, t1 = cumtimes(cumsumsq(trim_trace, normalize=False), cum0, cum1)  #pylint: disable=unbalanced-tuple-unpacking
-        nsy, sig = (a_time - (t1-t0), a_time), (t0, t1)
-    except TypeError:  # not a tuple/list? then it's a scalar:
-        shift = config['sn_windows']['signal_window']
-        nsy, sig = (a_time-shift, a_time), (a_time, a_time+shift)
+        times = cumtimes(cumsumsq(trim_trace, normalize=False), cum0, cum1)
+        nsy, sig = (a_time - (times[1]-times[0]), a_time), (times[0], times[1])
+    else:
+        nsy, sig = (a_time-s_windows, a_time), (a_time, a_time+s_windows)
     # note: returns always tuples as they cannot be modified by the user (safer)
     return sig, nsy
 
@@ -326,6 +350,10 @@ def download_inventory(station, **urlread_kwargs):
 
 
 def get_inventory_url(station):
+    '''joins the attributes of `station` to build its inventory url (including the
+    query arguments) and returns the url.
+    :param station: a models.Station object
+    '''
     return urljoin(station.datacenter.station_url, station=station.station,
                    network=station.network, level='response')
 

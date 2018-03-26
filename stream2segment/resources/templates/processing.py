@@ -41,7 +41,7 @@ to 'segment_select' parameter in the config), and open a web page where the user
 visualize each segment one at a time.
 The page shows by default on the upper left corner a plot representing the segment trace(s).
 The GUI can be customized by providing here functions decorated with
-"@gui.preprocess", "@gui.sideplot" or "@gui.customplot".
+"@gui.preprocess" or "@gui.plot".
 Plot functions can return only special 'plottable' values (basically arrays,
 more details in their doc-strings).
 The function decorated with "@gui.preprocess", e.g.:
@@ -52,44 +52,46 @@ def applybandpass(segment, config)
 will be associated to a check-box in the GUI. By clicking the check-box,
 all plots of the page will be re-calculated with the output of this function,
 which **must thus return an obspy Stream or Trace object**.
-The function decorated with "@gui.sideplot", e.g.:
+The function decorated with "@gui.plot", e.g.:
 ```
-@gui.sideplot
-def sn_spectra(segment, config)
-```
-will be associated to (i.e., its output will be displayed in) the plot next to the main plot
-(upper right corner). This is by default a spectrum of the segment's noise and non-noisy part.
-Finally, the functions decorated with "@gui.customplot", e.g.:
-```
-@gui.customplot
+@gui.plot
 def cumulative(segment, config)
-@gui.customplot
-def first_derivative(segment, config)
 ...
 ```
-will be associated to the custom plots placed below the main plot.
-
+will be associated to (i.e., its output will be displayed in) the plot below the main plot.
+You can also call @gui.plot with arguments, e.g.:
+```
+@gui.plot(position='r', xaxis={'type': 'log'}, yaxis={'type': 'log'})
+def spectra(segment, config)
+...
+```
+The first one controls where the plot
+will be placed in the GUI ('b' means bottom, the default, 'r' means right to the main plot)
+and the other two, `xaxis` and `yaxis`, are dict (defaulting to the empty dict {}) controlling
+the x and y axis of the plot. For info, see:
+https://plot.ly/python/axes/
+When not given, axis types will be inferred from the function return type (see below) and in most
+cases defaults to 'date' (i.e., date-times on the x values).
+Functions decorated with '@gui.plot' must return
+a numeric sequence y taken at successive equally spaced points in any of these forms:
+- a Trace object
+- a Stream object
+- the tuple (x0, dx, y) or (x0, dx, y, label), where
+    - x0 (numeric, `datetime` or `UTCDateTime`) is the abscissa of the first point
+    - dx (numeric or `timedelta`) is the sampling period
+    - y (numpy array or numeric list) are the sequence values
+    - label (string, optional) is the sequence name to be displayed on the plot legend.
+      (if x0 is numeric and `dx` is a `timedelta` object, then x0 will be converted
+      to `UTCDateTime(x0)`; if x0 is a `datetime` or `UTCDateTime` object and `dx` is
+      numeric, then `dx` will be converted to `timedelta(seconds=dx)`)
+- a dict of any of the above types, where the keys (string) will denote each sequence
+  name to be displayed on the plot legend.
 
 Functions implementation
 ========================
 
-The implementation of the functions is user-dependent. Before describing the functions signature,
-please keep in mind that:
-
-1) This module is designed to encourage the decoupling of code and configuration, so that you can
-easily and safely experiment different configurations on the same code, if needed. We strongly
-discuourage to implement a python file and copy/paste it by changing some parameters only,
-as it is very unmantainable and bug-prone. That said, it's up to you (e.g. a script-like
-processing file for saving once some selected segments to a file might have the output directory
-hard-coded)
-
-2) This module is designed to force the DRY (don't repeat yourself) principle. This is particularly
-important when using the GUI to visually debug / inspect some code for processing
-implemented in `main`: we strongly encourage to *move* the portion of code into a separate
-function F and call F from 'main' AND decorate it with '@gui.customplot'
-
-As said, all functions needed for processing and visualization must have the same
-signature:
+The implementation of the functions is user-dependent. As said, all functions needed for
+processing and visualization must have the same signature:
 ```
     def myfunction(segment, config):
 ```
@@ -103,6 +105,25 @@ all functions can safely raise Exceptions, as all exceptions will be caught by t
   Issuing `print` statements for debugging it's thus useless (and a bad practice overall):
   if any information should be given, simply raise a base exception, e.g.:
   `raise Exception("segment sample rate too low")`.
+
+Conventions and suggestions
+---------------------------
+
+1) This module is designed to encourage the decoupling of code and configuration, so that you can
+easily and safely experiment different configurations on the same code, if needed. We strongly
+discuourage to implement a python file and copy/paste it by changing some parameters only,
+as it is very unmantainable and bug-prone. That said, it's up to you (e.g. a script-like
+processing file for saving once some selected segments to a file might have the output directory
+hard-coded)
+
+2) This module is designed to force the DRY (don't repeat yourself) principle. This is particularly
+important when using the GUI to visually debug / inspect some code for processing
+implemented in `main`: we strongly encourage to *move* the portion of code into a separate
+function F and call F from 'main' AND decorate it with '@gui.plot'. That said, it's up to you
+also in this case (e.g. a file becoming too big might be separated into processing and
+visualization, paying attention that modification of the code in one file might need
+synchronization with the other file)
+
 
 Functions arguments
 -------------------
@@ -388,7 +409,7 @@ import numpy as np
 # import obspy core classes (when working with times, use obspy UTCDateTime when possible):
 from obspy import Trace, Stream, UTCDateTime
 from obspy.geodetics import degrees2kilometers as d2km
-# decorators needed to setup this module @gui.sideplot, @gui.preprocess @gui.customplot:
+# decorators needed to setup this module @gui.preprocess @gui.plot:
 from stream2segment.process.utils import gui
 # strem2segment functions for processing obspy Traces. This is just a list of possible functions
 # to show how to import them:
@@ -575,7 +596,7 @@ def main(segment, config):
 def bandpass_remresp(segment, config):
     """Applies a pre-process on the given segment waveform by
     filtering the signal and removing the instrumental response.
-    DOES modify the segment stream in-place (see below)
+    DOES modify the segment stream in-place (see below).
 
     The filter algorithm has the following steps:
     1. Sets the max frequency to 0.9 of the Nyquist frequency (sampling rate /2)
@@ -618,6 +639,7 @@ def bandpass_remresp(segment, config):
 
 
 def mag2freq(magnitude):
+    '''returns a magnitude dependent frequency (in Hz)'''
     if magnitude <= 4.5:
         freq_min = 0.4
     elif magnitude <= 5.5:
@@ -759,25 +781,10 @@ def get_multievent_sg(cum_trace, tmin, tmax, tstart,
     return result, deltatime, starttime, endtime
 
 
-@gui.customplot
+@gui.plot
 def synth_wa(segment, config):
     '''compute synthetic WA. See ``_synth_wa``.
     DOES modify the segment's stream or traces in-place.
-
-    -Being decorated with '@gui.sideplot' or '@gui.customplot', this function must return
-     a numeric sequence y taken at successive equally spaced points in any of these forms:
-        - a Trace object
-        - a Stream object
-        - the tuple (x0, dx, y) or (x0, dx, y, label), where
-            - x0 (numeric, `datetime` or `UTCDateTime`) is the abscissa of the first point
-            - dx (numeric or `timedelta`) is the sampling period
-            - y (numpy array or numeric list) are the sequence values
-            - label (string, optional) is the sequence name to be displayed on the plot legend.
-              (if x0 is numeric and `dx` is a `timedelta` object, then x0 will be converted
-              to `UTCDateTime(x0)`; if x0 is a `datetime` or `UTCDateTime` object and `dx` is
-              numeric, then `dx` will be converted to `timedelta(seconds=dx)`)
-        - a dict of any of the above types, where the keys (string) will denote each sequence
-          name to be displayed on the plot legend.
 
     :return:  an obspy Trace
     '''
@@ -828,7 +835,7 @@ def _synth_wa(segment, config, trace_input_type=None):
     return trace.simulate(paz_remove=None, paz_simulate=config_wa)
 
 
-@gui.customplot
+@gui.plot
 def velocity(segment, config):
     stream = segment.stream()
     assert1trace(stream)  # raise and return if stream has more than one trace
@@ -837,26 +844,11 @@ def velocity(segment, config):
     return trace_int.integrate()
 
 
-@gui.customplot
+@gui.plot
 def derivcum2(segment, config):
     """
     compute the second derivative of the cumulative function using savitzy-golay.
     DOES modify the segment's stream or traces in-place
-
-    -Being decorated with '@gui.sideplot' or '@gui.customplot', this function must return
-     a numeric sequence y taken at successive equally spaced points in any of these forms:
-        - a Trace object
-        - a Stream object
-        - the tuple (x0, dx, y) or (x0, dx, y, label), where
-            - x0 (numeric, `datetime` or `UTCDateTime`) is the abscissa of the first point
-            - dx (numeric or `timedelta`) is the sampling period
-            - y (numpy array or numeric list) are the sequence values
-            - label (string, optional) is the sequence name to be displayed on the plot legend.
-              (if x0 is numeric and `dx` is a `timedelta` object, then x0 will be converted
-              to `UTCDateTime(x0)`; if x0 is a `datetime` or `UTCDateTime` object and `dx` is
-              numeric, then `dx` will be converted to `timedelta(seconds=dx)`)
-        - a dict of any of the above types, where the keys (string) will denote each sequence
-          name to be displayed on the plot legend.
 
     :return: the tuple (starttime, timedelta, values)
 
@@ -871,26 +863,11 @@ def derivcum2(segment, config):
     return segment.stream()[0].stats.starttime, segment.stream()[0].stats.delta, sec_der_abs
 
 
-@gui.customplot
+@gui.plot
 def cumulative(segment, config):
     '''Computes the cumulative of the squares of the segment's trace in the form of a Plot object.
     DOES modify the segment's stream or traces in-place. Normalizes the returned trace values
     in [0,1]
-
-    -Being decorated with '@gui.sideplot' or '@gui.customplot', this function must return
-     a numeric sequence y taken at successive equally spaced points in any of these forms:
-        - a Trace object
-        - a Stream object
-        - the tuple (x0, dx, y) or (x0, dx, y, label), where
-            - x0 (numeric, `datetime` or `UTCDateTime`) is the abscissa of the first point
-            - dx (numeric or `timedelta`) is the sampling period
-            - y (numpy array or numeric list) are the sequence values
-            - label (string, optional) is the sequence name to be displayed on the plot legend.
-              (if x0 is numeric and `dx` is a `timedelta` object, then x0 will be converted
-              to `UTCDateTime(x0)`; if x0 is a `datetime` or `UTCDateTime` object and `dx` is
-              numeric, then `dx` will be converted to `timedelta(seconds=dx)`)
-        - a dict of any of the above types, where the keys (string) will denote each sequence
-          name to be displayed on the plot legend.
 
     :return: an obspy.Trace
 
@@ -909,26 +886,11 @@ def cumulative(segment, config):
 #     return cumsumsq(trace, normalize=True, copy=False)
 
 
-@gui.sideplot
+@gui.plot('r', xaxis={'type': 'log'}, yaxis={'type': 'log'})
 def sn_spectra(segment, config):
     """
     Computes the signal and noise spectra, as dict of strings mapped to tuples (x0, dx, y).
     Does not modify the segment's stream or traces in-place
-
-    -Being decorated with '@gui.sideplot' or '@gui.customplot', this function must return
-     a numeric sequence y taken at successive equally spaced points in any of these forms:
-        - a Trace object
-        - a Stream object
-        - the tuple (x0, dx, y) or (x0, dx, y, label), where
-            - x0 (numeric, `datetime` or `UTCDateTime`) is the abscissa of the first point
-            - dx (numeric or `timedelta`) is the sampling period
-            - y (numpy array or numeric list) are the sequence values
-            - label (string, optional) is the sequence name to be displayed on the plot legend.
-              (if x0 is numeric and `dx` is a `timedelta` object, then x0 will be converted
-              to `UTCDateTime(x0)`; if x0 is a `datetime` or `UTCDateTime` object and `dx` is
-              numeric, then `dx` will be converted to `timedelta(seconds=dx)`)
-        - a dict of any of the above types, where the keys (string) will denote each sequence
-          name to be displayed on the plot legend.
 
     :return: a dict with two keys, 'Signal' and 'Noise', mapped respectively to the tuples
     (f0, df, frequencies)
