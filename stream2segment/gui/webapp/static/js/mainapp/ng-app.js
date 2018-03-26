@@ -306,16 +306,11 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		            	  width: 1
 		            }
 				};
-				// customize sn-colors. Maybe in the future moved to some config (but there should be a way to customize single
-				//elemtns of the plot, not difficult but quite long to implement), for the moment hard coded:
-				if (i == 1){
-					elmData.line.color = $scope.snColors[j];
-				}
 				// push data:
 				data.push(elmData);
 			}
 			
-			var layout = getPlotLayout(warnings, {xaxis: $scope.plots[i].xaxis, yaxis: $scope.plots[i].yaxis});
+			var layout = getPlotLayout(title, warnings, {xaxis: $scope.plots[i].xaxis, yaxis: $scope.plots[i].yaxis});
 			// check the xaxis type. If present, we provided it from the function decorator, 
 			// otherwise check it from the plot data. If not timeseries, let plotly infer it
 			// (https://plot.ly/javascript/reference/#layout-xaxis-type)
@@ -461,20 +456,23 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 /** define here the plotly default layout for all plots, xaxis and yaxis stuff mught be overridden
 /* by the user
  */
-function getPlotLayout(warningMessage, ...layoutOverrides){
-	var annotations = [{  // https://plot.ly/javascript/reference/#layout-annotations
+function getPlotLayout(title, warningMessage, ...layoutOverrides){
+	var annotations = [];
+	if (title){
+		annotations.push({  // https://plot.ly/javascript/reference/#layout-annotations
 		    xref: 'paper',
 		    yref: 'paper',
 		    x: 0,
 		    xanchor: 'left',
 		    y: 1.01, //.98,
 		    yanchor: 'bottom',
-		    text: '',
+		    text: title,
 		    showarrow: false,
 		    font: {
 		        color: '#000000'
 		      },
-		  }];
+		  });
+	}
 	if(warningMessage){
 		annotations.push({
 		    xref: 'paper',
@@ -510,7 +508,8 @@ function getPlotLayout(warningMessage, ...layoutOverrides){
 		    mirror: true
 			//fixedrange: true
 		},
-		annotations: annotations
+		annotations: annotations,
+		legend: {xanchor:'right', font:{size:10}, x:0.99}
 	};
 	return mergeDeep(PLOTLY_DEFAULT_LAYOUT, ...layoutOverrides);
 }

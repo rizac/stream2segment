@@ -34,14 +34,14 @@
 			<div class="flex-direction-row toolbar">
 				<!-- use checkbox class for all same level divs (bootstraps controls margins top and bottom intelligently -->
 				<h4>Segment {{ segIdx + 1 }} of {{ segIds.length }}</h4>
-				<button class='btn btn-default center' ng-click="setPreviousSegment()">&larr;</button>
-				<button class='btn btn-default center' ng-click="setNextSegment()" >&rarr;</button>
+				<button class='btn btn-default center' ng-click="setPreviousSegment()"><span class='arrow-left'></span></button>
+				<button class='btn btn-default center' ng-click="setNextSegment()" ><span class='arrow-right'></span></button>
 				<button class='btn btn-default' ng-click="selection.showForm=true">Select</button>
 				<span class='v-divider'></span>	
 				<h4>Plots</h4>		
 				<label title="{% endraw %}{{ preprocessfunc_doc }}{% raw %}"><input type="checkbox"
 					ng-model="showPreProcessed" ng-change="togglePreProcess()"> Pre-process</label>
-				<label><input type="checkbox" ng-model="showAllComponents" ng-change="toggleAllComponentView()"> Show all components</label>
+				<label><input type="checkbox" ng-model="showAllComponents" ng-change="toggleAllComponentView()"> Show all orientations</label>
 				<span class='v-divider'></span>	
 				<button class='btn btn-default' ng-click="config.showForm=true">Config</button>
 
@@ -106,7 +106,8 @@
 							<div ng-show="classes.length">
 								<div class="divider"></div>
 								<div ng-click="toggleDivVisibility('classes')">
-									classes <div ng-class="isDivVisible('classes') ? 'arrow-up' : 'arrow-down'"></div>
+									classes <div ng-class="isDivVisible('classes') ? 'arrow-up' : 'arrow-down'"
+										style='float:right'></div>
 								</div>
 								<div ng-show="isDivVisible('classes')" class="panel-body">
 									<div ng-repeat="class in classes">
@@ -124,7 +125,8 @@
 							<div ng-repeat="(key, vals) in segData.metadata">
 								<div class="divider"></div>
 								<div ng-click="toggleDivVisibility(key)">
-									{{ key }} <div ng-class="isDivVisible(key) ? 'arrow-up' : 'arrow-down'"></div>
+									{{ key }} <div ng-class="isDivVisible(key) ? 'arrow-up' : 'arrow-down'"
+										style='float:right'></div>
 								</div>
 								<div ng-show="isDivVisible(key)" class="panel-body">
 									<table>
@@ -151,11 +153,11 @@
 					<th>Attribute</th>
 					<th>"Select" expression
 					    <table class='note'>
-					    		<tr><td>a b c</td><td>select segment where their attribute is a, b or c</td></tr>
-    							<tr><td>[a, b]</td><td>select segments where A is between a and b (including endpoints)</td></tr>
-    							<tr><td>(a, b)</td><td>select segments where A is between a and b (excluding endpoints)</td></tr>
-   							<tr><td>!=a</td><td>select segment where their attribute is not a</td></tr>
-   							<tr><td> =a, &gt;a &gt;=a &lt;a &lt;=b</td><td>(same as above with different operators)</td></tr>
+					    		<tr><td>a b c</td><td>select segments whose attribute value is a, b or c</td></tr>
+    							<tr><td>[a, b]</td><td>select segments whose attribute value is between a and b (including endpoints)</td></tr>
+    							<tr><td>(a, b)</td><td>select segments whose attribute value is between a and b (excluding endpoints)</td></tr>
+   							<tr><td>!=a</td><td>select segments whose attribute value is not a</td></tr>
+   							<tr><td> =a &gt;a &gt;=a &lt;a &lt;=a</td><td>(same as above with different operators)</td></tr>
 						</table>
 					</th>
 				</tr>

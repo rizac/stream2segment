@@ -103,24 +103,37 @@ div.metadata > div.panel-body{
 
 
 /* arrows (using css tricks): */
-
+.arrow-up, .arrow-down, .arrow-left, .arrow-right {
+	height: .8em;
+    width: .8em;
+    display: inline-block;
+    vertical-align: baseline;
+}
 .arrow-up, .arrow-down{
-	margin-top:5px;
-	float: right;
-	width: 0; 
-	height: 0; 
-	border-left: 6px solid transparent;
-	border-right: 6px solid transparent;
+	border-left: .4em solid transparent;
+	border-right: .4em solid transparent;
 }
-
 .arrow-up {
-	border-bottom: 6px solid black;
+	border-bottom: .4em solid black;
+	margin-bottom: .4em;
 }
-
 .arrow-down {
-	border-top: 6px solid black;
+	border-top: .4em solid black;
+	margin-top: .4em;
+}
+.arrow-left, .arrow-right {
+    border-top: .4em solid transparent;
+    border-bottom: .4em solid transparent;
+}
+.arrow-left {
+    border-right: .4em solid black;
+    margin-right: .4em;
 }
 
+.arrow-right {
+    border-left: .4em solid black;
+    margin-left: .4em;
+}
 
 /* popups (info, docs etcetera)*/
 
@@ -136,7 +149,6 @@ div.metadata > div.panel-body{
 }
 
 .popup > div.center > table th{
-	background-color: #f5f5f5;
 	vertical-align: top;
 }
 
@@ -151,7 +163,7 @@ div.metadata > div.panel-body{
 
 .popup{
 	z-index: 100000;
-	background-color: #fff;
+	background-color: #f5f5f5;
     -webkit-background-clip: padding-box;
     background-clip: padding-box;
     border: 1px solid #ccc;
