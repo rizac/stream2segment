@@ -485,13 +485,14 @@ def main(segment, config):
     # If you want to preserve the original stream, store trace.copy()
     processed_trace = bandpass_remresp(segment, config)
 
-    path1 = segment.seiscomp_path() + ".original.mseed"
-    path2 = segment.seiscomp_path() + ".processed.mseed"
+    stream_path = segment.seiscomp_path(config['root_dir'])
+    basedir = os.path.dirname(stream_path) 
+    path1 = stream_path + ".s2s.raw.mseed"
+    path2 = stream_path + ".s2s.processed.mseed"
     # assure directories exists, making all intermediate paths if needed:
-    os.makedirs(path1)
-    os.makedirs(path2)
+    os.makedirs(basedir)
     original_trace.write(path1, format='MSEED')
-    processed_trace.write(path1, format='MSEED')
+    processed_trace.write(path2, format='MSEED')
 
 
 @gui.preprocess
