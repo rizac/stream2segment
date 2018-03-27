@@ -269,7 +269,7 @@ def init(outpath, prompt=True, *filenames):
             try:
                 val = int(val)
                 if val == 2:
-                    if not len(non_existing_files):
+                    if not non_existing_files:
                         raise ValueError()
                     else:
                         template_files = non_existing_files

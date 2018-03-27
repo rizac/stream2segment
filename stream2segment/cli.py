@@ -31,6 +31,7 @@ from builtins import (ascii, bytes, chr, dict, filter, hex, input,
 
 import sys
 import os
+from collections import OrderedDict
 
 import click
 # from click.exceptions import BadParameter, MissingParameter
@@ -113,14 +114,25 @@ def init(outdir):
     """Creates template/config files which can be inspected and edited for launching download,
     processing and visualization. OUTDIR will be created if it does not exist
     """
-    helpdict = {"download.yaml": "download configuration file "
-                                 "(-c option for 's2s download' command)",
-                "processing.py": "processing/gui python file "
-                                 "(-p option for both 's2s process' and 's2s show' commands)",
-                "processing.yaml": ("processing/gui configuration file "
-                                    "(-c option for both 's2s process' and 's2s show' commands)")}
+    helpdict = OrderedDict([
+        ("download.yaml",
+         "download configuration file (-c option for 's2s download' command)"),
+        ("processing.py",
+         "processing python file for creating csv file of waveform features "
+         "(-p option for both 's2s process' and 's2s show' commands)"),
+        ("processing.yaml",
+         "processing configuration file for creating csv file of waveform features "
+         "(-c option for both 's2s process' and 's2s show' commands)"),
+        ("save2fs.py",
+         "processing configuration file for saving waveform to filesystem"
+         "(-c option for both 's2s process' and 's2s show' commands)"),
+        ("save2fs.yaml",
+         "processing configuration file for saving waveform to filesystem"
+         "(-c option for both 's2s process' and 's2s show' commands)")
+        ])
+
     try:
-        copied_files = main.init(outdir, True, *helpdict)
+        copied_files = main.init(outdir, True, *helpdict)  # pass only helpdict keys
         if not copied_files:
             print("No file copied")
         else:
@@ -129,7 +141,7 @@ def init(outdir):
                 bname = os.path.basename(fcopied)
                 print("   %s: %s" % (bname, helpdict.get(bname, "")))
             sys.exit(0)
-    except Exception as exc:  #pylint: disable=broad-except
+    except Exception as exc:  # pylint: disable=broad-except
         print('')
         print("error: %s" % str(exc))
     sys.exit(1)

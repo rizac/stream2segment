@@ -251,26 +251,27 @@ def test_click_show(mock_create_main_app, mock_open_in_browser, mock_show):
     assert not mock_open_in_browser.called
 
 
-@patch("stream2segment.main.shutil.copy2")
-@patch("stream2segment.main.os.path.isfile")
+# @patch("stream2segment.main.shutil.copy2")
+# @patch("stream2segment.main.os.path.isfile")
 @patch("stream2segment.main.init", side_effect = lambda outdir, prompt, *files: orig_init(outdir, False, *files))
-def test_click_template(mock_create_templates, mock_isfile, mock_copy2):
-    mock_isfile.side_effect = lambda *a, **v: True
+def test_click_template(mock_create_templates):  #, mock_isfile, mock_copy2):
+    # mock_isfile.side_effect = lambda *a, **v: True
 
     runner = CliRunner()
-    with runner.isolated_filesystem():
+    with runner.isolated_filesystem() as dir_:
 
         # a REALLY STUPID TEST. WE SHOULD ASSERT MORE STUFF.
         # btw: how to check click prompt?? is there a way?
-        result = runner.invoke(cli, ['init', 'abc'])
+        path = os.path.join(dir_, 'abc')
+        result = runner.invoke(cli, ['init', path])
         # FIXME: check how to mock os.path.isfile properly. This doesnot work:
         # assert mock_isfile.call_count == 5
         assert result.exit_code == 0
-
+        files = os.listdir(path)
+        assert sorted(files) == ['download.yaml', 'processing.py', 'processing.yaml',
+                                 'save2fs.py', 'save2fs.yaml']
         # assert help works:
         mock_create_templates.reset_mock()
-        mock_isfile.reset_mock()
-        mock_copy2.reset_mock()
         result = runner.invoke(cli, ['init', '--help'])
         assert not mock_create_templates.called
         assert result.exit_code == 0
