@@ -102,38 +102,40 @@
 				<div class="flexible-half flex-direction-col">
 					<div class="metadata panel panel-default flexible flex-direction-col">
 						<div class="panel-heading">Segment Metadata</div>
-						<div class="panel-body flexible">
-							<div ng-show="classes.length">
-								<div class="divider"></div>
-								<div ng-click="toggleDivVisibility('classes')">
-									classes <div ng-class="isDivVisible('classes') ? 'arrow-up' : 'arrow-down'"
-										style='float:right'></div>
-								</div>
-								<div ng-show="isDivVisible('classes')" class="panel-body">
-									<div ng-repeat="class in classes">
-				  						<label>
-											<input
-											    type="checkbox"
-											    value="{{ class.id }}"
-											    ng-model="segData.classIds[class.id]"
-											    ng-click="toggleSegmentClassLabel(class.id)"
-											> {{ class.label }} ({{ class.count }} segments)
-										</label>
+						<div class='flexible'>
+							<div class="panel-body">
+								<div ng-show="classes.length">
+									<div class="divider"></div>
+									<div ng-click="toggleDivVisibility('classes')">
+										classes <div ng-class="isDivVisible('classes') ? 'arrow-up' : 'arrow-down'"
+											style='float:right'></div>
+									</div>
+									<div ng-show="isDivVisible('classes')" class="panel-body">
+										<div ng-repeat="class in classes">
+					  						<label>
+												<input
+												    type="checkbox"
+												    value="{{ class.id }}"
+												    ng-model="segData.classIds[class.id]"
+												    ng-click="toggleSegmentClassLabel(class.id)"
+												> {{ class.label }} ({{ class.count }} segments)
+											</label>
+										</div>
 									</div>
 								</div>
-							</div>
-							<div ng-repeat="(key, vals) in segData.metadata">
-								<div class="divider"></div>
-								<div ng-click="toggleDivVisibility(key)">
-									{{ key }} <div ng-class="isDivVisible(key) ? 'arrow-up' : 'arrow-down'"
-										style='float:right'></div>
-								</div>
-								<div ng-show="isDivVisible(key)" class="panel-body">
-									<table>
-										<tr ng-repeat="(subKey, subVal) in vals">
-											<td>{{ subKey }}</td><td>{{ subVal }}</td>
-										</tr>
-									</table>
+								<div ng-repeat="(key, vals) in segData.metadata">
+									<div class="divider"></div>
+									<div ng-click="toggleDivVisibility(key)">
+										{{ key }} <div ng-class="isDivVisible(key) ? 'arrow-up' : 'arrow-down'"
+											style='float:right'></div>
+									</div>
+									<div ng-show="isDivVisible(key)" class="panel-body">
+										<table>
+											<tr ng-repeat="(subKey, subVal) in vals">
+												<td>{{ subKey }}</td><td>{{ subVal }}</td>
+											</tr>
+										</table>
+									</div>
 								</div>
 							</div>
 						</div>
