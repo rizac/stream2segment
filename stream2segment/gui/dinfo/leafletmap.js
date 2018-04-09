@@ -108,6 +108,7 @@ function updateMap(){
 		dcStat.ok += ok;
 		// create the marker and add it to the map:
 		var netName = networks[staData[4]];
+		//var circle = createMarkerOld(staName, netName, staId, lat, lon, dcId, datacenters[dcId], ok, malformed, total).addTo(map);
 		var circle = createMarker(staName, netName, staId, lat, lon, dcId, datacenters[dcId], ok, malformed, total).addTo(map);
 		allMarkers.push(circle);
 	}
@@ -128,20 +129,20 @@ function updateMap(){
 		map.fitBounds(group.getBounds());
 	}
 	
-	// now sort markers and then bring them to front.
-	// This has to be done at the real end because if the map is uninitialized a view must be set to
-	// call bringToFront below. Initializing map.setView(...) would solve the problem
-	// of this code placement BUT it does not fit the zoom the first time the map is created
-	function sortMarker(marker1, marker2){
-		// first who has at least some segment ok, IF the other has not
-		var val = marker1.options.zIndexOffset-marker2.options.zIndexOffset; 
-		if (!val){ // if both with no segments ok, or both with at least one segment ok, bigger markers to back:
-			val = marker2.options.radius-marker1.options.radius;
-		}
-		return val;
-	}
-	allMarkers.sort(sortMarker);
-	allMarkers.forEach(function(marker){marker.bringToFront();});
+//	// now sort markers and then bring them to front.
+//	// This has to be done at the real end because if the map is uninitialized a view must be set to
+//	// call bringToFront below. Initializing map.setView(...) would solve the problem
+//	// of this code placement BUT it does not fit the zoom the first time the map is created
+//	function sortMarker(marker1, marker2){
+//		// first who has at least some segment ok, IF the other has not
+//		var val = marker1.options.zIndexOffset-marker2.options.zIndexOffset; 
+//		if (!val){ // if both with no segments ok, or both with at least one segment ok, bigger markers to back:
+//			val = marker2.options.radius-marker1.options.radius;
+//		}
+//		return val;
+//	}
+//	allMarkers.sort(function(marker1, marker2){return  marker1.options.zIndexOffset-marker2.options.zIndexOffset;});
+//	allMarkers.forEach(function(marker){marker.bringToFront();});
 	GLOBALS.allMarkers = allMarkers; // assign to global allMarkers
 }
 
@@ -195,7 +196,7 @@ function createMarker(staName, netName, staId, lat, lon, dcId, datacenter, ok, m
 		greenBlue = parseInt(0.5 + greenBlue); // round to int: converts maxVal to 0, minVal to 255
 	}
 	// set sizes kind-of logaritmically:
-	var minRadius = 3;  // lower than this the circle is not clickable ...
+	var minRadius = 7;  // lower than this the circle is not clickable ...
 	var sizeRadius = 5; // for the biggest case (>= than 1000 segments)
 	if (total < 10){
 		sizeRadius = 0;
@@ -209,16 +210,43 @@ function createMarker(staName, netName, staId, lat, lon, dcId, datacenter, ok, m
 		sizeRadius = 4;
 	}
 
-	var circle = L.circleMarker([lat, lon], {
-	    color: '#333',
-	    opacity: 1,
-	    dcId: dcId,
-	    weight: 1,
-	    fillColor: `rgb(255, ${greenBlue}, ${greenBlue})`,
-	    fillOpacity: 1,
-	    radius: sizeRadius + minRadius,
-	    zIndexOffset: val > minVal ? 1000 : 0  // not that this is NOT used for circles but for markers, we will use this feature afterwards
-	});
+	var size = sizeRadius + minRadius;
+
+	// copied and modified from https://groups.google.com/forum/#!topic/leaflet-js/GSisdUm5rEc
+	var h = size*1.7320508/2;
+	var x = size/2.0;
+	var y = 2*h/3.0;
+
+	// here's the SVG for the marker
+    var icon = `<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='${size}' height='${h}'>
+    <polygon points='0,${h} ${x},0 ${size},${h}' style='fill:rgb(255, ${greenBlue}, ${greenBlue});stroke:#333;stroke-width:1' />
+    </svg>`;
+
+    // here's the trick, base64 encode the URL
+    // var svgURL = "data:image/svg+xml;base64," + btoa(icon);
+    
+    // create icon
+    var mySVGIcon = L.divIcon( {
+        html: icon,
+        className: 'tri-div',
+    	// iconUrl: svgURL,
+        iconSize: [size, h],
+        iconAnchor: [x, y],
+        popupAnchor: [-x, 0]
+    } );
+
+    // leaflet uses bringToFront for layers, and zIndexOffset for markers.
+    // now, zIndexOffset must be made in thousands (see last post here: https://github.com/Leaflet/Leaflet/issues/5560)
+    // because leaflet by default calculates its zIndex (the lower the latitude, the higher the zindex) and sums it with zIndexOffset:
+    // now the value below means: if a marker has data available, bring it to front. If both markers
+    // have data aval (or both haven't) bring to front the one with smaller radius (so it's not hidden)
+    var zIndexOffset = (val > minVal ? 1000 : 0) + (sizeRadius + minRadius);
+    
+    var tri =  L.marker( [ lat, lon ], { icon: mySVGIcon,
+	    								 zIndexOffset: zIndexOffset
+	    								 // you can put whatever option <n> here and later access it with marker.options.<n>
+    } );
+	
 	//bind popup with infos:
 	var staPopupContent = `<div class='title'> ${staName}.${netName} </div>
 						   <div class='subtitle underline'>${datacenter}</div>
@@ -228,7 +256,75 @@ function createMarker(staName, netName, staId, lat, lon, dcId, datacenter, ok, m
 						   <tr><td class='right'>In selected categories:</td><td class='right'> ${ok} </td></tr>
 						   <tr><td class='right'>Not in selected categories:</td><td class='right'> ${malformed} </td></tr>
 						   </table>`; 
-	circle.bindPopup(staPopupContent);
+	tri.bindPopup(staPopupContent);
 	
-	return circle;
+	return tri;
 }
+
+////now sort markers and then bring them to front.
+//// This has to be done at the real end because if the map is uninitialized a view must be set to
+//// call bringToFront below. Initializing map.setView(...) would solve the problem
+//// of this code placement BUT it does not fit the zoom the first time the map is created
+//function sortMarker(marker1, marker2){
+//	// first who has at least some segment ok, IF the other has not
+//	var val = marker1.options.zIndexOffset-marker2.options.zIndexOffset; 
+//	if (!val){ // if both with no segments ok, or both with at least one segment ok, bigger markers to back:
+//		val = marker2.options.radius-marker1.options.radius;
+//	}
+//	return val;
+//}
+//
+//
+//function createMarkerOld(staName, netName, staId, lat, lon, dcId, datacenter, ok, malformed, total){
+//	//datacenters[dcId]
+//	var val = ok/total;
+//	var greenBlue = 255;
+//	var [minVal, maxVal] = [0, 1];
+//	if (val > 0 && maxVal > minVal){  // second && is for safety...
+//		// now we want to set a shade of red according to val: the higher val, the more the marker is red
+//		// In a rgb context, this means that the higher val, the lower, the lower the var greenBlue
+//		// The function below creates the value for greenBlue, taking in consideration that
+//		// visually we are interested to spot the stations with some 'ok' segments (val >0),
+//		// and thus we set the maximum of greenBlue to 190, meaning that the color immeditaley after
+//		// the white (val==0) is a kind of pink one
+//		greenBlue = 190 + ((-190) * (val - minVal) / (maxVal - minVal));
+//		greenBlue = parseInt(0.5 + greenBlue); // round to int: converts maxVal to 0, minVal to 255
+//	}
+//	// set sizes kind-of logaritmically:
+//	var minRadius = 3;  // lower than this the circle is not clickable ...
+//	var sizeRadius = 5; // for the biggest case (>= than 1000 segments)
+//	if (total < 10){
+//		sizeRadius = 0;
+//	}else if (total < 50){
+//		sizeRadius = 1;
+//	}else if (total < 100){
+//		sizeRadius = 2;
+//	}else if (total < 500){
+//		sizeRadius = 3;
+//	}else if (total < 1000){
+//		sizeRadius = 4;
+//	}
+//
+//	var circle = L.circleMarker([lat, lon], {
+//	    color: '#333',
+//	    opacity: 1,
+//	    dcId: dcId,
+//	    weight: 1,
+//	    fillColor: `rgb(255, ${greenBlue}, ${greenBlue})`,
+//	    fillOpacity: 1,
+//	    radius: sizeRadius + minRadius,
+//	    zIndexOffset: val > minVal ? 1000 : 0  // not that this is NOT used for circles but for markers, we will use this feature afterwards
+//	});
+//	//bind popup with infos:
+//	var staPopupContent = `<div class='title'> ${staName}.${netName} </div>
+//						   <div class='subtitle underline'>${datacenter}</div>
+//						   <table class='station-info'>
+//						   <tr><td>database id:</td><td class='right'>${staId}</td></tr>
+//						   <tr><td>Segments:</td><td class='right'> ${total} </td></tr>
+//						   <tr><td class='right'>In selected categories:</td><td class='right'> ${ok} </td></tr>
+//						   <tr><td class='right'>Not in selected categories:</td><td class='right'> ${malformed} </td></tr>
+//						   </table>`; 
+//	circle.bindPopup(staPopupContent);
+//	
+//	return circle;
+//}
