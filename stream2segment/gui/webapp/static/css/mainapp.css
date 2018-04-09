@@ -83,6 +83,19 @@ div.metadata{
 	margin-bottom: 0px !important;
 }
 
+div.metadata > div:last-child{
+	position: relative;
+}
+
+div.metadata > div:last-child > div:first-child{
+	position: absolute;
+	left:0;
+	right:0;
+	top:0;
+	bottom: 0;
+	overflow: auto;
+}
+
 div.metadata table td{
 	vertical-align: top;
 }
