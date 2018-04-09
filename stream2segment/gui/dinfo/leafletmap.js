@@ -56,83 +56,85 @@ function createOptionsMenu(map){
 	
 }
 
+function createMap(){
+	// creates the leaflet map, setting its initial bounds. Call map.getBounds() to return them
+	GLOBALS.map = map = new L.Map('map');
+	// initialize the map if not already init'ed
+	L.esri.basemapLayer("Topographic").addTo(map);
+	// L.esri.basemapLayer("OceansLabels").addTo(map);
+	createLegend(map);
+	createOptionsMenu(map);
+	// create bounds and fit now, otherwise the map mathods latlng will not work:
+	var [minLat, minLon] = [1000, 1000];
+	var [maxLat, maxLon] =[0, 0];
+	var sta_data = GLOBALS.sta_data;
+	for (var ii = 0; ii < sta_data.length; ii+=2){
+		var staName = sta_data[ii];
+		var staData = sta_data[ii+1];
+		var lat = staData[1];
+		var lon = staData[2];
+		if (lat < minLat){
+			minLat = lat;
+		}
+		if (lat > maxLat){
+			maxLat = lat;
+		}
+		if (lon < minLon){
+			minLon = lon;
+		}
+		if (lon > maxLon){
+			maxLon = lon;
+		}
+	}
+	if (minLat == maxLat){
+		minLat -= 0.1;
+		maxLat += 0.1;
+	}
+	if(minLon == maxLon){
+		minLon -= 0.1;
+		maxLon += 0.1;
+	}
+	var corner1 = L.latLng(minLat, minLon),
+	corner2 = L.latLng(maxLat, maxLon),
+	__bounds = L.latLngBounds(corner1, corner2);
+	map.fitBounds(__bounds);
+	// init listeners (just once):
+	map.on("zoomend", function (e) {
+		// console.log("ZOOMEND", e);
+		updateMap();
+	});
+	map.on("moveend", function (e) {
+		// console.log("ZOOMEND", e);
+		updateMap();
+	});
+	return map;
+}
+
 function updateMap(){
 	/**
 	 * Updates the map with the given data and the given selected labels
-	 * If the map is already in-place, avoids re-creating layers
-	 * but remove its elements (stations) and adds them again.
-	 * This function is NOT called when we toggle datacenters selection, as in this case
-	 * we simply add / remove already computed layers
+	 * This function is called on pan and zoom to minimize the markers, as we use svgicons which are quite heavy,
+	 * we need to load only visible one...
 	 */
 	var {sta_data, datacenters, seldatacenters, networks, codes, selcodes, downloads, seldownloads} = GLOBALS;
 
-	var fitBounds = false;
 	var map = GLOBALS.map;
-	var bounds = GLOBALS.map ? GLOBALS.map.getBounds() : null;
 	if(!map){
-		GLOBALS.map = map = new L.Map('map');
-		// initialize the map if not already init'ed
-		L.esri.basemapLayer("Topographic").addTo(map);
-		// L.esri.basemapLayer("OceansLabels").addTo(map);
-		fitBounds = true;
-		createLegend(map);
-		createOptionsMenu(map);
-		// create bounds and fit now, otherwise the map mathods latlng will not work:
-		var [minLat, minLon] = [1000, 1000];
-		var [maxLat, maxLon] =[0, 0];
-		for (var ii = 0; ii < sta_data.length; ii+=2){
-			var staName = sta_data[ii];
-			var staData = sta_data[ii+1];
-			var lat = staData[1];
-			var lon = staData[2];
-			if (lat < minLat){
-				minLat = lat;
-			}
-			if (lat > maxLat){
-				maxLat = lat;
-			}
-			if (lon < minLon){
-				minLon = lon;
-			}
-			if (lon > maxLon){
-				maxLon = lon;
-			}
-		}
-		if (minLat == maxLat){
-			minLat -= 0.1;
-			maxLat += 0.1;
-		}
-		if(minLon == maxLon){
-			minLon -= 0.1;
-			maxLon += 0.1;
-		}
-		var corner1 = L.latLng(minLat, minLon),
-		corner2 = L.latLng(maxLat, maxLon),
-		__bounds = L.latLngBounds(corner1, corner2);
-		map.fitBounds(__bounds);
-		// init listeners (just once):
-		map.on("zoomend", function (e) {
-			// console.log("ZOOMEND", e);
-			updateMap();
-		});
-		map.on("moveend", function (e) {
-			// console.log("ZOOMEND", e);
-			updateMap();
-		});
+		map = createMap();
 	}else{
 		map.removeLayer(GLOBALS.mapLayer);
 	}
-	// some shared functions
+	var bounds = map.getBounds();
+	// alias for document.getElementById:
 	var htmlElement = document.getElementById.bind(document);  // https://stackoverflow.com/questions/1007340/javascript-function-aliasing-doesnt-seem-to-work
 
 	var dcStats = {}; //stores datacenter id mapped to markers, selected and total segments
-	var allMarkers = [];  // It's a collection of ALL markers we will create, used also for zoom if map is uninitialized 
-	// loop over all data and create markes, calling the function above:
-	
 	var minVal = 1.0;
 	var maxVal = 0.0;
-	// svg have poor perfs, so remove those that are hidden
+	// we use svg icons for the triangles, they have poor perfs, so remove those that are hidden
+	// use the object below for that:
 	var visibleMarkers = {};
+	// now calculate datacenters stats, ok, malformed for each station, and which station markers should be displayed: 
 	for (var ii = 0; ii < sta_data.length; ii+=2){
 		var staName = sta_data[ii];
 		var staData = sta_data[ii+1];
@@ -140,12 +142,9 @@ function updateMap(){
 		if (!total){
 			continue;
 		}
-		var staId = staData[0];
-		var lat = staData[1];
-		var lon = staData[2];
+		var [staId, lat, lon, dcId, netIndex] = staData;
 		
 		// get datacenter id and update dc stats:
-		var dcId = staData[3];
 		if (!(dcId in dcStats)){
 			dcStats[dcId] = {'total':0, 'ok':0};
 		}
@@ -153,39 +152,48 @@ function updateMap(){
 		dcStat.total += total;
 		dcStat.ok += ok;
 		// create the marker and add it to the map:
-		var netName = networks[staData[4]];
+		var netName = networks[netIndex];
 		//var circle = createMarkerOld(staName, netName, staId, lat, lon, dcId, datacenters[dcId], ok, malformed, total).addTo(map);
 		
 		// decide if we need to add the marker to the visible markers:
-		var insertionIndex = allMarkers.length;
-		//if out-of-bounds, do not create marker:
+		// if out-of-bounds, do not create marker:
 		if(bounds){
-			var corner1 = L.latLng(lat-.1, lon-.1),
-			corner2 = L.latLng(lat+.1, lon+.1),
+			var corner1 = L.latLng(lat-.01, lon-.01),
+			corner2 = L.latLng(lat+.01, lon+.01),
 			_bounds = L.latLngBounds(corner1, corner2);
 			if (!bounds.intersects(_bounds)){
 				continue;
 			}
 		}
-		
+		// if exactly centered on another marker (according to the current map resolution, in pixels)
+		// show only the one with higher value (=% of segments in selected catagories):
 		var key = map.latLngToLayerPoint(new L.LatLng(lat, lon));
 		key = [key.x, key.y];
-		if (key in visibleMarkers){
+		var insert = !(key in visibleMarkers);
+		if (!insert){
 			var sizeAndValue = getSizeAndValue(ok, malformed, total);
 			var [staName_, netName_, staId_, lat_, lon_, dcId_, datacenter_, ok_, malformed_, total_] = visibleMarkers[key];
 			var otherSizeAndValue = getSizeAndValue(ok_, malformed_, total_);
 			if(sizeAndValue[1] > otherSizeAndValue[1]){
-				visibleMarkers[key] = [staName, netName, staId, lat, lon, dcId, datacenters[dcId], ok, malformed, total];
+				insert = true;
 			}
-		}else{
+		}
+		if(insert){
 			visibleMarkers[key] = [staName, netName, staId, lat, lon, dcId, datacenters[dcId], ok, malformed, total];
 		}
 	}
 	
+	// now display the markers. We delete the layer and re-create the markers, which are only those
+	// worth to be displayed. First use an image cache to store the leaflet icons (L.icon):
 	var allMarkers = [];
+	var imgCache = GLOBALS.imgCache;
+	if (!imgCache){
+		GLOBALS.imgCache = imgCache = {};  // [size, val] -> svg image in bytes
+	}
+	// and now create the markers, using the cache to set the already calculated leaflet icons, if any:
 	for (key in visibleMarkers){
 		var [staName, netName, staId, lat, lon, dcId, datacenter, ok, malformed, total] = visibleMarkers[key];
-		var circle = createMarker(staName, netName, staId, lat, lon, dcId, datacenter, ok, malformed, total); //.addTo(map);
+		var circle = createMarker(staName, netName, staId, lat, lon, dcId, datacenter, ok, malformed, total, imgCache); //.addTo(map);
 		allMarkers.push(circle);
 	}
 	
@@ -197,27 +205,12 @@ function updateMap(){
 		htmlElement(`dc${dcId}sel`).innerHTML = ok;
 		htmlElement(`dc${dcId}selperc`).innerHTML = `${total ? Math.round((100*ok)/total) : 0}%`;
 	}
-
+	// set the mapLayer so that we will know what to clear the next time we call this method:
 	GLOBALS.mapLayer = new L.featureGroup(allMarkers).addTo(map);
-
-//	// now sort markers and then bring them to front.
-//	// This has to be done at the real end because if the map is uninitialized a view must be set to
-//	// call bringToFront below. Initializing map.setView(...) would solve the problem
-//	// of this code placement BUT it does not fit the zoom the first time the map is created
-//	function sortMarker(marker1, marker2){
-//		// first who has at least some segment ok, IF the other has not
-//		var val = marker1.options.zIndexOffset-marker2.options.zIndexOffset; 
-//		if (!val){ // if both with no segments ok, or both with at least one segment ok, bigger markers to back:
-//			val = marker2.options.radius-marker1.options.radius;
-//		}
-//		return val;
-//	}
-//	allMarkers.sort(function(marker1, marker2){return  marker1.options.zIndexOffset-marker2.options.zIndexOffset;});
-//	allMarkers.forEach(function(marker){marker.bringToFront();});
-//	GLOBALS.allMarkers = allMarkers; // assign to global allMarkers
 }
 
 function processStation(staName, staData, selectedCodes, selectedDownloads, selectedDatacenters){
+	// returns the array [ok, malformed, total] for a given station
 	var ok = 0;
 	var malformed = 0;
 	dcId = staData[3];
@@ -251,43 +244,40 @@ function processStation(staName, staData, selectedCodes, selectedDownloads, sele
 	return [ok, malformed, ok+malformed];
 }
 
-
-
-
-function createMarker(staName, netName, staId, lat, lon, dcId, datacenter, ok, malformed, total){
+function createMarker(staName, netName, staId, lat, lon, dcId, datacenter, ok, malformed, total, imgCache){
+	// creates the marker for a given set of stations attributes
 	var [size, val] = getSizeAndValue(ok, malformed, total);
-	var greenBlue = 255 - val;
+	
+	var mySVGIcon = imgCache[[size,val]];
+	if(!mySVGIcon){
+		var greenBlue = 255 - val;
 
-	// copied and modified from https://groups.google.com/forum/#!topic/leaflet-js/GSisdUm5rEc
-	var h = size*1.7320508/2;
-	var x = size/2.0;
-	var y = 2*h/3.0;
+		// copied and modified from https://groups.google.com/forum/#!topic/leaflet-js/GSisdUm5rEc
+		var h = size*1.7320508/2;  // height of a triangular equilateral
+		var x = size/2.0;
+		var y = 2*h/3.0;
 
-	// here's the SVG for the marker
-    var icon = `<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='${size}' height='${h}'>
-    <polygon points='0,${h} ${x},0 ${size},${h}' style='fill:rgb(255, ${greenBlue}, ${greenBlue});stroke:#333;stroke-width:1' />
-    </svg>`;
+		// here's the SVG for the marker
+		var icon = `<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='${size}' height='${h}'>
+			<polygon points='0,${h} ${x},0 ${size},${h}' style='fill:rgb(255, ${greenBlue}, ${greenBlue});stroke:#333;stroke-width:1' />
+			</svg>`;
+		// here's the trick, base64 encode the URL:
+	    var svgURL = "data:image/svg+xml;base64," + btoa(icon);
+	    // create icon
+	    var mySVGIcon = new L.Icon( {
+	        // html: icon,
+	        // className: 'tri-div',
+	    	iconUrl: svgURL,
+	        iconSize: [size, h],
+	        iconAnchor: [x, y],
+	        popupAnchor: [0, 0]
+	    });
+	    imgCache[[size,val]] = mySVGIcon;
+	}
 
-    // here's the trick, base64 encode the URL
-    var svgURL = "data:image/svg+xml;base64," + btoa(icon);
-    
-    // create icon
-    var mySVGIcon = new L.Icon( {
-        // html: icon,
-        // className: 'tri-div',
-    	iconUrl: svgURL,
-        iconSize: [size, h],
-        iconAnchor: [x, y],
-        popupAnchor: [-x, 0]
-    } );
-
-    // leaflet uses bringToFront for layers, and zIndexOffset for markers.
-    // now, zIndexOffset must be made in thousands (see last post here: https://github.com/Leaflet/Leaflet/issues/5560)
-    // because leaflet by default calculates its zIndex (the lower the latitude, the higher the zindex) and sums it with zIndexOffset:
-    // now the value below means: if a marker has data available, bring it to front. If both markers
-    // have data aval (or both haven't) bring to front the one with smaller radius (so it's not hidden)
+    // zIndexOffset is an OFFSET. If made in thousands it basically works as a zIndex
+	// (see last post here: https://github.com/Leaflet/Leaflet/issues/5560):
     var zIndexOffset = (val > 0 ? 1000 : 0) + size;
-    
     var tri =  L.marker( [ lat, lon ], { icon: mySVGIcon,
 	    								 zIndexOffset: zIndexOffset
 	    								 // you can put whatever option <n> here and later access it with marker.options.<n>
@@ -308,16 +298,13 @@ function createMarker(staName, netName, staId, lat, lon, dcId, datacenter, ok, m
 }
 
 function getSizeAndValue(ok, malformed, total){
-	//returns the size (total) and value (ratio of ok/total)
+	//returns the array [size, total], where size is an int in [7,15] and total an int in [55, 255]
+	// the former is the size of the markers, the latter the color to be substracted to green and blue components.
+	// It is from 55 in order to leave white markers with no stations in selected categories, and
+	// make pink to red the other cases, so that hopefully they are visually recognizable.
 	var val = ok/total;
 	var retVal = 0;
-	if (val > 0){  // second && is for safety...
-		// now we want to set a shade of red according to val: the higher val, the more the marker is red
-		// In a rgb context, this means that the higher val, the lower, the lower the var greenBlue
-		// The function below creates the value for greenBlue, taking in consideration that
-		// visually we are interested to spot the stations with some 'ok' segments (val >0),
-		// and thus we set the maximum of greenBlue to 190, meaning that the color immeditaley after
-		// the white (val==0) is a kind of pink one
+	if (val > 0){
 		retVal = parseInt(0.5+200*val) + 55;
 	}
 	// set sizes kind-of logaritmically:
@@ -326,81 +313,13 @@ function getSizeAndValue(ok, malformed, total){
 	if (total < 10){
 		sizeRadius = 0;
 	}else if (total < 50){
-		sizeRadius = 1;
-	}else if (total < 100){
 		sizeRadius = 2;
-	}else if (total < 500){
-		sizeRadius = 3;
-	}else if (total < 1000){
+	}else if (total < 100){
 		sizeRadius = 4;
+	}else if (total < 500){
+		sizeRadius = 6;
+	}else if (total < 1000){
+		sizeRadius = 8;
 	}
 	return [minRadius+sizeRadius, retVal];
 }
-
-////now sort markers and then bring them to front.
-//// This has to be done at the real end because if the map is uninitialized a view must be set to
-//// call bringToFront below. Initializing map.setView(...) would solve the problem
-//// of this code placement BUT it does not fit the zoom the first time the map is created
-//function sortMarker(marker1, marker2){
-//	// first who has at least some segment ok, IF the other has not
-//	var val = marker1.options.zIndexOffset-marker2.options.zIndexOffset; 
-//	if (!val){ // if both with no segments ok, or both with at least one segment ok, bigger markers to back:
-//		val = marker2.options.radius-marker1.options.radius;
-//	}
-//	return val;
-//}
-//
-//
-//function createMarkerOld(staName, netName, staId, lat, lon, dcId, datacenter, ok, malformed, total){
-//	//datacenters[dcId]
-//	var val = ok/total;
-//	var greenBlue = 255;
-//	var [minVal, maxVal] = [0, 1];
-//	if (val > 0 && maxVal > minVal){  // second && is for safety...
-//		// now we want to set a shade of red according to val: the higher val, the more the marker is red
-//		// In a rgb context, this means that the higher val, the lower, the lower the var greenBlue
-//		// The function below creates the value for greenBlue, taking in consideration that
-//		// visually we are interested to spot the stations with some 'ok' segments (val >0),
-//		// and thus we set the maximum of greenBlue to 190, meaning that the color immeditaley after
-//		// the white (val==0) is a kind of pink one
-//		greenBlue = 190 + ((-190) * (val - minVal) / (maxVal - minVal));
-//		greenBlue = parseInt(0.5 + greenBlue); // round to int: converts maxVal to 0, minVal to 255
-//	}
-//	// set sizes kind-of logaritmically:
-//	var minRadius = 3;  // lower than this the circle is not clickable ...
-//	var sizeRadius = 5; // for the biggest case (>= than 1000 segments)
-//	if (total < 10){
-//		sizeRadius = 0;
-//	}else if (total < 50){
-//		sizeRadius = 1;
-//	}else if (total < 100){
-//		sizeRadius = 2;
-//	}else if (total < 500){
-//		sizeRadius = 3;
-//	}else if (total < 1000){
-//		sizeRadius = 4;
-//	}
-//
-//	var circle = L.circleMarker([lat, lon], {
-//	    color: '#333',
-//	    opacity: 1,
-//	    dcId: dcId,
-//	    weight: 1,
-//	    fillColor: `rgb(255, ${greenBlue}, ${greenBlue})`,
-//	    fillOpacity: 1,
-//	    radius: sizeRadius + minRadius,
-//	    zIndexOffset: val > minVal ? 1000 : 0  // not that this is NOT used for circles but for markers, we will use this feature afterwards
-//	});
-//	//bind popup with infos:
-//	var staPopupContent = `<div class='title'> ${staName}.${netName} </div>
-//						   <div class='subtitle underline'>${datacenter}</div>
-//						   <table class='station-info'>
-//						   <tr><td>database id:</td><td class='right'>${staId}</td></tr>
-//						   <tr><td>Segments:</td><td class='right'> ${total} </td></tr>
-//						   <tr><td class='right'>In selected categories:</td><td class='right'> ${ok} </td></tr>
-//						   <tr><td class='right'>Not in selected categories:</td><td class='right'> ${malformed} </td></tr>
-//						   </table>`; 
-//	circle.bindPopup(staPopupContent);
-//	
-//	return circle;
-//}
