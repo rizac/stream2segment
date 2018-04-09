@@ -30,13 +30,6 @@ div.info-legend{
 	border: 1px solid #666;
 	vertical-align: middle;
 }
-div.info-legend .station_symbol{
-	display:inline-block;
-	height:1em;
-	width:1em;
-	border-radius:.5em;
-	border: 1px solid #333;
-}
 td.nowrap, th.nowrap{
 	white-space: nowrap;
 }
@@ -52,4 +45,16 @@ td:not(:first-child), th:not(:first-child){
 }
 th{
 	text-align:left;
+}
+#loadingDiv{
+	width:25vw;
+	display:none;
+	z-index:1000;
+	position:fixed;
+	bottom:1.5em;
+	right:2em;
+	text-shadow:2px 2px #ccc;
+    color: #ee0000;
+    text-align:right;
+    font-size:150%;
 }

@@ -111,6 +111,12 @@ function createMap(){
 }
 
 function updateMap(){
+	var loader = document.getElementById("loadingDiv");
+	loader.style.display = "block";
+	setTimeout(function(){ _updateMap(); loader.style.display = "none";map.style.display='block';}, 100);
+}
+
+function _updateMap(){
 	/**
 	 * Updates the map with the given data and the given selected labels
 	 * This function is called on pan and zoom to minimize the markers, as we use svgicons which are quite heavy,

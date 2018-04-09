@@ -44,8 +44,12 @@
 		<div id='legend'>
 			<table>
 				<tr>
-					<td class='right'><span class='station_symbol'></span></td>
-					<td>Circles: stations with downloaded waveform data segments</td>
+					<td class='right'>
+						<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='10' height='8.65'>
+							<polygon points='0,8.65 5,0 10,8.65' style='fill:rgb(255, 255, 255);stroke:#333;stroke-width:1' />
+						</svg>
+					</td>
+					<td>Triangles: stations with downloaded waveform data segments</td>
 				</tr>
 		    		<tr>
 		    			<td class='right nowrap'>
@@ -57,9 +61,15 @@
 		    		</tr>
 		    		<tr>
 		    			<td class='right nowrap'>
-		    				<span class='station_symbol' style='border-radius:4px;height:8px;width:8px'></span>
-		    				<span class='station_symbol' style='border-radius:6px;height:12px;width:12px'></span>
-		    				<span class='station_symbol' style='border-radius:8px;height:16px;width:16px'></span>
+		    				<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='8' height='6.92'>
+								<polygon points='0,6.92 4,0 8,6.92' style='fill:rgb(255, 255, 255);stroke:#333;stroke-width:1' />
+							</svg>
+		    				<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='10' height='8.65'>
+								<polygon points='0,8.65 5,0 10,8.65' style='fill:rgb(255, 255, 255);stroke:#333;stroke-width:1' />
+							</svg>
+							<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='12' height='10.38'>
+								<polygon points='0,10.38 6,0 12,10.38' style='fill:rgb(255, 255, 255);stroke:#333;stroke-width:1' />
+							</svg>
 		    			</td>
 		    			<td>Sizes: total number of segments</td>
 		    		</tr>
@@ -118,6 +128,10 @@
 					{% endfor %}
 			</table>
 		</div>
+	</div>
+	
+	<div id='loadingDiv'>
+		UPDATING MAP ...
 	</div>
 {% endblock %}
 
