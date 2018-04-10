@@ -113,7 +113,7 @@ function createMap(){
 function updateMap(){
 	var loader = document.getElementById("loadingDiv");
 	loader.style.display = "block";
-	setTimeout(function(){ _updateMap(); loader.style.display = "none";map.style.display='block';}, 100);
+	setTimeout(function(){ _updateMap(); loader.style.display = "none";}, 50);
 }
 
 function _updateMap(){
@@ -192,14 +192,15 @@ function _updateMap(){
 	// now display the markers. We delete the layer and re-create the markers, which are only those
 	// worth to be displayed. First use an image cache to store the leaflet icons (L.icon):
 	var allMarkers = [];
-	var imgCache = GLOBALS.imgCache;
-	if (!imgCache){
-		GLOBALS.imgCache = imgCache = {};  // [size, val] -> svg image in bytes
-	}
+//	var imgCache = GLOBALS.imgCache;
+//	if (!imgCache){
+//		GLOBALS.imgCache = imgCache = {};  // [size, val] -> svg image in bytes
+//	}
+
 	// and now create the markers, using the cache to set the already calculated leaflet icons, if any:
 	for (key in visibleMarkers){
 		var [staName, netName, staId, lat, lon, dcId, datacenter, ok, malformed, total] = visibleMarkers[key];
-		var circle = createMarker(staName, netName, staId, lat, lon, dcId, datacenter, ok, malformed, total, imgCache); //.addTo(map);
+		var circle = createMarker(staName, netName, staId, lat, lon, dcId, datacenter, ok, malformed, total, map); //.addTo(map);
 		allMarkers.push(circle);
 	}
 	
@@ -250,12 +251,12 @@ function processStation(staName, staData, selectedCodes, selectedDownloads, sele
 	return [ok, malformed, ok+malformed];
 }
 
-function createMarker(staName, netName, staId, lat, lon, dcId, datacenter, ok, malformed, total, imgCache){
+function createMarker(staName, netName, staId, lat, lon, dcId, datacenter, ok, malformed, total, map){
 	// creates the marker for a given set of stations attributes
 	var [size, val] = getSizeAndValue(ok, malformed, total);
 	
-	var mySVGIcon = imgCache[[size,val]];
-	if(!mySVGIcon){
+	
+
 		var greenBlue = 255 - val;
 
 		// copied and modified from https://groups.google.com/forum/#!topic/leaflet-js/GSisdUm5rEc
@@ -263,31 +264,39 @@ function createMarker(staName, netName, staId, lat, lon, dcId, datacenter, ok, m
 		var x = size/2.0;
 		var y = 2*h/3.0;
 
-		// here's the SVG for the marker
-		var icon = `<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='${size}' height='${h}'>
-			<polygon points='0,${h} ${x},0 ${size},${h}' style='fill:rgb(255, ${greenBlue}, ${greenBlue});stroke:#333;stroke-width:1' />
-			</svg>`;
-		// here's the trick, base64 encode the URL:
-	    var svgURL = "data:image/svg+xml;base64," + btoa(icon);
-	    // create icon
-	    var mySVGIcon = new L.Icon( {
-	        // html: icon,
-	        // className: 'tri-div',
-	    	iconUrl: svgURL,
-	        iconSize: [size, h],
-	        iconAnchor: [x, y],
-	        popupAnchor: [0, 0]
-	    });
-	    imgCache[[size,val]] = mySVGIcon;
-	}
-
+		var pt = map.latLngToLayerPoint(new L.LatLng(lat, lon));
+		var latlng = map.layerPointToLatLng(new L.Point(pt.x+x, pt.y-y));
+		
+		var xx = Math.abs(latlng.lng - lon);
+		var yy = Math.abs(latlng.lat - lat);
+		
+//		// here's the SVG for the marker
+//		var icon = `<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='${size}' height='${h}'>
+//			<polygon points='0,${h} ${x},0 ${size},${h}' style='fill:rgb(255, ${greenBlue}, ${greenBlue});stroke:#333;stroke-width:1' />
+//			</svg>`;
+//		// here's the trick, base64 encode the URL:
+//	    var svgURL = "data:image/svg+xml;base64," + btoa(icon);
+//	    // create icon
+//	    var mySVGIcon = new L.Icon( {
+//	        // html: icon,
+//	        // className: 'tri-div',
+//	    	iconUrl: svgURL,
+//	        iconSize: [size, h],
+//	        iconAnchor: [x, y],
+//	        popupAnchor: [0, 0]
+//	    });
+//	    imgCache[[size,val]] = mySVGIcon;
+	
     // zIndexOffset is an OFFSET. If made in thousands it basically works as a zIndex
 	// (see last post here: https://github.com/Leaflet/Leaflet/issues/5560):
     var zIndexOffset = (val > 0 ? 1000 : 0) + size;
-    var tri =  L.marker( [ lat, lon ], { icon: mySVGIcon,
-	    								 zIndexOffset: zIndexOffset
-	    								 // you can put whatever option <n> here and later access it with marker.options.<n>
-    } );
+//    var tri =  L.marker( [ lat, lon ], { icon: mySVGIcon,
+//	    								 zIndexOffset: zIndexOffset
+//	    								 // you can put whatever option <n> here and later access it with marker.options.<n>
+//    } );
+    var latlngs = [[lat-yy/2, lon-xx],[lat+yy, lon], [lat-yy/2, lon+xx]];
+    var tri = L.polygon(latlngs, {fillOpacity: 0.8, color: '#333', fillColor:`rgb(255, ${greenBlue}, ${greenBlue})`,
+    	weight:1}).addTo(map);
 	
 	//bind popup with infos:
 	var staPopupContent = `<div class='title'> ${staName}.${netName} </div>
