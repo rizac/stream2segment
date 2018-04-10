@@ -68,6 +68,7 @@ function createMap(){
 	var [minLat, minLon] = [1000, 1000];
 	var [maxLat, maxLon] =[0, 0];
 	var sta_data = GLOBALS.sta_data;
+	var stations = [];
 	for (var ii = 0; ii < sta_data.length; ii+=2){
 		var staName = sta_data[ii];
 		var staData = sta_data[ii+1];
@@ -85,7 +86,9 @@ function createMap(){
 		if (lon > maxLon){
 			maxLon = lon;
 		}
+		stations.push([staName, staData, L.latLng(lat, lon)]);
 	}
+	GLOBALS.sta_data = stations;
 	if (minLat == maxLat){
 		minLat -= 0.1;
 		maxLat += 0.1;
@@ -103,17 +106,20 @@ function createMap(){
 		// console.log("ZOOMEND", e);
 		updateMap();
 	});
-	map.on("moveend", function (e) {
-		// console.log("ZOOMEND", e);
-		updateMap();
-	});
+	// moveend has a problem: it might be moved when showing a popup
+	// in this case the map is updated and the popup venishes...
+//	map.on("moveend", function (e) {
+//		// console.log("ZOOMEND", e);
+//		updateMap();
+//	});
 	return map;
 }
 
 function updateMap(){
+	// updates the map in a timeout in case of poor perfs
 	var loader = document.getElementById("loadingDiv");
 	loader.style.display = "block";
-	setTimeout(function(){ _updateMap(); loader.style.display = "none";}, 50);
+	setTimeout(function(){ _updateMap(); loader.style.display = "none";}, 25);
 }
 
 function _updateMap(){
@@ -122,7 +128,7 @@ function _updateMap(){
 	 * This function is called on pan and zoom to minimize the markers, as we use svgicons which are quite heavy,
 	 * we need to load only visible one...
 	 */
-	var {sta_data, datacenters, seldatacenters, networks, codes, selcodes, downloads, seldownloads} = GLOBALS;
+	var {datacenters, seldatacenters, networks, codes, selcodes, downloads, seldownloads} = GLOBALS;
 
 	var map = GLOBALS.map;
 	if(!map){
@@ -130,7 +136,9 @@ function _updateMap(){
 	}else{
 		map.removeLayer(GLOBALS.mapLayer);
 	}
-	var bounds = map.getBounds();
+	// sta_sta might have been modified if map has to be initialized, set it here:
+	sta_data = GLOBALS.sta_data;
+	var mapBounds = map.getBounds();  // not used, left here to avoid re-googling it in case ...
 	// alias for document.getElementById:
 	var htmlElement = document.getElementById.bind(document);  // https://stackoverflow.com/questions/1007340/javascript-function-aliasing-doesnt-seem-to-work
 
@@ -140,16 +148,17 @@ function _updateMap(){
 	// we use svg icons for the triangles, they have poor perfs, so remove those that are hidden
 	// use the object below for that:
 	var visibleMarkers = {};
+	var outb =0;
+	var below = 0;
+	var stazz = 0;
 	// now calculate datacenters stats, ok, malformed for each station, and which station markers should be displayed: 
-	for (var ii = 0; ii < sta_data.length; ii+=2){
-		var staName = sta_data[ii];
-		var staData = sta_data[ii+1];
+	for (var i = 0; i < sta_data.length; i++){
+		var [staName, staData, latLng] = sta_data[i];
 		var [ok, malformed, total] = processStation(staName, staData, selcodes, seldownloads, seldatacenters);
 		if (!total){
 			continue;
 		}
-		var [staId, lat, lon, dcId, netIndex] = staData;
-		
+		var [staId, lat, lon, dcId, netIndex] = staData;		
 		// get datacenter id and update dc stats:
 		if (!(dcId in dcStats)){
 			dcStats[dcId] = {'total':0, 'ok':0};
@@ -157,52 +166,39 @@ function _updateMap(){
 		var dcStat = dcStats[dcId];
 		dcStat.total += total;
 		dcStat.ok += ok;
-		// create the marker and add it to the map:
-		var netName = networks[netIndex];
-		//var circle = createMarkerOld(staName, netName, staId, lat, lon, dcId, datacenters[dcId], ok, malformed, total).addTo(map);
-		
-		// decide if we need to add the marker to the visible markers:
-		// if out-of-bounds, do not create marker:
-		if(bounds){
-			var corner1 = L.latLng(lat-.01, lon-.01),
-			corner2 = L.latLng(lat+.01, lon+.01),
-			_bounds = L.latLngBounds(corner1, corner2);
-			if (!bounds.intersects(_bounds)){
-				continue;
-			}
-		}
 		// if exactly centered on another marker (according to the current map resolution, in pixels)
 		// show only the one with higher value (=% of segments in selected catagories):
-		var key = map.latLngToLayerPoint(new L.LatLng(lat, lon));
-		key = [key.x, key.y];
+		var key = map.latLngToLayerPoint(latLng);
+		key = [key.x, key.y].toString();  // in any case js objects convert keys to string
 		var insert = !(key in visibleMarkers);
 		if (!insert){
-			var sizeAndValue = getSizeAndValue(ok, malformed, total);
-			var [staName_, netName_, staId_, lat_, lon_, dcId_, datacenter_, ok_, malformed_, total_] = visibleMarkers[key];
-			var otherSizeAndValue = getSizeAndValue(ok_, malformed_, total_);
-			if(sizeAndValue[1] > otherSizeAndValue[1]){
+			var [mySize, myVal] = getSizeAndValue(ok, malformed, total);
+			var [staName_, netName_, staId_, latLng_, dcId_, datacenter_, ok_, malformed_, total_] = visibleMarkers[key];
+			var [otherSize, otherVal] = getSizeAndValue(ok_, malformed_, total_);
+			if(myVal > otherVal){
 				insert = true;
 			}
 		}
 		if(insert){
-			visibleMarkers[key] = [staName, netName, staId, lat, lon, dcId, datacenters[dcId], ok, malformed, total];
+			var netName = networks[netIndex];
+			visibleMarkers[key] = [staName, netName, staId, latLng, dcId, datacenters[dcId], ok, malformed, total];
+			stazz += 1;
+		}else{
+			below +=1;
 		}
 	}
 	
-	// now display the markers. We delete the layer and re-create the markers, which are only those
-	// worth to be displayed. First use an image cache to store the leaflet icons (L.icon):
+	console.log(`inserted ${stazz}, outofbounds ${outb}, overlapping-hidden ${below}`);
+	
+	// now display the markers:
 	var allMarkers = [];
-//	var imgCache = GLOBALS.imgCache;
-//	if (!imgCache){
-//		GLOBALS.imgCache = imgCache = {};  // [size, val] -> svg image in bytes
-//	}
-
-	// and now create the markers, using the cache to set the already calculated leaflet icons, if any:
 	for (key in visibleMarkers){
-		var [staName, netName, staId, lat, lon, dcId, datacenter, ok, malformed, total] = visibleMarkers[key];
-		var circle = createMarker(staName, netName, staId, lat, lon, dcId, datacenter, ok, malformed, total, map); //.addTo(map);
-		allMarkers.push(circle);
+		var [staName, netName, staId, latLng, dcId, datacenter, ok, malformed, total] = visibleMarkers[key];
+		marker =  createMarker(staName, netName, staId, latLng, dcId, datacenter, ok, malformed, total, map);
+		allMarkers.push(marker);
 	}
+	// now sort them:
+	allMarkers.sort(function(m1, m2){return m1.options.zIndexOffset - m2.options.zIndexOffset;});
 	
 	// print stats for datacenters:
 	for (var dcId in datacenters){
@@ -251,52 +247,32 @@ function processStation(staName, staData, selectedCodes, selectedDownloads, sele
 	return [ok, malformed, ok+malformed];
 }
 
-function createMarker(staName, netName, staId, lat, lon, dcId, datacenter, ok, malformed, total, map){
+function createMarker(staName, netName, staId, latLng, dcId, datacenter, ok, malformed, total, map){
 	// creates the marker for a given set of stations attributes
+	// Uses  L.Ploygon because it's MUCH, much more lightweight than L.marker with custom svg icon
+	// The drawback is that we need to resize the marker on zoom
+	// for info in svg marker icon, see // copied and modified from https://groups.google.com/forum/#!topic/leaflet-js/GSisdUm5rEc
 	var [size, val] = getSizeAndValue(ok, malformed, total);
+	var greenBlue = 255 - val;
+
+	var h = size*1.7320508/2;  // height of a triangular equilateral
+	var x = size/2.0;
+	var y = 2*h/3.0;
+
+	var pt = map.latLngToLayerPoint(latLng);
+	var latlng2 = map.layerPointToLatLng(new L.Point(pt.x+x, pt.y-y));
 	
-	
-
-		var greenBlue = 255 - val;
-
-		// copied and modified from https://groups.google.com/forum/#!topic/leaflet-js/GSisdUm5rEc
-		var h = size*1.7320508/2;  // height of a triangular equilateral
-		var x = size/2.0;
-		var y = 2*h/3.0;
-
-		var pt = map.latLngToLayerPoint(new L.LatLng(lat, lon));
-		var latlng = map.layerPointToLatLng(new L.Point(pt.x+x, pt.y-y));
-		
-		var xx = Math.abs(latlng.lng - lon);
-		var yy = Math.abs(latlng.lat - lat);
-		
-//		// here's the SVG for the marker
-//		var icon = `<svg class='svg-tirangle' xmlns='http://www.w3.org/2000/svg' version='1.1' width='${size}' height='${h}'>
-//			<polygon points='0,${h} ${x},0 ${size},${h}' style='fill:rgb(255, ${greenBlue}, ${greenBlue});stroke:#333;stroke-width:1' />
-//			</svg>`;
-//		// here's the trick, base64 encode the URL:
-//	    var svgURL = "data:image/svg+xml;base64," + btoa(icon);
-//	    // create icon
-//	    var mySVGIcon = new L.Icon( {
-//	        // html: icon,
-//	        // className: 'tri-div',
-//	    	iconUrl: svgURL,
-//	        iconSize: [size, h],
-//	        iconAnchor: [x, y],
-//	        popupAnchor: [0, 0]
-//	    });
-//	    imgCache[[size,val]] = mySVGIcon;
+	var lon = latLng.lng;
+	var lat = latLng.lat;
+	var xx = Math.abs(latlng2.lng - lon);
+	var yy = Math.abs(latlng2.lat - lat);
 	
     // zIndexOffset is an OFFSET. If made in thousands it basically works as a zIndex
 	// (see last post here: https://github.com/Leaflet/Leaflet/issues/5560):
-    var zIndexOffset = (val > 0 ? 1000 : 0) + size;
-//    var tri =  L.marker( [ lat, lon ], { icon: mySVGIcon,
-//	    								 zIndexOffset: zIndexOffset
-//	    								 // you can put whatever option <n> here and later access it with marker.options.<n>
-//    } );
+    var zIndexOffset = (val > 0 ? 10000 : 0) + 100 * size;
     var latlngs = [[lat-yy/2, lon-xx],[lat+yy, lon], [lat-yy/2, lon+xx]];
-    var tri = L.polygon(latlngs, {fillOpacity: 0.8, color: '#333', fillColor:`rgb(255, ${greenBlue}, ${greenBlue})`,
-    	weight:1}).addTo(map);
+    var tri = L.polygon(latlngs, {fillOpacity: 1, color: '#333', fillColor:`rgb(255, ${greenBlue}, ${greenBlue})`,
+    	weight:1, zIndexOffset: zIndexOffset});
 	
 	//bind popup with infos:
 	var staPopupContent = `<div class='title'> ${staName}.${netName} </div>
@@ -324,7 +300,7 @@ function getSizeAndValue(ok, malformed, total){
 	}
 	// set sizes kind-of logaritmically:
 	var minRadius = 7;  // lower than this the circle is not clickable ...
-	var sizeRadius = 5; // for the biggest case (>= than 1000 segments)
+	var sizeRadius = 10; // for the biggest case (>= than 1000 segments)
 	if (total < 10){
 		sizeRadius = 0;
 	}else if (total < 50){
