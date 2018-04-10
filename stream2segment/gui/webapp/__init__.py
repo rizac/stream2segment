@@ -4,11 +4,11 @@ Web app (gui) entry point
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
 import os
+from contextlib import contextmanager
 
 from flask import Flask, g
 
 from stream2segment.utils import get_session as s2s_get_session, load_source
-from contextlib import contextmanager
 
 
 def get_session(app):

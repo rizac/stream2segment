@@ -13,7 +13,7 @@
 # ```
 #     def myfunction(segment, config):
 # ```
-# defined in the the given python file (-p option) 
+# defined in the the given python file during processing
 #
 # ------------------------------------------------------------------------------------------
 #
@@ -188,6 +188,11 @@
 # download.errors                   int
 # download.config                   str
 # download.program_version          str
+# --------------------------------- ------------------------------------------------
+# classes.id                        int: the id(s) of the classes assigned to the segment
+# classes.label                     int: the label(s) of the classes assigned to the segment
+# classes.description               int: the description(s) of the classes assigned to the
+#                                   segment
 # ================================= ================================================
 
 # Here you can select which segments to work on. If this argument is missing, all segments

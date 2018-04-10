@@ -386,6 +386,11 @@ segment.download.warnings                 int
 segment.download.errors                   int
 segment.download.config                   str
 segment.download.program_version          str
+----------------------------------------- ------------------------------------------------
+segment.classes.id                        int: the id(s) of the classes assigned to the segment
+segment.classes.label                     int: the label(s) of the classes assigned to the segment
+segment.classes.description               int: the description(s) of the classes assigned to the
+                                          segment
 ========================================= ================================================
 '''
 
