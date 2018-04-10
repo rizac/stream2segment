@@ -34,12 +34,10 @@ def create_app(dbpath):
     app = Flask(__name__)
     app.config['DATABASE'] = dbpath
 
-    yield app
-
     @app.teardown_appcontext
     def close_db(error):
         """Closes the database again at the end of the request."""
         if hasattr(g, 'session'):
             g.session.close()
 
-    return app
+    yield app

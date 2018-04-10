@@ -268,7 +268,9 @@ function createMarker(staName, netName, staId, latLng, dcId, datacenter, ok, mal
 	var yy = Math.abs(latlng2.lat - lat);
 	
     // zIndexOffset is an OFFSET. If made in thousands it basically works as a zIndex
-	// (see last post here: https://github.com/Leaflet/Leaflet/issues/5560):
+	// (see last post here: https://github.com/Leaflet/Leaflet/issues/5560)
+	// it is used only if Markers are supplied. If Polygon (as in this case) they will be used
+	// for ordering the markers
     var zIndexOffset = (val > 0 ? 10000 : 0) + 100 * size;
     var latlngs = [[lat-yy/2, lon-xx],[lat+yy, lon], [lat-yy/2, lon+xx]];
     var tri = L.polygon(latlngs, {fillOpacity: 1, color: '#333', fillColor:`rgb(255, ${greenBlue}, ${greenBlue})`,
@@ -284,7 +286,7 @@ function createMarker(staName, netName, staId, latLng, dcId, datacenter, ok, mal
 						   <tr><td class='right'>Not in selected categories:</td><td class='right'> ${malformed} </td></tr>
 						   </table>`; 
 	tri.bindPopup(staPopupContent);
-	
+
 	return tri;
 }
 

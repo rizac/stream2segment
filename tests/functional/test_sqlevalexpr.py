@@ -437,8 +437,44 @@ class Test(unittest.TestCase):
         b = inspect_instance(seg)
         
         h = 9
-        
     
+    def test_selection_classes(self):
+        expr1 = exprquery(self.session.query(Segment), {'classes.label': 'asd'})
+        expr2 = exprquery(self.session.query(Segment), {'classes.label': 'asd a'})
+        expr3 = exprquery(self.session.query(Segment), {'has_class': 'asd'})
+        if self.is_postgres:
+            assert str(expr1) == """SELECT segments.id AS segments_id, segments.event_id AS segments_event_id, segments.channel_id AS segments_channel_id, segments.datacenter_id AS segments_datacenter_id, segments.data_seed_id AS segments_data_seed_id, segments.event_distance_deg AS segments_event_distance_deg, segments.data AS segments_data, segments.download_code AS segments_download_code, segments.start_time AS segments_start_time, segments.arrival_time AS segments_arrival_time, segments.end_time AS segments_end_time, segments.sample_rate AS segments_sample_rate, segments.maxgap_numsamples AS segments_maxgap_numsamples, segments.download_id AS segments_download_id, segments.request_start AS segments_request_start, segments.request_end AS segments_request_end 
+FROM segments JOIN class_labellings AS class_labellings_1 ON segments.id = class_labellings_1.segment_id JOIN classes ON classes.id = class_labellings_1.class_id 
+WHERE classes.label = %(label_1)s"""
+
+            assert str(expr2) == """SELECT segments.id AS segments_id, segments.event_id AS segments_event_id, segments.channel_id AS segments_channel_id, segments.datacenter_id AS segments_datacenter_id, segments.data_seed_id AS segments_data_seed_id, segments.event_distance_deg AS segments_event_distance_deg, segments.data AS segments_data, segments.download_code AS segments_download_code, segments.start_time AS segments_start_time, segments.arrival_time AS segments_arrival_time, segments.end_time AS segments_end_time, segments.sample_rate AS segments_sample_rate, segments.maxgap_numsamples AS segments_maxgap_numsamples, segments.download_id AS segments_download_id, segments.request_start AS segments_request_start, segments.request_end AS segments_request_end 
+FROM segments JOIN class_labellings AS class_labellings_1 ON segments.id = class_labellings_1.segment_id JOIN classes ON classes.id = class_labellings_1.class_id 
+WHERE classes.label IN (%(label_1)s, %(label_2)s)"""
+
+        
+            assert str(expr3) == """SELECT segments.id AS segments_id, segments.event_id AS segments_event_id, segments.channel_id AS segments_channel_id, segments.datacenter_id AS segments_datacenter_id, segments.data_seed_id AS segments_data_seed_id, segments.event_distance_deg AS segments_event_distance_deg, segments.data AS segments_data, segments.download_code AS segments_download_code, segments.start_time AS segments_start_time, segments.arrival_time AS segments_arrival_time, segments.end_time AS segments_end_time, segments.sample_rate AS segments_sample_rate, segments.maxgap_numsamples AS segments_maxgap_numsamples, segments.download_id AS segments_download_id, segments.request_start AS segments_request_start, segments.request_end AS segments_request_end 
+FROM segments 
+WHERE (EXISTS (SELECT 1 
+FROM class_labellings, classes 
+WHERE segments.id = class_labellings.segment_id AND classes.id = class_labellings.class_id)) = true"""
+        
+        else:
+            assert str(expr1) == """SELECT segments.id AS segments_id, segments.event_id AS segments_event_id, segments.channel_id AS segments_channel_id, segments.datacenter_id AS segments_datacenter_id, segments.data_seed_id AS segments_data_seed_id, segments.event_distance_deg AS segments_event_distance_deg, segments.data AS segments_data, segments.download_code AS segments_download_code, segments.start_time AS segments_start_time, segments.arrival_time AS segments_arrival_time, segments.end_time AS segments_end_time, segments.sample_rate AS segments_sample_rate, segments.maxgap_numsamples AS segments_maxgap_numsamples, segments.download_id AS segments_download_id, segments.request_start AS segments_request_start, segments.request_end AS segments_request_end 
+FROM segments JOIN class_labellings AS class_labellings_1 ON segments.id = class_labellings_1.segment_id JOIN classes ON classes.id = class_labellings_1.class_id 
+WHERE classes.label = ?"""
+
+            assert str(expr2) == """SELECT segments.id AS segments_id, segments.event_id AS segments_event_id, segments.channel_id AS segments_channel_id, segments.datacenter_id AS segments_datacenter_id, segments.data_seed_id AS segments_data_seed_id, segments.event_distance_deg AS segments_event_distance_deg, segments.data AS segments_data, segments.download_code AS segments_download_code, segments.start_time AS segments_start_time, segments.arrival_time AS segments_arrival_time, segments.end_time AS segments_end_time, segments.sample_rate AS segments_sample_rate, segments.maxgap_numsamples AS segments_maxgap_numsamples, segments.download_id AS segments_download_id, segments.request_start AS segments_request_start, segments.request_end AS segments_request_end 
+FROM segments JOIN class_labellings AS class_labellings_1 ON segments.id = class_labellings_1.segment_id JOIN classes ON classes.id = class_labellings_1.class_id 
+WHERE classes.label IN (?, ?)"""
+
+            assert str(expr3) == """SELECT segments.id AS segments_id, segments.event_id AS segments_event_id, segments.channel_id AS segments_channel_id, segments.datacenter_id AS segments_datacenter_id, segments.data_seed_id AS segments_data_seed_id, segments.event_distance_deg AS segments_event_distance_deg, segments.data AS segments_data, segments.download_code AS segments_download_code, segments.start_time AS segments_start_time, segments.arrival_time AS segments_arrival_time, segments.end_time AS segments_end_time, segments.sample_rate AS segments_sample_rate, segments.maxgap_numsamples AS segments_maxgap_numsamples, segments.download_id AS segments_download_id, segments.request_start AS segments_request_start, segments.request_end AS segments_request_end 
+FROM segments 
+WHERE (EXISTS (SELECT 1 
+FROM class_labellings, classes 
+WHERE segments.id = class_labellings.segment_id AND classes.id = class_labellings.class_id)) = 1"""
+            
+
+
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']
     unittest.main()
