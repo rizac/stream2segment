@@ -396,11 +396,11 @@ class Test(unittest.TestCase):
             CUMUL_INDEX, SN_INDEX, DERIVCUM2_INDEX = None, None, None
             for i, p in enumerate(m.userdefined_plots):
                 if p['name'] == 'cumulative':
-                    CUMUL_INDEX = i
+                    CUMUL_INDEX = p['index']
                 elif p['name'] == 'sn_spectra':
-                    SN_INDEX = i
+                    SN_INDEX = p['index']
                 elif p['name'] == 'derivcum2':
-                    DERIVCUM2_INDEX = i
+                    DERIVCUM2_INDEX = p['index']
             
             if CUMUL_INDEX is None or SN_INDEX is None or DERIVCUM2_INDEX is None:
                 raise Exception('either the test function names have to be changed, or '
@@ -510,8 +510,8 @@ class Test(unittest.TestCase):
                         'Station inventory (xml) error: unknown url type' in str(preprocessed_stream)
                 for i in idxs:
                     plot, pplot = m[s.id][0][i], m[s.id][1][i]
-                    # if idx=1, plot has 2 series (noie/signal) otherwise matches stream traces count:
-                    assert len(plot.data) == 2 if i==1 else len(stream)
+                    # if idx=SN_INDEX, plot has 2 series (noie/signal) otherwise matches stream traces count:
+                    assert len(plot.data) == 2 if i==SN_INDEX else len(stream)
                     assert not plot.warnings  # gaps /overlaps
                     assert len(pplot.data) == 1 # only one (fake) trace
                     assert pplot.warnings and 'inventory' in pplot.warnings[0]  # gaps /overlaps

@@ -144,8 +144,10 @@ class Test(unittest.TestCase):
         runner = CliRunner()
         result = runner.invoke(cli, ['download'] + args)
         return result
-    
-    def run_cli_process(self, *args, dburl_in_yaml=None):
+
+    def run_cli_process(self, *args, **kwargs):
+        '''kwargs has a single arg: dburl_in_yaml (None by default)'''
+        dburl_in_yaml = kwargs.get('dburl_in_yaml', None)
         args = list(args)
         if all(a not in ("-d", "--dburl") for a in args):
             args += ['-d', self.d_yaml_file]
@@ -162,7 +164,6 @@ class Test(unittest.TestCase):
 
     def test_download_eventws_query_args(self):
         '''test different scenarios where we provide eventws query args from the command line'''
-        
         # FIRST SCENARIO: PROVIDE A PARAMETER P in the cli ALREADY PRESENT IN THE CONFIG eventws_query_args
         # Test that the name stays the same provided in the coinfig, regardless of the cli name
         def_yaml_dict = yaml_load(self.d_yaml_file)['eventws_query_args']
@@ -222,11 +223,12 @@ class Test(unittest.TestCase):
     def test_download_bad_values(self):
         '''test different scenarios where the value in the dwonload.yaml are not well formatted'''
         result = self.run_cli_download(networks={'a': 'b'})  # invalid type
-        assert result.exit_code == 0 # WHAT?? because networks needs to be just an iterable
+        assert result.exit_code == 0  # WHAT?? because networks needs to be just an iterable
         # thus providing dict is actually fine and will iterate over its keys:
         assert self.mock_run_download.call_args_list[0][1]['networks'] == ['a']
         # do some asserts only for this case to test how we print the arguments to string:
         assert "tt_table: <TTTable object, " in result.output
+        assert "start: 2006-01-01 00:00:00" in result.output
         assert "traveltimes_model:" not in result.output
         assert 'session: <session object, dburl=\''+ self.dburl + "'>" in result.output
         # check the session:

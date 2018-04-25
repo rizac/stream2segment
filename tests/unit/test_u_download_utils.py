@@ -22,7 +22,7 @@ from io import StringIO
 import stream2segment
 from stream2segment.download.modules.stationsearch import locations2degrees as s2sloc2deg, get_search_radius
 from stream2segment.download.modules.datacenters import EidaValidator
-from stream2segment.download.utils import custom_download_codes, DownloadStats, to_fdsn_arg
+from stream2segment.download.utils import custom_download_codes, DownloadStats, to_fdsn_arg, intkeysdict
 from obspy.geodetics.base import locations2degrees  as obspyloc2deg
 import numpy as np
 import pandas as pd
@@ -89,6 +89,14 @@ def test_get_search_radius(mag, minmag_maxmag_minradius_maxradius, expected_val)
             
 
 def test_stats_table():
+    
+    ikd = intkeysdict()
+    ikd['a'] += 5
+    ikd['b'] = 5
+    ikd[1] += 5
+    ikd[2] = 5
+    
+    assert all(_ in ikd for _ in ['a', 'b', 1, 2])
     
     urlerr, mseederr, tbound_err, tbound_warn = custom_download_codes()
     seg_not_found = None
@@ -399,18 +407,27 @@ COLUMNS DETAILS:
  - Multiple Choices: Data status unknown (download completed, server response code 300 indicates Redirection)
  - Code 599: Data status unknown (download completed, server response code 599 is unknown)"""[1:]
 
-    d['what'][re.compile('abc')] = 14
+
+    # test supplying an object as http code (e.g. a regular expression),
+    # everything should work anyway. As classes string representations might have different across
+    # python version, supply a new object
+    
+    class MYObj():
+        
+        def __str__(self):
+            return 'abc_123'
+    d['what'][MYObj()] = 14
 
     assert str(d) == """
-                                                               Request                                                                  
-             OK                  Time                 Segment  Entity    Internal                                                       
-             Partially  No       Span   MSeed  Url    Not      Too       Server              Multiple  Code  Code                       
-        OK   Saved      Content  Error  Error  Error  Found    Large     Error     Continue  Choices   599   re.compile('abc')  TOTAL   
-------  ---  ---------  -------  -----  -----  -----  -------  --------  --------  --------  --------  ----  -----------------  --------
-geofon  105          0        0      0     11      3        0  33030005         1         0         0     3                  0  33030128
-eida      0          6        3      3      0      0        0         0         0         0         3     0                  0        15
-what      0          0        0      0      0      0        0         0         0        -8         0     0                 14         6
-TOTAL   105          6        3      3     11      3        0  33030005         1        -8         3     3                 14  33030149
+                                                               Request                                                        
+             OK                  Time                 Segment  Entity    Internal                                             
+             Partially  No       Span   MSeed  Url    Not      Too       Server              Multiple  Code  Code             
+        OK   Saved      Content  Error  Error  Error  Found    Large     Error     Continue  Choices   599   abc_123  TOTAL   
+------  ---  ---------  -------  -----  -----  -----  -------  --------  --------  --------  --------  ----  -------  --------
+geofon  105          0        0      0     11      3        0  33030005         1         0         0     3        0  33030128
+eida      0          6        3      3      0      0        0         0         0         0         3     0        0        15
+what      0          0        0      0      0      0        0         0         0        -8         0     0       14         6
+TOTAL   105          6        3      3     11      3        0  33030005         1        -8         3     3       14  33030149
 
 COLUMNS DETAILS:
  - OK: Data saved (download ok, no additional warning)
@@ -425,21 +442,21 @@ COLUMNS DETAILS:
  - Continue: Data status unknown (download completed, server response code 100 indicates Informational response)
  - Multiple Choices: Data status unknown (download completed, server response code 300 indicates Redirection)
  - Code 599: Data status unknown (download completed, server response code 599 is unknown)
- - Code re.compile('abc'): Data status unknown (download completed, server response code re.compile('abc') is unknown)"""[1:]
+ - Code abc_123: Data status unknown (download completed, server response code abc_123 is unknown)"""[1:]
     
 
     d['what']['206'] = 14
     
     assert str(d) == """
-                                                                        Request                                                                  
-             OK                           Time                 Segment  Entity    Internal                                                       
-             Partially  No       Partial  Span   MSeed  Url    Not      Too       Server              Multiple  Code  Code                       
-        OK   Saved      Content  Content  Error  Error  Error  Found    Large     Error     Continue  Choices   599   re.compile('abc')  TOTAL   
-------  ---  ---------  -------  -------  -----  -----  -----  -------  --------  --------  --------  --------  ----  -----------------  --------
-geofon  105          0        0        0      0     11      3        0  33030005         1         0         0     3                  0  33030128
-eida      0          6        3        0      3      0      0        0         0         0         0         3     0                  0        15
-what      0          0        0       14      0      0      0        0         0         0        -8         0     0                 14        20
-TOTAL   105          6        3       14      3     11      3        0  33030005         1        -8         3     3                 14  33030163
+                                                                        Request                                                        
+             OK                           Time                 Segment  Entity    Internal                                             
+             Partially  No       Partial  Span   MSeed  Url    Not      Too       Server              Multiple  Code  Code             
+        OK   Saved      Content  Content  Error  Error  Error  Found    Large     Error     Continue  Choices   599   abc_123  TOTAL   
+------  ---  ---------  -------  -------  -----  -----  -----  -------  --------  --------  --------  --------  ----  -------  --------
+geofon  105          0        0        0      0     11      3        0  33030005         1         0         0     3        0  33030128
+eida      0          6        3        0      3      0      0        0         0         0         0         3     0        0        15
+what      0          0        0       14      0      0      0        0         0         0        -8         0     0       14        20
+TOTAL   105          6        3       14      3     11      3        0  33030005         1        -8         3     3       14  33030163
 
 COLUMNS DETAILS:
  - OK: Data saved (download ok, no additional warning)
@@ -455,7 +472,7 @@ COLUMNS DETAILS:
  - Continue: Data status unknown (download completed, server response code 100 indicates Informational response)
  - Multiple Choices: Data status unknown (download completed, server response code 300 indicates Redirection)
  - Code 599: Data status unknown (download completed, server response code 599 is unknown)
- - Code re.compile('abc'): Data status unknown (download completed, server response code re.compile('abc') is unknown)"""[1:]
+ - Code abc_123: Data status unknown (download completed, server response code abc_123 is unknown)"""[1:]
 
 
 def eq(str1, str2):

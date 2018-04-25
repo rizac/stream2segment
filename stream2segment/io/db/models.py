@@ -654,17 +654,41 @@ class Segment(Base):
         return os.path.join(root, str(year), net, sta, loc, cha + ".D",
                             '.'.join((net, sta, loc, cha, str(year), str(day), str(eid))))
 
-    def del_classes(self, *ids_or_labels):
-        self.edit_classes(*ids_or_labels, mode='del')
+    def del_classes(self, *ids_or_labels, **kwargs):
+        '''deletes segment classes
+        :param ids_or_labels: list of int (denoting class ids) or str (denoting class label)
+        '''
+        self.edit_classes('del', *ids_or_labels, **kwargs)
 
-    def set_classes(self, *ids_or_labels, annotator=None):
-        self.edit_classes(*ids_or_labels, mode='set', annotator=annotator)
+    def set_classes(self, *ids_or_labels, **kwargs):
+        '''sets segment classes, replacing old ones, if any
+        :param ids_or_labels: list of int (denoting class ids) or str (denoting class label)
+        :param kwargs: py2 compatible keyword arguments (PEP 3102): currently supported is
+        'annotator' (str, default: None) and 'auto_commit' (bool, default: True). If `annotator`
+        is not None, the class assignement is saved as hand labelled
+        '''
+        self.edit_classes('set', *ids_or_labels, **kwargs)
 
-    def add_classes(self, *ids_or_labels, annotator=None):
-        self.edit_classes(*ids_or_labels, mode='add', annotator=annotator)
+    def add_classes(self, *ids_or_labels, **kwargs):
+        '''adds segment classes, keeping old ones, if any
+        :param ids_or_labels: list of int (denoting class ids) or str (denoting class label)
+        :param kwargs: py2 compatible keyword arguments (PEP 3102): currently supported is
+        'annotator' (str, default: None) and 'auto_commit' (bool, default: True). If `annotator`
+        is not None, the class assignement is saved as hand labelled
+        '''
+        self.edit_classes('add', *ids_or_labels, **kwargs)
 
-    def edit_classes(self, *ids_or_labels, mode, auto_commit=True, annotator=None):
-        """:param mode: either 'add' 'set' or 'del'"""
+    def edit_classes(self, mode, *ids_or_labels, **kwargs):
+        """
+        Edit segment classes
+        :param mode: either 'add' 'set' or 'del'
+        :param ids_or_labels: list of int (denoting class ids) or str (denoting class label)
+        :param kwargs: py2 compatible keyword arguments (PEP 3102): currently supported is
+        'annotator' (str, default: None) and 'auto_commit' (bool, default: True). If `annotator`
+        is not None, the class assignement is saved as hand labelled
+        """
+        auto_commit = kwargs.get('auto_commit', True)
+        annotator = kwargs.get('annotator', None)
         sess = object_session(self)
         needs_commit = False
         ids = set(ids_or_labels)
@@ -676,17 +700,17 @@ class Segment(Base):
             classes = list(self.classes)
 
         if mode == 'del':
-            for c in classes:
-                if c.id in ids or c.label in labels:
-                    self.classes.remove(c)
+            for cla in classes:
+                if cla.id in ids or cla.label in labels:
+                    self.classes.remove(cla)
                     needs_commit = True
             ids = labels = set()  # do not add anything
         elif mode == 'add':
-            for c in classes:
-                if c.id in ids:
-                    ids.remove(c.id)  # already set, remove it and don't add it again
-                if c.label in labels:
-                    labels.remove(c.label)  # already set, remove it and don't add it again
+            for cla in classes:
+                if cla.id in ids:
+                    ids.remove(cla.id)  # already set, remove it and don't add it again
+                if cla.label in labels:
+                    labels.remove(cla.label)  # already set, remove it and don't add it again
         elif mode != 'set':
             raise TypeError("`mode` argument needs to be in ('add', 'del', 'set'), "
                             "'%s' supplied" % str(mode))

@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 
 import numpy as np
 from obspy.core import UTCDateTime  # , Stream, Trace, read
+from future.utils import text_type
 
 
 class Plot(object):
@@ -60,9 +61,11 @@ class Plot(object):
         if warnings:
             if isinstance(warnings, bytes):
                 warnings = warnings.decode('utf8')
-            if isinstance(warnings, str):
+            if isinstance(warnings, text_type):  # str in python3, unicode in python2
                 warnings = [warnings]
         self.warnings = warnings or []
+        if not isinstance(warnings, list):
+            dfg = 9
 
     def add(self, x0=None, dx=None, y=None, label=None):
         """Adds a new series (scatter line) to this plot.
@@ -207,9 +210,10 @@ class Plot(object):
             label = ''
         return Plot(title, warnings).addtrace(trace, label)
 
-    def __str__(self, *args, **kwargs):
+    def __str__(self):
         return "js.Plot('%s')" % (self.title) + "\n%d line-series" % len(self.data) +\
-             "\nis_timeseries: %s" % (self.is_timeseries) + "\nwarnings: " +"\tn".join(self.warnings)
+               "\nis_timeseries: %s" % (self.is_timeseries) + "\nwarnings: " +\
+               "\t\n".join(self.warnings)
 
 
 def jsontimestamp(utctime, adjust_tzone=True):

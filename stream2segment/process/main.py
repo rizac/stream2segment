@@ -14,7 +14,7 @@ from builtins import (ascii, chr, dict, filter, hex, input,
                       super, zip)
 
 # iterating over dictionary keys with the same set-like behaviour on Py2.7 as on Py3:
-from future.utils import viewkeys
+from future.utils import viewkeys, PY2
 
 import logging
 import csv
@@ -41,7 +41,9 @@ def run(session, pyfunc, config_dict, outcsvfile=None, isterminal=False):
     CHEAD_FRMT = "Segment.%s"  # try avoiding overridding user defined keys
     csvwriter = [None, None]  # bad hack: in python3, we might use 'nonlocal' @UnusedVariable
 
-    with open(outcsvfile, 'w', 1) as csvfile:
+    # py2 compatibility of csv library: open in 'wb'. If py3, open in 'w' mode:
+    mode = 'wb' if PY2 else 'w'
+    with open(outcsvfile, mode, 1) as csvfile:
 
         def ondone(segment, result):  # result is surely not None
             if csvwriter[0] is None:  # instantiate writer according to first input

@@ -4,11 +4,11 @@ Common utilities for the whole program
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 """
-# make the following(s) behave like python3 counterparts if running from python2.7.x
-# (http://python-future.org/imports.html#explicit-imports):
-from builtins import object
+# # make open py2-3 compatible. Call 'from stream2segment.utils import open'
+# # (http://python-future.org/imports.html#explicit-imports):
+# from builtins import open
 
-from future.utils import string_types, itervalues
+from future.utils import string_types, itervalues, PY2, text_type
 
 # this can not apparently be fixed with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
@@ -39,7 +39,7 @@ from stream2segment.io.db.models import Base
 
 def _getmodulename(pyfilepath):
     '''returns a most likely unique module name for a python source file loaded as a module'''
-    # In both python2 and 3, the function importing a module from file needs a file path and 
+    # In both python2 and 3, the function importing a module from file needs a file path and
     # a 'name' argument. It's not clear why it's necessary and e.g., it does not default
     # to the filepath 's name. However, keep in mind that:
     # 1. The name must be UNIQUE: otherwise when importing the second file the module of the
@@ -47,7 +47,8 @@ def _getmodulename(pyfilepath):
     # 2. Names should NOT contain dots, as otherwise a `RuntimeWarning: Parent module ... not
     # found` is issued.
     # To achieve 1. and 2. this function returns a string that is the full absolute path of
-    # `pyfilepath`, replacing file-path separators and dots with '_pathsep_' and '_dot_', repsectiyely
+    # `pyfilepath`, replacing file-path separators and dots with '_pathsep_' and '_dot_',
+    # repsectiyely
     return os.path.abspath(os.path.realpath(pyfilepath)).replace(".", "_dot_").\
         replace(os.path.sep, "_pathsep_")
     # note above: os.path.sep returns '/' on mac, os.pathsep returns ':'
@@ -55,15 +56,15 @@ def _getmodulename(pyfilepath):
 
 # python 2 and 3 compatible code:
 if sys.version_info[0] > 2:  # python 3+ (if py4 will not be compliant we'll fix that when needed)
-    import importlib.util  # @UnresolvedImport
+    import importlib.util  # @UnresolvedImport pylint: disable=import-error
 
     def load_source(pyfilepath):
         """Loads a source python file and returns it"""
         name = _getmodulename(pyfilepath)
-        spec = importlib.util.spec_from_file_location(name, pyfilepath)
-        foo = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(foo)
-        return foo
+        spec = importlib.util.spec_from_file_location(name, pyfilepath)  # pylint: disable=no-member
+        mod_ = importlib.util.module_from_spec(spec)  # pylint: disable=no-member
+        spec.loader.exec_module(mod_)
+        return mod_
 
     def is_mod_function(pymodule, func, include_classes=False):
         '''returns True if the python function `func` is a function (or class if `include_classes`
@@ -184,8 +185,8 @@ class strconvert(object):
 
 def tounicode(string, decoding='utf-8'):
     """
-        Converts string to text (unicode in python2, str in python3). Function python 2-3
-        compatible. If string is already a text, returns it
+        Converts string to 'text' (unicode in python2, str in python3). Function python 2-3
+        compatible. If string is already a 'text' type, returns it
         :param string: a `str`, 'bytes' or (in py2) 'unicode' object.
         :param decoding: the decoding used if `string` has to be converted to text.
             Defaults to 'utf-8' when missing

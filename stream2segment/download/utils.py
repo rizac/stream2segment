@@ -16,7 +16,7 @@ from builtins import zip, range
 import logging
 import os
 from itertools import chain, cycle
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 from functools import cmp_to_key
 
 from future.utils import viewitems
@@ -31,6 +31,7 @@ from stream2segment.utils.url import read_async as original_read_async
 from stream2segment.utils.msgs import MSG
 
 from future.standard_library import install_aliases
+from pandas.compat import OrderedDefaultdict
 install_aliases()
 from http.client import responses  # @UnresolvedImport @IgnorePep8
 
@@ -452,15 +453,14 @@ class intkeysdict(dict):
     this is important because some datacenters return http codes as strings (such as '200')
     instead of integers (200), and both should be considered the same code'''
     # implementation note: In a previous version, we used a normal defaultdict as values of
-    # DownloadStats, but we needed to call somewhere and sometime the method
-    # 'DownloadStats.normalizecodes' to cast 'manually' all defaultdic key.
-    # The use of this dict is way more maintainable and clean, but introduces the overhead of
-    # casting to int each time: from tests, the time jumps from 1.5 seconds
-    # (normal defaultdict) to about 5.5 seconds on 2 millions iterations (nothing compared to the
-    # time spent downloading data).
-    # Note also that this dict implementation is faster (couple of seconds) than a defaultdict
-    # and even (roughly 1 sec) than the same dict calling
-    # super(...).__setitiem__, super(...).__getitem__ (that's interesting)
+    # DownloadStats, but we might account for keys (http codes) passed as strings
+    # (e.g. '204' instead of 204): we decided to implement a custom dict with both defaultdict
+    # and cast-to-int functionalities because it is more maintainable, clean, and even faster
+    # (couple of seconds on 2 millions segments is
+    # negligible, but we compensate a bit the overhead of
+    # casting to int each time, which raises from 1.5 seconds - normal defaultdict -
+    # to about 5.5 seconds. In any case, everything negligible compared to the
+    # time spent downloading data)
     def __missing__(self, key):  # @UnusedVariable
         return 0
 
@@ -469,18 +469,19 @@ class intkeysdict(dict):
             key = int(key)
         except:  # @IgnorePep8 pylint: disable=bare-except
             pass
-        return dict.__setitem__(self, key, val)
+        return dict.__setitem__(self, key, val)  # slightly faster than super(...).__setitiem__
 
     def __getitem__(self, key):
         try:
             key = int(key)
         except:  # @IgnorePep8 pylint: disable=bare-except
             pass
-        return dict.__getitem__(self, key)
+        return dict.__getitem__(self, key)  # slightly faster than super(...).__setitiem__
 
 
-class DownloadStats(defaultdict):
-    ''':ref:`class``defaultdict` subclass which holds statistics of a download.
+class DownloadStats(OrderedDict):
+    ''':ref:`class``OrderedDict` subclass (with defaultdict-like capabilities) which holds
+        statistics of a download.
         Keys of this dict are the domains (string), and values are `defaultdict`s of
         download codes keys (usually integers) mapped to their
         occurrences (any code key castable to int will be casted and inserted as int).
@@ -488,7 +489,7 @@ class DownloadStats(defaultdict):
 
         ```
             d = DownloadStats()
-            d['domain.org'][200] += 4
+            d['domain.org'][200] += 4  # note defaultdict capabilities
             d['domain2.org2'][413] = 4
             # Strings are casted, when possible:
             d['domain2.org2']['413'] = 4 # d['domain2.org2']['413']=8
@@ -522,11 +523,16 @@ class DownloadStats(defaultdict):
     '''
     resp = get_s2s_responses()
 
-    def __init__(self):
-        '''initializes a new instance'''
-        # apparently, using defaultdict(int) is slightly faster than collections.Count
-        super(DownloadStats, self).__init__(intkeysdict)
-        self.resp = {}
+    def __missing__(self, key):  # @UnusedVariable
+        '''returns an new intkeysdict and **sets** it in this dict
+        '''
+        # To implement a defaultdict like behaviour, we might simply `return intkeysdict()`
+        # But this would work in something like: `downloadstats['geofon'] += 5` which is NOT
+        # the case here, where `downloadstats['geofon'][204] += 5` would NOT work, as the latter
+        # would create a new intkeysdict() and assign 5 to IT, not to this dict. o:
+        value = intkeysdict()
+        OrderedDict.__setitem__(self, key, value)
+        return value
 
     @classmethod
     def titlelegend(cls, code):

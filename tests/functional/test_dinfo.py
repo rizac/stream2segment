@@ -420,12 +420,12 @@ download info and statistics written to """)
                 print(result.output)
                 assert False
 
-                assert """           OK        OK         Time                          Internal  Segment       
-               Gaps      Partially  Span   MSeed  Url    Bad      Server    Not           
-           OK  Overlaps  Saved      Error  Error  Error  Request  Error     Found    TOTAL
-    -----  --  --------  ---------  -----  -----  -----  -------  --------  -------  -----
-            3         1          2      1      1      1        1         1        1     12
-    TOTAL   3         1          2      1      1      1        1         1        1     12""" in result.output
+#                 assert """           OK        OK         Time                          Internal  Segment       
+#                Gaps      Partially  Span   MSeed  Url    Bad      Server    Not           
+#            OK  Overlaps  Saved      Error  Error  Error  Request  Error     Found    TOTAL
+#     -----  --  --------  ---------  -----  -----  -----  -------  --------  -------  -----
+#             3         1          2      1      1      1        1         1        1     12
+#     TOTAL   3         1          2      1      1      1        1         1        1     12""" in result.output
             assert mock_open_in_browser.called
             assert mock_gettempdir.called
         finally:

@@ -10,9 +10,7 @@ from __future__ import print_function
 
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import (ascii, bytes, chr, dict, filter, hex, input,
-                      int, map, next, oct, open, pow, range, round,
-                      str, super, zip, object)
+from builtins import range, round
 
 import time
 import logging
@@ -26,7 +24,7 @@ from webbrowser import open as open_in_browser
 import threading
 from tempfile import gettempdir
 
-from future.utils import string_types
+from future.utils import string_types, text_type, PY2
 
 import yaml
 import click
@@ -45,6 +43,12 @@ from stream2segment.process import math as s2s_math
 from stream2segment.download.utils import QuitDownload
 from stream2segment.gui.dinfo import get_dstats_html, get_dstats_str_iter
 
+if PY2:
+    # https://stackoverflow.com/questions/45946051/signature-method-in-inspect-module-for-python-2
+    import funcsigs
+    SIGNATURE = funcsigs.signature
+else:
+    SIGNATURE = inspect.signature  # @UndefinedVariable # pylint: disable=no-member
 
 # set root logger if we are executing this module as script, otherwise as module name following
 # logger conventions. Discussion here:
@@ -322,7 +326,7 @@ def helpmathiter(type, filter):  # @ReservedAssignment pylint: disable=redefined
                     yield pymodule.__doc__
                     module_doc_printed = True
                     yield "-" * len(modname) + "\n"
-                yield "%s%s:" % (func.__name__, inspect.signature(func))
+                yield "%s%s:" % (func.__name__, SIGNATURE(func))
                 yield render(func.__doc__ or '(No documentation found)', indent_num=1)
                 if inspect.isclass(func):
                     for funcname, func_ in inspect.getmembers(func):
@@ -330,7 +334,7 @@ def helpmathiter(type, filter):  # @ReservedAssignment pylint: disable=redefined
                             # Consider anything that starts with _ private
                             # and don't document it
                             yield "\n"
-                            yield "%s%s%s:" % (INDENT, funcname, inspect.signature(func_))
+                            yield "%s%s%s:" % (INDENT, funcname, SIGNATURE(func_))
                             yield render(func_.__doc__, indent_num=2)
 
                 yield "\n"
@@ -353,7 +357,10 @@ def dinfo(dburl, download_ids=None, maxgap_threshold=0.5, html=False, outfile=No
         if outfile is not None:
             with open(outfile, 'w') as opn:
                 for line in itr:
-                    opn.write(line + "\n")
+                    line += '\n'
+#                     if not isinstance(line, text_type):  # python2 compatibility
+#                         line = line.decode('utf8')
+#                     opn.write(line)
         else:
             for line in itr:
                 print(line)

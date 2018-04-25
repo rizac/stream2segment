@@ -37,9 +37,9 @@ from stream2segment.process.utils import get_inventory_url, save_inventory as or
 from stream2segment.process.core import query4process
 
 from stream2segment.process.core import run as process_core_run
-from future import standard_library
+# from future import standard_library
 from stream2segment.process.utils import enhancesegmentclass
-standard_library.install_aliases()
+# standard_library.install_aliases()
 
 
 class DB(object):

@@ -254,17 +254,17 @@ def nslc_param_value_aslist(value):
         # in python2, it is sufficient to say it's not a string
         # in python3, we need to check that is no str also
         if not hasattr(value, "__iter__") or isinstance(value, str):
-            # it’s an iterable not a string
+            # it's an iterable not a string
             value = [value]
 
         for string in value:
             splitted = string.split(",")
-            for s in splitted:
-                s = s.strip()
-                if ' ' in s:
-                    raise Exception("invalid space char(s): '%s'" % s)
+            for chunk in splitted:
+                chunk = chunk.strip()
+                if ' ' in chunk:
+                    raise Exception("invalid space char(s): '%s'" % chunk)
                 # if i == 3 (location) convert '--' to '':
-                strings.add(s)
+                strings.add(chunk)
 
         # some checks:
         if "!*" in strings:  # discard everything is not valid
