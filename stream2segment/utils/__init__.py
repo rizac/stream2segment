@@ -6,7 +6,7 @@ Common utilities for the whole program
 """
 # # make open py2-3 compatible. Call 'from stream2segment.utils import open'
 # # (http://python-future.org/imports.html#explicit-imports):
-# from builtins import open
+from builtins import open as compatible_open
 
 from future.utils import string_types, itervalues, PY2, text_type
 
@@ -161,7 +161,7 @@ class strconvert(object):
             characters in the input string will result in a string that is not the perfect
             translation of the input
         """
-        return re.escape(text).replace(r"\*", ".*").replace(r"\?", ".")
+        return _re_escape(text).replace(r"\*", ".*").replace(r"\?", ".")
 
     @staticmethod
     def sql2re(text):
@@ -180,7 +180,15 @@ class strconvert(object):
             characters in the input string will result in a string that is not the perfect
             translation of the input
         """
-        return re.escape(text).replace(r"\%", ".*").replace("_", ".")
+        return _re_escape(text).replace(r"\%", ".*").replace("_", ".")
+
+
+if PY2:
+    # py2 escapes "_", py3 doesnt, make it py3 compatible
+    def _re_escape(*a, **kw):
+        return re.escape(*a, **kw).replace(r"\_", "_")
+else:
+    _re_escape = re.escape  # pylint: disable=invalid-name
 
 
 def tounicode(string, decoding='utf-8'):
@@ -382,3 +390,34 @@ def urljoin(*urlpath, **query_args):
     # http://stackoverflow.com/questions/1793261/how-to-join-components-of-a-path-when-you-are-constructing-a-url-in-python
     return "{}?{}".format('/'.join(url.strip('/') for url in urlpath),
                           "&".join("{}={}".format(k, v) for k, v in query_args.items()))
+
+
+def open2writetext(file, **kw):
+    '''python 2+3 compatible function for writing **text** files with `str` types to file
+    (i.e., object of `<type str>` in *both* python2 and 3).
+    This function should be used with the csv writer or when we provide an input string
+    which is `str` type in both python2 and 3 (e.g., by writing a = 'abc')
+    This function basically returns the python3 `open` function where the 'mode' argument is 'wb'
+    in python2
+    and 'w' in python3. In the latter case, 'errors' and 'encoding' will be removed from `kw`,
+    if any, because not compatible with 'wb' mode.
+    Using `io.open(mode='w',..)` in py2 and
+    `open(mode='w', ...)` in py3 provides compatibility across function **signatures**, but
+    the user must provide `unicodes` in python2 and `str` in py3. If this is not the case
+    (e.g., we created a string such as a="abc" and we write it to a file, or we use the csv module)
+    this function takes care of using the correct 'mode' in `open`
+
+    :param buffering: same as open buffering argument
+    :param kw: keyword arguments as for the python3 open function. 'mode' will be replaced
+    if present. If python2, 'encoding', 'newline' and 'errors' will be removed as not compatible
+    with the 'wb' mode (they raise if present)
+    :return: the python3 open function for writing `str` types into text file
+    '''
+    if PY2:
+        kw.pop('encoding', None)
+        kw.pop('errors', None)
+        kw.pop('newline', None)
+        kw['mode'] = 'wb'
+    else:
+        kw['mode'] = 'w'
+    return compatible_open(file, **kw)

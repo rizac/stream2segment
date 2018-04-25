@@ -10,7 +10,7 @@ from __future__ import print_function
 
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import range, round
+from builtins import range, round, open
 
 import time
 import logging
@@ -36,7 +36,7 @@ from stream2segment.utils.log import configlog4download, configlog4processing
 from stream2segment.io.db.models import Download
 from stream2segment.process.main import run as run_process
 from stream2segment.download.main import run as run_download, new_db_download
-from stream2segment.utils import secure_dburl, strconvert, iterfuncs
+from stream2segment.utils import secure_dburl, strconvert, iterfuncs, open2writetext
 from stream2segment.utils.resources import get_templates_fpaths
 from stream2segment.gui.main import create_main_app, run_in_browser
 from stream2segment.process import math as s2s_math
@@ -341,13 +341,18 @@ def helpmathiter(type, filter):  # @ReservedAssignment pylint: disable=redefined
 
 
 def dinfo(dburl, download_ids=None, maxgap_threshold=0.5, html=False, outfile=None):
+    '''Creates a diagnostic html page (or text string) showing the status of the download
+    Note that due to current implementation, segments re-downloaded have the download id of the
+    last download attempt, even if the download code is the same as previous run'''
     session = load_session_for_dinfo(dburl)
     if html:
         openbrowser = False
         if not outfile:
             openbrowser = True
             outfile = os.path.join(gettempdir(), "s2s_dinfo.html")
-        with open(outfile, 'w') as opn:
+        # get_dstats_html returns unicode characters in py2, str in py3,
+        # so it is safe to use open like this (cf below):
+        with open(outfile, 'w', encoding='utf8', errors='replace') as opn:
             opn.write(get_dstats_html(session, download_ids, maxgap_threshold))
         if openbrowser:
             open_in_browser('file://' + outfile)
@@ -355,12 +360,12 @@ def dinfo(dburl, download_ids=None, maxgap_threshold=0.5, html=False, outfile=No
     else:
         itr = get_dstats_str_iter(session, download_ids, maxgap_threshold)
         if outfile is not None:
-            with open(outfile, 'w') as opn:
+            # itr is an iterator of strings in py2, and str in py3, so open must be input
+            # differently (see utils module):
+            with open2writetext(outfile, encoding='utf8', errors='replace') as opn:
                 for line in itr:
                     line += '\n'
-#                     if not isinstance(line, text_type):  # python2 compatibility
-#                         line = line.decode('utf8')
-#                     opn.write(line)
+                    opn.write(line)
         else:
             for line in itr:
                 print(line)

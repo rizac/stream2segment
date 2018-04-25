@@ -22,6 +22,7 @@ import csv
 
 from stream2segment.io.db.models import Segment
 from stream2segment.process.core import run as process_core_run
+from stream2segment.utils import open2writetext
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +43,9 @@ def run(session, pyfunc, config_dict, outcsvfile=None, isterminal=False):
     csvwriter = [None, None]  # bad hack: in python3, we might use 'nonlocal' @UnusedVariable
 
     # py2 compatibility of csv library: open in 'wb'. If py3, open in 'w' mode:
-    mode = 'wb' if PY2 else 'w'
-    with open(outcsvfile, mode, 1) as csvfile:
+    # See utils module
+    with open2writetext(outcsvfile, buffering=1, encoding='utf8', errors='replace',
+                        newline='') as csvfile:
 
         def ondone(segment, result):  # result is surely not None
             if csvwriter[0] is None:  # instantiate writer according to first input
