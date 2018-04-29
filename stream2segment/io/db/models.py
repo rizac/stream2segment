@@ -734,6 +734,55 @@ class Segment(Base):
                 sess.rollback()
                 raise
 
+    def query_siblings(self, parent=None, colname=None):
+        '''Returns an sql-alchemy query yielding all siblings of this segment according to
+        `parent`.
+        When `parent` denotes a foreign key and `colname` is None or missing, this method is
+        equivalent to access the relationship defined in the 'backref' argument
+        (see this class relationships). Example:
+        `segment.query_siblings('station')` yields the same results as `segment.station.segments`.
+
+        :param parent: str or None (default: None). Any of the following: 'component',
+        'orientation', None: returns the segments of the same recorded event, on the
+        other components / channel orientations. 'stationname': returns the segments of the
+        same station, identified by the tuple of the codes (newtwork, station). 'datacenter',
+        'event', 'station', 'channel': returns the segments of the same datacenter, event,
+        station or channel, all identified by the associated foreign key.
+        Note that 'station' in this case is the segment's station id, identified by the tuple
+        (newtwork, station, start_time)
+
+        :param colname: str or None (default:None). The attriubte name of this class segment
+        class to be yielded. None means that instances of this class
+        will be yielded. Otherwise, it must be an attribute of this class (e.g. 'id' will
+        yield tuples with a single <int> element denoting each sibling's id). Note that
+        in the latter case no Segment is stored in the session's idenitty_map, meaning that
+        a (sort-of) cache mechanism will not be used, but also that less memory will be
+        consumed (session.expunge_all() will clear the cache in case)
+        '''
+        session = object_session(self)
+        qry = session.query(Segment if colname is None else getattr(Segment, colname))
+
+        if parent in ('component', 'orientation', None):
+            qry = qry.join(Segment.channel).\
+                filter((Segment.event_id == self.event_id) &
+                       (Channel.station_id == self.channel.station_id) &
+                       (Channel.location == self.channel.location) &
+                       (Channel.band_code == self.channel.band_code) &
+                       (Channel.instrument_code == self.channel.instrument_code))
+        elif parent == 'stationname':
+            qry = qry.join(Segment.channel, Channel.station).\
+                filter((Station.network == self.channel.station.network) &
+                       (Station.station == self.channel.station.station))
+        elif parent == 'station':
+            qry = qry.join(Segment.channel).\
+                filter((Channel.station_id == self.channel.station_id))
+        else:
+            try:
+                qry = qry.filter(getattr(Segment, parent + '_id') == getattr(self, parent + '_id'))
+            except AttributeError:
+                raise TypeError("invalid 'parent' argument '%s'" % parent)
+        return qry.filter(Segment.id != self.id)
+
     @hybrid_property
     def seed_id(self):
         try:

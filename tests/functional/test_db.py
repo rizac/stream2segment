@@ -27,6 +27,8 @@ from sqlalchemy.orm.session import object_session
 from sqlalchemy.sql.expression import func, bindparam
 import time
 from stream2segment.io.db.sqlevalexpr import exprquery
+from stream2segment.process.core import query4process
+from stream2segment.utils import get_session
 
 class Test(unittest.TestCase):
     
@@ -1251,6 +1253,227 @@ class Test(unittest.TestCase):
         assert pd.isnull(dfx.loc[0, Event.longitude.key])
         assert pd.notnull(dfx.loc[0, Event.latitude.key])
         
+
+    def test_segment_siblings(self):
+        dc = DataCenter(station_url="345fbgfnyhtgrefs", dataselect_url='edfawrefdc')
+        self.session.add(dc)
+
+        utcnow = datetime.utcnow()
+
+        run = Download(run_time=utcnow)
+        self.session.add(run)
+        
+        ws = WebService(url='webserviceurl')
+        self.session.add(ws)
+        self.session.commit()
+            
+        id = '__abcdefghilmnopq'
+        e = Event(event_id=id, webservice_id=ws.id, time=utcnow, latitude=89.5, longitude=6,
+                         depth_km=7.1, magnitude=56)
+        self.session.add(e)
+        e2 = Event(event_id=id+'5', webservice_id=ws.id, time=utcnow, latitude=49.5, longitude=6,
+                         depth_km=7.1, magnitude=56)
+        self.session.add(e2)
+        e3 = Event(event_id=id+'5_', webservice_id=ws.id, time=utcnow, latitude=49.5, longitude=67,
+                         depth_km=7.1, magnitude=56)
+        self.session.add(e3)
+        e4 = Event(event_id=id+'5_werger', webservice_id=ws.id, time=utcnow, latitude=49.5, longitude=67.6,
+                         depth_km=7.1, magnitude=56)
+        self.session.add(e4)
+        
+        
+        self.session.commit()  # refresh datacenter id (alo flush works)
+
+        d1 = datetime.utcnow()
+        d2 = datetime.utcnow() + timedelta(seconds=12)
+        
+        s1a = Station(network='sdf', datacenter_id=dc.id, station='_', latitude=90, longitude=-45,
+                    start_time=d1, end_time=d2)
+        s1b = Station(network='sdf', datacenter_id=dc.id, station='_', latitude=90, longitude=-45,
+                    start_time=d2)
+        s2 = Station(network='sdf', datacenter_id=dc.id, station='__', latitude=90, longitude=-45,
+                    start_time=d1)
+        stations = [s1a, s1b, s2]
+        self.session.add_all(stations)
+
+        
+        cs = [Channel(location= '1', channel='rt1', sample_rate=6),
+             Channel(location= '1', channel='rt2', sample_rate=6),
+             Channel(location= '1', channel='rt3', sample_rate=6),
+             Channel(location= '2', channel='r1', sample_rate=6),
+             Channel(location= '2', channel='r3', sample_rate=6),
+             #Channel(location= '2', channel='r3', sample_rate=6),
+             Channel(location= '3', channel='rr1', sample_rate=6),
+             Channel(location= '3', channel='rr2', sample_rate=6),
+             Channel(location= '3', channel='rr3', sample_rate=6),
+             Channel(location= '3', channel='rr4', sample_rate=6)]
+
+        for c in cs:            
+            stations[int(c.location) - 1].channels.append(c)
+
+            seg = Segment(request_start=datetime.utcnow(),
+                          request_end=datetime.utcnow(),
+                          event_distance_deg=9,
+                          arrival_time=datetime.utcnow(),
+                          data=b'')
+    
+            # set necessary attributes
+            seg.event_id = e.id
+            seg.datacenter_id = dc.id
+            seg.download_id = run.id
+            seg.channel_id = c.id
+            # and now it will work:
+            
+            c.segments.append(seg)
+            
+            # self.session.add(seg)
+        self.session.commit()
+        
+        # some tests about sql-alchemy and identity map (cache like dict):
+        assert len(self.session.identity_map) > 0
+        # test expunge all:
+        self.session.expunge_all()
+        assert len(self.session.identity_map) == 0
+        
+        # test differences between getting one attrobute and loading only that attribute from an instance:
+        self.session.query(Segment.id).all()
+        assert len(self.session.identity_map) == 0
+        segs = self.session.query(Segment).options(load_only(Segment.id)).all()
+        assert len(self.session.identity_map) > 0
+        
+        
+        def getsiblings(seg, parent=None):
+            var1 = seg.query_siblings(parent=parent).all()
+            var1 = sorted(var1, key=lambda obj: obj.id)
+            var2 = seg.query_siblings(parent=parent, colname='id').all()
+            var2 = sorted(var2, key=lambda obj: obj[0])
+            assert len(var1) == len(var2)
+            assert all(a.id == b[0] for (a, b) in zip(var1, var2))
+            if parent is None:
+                s1 = sorted(getsiblings(seg, parent='orientation'), key=lambda obj: obj.id)
+                s2 = sorted(getsiblings(seg, parent='component'), key=lambda obj: obj.id)
+                assert all(a.id == b.id for (a, b) in zip(var1, s1))
+                assert all(a.id == b.id for (a, b) in zip(var1, s2))
+                assert len(s1) == len(s2) == len(var1)
+            return var1
+        
+        total = self.session.query(Segment).count()
+        assert total == 9
+        
+        for seg in segs:
+            sib_evt = getsiblings(seg, 'event')
+        
+            sib_dc = getsiblings(seg, 'datacenter')
+        
+            sib_cha = getsiblings(seg, 'channel')
+        
+            sib_sta = getsiblings(seg, 'station')
+            
+            sib_stan = getsiblings(seg, 'stationname')
+            
+            sib_or = getsiblings(seg)
+            
+            if seg.channel.location in ('1', '2'):
+                assert len(sib_stan) == 5-1
+            else:
+                assert len(sib_stan) == 4-1
+                 
+            if seg.channel.location == '1':
+                assert len(sib_or) == len(sib_sta) == 3-1
+            elif seg.channel.location == '2':
+                # the channel code of these segments has two letters, thus no siblings
+                # cause the component/orientation part (3rd letter) is missing:
+                assert len(sib_or) == 0
+                assert len(sib_sta) == 2-1
+            else:
+                assert len(sib_or) == len(sib_sta) == 4-1
+            
+            assert len(sib_evt) == len(sib_dc) == 9-1
+            assert len(sib_cha) == 1-1
+
+        # try a method like:
+
+#         def _qryiter(self, what):
+#             session = object_session(self)
+#             query = self._query(what)
+#             config = getattr(self, "_config", {})
+#             query = exprquery(query, config.get('segment_select', {}))
+#             for seg_id in query:
+#                 val = session.identity_map.get((self.__class__, seg_id))
+#                 if val is not None:
+#                     yield val
+#                 yield session.query(Segment).filter(Segment.id == seg_id).\
+#                             options(load_only(Segment.id)).first()
+#         
+#         
+#         Segment._config = {'segment_select': {'channel.location': '1 2'}}
+#         Segment._query = _query
+#         Segment.siblings = _qryiter
+#         
+#         seg = self.session.query(Segment).join(Segment.channel).filter((Channel.channel == 'rt1') & (Channel.location == '1')).limit(1)
+#         seg = seg.first()
+#         query =  seg._query('orientation')
+#         cached = 0
+#         dbselected =0 
+#         query2 = self.session.query(Segment)
+#         for segid in query:
+#             if query2.get(segid[0]):
+#                 cached += 1
+#             else:
+#                 _ = query2.filter(Segment.id == seg_id).\
+#                             options(load_only(Segment.id)).first()
+#                 dbselected += 1
+#                 
+#         assert dbselected == 0
+#         assert cached == 2
+#         
+#         seg = self.session.query(Segment).join(Segment.channel).filter((Channel.channel == 'rt2') & (Channel.location == '1'))
+#         seg = seg.first()
+#         query =  seg._query('orientation')
+#         cached = 0
+#         dbselected =0
+#         query2 = self.session.query(Segment)
+#         for segid in query:
+#             if query2.get(segid[0]):
+#                 cached += 1
+#             else:
+#                 _ = query2.filter(Segment.id == seg_id).\
+#                             options(load_only(Segment.id)).first()
+#                 dbselected += 1
+#                 
+#         assert dbselected == 0
+#         assert cached == 2
+#         
+#         
+#         # test expunge all:
+#         assert len(self.session.identity_map) > 0
+#         self.session.expunge_all()
+#         assert len(self.session.identity_map) == 0
+#         # self.session = get_session(str(self.session.bind.engine.url))
+#         
+#         seg1 = self.session.query(Segment.id).filter(Segment.id == 1).first()
+#         
+#         seg2 = self.session.query(Segment).filter(Segment.id == 1).options(load_only(Segment.id)).first()
+#         
+#         # try_2 = self.session.query(Segment).get(2)
+#         
+#         seg = self.session.query(Segment).join(Segment.channel).filter((Channel.channel == 'rt1') & (Channel.location == '1'))
+#         seg = seg.first()
+#         query =  seg._query('orientation')
+#         cached = 0
+#         dbselected =0
+#         query2 = self.session.query(Segment)
+#         for segid in query:
+#             if query2.get(segid[0]):
+#                 cached += 1
+#             else:
+#                 _ = query2.filter(Segment.id == seg_id).\
+#                             options(load_only(Segment.id)).first()
+#                 dbselected += 1
+#                 
+#         assert dbselected == 2
+#         assert cached == 0
+
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']
