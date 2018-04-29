@@ -1371,6 +1371,8 @@ class Test(unittest.TestCase):
             
             sib_stan = getsiblings(seg, 'stationname')
             
+            if seg.channel.location == '2':
+                f = 9
             sib_or = getsiblings(seg)
             
             if seg.channel.location in ('1', '2'):

@@ -122,9 +122,7 @@ def run(session, pyfunc, ondone=None, config=None, show_progress=False):
                             # force to query segment to the db:
                             segment = None
                     if segment is None:
-                        segment = seg_query.get(seg_id) or \
-                            seg_query.filter(Segment.id == seg_id).\
-                            options(load_only(Segment.id)).first()
+                        segment = seg_query.get(seg_id)
                     segment._inventory = inventory  # pylint: disable=protected-access
                     station_id = sta_id
                     try:

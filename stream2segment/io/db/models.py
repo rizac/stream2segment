@@ -487,37 +487,48 @@ class Channel(Base):
 
     @hybrid_property
     def band_code(self):
-        '''returns the first letter of the channel field, or None if the latter has not length 3'''
+        '''returns the first letter of the channel field'''
         return self.channel[0:1]  # if len(self.channel) == 3 else None
 
     @band_code.expression
     def band_code(cls):  # pylint:disable=no-self-argument
-        '''returns the sql expression returning the first letter of the channel field,
-        or NULL if the latter has not length 3'''
+        '''returns the sql expression returning the first letter of the channel field'''
         # return an sql expression matching the last char or None if not three letter channel
         return substr(cls.channel, 1, 1)
 
     @hybrid_property
     def instrument_code(self):
-        '''returns the second letter of the channel field, or None if the latter has not length 3'''
+        '''returns the second letter of the channel field'''
         return self.channel[1:2]  # if len(self.channel) == 3 else None
 
     @instrument_code.expression
     def instrument_code(cls):  # pylint:disable=no-self-argument
-        '''returns the sql expression returning the second letter of the channel field,
-        or NULL if the latter has not length 3'''
+        '''returns the sql expression returning the second letter of the channel field'''
         # return an sql expression matching the last char or None if not three letter channel
         return substr(cls.channel, 2, 1)
 
     @hybrid_property
+    def band_instrument_code(self):
+        '''returns the first two letters of the channel field. Useful when we
+        want to get the same record on different orientations/components'''
+        return self.channel[0:2]  # if len(self.channel) == 3 else None
+
+    @band_instrument_code.expression
+    def band_instrument_code(cls):  # pylint:disable=no-self-argument
+        '''returns the sql expression returning the first two letters of the channel field.
+        Useful for queries where we want to get the same record on different
+        orientations/components'''
+        # return an sql expression matching the last char or None if not three letter channel
+        return substr(cls.channel, 1, 2)
+
+    @hybrid_property
     def orientation_code(self):
-        '''returns the third letter of the channel field, or None if the latter has not length 3'''
+        '''returns the third letter of the channel field'''
         return self.channel[2:3]  # if len(self.channel) == 3 else None
 
     @orientation_code.expression
     def orientation_code(cls):  # pylint:disable=no-self-argument
-        '''returns the sql expression returning the third letter of the channel field,
-        or NULL if the latter has not length 3'''
+        '''returns the sql expression returning the third letter of the channel field'''
         # return an sql expression matching the last char or None if not three letter channel
         return substr(cls.channel, 3, 1)
 
@@ -743,15 +754,15 @@ class Segment(Base):
         `segment.query_siblings('station')` yields the same results as `segment.station.segments`.
 
         :param parent: str or None (default: None). Any of the following: 'component',
-        'orientation', None: returns the segments of the same recorded event, on the
-        other components / channel orientations. 'stationname': returns the segments of the
+        'orientation', None: returns all db segments of the same recorded event, on the
+        other channel components / orientations. 'stationname': returns all db segments of the
         same station, identified by the tuple of the codes (newtwork, station). 'datacenter',
-        'event', 'station', 'channel': returns the segments of the same datacenter, event,
+        'event', 'station', 'channel': returns all db segments of the same datacenter, event,
         station or channel, all identified by the associated foreign key.
         Note that 'station' in this case is the segment's station id, identified by the tuple
         (newtwork, station, start_time)
 
-        :param colname: str or None (default:None). The attriubte name of this class segment
+        :param colname: str or None (default:None). The attribute name of this class segment
         class to be yielded. None means that instances of this class
         will be yielded. Otherwise, it must be an attribute of this class (e.g. 'id' will
         yield tuples with a single <int> element denoting each sibling's id). Note that
@@ -767,8 +778,7 @@ class Segment(Base):
                 filter((Segment.event_id == self.event_id) &
                        (Channel.station_id == self.channel.station_id) &
                        (Channel.location == self.channel.location) &
-                       (Channel.band_code == self.channel.band_code) &
-                       (Channel.instrument_code == self.channel.instrument_code))
+                       (Channel.band_instrument_code == self.channel.band_instrument_code))
         elif parent == 'stationname':
             qry = qry.join(Segment.channel, Channel.station).\
                 filter((Station.network == self.channel.station.network) &
