@@ -33,7 +33,6 @@ from stream2segment.utils.inputargs import yaml_load as load_proc_cfg
 from stream2segment import process
 from stream2segment.utils.resources import get_templates_fpaths
 from stream2segment.process.utils import get_inventory_url, save_inventory as original_saveinv
-from stream2segment.process.core import query4process
 
 from stream2segment.process.core import run as process_core_run
 from future import standard_library

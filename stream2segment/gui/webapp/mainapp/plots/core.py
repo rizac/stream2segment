@@ -407,7 +407,7 @@ class PlotManager(LimitedSizeDict):
             if plotlist is None:
                 seg = getseg(session, seg_id)
                 segids = set([_[0]
-                              for _ in seg._query_to_other_orientations(Segment.id)] + [seg_id])
+                              for _ in seg.siblings(colname='id')] + [seg_id])
                 for segid in segids:
                     tmp = SegmentPlotList(segid, self.functions, segids - set([segid]))
                     self[segid] = [tmp, None]

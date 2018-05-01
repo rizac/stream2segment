@@ -15,12 +15,13 @@ from __future__ import absolute_import, division, print_function
 
 # future direct imports (needs future package installed, otherwise remove):
 # (http://python-future.org/imports.html#explicit-imports)
-from builtins import (ascii, chr, dict, filter, hex, input,
-                      int, map, next, oct, open, pow, range, round,
-                      super, zip)
+# from builtins import (ascii, chr, dict, filter, hex, input,
+#                       int, map, next, oct, open, pow, range, round,
+#                       super, zip)
 
 from io import BytesIO
 from contextlib import contextmanager
+from itertools import chain, repeat
 
 from sqlalchemy.orm.session import object_session
 from sqlalchemy.orm.exc import UnmappedInstanceError
@@ -35,6 +36,7 @@ from stream2segment.utils import urljoin
 from stream2segment.io.db.models import Segment, Channel, Class
 from stream2segment.process.math.traces import cumsumsq, cumtimes
 from stream2segment.utils.inputargs import S2SArgument
+from stream2segment.io.db.sqlevalexpr import exprquery
 
 
 def getseg(session, segment_id, cols2load=None):
@@ -154,7 +156,7 @@ def enhancesegmentclass(config_dict=None, overwrite_config=False):
         ... code here ...
         # now Segment class is enhanced anymore (class methods and attributes added):
         # segment.stream()
-        # segment.other_orientations()
+        # segment.siblings()
         # segment.inventory()
         # segment.sn_windows()  # if config_dict has the properly configured keys
     # now Segment class is not enhanced anymore (class methods and attributes removed)
@@ -209,34 +211,22 @@ def enhancesegmentclass(config_dict=None, overwrite_config=False):
             # be no problem)
             return get_sn_windows(self._config, self.arrival_time, self.stream())
 
-        def _query_to_other_orientations(self, *query_args):
-            return self.dbsession().query(*query_args).join(Segment.channel).\
-                    filter((Segment.id != self.id) & (Segment.event_id == self.event_id) &
-                           (Channel.station_id == self.channel.station_id) &
-                           (Channel.location == self.channel.location) &
-                           (Channel.band_code == self.channel.band_code) &
-                           (Channel.instrument_code == self.channel.instrument_code))
-
-        def other_orientations(self):
-            '''returns a list of segments on the other orientations, attach that list to other
-            segments too'''
-            seg_other_orientations = getattr(self, "_other_orientations", None)
-            if seg_other_orientations is None:
-                segs = self._query_to_other_orientations(Segment).all()
-                seg_other_orientations = self._other_orientations = segs
-                # assign also to other segments:
-                for seg in segs:
-                    seg._other_orientations = [s for s in segs if s.id != seg.id] + [self]
-
-            return seg_other_orientations
+        def siblings(self, parent=None, colname=None):
+            '''returns a query yielding the siblings of this segments according to `parent`
+            Refer to the method Segment.get_siblings in models.py. Note that colname will not
+            be exposed to the public thorug the processing templates help'''
+            sblngs = self.get_siblings(parent, colname)
+            conditions = self._config.get('segment_select', {})
+            if conditions:
+                sblngs = exprquery(sblngs, conditions, orderby=None, distinct=True)
+            return sblngs
 
         Segment._config = config_dict or {}
+        Segment.dbsession = lambda self: object_session(self)
         Segment.stream = stream
         Segment.inventory = inventory
         Segment.sn_windows = sn_windows
-        Segment.other_orientations = other_orientations
-        Segment.dbsession = lambda self: object_session(self)
-        Segment._query_to_other_orientations = _query_to_other_orientations
+        Segment.siblings = siblings
         try:
             yield
         finally:
@@ -246,8 +236,7 @@ def enhancesegmentclass(config_dict=None, overwrite_config=False):
             del Segment.inventory
             del Segment.sn_windows
             del Segment.dbsession
-            del Segment.other_orientations
-            del Segment._query_to_other_orientations
+            del Segment.siblings
 
 
 def get_sn_windows(config, a_time, stream):
@@ -400,3 +389,31 @@ def set_classes(session, config, commit=True):
             needscommit = True
     if commit and needscommit:
         session.commit()
+
+
+def get_slices(array, chunksize):
+    '''Divides len(array)
+    by `chunksize` yielding the array slices until exaustion.
+    If `array` is an integer, it denotes the length of the array and the tuples (start, end)
+    will be yielded.
+    This method intelligently re-arranges the (start, end) indices in order to optimize the
+    number of iterations yielded. ``
+    '''
+    if hasattr(array, '__len__'):
+        total = len(array)  # == array.shape[0] in case of numpy arrays
+    else:
+        total = array
+        array = None
+    rem = total % chunksize
+    quot = int(total / chunksize)
+    if rem == 0:
+        iterable = repeat(chunksize, quot)
+    elif quot > rem:
+        iterable = chain(repeat(chunksize+1, rem), repeat(chunksize, quot-rem))
+    else:
+        iterable = chain(repeat(chunksize, quot), [rem])
+    start = end = 0
+    for chunk in iterable:
+        start = end
+        end = start + chunk
+        yield array[start:end] if array is not None else (start, end)

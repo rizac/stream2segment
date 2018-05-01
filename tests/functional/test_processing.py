@@ -289,6 +289,9 @@ class Test(unittest.TestCase):
     @mock.patch('stream2segment.process.utils.save_inventory', side_effect=original_saveinv)
     def test_segwrapper(self, mock_saveinv):
 
+        for val in query4process(self.session, {}):
+            pass
+
         segids = query4process(self.session, {}).all()
         prev_staid = None
 
@@ -320,7 +323,7 @@ class Test(unittest.TestCase):
                             else:
                                 assert mock_saveinv.called == saveinv
                             assert len(segment.station.inventory_xml) > 0
-                        segs = segment.other_orientations()
+                        segs = segment.siblings().all()
                         # as channel's channel is either 'ok' or 'err' we should never have
                         # other components
                         assert len(segs) == 0
@@ -352,26 +355,15 @@ class Test(unittest.TestCase):
         self.session.add_all([sg1, sg2, sg3])
         self.session.commit()
         # start testing:
-        already_calculated_other_orientations = {}
         segids = query4process(self.session, {}).all()
 
         with enhancesegmentclass():
             for (segid, staid) in segids:
                 segment = self.session.query(Segment).filter(Segment.id == segid).first()
-                segs = segment.other_orientations()
-                if segs:
+                segs = segment.siblings()
+                if segs.all():
                     assert segment.id in (sg1.id, sg2.id, sg3.id)
-                    segs2 = already_calculated_other_orientations.get(segid, None)
-                    if segs2:
-                        # check in a bizarre way that we did not query the session:
-                        # the order of segments must be the one assigned in the
-                        # first call of other_orientations() which queried the db
-                        # This does not actually assures that we did not query the segment
-                        # again but it's more than a hint
-                        assert all(s1.id == s2.id for s1, s2 in zip(segs, segs2))
-                    elif not already_calculated_other_orientations:
-                        already_calculated_other_orientations = {s.id:
-                                                                 s._other_orientations for s in segs}
+                    assert len(segs.all()) == 2
 
     # Recall: we have 5 segments:
     # 2 are empty, out of the remaining three:
@@ -670,47 +662,52 @@ class Test(unittest.TestCase):
     def test_simple_run_retDict_dontsaveinv(self, mock_load_cfg):
         '''same as `test_simple_run_retDict_saveinv` above
          but with a 0 snr threshold and do not save inventories'''
-        # set values which will override the yaml config in templates folder:
-        self.config_overrides = {'save_inventory': False,
-                                 'snr_threshold': 0,  # take all segments
-                                 'segment_select': {'has_data': 'true'}}
-        mock_load_cfg.side_effect = self.load_proc_cfg
-
-        # query data for testing now as the program will expunge all data from the session
-        # and thus we want to avoid DetachedInstanceError(s):
-        expected_first_row_seg_id = str(self.db.seg1.id)
-
-        # need to reset this global variable: FIXME: better handling?
-        process.main._inventories = {}
-        runner = CliRunner()
-        with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = self.get_processing_files()
-            result = runner.invoke(cli, ['process', '--dburl', self.dburi,
-                                   '-p', pyfile, '-c', conffile, file.name])
-
-            if result.exception:
-                import traceback
-                traceback.print_exception(*result.exc_info)
-                print(result.output)
-                assert False
-                return
-
-            # check file has been correctly written:
-            with open(file.name, 'r') as csvfile:
-                spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
-                rowz = 0
-                for row in spamreader:
-                    rowz += 1
-                    if rowz == 2:
-                        assert row[0] == expected_first_row_seg_id
-#                         assert row[1] == self.db.seg1.start_time.isoformat()
-#                         assert row[2] == self.db.seg1.end_time.isoformat()
-                assert rowz == 2
-                logtext = self.read_and_remove(file.name+".log")
-                assert len(logtext) > 0
-
-        # save_downloaded_inventory False, test that we did not save any:
-        assert len(self.session.query(Station).filter(Station.has_inventory).all()) == 0
+        
+        # test also segment chunks:
+        for seg_chunk in (None, 1):
+            # set values which will override the yaml config in templates folder:
+            self.config_overrides = {'save_inventory': False,
+                                     'snr_threshold': 0,  # don't skip any segment in processing
+                                     'segment_select': {'has_data': 'true'}}
+            if seg_chunk is not None:
+                self.config_overrides['advanced_settings'] = {'segments_chunk': seg_chunk}
+            mock_load_cfg.side_effect = self.load_proc_cfg
+    
+            # query data for testing now as the program will expunge all data from the session
+            # and thus we want to avoid DetachedInstanceError(s):
+            expected_first_row_seg_id = str(self.db.seg1.id)
+    
+            # need to reset this global variable: FIXME: better handling?
+            process.main._inventories = {}
+            runner = CliRunner()
+            with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
+                pyfile, conffile = self.get_processing_files()
+                result = runner.invoke(cli, ['process', '--dburl', self.dburi,
+                                       '-p', pyfile, '-c', conffile, file.name])
+    
+                if result.exception:
+                    import traceback
+                    traceback.print_exception(*result.exc_info)
+                    print(result.output)
+                    assert False
+                    return
+    
+                # check file has been correctly written:
+                with open(file.name, 'r') as csvfile:
+                    spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
+                    rowz = 0
+                    for row in spamreader:
+                        rowz += 1
+                        if rowz == 2:
+                            assert row[0] == expected_first_row_seg_id
+    #                         assert row[1] == self.db.seg1.start_time.isoformat()
+    #                         assert row[2] == self.db.seg1.end_time.isoformat()
+                    assert rowz == 2
+                    logtext = self.read_and_remove(file.name+".log")
+                    assert len(logtext) > 0
+    
+            # save_downloaded_inventory False, test that we did not save any:
+            assert len(self.session.query(Station).filter(Station.has_inventory).all()) == 0
 
     # Recall: we have 5 segments:
     # 2 are empty, out of the remaining three:
@@ -1040,6 +1037,8 @@ def main(""")
                 logtext = Test.read_and_remove(file.name+".log")
                 string2check = "0 segments"
                 assert string2check in logtext
+
+
 
 
 if __name__ == "__main__":

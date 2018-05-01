@@ -24,10 +24,10 @@ import warnings
 
 import numpy as np
 
-from sqlalchemy import func
+from sqlalchemy import func, inspect
 from sqlalchemy.orm import load_only
 
-from stream2segment.process.utils import enhancesegmentclass, set_classes
+from stream2segment.process.utils import enhancesegmentclass, set_classes, get_slices
 from stream2segment.io.db.sqlevalexpr import exprquery
 from stream2segment.utils import get_progressbar, StringIO
 from stream2segment.io.db.models import Segment, Station, Event, Channel
@@ -61,7 +61,6 @@ def run(session, pyfunc, ondone=None, config=None, show_progress=False):
 
     logger.info("Fetching segments to process, please wait...")
 
-    segment = None  # currently processed segment (segment object or None)
     inventory = None  # currently processed inventory (Inventory object, Exception or None)
     station_id = None  # currently processed station id (integer)
     done, skipped, skipped_error = 0, 0, 0
@@ -70,10 +69,18 @@ def run(session, pyfunc, ondone=None, config=None, show_progress=False):
 
         # the query is always loaded in memory, see:
         # https://stackoverflow.com/questions/11769366/why-is-sqlalchemy-insert-with-sqlite-25-times-slower-than-using-sqlite3-directly/11769768#11769768
-        # thus we load it as np.array to save memory:
+        # thus we load it as np.array to save memory.
+        # We might want to avoid this by querying chunks of segments using limit and order keywords
+        # or query yielding:
+        # http://docs.sqlalchemy.org/en/latest/orm/query.html#sqlalchemy.orm.query.Query.yield_per
+        # but that makes code too complex
+        # Thus, load first the
+        # id attributes of each segment and station, sorted by station.
+        # Note that querying attributes instead of instances does not cache the results
+        # (i.e., after the line below we do not need to issue session.expunge_all()
         seg_sta_ids = np.array(query4process(session, config.get('segment_select', {})).all(),
                                dtype=int)
-        # get total segment length:
+        # get total segment length (in numpy it is equivalent to len(seg_sta_ids)):
         seg_len = seg_sta_ids.shape[0]
 
         def stationssaved():
@@ -81,71 +88,78 @@ def run(session, pyfunc, ondone=None, config=None, show_progress=False):
             return session.query(func.count(Station.id)).filter(Station.has_inventory).scalar()
 
         stasaved = stationssaved()
-        # purge session (needed or not, it's for safety):
-        session.expunge_all()
 
         logger.info("%d segments found to process", seg_len)
         # set/update classes, if written in the config, so that we can set instance classes in the
         # processing, if we want:
         set_classes(session, config)
         seg_query = session.query(Segment)  # allocate once (speeds up a bit)
+        sta_query = session.query(Station)  # for getting station (cache)
+
+        # Now we have to process each segment:
+        # Two strategies: A) load only a Segment with its id (and defer loading of other
+        # attributes upon access) or B) load a Segment with all attributes
+        # (columns) or. From experiments on a 16 GB memory Mac:
+        # Querying A) and then accessing (=loading) later two likely used attributes
+        # (data and arrival_time) we take:
+        # ~= 0.043 secs/segment, Peak memory (Kb): 111792 (0.650716 %)
+        # Querying B) and then accessing the already loaded data and arrival_time attributes,
+        # we get:
+        # 0.024 secs/segment, Peak memory (Kb): 409194 (2.381825 %).
+        # With millions of segments, the latter
+        # approach can save up to 9 hours with almost no memory perf issue (1.5% more).
+        # So we define a chunk size whereby we load all segments:
+        chunksize = config.get('advanced_settings', {}).get('segments_chunk', 1200)
 
         with redirect(sys.stderr):
             with get_progressbar(show_progress, length=seg_len) as pbar:
 
-                for row in seg_sta_ids:
-                    seg_id, sta_id = row.tolist()
-                    # check if we already loaded a segment from a previous segment's
-                    # orientations:
-                    if segment is not None:
-                        other_orients_list = getattr(segment, "_other_orientations", [])
-                        for sgo in other_orients_list:
-                            if sgo.id == seg_id:
-                                segment = sgo
-                                break
-                        else:
-                            # other orientations not found or not loaded, expunge segment:
-                            # if we are changing the station we are here (not the vice-versa,
-                            # if we are here we might have changed only the segment):
-                            if station_id != sta_id:  # A) are we changing the station?:
-                                # clear session if we are changing the station:
-                                # this will clear also channel and segments
-                                session.expunge_all()
-                                # (session.close() this should not be necessary)
-                                # clear inventory ref:
-                                inventory = None
-                            else:  # B) are we changing the segment?:
-                                # clear the segment and its components, if any. FIXME: DO WE?
-                                session.expunge(segment)
-                                for otherseg_ in other_orients_list:
-                                    session.expunge(otherseg_)
-                            # force to query segment to the db:
-                            segment = None
-                    if segment is None:
-                        segment = seg_query.get(seg_id)
-                    segment._inventory = inventory  # pylint: disable=protected-access
-                    station_id = sta_id
-                    try:
-                        array_or_dic = pyfunc(segment, config)
-                        if ondone:
-                            if array_or_dic is not None:
-                                ondone(segment, array_or_dic)
-                                done += 1
+                # load all segments at once. The number 1200 seems to be a reasonable choice
+                for seg_sta_chunk in get_slices(seg_sta_ids, chunksize):
+                    # clear identity map, i.e. the cache-like sqlalchemy object, to free memory.
+                    # do it before querying otherwise all queried stuff is detached from the session
+                    # Keep the station in case, as relationships like segment.station will
+                    # use the cached value in case and we avoid re-loading data:
+                    # http://docs.sqlalchemy.org/en/latest/orm/query.html#sqlalchemy.orm.query.Query.yield_per
+                    station = sta_query.get(station_id) \
+                        if inventory is not None and station_id == seg_sta_chunk[0, 1] else None
+                    session.expunge_all()  # clear session identity map (sort of cache)
+                    if station is not None:  # re-assign station and related stuff (datacenter),
+                        # we could use merge but it's useless as we do not have other instances
+                        # http://docs.sqlalchemy.org/en/latest/orm/session_state_management.html#merging
+                        # Note that also related objects are added (e.g., station's datacenter)
+                        # The instance should be persistent after adding it, for info see:
+                        # http://docs.sqlalchemy.org/en/latest/orm/session_state_management.html
+                        session.add(station)
+                    # the query with "in" operator might NOT return segments in the same order
+                    # as the ids provided in the "in" argument. Store them into a dict:
+                    segments = {s.id: s for s in
+                                seg_query.filter(Segment.id.in_(seg_sta_chunk[:, 0].tolist()))}
+                    for seg_id, sta_id in seg_sta_chunk:
+                        segment = segments[seg_id]
+                        if station_id == sta_id:  # set cached inventory object (might be None)
+                            segment._inventory = inventory  # pylint: disable=protected-access
+                        try:
+                            array_or_dic = pyfunc(segment, config)
+                            if ondone:
+                                if array_or_dic is not None:
+                                    ondone(segment, array_or_dic)
+                                    done += 1
+                                else:
+                                    skipped += 1
                             else:
-                                skipped += 1
-                        else:
-                            done += 1
-                    except (ImportError, NameError, AttributeError, SyntaxError,
-                            TypeError) as _:
-                        raise  # sys.exc_info()
-                    except Exception as generr:
-                        logger.warning("segment (id=%d): %s", seg_id, str(generr))
-                        skipped_error += 1
-                    # check if we loaded the inventory and set it as last computed
-                    # little hack: check if the "private" field is defined:
-                    if inventory is None and segment._inventory is not None:
-                        inventory = segment._inventory
-                    pbar.update(1)
+                                done += 1
+                        except (ImportError, NameError, AttributeError, SyntaxError,
+                                TypeError) as _:
+                            raise  # sys.exc_info()
+                        except Exception as generr:
+                            logger.warning("segment (id=%d): %s", segment.id, str(generr))
+                            skipped_error += 1
+                        # set cached inventory using private-like field:
+                        inventory = getattr(segment, "_inventory", None)
+                        station_id = sta_id
+
+                        pbar.update(1)
 
         captured_warnings = warn_string_io.getvalue()
         if captured_warnings:
@@ -237,7 +251,7 @@ def query4process(session, conditions=None):
     # Note: without the join below, rows would be duplicated
     qry = session.query(Segment.id, Station.id).\
         join(Segment.station, Segment.event, Segment.channel).\
-        order_by(Station.id, Event.id, Channel.location, Channel.channel)
+        order_by(Station.id, Channel.location, Channel.channel)
     # Now parse selection:
     if conditions:
         # parse user defined conditions (as dict of key:value <=> "column": "expr")

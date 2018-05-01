@@ -189,8 +189,8 @@ class Test(unittest.TestCase):
         with enhancesegmentclass():
             for leng, segment in zip(expected_lengths, segments):
                 # assert the other segments are the expected lengh. Note that leng INCLUDES current
-                # segment whereas _query_to_other_orientations DOES NOT. So compare to leng-1:
-                assert segment._query_to_other_orientations(Segment.id).count() == leng-1
+                # segment whereas siblings DOES NOT. So compare to leng-1:
+                assert segment.siblings(colname='id').count() == leng-1
                 # assert getallcomponents(self.session, segment.id).count() == leng
 
 

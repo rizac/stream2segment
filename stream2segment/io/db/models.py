@@ -283,7 +283,7 @@ def ForeignKey(*pos, **kwa):
     return SqlAlchemyForeignKey(*pos, **kwa)
 
 
-class Download(Base):
+class Download(Base):  # pylint: disable=too-few-public-methods
     """The downloads executed"""
 
     __tablename__ = "downloads"
@@ -293,13 +293,13 @@ class Download(Base):
     # on the SQL side. That's ok, BUT the column CANNOT BE UNIQUE!!
     # the CURRENT TIMESTAMP is evaluated once at the beginning of an SQL Statement,
     # so two references in the same session will result in the same value
-    # (https://www.ibm.com/developerworks/community/blogs/SQLTips4DB2LUW/entry/current_timestamp?lang=en)
+    # https://www.ibm.com/developerworks/community/blogs/SQLTips4DB2LUW/entry/current_timestamp?lang=en
     # If we need to make a datetime unique, then either specify
     # 1) default=datetime.datetime.utcnow() BUT NO server_default (the latter seems to have
     # priority if both are provided)
     # 2) or don't make the column unique (what we did)
     run_time = Column(DateTime, server_default=func.now())
-    log = deferred(Column(String))
+    log = deferred(Column(String))  # lazy load: only upon direct access
     warnings = Column(Integer, server_default=text('0'))  # , default=0)
     errors = Column(Integer, server_default=text('0'))  # , default=0)
     # segments_found = Column(Integer)
@@ -309,7 +309,7 @@ class Download(Base):
     program_version = Column(String)
 
 
-class Event(Base):
+class Event(Base):  # pylint: disable=too-few-public-methods
     """Events"""
 
     __tablename__ = "events"
@@ -446,11 +446,11 @@ class Station(Base):
     station = Column(String, nullable=False)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
-    elevation = deferred(Column(Float))
-    site_name = deferred(Column(String))
+    elevation = Column(Float)
+    site_name = Column(String)
     start_time = Column(DateTime, nullable=False)
-    end_time = deferred(Column(DateTime))
-    inventory_xml = deferred(Column(LargeBinary))  # lazy load: only upon direct access
+    end_time = Column(DateTime)
+    inventory_xml = Column(LargeBinary)
 
     @hybrid_property
     def has_inventory(self):
@@ -745,7 +745,7 @@ class Segment(Base):
                 sess.rollback()
                 raise
 
-    def query_siblings(self, parent=None, colname=None):
+    def get_siblings(self, parent=None, colname=None):
         '''Returns an sql-alchemy query yielding all siblings of this segment according to
         `parent`.
         When `parent` denotes a foreign key and `colname` is None or missing, this method is
@@ -753,10 +753,11 @@ class Segment(Base):
         (see this class relationships). Example:
         `segment.query_siblings('station')` yields the same results as `segment.station.segments`.
 
-        :param parent: str or None (default: None). Any of the following: 'component',
-        'orientation', None: returns all db segments of the same recorded event, on the
+        :param parent: str or None (default: None). Any of the following: None:
+        returns all db segments of the same recorded event, on the
         other channel components / orientations. 'stationname': returns all db segments of the
-        same station, identified by the tuple of the codes (newtwork, station). 'datacenter',
+        same station, identified by the tuple of the codes (newtwork, station). 'networkname':
+        returns all db segments of the same network (network code). 'datacenter',
         'event', 'station', 'channel': returns all db segments of the same datacenter, event,
         station or channel, all identified by the associated foreign key.
         Note that 'station' in this case is the segment's station id, identified by the tuple
@@ -773,7 +774,7 @@ class Segment(Base):
         session = object_session(self)
         qry = session.query(Segment if colname is None else getattr(Segment, colname))
 
-        if parent in ('component', 'orientation', None):
+        if parent is None:
             qry = qry.join(Segment.channel).\
                 filter((Segment.event_id == self.event_id) &
                        (Channel.station_id == self.channel.station_id) &
@@ -783,6 +784,9 @@ class Segment(Base):
             qry = qry.join(Segment.channel, Channel.station).\
                 filter((Station.network == self.channel.station.network) &
                        (Station.station == self.channel.station.station))
+        elif parent == 'networkname':
+            qry = qry.join(Segment.channel, Channel.station).\
+                filter((Station.network == self.channel.station.network))
         elif parent == 'station':
             qry = qry.join(Segment.channel).\
                 filter((Channel.station_id == self.channel.station_id))

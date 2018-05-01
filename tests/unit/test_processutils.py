@@ -5,8 +5,9 @@ Created on Oct 7, 2017
 '''
 import unittest
 import os
+import numpy as np
 from obspy.core.stream import read
-from stream2segment.process.utils import get_stream
+from stream2segment.process.utils import get_stream, get_slices
 from mock import patch
 from io import BytesIO
 import pytest
@@ -58,8 +59,35 @@ class Test(unittest.TestCase):
             stream_me = get_stream(segment)
         assert not mock_ntf.called
 
-        
-        
+
+@pytest.mark.parametrize('input, expected_result, ',
+                          [
+                           ((340, 113), [(0, 114), (114, 227), (227, 340)]),
+                           ((338, 113), [(0, 113), (113, 226), (226, 338)]),
+                           ((339, 113), [(0, 113), (113, 226), (226, 339)])
+                           ],
+                        )
+def test_getindices(input, expected_result):
+    expected_list = list(range(input[0]))
+    assert len(expected_list) == input[0]
+    real_list = []
+    slices = list(get_slices(*input))
+    assert len(slices) == len(expected_result)
+    for (s, e), expected in zip(slices, expected_result):
+        assert (s, e) == expected
+        real_list += list(range(s, e))
+    assert real_list == expected_list
+
+    # test with arrays as first argument. Use numpy arrays of dimension two to provide a more
+    # general case:
+    expected_list = np.array([[i, 2] for i in expected_list])
+    slices2 = list(get_slices(expected_list, input[1]))
+    assert len(slices2) == len(slices)
+    for nparray, (s, e) in zip(slices2, slices):
+        assert np.array_equal(nparray, expected_list[s:e])
+    # test for safety that we get until the last element:
+    assert np.array_equal(nparray[-1], expected_list[-1])
+
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']
     unittest.main()

@@ -27,7 +27,7 @@ from sqlalchemy.orm.session import object_session
 from sqlalchemy.sql.expression import func, bindparam
 import time
 from stream2segment.io.db.sqlevalexpr import exprquery
-from stream2segment.process.core import query4process
+# from stream2segment.process.core import query4process
 from stream2segment.utils import get_session
 
 class Test(unittest.TestCase):
@@ -1343,18 +1343,18 @@ class Test(unittest.TestCase):
         
         
         def getsiblings(seg, parent=None):
-            var1 = seg.query_siblings(parent=parent).all()
+            var1 = seg.get_siblings(parent=parent).all()
             var1 = sorted(var1, key=lambda obj: obj.id)
-            var2 = seg.query_siblings(parent=parent, colname='id').all()
+            var2 = seg.get_siblings(parent=parent, colname='id').all()
             var2 = sorted(var2, key=lambda obj: obj[0])
             assert len(var1) == len(var2)
             assert all(a.id == b[0] for (a, b) in zip(var1, var2))
-            if parent is None:
-                s1 = sorted(getsiblings(seg, parent='orientation'), key=lambda obj: obj.id)
-                s2 = sorted(getsiblings(seg, parent='component'), key=lambda obj: obj.id)
-                assert all(a.id == b.id for (a, b) in zip(var1, s1))
-                assert all(a.id == b.id for (a, b) in zip(var1, s2))
-                assert len(s1) == len(s2) == len(var1)
+#             if parent is None:
+#                 s1 = sorted(getsiblings(seg, parent='orientation'), key=lambda obj: obj.id)
+#                 s2 = sorted(getsiblings(seg, parent='component'), key=lambda obj: obj.id)
+#                 assert all(a.id == b.id for (a, b) in zip(var1, s1))
+#                 assert all(a.id == b.id for (a, b) in zip(var1, s2))
+#                 assert len(s1) == len(s2) == len(var1)
             return var1
         
         total = self.session.query(Segment).count()
@@ -1370,6 +1370,8 @@ class Test(unittest.TestCase):
             sib_sta = getsiblings(seg, 'station')
             
             sib_stan = getsiblings(seg, 'stationname')
+            
+            sib_netn = getsiblings(seg, 'networkname')
             
             if seg.channel.location == '2':
                 f = 9
@@ -1390,7 +1392,7 @@ class Test(unittest.TestCase):
             else:
                 assert len(sib_or) == len(sib_sta) == 4-1
             
-            assert len(sib_evt) == len(sib_dc) == 9-1
+            assert len(sib_evt) == len(sib_dc) == len(sib_netn) == 9-1
             assert len(sib_cha) == 1-1
 
         # try a method like:
