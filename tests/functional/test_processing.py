@@ -672,11 +672,11 @@ class Test(unittest.TestCase):
             if seg_chunk is not None:
                 self.config_overrides['advanced_settings'] = {'segments_chunk': seg_chunk}
             mock_load_cfg.side_effect = self.load_proc_cfg
-    
+
             # query data for testing now as the program will expunge all data from the session
             # and thus we want to avoid DetachedInstanceError(s):
             expected_first_row_seg_id = str(self.db.seg1.id)
-    
+
             # need to reset this global variable: FIXME: better handling?
             process.main._inventories = {}
             runner = CliRunner()
@@ -684,14 +684,14 @@ class Test(unittest.TestCase):
                 pyfile, conffile = self.get_processing_files()
                 result = runner.invoke(cli, ['process', '--dburl', self.dburi,
                                        '-p', pyfile, '-c', conffile, file.name])
-    
+
                 if result.exception:
                     import traceback
                     traceback.print_exception(*result.exc_info)
                     print(result.output)
                     assert False
                     return
-    
+
                 # check file has been correctly written:
                 with open(file.name, 'r') as csvfile:
                     spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
@@ -766,6 +766,8 @@ class Test(unittest.TestCase):
 #                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 0
                 logtext = self.read_and_remove(file.name+".log")
+
+                # THE TEST BELOW IS USELESS AS WE DO NOT CAPTURENWARNINGS ANYMORE
                 # as we have joined twice segment with stations (one is done by default, the other
                 # has been set in custom_config['segment_select'] above), we should have a
                 # sqlalchemy warning in the log. But this is NOT ANYMORE THE CASE as now we
@@ -782,8 +784,9 @@ class Test(unittest.TestCase):
 
                 # ===================================================================
                 # NOW WE CAN CHECK IF THE URLREAD HAS BEEN CALLED ONCE.
-                # Out of the three segments to process, two have no data thus we do not reach
-                # the inventory() method. It remains only the third one:
+                # Out of the three segments to process, two don't have data thus we do not reach
+                # the inventory() method. It remains only the third one, whcih downloads
+                # the inventory and calls mock_url_read:
                 # ===================================================================
                 assert self.mock_url_read.call_count == 1
 

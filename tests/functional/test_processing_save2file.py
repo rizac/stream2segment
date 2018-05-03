@@ -323,6 +323,12 @@ class Test(unittest.TestCase):
             result = runner.invoke(cli, ['process', '--dburl', self.dburi,
                                    '-p', pyfile, '-c', conffile])
     
+            if result.exception:
+                import traceback
+                traceback.print_exception(*result.exc_info)
+                print(result.output)
+                assert False
+                return
             
             filez = os.listdir(os.path.dirname(path))
             assert len(filez) == 2
@@ -331,12 +337,7 @@ class Test(unittest.TestCase):
             assert len(stream1) == len(stream2) == 1
             assert not np.allclose(stream1[0].data, stream2[0].data)
 
-            if result.exception:
-                import traceback
-                traceback.print_exception(*result.exc_info)
-                print(result.output)
-                assert False
-                return
+            
 
         lst = mock_run.call_args_list
         assert len(lst) == 1
