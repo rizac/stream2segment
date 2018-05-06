@@ -47,7 +47,7 @@ class Test(object):
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
     @pytest.fixture(autouse=True)
-    def transact(self, request, db):
+    def init(self, request, db, data):
         # re-init a sqlite database (no-op if the db is not sqlite):
         db.reinit_to_file()
 
@@ -118,33 +118,33 @@ class Test(object):
         session.commit()
         self.cha_none = c_none
 
-        data = self.read_stream_raw('trace_GE.APE.mseed')
+        atts = data.to_segment_dict('trace_GE.APE.mseed')
 
         # build three segments with data:
         # "normal" segment
         sg1 = Segment(channel_id=c_ok.id, datacenter_id=d.id, event_id=e1.id, download_id=r.id,
-                      event_distance_deg=35, **data)
+                      event_distance_deg=35, **atts)
 
         # this segment should have inventory returning an exception (see url_read above)
         sg2 = Segment(channel_id=c_err.id, datacenter_id=d.id, event_id=e2.id, download_id=r.id,
-                      event_distance_deg=45, **data)
+                      event_distance_deg=45, **atts)
         # segment with gaps
-        data = self.read_stream_raw('IA.BAKI..BHZ.D.2016.004.head')
+        atts = data.to_segment_dict('IA.BAKI..BHZ.D.2016.004.head')
         sg3 = Segment(channel_id=c_ok.id, datacenter_id=d.id, event_id=e3.id, download_id=r.id,
-                      event_distance_deg=55, **data)
+                      event_distance_deg=55, **atts)
 
         # build two segments without data:
         # empty segment
-        data['data'] = b''
-        data['request_start'] += timedelta(seconds=1)  # avoid unique constraint
+        atts['data'] = b''
+        atts['request_start'] += timedelta(seconds=1)  # avoid unique constraint
         sg4 = Segment(channel_id=c_none.id, datacenter_id=d.id, event_id=e4.id, download_id=r.id,
-                      event_distance_deg=45, **data)
+                      event_distance_deg=45, **atts)
 
         # null segment
-        data['data'] = None
-        data['request_start'] += timedelta(seconds=2)  # avoid unique constraint
+        atts['data'] = None
+        atts['request_start'] += timedelta(seconds=2)  # avoid unique constraint
         sg5 = Segment(channel_id=c_none.id, datacenter_id=d.id, event_id=e5.id, download_id=r.id,
-                      event_distance_deg=45, **data)
+                      event_distance_deg=45, **atts)
 
         session.add_all([sg1, sg2, sg3, sg4, sg5])
         session.commit()
@@ -154,17 +154,27 @@ class Test(object):
         self.seg_empty = sg3
         self.seg_none = sg4
 
-
         # values to override the config, if specified:
         self.config_overrides = {}
         self.inventory = True
 
         # init patchers:
         self.patchers = []
+
         # mock get inventory:
+        def url_read(*a, **v):
+            '''mock urlread for inventories. Checks in the url (first arg if there is the 'err',
+            'ok' or none' substring and returns appropriated data'''
+            if "=err" in a[0]:
+                raise URLError('error')
+            elif "=none" in a[0]:
+                return None, 500, 'Server error'
+            else:
+                return data.read("inventory_GE.APE.xml"), 200, 'Ok'
+
         self.patchers.append(patch('stream2segment.process.utils.urlread'))
         self.mock_url_read = self.patchers[-1].start()
-        self.mock_url_read.side_effect = self.url_read
+        self.mock_url_read.side_effect = url_read
 
         self.patchers.append(patch('stream2segment.utils.inputargs.get_session'))
         self.mock_session = self.patchers[-1].start()
@@ -180,29 +190,29 @@ class Test(object):
         for patcher in self.patchers:
             if patcher:
                 patcher.stop()
-     
 
-    @staticmethod
-    def read_stream_raw(file_name):
-        '''returns a dict to be passed as argument for creating new Segment(s), by reading
-        an existing miniseed'''
-        stream = read(Test.get_file(file_name))
+#     @staticmethod
+#     def read_stream_raw(file_name):
+#         '''returns a dict to be passed as argument for creating new Segment(s), by reading
+#         an existing miniseed'''
+#         stream = read(Test.get_file(file_name))
+# 
+#         start_time = stream[0].stats.starttime
+#         end_time = stream[0].stats.endtime
+# 
+#         # set arrival time to one third duration
+#         return dict(data=Test.read_data_raw(file_name),
+#                     arrival_time=(start_time + old_div((end_time - start_time), 3)).datetime,
+#                     request_start=start_time.datetime,
+#                     request_end=end_time.datetime,
+#                     sample_rate=stream[0].stats.sampling_rate)
+#
 
-        start_time = stream[0].stats.starttime
-        end_time = stream[0].stats.endtime
-
-        # set arrival time to one third duration
-        return dict(data=Test.read_data_raw(file_name),
-                    arrival_time=(start_time + old_div((end_time - start_time), 3)).datetime,
-                    request_start=start_time.datetime,
-                    request_end=end_time.datetime,
-                    sample_rate=stream[0].stats.sampling_rate)
-
-    @staticmethod
-    def read_data_raw(file_name):
-        folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
-        with open(os.path.join(folder, file_name), 'rb') as opn:
-            return opn.read()
+#     @staticmethod
+#     def read_data_raw(file_name):
+#         folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
+#         with open(os.path.join(folder, file_name), 'rb') as opn:
+#             return opn.read()
 
     @staticmethod
     def read_and_remove(filepath):
@@ -212,28 +222,28 @@ class Test(object):
         os.remove(filepath)
         return sss
 
-    @staticmethod
-    def get_file(filename):
-        folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
-        path = os.path.abspath(os.path.join(folder, filename))
-        assert os.path.isfile(path)
-        return path
+#     @staticmethod
+#     def get_file(filename):
+#         folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
+#         path = os.path.abspath(os.path.join(folder, filename))
+#         assert os.path.isfile(path)
+#         return path
 
     @staticmethod
     def get_processing_files():
         pyfile, conffile = get_templates_fpaths("save2fs.py", "save2fs.yaml") #pylint: disable=unbalanced-tuple-unpacking
         return pyfile, conffile
 
-    @staticmethod
-    def url_read(*a, **v):
-        '''mock urlread for inventories. Checks in the url (first arg if there is the 'err', 'ok'
-        or none' substring and returns appropriated data'''
-        if "=err" in a[0]:
-            raise URLError('error')
-        elif "=none" in a[0]:
-            return None, 500, 'Server error'
-        else:
-            return Test.read_data_raw("inventory_GE.APE.xml"), 200, 'Ok'
+#    @staticmethod
+#     def url_read(*a, **v):
+#         '''mock urlread for inventories. Checks in the url (first arg if there is the 'err', 'ok'
+#         or none' substring and returns appropriated data'''
+#         if "=err" in a[0]:
+#             raise URLError('error')
+#         elif "=none" in a[0]:
+#             return None, 500, 'Server error'
+#         else:
+#             return Test.read_data_raw("inventory_GE.APE.xml"), 200, 'Ok'
 
     def load_proc_cfg(self, *a, **kw):
         """called by mocked read config: updates the parsed dict with the custom config"""
@@ -331,8 +341,3 @@ class Test(object):
         assert any(s.inventory_xml for s in stas)
         assert db.session.query(Station).\
             filter(Station.id == station_id_whose_inventory_is_saved).first().inventory_xml
-
-
-if __name__ == "__main__":
-    # import sys;sys.argv = ['', 'Test.testName']
-    unittest.main()
