@@ -5,23 +5,16 @@ Created on Feb 14, 2017
 '''
 from __future__ import print_function, division
 
-from builtins import str, object
+from builtins import str, object  # pylint: disable=redefined-builtin
 
-from tempfile import NamedTemporaryFile
-from past.utils import old_div
-import unittest
-import os, sys
+import os
 from datetime import datetime, timedelta
 import mock
 from mock import patch
-import tempfile
-import csv
 from future.backports.urllib.error import URLError
 import pytest
 import numpy as np
 from click.testing import CliRunner
-from sqlalchemy.engine import create_engine
-from sqlalchemy.orm.session import sessionmaker
 # from urllib.error import URLError
 # import multiprocessing
 from obspy.core.stream import read
@@ -31,15 +24,11 @@ from stream2segment.io.db.models import Base, Event, Station, WebService, Segmen
     Channel, Download, DataCenter
 from stream2segment.utils.inputargs import yaml_load as orig_yaml_load
 from stream2segment import process
-from stream2segment.utils.resources import get_templates_fpaths
-from stream2segment.process.utils import get_inventory_url, save_inventory as original_saveinv
-
 from stream2segment.process.core import run as process_core_run
+
 from future import standard_library
-from stream2segment.process.utils import enhancesegmentclass
-import click
-from itertools import product
 standard_library.install_aliases()
+
 
 def yaml_load_side_effect(**overrides):
     """Side effect for the function reading the yaml config which enables the input
@@ -166,12 +155,6 @@ class Test(object):
         self.seg_empty = sg3
         self.seg_none = sg4
 
-        # values to override the config, if specified:
-        # self.config_overrides = {}
-        # self.inventory = True
-
-        # init patchers:
-        # self.patchers = []
 
         # mock get inventory:
         def url_read(*a, **v):
@@ -184,107 +167,11 @@ class Test(object):
             else:
                 return data.read("inventory_GE.APE.xml"), 200, 'Ok'
 
-#         self.patchers.append(patch('stream2segment.process.utils.urlread'))
-#         self.mock_url_read = self.patchers[-1].start()
-#         self.mock_url_read.side_effect = url_read
-# 
-#         self.patchers.append(patch('stream2segment.utils.inputargs.get_session'))
-#         self.mock_session = self.patchers[-1].start()
-#         self.mock_session.return_value = session
-# 
-#         self.patchers.append(patch('stream2segment.main.closesession'))
-#         self.mock_closing = self.patchers[-1].start()
-#         self.mock_closing.side_effect = lambda *a, **v: None
-# 
-#         yield
-# 
-#         # cleanup patchers:
-#         for patcher in self.patchers:
-#             if patcher:
-#                 patcher.stop()
-
         with patch('stream2segment.process.utils.urlread', side_effect=url_read):
             with patch('stream2segment.utils.inputargs.get_session', return_value=session):
                 with patch('stream2segment.main.closesession',
                            side_effect=lambda *a, **v: None):
                     yield
-
-
-#         self.patchers.append(patch('stream2segment.process.utils.urlread'))
-#         self.mock_url_read = self.patchers[-1].start()
-#         self.mock_url_read.side_effect = url_read
-# 
-#         self.patchers.append(patch('stream2segment.utils.inputargs.get_session'))
-#         self.mock_session = self.patchers[-1].start()
-#         self.mock_session.return_value = session
-# 
-#         self.patchers.append(patch('stream2segment.main.closesession'))
-#         self.mock_closing = self.patchers[-1].start()
-#         self.mock_closing.side_effect = lambda *a, **v: None
-# 
-#         yield
-# 
-#         # cleanup patchers:
-#         for patcher in self.patchers:
-#             if patcher:
-#                 patcher.stop()
-
-#     @staticmethod
-#     def read_stream_raw(file_name):
-#         '''returns a dict to be passed as argument for creating new Segment(s), by reading
-#         an existing miniseed'''
-#         stream = read(Test.get_file(file_name))
-# 
-#         start_time = stream[0].stats.starttime
-#         end_time = stream[0].stats.endtime
-# 
-#         # set arrival time to one third duration
-#         return dict(data=Test.read_data_raw(file_name),
-#                     arrival_time=(start_time + old_div((end_time - start_time), 3)).datetime,
-#                     request_start=start_time.datetime,
-#                     request_end=end_time.datetime,
-#                     sample_rate=stream[0].stats.sampling_rate)
-#
-
-#     @staticmethod
-#     def read_data_raw(file_name):
-#         folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
-#         with open(os.path.join(folder, file_name), 'rb') as opn:
-#             return opn.read()
-
-#     @staticmethod
-#     def read_and_remove(filepath):
-#         assert os.path.isfile(filepath)
-#         with open(filepath) as opn:
-#             sss = opn.read()
-#         os.remove(filepath)
-#         return sss
-
-#     @staticmethod
-#     def get_file(filename):
-#         folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
-#         path = os.path.abspath(os.path.join(folder, filename))
-#         assert os.path.isfile(path)
-#         return path
-
-#     @staticmethod
-#     def get_processing_files():
-#         pyfile, conffile = get_templates_fpaths("save2fs.py", "save2fs.yaml") #pylint: disable=unbalanced-tuple-unpacking
-#         return pyfile, conffile
-
-#    @staticmethod
-#     def url_read(*a, **v):
-#         '''mock urlread for inventories. Checks in the url (first arg if there is the 'err', 'ok'
-#         or none' substring and returns appropriated data'''
-#         if "=err" in a[0]:
-#             raise URLError('error')
-#         elif "=none" in a[0]:
-#             return None, 500, 'Server error'
-#         else:
-#             return Test.read_data_raw("inventory_GE.APE.xml"), 200, 'Ok'
-
-
-
 
     # ## ======== ACTUAL TESTS: ================================
 
@@ -339,45 +226,41 @@ class Test(object):
                 added_args += ['--multi-process']
             result = runner.invoke(cli, ['process', '--dburl', db.dburl,
                                    '-p', pyfile, '-c', conffile] + added_args)
-    
+
             if result.exception:
                 import traceback
                 traceback.print_exception(*result.exc_info)
                 print(result.output)
                 assert False
                 return
-            
+
             filez = os.listdir(os.path.dirname(path))
             assert len(filez) == 2
             stream1 = read(os.path.join(os.path.dirname(path), filez[0]), format='MSEED')
             stream2 = read(os.path.join(os.path.dirname(path), filez[1]), format='MSEED')
             assert len(stream1) == len(stream2) == 1
             assert not np.allclose(stream1[0].data, stream2[0].data)
-    
-            
-    
+
         lst = mock_run.call_args_list
         assert len(lst) == 1
         args, kwargs = lst[0][0], lst[0][1]
-        assert args[2] is None  # assert third argument (`ondone` callback) is None 'ondone' 
+        assert args[2] is None  # assert third argument (`ondone` callback) is None 'ondone'
         assert "Output file:" not in result.output
-    
-        # Note that apparently CliRunner() puts stderr and stdout together 
+
+        # Note that apparently CliRunner() puts stderr and stdout together
         # (https://github.com/pallets/click/pull/868)
         # So we should test that we have these string twice:
         for subs in ["Executing 'main' in ", "Config. file: "]:
             idx = result.output.find(subs)
             assert idx > -1
             assert result.output.find(subs, idx+1) > idx
-        
-        
-        
+
         # these assertion are just copied from the test below and left here cause they
         # should still hold (db behaviour does not change of we provide output file or not):
-        
+
         # save_downloaded_inventory True, test that we did save any:
         assert len(db.session.query(Station).filter(Station.has_inventory).all()) > 0
-    
+
         # Or alternatively:
         # test we did save any inventory:
         stas = db.session.query(Station).all()

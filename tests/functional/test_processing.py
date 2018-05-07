@@ -9,7 +9,6 @@ from builtins import str, object
 
 from tempfile import NamedTemporaryFile
 from past.utils import old_div
-import unittest
 import os, sys
 from datetime import datetime, timedelta
 import mock
@@ -1040,10 +1039,3 @@ def main(""")
                 logtext = Test.read_and_remove(file.name+".log")
                 string2check = "0 segments"
                 assert string2check in logtext
-
-
-
-
-if __name__ == "__main__":
-    # import sys;sys.argv = ['', 'Test.testName']
-    unittest.main()
