@@ -22,7 +22,7 @@ import logging
 from contextlib import contextmanager
 import warnings
 import inspect
-from multiprocessing import Pool
+from multiprocessing import Pool, cpu_count
 import signal
 
 from future.utils import itervalues
@@ -69,7 +69,25 @@ def run(session, pyfunc, ondone=None, config=None, show_progress=False):
 
     done_skipped_errors = [0, 0, 0]
 
-    mpr = True
+    adv_settings = config.get('advanced_settings', {})
+    multi_process = adv_settings.get('multi_process', False)
+    num_processes = adv_settings.get('num_processes', cpu_count())
+    chunksize = adv_settings.get('segments_chunk', 1200)
+
+    # Note on chunksize above:
+    # When loading segments, we have two strategies:
+    # A) load only a Segment with its id (and defer loading of other
+    # attributes upon access) or B) load a Segment with all attributes
+    # (columns) or. From experiments on a 16 GB memory Mac:
+    # Querying A) and then accessing (=loading) later two likely used attributes
+    # (data and arrival_time) we take:
+    # ~= 0.043 secs/segment, Peak memory (Kb): 111792 (0.650716 %)
+    # Querying B) and then accessing the already loaded data and arrival_time attributes,
+    # we get:
+    # 0.024 secs/segment, Peak memory (Kb): 409194 (2.381825 %).
+    # With millions of segments, the latter
+    # approach can save up to 9 hours with almost no memory perf issue (1.5% more).
+    # So we define a chunk size whereby we load all segments:
 
     # the query is always loaded in memory, see:
     # https://stackoverflow.com/questions/11769366/why-is-sqlalchemy-insert-with-sqlite-25-times-slower-than-using-sqlite3-directly/11769768#11769768
@@ -98,27 +116,12 @@ def run(session, pyfunc, ondone=None, config=None, show_progress=False):
     # processing, if we want:
     set_classes(session, config)
 
-    # Now we have to process each segment:
-    # Two strategies: A) load only a Segment with its id (and defer loading of other
-    # attributes upon access) or B) load a Segment with all attributes
-    # (columns) or. From experiments on a 16 GB memory Mac:
-    # Querying A) and then accessing (=loading) later two likely used attributes
-    # (data and arrival_time) we take:
-    # ~= 0.043 secs/segment, Peak memory (Kb): 111792 (0.650716 %)
-    # Querying B) and then accessing the already loaded data and arrival_time attributes,
-    # we get:
-    # 0.024 secs/segment, Peak memory (Kb): 409194 (2.381825 %).
-    # With millions of segments, the latter
-    # approach can save up to 9 hours with almost no memory perf issue (1.5% more).
-    # So we define a chunk size whereby we load all segments:
-    chunksize = config.get('advanced_settings', {}).get('segments_chunk', 1200)
-
     session.close()  # expunge all, clear all states
 
-    with create_processing_env(seg_len, config=None if mpr else config,
-                               redirect_stderr=False if mpr else True,
-                               warnings_filter=None if mpr else 'ignore') as pbar:
-        if mpr:
+    with create_processing_env(seg_len, config=None if multi_process else config,
+                               redirect_stderr=False if multi_process else True,
+                               warnings_filter=None if multi_process else 'ignore') as pbar:
+        if multi_process:
             # little hacky (1): the db engine has to be disposed now
             # if we want to use multi-processing:
             # https://stackoverflow.com/questions/41279157/connection-problems-with-sqlalchemy-and-multiple-processes
@@ -135,7 +138,7 @@ def run(session, pyfunc, ondone=None, config=None, show_progress=False):
                 # https://stackoverflow.com/questions/1408356/keyboard-interrupts-with-pythons-multiprocessing-pool
                 signal.signal(signal.SIGINT, signal.SIG_IGN)
 
-            pool = Pool(processes=4, initializer=mp_initializer)
+            pool = Pool(processes=num_processes, initializer=mp_initializer)
             mp_map = pool.imap_unordered
             try:
                 for results in mp_map(process_segments_mp,

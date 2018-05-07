@@ -297,8 +297,18 @@ def download(config, dburl, eventws, start, end, networks,  # pylint: disable=un
                    "Optional: defaults to '%s' when "
                    "missing" % inputargs.default_processing_funcname(),
               )  # do not set default='main', so that we can test when arg is missing or not
+@click.option("-mp", "--multi-process", is_flag=True,
+              help="Use parallel sub-processes to parallalize the execution and "
+                   "decrease (in most cases) speed of execution. When missing, it defaults to "
+                   "false"
+              )  # do not set default='main', so that we can test when arg is missing or not
+@click.option("-np", "--num-processes", type=int, default=None,
+              help="The number of sub-processes. If missing, it is set as the "
+                   "the number of CPUs in the system. This option is ignored "
+                   "if --multi-process is not given",
+              )  # do not set default='main', so that we can test when arg is missing or not
 @click.argument('outfile', required=False)
-def process(dburl, config, pyfile, funcname, outfile):
+def process(dburl, config, pyfile, funcname, multi_process, num_processes, outfile):
     """Process downloaded waveform data segments via a custom python file and a configuration
     file.
 
@@ -311,7 +321,14 @@ def process(dburl, config, pyfile, funcname, outfile):
     [outpath].log
     """
     try:
-        sys.exit(main.process(dburl, pyfile, funcname, config, outfile, verbose=True))
+        # override config values for multi_process and num_processes
+        overrides = {k: v for k, v in locals().items()
+                     if v not in ((), {}, None) and k in ('multi_process', 'num_processes')}
+        if overrides:
+            # if given, put these into 'advanced_settings' sub-dict. Note that
+            # nested dict will be merged with the values of the config
+            overrides = {'advanced_settings': overrides}
+        sys.exit(main.process(dburl, pyfile, funcname, config, outfile, verbose=True, **overrides))
     except inputargs.BadArgument as aerr:
         print(aerr)
         sys.exit(1)  # exit with 1 as normal python exceptions

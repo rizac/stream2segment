@@ -167,7 +167,8 @@ def download(config, verbosity=2, **param_overrides):
     return ret
 
 
-def process(dburl, pyfile, funcname=None, config=None, outfile=None, verbose=False):
+def process(dburl, pyfile, funcname=None, config=None, outfile=None, verbose=False,
+            **param_overrides):
     """
         Process the segment saved in the db and optionally saves the results into `outfile`
         in .csv format
@@ -180,6 +181,9 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, verbose=Fal
         In both cases, if `verbose` is True, a handler will redirect all informations, errors
             and critical logged messages to the standard output (also, and a progressbar will be
             printed to standard output)
+
+        :param param_overrides: paramter that will override the yaml config. Nested dict will be
+            merged, not replaced
     """
     # implementation details: this function returns 0 on success and raises otherwise.
     # First, it can raise ValueError for a bad parameter (checked before starting db session and
@@ -193,7 +197,7 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, verbose=Fal
 
     # checks dic values (modify in place) and returns dic value(s) needed here:
     session, pyfunc, funcname, config_dict = \
-        load_config_for_process(dburl, pyfile, funcname, config, outfile)
+        load_config_for_process(dburl, pyfile, funcname, config, outfile, **param_overrides)
 
     configlog4processing(logger, outfile, verbose)
     try:

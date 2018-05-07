@@ -29,7 +29,7 @@ from obspy.core.stream import read
 from stream2segment.cli import cli
 from stream2segment.io.db.models import Base, Event, Station, WebService, Segment,\
     Channel, Download, DataCenter
-from stream2segment.utils.inputargs import yaml_load as load_proc_cfg
+from stream2segment.utils.inputargs import yaml_load as orig_yaml_load
 from stream2segment import process
 from stream2segment.utils.resources import get_templates_fpaths
 from stream2segment.process.utils import get_inventory_url, save_inventory as original_saveinv
@@ -41,6 +41,18 @@ import click
 from itertools import product
 standard_library.install_aliases()
 
+def yaml_load_side_effect(**overrides):
+    """Side effect for the function reading the yaml config which enables the input
+    of parameters to be overridden just after reading and before any other operation"""
+    if overrides:
+        def func(*a, **v):
+            ret = orig_yaml_load(*a, **v)
+            ret.update(overrides)  # note: this OVERRIDES nested dicts
+            # whereas passing coverrides as second argument of orig_yaml_load MERGES their keys
+            # with existing one
+            return ret
+        return func
+    return orig_yaml_load
 
 class Test(object):
 
@@ -155,11 +167,11 @@ class Test(object):
         self.seg_none = sg4
 
         # values to override the config, if specified:
-        self.config_overrides = {}
-        self.inventory = True
+        # self.config_overrides = {}
+        # self.inventory = True
 
         # init patchers:
-        self.patchers = []
+        # self.patchers = []
 
         # mock get inventory:
         def url_read(*a, **v):
@@ -172,24 +184,50 @@ class Test(object):
             else:
                 return data.read("inventory_GE.APE.xml"), 200, 'Ok'
 
-        self.patchers.append(patch('stream2segment.process.utils.urlread'))
-        self.mock_url_read = self.patchers[-1].start()
-        self.mock_url_read.side_effect = url_read
+#         self.patchers.append(patch('stream2segment.process.utils.urlread'))
+#         self.mock_url_read = self.patchers[-1].start()
+#         self.mock_url_read.side_effect = url_read
+# 
+#         self.patchers.append(patch('stream2segment.utils.inputargs.get_session'))
+#         self.mock_session = self.patchers[-1].start()
+#         self.mock_session.return_value = session
+# 
+#         self.patchers.append(patch('stream2segment.main.closesession'))
+#         self.mock_closing = self.patchers[-1].start()
+#         self.mock_closing.side_effect = lambda *a, **v: None
+# 
+#         yield
+# 
+#         # cleanup patchers:
+#         for patcher in self.patchers:
+#             if patcher:
+#                 patcher.stop()
 
-        self.patchers.append(patch('stream2segment.utils.inputargs.get_session'))
-        self.mock_session = self.patchers[-1].start()
-        self.mock_session.return_value = session
+        with patch('stream2segment.process.utils.urlread', side_effect=url_read):
+            with patch('stream2segment.utils.inputargs.get_session', return_value=session):
+                with patch('stream2segment.main.closesession',
+                           side_effect=lambda *a, **v: None):
+                    yield
 
-        self.patchers.append(patch('stream2segment.main.closesession'))
-        self.mock_closing = self.patchers[-1].start()
-        self.mock_closing.side_effect = lambda *a, **v: None
 
-        yield
-
-        # cleanup patchers:
-        for patcher in self.patchers:
-            if patcher:
-                patcher.stop()
+#         self.patchers.append(patch('stream2segment.process.utils.urlread'))
+#         self.mock_url_read = self.patchers[-1].start()
+#         self.mock_url_read.side_effect = url_read
+# 
+#         self.patchers.append(patch('stream2segment.utils.inputargs.get_session'))
+#         self.mock_session = self.patchers[-1].start()
+#         self.mock_session.return_value = session
+# 
+#         self.patchers.append(patch('stream2segment.main.closesession'))
+#         self.mock_closing = self.patchers[-1].start()
+#         self.mock_closing.side_effect = lambda *a, **v: None
+# 
+#         yield
+# 
+#         # cleanup patchers:
+#         for patcher in self.patchers:
+#             if patcher:
+#                 patcher.stop()
 
 #     @staticmethod
 #     def read_stream_raw(file_name):
@@ -214,13 +252,13 @@ class Test(object):
 #         with open(os.path.join(folder, file_name), 'rb') as opn:
 #             return opn.read()
 
-    @staticmethod
-    def read_and_remove(filepath):
-        assert os.path.isfile(filepath)
-        with open(filepath) as opn:
-            sss = opn.read()
-        os.remove(filepath)
-        return sss
+#     @staticmethod
+#     def read_and_remove(filepath):
+#         assert os.path.isfile(filepath)
+#         with open(filepath) as opn:
+#             sss = opn.read()
+#         os.remove(filepath)
+#         return sss
 
 #     @staticmethod
 #     def get_file(filename):
@@ -229,10 +267,10 @@ class Test(object):
 #         assert os.path.isfile(path)
 #         return path
 
-    @staticmethod
-    def get_processing_files():
-        pyfile, conffile = get_templates_fpaths("save2fs.py", "save2fs.yaml") #pylint: disable=unbalanced-tuple-unpacking
-        return pyfile, conffile
+#     @staticmethod
+#     def get_processing_files():
+#         pyfile, conffile = get_templates_fpaths("save2fs.py", "save2fs.yaml") #pylint: disable=unbalanced-tuple-unpacking
+#         return pyfile, conffile
 
 #    @staticmethod
 #     def url_read(*a, **v):
@@ -245,11 +283,8 @@ class Test(object):
 #         else:
 #             return Test.read_data_raw("inventory_GE.APE.xml"), 200, 'Ok'
 
-    def load_proc_cfg(self, *a, **kw):
-        """called by mocked read config: updates the parsed dict with the custom config"""
-        cfg = load_proc_cfg(*a, **kw)
-        cfg.update(self.config_overrides)
-        return cfg
+
+
 
     # ## ======== ACTUAL TESTS: ================================
 
@@ -262,40 +297,48 @@ class Test(object):
     # as by default withdata is True in segment_select, then we process only the last three
     #
     # Here a simple test for a processing file returning dict. Save inventory and check it's saved
-    @pytest.mark.parametrize("segments_chunksize", [1, None])
+    @pytest.mark.parametrize("advanced_settings", [{}, {'segments_chunk': 1}])
+    @pytest.mark.parametrize("multi_process", [True, False])
+    @pytest.mark.parametrize("num_processes", [1, False])
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
     @mock.patch('stream2segment.process.main.process_core_run', side_effect=process_core_run)
-    def test_simple_run_no_outfile_provided(self, mock_run, mock_load_cfg, segments_chunksize, db):
+    def test_simple_run_no_outfile_provided(self, mock_run, mock_yaml_load, num_processes,
+                                            multi_process, advanced_settings,
+                                            # fixtures:
+                                            db, data):
         '''test a case where save inventory is True, and that we saved inventories
         db is a fixture implemented in conftest.py and setup here in self.transact fixture
         '''
         # set values which will override the yaml config in templates folder:
         runner = CliRunner()
         with runner.isolated_filesystem() as dir_:
-            self.config_overrides = {'save_inventory': True,
-                                     'snr_threshold': 0,
-                                     'segment_select': {'has_data': 'true'},
-                                     'root_dir': os.path.abspath(dir_)}
-            if segments_chunksize:
-                self.config_overrides['advanced_setting'] = {'segments_chunk': segments_chunksize}
-        
-            mock_load_cfg.side_effect = self.load_proc_cfg
-    
+            config_overrides = {'save_inventory': True,
+                                'snr_threshold': 0,
+                                'segment_select': {'has_data': 'true'},
+                                'root_dir': os.path.abspath(dir_)}
+            if advanced_settings:
+                config_overrides['advanced_settings'] = advanced_settings
+
+            mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
             # get seiscomp path of OK segment before the session is closed:
             path = os.path.join(dir_, self.seg1.seiscomp_path())
             # query data for testing now as the program will expunge all data from the session
             # and thus we want to avoid DetachedInstanceError(s):
             expected_first_row_seg_id = str(self.seg1.id)
             station_id_whose_inventory_is_saved = self.sta_ok.id
-    
+
             # need to reset this global variable: FIXME: better handling?
             process.main._inventories = {}
-            
-            
-            pyfile, conffile = self.get_processing_files()
-            
+
+            pyfile, conffile = data.get_templates_fpaths("save2fs.py", "save2fs.yaml")
+
+            added_args = []
+            if num_processes:
+                added_args += ['--num-processes', str(num_processes)]
+            if multi_process:
+                added_args += ['--multi-process']
             result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                                   '-p', pyfile, '-c', conffile])
+                                   '-p', pyfile, '-c', conffile] + added_args)
     
             if result.exception:
                 import traceback

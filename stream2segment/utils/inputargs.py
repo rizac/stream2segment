@@ -62,7 +62,7 @@ class MissingArg(BadArgument):
         '''A BadArgument notifying a missing value of some argument'''
         super(MissingArg, self).__init__(param_name, '', "Missing value for")
 
-   
+
 class BadValueArg(BadArgument):
 
     def __init__(self, param_name, error):
@@ -200,18 +200,21 @@ class S2SArgument(object):
         return self._names
 
 
-def typesmatch(value, other_value):
-    '''checks that value is of the same type (same class, or subclass) of `other_value`.
+def typesmatch(value, *other_values):
+    '''checks that value is of the same type (same class, or subclass) of *any* `other_value`.
     Raises TypeError if that's not the case
 
     :param value: a python object
-    :param other_value: a python object
+    :param other_values: python objects. This function raises if value is NOT of the same type of
+        any other_values types
 
     :return: value
     '''
-    if not issubclass(value.__class__, other_value.__class__):
-        raise TypeError("%s expected, found %s" % (str(type(value)), str(type(other_value))))
-    return value
+    for other_value in other_values:
+        if issubclass(value.__class__, other_value.__class__):
+            return value
+    raise TypeError("%s expected, found %s" % (" or ".join(str(type(_)) for _ in other_values),
+                                               str(type(value))))
 
 
 def nslc_param_value_aslist(value):
@@ -485,7 +488,8 @@ def filewritable(filepath):
     return filepath
 
 
-def load_config_for_process(dburl, pyfile, funcname=None, config=None, outfile=None):
+def load_config_for_process(dburl, pyfile, funcname=None, config=None, outfile=None,
+                            **param_overrides):
     '''checks process arguments.
     Returns the tuple session, pyfunc, config_dict,
     where session is the dql alchemy session from `dburl`,
@@ -495,10 +499,15 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None, outfile=N
     '''
     session = S2SArgument.parse('dburl', dburl, create_session)
     funcname = S2SArgument.parse('funcname', funcname, get_funcname)
-    if config is not None:
-        config = S2SArgument.parse('config', config, yaml_load)
-    else:
-        config = {}
+    try:
+        # yaml_load accepts a file name or a dict
+        config = yaml_load({} if config is None else config, **param_overrides)
+    except Exception as exc:
+        raise BadValueArg('config', exc)
+
+    # NOTE: contrarily to the download routine, we cannot check the types of the config because
+    # no parameter is mandatory, and thus they might NOT be present in the config.
+
     pyfunc = S2SArgument.parse('pyfile', pyfile, load_pyfunc, funcname)
     if outfile is not None:
         S2SArgument.parse('outfile', outfile, filewritable)
