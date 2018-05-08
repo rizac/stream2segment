@@ -137,106 +137,14 @@ responses = {
     505: ('HTTP Version Not Supported', 'Cannot fulfill request.'),
     }
 
-class Test(unittest.TestCase):
+class Test(object):
 
-    @staticmethod
-    def cleanup(me):
-        engine, session, handler, patchers = me.engine, me.session, me.handler, me.patchers
-        if me.engine:
-            if me.session:
-                try:
-                    me.session.rollback()
-                    me.session.close()
-                except:
-                    pass
-            try:
-                Base.metadata.drop_all(me.engine)
-            except:
-                pass
-        
-        for patcher in patchers:
-            patcher.stop()
-        
-#         hndls = s2s_download_logger.handlers[:]
-#         handler.close()
-#         for h in hndls:
-#             if h is handler:
-#                 s2s_download_logger.removeHandler(h)
-
-    def _get_sess(self, *a, **v):
-        return self.session
-    
-    @property
-    def is_sqlite(self):
-        return str(self.engine.url).startswith("sqlite:///")
-    
-    @property
-    def is_postgres(self):
-        return str(self.engine.url).startswith("postgresql://")
-
-    def setUp(self):
-        url = os.getenv("DB_URL", "sqlite:///:memory:")
-        from sqlalchemy import create_engine
-        self.dburi = url
-        engine = create_engine(self.dburi, echo=False)
-        Base.metadata.create_all(engine)
-        # create a configured "Session" class
-        Session = sessionmaker(bind=engine)
-        # create a Session
-        self.session = Session()
-        self.engine = engine
-
-        self.patchers = []
-        self.patchers.append(patch('stream2segment.utils.url.urllib.request.urlopen'))
-        self.mock_urlopen = self.patchers[-1].start()
-        
-        # this mocks get_session to return self.session:
-        self.patchers.append(patch('stream2segment.utils.inputargs.get_session'))
-        self.mock_get_session = self.patchers[-1].start()
-        self.mock_get_session.side_effect = self._get_sess
-        
-        # this mocks closing to actually NOT close the session (we will do it here):
-        self.patchers.append(patch('stream2segment.main.closesession'))
-        self.mock_closing = self.patchers[-1].start()
-        self.mock_closing.side_effect = lambda *a, **v: None
-        
-        # this mocks yaml_load and sets inventory to False, as tests rely on that.
-        # Moreover, we set the 
-        self.patchers.append(patch('stream2segment.utils.inputargs.yaml_load'))
-        self.mock_yaml_load = self.patchers[-1].start()
-        def yload(*a, **v):
-            dic = yaml_load(*a, **v)
-            if 'inventory' not in v:
-                dic['inventory'] = False
-            else:
-                sdf = 0
-            # also set timespan
-            dic['timespan'] = [1, 3]
-            return dic
-        self.mock_yaml_load.side_effect = yload
-        
-        # mock ThreadPool (tp) to run one instance at a time, so we get deterministic results:
-        class MockThreadPool(object):
-            
-            def __init__(self, *a, **kw):
-                pass
-                
-            def imap(self, func, iterable, *args):
-                # make imap deterministic: same as standard python map:
-                # everything is executed in a single thread the right input order
-                return map(func, iterable)
-            
-            def imap_unordered(self, func, iterable, *args):
-                # make imap_unordered deterministic: same as standard python map:
-                # everything is executed in a single thread in the right input order
-                return map(func, iterable)
-            
-            def close(self, *a, **kw):
-                pass
-        # assign patches and mocks:
-        self.patchers.append(patch('stream2segment.utils.url.ThreadPool'))
-        self.mock_tpool = self.patchers[-1].start()
-        self.mock_tpool.side_effect = MockThreadPool
+    # execute this fixture always even if not provided as argument:
+    # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
+    @pytest.fixture(autouse=True)
+    def init(self, request, db, data):
+        # re-init a sqlite database (no-op if the db is not sqlite):
+        db.reinit(to_file=False)
         
         
         self.logout = StringIO()
@@ -248,19 +156,10 @@ class Test(unittest.TestCase):
         # sets a different level, but for the moment who cares
         # s2s_download_logger.addHandler(self.handler)
         
-        self.patcher29 = patch('stream2segment.main.configlog4download')
-        self.mock_config4download = self.patcher29.start()
-        def c4d(logger, *a, **v):
-            ret = configlog4download(logger, *a, **v)
-            logger.addHandler(self.handler)
-            return ret
-        self.mock_config4download.side_effect = c4d
-
-        
         # setup a run_id:
         r = Download()
-        self.session.add(r)
-        self.session.commit()
+        db.session.add(r)
+        db.session.commit()
         self.run = r
 
         # side effects:
@@ -383,20 +282,73 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
         # self._sta_urlread_sideeffect = cycle([partial_valid, '', invalid, '', '', URLError('wat'), socket.timeout()])
 
         # the segments downloads returns ALWAYS the same miniseed, which is the BS network
-        # in a specified 
-        _file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "BS.*.*.*.2016-06-05.21:05-09.47.mseed")
-        with open(_file, "rb") as _opn:
-            self._seg_data = _opn.read()
+        # in a specified
+        self._seg_data = data.read("BS.*.*.*.2016-06-05.21:05-09.47.mseed")
+#         _file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "BS.*.*.*.2016-06-05.21:05-09.47.mseed")
+#         with open(_file, "rb") as _opn:
+#             self._seg_data = _opn.read()
             
         self._seg_urlread_sideeffect = [self._seg_data]
 
+        self._inv_data = data.read("inventory_GE.APE.xml")
 
         #add cleanup (in case tearDown is not called due to exceptions):
-        self.addCleanup(Test.cleanup, self)
+        # self.addCleanup(Test.cleanup, self)
                         #self.patcher3)
         
         self.configfile = get_templates_fpath("download.yaml")
         # self._logout_cache = ""
+        
+                # class-level patchers:
+        with patch('stream2segment.utils.url.urllib.request.urlopen') as mock_urlopen:
+            self.mock_urlopen = mock_urlopen
+            with patch('stream2segment.utils.inputargs.get_session', return_value=db.session):
+                # this mocks yaml_load and sets inventory to False, as tests rely on that
+                with patch('stream2segment.main.closesession'):  # no-op (do not close session)
+
+                    def yload(*a, **v):
+                        dic = yaml_load(*a, **v)
+                        if 'inventory' not in v:
+                            dic['inventory'] = False
+                        else:
+                            sdf = 0
+                        return dic
+                    with patch('stream2segment.utils.inputargs.yaml_load',
+                               side_effect=yload) as mock_yaml_load:
+                        self.mock_yaml_load = mock_yaml_load
+
+                        # mock ThreadPool (tp) to run one instance at a time, so we
+                        # get deterministic results:
+                        class MockThreadPool(object):
+                            
+                            def __init__(self, *a, **kw):
+                                pass
+                                
+                            def imap(self, func, iterable, *args):
+                                # make imap deterministic: same as standard python map:
+                                # everything is executed in a single thread the right input order
+                                return map(func, iterable)
+                            
+                            def imap_unordered(self, func, iterable, *args):
+                                # make imap_unordered deterministic: same as standard python map:
+                                # everything is executed in a single thread in the right input order
+                                return map(func, iterable)
+                            
+                            def close(self, *a, **kw):
+                                pass
+                        # assign patches and mocks:
+                        with patch('stream2segment.utils.url.ThreadPool',
+                                   side_effect=MockThreadPool) as mock_thread_pool:
+                            
+                            def c4d(logger, *a, **v):
+                                ret = configlog4download(logger, *a, **v)
+                                logger.addHandler(self.handler)
+                                return ret
+                            with patch('stream2segment.main.configlog4download',
+                                       side_effect=c4d) as mock_config4download:
+                                self.mock_config4download = mock_config4download
+
+                                yield
     
     def log_msg(self):
         return self.logout.getvalue()
@@ -477,14 +429,14 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
         return download_save_segments(*a, **kw)
     
     def save_inventories(self, url_read_side_effect, *a, **v):
-        self.setup_urlopen(self._get_inv() if url_read_side_effect is None else url_read_side_effect)
+        self.setup_urlopen(self._inv_data if url_read_side_effect is None else url_read_side_effect)
         return save_inventories(*a, **v)
 
     
-    def _get_inv(self):
-        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "inventory_GE.APE.xml")
-        with open(path, 'rb') as opn_:
-            return opn_.read()
+#     def _get_inv(self):
+#         path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "inventory_GE.APE.xml")
+#         with open(path, 'rb') as opn_:
+#             return opn_.read()
 
 
     @patch('stream2segment.download.main.get_events_df')
@@ -497,7 +449,7 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
     @patch('stream2segment.io.db.pdsql.updatedf')
     def test_cmdline_outofbounds(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                                  mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
-                                 mock_get_datacenters_df, mock_get_events_df):
+                                 mock_get_datacenters_df, mock_get_events_df, db):
         
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
@@ -507,18 +459,18 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
         mock_mseed_unpack.side_effect = lambda *a, **v: unpack(*a, **v)
         mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
-        # prevlen = len(self.session.query(Segment).all())
+        # prevlen = len(db.session.query(Segment).all())
      
         # The run table is populated with a run_id in the constructor of this class
         # for checking run_ids, store here the number of runs we have in the table:
-        runs = len(self.session.query(Download.id).all())
+        runs = len(db.session.query(Download.id).all())
 
 
 
         runner = CliRunner()
         result = runner.invoke(cli , ['download',
                                        '-c', self.configfile,
-                                        '--dburl', self.dburi,
+                                        '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         if result.exception:
@@ -533,17 +485,17 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
             assert False
             return
         
-        assert len(self.session.query(Download.id).all()) == runs + 1
+        assert len(db.session.query(Download.id).all()) == runs + 1
         runs += 1
         
         url_err, mseed_err, timespan_err, timespan_warn = custom_download_codes()
         
         # assert when we have a timespan error we do not have data:
-        assert self.session.query(Segment).filter(Segment.has_data & (Segment.download_code==timespan_err)).count() == 0 
+        assert db.session.query(Segment).filter(Segment.has_data & (Segment.download_code==timespan_err)).count() == 0 
         
         # assert when we have a timespan warn or 200 response we have data:
-        seg_with_data = self.session.query(Segment).filter(Segment.has_data).count()
-        assert self.session.query(Segment).filter(Segment.has_data &
+        seg_with_data = db.session.query(Segment).filter(Segment.has_data).count()
+        assert db.session.query(Segment).filter(Segment.has_data &
                                                   ((Segment.download_code==200) |
                                                    (Segment.download_code==timespan_warn))).count() == seg_with_data 
         
@@ -555,15 +507,9 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
     
         for downloadcode, mseedids in data.items():
             for mseedid in mseedids:
-                seg = self.session.query(Segment).filter(Segment.seed_id == mseedid).first()
+                seg = db.session.query(Segment).filter(Segment.seed_id == mseedid).first()
                 assert seg.download_code == downloadcode
                 if (downloadcode == timespan_err):
                     assert not seg.has_data
                 else:
                     assert seg.has_data
-        
-
-
-
-
-    

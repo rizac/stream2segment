@@ -20,21 +20,6 @@ import time
 import mock
 
 
-class Test(unittest.TestCase):
-
-
-    def setUp(self):
-        pass
-
-
-    def tearDown(self):
-        pass
-
-
-    def testName(self):
-        pass
-
-
 @contextmanager
 def download_setup(filename, **params):
     yamldic = yaml_load(get_templates_fpath(filename))
@@ -357,24 +342,3 @@ def test_click_dataaval(mock_da):
     result = runner.invoke(cli, ['utils', 'dinfo', '-d', 'dburl', '-did', 'a'])
     assert not mock_da.called
     assert result.exit_code != 0
-
-    # test wrong arg.
-#     mock_da.reset_mock()
-#     with download_setup("download.yaml") as (conffile, yamldic):
-#         result = runner.invoke(cli, ['a', '--dburl', 'dburl', 'outfile', '-m', 0.4])
-#         lst = list(mock_da.call_args_list[0][0])
-#         assert lst == ['dburl', 'outfile', 0.4]
-#         assert result.exit_code == 0
-
-    
-
-
-
-
-
-
-
-
-if __name__ == "__main__":
-    #import sys;sys.argv = ['', 'Test.testName']
-    unittest.main()

@@ -142,103 +142,14 @@ responses = {
     505: ('HTTP Version Not Supported', 'Cannot fulfill request.'),
     }
 
-class Test(unittest.TestCase):
+class Test(object):
 
-    @staticmethod
-    def cleanup(me):
-        engine, session, handler, patchers = me.engine, me.session, me.handler, me.patchers
-        if me.engine:
-            if me.session:
-                try:
-                    me.session.rollback()
-                    me.session.close()
-                except:
-                    pass
-            try:
-                Base.metadata.drop_all(me.engine)
-            except:
-                pass
-        
-        for patcher in patchers:
-            patcher.stop()
-        
-#         hndls = s2s_download_logger.handlers[:]
-#         handler.close()
-#         for h in hndls:
-#             if h is handler:
-#                 s2s_download_logger.removeHandler(h)
-
-    def _get_sess(self, *a, **v):
-        return self.session
-    
-    @property
-    def is_sqlite(self):
-        return str(self.engine.url).startswith("sqlite:///")
-    
-    @property
-    def is_postgres(self):
-        return str(self.engine.url).startswith("postgresql://")
-
-    def setUp(self):
-        url = os.getenv("DB_URL", "sqlite:///:memory:")
-        from sqlalchemy import create_engine
-        self.dburi = url
-        engine = create_engine(self.dburi, echo=False)
-        Base.metadata.create_all(engine)
-        # create a configured "Session" class
-        Session = sessionmaker(bind=engine)
-        # create a Session
-        self.session = Session()
-        self.engine = engine
-        
-        self.patchers = []
-        self.patchers.append(patch('stream2segment.utils.url.urllib.request.urlopen'))
-        self.mock_urlopen = self.patchers[-1].start()
-        
-        # this mocks get_session to return self.session:
-        self.patchers.append(patch('stream2segment.utils.inputargs.get_session'))
-        self.mock_get_session = self.patchers[-1].start()
-        self.mock_get_session.side_effect = self._get_sess
-        
-        # this mocks closing to actually NOT close the session (we will do it here):
-        self.patchers.append(patch('stream2segment.main.closesession'))
-        self.mock_closing = self.patchers[-1].start()
-        self.mock_closing.side_effect = lambda *a, **kw: None
-        
-        # this mocks yaml_load and sets inventory to False, as tests rely on that
-        self.patchers.append(patch('stream2segment.utils.inputargs.yaml_load'))
-        self.mock_yaml_load = self.patchers[-1].start()
-        def yload(*a, **v):
-            dic = yaml_load(*a, **v)
-            if 'inventory' not in v:
-                dic['inventory'] = False
-            else:
-                sdf = 0
-            return dic
-        self.mock_yaml_load.side_effect = yload
-        
-        # mock ThreadPool (tp) to run one instance at a time, so we get deterministic results:
-        class MockThreadPool(object):
-            
-            def __init__(self, *a, **kw):
-                pass
-                
-            def imap(self, func, iterable, *args):
-                # make imap deterministic: same as standard python map:
-                # everything is executed in a single thread the right input order
-                return map(func, iterable)
-            
-            def imap_unordered(self, func, iterable, *args):
-                # make imap_unordered deterministic: same as standard python map:
-                # everything is executed in a single thread in the right input order
-                return map(func, iterable)
-            
-            def close(self, *a, **kw):
-                pass
-        # assign patches and mocks:
-        self.patchers.append(patch('stream2segment.utils.url.ThreadPool'))
-        self.mock_tpool = self.patchers[-1].start()
-        self.mock_tpool.side_effect = MockThreadPool
+    # execute this fixture always even if not provided as argument:
+    # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
+    @pytest.fixture(autouse=True)
+    def init(self, request, db, data):
+        # re-init a sqlite database (no-op if the db is not sqlite):
+        db.reinit(to_file=False)
         
         
         self.logout = StringIO()
@@ -249,20 +160,12 @@ class Test(unittest.TestCase):
         # otherwise it stays what we set two lines above. Problems might arise if closing
         # sets a different level, but for the moment who cares
         # s2s_download_logger.addHandler(self.handler)
-        
-        self.patchers.append(patch('stream2segment.main.configlog4download'))
-        self.mock_config4download = self.patchers[-1].start()
-        def c4d(logger, *a, **v):
-            ret = configlog4download(logger, *a, **v)
-            logger.addHandler(self.handler)
-            return ret
-        self.mock_config4download.side_effect = c4d
              
 
         # setup a run_id:
         r = Download()
-        self.session.add(r)
-        self.session.commit()
+        db.session.add(r)
+        db.session.commit()
         self.run = r
 
         # side effects:
@@ -300,16 +203,10 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 """]
         # self._sta_urlread_sideeffect = cycle([partial_valid, '', invalid, '', '', URLError('wat'), socket.timeout()])
 
-        self._mintraveltime_sideeffect = cycle([1])
-
-        _file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "GE.FLT1..HH?.mseed")
-        with open(_file, "rb") as _opn:
-            self._seg_data = _opn.read()
+        self._mintraveltime_sideeffect = cycle([1])        
         
-        _file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "IA.BAKI..BHZ.D.2016.004.head")
-        with open(_file, "rb") as _opn:
-            self._seg_data_gaps = _opn.read()
-            
+        self._seg_data = data.read("GE.FLT1..HH?.mseed")
+        self._seg_data_gaps = data.read("IA.BAKI..BHZ.D.2016.004.head")
         self._seg_data_empty = b''
             
         self._seg_urlread_sideeffect = [self._seg_data, self._seg_data_gaps, 413, 500, self._seg_data[:2],
@@ -317,22 +214,66 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                         socket.timeout()]
 
 
+        self._inv_data = data.read("inventory_GE.APE.xml")
+
         self.service = ''  # so get_datacenters_df accepts any row by default
 
-        #add cleanup (in case tearDown is not called due to exceptions):
-        self.addCleanup(Test.cleanup, self)
-                        #self.patcher3)
-        
         self.configfile = get_templates_fpath("download.yaml")
         # self._logout_cache = ""
+        
+        # class-level patchers:
+        with patch('stream2segment.utils.url.urllib.request.urlopen') as mock_urlopen:
+            self.mock_urlopen = mock_urlopen
+            with patch('stream2segment.utils.inputargs.get_session', return_value=db.session):
+                # this mocks yaml_load and sets inventory to False, as tests rely on that
+                with patch('stream2segment.main.closesession'):  # no-op (do not close session)
+
+                    def yload(*a, **v):
+                        dic = yaml_load(*a, **v)
+                        if 'inventory' not in v:
+                            dic['inventory'] = False
+                        else:
+                            sdf = 0
+                        return dic
+                    with patch('stream2segment.utils.inputargs.yaml_load',
+                               side_effect=yload) as mock_yaml_load:
+                        self.mock_yaml_load = mock_yaml_load
+
+                        # mock ThreadPool (tp) to run one instance at a time, so we
+                        # get deterministic results:
+                        class MockThreadPool(object):
+                            
+                            def __init__(self, *a, **kw):
+                                pass
+                                
+                            def imap(self, func, iterable, *args):
+                                # make imap deterministic: same as standard python map:
+                                # everything is executed in a single thread the right input order
+                                return map(func, iterable)
+                            
+                            def imap_unordered(self, func, iterable, *args):
+                                # make imap_unordered deterministic: same as standard python map:
+                                # everything is executed in a single thread in the right input order
+                                return map(func, iterable)
+                            
+                            def close(self, *a, **kw):
+                                pass
+                        # assign patches and mocks:
+                        with patch('stream2segment.utils.url.ThreadPool',
+                                   side_effect=MockThreadPool) as mock_thread_pool:
+                            
+                            def c4d(logger, *a, **v):
+                                ret = configlog4download(logger, *a, **v)
+                                logger.addHandler(self.handler)
+                                return ret
+                            with patch('stream2segment.main.configlog4download',
+                                       side_effect=c4d) as mock_config4download:
+                                self.mock_config4download = mock_config4download
+
+                                yield
     
     def log_msg(self):
         return self.logout.getvalue()
-#         idx = len(self._logout_cache)
-#         self._logout_cache = self.logout.getvalue()
-#         if len(self._logout_cache) == idx:
-#             idx = None # do not slice
-#         return self._logout_cache[idx:]
 
     def setup_urlopen(self, urlread_side_effect):
         """setup urlopen return value. 
@@ -382,7 +323,6 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 #        self.mock_urlopen.side_effect = Cycler(urlread_side_effect)
         
 
-    
     def get_events_df(self, url_read_side_effect, *a, **v):
         self.setup_urlopen(self._evt_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
         return get_events_df(*a, **v)
@@ -405,15 +345,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         return download_save_segments(*a, **kw)
     
     def save_inventories(self, url_read_side_effect, *a, **v):
-        self.setup_urlopen(self._get_inv() if url_read_side_effect is None else url_read_side_effect)
+        self.setup_urlopen(self._inv_data if url_read_side_effect is None else url_read_side_effect)
         return save_inventories(*a, **v)
-
-    
-    def _get_inv(self):
-        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "inventory_GE.APE.xml")
-        with open(path, 'rb') as opn_:
-            return opn_.read()
-
 
     @patch('stream2segment.io.db.pdsql._get_max')
     @patch('stream2segment.download.main.get_events_df')
@@ -426,7 +359,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     @patch('stream2segment.io.db.pdsql.updatedf')
     def test_cmdline_dberr(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                            mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
-                           mock_get_datacenters_df, mock_get_events_df, mock_autoinc_db):
+                           mock_get_datacenters_df, mock_get_events_df, mock_autoinc_db, db):
         
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
@@ -437,11 +370,11 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
         mock_autoinc_db.side_effect = lambda *a, **v: _get_db_autoinc_col_max(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
-        # prevlen = len(self.session.query(Segment).all())
+        # prevlen = len(db.session.query(Segment).all())
      
         # The run table is populated with a run_id in the constructor of this class
         # for checking run_ids, store here the number of runs we have in the table:
-        runs = len(self.session.query(Download.id).all())
+        runs = len(db.session.query(Download.id).all())
         
         # mock insertdf to mess-up the ids so that we can check db errors
         def insdf(*a, **v):
@@ -458,7 +391,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         runner = CliRunner()
         result = runner.invoke(cli , ['download',
                                        '-c', self.configfile,
-                                        '--dburl', self.dburi,
+                                        '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         if result.exception:
@@ -473,17 +406,17 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             assert False
             return
         
-        assert self.session.query(Station).count() == 4
+        assert db.session.query(Station).count() == 4
         
         # assert log msg printed
         assert """duplicate key value violates unique constraint "segments_pkey"
-DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
+DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
 "(UNIQUE constraint failed: segments.id)" in self.log_msg() 
     
         
         # get the excpeted segment we should have downloaded:
         segments_df = mock_download_save_segments.call_args_list[0][0][1]
-        assert self.session.query(Segment).count() < len(segments_df)
+        assert db.session.query(Segment).count() < len(segments_df)
         
         # get the first group written to the db. Note that as we mocked read_async (see above)
         # the first dataframe given to urlread should be also the first to be written to db,
@@ -491,15 +424,15 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         # the case and we should be less strict. Actually, we will be less strict, 
         # turns out the check is undeterministic Comment out:
 #         first_segments_df = segments_df.groupby(['datacenter_id', 'request_start', 'request_end'], sort=False).first()
-        assert self.session.query(Segment).count()  == 3  # len(first_segments_df)
+        assert db.session.query(Segment).count()  == 3  # len(first_segments_df)
         # assert 
-        assert self.session.query(Channel).count() == 12
-        assert self.session.query(Event).count() == 2
+        assert db.session.query(Channel).count() == 12
+        assert db.session.query(Event).count() == 2
         
         # assert run log has been written correctly, i.e. that the db error on the segments
         # has not affected further writing operations. To do this quickly, assert that
         # all run.log have something written in (not null, not empty)
-        assert self.session.query(withdata(Download.log)).count() == self.session.query(Download).count()
+        assert db.session.query(withdata(Download.log)).count() == db.session.query(Download).count()
 
 
     @patch('stream2segment.download.main.get_events_df')
@@ -512,7 +445,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
     @patch('stream2segment.io.db.pdsql.updatedf')
     def test_cmdline_outofbounds(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                                  mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
-                                 mock_get_datacenters_df, mock_get_events_df):
+                                 mock_get_datacenters_df, mock_get_events_df, db):
         
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
@@ -522,18 +455,18 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         mock_mseed_unpack.side_effect = lambda *a, **v: unpack(*a, **v)
         mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
-        # prevlen = len(self.session.query(Segment).all())
+        # prevlen = len(db.session.query(Segment).all())
      
         # The run table is populated with a run_id in the constructor of this class
         # for checking run_ids, store here the number of runs we have in the table:
-        runs = len(self.session.query(Download.id).all())
+        runs = len(db.session.query(Download.id).all())
 
 
 
         runner = CliRunner()
         result = runner.invoke(cli , ['download',
                                        '-c', self.configfile,
-                                        '--dburl', self.dburi,
+                                        '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         if result.exception:
@@ -548,19 +481,19 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
             assert False
             return
         
-        assert len(self.session.query(Download.id).all()) == runs + 1
+        assert len(db.session.query(Download.id).all()) == runs + 1
         runs += 1
-        segments = self.session.query(Segment).all()
+        segments = db.session.query(Segment).all()
         assert len(segments) == 12
-        segments = self.session.query(Segment).filter(Segment.has_data).all()
+        segments = db.session.query(Segment).filter(Segment.has_data).all()
         assert len(segments) == 0  # all out of bounds
         
-        assert len(self.session.query(Station).filter(Station.has_inventory).all()) == 0
+        assert len(db.session.query(Station).filter(Station.has_inventory).all()) == 0
         
         assert not mock_updatedf.called
         assert mock_insertdf.called
         
-        dfres1 = dbquery2df(self.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
+        dfres1 = dbquery2df(db.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
                                                Segment.event_id,
                                          Segment.download_code, Segment.data,
                                          Segment.maxgap_numsamples, Segment.download_id,
@@ -588,7 +521,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
     @patch('stream2segment.io.db.pdsql.updatedf')
     def test_cmdline_unexpected_err(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                      mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
-                     mock_get_datacenters_df, mock_get_events_df):
+                     mock_get_datacenters_df, mock_get_events_df, db):
         ''' we experienced once a UnicodeDecodeError in mseed_unpack, whcih, has expected
         raised. Fine, but we got also another error: attempt to write on an apparently already-closed logger,
         as if threads where trying to access concurrently to the same logger.
@@ -608,18 +541,18 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         mock_mseed_unpack.side_effect = mockunpack  # now is cought, and a MiniSeed Error is raised, but let's see
         mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
-        # prevlen = len(self.session.query(Segment).all())
+        # prevlen = len(db.session.query(Segment).all())
      
         # The run table is populated with a run_id in the constructor of this class
         # for checking run_ids, store here the number of runs we have in the table:
-        runs = len(self.session.query(Download.id).all())
+        runs = len(db.session.query(Download.id).all())
 
 
 
         runner = CliRunner()
         result = runner.invoke(cli , ['download',
                                        '-c', self.configfile,
-                                        '--dburl', self.dburi,
+                                        '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         h= 9
@@ -635,7 +568,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
     @patch('stream2segment.io.db.pdsql.updatedf')
     def test_cmdline(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                      mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
-                     mock_get_datacenters_df, mock_get_events_df):
+                     mock_get_datacenters_df, mock_get_events_df, db):
         
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
@@ -646,18 +579,18 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         mock_mseed_unpack.side_effect = lambda *a, **v: unpack(a[0])
         mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
-        # prevlen = len(self.session.query(Segment).all())
+        # prevlen = len(db.session.query(Segment).all())
      
         # The run table is populated with a run_id in the constructor of this class
         # for checking run_ids, store here the number of runs we have in the table:
-        runs = len(self.session.query(Download.id).all())
+        runs = len(db.session.query(Download.id).all())
 
 
 
         runner = CliRunner()
         result = runner.invoke(cli , ['download',
                                        '-c', self.configfile,
-                                        '--dburl', self.dburi,
+                                        '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         if result.exception:
@@ -672,19 +605,19 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
             assert False
             return
         
-        assert len(self.session.query(Download.id).all()) == runs + 1
+        assert len(db.session.query(Download.id).all()) == runs + 1
         runs += 1
-        segments = self.session.query(Segment).all()
+        segments = db.session.query(Segment).all()
         assert len(segments) == 12
-        segments = self.session.query(Segment).filter(Segment.has_data).all()
+        segments = db.session.query(Segment).filter(Segment.has_data).all()
         assert len(segments) == 4
         
-        assert len(self.session.query(Station).filter(Station.has_inventory).all()) == 0
+        assert len(db.session.query(Station).filter(Station.has_inventory).all()) == 0
         
         assert not mock_updatedf.called
         assert mock_insertdf.called
         
-        dfres1 = dbquery2df(self.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
+        dfres1 = dbquery2df(db.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
                                                Segment.event_id,
                                          Segment.download_code, Segment.data,
                                          Segment.maxgap_numsamples, Segment.download_id,
@@ -711,11 +644,11 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         runner = CliRunner()
         result = runner.invoke(cli , ['download',
                                        '-c', self.configfile,
-                                        '--dburl', self.dburi,
+                                        '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         
-        dfres2 = dbquery2df(self.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
+        dfres2 = dbquery2df(db.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
                                                Segment.event_id,
                                          Segment.download_code, Segment.data,
                                          Segment.maxgap_numsamples, Segment.download_id,
@@ -733,7 +666,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         URLERROR, MSEEDERROR, OUTTIME_ERR, OUTTIME_WARN = custom_download_codes()
         
         assert len(dfres2) == len(dfres1)
-        assert len(self.session.query(Download.id).all()) == runs + 1
+        assert len(db.session.query(Download.id).all()) == runs + 1
         runs += 1
         # asssert we changed the download status code for segments which should be retried
         # WARNING: THIS TEST COULD FAIL IF WE CHANGE THE DEFAULTS. CHANGE `mask` here below IN CASE
@@ -756,7 +689,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         runner = CliRunner()
         result = runner.invoke(cli , ['download', 
                                        '-c', self.configfile,
-                                       '--dburl', self.dburi,
+                                       '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         if result.exception:
@@ -778,7 +711,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         mock_download_save_segments.reset_mock()
         runner = CliRunner()
         result = runner.invoke(cli , ['download', '-c', self.configfile,
-                                       '--dburl', self.dburi,
+                                       '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         if result.exception:
@@ -808,7 +741,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         
         runner = CliRunner()
         result = runner.invoke(cli , ['download', '-c', self.configfile,
-                                       '--dburl', self.dburi,
+                                       '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         if result.exception:
@@ -831,7 +764,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         self._sta_urlread_sideeffect = 500
         runner = CliRunner()
         result = runner.invoke(cli , ['download', '-c', self.configfile,
-                                       '--dburl', self.dburi,
+                                       '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         # assert we wrote again str_2:
@@ -844,20 +777,20 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         # test with loading station inventories:
         
         # we should not have inventories saved:
-        stainvs = self.session.query(Station).filter(Station.has_inventory).all()
+        stainvs = db.session.query(Station).filter(Station.has_inventory).all()
         assert len(stainvs) == 0
         # calculate the expected stations:
-        expected_invs_to_download_ids = [x[0] for x in self.session.query(Station.id).filter((~Station.has_inventory) &
+        expected_invs_to_download_ids = [x[0] for x in db.session.query(Station.id).filter((~Station.has_inventory) &
                    (Station.segments.any(Segment.has_data))).all()]
         # test that we have data, but also errors
         num_expected_inventories_to_download = len(expected_invs_to_download_ids)
         assert num_expected_inventories_to_download == 2  # just in order to set the value below
         # and be more safe about the fact that we will have only ONE station inventory saved
-        inv_urlread_ret_val = [self._get_inv(), URLError('a')]
+        inv_urlread_ret_val = [self._inv_data, URLError('a')]
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(inv_urlread_ret_val, *a, **v)
         runner = CliRunner()
         result = runner.invoke(cli , ['download', '-c', self.configfile,
-                                       '--dburl', self.dburi,
+                                       '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         if result.exception:
@@ -866,10 +799,10 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
             print(result.output)
             assert False
             return
-        stainvs = self.session.query(Station).filter(Station.has_inventory).all()
+        stainvs = db.session.query(Station).filter(Station.has_inventory).all()
         assert len(stainvs) == 1
         assert "Unable to save inventory" in self.log_msg()
-        ix = self.session.query(Station.id, Station.inventory_xml).filter(Station.has_inventory).all()
+        ix = db.session.query(Station.id, Station.inventory_xml).filter(Station.has_inventory).all()
         num_downloaded_inventories_first_try = len(ix)
         assert len(ix) == num_downloaded_inventories_first_try
         staid, invdata = ix[0][0], ix[0][1]
@@ -883,7 +816,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories([b""], *a, **v)
         runner = CliRunner()
         result = runner.invoke(cli , ['download', '-c', self.configfile,
-                                       '--dburl', self.dburi,
+                                       '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         if result.exception:
@@ -892,17 +825,17 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
             print(result.output)
             assert False
             return
-        stainvs = self.session.query(Station).filter(Station.has_inventory).all()
+        stainvs = db.session.query(Station).filter(Station.has_inventory).all()
         # assert we still have one station (the one we saved before):
         assert len(stainvs) == num_downloaded_inventories_first_try
         mock_save_inventories.reset_mock
 
         
-        # now mock url returning always data (the default: it returns self._get_inv():
+        # now mock url returning always data (the default: it returns self._inv_data:
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
         runner = CliRunner()
         result = runner.invoke(cli , ['download', '-c', self.configfile,
-                                       '--dburl', self.dburi,
+                                       '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         if result.exception:
@@ -912,7 +845,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
             assert False
             return
         
-        ix = self.session.query(Station.id, Station.inventory_xml).filter(Station.has_inventory).all()
+        ix = db.session.query(Station.id, Station.inventory_xml).filter(Station.has_inventory).all()
         assert len(ix) == num_expected_inventories_to_download
         
         
@@ -920,7 +853,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         mock_save_inventories.reset_mock()
         runner = CliRunner()
         result = runner.invoke(cli , ['download', '-c', self.configfile,
-                                       '--dburl', self.dburi,
+                                       '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         if result.exception:
@@ -930,7 +863,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
             assert False
             return
         
-        stainvs2 = self.session.query(Station).filter(Station.has_inventory).all()
+        stainvs2 = db.session.query(Station).filter(Station.has_inventory).all()
         assert len(stainvs2) == num_expected_inventories_to_download
         assert not mock_save_inventories.called  
                                                                                     
@@ -938,7 +871,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         # now test that if a station chanbges datacenter "owner", then the new datacenter
         # is used. Test also that if we remove a single miniseed component of a download that
         # miniseed only is downloaded again
-        dfz = dbquery2df(self.session.query(Segment.id, Segment.data_seed_id,
+        dfz = dbquery2df(db.session.query(Segment.id, Segment.data_seed_id,
                                             Segment.datacenter_id, Channel.station_id).
                          join(Segment.station, Segment.channel).filter(Segment.has_data))
         
@@ -952,16 +885,16 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         # remove the first one:
         deleted_seg_id = 1
         seed_to_redownload = dfz[dfz[Segment.id.key] == deleted_seg_id].iloc[0]
-        self.session.query(Segment).filter(Segment.id == deleted_seg_id).delete()
+        db.session.query(Segment).filter(Segment.id == deleted_seg_id).delete()
         # be sure we deleted it:
-        assert len(self.session.query(Segment.id).filter(Segment.has_data).all()) == len(dfz) - 1
+        assert len(db.session.query(Segment.id).filter(Segment.has_data).all()) == len(dfz) - 1
         
         oldst_se = self._sta_urlread_sideeffect  # keep last side effect to restore it later
         self._sta_urlread_sideeffect = oldst_se[::-1]  # swap station return values from urlread
     
         runner = CliRunner()
         result = runner.invoke(cli , ['download', '-c', self.configfile,
-                                       '--dburl', self.dburi,
+                                       '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         if result.exception:
@@ -972,7 +905,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
             return
  
         # try to get
-        dfz2 = dbquery2df(self.session.query(Segment.id, Segment.data_seed_id,
+        dfz2 = dbquery2df(db.session.query(Segment.id, Segment.data_seed_id,
                                              Segment.datacenter_id, Channel.station_id,
                                              Station.network, Station.station, Channel.location, Channel.channel).
                          join(Segment.station, Segment.channel))
@@ -999,10 +932,10 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         
         # first change some values on the db, so that we can MOCK that the next download
         # has some metadata changed:
-        sta1 = self.session.query(Station).filter(Station.has_inventory == False).first()
-        sta_inv = self.session.query(Station).filter(Station.has_inventory == True).first()
+        sta1 = db.session.query(Station).filter(Station.has_inventory == False).first()
+        sta_inv = db.session.query(Station).filter(Station.has_inventory == True).first()
         sta_inv_id = sta_inv.id
-        cha = self.session.query(Channel).filter(Channel.id ==1).first()
+        cha = db.session.query(Channel).filter(Channel.id ==1).first()
         new_elevation = sta1.elevation + 5
         new_sitename = 'wow!!!!!!!!!!!--------------------'
         new_srate = 0
@@ -1011,43 +944,43 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         sta_inv.site_name = new_sitename
         cha.sample_rate = new_srate
         sta_inv.inventory_xml = new_sta_inv
-        self.session.commit()
+        db.session.commit()
         
         # assure some data is returned from inventoriy url:
-        inv_urlread_ret_val = self._get_inv()
+        inv_urlread_ret_val = self._inv_data
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(inv_urlread_ret_val, *a, **v)
     
         # run without flag update on:
         result = runner.invoke(cli , ['download', '-c', self.configfile,
-                                       '--dburl', self.dburi,
+                                       '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         assert result.exit_code == 0
         
         # update_metadata False: assert nothing has been updated:
-        assert self.session.query(Station).filter(Station.elevation == new_elevation).first()
-        assert self.session.query(Station).filter(Station.site_name == new_sitename).first()
-        assert self.session.query(Channel).filter(Channel.sample_rate == new_srate).first()
+        assert db.session.query(Station).filter(Station.elevation == new_elevation).first()
+        assert db.session.query(Station).filter(Station.site_name == new_sitename).first()
+        assert db.session.query(Channel).filter(Channel.sample_rate == new_srate).first()
         # assert segment without inventory has still No inventory:
-        assert self.session.query(Station).filter(Station.id == sta_inv_id).first().inventory_xml == new_sta_inv
+        assert db.session.query(Station).filter(Station.id == sta_inv_id).first().inventory_xml == new_sta_inv
         
         # NOW UPDATE METADATA
         
         result = runner.invoke(cli , ['download', '-c', self.configfile,
                                        '--update-metadata',
-                                       '--dburl', self.dburi,
+                                       '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         assert result.exit_code == 0
         
         # assert that we overwritten the values set above, so we
-        assert not self.session.query(Station).filter(Station.elevation == new_elevation).first()
-        assert not self.session.query(Channel).filter(Channel.sample_rate == new_srate).first()
+        assert not db.session.query(Station).filter(Station.elevation == new_elevation).first()
+        assert not db.session.query(Channel).filter(Channel.sample_rate == new_srate).first()
         # assert sta_inv has inventory re-downloaded:
         # assert segment without inventory has inventory:
-        assert self.session.query(Station).filter(Station.id == sta_inv_id).first().inventory_xml != new_sta_inv
+        assert db.session.query(Station).filter(Station.id == sta_inv_id).first().inventory_xml != new_sta_inv
         # and now this:
-        assert self.session.query(Station).filter(Station.site_name == new_sitename).first()
+        assert db.session.query(Station).filter(Station.site_name == new_sitename).first()
         # WHY? because site_name has been implemented for compatibility when the query level=station
         # is done. When querying level=channel (as we do) site_name is not returned (FDSN weird behaviour?)
         # so THAT attribute, and that only, is stille the old one
@@ -1058,8 +991,8 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         # -----------------------------------------------------------------------
                
         # test a type error in the url_segment_side effect
-        self.session.query(Segment).delete()
-        assert len(self.session.query(Segment).all()) == 0
+        db.session.query(Segment).delete()
+        assert len(db.session.query(Segment).all()) == 0
         errmsg_py2 = '_sre.SRE_Pattern object is not an iterator'  # python2
         errmsg_py3 = "'_sre.SRE_Pattern' object is not an iterator"  # python3
         assert errmsg_py2 not in self.log_msg()
@@ -1068,7 +1001,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
         self._seg_urlread_sideeffect = re.compile(".*")  # just return something not number nor string
         runner = CliRunner()
         result = runner.invoke(cli , ['download', '-c', self.configfile,
-                                       '--dburl', self.dburi,
+                                       '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         if result.exception:
@@ -1121,7 +1054,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
                 runner = CliRunner()
                 result = runner.invoke(cli , ['download',
                                                '-c', configfilename,
-                                               # '--dburl', self.dburi,
+                                               # '--dburl', db.dburl,
                                                #'--start', '2016-05-08T00:00:00',
                                                #'--end', '2016-05-08T9:00:00'
                                                ])
@@ -1160,7 +1093,7 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
 #             runner = CliRunner()
 #             result = runner.invoke(cli , ['download',
 #                                            '-c', configfilename,
-#                                            # '--dburl', self.dburi,
+#                                            # '--dburl', db.dburl,
 #                                            #'--start', '2016-05-08T00:00:00',
 #                                            #'--end', '2016-05-08T9:00:00'
 #                                            ])
@@ -1196,10 +1129,9 @@ DETAIL:  Key (id)=(1) already exists""" if self.is_postgres else \
                     runner = CliRunner()
                     result = runner.invoke(cli , ['download',
                                                    '-c', configfilename,
-                                                   # '--dburl', self.dburi,
+                                                   # '--dburl', db.dburl,
                                                    #'--start', '2016-05-08T00:00:00',
                                                    #'--end', '2016-05-08T9:00:00'
                                                    ])
                     assert result.exit_code != 0
                     assert 'Conflicting' in result.output
-                    

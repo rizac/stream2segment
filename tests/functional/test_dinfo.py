@@ -9,7 +9,6 @@ from builtins import str, object
 
 # from tempfile import NamedTemporaryFile
 from past.utils import old_div
-import unittest
 import os, sys
 from datetime import datetime, timedelta
 import mock
@@ -44,31 +43,26 @@ import re
 standard_library.install_aliases()
 
 
-class DB(object):
-    def __init__(self):
-        self.dburi = os.getenv("DB_URL", "sqlite:///:memory:")
-        # an Engine, which the Session will use for connection
-        # resources
-        # some_engine = create_engine('postgresql://scott:tiger@localhost/')
-        self.engine = create_engine(self.dburi)
-        # Base.metadata.drop_all(cls.engine)
-        Base.metadata.create_all(self.engine)  # @UndefinedVariable
-        # create a configured "Session" class
 
-    def create(self):
-        Session = sessionmaker(bind=self.engine)
-        # create a Session
-        self.session = Session()
+
+class Test(object):
+
+    # execute this fixture always even if not provided as argument:
+    # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
+    @pytest.fixture(autouse=True)
+    def init(self, request, db, data):
+        # re-init a sqlite database (no-op if the db is not sqlite):
+        db.reinit(to_file=True)
 
         # setup a run_id:
         r = Download()
-        self.session.add(r)
-        self.session.commit()
+        db.session.add(r)
+        db.session.commit()
         self.run = r
 
         ws = WebService(id=1, url='eventws')
-        self.session.add(ws)
-        self.session.commit()
+        db.session.add(ws)
+        db.session.commit()
         self.ws = ws
         # setup an event:
         e1 = Event(id=1, webservice_id=ws.id, event_id='ev1', latitude=8, longitude=9, magnitude=5,
@@ -81,13 +75,13 @@ class DB(object):
                    depth_km=4, time=datetime.utcnow())
         e5 = Event(id=5, webservice_id=ws.id, event_id='ev5', latitude=8, longitude=9, magnitude=5,
                    depth_km=4, time=datetime.utcnow())
-        self.session.add_all([e1, e2, e3, e4, e5])
-        self.session.commit()
+        db.session.add_all([e1, e2, e3, e4, e5])
+        db.session.commit()
 
         d1 = DataCenter(station_url='asd', dataselect_url='www.dc1/dataselect/query')
         d2 = DataCenter(station_url='asd', dataselect_url='www.dc2/dataselect/query')
-        self.session.add_all([d1, d2])
-        self.session.commit()
+        db.session.add_all([d1, d2])
+        db.session.commit()
 
         # d1 has one station
         s_d1 = Station(datacenter_id=d1.id, latitude=11, longitude=11, network='N1', station='S1',
@@ -96,8 +90,8 @@ class DB(object):
                        start_time=datetime.utcnow())
         s2_d2 = Station(datacenter_id=d1.id, latitude=22.2, longitude=22.2, network='N2', station='S2b',
                        start_time=datetime.utcnow())
-        self.session.add_all([s_d1, s_d2, s2_d2])
-        self.session.commit()
+        db.session.add_all([s_d1, s_d2, s2_d2])
+        db.session.commit()
 
         url_err, mseed_err, timespan_err, timespan_warn = custom_download_codes()
         # we are about to add 3 stations * 4 channels = 12 channels
@@ -123,8 +117,8 @@ class DB(object):
         for s in [s_d1, s_d2, s2_d2]:
             for cha in ['HHZ', 'HHE', 'HHN', 'ABC']:
                 c = Channel(station_id=s.id, location='', channel=cha, sample_rate=56.7)
-                self.session.add(c)
-                self.session.commit()
+                db.session.add(c)
+                db.session.commit()
                 
                 data, code, gap = seg_data[i]
                 i += 1
@@ -134,77 +128,19 @@ class DB(object):
                        arrival_time=datetime.utcnow(),
                        request_end=datetime.utcnow() + timedelta(seconds=5), data=data,
                        download_code=code, maxgap_numsamples=gap)
-                self.session.add(seg)
-                self.session.commit()
+                db.session.add(seg)
+                db.session.commit()
 
-    def close(self):
-        if self.engine:
-            if self.session:
-                try:
-                    self.session.rollback()
-                    self.session.close()
-                except:
-                    pass
-            try:
-                Base.metadata.drop_all(self.engine)  # @UndefinedVariable
-            except:
-                pass
-#        self.session.close()
-#         self.patcher1.stop()
-#         self.patcher2.stop()
+        with patch('stream2segment.utils.inputargs.get_session',
+                   return_value=db.session) as mock_session:
+            yield
 
-
-class Test(unittest.TestCase):
-
-    dburi = ""
-    file = None
-
-    @staticmethod
-    def cleanup(self):
-        db = getattr(self, 'db', None)
-        if db:
-            db.close()
-
-        for patcher in self.patchers:
-            if patcher:
-                patcher.stop()
-
-    @property
-    def is_sqlite(self):
-        return str(self.db.engine.url).startswith("sqlite:///")
-
-    @property
-    def is_postgres(self):
-        return str(self.db.engine.url).startswith("postgresql://")
-
-    def setUp(self):
-        # add cleanup (in case tearDown is not called due to exceptions):
-        self.addCleanup(Test.cleanup, self)
-
-        # values to override the config, if specified:
-        self.config_overrides = {}
-        self.inventory = True
-
-        self.db = DB()
-        self.db.create()
-        self.session = self.db.session
-        self.dburi = self.db.dburi
-
-        self.patchers = []
-
-        self.patchers.append(patch('stream2segment.utils.inputargs.get_session'))
-        self.mock_session = self.patchers[-1].start()
-        self.mock_session.return_value = self.session
-
-#         self.patchers.append(patch('stream2segment.main.closesession'))
-#         self.mock_closing = self.patchers[-1].start()
-#         self.mock_closing.side_effect = lambda *a, **v: None
 
 # ## ======== ACTUAL TESTS: ================================
 
     @patch('stream2segment.main.open_in_browser')
     @patch('stream2segment.main.gettempdir')
-    def test_simple_dinfo(self, mock_gettempdir, mock_open_in_browser):
+    def test_simple_dinfo(self, mock_gettempdir, mock_open_in_browser, db):
         '''test a case where save inventory is True, and that we saved inventories'''
         
         runner = CliRunner()
@@ -212,7 +148,7 @@ class Test(unittest.TestCase):
         # text output, to file
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             
-            result = runner.invoke(cli, ['utils', 'dinfo', '--dburl', self.dburi,
+            result = runner.invoke(cli, ['utils', 'dinfo', '--dburl', db.dburl,
                                          file.name])
 
             if result.exception:
@@ -235,7 +171,7 @@ download info and statistics written to """)
         assert not mock_gettempdir.called
 
         # text output, to stdout
-        result = runner.invoke(cli, ['utils', 'dinfo', '--dburl', self.dburi])
+        result = runner.invoke(cli, ['utils', 'dinfo', '--dburl', db.dburl])
 
         if result.exception:
             import traceback
@@ -273,7 +209,7 @@ TOTAL                      3         1          2      1      1      1        1 
 
         # html output, to file
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            result = runner.invoke(cli, ['utils', 'dinfo', '--html',  '--dburl', self.dburi,
+            result = runner.invoke(cli, ['utils', 'dinfo', '--html',  '--dburl', db.dburl,
                                          file.name])
 
             if result.exception:
@@ -286,7 +222,7 @@ TOTAL                      3         1          2      1      1      1        1 
 
             sta_data = jsonloads('sta_data', content)
             networks = jsonloads('networks', content)
-            assert len(sta_data) == self.session.query(Station.id).count() * 2
+            assert len(sta_data) == db.session.query(Station.id).count() * 2
             for i in range(0, len(sta_data), 2):
                 staname = sta_data[i]
                 data = sta_data[i+1]
@@ -341,7 +277,7 @@ download info and statistics written to """)
 
         # html output, to file, setting maxgap to 0.2, so that S1a' has all three ok segments with gaps
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            result = runner.invoke(cli, ['utils', 'dinfo', '-g', '0.15', '--html',  '--dburl', self.dburi,
+            result = runner.invoke(cli, ['utils', 'dinfo', '-g', '0.15', '--html',  '--dburl', db.dburl,
                                          file.name])
 
             if result.exception:
@@ -354,7 +290,7 @@ download info and statistics written to """)
             # parse the sta_data content into dict and check stuff:
             sta_data = jsonloads('sta_data', content)
             networks = jsonloads('networks', content)
-            assert len(sta_data) == self.session.query(Station.id).count() * 2
+            assert len(sta_data) == db.session.query(Station.id).count() * 2
             for i in range(0, len(sta_data), 2):
                 staname = sta_data[i]
                 data = sta_data[i+1]
@@ -411,7 +347,7 @@ download info and statistics written to """)
         tmpdir = tempfile.gettempdir()
         mock_gettempdir.side_effect = lambda *a, **v: tmpdir
         try:
-            result = runner.invoke(cli, ['utils', 'dinfo', '--html', '--dburl',  self.dburi])
+            result = runner.invoke(cli, ['utils', 'dinfo', '--html', '--dburl',  db.dburl])
 
             if result.exception:
                 import traceback
@@ -434,8 +370,3 @@ download info and statistics written to """)
                 os.remove(file)
             except:
                 pass
-
-
-if __name__ == "__main__":
-    # import sys;sys.argv = ['', 'Test.testName']
-    unittest.main()

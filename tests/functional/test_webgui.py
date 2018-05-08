@@ -39,102 +39,20 @@ import json
 import tempfile
 import shutil
 
-class Test(unittest.TestCase):
+class Test(object):
 
-    def setUp(self):
-        Test.cleanup(self) # for safety, clear db
+     # execute this fixture always even if not provided as argument:
+    # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
+    @pytest.fixture(autouse=True)
+    def init(self, request, db, data):
+        # re-init a sqlite database (no-op if the db is not sqlite):
+        db.reinit(to_file=True)
+        
+        self.pyfile, self.configfile = data.get_templates_fpaths('processing.py',
+                                                                 'processing.yaml')
+        
+        self.app = create_main_app(db.dburl, self.pyfile, self.configfile)
 
-        self.addCleanup(Test.cleanup, self)
-        url = os.getenv("DB_URL", None)
-        
-        # test webgui needs a FILE in sqlite!!!! So:
-        if url is None:
-            self.tmp_dir = tempfile.mkdtemp()
-            self.tmpfile = os.path.join(self.tmp_dir, "tmp.sqlite")
-            url = "sqlite:///" + self.tmpfile
-        
-        self.url = url
-        # an Engine, which the Session will use for connection
-        # resources
-        # some_engine = create_engine('postgresql://scott:tiger@localhost/')
-        
-#         Base.metadata.drop_all(self.engine)
-#         Base.metadata.create_all(self.engine)
-# 
-#         # create a configured "Session" class
-#         Session = sessionmaker(bind=self.engine)
-        # create a Session
-        # self.session = Session()
-        
-        self.pyfile = os.path.join(os.path.dirname(__file__), '..', '..',
-                                                 'stream2segment',
-                                                  'resources', 'templates',
-                                               'processing.py')
-        self.configfile = os.path.join(os.path.dirname(__file__), '..', '..',
-                                             'stream2segment',
-                                                  'resources', 'templates',
-                                               'processing.yaml')
-        
-        self.app = create_main_app(url, self.pyfile, self.configfile)
-        
-        self.initdb()
-        
-        with self.app.app_context():
-            self.session.query(Segment).count()
-        # app.config.from_object('webapp.config.Testing')
-        # db.init_app(app)
-        # self.app = self._app.test_client()
-
-    @property
-    def session(self):
-        return get_session(self.app)
-
-    @staticmethod
-    def cleanup(me):
-        try:
-            with me.app.app_context():
-                Base.metadata.drop_all(me.session.bind.engine)
-        except Exception as _:
-            pass
-        
-#         if getattr(me, 'url', None):
-# #             if me.session:
-# #                 try:
-# #                     me.session.rollback()
-# #                     me.session.close()
-# #                 except:
-# #                     pass
-#             try:
-#                 Base.metadata.drop_all(create_engine(me.url))
-#             except:
-#                 pass
-        
-        if getattr(me, 'tmp_dir', None):
-            try:
-                shutil.rmtree(me.tmp_dir)  # delete directory
-            except Exception as exc:
-                pass
-            
-            assert not os.path.exists(me.tmpfile)
-#     def tearDown(self):
-#         try:
-#             self.session.flush()
-#             self.session.commit()
-#         except SQLAlchemyError as _:
-#             pass
-#             # self.session.rollback()
-#         self.session.close()
-#         Base.metadata.drop_all(self.engine)
-    
-    @property
-    def is_sqlite(self):
-        return str(self.engine.url).startswith("sqlite:///")
-    
-    @property
-    def is_postgres(self):
-        return str(self.engine.url).startswith("postgresql://")
-    
-    def initdb(self):
         with self.app.app_context():
             # create a configured "Session" class
             # Session = sessionmaker(bind=self.engine)
@@ -200,12 +118,14 @@ class Test(unittest.TestCase):
                          download_id=run.id,
                          )
             
-            folder = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
-            with open(os.path.join(folder, "GE.FLT1..HH?.mseed"), 'rb') as opn:
-                data_gaps_unmerged = opn.read()  # unmerged cause we have three traces of different channels
-            with open(os.path.join(folder, "IA.BAKI..BHZ.D.2016.004.head"), 'rb') as opn:
-                data_gaps_merged = opn.read()
-            
+#             folder = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+#             with open(os.path.join(folder, "GE.FLT1..HH?.mseed"), 'rb') as opn:
+#                 data_gaps_unmerged = opn.read()  # unmerged cause we have three traces of different channels
+#             with open(os.path.join(folder, "IA.BAKI..BHZ.D.2016.004.head"), 'rb') as opn:
+#                 data_gaps_merged = opn.read()
+                
+            data_gaps_unmerged = data.read("GE.FLT1..HH?.mseed")
+            data_gaps_merged = data.read("IA.BAKI..BHZ.D.2016.004.head")
             
             obspy_trace = read(BytesIO(data_gaps_unmerged))[0]
             # write data_ok is actually bytes data of 3 traces, write just the first one, we have
@@ -235,20 +155,33 @@ class Test(unittest.TestCase):
             session.close()
             
             # set inventory
-            with open(os.path.join(folder, "GE.FLT1.xml"), 'rb') as opn:
-                self.inventory = loads_inv(opn.read())
-    
-    def jsonloads(self, data, encoding='utf8'):
-        # python 3.5 and 3.6 behave differently, seems that the latter accepts bytes
+#             with open(os.path.join(folder, "GE.FLT1.xml"), 'rb') as opn:
+#                 self.inventory = loads_inv(opn.read())
+
+            # set inventory
+            self.inventory = data.read_inv("GE.FLT1.xml")
+
+    @property
+    def session(self):
+        '''returns the db session by using the same function used from the Flask app
+        i.e., DO NOT CALL `db.session` in the tests methods but `self.session`'''
+        return get_session(self.app)
+
+    def jsonloads(self, _data, encoding='utf8'):  
+        # do not use data as argument as it might conflict with the data fixture
+        # defined in conftest.py
+        
+        # IMPORTANT: python 3.5 and 3.6 behave differently, seems that the latter accepts bytes
         # and decodes them automatically, whereas in 3.5 (and below?) it doesn't
         # This method decodes bytes data and then returns json.loads
         # For info see thread (last post seems to confirm what we said):
         # https://bugs.python.org/issue10976
-        if isinstance(data, bytes):
-            data = data.decode('utf8')
-        return json.loads(data)
+        if isinstance(_data, bytes):
+            _data = _data.decode('utf8')
+        return json.loads(_data)
     
-    def test_root(self):
+    def test_root(self, db):  # db is a fixture (see conftest.py). Even if not used, it will
+        # assure this function is run once for each given dburl
         with self.app.test_request_context():
             app = self.app.test_client()
             # test first with classes:
@@ -305,7 +238,8 @@ class Test(unittest.TestCase):
             # assert nothing has changed (same as previous assert):
             assert clz == 0
 
-    def test_get_segs(self):
+    def test_get_segs(self, db):  # db is a fixture (see conftest.py). Even if not used, it will
+        # assure this function is run once for each given dburl
         with self.app.app_context():
             app = self.app.test_client()
             # test your app context code
@@ -318,7 +252,8 @@ class Test(unittest.TestCase):
             assert any(x[0] == 'has_data' for x in data['metadata'])
             assert not data['classes']
 
-    def test_toggle_class_id(self):
+    def test_toggle_class_id(self, db):  # db is a fixture (see conftest.py). Even if not used, it will
+        # assure this function is run once for each given dburl
         with self.app.test_request_context():
             app = self.app.test_client()
             segid = 1
@@ -349,7 +284,8 @@ class Test(unittest.TestCase):
             assert len(segment.classes) == 1
             self._tst_get_seg(app)
     
-    def test_get_seg(self):
+    def test_get_seg(self, db):  # db is a fixture (see conftest.py). Even if not used, it will
+        # assure this function is run once for each given dburl
         with self.app.test_request_context():
             app = self.app.test_client()
             self._tst_get_seg(app)
@@ -387,7 +323,9 @@ class Test(unittest.TestCase):
             # we should add a a test for the pre_processed case also, but we should inspect the plotmanager defined as app['PLOTMANAGER'] 
             # we should add a test for the zooms, too
 
-    def test_segment_sa_station_inv_errors_in_preprocessed_traces(self):
+    def test_segment_sa_station_inv_errors_in_preprocessed_traces(self, db):
+        # db is a fixture (see conftest.py). Even if not used, it will
+        # assure this function is run once for each given dburl
         ''''''
         plot_indices = [0]
         metadata = False
@@ -428,9 +366,3 @@ class Test(unittest.TestCase):
                 continue
             for i in plot_indices:
                 assert "Station inventory (xml) error" in plots[i].warnings[0]
-                    
-        
-        
-if __name__ == "__main__":
-    # import sys;sys.argv = ['', 'Test.testName']
-    unittest.main()

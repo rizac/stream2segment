@@ -50,7 +50,7 @@ class Test(object):
     @pytest.fixture(autouse=True)
     def init(self, request, db, data):
         # re-init a sqlite database (no-op if the db is not sqlite):
-        db.reinit_to_file()
+        db.reinit(to_file=True)
 
         # init db:
         session = db.session
@@ -184,13 +184,17 @@ class Test(object):
     # as by default withdata is True in segment_select, then we process only the last three
     #
     # Here a simple test for a processing file returning dict. Save inventory and check it's saved
-    @pytest.mark.parametrize("advanced_settings", [{}, {'segments_chunk': 1}])
-    @pytest.mark.parametrize("multi_process", [True, False])
-    @pytest.mark.parametrize("num_processes", [1, False])
+    @pytest.mark.parametrize("advanced_settings, cmdline_opts",
+                             [({}, []),
+                              ({'segments_chunk': 1}, []),
+                              ({'segments_chunk': 1}, ['--multi-process']),
+                              ({}, ['--multi-process']),
+                              ({'segments_chunk': 1}, ['--multi-process', '--num-processes', '1']),
+                              ({}, ['--multi-process', '--num-processes', '1'])])
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
     @mock.patch('stream2segment.process.main.process_core_run', side_effect=process_core_run)
-    def test_simple_run_no_outfile_provided(self, mock_run, mock_yaml_load, num_processes,
-                                            multi_process, advanced_settings,
+    def test_simple_run_no_outfile_provided(self, mock_run, mock_yaml_load, advanced_settings,
+                                            cmdline_opts,
                                             # fixtures:
                                             db, data):
         '''test a case where save inventory is True, and that we saved inventories
@@ -219,13 +223,8 @@ class Test(object):
 
             pyfile, conffile = data.get_templates_fpaths("save2fs.py", "save2fs.yaml")
 
-            added_args = []
-            if num_processes:
-                added_args += ['--num-processes', str(num_processes)]
-            if multi_process:
-                added_args += ['--multi-process']
             result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                                   '-p', pyfile, '-c', conffile] + added_args)
+                                   '-p', pyfile, '-c', conffile] + cmdline_opts)
 
             if result.exception:
                 import traceback
