@@ -62,9 +62,26 @@ def test_linspace(start, delta, num):
         expected = np.linspace(start, space[-1], num, endpoint=True)
         assert (space==expected).all()
     
-    
-def test_bandpass():
-    trace = get_data()['mseed'][0]
+
+@pytest.fixture(scope="module")
+def _data(data):
+    """returns a dict with fields 'mseed', 'mseed_ACC', 'mseed_VEL', 'mseed_DISP' (all Streams.
+    The last three after removing the response) and  'inventory' (the stream inventory object
+    used to remove the response)"""
+    inv_name = 'inventory_GE.APE.xml'
+    inv_obj = data.read_inv(inv_name)
+    ret = {'inventory': data.read_inv(inv_name)}
+    for inv_output in [None, 'ACC', 'VEL', 'DISP']:
+        key = 'mseed' + ('' if not inv_output else "_" + inv_output)
+        ret[key] = data.read_stream('trace_GE.APE.mseed', inv_name if inv_output else None,
+                                    inv_output)
+    return ret
+
+
+
+
+def test_bandpass(_data):
+    trace = _data['mseed'][0]
     res = bandpass(trace, 2, 3)
     assert not np.array_equal(trace.data, res.data)
     assert trace.stats.starttime == res.stats.starttime
@@ -76,37 +93,37 @@ def test_bandpass():
     h = 9
 
 
-__dd = None
-
-def get_data():
-    global __dd
-    if __dd is None:
-        __dd = _data()
-    return __dd
-
-
-@pytest.fixture(scope="session")
-def _data():
-    """returns a dict with fields 'mseed', 'mseed_ACC', 'mseed_VEL', 'mseed_DISP' (all Streams.
-    The latter three after removing the response)
-    'inventory' (an inventory object) and two strings: 'mseed_path' and 'inventory_path'"""
-    folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
-    mseed_path = os.path.join(folder, 'trace_GE.APE.mseed')
-    mseed = obspy_read(mseed_path)
-    inv_path = os.path.join(folder, 'inventory_GE.APE.xml')
-    s = BytesIO()
-    with open(inv_path, 'rb') as _opn:
-        s.write(_opn.read())
-    s.seek(0)
-    inv_obj = read_inventory(s)
-    ret = {'mseed': mseed, 'inventory': inv_obj, 'mseed_path': mseed_path,
-           'data_path': folder, 
-           'inventory_path': inv_path}
-    for inv_output in ['ACC', 'VEL', 'DISP']:
-        # mseed_c = mseed.copy()
-        # mseed2 = remove_response(mseed, inv_obj, output=inv_output)
-        ret['mseed_'+inv_output] = mseed.copy().remove_response(inv_obj, output=inv_output)
-    return ret
+# __dd = None
+# 
+# def get_data():
+#     global __dd
+#     if __dd is None:
+#         __dd = _data()
+#     return __dd
+# 
+# 
+# @pytest.fixture(scope="session")
+# def _data():
+#     """returns a dict with fields 'mseed', 'mseed_ACC', 'mseed_VEL', 'mseed_DISP' (all Streams.
+#     The latter three after removing the response)
+#     'inventory' (an inventory object) and two strings: 'mseed_path' and 'inventory_path'"""
+#     folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
+#     mseed_path = os.path.join(folder, 'trace_GE.APE.mseed')
+#     mseed = obspy_read(mseed_path)
+#     inv_path = os.path.join(folder, 'inventory_GE.APE.xml')
+#     s = BytesIO()
+#     with open(inv_path, 'rb') as _opn:
+#         s.write(_opn.read())
+#     s.seek(0)
+#     inv_obj = read_inventory(s)
+#     ret = {'mseed': mseed, 'inventory': inv_obj, 'mseed_path': mseed_path,
+#            'data_path': folder, 
+#            'inventory_path': inv_path}
+#     for inv_output in ['ACC', 'VEL', 'DISP']:
+#         # mseed_c = mseed.copy()
+#         # mseed2 = remove_response(mseed, inv_obj, output=inv_output)
+#         ret['mseed_'+inv_output] = mseed.copy().remove_response(inv_obj, output=inv_output)
+#     return ret
 
 
 # @pytest.mark.parametrize('inv_output',
@@ -131,25 +148,26 @@ def _data():
 #         assert max(mseed[0].data) > max(mseed2[0].data)
 
 
-def get_stream_with_gaps(_data):
-    mseed_dir = get_data()['data_path']
-    return obspy_read(os.path.join(mseed_dir, "IA.BAKI..BHZ.D.2016.004.head"))
+# def get_stream_with_gaps(_data):
+#     mseed_dir = get_data()['data_path']
+#     return obspy_read(os.path.join(mseed_dir, "IA.BAKI..BHZ.D.2016.004.head"))
 
 
-def testmaxabs():
-    mseed = get_data()['mseed']
+def testmaxabs(_data):
+    mseed = _data['mseed']
+    trace = mseed[0]
     
-    t, g = maxabs(mseed[0])
+    t, g = maxabs(trace)
 
-    assert np.max(np.abs(mseed[0].data)) == g
-    idx =  np.argmax(np.abs(mseed[0].data))
+    assert np.max(np.abs(trace.data)) == g
+    idx =  np.argmax(np.abs(trace.data))
     
-    assert timeof(mseed[0], idx) == t
+    assert timeof(trace, idx) == t
     
     # assert by slicing times of max are different:
-    td = 2*mseed[0].stats.delta
-    assert maxabs(mseed[0], None, t-td)[0] < t < maxabs(mseed[0], t+td, None)[0]
+    td = 2 * trace.stats.delta
+    assert maxabs(trace, None, t-td)[0] < t < maxabs(trace, t+td, None)[0]
     
-    assert np.isnan(maxabs(mseed[0], None, mseed[0].stats.starttime-td))
+    assert np.isnan(maxabs(trace, None, trace.stats.starttime-td))
     
     

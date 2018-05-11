@@ -17,17 +17,16 @@ from obspy.io.mseed.core import _read_mseed
 from io import BytesIO
 
 
-_mrb = {}
+@pytest.fixture
+def mock_response_inbytes(data, scope='module'):
 
+    class Return(object):
 
-def mock_response_inbytes(with_gaps=False):
-    global _mrb
-    name = "IA.BAKI..BHZ.D.2016.004.head" if with_gaps else "GE.FLT1..HH?.mseed" 
-    filename = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", name)
-    if _mrb.get(name, None) is None:
-        with open(filename, 'rb') as opn:
-            _mrb[name] = opn.read()
-    return _mrb[name]
+        def __call__(self, with_gaps=False):
+            name = "IA.BAKI..BHZ.D.2016.004.head" if with_gaps else "GE.FLT1..HH?.mseed" 
+            return data.read(name)
+
+    return Return()
 
 
 def get_stream(bytez):
@@ -81,7 +80,7 @@ def haserr(dataread):
     return False
 
 
-def test_standard():
+def test_standard(mock_response_inbytes):
     bytez = mock_response_inbytes()
     # g= get_stream(bytez)  # _read_mseed(BytesIO(bytez))
     # get our dicts of trace_id: trace_bytes
@@ -114,7 +113,7 @@ def test_standard():
 #     assert gaps == keys_with_gaps(obspy_dic)
 
 
-def test_standard_timebounds():
+def test_standard_timebounds(mock_response_inbytes):
     bytez = mock_response_inbytes()
     # g= get_stream(bytez)  # _read_mseed(BytesIO(bytez))
     # get our dicts of trace_id: trace_bytes
@@ -162,7 +161,7 @@ def test_standard_timebounds():
     assert all(v[1] == b'' and v[0] is None and v[6] is True for v in dic.values())
     
 
-def test_fsamp_mismatchs():
+def test_fsamp_mismatchs(mock_response_inbytes):
     bytez = mock_response_inbytes()
     dic = unpack(bytez, None, None)
     # assert all sample rates are 100:
@@ -200,7 +199,7 @@ def test_fsamp_mismatchs():
     assert str(values[0]) == "records sample rate mismatch" and values[1] is None
    
 
-def test_with_gaps_overlaps():
+def test_with_gaps_overlaps(mock_response_inbytes):
     bytez = mock_response_inbytes(True)
 
     # get our dicts of trace_id: trace_bytes
@@ -222,7 +221,7 @@ def test_with_gaps_overlaps():
 #     assert gaps == keys_with_gaps(obspy_dic)
 
 
-def test_unexpected_end_of_header():
+def test_unexpected_end_of_header(mock_response_inbytes):
     '''test unexpected end of header, i.e. when unpack raises'''
     bytez = mock_response_inbytes()
     # this raises 'unexpected end of header':
@@ -231,7 +230,7 @@ def test_unexpected_end_of_header():
         _ = unpack(bytez2)
 
 
-def test_change_last_byte():
+def test_change_last_byte(mock_response_inbytes):
     '''test when the data is corrupted, i.e. as headers are ok, unpack returns normally'''
     bytez = mock_response_inbytes()
     # get our dicts of trace_id: trace_bytes
@@ -251,7 +250,7 @@ def test_change_last_byte():
     assert not streamequal(obspy_stream, s2s_stream, deep=True)
 
 
-def test_change_header_change_id():
+def test_change_header_change_id(mock_response_inbytes):
     bytez = mock_response_inbytes()
     # get our dicts of trace_id: trace_bytes
     dic = unpack(b'a' * _FIXHEAD_LEN + bytez[_FIXHEAD_LEN:])
@@ -272,7 +271,7 @@ def test_change_header_change_id():
     assert streamequal(obspy_stream, s2s_stream, deep=False)
 
 
-def test_invalid_pointers():
+def test_invalid_pointers(mock_response_inbytes):
     '''test invalid pointers error'''
     bytez = mock_response_inbytes()
     # get our dicts of trace_id: trace_bytes

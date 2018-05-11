@@ -16,7 +16,7 @@ from stream2segment.io.db.pdsql import fetchsetpkeys, insertdf, _get_max, syncdf
     mergeupdate, updatedf, dbquery2df, DbManager, set_pkeys
 from datetime import datetime
 import numpy as np
-
+import pytest
 from sqlalchemy.sql.expression import bindparam
 import os
 import psutil
@@ -35,62 +35,71 @@ class Customer(Base):
     time = Column(DateTime)
 
 
-class Test(unittest.TestCase):
+class Test(object):
 
+    # execute this fixture always even if not provided as argument:
+    # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
+    @pytest.fixture(autouse=True)
+    def init(self, request, db, data):
+        # re-init a sqlite database (no-op if the db is not sqlite):
+        db.reinit(to_file=False, base=Base)
 
-    def setUp(self):
-        
-        self.addCleanup(Test.cleanup, self)
-        
-        
-        url = os.getenv("DB_URL", "sqlite:///:memory:")
-        self.dburl = url
-        # print self.dburl
-        
-#         if not url:
-#            self.skipTest("No database URL set")
+        # init db:
+        # self.session = db.session
+
+#     def setUp(self):
 #         
-#         self.dburl = "sqlite:///:memory:"
-        
-        
-        DBSession = scoped_session(sessionmaker())
-        self.engine = create_engine(self.dburl, echo=False)
-        DBSession.remove()
-        DBSession.configure(bind=self.engine, autoflush=False, expire_on_commit=False)
-        # Base.metadata.drop_all(engine)
-        Base.metadata.create_all(self.engine)
-        
-        self.session = DBSession
+#         self.addCleanup(Test.cleanup, self)
+#         
+#         
+#         url = os.getenv("DB_URL", "sqlite:///:memory:")
+#         self.dburl = url
+#         # print self.dburl
+#         
+# #         if not url:
+# #            self.skipTest("No database URL set")
+# #         
+# #         self.dburl = "sqlite:///:memory:"
+#         
+#         
+#         DBSession = scoped_session(sessionmaker())
+#         self.engine = create_engine(self.dburl, echo=False)
+#         DBSession.remove()
+#         DBSession.configure(bind=self.engine, autoflush=False, expire_on_commit=False)
+#         # Base.metadata.drop_all(engine)
+#         Base.metadata.create_all(self.engine)
+#         
+#         self.session = DBSession
 
-    @staticmethod
-    def cleanup(me):
-        if me.engine:
-            if me.session:
-                try:
-                    me.session.rollback()
-                    me.session.close()
-                except:
-                    pass
-            try:
-                Base.metadata.drop_all(me.engine)
-            except:
-                pass
+#     @staticmethod
+#     def cleanup(me):
+#         if me.engine:
+#             if me.session:
+#                 try:
+#                     me.session.rollback()
+#                     me.session.close()
+#                 except:
+#                     pass
+#             try:
+#                 Base.metadata.drop_all(me.engine)
+#             except:
+#                 pass
+# 
+#     def tearDown(self):
+#         pass
 
-    def tearDown(self):
-        pass
 
+#     def testName(self):
+#         pass
 
-    def testName(self):
-        pass
-
-    def init_db(self, list_of_dicts):
+    def init_db(self, session, list_of_dicts):
         for d in list_of_dicts:
             customer = Customer(**d)
-            self.session.add(customer)
-        self.session.commit()
+            session.add(customer)
+        session.commit()
 
-    def test_setpkey(self):
-        self.init_db([{'id': 1, 'name': 'a'}, {'id': 2, 'name': 'b'}, {'id': 3, 'name': "c"}])
+    def test_setpkey(self, db):
+        self.init_db(db.session, [{'id': 1, 'name': 'a'}, {'id': 2, 'name': 'b'}, {'id': 3, 'name': "c"}])
         d = pd.DataFrame([{'name': 'a', 'id': 1}, {'name': 'b', 'id': 3}, {'name': 'a'},
                           {'name': 'x'}])
         assert d['id'].dtype not in (np.int64, np.int32, np.int16, np.int8)
@@ -102,76 +111,76 @@ class Test(unittest.TestCase):
                     expected_ids = np.arange(maxid+1, maxid + 1 + len(d), dtype=int).tolist()
                 else:
                     numnan = pd.isnull(d['id']).sum()
-                    alreadyset_ids = d[~pd.isnull(d['id'])]['id'].values
+                    alreadyset_ids = d[~pd.isnull(d['id'])]['id'].values  # pylint: disable=invalid-unary-operand-type
                     new_ids = (1 + maxid + np.arange(numnan))
                     expected_ids = new_ids.tolist() + alreadyset_ids.tolist()
 
-                df = set_pkeys(d, self.session, autoincrement_pkey_col=Customer.id, overwrite=ov,
+                df = set_pkeys(d, db.session, autoincrement_pkey_col=Customer.id, overwrite=ov,
                                pkeycol_maxval=max_)
                 ids = df['id'].values.tolist()
                 # assert stuff:
                 assert sorted(ids) == sorted(expected_ids)
                 assert df['id'].dtype in (np.int64, np.int32, np.int16, np.int8)
 
-    def test_fetchsetpkeys_(self):
+    def test_fetchsetpkeys_(self, db):
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
         d2009 = datetime(2009, 9, 25)
-        self.init_db([{'id':1, 'name':'a'}, {'id':2, 'name':'b'}, {'id':3, 'name': "c"}])
+        self.init_db(db.session, [{'id':1, 'name':'a'}, {'id':2, 'name':'b'}, {'id':3, 'name': "c"}])
         d = pd.DataFrame([{'name': 'a'}, {'name': 'b'}, {'name': 'd'}])
-        d2 = fetchsetpkeys(d, self.session, [Customer.name], Customer.id)
+        d2 = fetchsetpkeys(d, db.session, [Customer.name], Customer.id)
         expected_ids = [1, 1, np.nan]
         assert array_equal(d2['id'], expected_ids)
         #note: dtype has changed to accomodate nans:
         assert d2['id'].dtype == np.float64
         
-    def test_fetchsetpkeys_2(self):
+    def test_fetchsetpkeys_2(self, db):
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
         d2009 = datetime(2009, 9, 25)
-        self.init_db([{'id':1, 'name':'a'}, {'id':2, 'name':'b'}])
+        self.init_db(db.session, [{'id':1, 'name':'a'}, {'id':2, 'name':'b'}])
         d = pd.DataFrame([{'name': 'a'}, {'name': 'b'}, {'name': 'd'}])
-        d2 = fetchsetpkeys(d, self.session, [Customer.name], Customer.id)
+        d2 = fetchsetpkeys(d, db.session, [Customer.name], Customer.id)
         expected_ids = [1,2,np.nan]
         assert array_equal(d2['id'], expected_ids)
         #note: dtype has changed to accomodate nans:
         assert d2['id'].dtype == np.float64
         
-    def test_fetchsetpkeys_3(self):
+    def test_fetchsetpkeys_3(self, db):
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
         d2009 = datetime(2009, 9, 25)
-        self.init_db([{'id':1, 'name':'a', 'time': d2006}, {'id':2, 'name':'a', 'time': d2008},
+        self.init_db(db.session, [{'id':1, 'name':'a', 'time': d2006}, {'id':2, 'name':'a', 'time': d2008},
                       {'id':3, 'name':'a', 'time': None}])
         d = pd.DataFrame([{'name': 'a', 'time': None}, {'name': 'b', 'time': d2006},
                           {'name': 'c', 'time': d2009}, {'name': 'a', 'time': None},
                           {'name': 'a', 'time': d2006}])
-        d2 = fetchsetpkeys(d, self.session, [Customer.name, Customer.time], Customer.id)
+        d2 = fetchsetpkeys(d, db.session, [Customer.name, Customer.time], Customer.id)
         expected_ids = [3,np.nan,np.nan,3,1]
         assert array_equal(d2['id'], expected_ids)
         #note: dtype has changed to accomodate nans:
         assert d2['id'].dtype == np.float64
         
-    def test_fetchsetpkeys_4(self):
+    def test_fetchsetpkeys_4(self, db):
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
         d2009 = datetime(2009, 9, 25)
-        self.init_db([{'id':1, 'name':'a', 'time': d2006}, {'id':2, 'name':'a', 'time': d2008},
+        self.init_db(db.session, [{'id':1, 'name':'a', 'time': d2006}, {'id':2, 'name':'a', 'time': d2008},
                       {'id':3, 'name':'a', 'time': None}])
         d = pd.DataFrame([{'id':45, 'name': 'a', 'time': None}, {'id':45, 'name': 'b', 'time': d2006},
                           {'id':45, 'name': 'c', 'time': d2009}, {'id':45, 'name': 'a', 'time': None},
                           {'id':45, 'name': 'a', 'time': d2006}])
-        d2 = fetchsetpkeys(d, self.session, [Customer.name, Customer.time], Customer.id)
+        d2 = fetchsetpkeys(d, db.session, [Customer.name, Customer.time], Customer.id)
         expected_ids = [3,45, 45, 3, 1]
         assert array_equal(d2['id'], expected_ids)
         #note: dtype has changed even if ids are not nans:
         assert d2['id'].dtype == np.float64
 
-    def test_fetchsetpkeys_dtypes(self):
+    def test_fetchsetpkeys_dtypes(self, db):
         '''tests when fetchsetpkeys changes dtype to float for an id of type INTEGER
         Basically: when any row instance has no match on the db (at least one row)
         '''
@@ -179,62 +188,63 @@ class Test(unittest.TestCase):
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
         d2009 = datetime(2009, 9, 25)
-        self.init_db([{'id': 1, 'name': 'a', 'time': d2006},
-                      {'id': 2, 'name': 'a', 'time': d2008},
-                      {'id': 3, 'name': 'a', 'time': None}])
+        self.init_db(db.session, [{'id': 1, 'name': 'a', 'time': d2006},
+                                  {'id': 2, 'name': 'a', 'time': d2008},
+                                  {'id': 3, 'name': 'a', 'time': None}])
 
         # 3 CASES WHEN d['id'] IS GIVEN:
         # ------------------------------
         # d has ALL instance mapped to db rows:
         d = pd.DataFrame([{'id': 1, 'name': 'a', 'time': None}])
-        d2 = fetchsetpkeys(d, self.session, [Customer.name, Customer.time], Customer.id)
+        d2 = fetchsetpkeys(d, db.session, [Customer.name, Customer.time], Customer.id)
         assert d2['id'].dtype == np.int64
         # d has NO instances mapped to db rows:
         d = pd.DataFrame([{'id': 1, 'name': 'axz', 'time': None}])
-        d2 = fetchsetpkeys(d, self.session, [Customer.name, Customer.time], Customer.id)
+        d2 = fetchsetpkeys(d, db.session, [Customer.name, Customer.time], Customer.id)
         assert d2['id'].dtype == np.float64
         # d has SOME instance mapped to db ros, SOME not:
         d = pd.DataFrame([{'id': 1, 'name': 'a', 'time': None},
                           {'id': 1, 'name': 'axz', 'time': None}])
-        d2 = fetchsetpkeys(d, self.session, [Customer.name, Customer.time], Customer.id)
+        d2 = fetchsetpkeys(d, db.session, [Customer.name, Customer.time], Customer.id)
         assert d2['id'].dtype == np.float64
 
         # 3 CASES WHEN d['id'] IS NOT GIVEN:
         # ------------------------------
         # d has ALL instance mapped to db rows:
         d = pd.DataFrame([{'name': 'a', 'time': None}])
-        d2 = fetchsetpkeys(d, self.session, [Customer.name, Customer.time], Customer.id)
+        d2 = fetchsetpkeys(d, db.session, [Customer.name, Customer.time], Customer.id)
         assert d2['id'].dtype == np.int64
         # d has NO instances mapped to db rows:
         d = pd.DataFrame([{'name': 'axz', 'time': None}])
-        d2 = fetchsetpkeys(d, self.session, [Customer.name, Customer.time], Customer.id)
+        d2 = fetchsetpkeys(d, db.session, [Customer.name, Customer.time], Customer.id)
         assert d2['id'].dtype == np.float64
         # d has SOME instance mapped to db ros, SOME not:
         d = pd.DataFrame([{'name': 'a', 'time': None},
                           {'name': 'axz', 'time': None}])
-        d2 = fetchsetpkeys(d, self.session, [Customer.name, Customer.time], Customer.id)
+        d2 = fetchsetpkeys(d, db.session, [Customer.name, Customer.time], Customer.id)
         assert d2['id'].dtype == np.float64
 
     @patch('stream2segment.io.db.pdsql.insertdf', side_effect=insertdf)
     @patch('stream2segment.io.db.pdsql.updatedf', side_effect=updatedf)
-    def test_dbmanager_callcounts(self, mock_updatedf, mock_insertdf):
+    def test_dbmanager_callcounts(self, mock_updatedf, mock_insertdf, db):
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
         d2009 = datetime(2009, 9, 25)
-        self.init_db([{'id': 1, 'name': 'a', 'time': d2006}, {'id': 2, 'name': 'a', 'time': d2008},
+        self.init_db(db.session,
+                     [{'id': 1, 'name': 'a', 'time': d2006}, {'id': 2, 'name': 'a', 'time': d2008},
                       {'id': 3, 'name': 'a', 'time': None}])
 
         d = pd.DataFrame([{'name': 'a', 'time': None}, {'name': 'b', 'time': d2006},
                           {'name': 'c', 'time': d2009}, {'name': 'a', 'time': None},
                           {'name': 'a', 'time': d2006}])
-        db = DbManager(self.session, Customer.id, update=False, buf_size=10)
+        dbm = DbManager(db.session, Customer.id, update=False, buf_size=10)
         d[Customer.id.key] = np.nan  # must be set when using dbmanager
         # contrarily to syncdf, all instances will be added
         # we do not have constraints thus a new id will be set for all of them
         for i in range(len(d)):
-            db.add(d.iloc[i:i+1,:])
-        _, inserted, not_inserted, updated, not_updated = db.close()
+            dbm.add(d.iloc[i:i+1,:])
+        _, inserted, not_inserted, updated, not_updated = dbm.close()
         assert (inserted, not_inserted, updated, not_updated) == (len(d), 0, 0, 0)
         assert mock_insertdf.call_count == 1  # != inserted
         assert mock_updatedf.call_count == 0
@@ -245,12 +255,12 @@ class Test(unittest.TestCase):
         d = pd.DataFrame([{'name': 'a', 'time': None}, {'name': 'b', 'time': d2006},
                           {'name': 'c', 'time': d2009}, {'name': 'a', 'time': None},
                           {'name': 'a', 'time': d2006}])
-        db = DbManager(self.session, Customer.id, update=False, buf_size=1)
+        dbm = DbManager(db.session, Customer.id, update=False, buf_size=1)
         d[Customer.id.key] = np.nan  # must be set when using dbmanager
         # contrarily to syncdf, all instances will be added
         for i in range(len(d)):
-            db.add(d.iloc[i:i+1,:])
-        _, inserted, not_inserted, updated, not_updated = db.close()
+            dbm.add(d.iloc[i:i+1,:])
+        _, inserted, not_inserted, updated, not_updated = dbm.close()
         assert (inserted, not_inserted, updated, not_updated) == (len(d), 0, 0, 0)
         assert mock_insertdf.call_count == len(d)  # == inserted (buf_size=1)
         assert mock_updatedf.call_count == 0
@@ -258,13 +268,13 @@ class Test(unittest.TestCase):
         # now update:
         mock_insertdf.reset_mock()
         mock_updatedf.reset_mock()
-        d = dbquery2df(self.session.query(Customer.id, Customer.name, Customer.time))
+        d = dbquery2df(db.session.query(Customer.id, Customer.name, Customer.time))
         # {'name': 'a', 'time': None} will be dropped (drop duplicates is True by default)
         # from the other three elements, the other three will be updated
-        db = DbManager(self.session, Customer.id, update=True, buf_size=10)
+        dbm = DbManager(db.session, Customer.id, update=True, buf_size=10)
         for i in range(len(d)):
-            db.add(d.iloc[i:i+1,:])
-        _, inserted, not_inserted, updated, not_updated = db.close()
+            dbm.add(d.iloc[i:i+1,:])
+        _, inserted, not_inserted, updated, not_updated = dbm.close()
         assert (inserted, not_inserted, updated, not_updated) == (0, 0, len(d), 0)
         assert mock_insertdf.call_count == 0
         assert mock_updatedf.call_count == int(math.ceil(len(d) / 10.0))  # != inserted
@@ -272,20 +282,20 @@ class Test(unittest.TestCase):
         # now update with buf_size=1
         mock_insertdf.reset_mock()
         mock_updatedf.reset_mock()
-        d = dbquery2df(self.session.query(Customer.id, Customer.name, Customer.time))
+        d = dbquery2df(db.session.query(Customer.id, Customer.name, Customer.time))
         # {'name': 'a', 'time': None} will be dropped (drop duplicates is True by default)
         # from the other three elements, the other three will be updated
-        db = DbManager(self.session, Customer.id, update=True, buf_size=1)
+        dbm = DbManager(db.session, Customer.id, update=True, buf_size=1)
         for i in range(len(d)):
-            db.add(d.iloc[i:i+1,:])
-        _, inserted, not_inserted, updated, not_updated = db.close()
+            dbm.add(d.iloc[i:i+1,:])
+        _, inserted, not_inserted, updated, not_updated = dbm.close()
         assert (inserted, not_inserted, updated, not_updated) == (0, 0, len(d), 0)
         assert mock_insertdf.call_count == 0
         assert mock_updatedf.call_count == len(d)  # == inserted (buf_size=1)
 
     @patch('stream2segment.io.db.pdsql.insertdf', side_effect=insertdf)
     @patch('stream2segment.io.db.pdsql.updatedf', side_effect=updatedf)
-    def test_syncdf_several_combinations_constraints(self, mock_updatedf, mock_insertdf):
+    def test_syncdf_several_combinations_constraints(self, mock_updatedf, mock_insertdf, db):
         dt = datetime(2006, 1, 1, 12, 31, 7, 456789)
         EXISTING_ID = 1
         db_df = [{'id': EXISTING_ID, 'name': 'a', 'time': None}]
@@ -325,12 +335,12 @@ class Test(unittest.TestCase):
                     # re-initialize db every time:
                     inserterr_callcount[0] = 0
                     updateerr_callcount[0] = 0
-                    self.session.query(Customer).delete()
-                    self.init_db(db_df)
-                    assert len(self.session.query(Customer.id).all()) == len(db_df)
+                    db.session.query(Customer).delete()
+                    self.init_db(db.session, db_df)
+                    assert len(db.session.query(Customer.id).all()) == len(db_df)
     
                     inserted, not_inserted, updated, not_updated, d2 = \
-                        syncdf(d.copy(), self.session, [Customer.name, Customer.time], Customer.id,
+                        syncdf(d.copy(), db.session, [Customer.name, Customer.time], Customer.id,
                                buf_size=buf_size, update=update, oninsert_err_callback=onerri,
                                onupdate_err_callback=onerru)
     
@@ -405,7 +415,7 @@ class Test(unittest.TestCase):
 
     @patch('stream2segment.io.db.pdsql.insertdf', side_effect=insertdf)
     @patch('stream2segment.io.db.pdsql.updatedf', side_effect=updatedf)
-    def test_syncdf_several_combinations(self, mock_updatedf, mock_insertdf):
+    def test_syncdf_several_combinations(self, mock_updatedf, mock_insertdf, db):
         dt = datetime(2006, 1, 1, 12, 31, 7, 456789)
         EXISTING_ID = 1
         db_df = [{'id': EXISTING_ID, 'name': 'a', 'time': None}]
@@ -426,12 +436,12 @@ class Test(unittest.TestCase):
             for update in [True, False]:
                 for i, d in enumerate(dfs):
                     # re-initialize db every time:
-                    self.session.query(Customer).delete()
-                    self.init_db(db_df)
-                    assert len(self.session.query(Customer.id).all()) == len(db_df)
+                    db.session.query(Customer).delete()
+                    self.init_db(db.session, db_df)
+                    assert len(db.session.query(Customer.id).all()) == len(db_df)
 
                     inserted, not_inserted, updated, not_updated, d2 = \
-                        syncdf(d.copy(), self.session, [Customer.name, Customer.time], Customer.id,
+                        syncdf(d.copy(), db.session, [Customer.name, Customer.time], Customer.id,
                                drop_duplicates=drop_dup, update=update)
 
                     # SYNC 1 ROW WHICH EXISTS ON THE DB
@@ -506,14 +516,15 @@ class Test(unittest.TestCase):
 
     @patch('stream2segment.io.db.pdsql.insertdf', side_effect=insertdf)
     @patch('stream2segment.io.db.pdsql.updatedf', side_effect=updatedf)
-    def test_syncdf(self, mock_updatedf, mock_insertdf):
+    def test_syncdf(self, mock_updatedf, mock_insertdf, db):
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
         d2009 = datetime(2009, 9, 25)
-        self.init_db([{'id': 1, 'name': 'a', 'time': d2006}, {'id': 2, 'name': 'a', 'time': d2008},
+        self.init_db(db.session,
+                     [{'id': 1, 'name': 'a', 'time': d2006}, {'id': 2, 'name': 'a', 'time': d2008},
                       {'id': 3, 'name': 'a', 'time': None}])
-        mxx = _get_max(self.session, Customer.id)
+        mxx = _get_max(db.session, Customer.id)
 
         d = pd.DataFrame([{'name': 'a', 'time': None}, {'name': 'b', 'time': d2006},
                           {'name': 'c', 'time': d2009}, {'name': 'a', 'time': None},
@@ -523,7 +534,7 @@ class Test(unittest.TestCase):
         # the other two will have an autoincremented id:
         expected_ids = [1, mxx+1, mxx+2]
         inserted, not_inserted, updated, not_updated, d2 = \
-            syncdf(d, self.session, [Customer.name, Customer.time], Customer.id)
+            syncdf(d, db.session, [Customer.name, Customer.time], Customer.id)
 
         assert array_equal(d2['id'], expected_ids)
         assert inserted == len(d2)-1  # assert one is already existing
@@ -536,25 +547,25 @@ class Test(unittest.TestCase):
         # will be dropped: This means only {'name': 'x', 'time': d2009}
         # (previously {'name': 'c', 'time': d2009}) will be inserted
         inserted, not_inserted, updated, not_updated, d2 = \
-            syncdf(d, self.session, [Customer.name, Customer.time], Customer.id, update=['name'])
+            syncdf(d, db.session, [Customer.name, Customer.time], Customer.id, update=['name'])
         assert array_equal(d2['id'], [6])
         assert inserted == 1  # assert one is already existing
         assert updated == not_updated == 0
 
         # same as above, but fetch data from the db:
-        d = dbquery2df(self.session.query(Customer.id, Customer.name, Customer.time))
+        d = dbquery2df(db.session.query(Customer.id, Customer.name, Customer.time))
         # assert we do not have instances with 'x':
-        dbase = dbquery2df(self.session.query(Customer.id, Customer.name, Customer.time).filter(Customer.name == 'x'))
+        dbase = dbquery2df(db.session.query(Customer.id, Customer.name, Customer.time).filter(Customer.name == 'x'))
         d.loc[:, ['name']] = 'x'
         inserted, not_inserted, updated, not_updated, d2 = \
-            syncdf(d, self.session, [Customer.name, Customer.time], Customer.id, update=['name'])
+            syncdf(d, db.session, [Customer.name, Customer.time], Customer.id, update=['name'])
         # assert we returned all excpected instances
         assert d.drop_duplicates(subset=['name', 'time'], keep=False).equals(d2)
         # assert returned values
         assert (inserted, not_inserted, updated, not_updated) == (0, 0, 2, 0)
         # assert on the db we have the previously marked instances with 'x', PLUS the
         # added now
-        dbase2 = dbquery2df(self.session.query(Customer.id, Customer.name, Customer.time).filter(Customer.name == 'x'))
+        dbase2 = dbquery2df(db.session.query(Customer.id, Customer.name, Customer.time).filter(Customer.name == 'x'))
         # and now assert it:
         oldids_with_x_as_name = dbase['id'].values.tolist()
         newids_with_x_as_name = d2['id'].values.tolist()
@@ -562,12 +573,12 @@ class Test(unittest.TestCase):
         assert sorted(oldids_with_x_as_name+newids_with_x_as_name) == sorted(currentids_with_x_as_name)
 
         # same as above, but with drop_duplicates=False
-        d = dbquery2df(self.session.query(Customer.id, Customer.name, Customer.time))
+        d = dbquery2df(db.session.query(Customer.id, Customer.name, Customer.time))
         # assert we do not have instances with 'x':
-        dbase = dbquery2df(self.session.query(Customer.id, Customer.name, Customer.time).filter(Customer.name == 'w'))
+        dbase = dbquery2df(db.session.query(Customer.id, Customer.name, Customer.time).filter(Customer.name == 'w'))
         d.loc[:, ['name']] = 'w'
         inserted, not_inserted, updated, not_updated, d2 = \
-            syncdf(d, self.session, [Customer.name, Customer.time], Customer.id, update=['name'],
+            syncdf(d, db.session, [Customer.name, Customer.time], Customer.id, update=['name'],
                    drop_duplicates=False)
         # we should have the same result of the database, as we updated ALL instances:
         # BUT: fetchsetpkeys changed to float the dtype of id, so:
@@ -579,16 +590,17 @@ class Test(unittest.TestCase):
         assert (inserted, not_inserted, updated, not_updated) == (0, 0, len(d), 0)
 
 
-    def test_syncdf_2(self):
+    def test_syncdf_2(self, db):
         """Same as `test_syncdf` but the second non-existing item is conflicting with the first added"""
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
         d2009 = datetime(2009, 9, 25)
-        mxx = _get_max(self.session, Customer.id)
-        self.init_db([{'id': 1, 'name': 'a', 'time': d2006}, {'id': 2, 'name': 'a', 'time': d2008},
+        mxx = _get_max(db.session, Customer.id)
+        self.init_db(db.session, 
+                     [{'id': 1, 'name': 'a', 'time': d2006}, {'id': 2, 'name': 'a', 'time': d2008},
                       {'id': 3, 'name': 'a', 'time': None}])
-        mxx = _get_max(self.session, Customer.id)
+        mxx = _get_max(db.session, Customer.id)
         d = pd.DataFrame([{'name': 'a', 'time': None}, {'name': 'b', 'time': d2006},
                           {'name': 'b', 'time': d2006}, {'name': 'a', 'time': None},
                           {'name': 'a', 'time': d2006}])
@@ -597,7 +609,7 @@ class Test(unittest.TestCase):
         # the other two have a conflict and will be dropped as duplicates as well:
         expected_ids = [1]
         inserted, not_inserted, updated, not_updated, d2 = \
-            syncdf(d, self.session, [Customer.name, Customer.time], Customer.id)
+            syncdf(d, db.session, [Customer.name, Customer.time], Customer.id)
 # d2 should be:
 #           name       time   id
 #         0    a        NaT  3.0
@@ -606,16 +618,17 @@ class Test(unittest.TestCase):
         assert array_equal(d2['id'], expected_ids)
         assert inserted == len(d2)-1  # assert one is already existing
 
-    def test_syncdf_2_no_drop_dupes(self):
+    def test_syncdf_2_no_drop_dupes(self, db):
         """Same as `test_syncdf_2` but with drop duplicates False"""
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
         d2009 = datetime(2009, 9, 25)
-        mxx = _get_max(self.session, Customer.id)
-        self.init_db([{'id': 1, 'name': 'a', 'time': d2006}, {'id': 2, 'name': 'a', 'time': d2008},
+        mxx = _get_max(db.session, Customer.id)
+        self.init_db(db.session, 
+                     [{'id': 1, 'name': 'a', 'time': d2006}, {'id': 2, 'name': 'a', 'time': d2008},
                       {'id': 3, 'name': 'a', 'time': None}])
-        mxx = _get_max(self.session, Customer.id)
+        mxx = _get_max(db.session, Customer.id)
         d = pd.DataFrame([{'name': 'a', 'time': None}, {'name': 'b', 'time': d2006},
                           {'name': 'b', 'time': d2006}, {'name': 'a', 'time': None},
                           {'name': 'a', 'time': d2006}])
@@ -625,18 +638,19 @@ class Test(unittest.TestCase):
         # different ids cause they do not have counterparts saved on the db
         # {'name': 'a', 'time': d2006} will have the 'id' 1 (see above):
         inserted, not_inserted, updated, not_updated, d2 = \
-            syncdf(d, self.session, [Customer.name, Customer.time], Customer.id,
+            syncdf(d, db.session, [Customer.name, Customer.time], Customer.id,
                    drop_duplicates=False)
         # the returned dataframe, as it does NOT update, has the instances with already set id
         # first (these instances are those who should be updated) and then the rest, so it's like this: 
         assert array_equal(d2['id'], [3, 3, 1, mxx+1, mxx+2])
         
-    def test_syncdf_3(self):
+    def test_syncdf_3(self, db):
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
         d2009 = datetime(2009, 9, 25)
-        self.init_db([{'id': 1, 'name': 'a', 'time': d2006}, {'id': 2, 'name': 'a', 'time': d2008},
+        self.init_db(db.session,
+                     [{'id': 1, 'name': 'a', 'time': d2006}, {'id': 2, 'name': 'a', 'time': d2008},
                       {'id': 3, 'name': 'a', 'time': None}])
         d = pd.DataFrame([{'id': 45, 'name': 'a', 'time': None}, {'id': 45, 'name': 'b', 'time': d2006},
                           {'id': 45, 'name': 'c', 'time': d2009}, {'id': 45, 'name': 'a', 'time': None},
@@ -647,7 +661,7 @@ class Test(unittest.TestCase):
         # be returned:
         
         inserted, not_inserted, updated, not_updated, d2 = \
-            syncdf(d, self.session, [Customer.name, Customer.time], Customer.id)
+            syncdf(d, db.session, [Customer.name, Customer.time], Customer.id)
         # Note that in this case {'id':45, 'name': 'b', 'time': d2006}, and
         # {'id':45, 'name': 'c', 'time': d2009} are still valid and in d2 cause they don't have
         # matching on the table => their id is not updated and they don't have null id =>
@@ -765,6 +779,6 @@ def array_equal(a1, a2):
     """test array equality by assuming nan == nan. Probably already implemented somewhere in numpy, no time for browsing now"""
     return len(a1) == len(a2) and all([c ==d or (np.isnan(c) == np.isnan(d)) for c, d in zip(a1, a2)])
 
-if __name__ == "__main__":
-    #import sys;sys.argv = ['', 'Test.testName']
-    unittest.main()
+# if __name__ == "__main__":
+#     #import sys;sys.argv = ['', 'Test.testName']
+#     unittest.main()
