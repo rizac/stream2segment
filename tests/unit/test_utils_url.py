@@ -10,7 +10,6 @@ from builtins import str
 from builtins import next
 import unittest
 
-
 import concurrent.futures
 import time
 import threading
@@ -27,12 +26,13 @@ from time import sleep
 from subprocess import call
 
 
+class Test(object):
 
-
-class Test(unittest.TestCase):
-
-
-    def setUp(self):
+    # execute this fixture always even if not provided as argument:
+    # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
+    @pytest.fixture(autouse=True)
+    def init(self, request):
+        
         self.urls = ["http://sdgfjvkherkdfvsffd",
                      "http://www.google.com", 
 #                      "http://www.apple.com",
@@ -45,17 +45,11 @@ class Test(unittest.TestCase):
         self.successes = []
         self.errors = []
         self.cancelled = []
-        
-        self.patcher = patch('stream2segment.utils.url.urllib.request.urlopen')
-        self.mock_urlopen = self.patcher.start()
-        #add cleanup (in case tearDown is not 
-        self.addCleanup(Test.cleanup, self.patcher)
         self.progress = 0
         
-    @staticmethod
-    def cleanup(*patchers):
-        for patcher in patchers:
-            patcher.stop()
+        with patch('stream2segment.utils.url.urllib.request.urlopen') as mock_urlopen:
+            self.mock_urlopen = mock_urlopen
+            yield
 
     def read_async(self, *a, **v):
         for obj, result, exc, url in read_async(*a, **v):
@@ -78,12 +72,6 @@ class Test(unittest.TestCase):
                 self.errors.append(exc)
             else:
                 self.successes.append(result)
-                    
-
-    def tearDown(self):
-        self.successes = []
-        self.errors = []
-        pass
 
     def config_urlopen(self, read_side_effect_as_list, sleep_time=None):
         a = mock.Mock()
@@ -209,8 +197,3 @@ class Test(unittest.TestCase):
 #             self.read_async(urls, max_memoru_consumption=mmc)
 #         assert self.progress == 6
 #         assert "Memory overflow: %.2f%% (used) > %.2f%% (threshold)" % (mmc+1, mmc) in str(excinfo.value)
-    
-
-if __name__ == "__main__":
-    #import sys;sys.argv = ['', 'Test.testName']
-    unittest.main()

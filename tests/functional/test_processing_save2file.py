@@ -27,6 +27,7 @@ from stream2segment import process
 from stream2segment.process.core import run as process_core_run
 
 from future import standard_library
+from stream2segment.utils.resources import get_templates_fpaths
 standard_library.install_aliases()
 
 
@@ -196,7 +197,7 @@ class Test(object):
     def test_simple_run_no_outfile_provided(self, mock_run, mock_yaml_load, advanced_settings,
                                             cmdline_opts,
                                             # fixtures:
-                                            db, data):
+                                            db):
         '''test a case where save inventory is True, and that we saved inventories
         db is a fixture implemented in conftest.py and setup here in self.transact fixture
         '''
@@ -221,7 +222,7 @@ class Test(object):
             # need to reset this global variable: FIXME: better handling?
             process.main._inventories = {}
 
-            pyfile, conffile = data.get_templates_fpaths("save2fs.py", "save2fs.yaml")
+            pyfile, conffile = get_templates_fpaths("save2fs.py", "save2fs.yaml")
 
             result = runner.invoke(cli, ['process', '--dburl', db.dburl,
                                    '-p', pyfile, '-c', conffile] + cmdline_opts)

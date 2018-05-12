@@ -282,7 +282,7 @@ class Test(object):
     # Here a simple test for a processing file returning dict. Save inventory and check it's saved
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
     @mock.patch('stream2segment.process.main.process_core_run', side_effect=process_core_run)
-    def test_simple_run_no_outfile_provided(self, mock_run, mock_yaml_load, db, data):
+    def test_simple_run_no_outfile_provided(self, mock_run, mock_yaml_load, db):
         '''test a case where save inventory is True, and that we saved inventories'''
         # set values which will override the yaml config in templates folder:
         config_overrides = {'save_inventory': True,
@@ -298,8 +298,8 @@ class Test(object):
         # need to reset this global variable: FIXME: better handling?
         process.main._inventories = {}
         runner = CliRunner()
-        
-        pyfile, conffile = data.get_templates_fpaths("processing.py", "processing.yaml")
+
+        pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
         result = runner.invoke(cli, ['process', '--dburl', db.dburl,
                                '-p', pyfile, '-c', conffile])
 
@@ -355,7 +355,7 @@ class Test(object):
                               ({}, ['--multi-process', '--num-processes', '1'])])
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
     def test_simple_run_retDict_saveinv(self, mock_yaml_load, advanced_settings, cmdline_opts,
-                                        db, data):
+                                        db):
         '''test a case where save inventory is True, and that we saved inventories'''
         # set values which will override the yaml config in templates folder:
         config_overrides = {'save_inventory': True,
@@ -374,7 +374,7 @@ class Test(object):
         process.main._inventories = {}
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = data.get_templates_fpaths("processing.py", "processing.yaml")
+            pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
             result = runner.invoke(cli, ['process', '--dburl', db.dburl,
                                    '-p', pyfile, '-c', conffile, file.name] + cmdline_opts)
 
@@ -424,7 +424,7 @@ class Test(object):
     #
     # Here a simple test for a processing file returning dict. Save inventory and check it's saved
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_retDict_saveinv_complex_select(self, mock_yaml_load, db, data):
+    def test_simple_run_retDict_saveinv_complex_select(self, mock_yaml_load, db):
         '''test a case where we have a more complex select involving joins'''
         # When we use our exprequery, we might join already joined tables.
         # previously, we had a
@@ -463,7 +463,7 @@ class Test(object):
         process.main._inventories = {}
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = data.get_templates_fpaths("processing.py", "processing.yaml")
+            pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
             result = runner.invoke(cli, ['process', '--dburl', db.dburl,
                                    '-p', pyfile, '-c', conffile, file.name])
 
@@ -504,7 +504,7 @@ class Test(object):
             filter(Station.id == station_id_whose_inventory_is_saved).first().inventory_xml
 
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_retDict_saveinv_high_snr_threshold(self, mock_yaml_load, db, data):
+    def test_simple_run_retDict_saveinv_high_snr_threshold(self, mock_yaml_load, db):
         '''same as `test_simple_run_retDict_saveinv` above
         but with a very high snr threshold'''
         # set values which will override the yaml config in templates folder:
@@ -522,7 +522,7 @@ class Test(object):
         process.main._inventories = {}
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = data.get_templates_fpaths("processing.py", "processing.yaml")
+            pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
             result = runner.invoke(cli, ['process', '--dburl', db.dburl,
                                    '-p', pyfile, '-c', conffile, file.name])
 
@@ -573,7 +573,7 @@ class Test(object):
     # Here a simple test for a processing file returning dict. Don't save inventory and check it's
     # not saved
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_retDict_dontsaveinv(self, mock_yaml_load, db, data):
+    def test_simple_run_retDict_dontsaveinv(self, mock_yaml_load, db):
         '''same as `test_simple_run_retDict_saveinv` above
          but with a 0 snr threshold and do not save inventories'''
         
@@ -595,7 +595,7 @@ class Test(object):
             process.main._inventories = {}
             runner = CliRunner()
             with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-                pyfile, conffile = data.get_templates_fpaths("processing.py", "processing.yaml")
+                pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
                 result = runner.invoke(cli, ['process', '--dburl', db.dburl,
                                        '-p', pyfile, '-c', conffile, file.name])
 
@@ -634,7 +634,7 @@ class Test(object):
     # Here a simple test for a processing NO file. We implement a filter that excludes the only
     # processed file using associated stations lat and lon. 
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_retDict_seg_select_empty_and_err_segments(self, mock_yaml_load, db, data):
+    def test_simple_run_retDict_seg_select_empty_and_err_segments(self, mock_yaml_load, db):
         '''test that segment selection works'''
         # set values which will override the yaml config in templates folder:
         config_overrides = {'save_inventory': False,
@@ -654,7 +654,7 @@ class Test(object):
 
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = data.get_templates_fpaths("processing.py", "processing.yaml")
+            pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
 
             result = runner.invoke(cli, ['process', '--dburl', db.dburl,
                                          '-p', pyfile,
@@ -715,7 +715,7 @@ class Test(object):
     # Here a simple test for a processing NO file. We implement a filter that excludes the only
     # processed file using associated stations lat and lon. 
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_retDict_seg_select_only_one_err_segment(self, mock_yaml_load, db, data):
+    def test_simple_run_retDict_seg_select_only_one_err_segment(self, mock_yaml_load, db):
         '''test that segment selection works (2)'''
         # set values which will override the yaml config in templates folder:
         config_overrides = {'save_inventory': False,
@@ -735,7 +735,7 @@ class Test(object):
 
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = data.get_templates_fpaths("processing.py", "processing.yaml")
+            pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
 
             result = runner.invoke(cli, ['process', '--dburl', db.dburl,
                                          '-p', pyfile,
@@ -778,7 +778,7 @@ class Test(object):
     #
     # Here a simple test for a processing file returning list. Just check it works
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_ret_list(self, mock_yaml_load, db, data):
+    def test_simple_run_ret_list(self, mock_yaml_load, db):
         '''test processing returning list, and also when we specify a different main function'''
         # set values which will override the yaml config in templates folder:
         config_overrides = {'save_inventory': False,
@@ -791,7 +791,7 @@ class Test(object):
         # and thus we want to avoid DetachedInstanceError(s):
         expected_first_row_seg_id = str(self.seg1.id)
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = data.get_templates_fpaths("processing.py", "processing.yaml")
+            pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
 
             # Now wrtite pyfile into a named temp file, with the method:
             # def main_retlist(segment, config):
@@ -836,7 +836,7 @@ def main(segment, config):""")
                     assert len(logtext) > 0
 
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_wrong_pyfile(self, mock_yaml_load, db, data):
+    def test_wrong_pyfile(self, mock_yaml_load, db):
         '''test processing when supplying a wrong python file (not py extension, this seem
         to raise when importing it in python3)'''
         # set values which will override the yaml config in templates folder:
@@ -845,7 +845,7 @@ def main(segment, config):""")
 
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = data.get_templates_fpaths("processing.py", "processing.yaml")
+            pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
 
             # Now wrtite pyfile into a named temp file, BUT DO NOT SUPPLY EXTENSION
             # This seems to fail in python3 (FIXME: python2?)
@@ -888,7 +888,7 @@ def main(segment, config):""")
 #                               {'multi_process': True, 'num_processes': 1}
                               ])
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_codeerror(self, mock_yaml_load, advanced_settings, db, data):
+    def test_simple_run_codeerror(self, mock_yaml_load, advanced_settings, db):
         '''test processing type error(wrong argumens)'''
         # set values which will override the yaml config in templates folder:
         config_overrides = {'save_inventory': False,
@@ -901,7 +901,7 @@ def main(segment, config):""")
         runner = CliRunner()
 
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = data.get_templates_fpaths("processing.py", "processing.yaml")
+            pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
             # pyfile = self.get_file("processing.py")  # custom one
 
             with NamedTemporaryFile(suffix='.py') as tmpfile:
@@ -941,7 +941,7 @@ def main(""")
 #                               {'multi_process': True, 'num_processes': 1}
                               ])
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_codeerror_nosegs(self, mock_yaml_load, advanced_settings, db, data):
+    def test_simple_run_codeerror_nosegs(self, mock_yaml_load, advanced_settings, db):
         '''test processing type error(wrong argumens), but test that
         since we do not have segments to process, the type error is not reached
         '''
@@ -952,7 +952,7 @@ def main(""")
         runner = CliRunner()
 
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = data.get_templates_fpaths("processing.py", "processing.yaml")
+            pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
             # pyfile = self.get_file("processing.py")  # custom one
             with NamedTemporaryFile(suffix='.py') as tmpfile:
 
