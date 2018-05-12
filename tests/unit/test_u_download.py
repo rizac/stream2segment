@@ -72,74 +72,9 @@ from stream2segment.traveltimes.ttloader import TTTable
 from stream2segment.download.utils import dblog
 from stream2segment.utils import urljoin as original_urljoin
 
-
-
-# hard-coding the responses messages here:
-responses = {
-    100: ('Continue', 'Request received, please continue'),
-    101: ('Switching Protocols',
-          'Switching to new protocol; obey Upgrade header'),
-
-    200: ('OK', 'Request fulfilled, document follows'),
-    201: ('Created', 'Document created, URL follows'),
-    202: ('Accepted',
-          'Request accepted, processing continues off-line'),
-    203: ('Non-Authoritative Information', 'Request fulfilled from cache'),
-    204: ('No Content', 'Request fulfilled, nothing follows'),
-    205: ('Reset Content', 'Clear input form for further input.'),
-    206: ('Partial Content', 'Partial content follows.'),
-
-    300: ('Multiple Choices',
-          'Object has several resources -- see URI list'),
-    301: ('Moved Permanently', 'Object moved permanently -- see URI list'),
-    302: ('Found', 'Object moved temporarily -- see URI list'),
-    303: ('See Other', 'Object moved -- see Method and URL list'),
-    304: ('Not Modified',
-          'Document has not changed since given time'),
-    305: ('Use Proxy',
-          'You must use proxy specified in Location to access this '
-          'resource.'),
-    307: ('Temporary Redirect',
-          'Object moved temporarily -- see URI list'),
-
-    400: ('Bad Request',
-          'Bad request syntax or unsupported method'),
-    401: ('Unauthorized',
-          'No permission -- see authorization schemes'),
-    402: ('Payment Required',
-          'No payment -- see charging schemes'),
-    403: ('Forbidden',
-          'Request forbidden -- authorization will not help'),
-    404: ('Not Found', 'Nothing matches the given URI'),
-    405: ('Method Not Allowed',
-          'Specified method is invalid for this server.'),
-    406: ('Not Acceptable', 'URI not available in preferred format.'),
-    407: ('Proxy Authentication Required', 'You must authenticate with '
-          'this proxy before proceeding.'),
-    408: ('Request Timeout', 'Request timed out; try again later.'),
-    409: ('Conflict', 'Request conflict.'),
-    410: ('Gone',
-          'URI no longer exists and has been permanently removed.'),
-    411: ('Length Required', 'Client must specify Content-Length.'),
-    412: ('Precondition Failed', 'Precondition in headers is false.'),
-    413: ('Request Entity Too Large', 'Entity is too large.'),
-    414: ('Request-URI Too Long', 'URI is too long.'),
-    415: ('Unsupported Media Type', 'Entity body in unsupported format.'),
-    416: ('Requested Range Not Satisfiable',
-          'Cannot satisfy request range.'),
-    417: ('Expectation Failed',
-          'Expect condition could not be satisfied.'),
-
-    500: ('Internal Server Error', 'Server got itself in trouble'),
-    501: ('Not Implemented',
-          'Server does not support this operation'),
-    502: ('Bad Gateway', 'Invalid responses from another server/proxy.'),
-    503: ('Service Unavailable',
-          'The server cannot process the request due to a high load'),
-    504: ('Gateway Timeout',
-          'The gateway server did not receive a timely response'),
-    505: ('HTTP Version Not Supported', 'Cannot fulfill request.'),
-    }
+from future.standard_library import install_aliases
+install_aliases()
+from http.client import responses  # @UnresolvedImport @IgnorePep8
 
 import logging
 
@@ -148,7 +83,7 @@ query_logger = logger = logging.getLogger("stream2segment")
 
 @pytest.fixture(scope='module')
 def tt_ak135_tts(request, data):
-    return TTTable(data.path('ak135_tts+_5.npz'))
+    return data.read_tttable('ak135_tts+_5.npz')
 
 class Test(object):
 
@@ -312,7 +247,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         for k in urlread_side_effect:
             a = Mock()
             if type(k) == int:
-                a.read.side_effect = urllib.error.HTTPError('url', int(k),  responses[k][0], None, None)
+                a.read.side_effect = urllib.error.HTTPError('url', int(k),  responses[k], None, None)
             elif type(k) in (bytes, str):
                 def func(k):
                     b = BytesIO(k.encode('utf8') if type(k) == str else k)  # py2to3 compatible
@@ -331,7 +266,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                     return rse
                 a.read.side_effect = func(k)
                 a.code = 200
-                a.msg = responses[a.code][0]
+                a.msg = responses[a.code]
             else:
                 a.read.side_effect = k
             retvals.append(a)

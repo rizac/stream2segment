@@ -57,15 +57,10 @@ def get_templates_fpaths(*filenames):
     returns all valid files inside that directory
     """
     templates_path = get_templates_dirpath()
-    if not len(filenames):
+    if not filenames:
         filenames = listdir(templates_path)
 
-    ret = []
-    for _name in filenames:
-        fpath = join(templates_path, _name)
-        if isfile(fpath):
-            ret.append(fpath)
-    return ret
+    return list(join(templates_path, _name) for _name in filenames)
 
 
 def get_templates_fpath(filename):

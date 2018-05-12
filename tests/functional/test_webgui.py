@@ -29,7 +29,7 @@ import time
 from itertools import product
 from obspy.core.stream import read
 from stream2segment.utils import load_source
-from stream2segment.utils.resources import yaml_load
+from stream2segment.utils.resources import yaml_load, get_templates_fpaths
 from stream2segment.gui.webapp.mainapp.plots.core import PlotManager
 from obspy.io.stationtxt.core import all_components
 from mock.mock import patch
@@ -48,8 +48,8 @@ class Test(object):
         # re-init a sqlite database (no-op if the db is not sqlite):
         db.reinit(to_file=True)
         
-        self.pyfile, self.configfile = data.get_templates_fpaths('processing.py',
-                                                                 'processing.yaml')
+        self.pyfile, self.configfile = get_templates_fpaths('processing.py',
+                                                            'processing.yaml')
         
         self.app = create_main_app(db.dburl, self.pyfile, self.configfile)
 
@@ -117,12 +117,6 @@ class Test(object):
             fixed_args = dict(datacenter_id=dc.id,
                          download_id=run.id,
                          )
-            
-#             folder = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
-#             with open(os.path.join(folder, "GE.FLT1..HH?.mseed"), 'rb') as opn:
-#                 data_gaps_unmerged = opn.read()  # unmerged cause we have three traces of different channels
-#             with open(os.path.join(folder, "IA.BAKI..BHZ.D.2016.004.head"), 'rb') as opn:
-#                 data_gaps_merged = opn.read()
                 
             data_gaps_unmerged = data.read("GE.FLT1..HH?.mseed")
             data_gaps_merged = data.read("IA.BAKI..BHZ.D.2016.004.head")

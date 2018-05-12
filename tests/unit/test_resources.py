@@ -3,7 +3,9 @@ Created on 14 Mar 2018
 
 @author: riccardo
 '''
-from stream2segment.utils.resources import yaml_load, get_templates_fpath
+from stream2segment.utils.resources import yaml_load, get_templates_fpath, get_templates_fpaths,\
+    get_templates_dirpath
+import os
 
 
 def test_yaml_load():
@@ -40,3 +42,15 @@ def test_yaml_load():
 
     assert keys1 - keys2 == set()
     assert keys2 - keys1 == set(['wawa'])
+
+
+def test_templates_fpath():
+    basedir = get_templates_dirpath()
+
+    res = get_templates_fpaths()
+    assert sorted(res) == sorted(os.path.join(basedir, n) for n in os.listdir(basedir))
+
+    filenames = ['a', 'b']
+    res = get_templates_fpaths(*filenames)
+    assert sorted(res) == sorted(os.path.join(get_templates_dirpath(), n) for n in filenames)
+

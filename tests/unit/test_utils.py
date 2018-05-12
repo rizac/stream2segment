@@ -26,20 +26,6 @@ from click.termui import progressbar
 
 DEFAULT_TIMEOUT = socket._GLOBAL_DEFAULT_TIMEOUT
 
-# class Test(unittest.TestCase):
-# 
-# 
-#     def setUp(self):
-#         pass
-# 
-# 
-#     def tearDown(self):
-#         pass
-# 
-# 
-#     def testName(self):
-#         pass
-
 
 def test_strconvert():
     strings =       ["%", "_", "*", "?", ".*", "."]

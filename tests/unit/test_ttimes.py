@@ -26,14 +26,14 @@ from stream2segment.traveltimes.ttcreator import _filepath, StepIterator, min_tr
 
 @pytest.fixture(scope='module')
 def ttdata(data):
-    # self.iasp_ttp_10 = TTTable(join(dirname(dirname(__file__)), "data", "iasp91_ttp+_10.npz"))
-    iasp_ttp_5 = TTTable(data.path("iasp91_ttp+_5.npz"))
-    iasp_tts_10 = TTTable(data.path("iasp91_tts+_10.npz"))
-    iasp_tts_5 = TTTable(data.path("iasp91_tts+_5.npz"))
-    ak135_ttp_10 = TTTable(data.path("ak135_ttp+_10.npz"))
-    ak135_ttp_5 = TTTable(data.path("ak135_ttp+_5.npz"))
-    ak135_tts_10 = TTTable(data.path("ak135_tts+_10.npz"))
-    ak135_tts_5 = TTTable(data.path("ak135_tts+_5.npz"))
+
+    iasp_ttp_5 = data.read_tttable("iasp91_ttp+_5.npz")
+    iasp_tts_10 = data.read_tttable("iasp91_tts+_10.npz")
+    iasp_tts_5 = data.read_tttable("iasp91_tts+_5.npz")
+    ak135_ttp_10 = data.read_tttable("ak135_ttp+_10.npz")
+    ak135_ttp_5 = data.read_tttable("ak135_ttp+_5.npz")
+    ak135_tts_10 = data.read_tttable("ak135_tts+_10.npz")
+    ak135_tts_5 = data.read_tttable("ak135_tts+_5.npz")
 
     _values = np.array([(0, 0, 0), (1, 0, 0), (5, 0, 0), (700,0,0),
                         (0, 0, 11.4), (1, 0, 11.4), (5, 0, 11.4), (700, 0, 11.4),

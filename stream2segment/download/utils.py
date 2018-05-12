@@ -31,7 +31,6 @@ from stream2segment.utils.url import read_async as original_read_async
 from stream2segment.utils.msgs import MSG
 
 from future.standard_library import install_aliases
-from pandas.compat import OrderedDefaultdict
 install_aliases()
 from http.client import responses  # @UnresolvedImport @IgnorePep8
 

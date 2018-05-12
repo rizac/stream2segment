@@ -17,7 +17,6 @@ import numpy as np
 from stream2segment.process.math.ndarrays import fft as orig_fft, linspace, \
     snr as orig_snr, powspec as orig_powspec
 from stream2segment.process.math.traces import fft , bandpass, dfreq, maxabs, timeof
-# from stream2segment.io.utils import loads, dumps
 
 from obspy.core.inventory import read_inventory
 from obspy.core import read as obspy_read
@@ -77,9 +76,6 @@ def _data(data):
                                     inv_output)
     return ret
 
-
-
-
 def test_bandpass(_data):
     trace = _data['mseed'][0]
     res = bandpass(trace, 2, 3)
@@ -88,69 +84,6 @@ def test_bandpass(_data):
     assert trace.stats.endtime == res.stats.endtime
     assert trace.stats.npts == res.stats.npts
     assert len(trace.data) == len(res.data)
-    
-    
-    h = 9
-
-
-# __dd = None
-# 
-# def get_data():
-#     global __dd
-#     if __dd is None:
-#         __dd = _data()
-#     return __dd
-# 
-# 
-# @pytest.fixture(scope="session")
-# def _data():
-#     """returns a dict with fields 'mseed', 'mseed_ACC', 'mseed_VEL', 'mseed_DISP' (all Streams.
-#     The latter three after removing the response)
-#     'inventory' (an inventory object) and two strings: 'mseed_path' and 'inventory_path'"""
-#     folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
-#     mseed_path = os.path.join(folder, 'trace_GE.APE.mseed')
-#     mseed = obspy_read(mseed_path)
-#     inv_path = os.path.join(folder, 'inventory_GE.APE.xml')
-#     s = BytesIO()
-#     with open(inv_path, 'rb') as _opn:
-#         s.write(_opn.read())
-#     s.seek(0)
-#     inv_obj = read_inventory(s)
-#     ret = {'mseed': mseed, 'inventory': inv_obj, 'mseed_path': mseed_path,
-#            'data_path': folder, 
-#            'inventory_path': inv_path}
-#     for inv_output in ['ACC', 'VEL', 'DISP']:
-#         # mseed_c = mseed.copy()
-#         # mseed2 = remove_response(mseed, inv_obj, output=inv_output)
-#         ret['mseed_'+inv_output] = mseed.copy().remove_response(inv_obj, output=inv_output)
-#     return ret
-
-
-# @pytest.mark.parametrize('inv_output',
-#                           ['ACC', 'VEL', 'DISP'])
-# def test_remove_response_with_inv_path(_data, inv_output):
-#     mseed = get_data()['mseed']
-#     mseed2 = get_data()['mseed_'+inv_output]
-#     assert isinstance(mseed, Stream) == isinstance(mseed2, Stream)
-#     assert len(mseed.traces) == len(mseed2.traces)
-#     assert (mseed[0].data != mseed2[0].data).any()
-#     assert max(mseed[0].data) > max(mseed2[0].data)
-# 
-# 
-# def test_remove_response_with_inv_object(_data):
-#     mseed = get_data()['mseed']
-# #     inv_obj = _data['inventory']
-#     for inv_output in ['ACC', 'VEL', 'DISP']:
-#         mseed2 = get_data()['mseed_' + inv_output]
-#         assert isinstance(mseed, Stream) == isinstance(mseed2, Stream)
-#         assert len(mseed.traces) == len(mseed2.traces)
-#         assert (mseed[0].data != mseed2[0].data).any()
-#         assert max(mseed[0].data) > max(mseed2[0].data)
-
-
-# def get_stream_with_gaps(_data):
-#     mseed_dir = get_data()['data_path']
-#     return obspy_read(os.path.join(mseed_dir, "IA.BAKI..BHZ.D.2016.004.head"))
 
 
 def testmaxabs(_data):
@@ -169,5 +102,3 @@ def testmaxabs(_data):
     assert maxabs(trace, None, t-td)[0] < t < maxabs(trace, t+td, None)[0]
     
     assert np.isnan(maxabs(trace, None, trace.stats.starttime-td))
-    
-    

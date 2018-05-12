@@ -30,7 +30,7 @@ import time
 from itertools import product
 from obspy.core.stream import read, Stream
 from stream2segment.utils import load_source
-from stream2segment.utils.resources import yaml_load
+from stream2segment.utils.resources import yaml_load, get_templates_fpaths
 from stream2segment.gui.webapp.mainapp.plots.core import PlotManager, LimitedSizeDict
 from mock.mock import patch
 
@@ -168,7 +168,7 @@ class Test(object):
         self.inventory_bytes = data.read("GE.FLT1.xml")
         self.inventory = loads_inv(self.inventory_bytes)
         
-        pfile, cfile = data.get_templates_fpaths('processing.py', 'processing.yaml')
+        pfile, cfile = get_templates_fpaths('processing.py', 'processing.yaml')
         self.pymodule = load_source(pfile)
         self.config = yaml_load(cfile)
         
