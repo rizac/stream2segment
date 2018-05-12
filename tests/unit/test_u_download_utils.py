@@ -573,7 +573,7 @@ def test_to_fdsn_arg():
     assert to_fdsn_arg(val) == 'B  '
     
 
-# PIECES OF MUSEUMS BELOW!!! OLD TESTS!! leaving as i would do with ancient ruins ;)    
+# PIECES OF MUSEUMS BELOW!!! preserving as one would do with ancient ruins ;)    
     
 # @pytest.mark.parametrize('inargs, expected_dt',
 #                          [

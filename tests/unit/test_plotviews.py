@@ -38,82 +38,29 @@ from stream2segment.process.utils import get_inventory as original_get_inventory
 from obspy.core.utcdatetime import UTCDateTime
 
 
-class Test(unittest.TestCase):
+class Test(object):
 
-    def setUp(self):
-        self.addCleanup(Test.cleanup, self)
-        url = os.getenv("DB_URL", "sqlite:///:memory:")
-        # an Engine, which the Session will use for connection
-        # resources
-        # some_engine = create_engine('postgresql://scott:tiger@localhost/')
-        self.engine = create_engine(url)
-        Base.metadata.drop_all(self.engine)
-        Base.metadata.create_all(self.engine)
+    # execute this fixture always even if not provided as argument:
+    # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
+    @pytest.fixture(autouse=True)
+    def init(self, request, db, data):
+        # re-init a sqlite database (no-op if the db is not sqlite):
+        db.reinit(to_file=False)
 
-        # create a configured "Session" class
-        # Session = sessionmaker(bind=self.engine)
-        # create a Session
-        self.session = self.newsession()
-        self.initdb()
-        self.pymodule = load_source(os.path.join(os.path.dirname(__file__), '..', '..',
-                                                 'stream2segment',
-                                                  'resources', 'templates',
-                                               'processing.py'))
-        self.config = yaml_load(os.path.join(os.path.dirname(__file__), '..', '..',
-                                             'stream2segment',
-                                                  'resources', 'templates',
-                                               'processing.yaml'))
-    
-    def newsession(self):
-        # create a configured "Session" class
-        Session = sessionmaker(bind=self.engine)
-        # create a Session
-        return Session()
-        
-    @staticmethod
-    def cleanup(me):
-        if me.engine:
-            if me.session:
-                try:
-                    me.session.rollback()
-                    me.session.close()
-                except:
-                    pass
-            try:
-                Base.metadata.drop_all(me.engine)
-            except:
-                pass
+        # init db:
+        session = db.session
 
-#     def tearDown(self):
-#         try:
-#             self.session.flush()
-#             self.session.commit()
-#         except SQLAlchemyError as _:
-#             pass
-#             # self.session.rollback()
-#         self.session.close()
-#         Base.metadata.drop_all(self.engine)
-    
-    @property
-    def is_sqlite(self):
-        return str(self.engine.url).startswith("sqlite:///")
-    
-    @property
-    def is_postgres(self):
-        return str(self.engine.url).startswith("postgresql://")
-    
-    def initdb(self):
         dc= DataCenter(station_url="345fbgfnyhtgrefs", dataselect_url='edfawrefdc')
-        self.session.add(dc)
+        session.add(dc)
 
         utcnow = datetime.utcnow()
 
         run = Download(run_time=utcnow)
-        self.session.add(run)
+        session.add(run)
         
         ws = WebService(url='webserviceurl')
-        self.session.add(ws)
-        self.session.commit()
+        session.add(ws)
+        session.commit()
             
         id = 'firstevent'
         e1 = Event(event_id='event1', webservice_id=ws.id, time=utcnow, latitude=89.5, longitude=6,
@@ -122,16 +69,16 @@ class Test(unittest.TestCase):
         e2 = Event(event_id='event2', webservice_id=ws.id, time=utcnow + timedelta(seconds=5),
                   latitude=89.5, longitude=6, depth_km=7.1, magnitude=56)
         
-        self.session.add_all([e1, e2])
+        session.add_all([e1, e2])
         
-        self.session.commit()  # refresh datacenter id (alo flush works)
+        session.commit()  # refresh datacenter id (alo flush works)
 
         d = datetime.utcnow()
         
         s = Station(network='network', station='station', datacenter_id=dc.id, latitude=90,
                     longitude=-45,
                     start_time=d)
-        self.session.add(s)
+        session.add(s)
         
         channels = [
             Channel(location= '01', channel='HHE', sample_rate=6),
@@ -155,7 +102,7 @@ class Test(unittest.TestCase):
             ]
         
         s.channels.extend(channels)
-        self.session.commit()
+        session.commit()
         
         fixed_args = dict(datacenter_id = dc.id,
                           download_id = run.id,
@@ -164,16 +111,14 @@ class Test(unittest.TestCase):
         # Note: data_gaps_merged is a stream where gaps can be merged via obspy.Stream.merge
         # data_gaps_unmerged is a stream where gaps cannot be merged (is a stream of three different channels
         # of the same event)
-        folder = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
-        with open(os.path.join(folder, "GE.FLT1..HH?.mseed"), 'rb') as opn:
-            data_gaps_unmerged = opn.read()  # unmerged cause we have three traces of different channels
-        with open(os.path.join(folder, "IA.BAKI..BHZ.D.2016.004.head"), 'rb') as opn:
-            data_gaps_merged = opn.read()
-        with open(os.path.join(folder, "GE.FLT1..HH?.mseed"), 'rb') as opn:
-            data_ok = opn.read()
+        data_gaps_unmerged = data.read("GE.FLT1..HH?.mseed")
+        data_gaps_merged = data.read("IA.BAKI..BHZ.D.2016.004.head")
+        data_ok = data.read("GE.FLT1..HH?.mseed")
+        
+            
         # create an 'ok' and 'error' Stream, the first by taking the first trace of "GE.FLT1..HH?.mseed",
         # the second by maipulating it
-        obspy_stream = read(BytesIO(data_ok))
+        obspy_stream = data.read_stream("GE.FLT1..HH?.mseed")  # read(BytesIO(data_ok))
         obspy_trace = obspy_stream[0]
         
         # write data_ok is actually bytes data of 3 traces, write just the first one, we have
@@ -218,12 +163,17 @@ class Test(unittest.TestCase):
                           **fixed_args)
             c.segments.append(seg)
         
-        self.session.commit()
+        session.commit()
         
-        # set inventory
-        with open(os.path.join(folder, "GE.FLT1.xml"), 'rb') as opn:
-            self.inventory_bytes = opn.read()
+        self.inventory_bytes = data.read("GE.FLT1.xml")
         self.inventory = loads_inv(self.inventory_bytes)
+        
+        pfile, cfile = data.get_templates_fpaths('processing.py', 'processing.yaml')
+        self.pymodule = load_source(pfile)
+        self.config = yaml_load(cfile)
+        
+        # remove segment_select, we use all segments here:
+        self.config.pop('segment_select', None)
 
     @staticmethod
     def plotslen(plotmanager, preprocessed):
@@ -268,16 +218,16 @@ class Test(unittest.TestCase):
 
     @patch('stream2segment.process.utils.get_inventory')
     @patch('stream2segment.process.utils.get_stream')
-    def test_view_other_comps(self, mock_get_stream, mock_get_inv):
+    def test_view_other_comps(self, mock_get_stream, mock_get_inv, db):
         
         components_count = {} # group_id -> num expected components
         # where group_id is the tuple (event_id, channel.location)
-        for s in self.session.query(Segment): 
+        for s in db.session.query(Segment): 
             group_id = (s.event_id, s.channel.location)
             if group_id not in components_count:
                 # we should have created views also for the other components. To get
                 # other components, use the segment channel and event id
-                other_comps_count = self.session.query(Segment).join(Segment.channel).\
+                other_comps_count = db.session.query(Segment).join(Segment.channel).\
                     filter(and_(Segment.event_id == s.event_id, Channel.location == s.channel.location)).count()
                 
                 components_count[group_id] = other_comps_count
@@ -360,7 +310,7 @@ class Test(unittest.TestCase):
                             assert not len("".join(plotlist[1].warnings))
             
             
-        for s in self.session.query(Segment):
+        for s in db.session.query(Segment):
             
             m = PlotManager(self.pymodule, self.config)
             
@@ -374,7 +324,7 @@ class Test(unittest.TestCase):
             preprocessed = False
             idxs = [0]
             # s_id_was_in_views = s.id in m._plots
-            plots = m.get_plots(self.session, s.id, idxs, preprocessed, allcomponents)
+            plots = m.get_plots(db.session, s.id, idxs, preprocessed, allcomponents)
 #             # assert returned plot has the correct number of time/line-series:
 #             # note that plots[0] might be generated from a stream with gaps
             assert len(plots[0].data) == self.traceslen(m, s.id, preprocessed, allcomponents)
@@ -412,7 +362,7 @@ class Test(unittest.TestCase):
             allcomponents = True
             preprocessed = False
             # s_id_was_in_views = s.id in m._plots
-            plots = m.get_plots(self.session, s.id, idxs, preprocessed, allcomponents)
+            plots = m.get_plots(db.session, s.id, idxs, preprocessed, allcomponents)
 #           # asssert the returned value match the input:
             assert len(plots) == len(idxs)
             assert not self.plotslen(m, preprocessed=True)  # assert no filtering calculated
@@ -434,7 +384,7 @@ class Test(unittest.TestCase):
             allcomponents = False
             preprocessed = True
             # s_id_was_in_views = s.id in m._plots
-            plots = m.get_plots(self.session, s.id, idxs, preprocessed, allcomponents)
+            plots = m.get_plots(db.session, s.id, idxs, preprocessed, allcomponents)
 #           # asssert the returned value match the input:
             assert len(plots) == len(idxs)
             assert self.plotslen(m, preprocessed=True)  # assert no filtering calculated
@@ -456,7 +406,7 @@ class Test(unittest.TestCase):
             allcomponents = True
             preprocessed = True
             # s_id_was_in_views = s.id in m._plots
-            plots = m.get_plots(self.session, s.id, idxs, preprocessed, allcomponents)
+            plots = m.get_plots(db.session, s.id, idxs, preprocessed, allcomponents)
             # asssert the returned value match the input:
             assert len(plots) == len(idxs)
             assert self.plotslen(m, preprocessed=True)  # assert no filtering calculated
@@ -531,15 +481,15 @@ class Test(unittest.TestCase):
 #             mock_get_inv.side_effect = ginv
             # so we manually set the inventory on the db, discarding it afterwards:
             s.station.inventory_xml = self.inventory_bytes
-            self.session.commit()
+            db.session.commit()
             assert s.station.inventory_xml
             # re-initialize a new PlotManager to assure everything is re-calculated
             # this also sets all cache to None, including m.inv_cache:
             m = PlotManager(self.pymodule, self.config)
             
             # calculate plots
-            m.get_plots(self.session, s.id, idxs, preprocessed=False, all_components_in_segment_plot=True)
-            m.get_plots(self.session, s.id, idxs, preprocessed=True, all_components_in_segment_plot=True)
+            m.get_plots(db.session, s.id, idxs, preprocessed=False, all_components_in_segment_plot=True)
+            m.get_plots(db.session, s.id, idxs, preprocessed=True, all_components_in_segment_plot=True)
             # and store their values for later comparison
             sn_plot_unprocessed = m[s.id][0][SN_INDEX].data
             sn_plot_preprocessed = m[s.id][1][SN_INDEX].data
@@ -552,7 +502,7 @@ class Test(unittest.TestCase):
             assert_(m[s.id][0], s, preprocessed=False, is_invalidated=True)
             assert m[s.id][1] is None
             # and run again the get_plots: with preprocess=False
-            plots = m.get_plots(self.session, s.id, idxs, preprocessed=False, all_components_in_segment_plot=True)
+            plots = m.get_plots(db.session, s.id, idxs, preprocessed=False, all_components_in_segment_plot=True)
             assert_(m[s.id][0], s, preprocessed=False)
             assert m[s.id][1] is None
             sn_plot_unprocessed_new = m[s.id][0][SN_INDEX].data
@@ -579,7 +529,7 @@ class Test(unittest.TestCase):
                 # assert not np.allclose(sn_plot_unprocessed_new[1][2], sn_plot_unprocessed[1][2], equal_nan=True)
 
             # now run again with preprocessed=True.
-            plots = m.get_plots(self.session, s.id, idxs, preprocessed=True, all_components_in_segment_plot=True)
+            plots = m.get_plots(db.session, s.id, idxs, preprocessed=True, all_components_in_segment_plot=True)
             sn_plot_preprocessed_new = m[s.id][1][SN_INDEX].data
             # assert the s_stream differs from the previous, as we changed the signal/noise arrival time shift
             # this must hold only for the 'ok' stream (no 'gap' or 'err' in s.channel.location)
@@ -605,7 +555,7 @@ class Test(unittest.TestCase):
             assert_(m[s.id][1], s, preprocessed=True)
             # re-set the inventory_xml to None:
             s.station.inventory_xml = None
-            self.session.commit()
+            db.session.commit()
             assert not s.station.inventory_xml
 
 def test_limited_size_dict():
@@ -658,8 +608,3 @@ def test_limited_size_dict():
         for _ in range(101):
             l.setdefault(str(_), 1)
         assert mock_popitem.call_count == 101-50
-
-
-if __name__ == "__main__":
-    #import sys;sys.argv = ['', 'Test.testName']
-    unittest.main()

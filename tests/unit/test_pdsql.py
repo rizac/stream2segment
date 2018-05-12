@@ -44,54 +44,6 @@ class Test(object):
         # re-init a sqlite database (no-op if the db is not sqlite):
         db.reinit(to_file=False, base=Base)
 
-        # init db:
-        # self.session = db.session
-
-#     def setUp(self):
-#         
-#         self.addCleanup(Test.cleanup, self)
-#         
-#         
-#         url = os.getenv("DB_URL", "sqlite:///:memory:")
-#         self.dburl = url
-#         # print self.dburl
-#         
-# #         if not url:
-# #            self.skipTest("No database URL set")
-# #         
-# #         self.dburl = "sqlite:///:memory:"
-#         
-#         
-#         DBSession = scoped_session(sessionmaker())
-#         self.engine = create_engine(self.dburl, echo=False)
-#         DBSession.remove()
-#         DBSession.configure(bind=self.engine, autoflush=False, expire_on_commit=False)
-#         # Base.metadata.drop_all(engine)
-#         Base.metadata.create_all(self.engine)
-#         
-#         self.session = DBSession
-
-#     @staticmethod
-#     def cleanup(me):
-#         if me.engine:
-#             if me.session:
-#                 try:
-#                     me.session.rollback()
-#                     me.session.close()
-#                 except:
-#                     pass
-#             try:
-#                 Base.metadata.drop_all(me.engine)
-#             except:
-#                 pass
-# 
-#     def tearDown(self):
-#         pass
-
-
-#     def testName(self):
-#         pass
-
     def init_db(self, session, list_of_dicts):
         for d in list_of_dicts:
             customer = Customer(**d)

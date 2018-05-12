@@ -23,14 +23,20 @@ from obspy.core.utcdatetime import UTCDateTime
 
 class Test(unittest.TestCase):
 
-    def setUp(self):
-        with open(os.path.join(os.path.dirname(os.path.dirname(__file__)),"data", "trace_GE.APE.mseed"), 'rb') as opn:
-            self.mseed = o_read(BytesIO(opn.read()))
-            # self.fft = fft(self.mseed)
-        pass
+    # execute this fixture always even if not provided as argument:
+    # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
+    @pytest.fixture(autouse=True)
+    def init(self, request, data):
+        self.mseed = data.read_stream("trace_GE.APE.mseed")
 
-    def tearDown(self):
-        pass
+#     def setUp(self, data):
+#         with open(os.path.join(os.path.dirname(os.path.dirname(__file__)),"data", "trace_GE.APE.mseed"), 'rb') as opn:
+#             self.mseed = o_read(BytesIO(opn.read()))
+#             # self.fft = fft(self.mseed)
+#         pass
+# 
+#     def tearDown(self):
+#         pass
 
     def testCum(self):
         t = self.mseed[0]
