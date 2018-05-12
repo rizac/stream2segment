@@ -145,6 +145,11 @@ import logging
 
 query_logger = logger = logging.getLogger("stream2segment")
 
+
+@pytest.fixture(scope='module')
+def tt_ak135_tts(request, data):
+    return TTTable(data.path('ak135_tts+_5.npz'))
+
 class Test(object):
 
     # execute this fixture always even if not provided as argument:
@@ -218,16 +223,6 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         self.routing_service = yaml_load(get_templates_fpath("download.yaml"))['advanced_settings']['routing_service_url']
 
         # NON db stuff (logging, patchers, pandas...):
-        
-        self.ttable = TTTable(data.path('ak135_tts+_5.npz'))
-#         def ttable(self, modelname=None):
-#         '''convenience function that loads a ttable from the data folder'''
-#         if modelname is None:
-#             modelname = 'ak135_tts+_5.npz'
-#         fle = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', modelname)
-#         if not os.path.splitext(fle)[1]:
-#             fle += '.npz'
-#         return TTTable(fle)
         
         self.logout = StringIO()
         handler = StreamHandler(stream=self.logout)
@@ -1205,16 +1200,7 @@ YY|yy||DEL|3|4|6|0|0|0|OK: channel check done cause it's dupe: matches    |8|0.1
         assert cha_df3.sort_values(by=['id']).reset_index(drop=True).equals(cha_df4.sort_values(by=['id']).reset_index(drop=True))
 # FIXME: test save inventories!!!!
 
-    def ttable(self, modelname=None):
-        '''convenience function that loads a ttable from the data folder'''
-        if modelname is None:
-            modelname = 'ak135_tts+_5.npz'
-        fle = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', modelname)
-        if not os.path.splitext(fle)[1]:
-            fle += '.npz'
-        return TTTable(fle)
-
-    def test_merge_event_stations(self, db):
+    def test_merge_event_stations(self, db, tt_ak135_tts):
         # get events with lat lon (1,1), (2,2,) ... (n, n)
         urlread_sideeffect = """#EventID | Time | Latitude | Longitude | Depth/km | Author | Catalog | Contributor | ContributorID | MagType | Magnitude | MagAuthor | EventLocationName
 20160508_0000129|2016-05-08 05:17:11.500000|1|1|60.0|AZER|EMSC-RTS|AZER|505483|ml|3|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
@@ -1263,7 +1249,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 # 3   4           4       7.0        7.0              2 2009-01-01 2019-01-01
 # 4   5           5       8.0        8.0              2 2019-01-01        NaT
 
-        tt_table = self.ttable
+        tt_table = tt_ak135_tts
         # for magnitude <10, max_radius is 0. For magnitude >10, max_radius is 200
         # we have only magnitudes <10, we have two events exactly on a station (=> dist=0)
         # which will be taken (the others dropped out)
@@ -1343,7 +1329,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 # # =================================================================================================
 
 
-    def test_prepare_for_download(self, db):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
+    def test_prepare_for_download(self, db, tt_ak135_tts):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
         # prepare:
         urlread_sideeffect = None  # use defaults from class
         events_df = self.get_events_df(urlread_sideeffect, db.session, "http://eventws", db_bufsize=self.db_buf_size)
@@ -1380,7 +1366,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
         # take all segments:
         segments_df = merge_events_stations(events_df, channels_df, minmag=10, maxmag=10,
-                                   minmag_radius=100, maxmag_radius=200, tttable=self.ttable)
+                                   minmag_radius=100, maxmag_radius=200, tttable=tt_ak135_tts)
 
         
 # segments_df:
@@ -1542,7 +1528,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # this hol
 
 
-    def test_prepare_for_download_sametimespans(self, db):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
+    def test_prepare_for_download_sametimespans(self, db, tt_ak135_tts):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
         # prepare. event ws returns two events very close by
         urlread_sideeffect = """#EventID | Time | Latitude | Longitude | Depth/km | Author | Catalog | Contributor | ContributorID | MagType | Magnitude | MagAuthor | EventLocationName
 20160508_0000129|2016-05-08 05:17:11.500000|1|1|2.01|AZER|EMSC-RTS|AZER|505483|ml|3|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
@@ -1583,7 +1569,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
         # take all segments:
         segments_df = merge_events_stations(events_df, channels_df, minmag=10, maxmag=10,
-                                   minmag_radius=100, maxmag_radius=200, tttable=self.ttable)
+                                   minmag_radius=100, maxmag_radius=200, tttable=tt_ak135_tts)
 
         
 # segments_df:
@@ -1652,7 +1638,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     @patch("stream2segment.download.modules.segments.mseedunpack")
     @patch("stream2segment.io.db.pdsql.insertdf")
     @patch("stream2segment.io.db.pdsql.updatedf")
-    def test_download_save_segments(self, mock_updatedf, mock_insertdf, mseed_unpack, db):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
+    def test_download_save_segments(self, mock_updatedf, mock_insertdf, mseed_unpack, db, tt_ak135_tts):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
         # prepare:
         # mseed unpack takes no starttime and endtime arguments, so that 
         # we do not discard any correct chunk
@@ -1705,7 +1691,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         
         # take all segments:
         # use minmag and maxmag
-        ttable = self.ttable
+        ttable = tt_ak135_tts
         segments_df = merge_events_stations(events_df, channels_df, minmag=10, maxmag=10,
                                    minmag_radius=10, maxmag_radius=10, tttable=ttable)
         
@@ -1959,7 +1945,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     @patch("stream2segment.download.modules.segments.mseedunpack")
     @patch("stream2segment.io.db.pdsql.insertdf")
     @patch("stream2segment.io.db.pdsql.updatedf")
-    def test_download_save_segments_timebounds(self, mock_updatedf, mock_insertdf, mseed_unpack, db):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
+    def test_download_save_segments_timebounds(self, mock_updatedf, mock_insertdf, mseed_unpack,
+                                               db, tt_ak135_tts):  #, mock_urlopen_in_async, mock_url_read, mock_arr_time):
         # prepare:
         # mseed unpack takes no starttime and endtime arguments, so that 
         mseed_unpack.side_effect = lambda *a, **v: unpack(*a, **v)
@@ -2021,7 +2008,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         
         # take all segments:
         # use minmag and maxmag
-        ttable = self.ttable
+        ttable = tt_ak135_tts
         segments_df = merge_events_stations(events_df, channels_df, minmag=10, maxmag=10,
                                    minmag_radius=10, maxmag_radius=10, tttable=ttable)
         

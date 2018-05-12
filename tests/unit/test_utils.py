@@ -278,9 +278,3 @@ def test_strptime(str_input, expected_diff):
     # test type error:
     with pytest.raises(TypeError):
         strptime(5)
-    
-
-
-if __name__ == "__main__":
-    #import sys;sys.argv = ['', 'Test.testName']
-    unittest.main()
