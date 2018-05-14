@@ -61,7 +61,7 @@ class Test(object):
     @pytest.fixture(autouse=True)
     def init(self, request, db, data):
         # re-init a sqlite database (no-op if the db is not sqlite):
-        db.reinit(to_file=True)
+        db.create(to_file=True)
 
         # init db:
         session = db.session

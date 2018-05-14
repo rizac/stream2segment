@@ -35,7 +35,7 @@ class Test(object):
     @pytest.fixture(autouse=True)
     def init(self, request, db, data):
         # re-init:
-        db.reinit(to_file=False)
+        db.create(to_file=False)
         
         dc= DataCenter(station_url="345fbgfnyhtgrefs", dataselect_url='edfawrefdc')
         db.session.add(dc)

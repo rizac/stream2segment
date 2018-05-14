@@ -46,7 +46,7 @@ class Test(object):
     @pytest.fixture(autouse=True)
     def init(self, request, db, data):
         # re-init a sqlite database (no-op if the db is not sqlite):
-        db.reinit(to_file=True)
+        db.create(to_file=True)
         
         self.pyfile, self.configfile = get_templates_fpaths('processing.py',
                                                             'processing.yaml')

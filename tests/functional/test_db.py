@@ -37,7 +37,7 @@ class Test(object):
     @pytest.fixture(autouse=True)
     def init(self, request, db, data):
         # re-init a sqlite database (no-op if the db is not sqlite):
-        db.reinit(to_file=False)
+        db.create(to_file=False)
 
     def test_run(self, db):
         r = Download()

@@ -42,7 +42,7 @@ class Test(object):
     @pytest.fixture(autouse=True)
     def init(self, request, db, data):
         # re-init a sqlite database (no-op if the db is not sqlite):
-        db.reinit(to_file=False, base=Base)
+        db.create(to_file=False, base=Base)
 
     def init_db(self, session, list_of_dicts):
         for d in list_of_dicts:

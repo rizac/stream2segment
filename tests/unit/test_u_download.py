@@ -93,7 +93,7 @@ class Test(object):
     def init(self, request, db, data):
         
         # re-init a sqlite database (no-op if the db is not sqlite):
-        db.reinit(to_file=False)
+        db.create(to_file=False)
         
         # setup a run_id:
         r = Download()
