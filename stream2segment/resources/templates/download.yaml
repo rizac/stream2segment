@@ -96,16 +96,13 @@ dataws: 'eida'
 # (if missing, it's value defaults to '*', i.e. accept all channels)
 # Wildcards '?' and '*' are recognized (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf),
 # as well as the operator '!' placed as first character to indicate logical NOT.
-# E.g.: In order to limit the search to networks NOT starting with 'A' and
-# channels with 3 letters starting with 'H' or 'B': 
-#  netowrks: '!A*'
-#  channels: 'H??,B??'
-# Implementation details: 'cha' or 'channel' are also valid names for the parameter.
-# Moreover, you can also specify a list/array of
-# strings in yaml format instead of comma-separated strings. E.g., these are quivalent:
-# networks: "A,B"
-# networks: [ "A" , "B" ]
-# networks:
+# Example: "!B*,BBB" accepts all channels NOT starting with "B" OR the channel "BBB"
+# Implementation details: 'cha' or 'channel' are also valid names for the parameter. You can
+# also specify a list/array of strings in yaml format instead of comma-separated strings.
+# E.g., these are quivalent:
+# channels: "A,B"
+# cha: [ "A" , "B" ]
+# channel:
 #  - "A"
 #  - "B"
 channels:

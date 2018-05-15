@@ -46,12 +46,17 @@ class clickutils(object):
     """Container for Options validations, default settings so as not to pollute the click
     decorators"""
 
-    TERMINAL_HELP_WIDTH = 115  # control width of help. 80 should be the default (roughly)
+    TERMINAL_HELP_WIDTH = 110  # control width of help. 80 should be the default (roughly)
     DEFAULTDOC = yaml_load_doc(get_templates_fpath("download.yaml"))
-    DBURLDOC_SUFFIX = ("^^^ NOTE ^^^: It can also be the path of a yaml file "
-                       "containing the property 'dburl' (e.g., the yaml you used for "
-                       "downloading, so as to avoid re-typing the database path)")
     EQA = "(eventws query argument)"
+    DBURL_OR_YAML_ATTRS = dict(type=inputargs.extract_dburl_if_yamlpath,
+                               metavar='TEXT or PATH',
+                               help="%s. %s" % (DEFAULTDOC['dburl'],
+                                                ("It can also be the path of a yaml file "
+                                                 "containing the property 'dburl' "
+                                                 "(e.g., the config file used for "
+                                                 "downloading)")),
+                               required=True)
 
     @classmethod
     def set_help_from_yaml(cls, ctx, param, value):
@@ -89,7 +94,7 @@ class clickutils(object):
 @click.group()
 def cli():
     """stream2segment is a program to download, process, visualize or annotate massive amounts of
-    seismic waveform data segments.
+    event-based seismic waveform data segments.
     According to the given command, segments can be:
 
     \b
@@ -111,7 +116,7 @@ def cli():
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.argument('outdir')
 def init(outdir):
-    """Creates template/config files which can be inspected and edited for launching download,
+    """Creates template files for launching download,
     processing and visualization. OUTDIR will be created if it does not exist
     """
     helpdict = OrderedDict([
@@ -161,8 +166,9 @@ def init(outdir):
 #    This is done by the method `clickutils.set_help_from_yaml`, attached
 #    as callback to the option '--dburl' below, which has 'is_eager=True', meaning that the
 #    callback is executed before all other options, even when invoking the command with --help.
-#    The callback is not attached to '--config' above because
-#    options with required = True and eager=True will raise, bypassing --help, if given
+#    The callback is not attached to '--config' above because then the option would have
+#    required = True and is_eager=True, and that combination of parameters bypasses --help,
+#    if given, and raises cause the options was not given
 # 2. For yaml param help, any string following "Implementation details:": will not be shown
 #    in the corresponding option help.
 # 3. Some yaml params accepts different names (e.g., 'net' will
@@ -245,8 +251,7 @@ def download(config, dburl, eventws, start, end, networks,  # pylint: disable=un
              maxlongitude, latitude, longitude, minradius,  # pylint: disable=unused-argument
              maxradius, mindepth, maxdepth, minmagnitude,  # pylint: disable=unused-argument
              maxmagnitude):  # pylint: disable=unused-argument
-    """Download waveform data segments with quality-check metadata and relative events, stations and
-    channels metadata into a specified database.
+    """Downloads waveform data segments with metadata in a specified database.
     The -c option (required) sets the defaults for all other options below, **which are optional**
     """
     try:
@@ -272,9 +277,7 @@ def download(config, dburl, eventws, start, end, networks,  # pylint: disable=un
 
 @cli.command(short_help='Process downloaded waveform data segments',
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
-@click.option('-d', '--dburl', type=inputargs.extract_dburl_if_yamlpath,
-              help="%s.\n%s" % (clickutils.DEFAULTDOC['dburl'], clickutils.DBURLDOC_SUFFIX),
-              required=True)
+@click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option("-c", "--config",
               help="The path to the configuration file in yaml format "
                    "(https://learn.getgrav.org/advanced/yaml).",
@@ -285,7 +288,7 @@ def download(config, dburl, eventws, start, end, networks,  # pylint: disable=un
               )
 @click.option("-p", "--pyfile",
               help="The path to the python file where the user-defined processing function "
-                   "is implemented. The function which will be called iteratively on each segment "
+                   "is implemented. The function will be called iteratively on each segment "
                    "selected in the config file",
               type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
                               readable=True),
@@ -298,9 +301,8 @@ def download(config, dburl, eventws, start, end, networks,  # pylint: disable=un
                    "missing" % inputargs.default_processing_funcname(),
               )  # do not set default='main', so that we can test when arg is missing or not
 @click.option("-mp", "--multi-process", is_flag=True,
-              help="Use parallel sub-processes to parallalize the execution and "
-                   "decrease (in most cases) speed of execution. When missing, it defaults to "
-                   "false"
+              help="Use parallel sub-processes to speed up the execution. "
+                   "When missing, it defaults to false"
               )  # do not set default='main', so that we can test when arg is missing or not
 @click.option("-np", "--num-processes", type=int, default=None,
               help="The number of sub-processes. If missing, it is set as the "
@@ -308,17 +310,18 @@ def download(config, dburl, eventws, start, end, networks,  # pylint: disable=un
                    "if --multi-process is not given",
               )  # do not set default='main', so that we can test when arg is missing or not
 @click.argument('outfile', required=False)
-def process(dburl, config, pyfile, funcname, multi_process, num_processes, outfile):
-    """Process downloaded waveform data segments via a custom python file and a configuration
+def process(dburl, config, pyfile, funcname,
+            multi_process, num_processes,  # pylint: disable=unused-argument
+            outfile):
+    """Processes downloaded waveform data segments via a custom python file and a configuration
     file.
 
-    \b
-    outfile [optional]: the .csv file where the output of the user-defined processing
-    function will be written for each selected segment.
-    If missing, then the output of the user-defined processing function (if any) is discarded,
-    and all logging information, errors or warnings will be redirected to the standard error.
-    Otherwise, if this argument is specified, the log messages will be written to the file
-    [outpath].log
+
+    [OUTFILE] (optional): the path of the .csv file where the output of the user-defined processing
+    function F will be written to (one row per processed segment); all logging information,
+    errors or warnings will be written to the file [OUTFILE].log.
+    If this argument is missing, then the output of F (if any) will be discarded,
+    and all logging messages will be redirected to the standard error
     """
     try:
         # override config values for multi_process and num_processes
@@ -338,9 +341,7 @@ def process(dburl, config, pyfile, funcname, multi_process, num_processes, outfi
 
 @cli.command(short_help='Show raw and processed downloaded waveform\'s plots in a browser',
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
-@click.option('-d', '--dburl', type=inputargs.extract_dburl_if_yamlpath,
-              help="%s.\n%s" % (clickutils.DEFAULTDOC['dburl'], clickutils.DBURLDOC_SUFFIX),
-              required=True)
+@click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option("-c", "--configfile",
               help="The path to the configuration file in yaml format "
                    "(https://learn.getgrav.org/advanced/yaml).",
@@ -357,7 +358,7 @@ def process(dburl, config, pyfile, funcname, multi_process, num_processes, outfi
               # Don't set required = True with eager=True: it suppresses --help
               )
 def show(dburl, configfile, pyfile):
-    """Visualize downloaded waveform data segments in a browser"""
+    """Shows downloaded waveform data segments in a browser"""
     main.show(dburl, pyfile, configfile)
 
 
@@ -368,8 +369,7 @@ def utils():  # pylint: disable=missing-docstring
 
 @utils.command(short_help='Show download information and statistics',
                context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
-@click.option('-d', '--dburl', type=inputargs.extract_dburl_if_yamlpath,
-              help="%s.\n%s" % (clickutils.DEFAULTDOC['dburl'], clickutils.DBURLDOC_SUFFIX))
+@click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
               help="Limit the download statistics to a specified set of download ids (integers) "
                    "when missing, all downloads are shown. this option can be given multiple "
@@ -381,18 +381,19 @@ def utils():  # pylint: disable=missing-docstring
                    "Defaults to 0.5, meaning that segments whose maximum gap is >0.5 will be "
                    "identified has having gaps, and segments whose maximum gap is <-0.5 will "
                    "be identified has having overlaps")
-@click.option('-htm', '--html', is_flag=True, help="if flag is present, generate an interactive "
-              "static web page where the download infos are visualized on a map, with statistics "
-              "on a per-station and data-center basis. The resulting file is a single dynamic page "
-              "with no dependancies other than a working internet connection")
+@click.option('-htm', '--html', is_flag=True, help="Generate an interactive "
+              "dynamic web page where the download infos are visualized on a map, with statistics "
+              "on a per-station and data-center basis. A working internet connection is needed to"
+              "properly view the page")
 @click.argument("outfile", required=False, type=click.Path(file_okay=True,
                                                            dir_okay=False, writable=True,
                                                            readable=True))
 def dinfo(dburl, download_id, maxgap_threshold, html, outfile):
-    """Show / save download information and summary either in text format or html.
-    If [outfile], the results will be saved to the specified file. Otherwise, they will be
-    printed to screen if 'html' is not specified, or opened in a web browser if 'html'
-    is specified"""
+    """Produces download information either in plain text or html format.
+
+    [OUTFILE] (optional): the output file where the information will be saved to.
+    If missing, results will be printed to screen or opened in a web browser
+    (depending on the option '--html')"""
     print('Fetching data, please wait (this might take a while depending on the '
           'db size and connection)')
     try:
@@ -412,25 +413,23 @@ def dinfo(dburl, download_id, maxgap_threshold, html, outfile):
               help="Show help only for the function matching the given type. Numpy indicates "
                     "functions operating on numpy arrays "
                     "(module `stream2segment.process.math.ndarrays`). "
-                    "Obspy (module `stream2segment.process.math.traces`) those operating on obspy "
-                    "Traces, most of which are simply the numpy counterparts defined for Trace "
-                    "objects")
+                    "Obspy (module `stream2segment.process.math.traces`) the functions operating "
+                    "on obspy Traces, most of which are simply the numpy counterparts defined "
+                    "for Trace objects")
 @click.option("-f", "--filter", default='*', show_default=True,
               help="Show doc only for the function whose name matches the given filter. "
                     "Wildcards (* and ?) are allowed")
 def mathinfo(type, filter):  # @ReservedAssignment pylint: disable=redefined-outer-name
-    '''Prints the docstrings of the math functions implemented in this package, according to
+    '''Prints the doc-strings of the math functions implemented in this package, according to
     the given type and filter'''
     for line in main.helpmathiter(type, filter):
         print(line)
 
 
-@utils.command(short_help='Creates via obspy routines a travel time table, i.e. a grid of points '
-               'in a 3-D space, where each point is '
-               'associated to pre-computed travel times arrays. Stores the '
-               'resulting file as .npz compressed numpy format. The resulting file, opened with '
-               'the dedicated program class, allows to compute approximate travel times in a '
-               '*much* faster way than using obspy routines directly')
+@utils.command(short_help="Creates a travel time table for computing "
+               "travel times (via linear or cubic interpolation, or nearest point) "
+               "in a *much* faster way than using obspy routines directly for large number of "
+               "points")
 @click.option('-o', '--output', required=True,
               help=('The output file. If directory, the file name will be automatically '
                     'created inside the directory. Otherwise must denote a valid writable '
@@ -485,6 +484,14 @@ def mathinfo(type, filter):  # @ReservedAssignment pylint: disable=redefined-out
                     '(http://rallen.berkeley.edu/teaching/F04_GEO302_PhysChemEarth/Lectures/HellfrichWood2001.pdf)'))  # @IgnorePep8 pylint: disable=line-too-long
 def ttcreate(output, model, phases, tt_errtol, maxsourcedepth, maxreceiverdepth, maxdistance,
              pwavevelocity, swavevelocity):
+    """Creates a travel time table TT, i.e. a grid of
+       source_depths, receiver_depths and distances asssociated to the corresponding
+       travel time T, computed with obspy routines. This allows the calculation of the
+       travel times (via linear or cubic interpolation, or nearest point)
+       in a *much* faster way than using obspy routines directly for large number of
+       points. Stores the
+       resulting file as .npz compressed numpy format. The file path can be given
+       as parameter in the download config to customize the travel times computation"""
     try:
         output = ttcreator._filepath(output, model, phases)
         ttcreator.computeall(output, model, tt_errtol, phases, maxsourcedepth, maxreceiverdepth,
