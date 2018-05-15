@@ -112,7 +112,7 @@ def cli():
     pass
 
 
-@cli.command(short_help='Create template/config files in a specified directory',
+@cli.command(short_help='Creates template/config files in a specified directory',
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.argument('outdir')
 def init(outdir):
@@ -178,7 +178,7 @@ def init(outdir):
 #    the corresponding yaml param help, otherwise the option doc will not be found.
 # 4. Option flags should all have default=None which lets us know that the flag is missing and use
 #    the corresponding yaml param values
-@cli.command(short_help='Download waveform data segments',
+@cli.command(short_help='Downloads waveform data segments',
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option("-c", "--config",
               help="The path to the configuration file in yaml format "
@@ -275,7 +275,7 @@ def download(config, dburl, eventws, start, end, networks,  # pylint: disable=un
         sys.exit(2)
 
 
-@cli.command(short_help='Process downloaded waveform data segments',
+@cli.command(short_help='Processes downloaded waveform data segments',
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option("-c", "--config",
@@ -339,7 +339,7 @@ def process(dburl, config, pyfile, funcname,
         sys.exit(2)
 
 
-@cli.command(short_help='Show raw and processed downloaded waveform\'s plots in a browser',
+@cli.command(short_help='Shows raw and processed downloaded waveform\'s plots in a browser',
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option("-c", "--configfile",
@@ -358,7 +358,7 @@ def process(dburl, config, pyfile, funcname,
               # Don't set required = True with eager=True: it suppresses --help
               )
 def show(dburl, configfile, pyfile):
-    """Shows downloaded waveform data segments in a browser"""
+    """Shows raw and processed downloaded waveform\'s plots in a browser"""
     main.show(dburl, pyfile, configfile)
 
 
@@ -367,7 +367,7 @@ def utils():  # pylint: disable=missing-docstring
     pass
 
 
-@utils.command(short_help='Show download information and statistics',
+@utils.command(short_help='Produces download information either in plain text or html format',
                context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
@@ -406,7 +406,7 @@ def dinfo(dburl, download_id, maxgap_threshold, html, outfile):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@utils.command(short_help='Show quick help on stream2segment built-in math functions',
+@utils.command(short_help='Prints on screen quick help on stream2segment built-in math functions',
                context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option("-t", "--type", type=click.Choice(['numpy', 'obspy', 'all']), default='all',
               show_default=True,
@@ -420,8 +420,8 @@ def dinfo(dburl, download_id, maxgap_threshold, html, outfile):
               help="Show doc only for the function whose name matches the given filter. "
                     "Wildcards (* and ?) are allowed")
 def mathinfo(type, filter):  # @ReservedAssignment pylint: disable=redefined-outer-name
-    '''Prints the doc-strings of the math functions implemented in this package, according to
-    the given type and filter'''
+    '''Prints on screen the doc-strings of the math functions implemented in this package,
+    according to the given type and filter'''
     for line in main.helpmathiter(type, filter):
         print(line)
 
