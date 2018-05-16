@@ -67,7 +67,7 @@ def raiseifreturnsexception(func):
 
 
 class gui(object):
-    """decorators for the processing.py file for making function displayed on the gui
+    """decorators for the processing/visualization making function displayable on the GUI
     (Graphical User Interface)"""
 
     @staticmethod

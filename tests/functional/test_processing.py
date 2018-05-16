@@ -56,6 +56,8 @@ def yaml_load_side_effect(**overrides):
 
 class Test(object):
 
+    pyfile, conffile = get_templates_fpaths("paramtable.py", "paramtable.yaml")
+
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
     @pytest.fixture(autouse=True)
@@ -299,7 +301,7 @@ class Test(object):
         process.main._inventories = {}
         runner = CliRunner()
 
-        pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
+        pyfile, conffile = self.pyfile, self.conffile
         result = runner.invoke(cli, ['process', '--dburl', db.dburl,
                                '-p', pyfile, '-c', conffile])
 
@@ -374,7 +376,7 @@ class Test(object):
         process.main._inventories = {}
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
+            pyfile, conffile = self.pyfile, self.conffile
             result = runner.invoke(cli, ['process', '--dburl', db.dburl,
                                    '-p', pyfile, '-c', conffile, file.name] + cmdline_opts)
 
@@ -463,7 +465,7 @@ class Test(object):
         process.main._inventories = {}
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
+            pyfile, conffile = self.pyfile, self.conffile
             result = runner.invoke(cli, ['process', '--dburl', db.dburl,
                                    '-p', pyfile, '-c', conffile, file.name])
 
@@ -522,7 +524,7 @@ class Test(object):
         process.main._inventories = {}
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
+            pyfile, conffile = self.pyfile, self.conffile
             result = runner.invoke(cli, ['process', '--dburl', db.dburl,
                                    '-p', pyfile, '-c', conffile, file.name])
 
@@ -595,7 +597,7 @@ class Test(object):
             process.main._inventories = {}
             runner = CliRunner()
             with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-                pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
+                pyfile, conffile = self.pyfile, self.conffile
                 result = runner.invoke(cli, ['process', '--dburl', db.dburl,
                                        '-p', pyfile, '-c', conffile, file.name])
 
@@ -654,7 +656,7 @@ class Test(object):
 
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
+            pyfile, conffile = self.pyfile, self.conffile
 
             result = runner.invoke(cli, ['process', '--dburl', db.dburl,
                                          '-p', pyfile,
@@ -735,7 +737,7 @@ class Test(object):
 
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
+            pyfile, conffile = self.pyfile, self.conffile
 
             result = runner.invoke(cli, ['process', '--dburl', db.dburl,
                                          '-p', pyfile,
@@ -791,7 +793,7 @@ class Test(object):
         # and thus we want to avoid DetachedInstanceError(s):
         expected_first_row_seg_id = str(self.seg1.id)
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
+            pyfile, conffile = self.pyfile, self.conffile
 
             # Now wrtite pyfile into a named temp file, with the method:
             # def main_retlist(segment, config):
@@ -845,7 +847,7 @@ def main(segment, config):""")
 
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
+            pyfile, conffile = self.pyfile, self.conffile
 
             # Now wrtite pyfile into a named temp file, BUT DO NOT SUPPLY EXTENSION
             # This seems to fail in python3 (FIXME: python2?)
@@ -901,8 +903,7 @@ def main(segment, config):""")
         runner = CliRunner()
 
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
-            # pyfile = self.get_file("processing.py")  # custom one
+            pyfile, conffile = self.pyfile, self.conffile
 
             with NamedTemporaryFile(suffix='.py') as tmpfile:
 
@@ -952,8 +953,8 @@ def main(""")
         runner = CliRunner()
 
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = get_templates_fpaths("processing.py", "processing.yaml")
-            # pyfile = self.get_file("processing.py")  # custom one
+            pyfile, conffile = self.pyfile, self.conffile
+
             with NamedTemporaryFile(suffix='.py') as tmpfile:
 
                 with open(pyfile) as opn:

@@ -7,7 +7,7 @@ import unittest
 from click.testing import CliRunner
 from stream2segment.cli import cli
 from mock.mock import patch
-from stream2segment.utils.resources import get_templates_fpath, yaml_load
+from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_templates_fpaths
 from stream2segment.main import init as orig_init, helpmathiter as main_helpmathiter, download
 from tempfile import NamedTemporaryFile
 import yaml
@@ -38,6 +38,9 @@ except ImportError:
 
 class Test(object):
 
+    d_yaml_file, p_yaml_file, p_py_file = \
+        get_templates_fpaths("download.yaml", "paramtable.yaml", "paramtable.py")
+
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
     @pytest.fixture(autouse=True)
@@ -46,15 +49,6 @@ class Test(object):
         db.create(to_file=False)
         # Although we do not test db stuff here other than checking a download id has written,
         # we iterate through all given db's
-
-        self.d_yaml_file = get_templates_fpath("download.yaml")
-        self.p_yaml_file = get_templates_fpath("processing.yaml")
-        self.p_py_file = get_templates_fpath("processing.py")
-
-        # we do not need to specify a db url other than in memory sqlite, as we do not
-        # test db stuff here other than checking a download id has written:
-        # self.dburl = 'sqlite:///:memory:'  # os.getenv("DB_URL", "sqlite:///:memory:")
-        # self.patchers = []
 
         # patchers:
         with patch('stream2segment.main.configlog4download',
@@ -446,8 +440,7 @@ def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, moc
     # mock get_session in order to return always the same session objet:
     mock_getsess.side_effect = lambda *a, **kw: sess
 
-    conffile = get_templates_fpath("processing.yaml")
-    pyfile = get_templates_fpath("processing.py")
+    conffile, pyfile = get_templates_fpaths("paramtable.yaml", "paramtable.py")
 
     # run verbosity = True, with output file. This configures a logger to log file and a logger
     # stdout

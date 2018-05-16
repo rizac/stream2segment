@@ -133,8 +133,9 @@ def test_click_download(mock_download, mock_create_sess, mock_new_db_download,
 def test_click_process(mock_process):
     runner = CliRunner()
     d_conffile = get_templates_fpath("download.yaml")
-    conffile = get_templates_fpath("processing.yaml")
-    pyfile = get_templates_fpath("processing.py")
+    
+    conffile = get_templates_fpath("paramtable.yaml")
+    pyfile = get_templates_fpath("paramtable.py")
 
     # test no dburl supplied
     mock_process.reset_mock()
@@ -182,8 +183,8 @@ def test_click_process(mock_process):
 def test_click_show(mock_create_main_app, mock_open_in_browser, mock_show):
     runner = CliRunner()
     d_conffile = get_templates_fpath("download.yaml")
-    conffile = get_templates_fpath("processing.yaml")
-    pyfile = get_templates_fpath("processing.py")
+    conffile = get_templates_fpath("paramtable.yaml")
+    pyfile = get_templates_fpath("paramtable.py")
 
     # when asserting if we called open_in_browser, since tha latter is inside a thread which
     # executes with a delay of 1.5 seconds, we need to make our function here. Quite hacky,
@@ -248,7 +249,7 @@ def test_click_template(mock_main_init, mock_click_prompt):  #, mock_isfile, moc
     assert not mock_main_init.called
     assert result.exit_code == 0
 
-    expected_files = ['download.yaml', 'processing.py', 'processing.yaml',
+    expected_files = ['download.yaml', 'paramtable.py', 'paramtable.yaml',
                       'save2fs.py', 'save2fs.yaml']
 
     with runner.isolated_filesystem() as dir_:
@@ -337,9 +338,9 @@ def test_click_template_realcopy():
         result = runner.invoke(cli, ['init', mydir])
         filez = os.listdir(mydir)
         assert "download.yaml" in filez
-        assert "processing.yaml" in filez
+        assert "paramtable.yaml" in filez
         # assert "gui.yaml" in filez
-        assert "processing.py" in filez
+        assert "paramtable.py" in filez
         # assert "gui.py" in filez
 
 

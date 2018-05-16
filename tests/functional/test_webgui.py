@@ -40,16 +40,15 @@ import tempfile
 import shutil
 
 class Test(object):
-
+    
+    pyfile, configfile = get_templates_fpaths("paramtable.py", "paramtable.yaml")
+    
      # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
     @pytest.fixture(autouse=True)
     def init(self, request, db, data):
         # re-init a sqlite database (no-op if the db is not sqlite):
         db.create(to_file=True)
-        
-        self.pyfile, self.configfile = get_templates_fpaths('processing.py',
-                                                            'processing.yaml')
         
         self.app = create_main_app(db.dburl, self.pyfile, self.configfile)
 

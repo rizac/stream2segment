@@ -168,7 +168,7 @@ class Test(object):
         self.inventory_bytes = data.read("GE.FLT1.xml")
         self.inventory = loads_inv(self.inventory_bytes)
         
-        pfile, cfile = get_templates_fpaths('processing.py', 'processing.yaml')
+        pfile, cfile = get_templates_fpaths('paramtable.py', 'paramtable.yaml')
         self.pymodule = load_source(pfile)
         self.config = yaml_load(cfile)
         

@@ -124,10 +124,10 @@ def init(outdir):
     helpdict = OrderedDict([
         ("download.yaml",
          "download configuration file ('s2s download -c' option)"),
-        ("processing.py",
+        ("paramtable.py",
          "processing python file for creating a parametric table in csv format"
          " ('s2s process -p' and 's2s show -p' option) [template#1]"),
-        ("processing.yaml",
+        ("paramtable.yaml",
          "processing configuration file of [template#1]"
          " ('s2s process -c' and 's2s show -c' option)"),
         ("save2fs.py",

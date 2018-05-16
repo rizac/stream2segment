@@ -214,14 +214,14 @@ The first to run is always `s2s init`. Type:
 ```
 s2s init --help
 ```
-to list how to create the necessary files for downloading and processing data. `s2s init` creates three files:
-
-  - download.yaml: the config file for download data
-  - processing.yaml: the config file for processing/visualization
-  - processing.py: the python module to be run during processing/visualization
-
-All instructions are written therein as comments. Browse e.g. `download.yaml` (edit it if needed) and start a download via
-`s2s download` (type `s2s download --help` for details). Once downloaded, browse (and edit them if needed) the remaining two files which will be both used for processing (`s2s process --help` for details) or visualize the segment waveforms (`s2s show --help` for details)
+to list how to create the necessary files for downloading and processing data. `s2s init` creates several template
+files which can be inspected, edited and then used: one for downloading data (download configuration file),
+and several others for processing downloaded data (where each processing template is represented by two files:
+a python module + associated configuration file).
+All instructions are written in the templates, as comments. Browse/edit the download configuration file and start a download via
+`s2s download` (type `s2s download --help` for details). Once downloaded, browse (and edit them if needed)
+a couple of processing files for processing (`s2s process --help` for details) or
+visualize (`s2s show --help` for details) the segment waveforms.
 
 ## Installation Notes:
 
