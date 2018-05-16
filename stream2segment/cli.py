@@ -57,6 +57,8 @@ class clickutils(object):
                                                  "(e.g., the config file used for "
                                                  "downloading)")),
                                required=True)
+    ExistingPath = click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
+                              readable=True)
 
     @classmethod
     def set_help_from_yaml(cls, ctx, param, value):
@@ -121,30 +123,31 @@ def init(outdir):
     """
     helpdict = OrderedDict([
         ("download.yaml",
-         "download configuration file (-c option for 's2s download' command)"),
+         "download configuration file ('s2s download -c' option)"),
         ("processing.py",
-         "processing python file for creating csv file of waveform features "
-         "(-p option for both 's2s process' and 's2s show' commands)"),
+         "processing python file for creating a parametric table in csv format"
+         " ('s2s process -p' and 's2s show -p' option) [template#1]"),
         ("processing.yaml",
-         "processing configuration file for creating csv file of waveform features "
-         "(-c option for both 's2s process' and 's2s show' commands)"),
+         "processing configuration file of [template#1]"
+         " ('s2s process -c' and 's2s show -c' option)"),
         ("save2fs.py",
-         "processing configuration file for saving waveform to filesystem"
-         "(-c option for both 's2s process' and 's2s show' commands)"),
+         "processing python file for saving waveform to filesystem"
+         " ('s2s process -p' and 's2s show -p' option) [template#2]"),
         ("save2fs.yaml",
-         "processing configuration file for saving waveform to filesystem"
-         "(-c option for both 's2s process' and 's2s show' commands)")
+         "processing configuration file of [template#2]"
+         " ('s2s process -c' and 's2s show -c' option)")
         ])
 
     try:
-        copied_files = main.init(outdir, True, *helpdict)  # pass only helpdict keys
+        copied_files = main.init(outdir, click.prompt, *helpdict)  # pass only helpdict keys
         if not copied_files:
             print("No file copied")
         else:
             print("%d file(s) copied in '%s':" % (len(copied_files), outdir))
+            frmt = "- {:<%d} {}" % max(len(f) for f in helpdict.keys())
             for fcopied in copied_files:
                 bname = os.path.basename(fcopied)
-                print("   %s: %s" % (bname, helpdict.get(bname, "")))
+                print(frmt.format(bname, helpdict.get(bname, "")))
             sys.exit(0)
     except Exception as exc:  # pylint: disable=broad-except
         print('')
@@ -166,29 +169,29 @@ def init(outdir):
 #    This is done by the method `clickutils.set_help_from_yaml`, attached
 #    as callback to the option '--dburl' below, which has 'is_eager=True', meaning that the
 #    callback is executed before all other options, even when invoking the command with --help.
-#    The callback is not attached to '--config' above because then the option would have
-#    required = True and is_eager=True, and that combination of parameters bypasses --help,
-#    if given, and raises cause the options was not given
-# 2. For yaml param help, any string following "Implementation details:": will not be shown
+# 2. Note: Don't set required = True with eager=True in a click option, as it forces that option
+#    to be always present, and thus raises if only --help is given
+# 3. For yaml param help, any string following "Implementation details:": will not be shown
 #    in the corresponding option help.
-# 3. Some yaml params accepts different names (e.g., 'net' will
+# 4. Some yaml params accepts different names (e.g., 'net' will
 #    be recognized as 'networks'): by convention, these are provided as option long names.
 #    (Options short names can be changed without problems, in principle).
 #    For these options, you need also to provide an option default name which MUST MATCH
 #    the corresponding yaml param help, otherwise the option doc will not be found.
-# 4. Option flags should all have default=None which lets us know that the flag is missing and use
+# 5. Option flags should all have default=None which lets us know that the flag is missing and use
 #    the corresponding yaml param values
 @cli.command(short_help='Downloads waveform data segments',
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option("-c", "--config",
               help="The path to the configuration file in yaml format "
                    "(https://learn.getgrav.org/advanced/yaml).",
-              type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
-                              readable=True), required=True)
+              type=clickutils.ExistingPath, required=True)
 @click.option('-d', '--dburl', is_eager=True, callback=clickutils.set_help_from_yaml)
 @click.option('-es', '--eventws')
-@click.option('-s', '--start', '--starttime', "start", type=inputargs.valid_date)
-@click.option('-e', '--end', '--endtime', 'end', type=inputargs.valid_date)
+@click.option('-s', '--start', '--starttime', "start", type=inputargs.valid_date,
+              metavar='DATE or DATETIME')
+@click.option('-e', '--end', '--endtime', 'end', type=inputargs.valid_date,
+              metavar='DATE or DATETIME',)
 @click.option('-n', '--networks', '--network', '--net', 'networks', help='See channels')
 @click.option('-z', '--stations', '--station', '--sta', 'stations', help='See channels')
 @click.option('-l', '--locations', '--location', '--loc', 'locations', help='See channels')
@@ -281,19 +284,12 @@ def download(config, dburl, eventws, start, end, networks,  # pylint: disable=un
 @click.option("-c", "--config",
               help="The path to the configuration file in yaml format "
                    "(https://learn.getgrav.org/advanced/yaml).",
-              type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
-                              readable=True),
-              required=True  # type click.Path checks the existence only if option is provided.
-              # Note: Don't set required = True with eager=True: it suppresses --help
+              type=clickutils.ExistingPath, required=True
               )
 @click.option("-p", "--pyfile",
               help="The path to the python file where the user-defined processing function "
                    "is implemented. The function will be called iteratively on each segment "
-                   "selected in the config file",
-              type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
-                              readable=True),
-              required=True  # type click.Path checks the existence only if option is provided.
-              # Don't set required = True with eager=True: it suppresses --help
+                   "selected in the config file", type=clickutils.ExistingPath, required=True
               )
 @click.option("-f", "--funcname",
               help="The name of the user-defined processing function in the given python file. "
@@ -344,18 +340,12 @@ def process(dburl, config, pyfile, funcname,
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option("-c", "--configfile",
               help="The path to the configuration file in yaml format "
-                   "(https://learn.getgrav.org/advanced/yaml).",
-              type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
-                              readable=True),
-              required=True  # type click.Path checks the existence only if option is provided.
-              # Don't set required = True with eager=True: it suppresses --help
+                   "(https://learn.getgrav.org/advanced/yaml).", type=clickutils.ExistingPath,
+              required=True
               )
 @click.option("-p", "--pyfile",
               help="The path to the python file with the plot functions implemented",
-              type=click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
-                              readable=True),
-              required=True  # type click.Path checks the existence only if option is provided.
-              # Don't set required = True with eager=True: it suppresses --help
+              type=clickutils.ExistingPath, required=True
               )
 def show(dburl, configfile, pyfile):
     """Shows raw and processed downloaded waveform\'s plots in a browser"""

@@ -7,7 +7,7 @@ import unittest
 from click.testing import CliRunner
 from stream2segment.cli import cli
 from mock.mock import patch
-from stream2segment.utils.resources import get_templates_fpath, yaml_load
+from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_templates_dirpath
 from stream2segment.main import init as orig_init, helpmathiter as main_helpmathiter, show as orig_show
 from tempfile import NamedTemporaryFile
 import yaml
@@ -18,6 +18,8 @@ import tempfile
 import shutil
 import time
 import mock
+from stream2segment.utils import load_source
+import pytest
 
 
 @contextmanager
@@ -236,30 +238,96 @@ def test_click_show(mock_create_main_app, mock_open_in_browser, mock_show):
     assert not mock_open_in_browser.called
 
 
-# @patch("stream2segment.main.shutil.copy2")
-# @patch("stream2segment.main.os.path.isfile")
-@patch("stream2segment.main.init", side_effect = lambda outdir, prompt, *files: orig_init(outdir, False, *files))
-def test_click_template(mock_create_templates):  #, mock_isfile, mock_copy2):
-    # mock_isfile.side_effect = lambda *a, **v: True
 
+@patch("stream2segment.cli.click.prompt")
+@patch("stream2segment.main.init", side_effect=orig_init)
+def test_click_template(mock_main_init, mock_click_prompt):  #, mock_isfile, mock_copy2):
     runner = CliRunner()
+    # assert help works:
+    result = runner.invoke(cli, ['init', '--help'])
+    assert not mock_main_init.called
+    assert result.exit_code == 0
+
+    expected_files = ['download.yaml', 'processing.py', 'processing.yaml',
+                      'save2fs.py', 'save2fs.yaml']
+
     with runner.isolated_filesystem() as dir_:
 
-        # a REALLY STUPID TEST. WE SHOULD ASSERT MORE STUFF.
-        # btw: how to check click prompt?? is there a way?
+        # FIXME: how to check click prompt?? is there a way?
         path = os.path.join(dir_, 'abc')
+
+        def max_mod_time():
+            return max(os.path.getmtime(os.path.join(path, f)) for f in os.listdir(path))
+
         result = runner.invoke(cli, ['init', path])
         # FIXME: check how to mock os.path.isfile properly. This doesnot work:
         # assert mock_isfile.call_count == 5
         assert result.exit_code == 0
+        assert mock_main_init.called
         files = os.listdir(path)
-        assert sorted(files) == ['download.yaml', 'processing.py', 'processing.yaml',
-                                 'save2fs.py', 'save2fs.yaml']
-        # assert help works:
-        mock_create_templates.reset_mock()
-        result = runner.invoke(cli, ['init', '--help'])
-        assert not mock_create_templates.called
-        assert result.exit_code == 0
+        assert sorted(files) == expected_files
+        assert not mock_click_prompt.called
+
+        # assert we correctly wrote the files
+        for fle in files:
+            sourcepath = get_templates_fpath(fle)
+            destpath = os.path.join(path, fle)
+            if os.path.splitext(fle)[1] == '.yaml':
+                # check loaded yaml, which also assures our templates are well formed:
+                sourceconfig = yaml_load(sourcepath)
+                destconfig = yaml_load(destpath)
+                assert sorted(sourceconfig.keys()) == sorted(destconfig.keys())
+                for key in sourceconfig.keys():
+                    assert type(sourceconfig[key]) == type(destconfig[key])
+            elif os.path.splitext(fle)[1] == '.py':
+                # check loaded python modules, which also assures our templates are well formed:
+                sourcepy = load_source(sourcepath)
+                destpy = load_source(destpath)
+                sourcekeys = [a for a in dir(sourcepy)]
+                destkeys = [a for a in dir(destpy)]
+                assert sorted(sourcekeys) == sorted(destkeys)
+                for key in sourcekeys:
+                    assert type(getattr(sourcepy, key)) == type(getattr(destpy, key))
+            else:
+                raise ValueError('There should be only python files or yaml files in %s' %
+                                 get_templates_dirpath())
+
+        # try to write to the same dir (1)
+        mock_click_prompt.reset_mock()
+        mock_click_prompt.side_effect = lambda arg: '1'  # overwrite all files
+        maxmodtime = max_mod_time()
+        # we'll test that files are modified, but on mac timestamps are rounded to seconds
+        # so wait 1 second to be safe
+        time.sleep(1)
+        result = runner.invoke(cli, ['init', path])
+        assert mock_click_prompt.called
+        assert max_mod_time() > maxmodtime
+        assert '%d file(s) copied in' % len(expected_files) in result.output
+
+        # try to write to the same dir (2)
+        for click_prompt_ret_val in ('', '2'):
+            # '' => skip overwrite
+            # '2' => overwrite only non existing
+            # in thus case, both the above returned values produce the same result
+            mock_click_prompt.reset_mock()
+            mock_click_prompt.side_effect = lambda arg: click_prompt_ret_val
+            maxmodtime = max_mod_time()
+            time.sleep(1)  # see comment above
+            result = runner.invoke(cli, ['init', path])
+            assert mock_click_prompt.called
+            assert max_mod_time() == maxmodtime
+            assert 'No file copied' in result.output
+
+        os.remove(os.path.join(path, expected_files[0]))
+        # try to write to the same dir (2)
+        mock_click_prompt.reset_mock()
+        mock_click_prompt.side_effect = lambda arg: '2'   # overwrite non-existing (1) file
+        maxmodtime = max_mod_time()
+        time.sleep(1)  # see comment above
+        result = runner.invoke(cli, ['init', path])
+        assert mock_click_prompt.called
+        assert max_mod_time() > maxmodtime
+        assert '1 file(s) copied in' in result.output
 
 
 def test_click_template_realcopy():

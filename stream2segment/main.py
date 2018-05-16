@@ -10,7 +10,7 @@ from __future__ import print_function
 
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import range, round, open
+from builtins import range, round, open, input
 
 import time
 import logging
@@ -27,8 +27,7 @@ from tempfile import gettempdir
 from future.utils import string_types, text_type, PY2
 
 import yaml
-import click
-
+import jinja2
 
 from stream2segment.utils.inputargs import load_config_for_process, load_config_for_download,\
     load_session_for_dinfo
@@ -37,11 +36,13 @@ from stream2segment.io.db.models import Download
 from stream2segment.process.main import run as run_process
 from stream2segment.download.main import run as run_download, new_db_download
 from stream2segment.utils import secure_dburl, strconvert, iterfuncs, open2writetext
-from stream2segment.utils.resources import get_templates_fpaths
+from stream2segment.utils.resources import get_templates_fpaths, get_templates_dirpath
 from stream2segment.gui.main import create_main_app, run_in_browser
 from stream2segment.process import math as s2s_math
 from stream2segment.download.utils import QuitDownload
 from stream2segment.gui.dinfo import get_dstats_html, get_dstats_str_iter
+from stream2segment.resources.templates import DOCVARS
+
 
 if PY2:
     # https://stackoverflow.com/questions/45946051/signature-method-in-inspect-module-for-python-2
@@ -250,45 +251,62 @@ def closesession(session):
 
 
 def show(dburl, pyfile, configfile):
+    '''show downloaded data plots in a system browser dynamic web page'''
     run_in_browser(create_main_app(dburl, pyfile, configfile))
     return 0
 
 
-def init(outpath, prompt=True, *filenames):
-    # get the template files. Use all files except those with more than one dot
-    # This might be better implemented
+def init(outpath, promptfunc=True, *filenames):
+    '''initilizes an output directory writing therein the given template files
+
+    :param promptfunc: True or function. This argument is used only
+    in case some files are already present in `outpath` to decide the action to be taken.
+    If function, it must accept a single string argument
+    (the prompt message) and must return a string or integer where '1' means 'overwrite all files',
+    '2' means 'overwrite only non-existing', and any other value will return without copying.
+    If this argument is True (the default), the builtin `input` function is used to interactively
+    to prompt the user. If this argument is nor True neither a function, all files will be
+    overridden without prompting.
+    '''
     if not os.path.isdir(outpath):
         os.makedirs(outpath)
         if not os.path.isdir(outpath):
             raise Exception("Unable to create '%s'" % outpath)
-    template_files = get_templates_fpaths(*filenames)
-    if prompt:
-        existing_files = [t for t in template_files
-                          if os.path.isfile(os.path.join(outpath, os.path.basename(t)))]
-        non_existing_files = [t for t in template_files if t not in existing_files]
+    templates_dir = get_templates_dirpath()
+    if promptfunc is True:
+        promptfunc = input
+    if not hasattr(promptfunc, '__call__'):
+        promptfunc = None
+    if promptfunc is not None:
+        existing_files = [f for f in filenames
+                          if os.path.isfile(os.path.join(outpath, f))]
+        non_existing_files = [f for f in filenames if f not in existing_files]
         if existing_files:
             suffix = ("Type:\n1: overwrite all files\n2: write only non-existing\n"
                       "0 or any other value: do nothing (exit)")
             msg = ("The following file(s) "
                    "already exist on '%s':\n%s"
-                   "\n\n%s") % (outpath, "\n".join([os.path.basename(_)
-                                                    for _ in existing_files]), suffix)
-            val = click.prompt(msg)
+                   "\n\n%s") % (outpath, "\n".join([_ for _ in existing_files]), suffix)
+            val = promptfunc(msg)
             try:
                 val = int(val)
                 if val == 2:
                     if not non_existing_files:
-                        raise ValueError()
+                        raise ValueError()  # fall back to "exit" case
                     else:
-                        template_files = non_existing_files
+                        filenames = non_existing_files
                 elif val != 1:
-                    raise ValueError()
+                    raise ValueError()  # fall back to "exit" case
             except ValueError:
                 return []
+
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader(templates_dir),
+                             keep_trailing_newline=True)
     copied_files = []
-    for tfile in template_files:
-        shutil.copy2(tfile, outpath)
-        copied_files.append(os.path.join(outpath, os.path.basename(tfile)))
+    for filename in filenames:
+        outfilepath = os.path.join(outpath, filename)
+        env.get_template(filename).stream(DOCVARS).dump(outfilepath)
+        copied_files.append(outfilepath)
     return copied_files
 
 

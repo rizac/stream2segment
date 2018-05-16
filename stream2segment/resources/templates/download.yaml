@@ -1,10 +1,12 @@
-###################################################################
-# stream2segment download config file to tune the functionality.
-###################################################################
+# ==========================================================
+# stream2segment config file to tune the download subroutine
+# ==========================================================
 
-###################
+# {{ YAML_WARN }}
+
+# =================
 # POGRAM PARAMETERS
-###################
+# =================
 
 # Database url where to save data (currently supported are sqlite and postgresql).
 # If sqlite, just write the path to your local file
@@ -51,9 +53,9 @@ update_metadata: false
 inventory: true
 
 
-#######################
+# =====================
 # DATA QUERY PARAMETERS
-#######################
+# =====================
 
 # Limit to events (and datacenters) on or after the specified start time. Specify a date or
 # date-time in iso-format or an integer >=0 to denote the number of days before today at midnight.
@@ -181,9 +183,9 @@ timespan:
  - 3.0 # end time of the waveform segment to download, in minutes *after* the previously calculated arrival time
 
 
-######################################################################################################
+# ====================================================================================================
 # Advanced settings (in principle, you should not care about these unless you know what you are doing)
-######################################################################################################
+# ====================================================================================================
 
 advanced_settings:
  # the routing service used to fetch the eida nodes and relative network/stations
@@ -210,5 +212,3 @@ advanced_settings:
  # unsaved rows in case of errors, as if a row item in the buffer cannot be inserted or updated
  # (e.g., integrity errors), all subsequent buffer items will be also discarded
  db_buf_size: 20
-
-
