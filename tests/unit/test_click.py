@@ -7,7 +7,8 @@ import unittest
 from click.testing import CliRunner
 from stream2segment.cli import cli
 from mock.mock import patch
-from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_templates_dirpath
+from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_templates_dirpath,\
+    get_templates_fpaths
 from stream2segment.main import init as orig_init, helpmathiter as main_helpmathiter, show as orig_show
 from tempfile import NamedTemporaryFile
 import yaml
@@ -132,10 +133,9 @@ def test_click_download(mock_download, mock_create_sess, mock_new_db_download,
 @patch("stream2segment.main.process", return_value=0)
 def test_click_process(mock_process):
     runner = CliRunner()
-    d_conffile = get_templates_fpath("download.yaml")
-    
-    conffile = get_templates_fpath("paramtable.yaml")
-    pyfile = get_templates_fpath("paramtable.py")
+
+    d_conffile, conffile, pyfile = \
+        get_templates_fpaths("download.yaml", "paramtable.yaml", "paramtable.py")
 
     # test no dburl supplied
     mock_process.reset_mock()
@@ -182,9 +182,8 @@ def test_click_process(mock_process):
 @patch("stream2segment.main.create_main_app")  # , return_value=mock.Mock())
 def test_click_show(mock_create_main_app, mock_open_in_browser, mock_show):
     runner = CliRunner()
-    d_conffile = get_templates_fpath("download.yaml")
-    conffile = get_templates_fpath("paramtable.yaml")
-    pyfile = get_templates_fpath("paramtable.py")
+    d_conffile, conffile, pyfile = \
+        get_templates_fpaths("download.yaml", "paramtable.yaml", "paramtable.py")
 
     # when asserting if we called open_in_browser, since tha latter is inside a thread which
     # executes with a delay of 1.5 seconds, we need to make our function here. Quite hacky,
