@@ -203,13 +203,13 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, verbose=Fal
     loghandlers = configlog4processing(logger, outfile, verbose)
     try:
 
-        logger.info("Executing '%s' in '%s'", funcname, pyfile)
-        logger.info("Input database: '%s", secure_dburl(dburl))
+        logger.info("Processing function: %s:%s", pyfile, funcname)
+        logger.info("Input database:      %s", secure_dburl(dburl))
         if config and isinstance(config, string_types):
-            logger.info("Config. file: %s", str(config))
-        logger.info('Log file: %s', str(loghandlers[0].baseFilename))
+            logger.info("Config. file:        %s", str(config))
+        logger.info('Log file:            %s', str(loghandlers[0].baseFilename))
         if outfile:
-            logger.info('Output file: %s', outfile)
+            logger.info('Output file:     %s', outfile)
         logger.info('')
 
         stime = time.time()
