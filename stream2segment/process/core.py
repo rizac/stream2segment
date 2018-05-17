@@ -43,42 +43,33 @@ logger = logging.getLogger(__name__)
 
 
 def run(session, pyfunc, ondone=None, config=None, show_progress=False):
+    '''Runs the processing routine
+
+    :param session: the sql-alchemy db session
+    :pram pyfunc: a python function to be executed on all selected segments
+    :param ondone: a function to be called with the output of `pyfunc`. It must have signature:
+        def ondone(segment_id, result):  # result is surely not None
+    where result is an iterable of values/objects, and segment_id is ... the segment id.
+    :param config: dict of configuration parameters, ususally the result of an associated YAML
+    configuration file
+    :param show_progress: (boolean) whether or not to show progress status and remaining time
+    on the terminal
+    '''
     if config is None:
         config = {}
 
-    # suppress obspy warnings
-    # # https://docs.python.org/2/library/warnings.html#the-warnings-filter
-#     warnings.filterwarnings("default")
-#     warn_string_io = StringIO()
-#     logger_handler = logging.StreamHandler(warn_string_io)
-#     logger_handler.setLevel(logging.WARNING)
-#     logging.captureWarnings(True)
-#     warnings_logger = logging.getLogger("py.warnings")
-#     warnings_logger.addHandler(logger_handler)
-
     # multiprocess with sessions is a mess. Among other problems, we should not share any
-    # session-related operation with the same session object across different multiprocesses.
-    # Is it worth to create a new session each time? not for the moment
-
-    # NOT USED ANYMORE: maybe in the future if we exprience memory problems:
-    # clear the session and expunge all every clear_session_step iterations:
-    # (set a multiple of three might be in sync with other orientations, which is 3):
-    # clear_session_step = 60
+    # session-related operation with the same session object across different multiprocesses
 
     logger.info("Fetching segments to process, please wait...")
 
     done_skipped_errors = [0, 0, 0]
 
-    adv_settings = config.get('advanced_settings', {})
-    multi_process = adv_settings.get('multi_process', False)
-    num_processes = adv_settings.get('num_processes', cpu_count())
-    chunksize = adv_settings.get('segments_chunk', 1200)
-
     # Note on chunksize above:
     # When loading segments, we have two strategies:
     # A) load only a Segment with its id (and defer loading of other
     # attributes upon access) or B) load a Segment with all attributes
-    # (columns) or. From experiments on a 16 GB memory Mac:
+    # (columns). From experiments on a 16 GB memory Mac:
     # Querying A) and then accessing (=loading) later two likely used attributes
     # (data and arrival_time) we take:
     # ~= 0.043 secs/segment, Peak memory (Kb): 111792 (0.650716 %)
@@ -86,7 +77,7 @@ def run(session, pyfunc, ondone=None, config=None, show_progress=False):
     # we get:
     # 0.024 secs/segment, Peak memory (Kb): 409194 (2.381825 %).
     # With millions of segments, the latter
-    # approach can save up to 9 hours with almost no memory perf issue (1.5% more).
+    # approach can save up to 9 hours with almost no memory perf issue (2.4% vs 0.7%).
     # So we define a chunk size whereby we load all segments:
 
     # the query is always loaded in memory, see:
@@ -105,6 +96,8 @@ def run(session, pyfunc, ondone=None, config=None, show_progress=False):
     # get total segment length (in numpy it is equivalent to len(seg_sta_ids)):
     seg_len = seg_sta_ids.shape[0]
 
+    chunksize, multi_process, num_processes = get_advanced_settings(config, seg_len, show_progress)
+
     def stationssaved():
         '''returns how many station inventories are saved on the db (int)'''
         return session.query(func.count(Station.id)).filter(Station.has_inventory).scalar()
@@ -118,24 +111,39 @@ def run(session, pyfunc, ondone=None, config=None, show_progress=False):
 
     session.close()  # expunge all, clear all states
 
-    with create_processing_env(seg_len, config=None if multi_process else config,
-                               redirect_stderr=False if multi_process else True,
+    with create_processing_env(seg_len if show_progress else 0,
+                               config=None if multi_process else config,
+                               redirect_stderr=True,
+                               # redirect stderr from the main process (i.e., here)
+                               # as The main process and the children all share the same
+                               # standard input and standard output file descriptors
+                               # (https://stackoverflow.com/a/19421432)
+                               # redirection of stderr prevents Python BUT ALSO external
+                               # libraries to print unwanted stuff on screen which might mess
+                               # up the progressbar
                                warnings_filter=None if multi_process else 'ignore') as pbar:
         if multi_process:
-            # little hacky (1): the db engine has to be disposed now
-            # if we want to use multi-processing:
+            # The two actions here below are a little hacky in that we might simply pass
+            # strings to this functions (dburl and python module path), but this would require
+            # checking for well formed dburl and paths here, which is what we do BEFORE, and also,
+            # the non pythin-multiprocessing case benefits of having already db session object and
+            # python function loaded.
+
+            # 1. The db engine has to be disposed now if we want to use multi-processing:
             # https://stackoverflow.com/questions/41279157/connection-problems-with-sqlalchemy-and-multiple-processes
             dburl = session.bind.engine.url
             session.bind.engine.dispose()
-            # little hacky (2): We need to pass pickable stuff to each child sub-process,
-            # therefore no imported functions.
+            # 2. We need to pass pickable stuff to each child sub-process,
+            # therefore no imported functions:
             pyfile = inspect.getsourcefile(pyfunc)
             funcname = pyfunc.__name__
 
             def mp_initializer():
                 '''set up the worker processes to ignore SIGINT altogether,
                 and confine all the cleanup code to the parent process (e.g. Ctrl+C pressed)'''
-                # https://stackoverflow.com/questions/1408356/keyboard-interrupts-with-pythons-multiprocessing-pool
+                # See https://stackoverflow.com/a/6191991 and links therein:
+                # https://noswap.com/blog/python-multiprocessing-keyboardinterrupt
+                # https://github.com/jreese/multiprocessing-keyboardinterrupt
                 signal.signal(signal.SIGINT, signal.SIG_IGN)
 
             pool = Pool(processes=num_processes, initializer=mp_initializer)
@@ -147,11 +155,7 @@ def run(session, pyfunc, ondone=None, config=None, show_progress=False):
                     for output, is_ok, segment_id in results:
                         process_output(output, is_ok, segment_id, ondone, done_skipped_errors)
                     pbar.update(len(results))
-            # https://stackoverflow.com/questions/1408356/keyboard-interrupts-with-pythons-multiprocessing-pool
-            # (2nd answer) and links therein:
-            # https://noswap.com/blog/python-multiprocessing-keyboardinterrupt
-            # https://github.com/jreese/multiprocessing-keyboardinterrupt
-            except:
+            except:  # @IgnorePep8 pylint: disable=bare-except
                 pool.terminate()
                 pool.join()
                 raise
@@ -166,58 +170,37 @@ def run(session, pyfunc, ondone=None, config=None, show_progress=False):
             # load all segments at once. The number 1200 seems to be a reasonable choice
             for seg_sta_chunk in get_slices(seg_sta_ids, chunksize):
                 # clear identity map, i.e. the cache-like sqlalchemy object, to free memory.
-                # do it before querying otherwise all queried stuff is detached from the session
-                # Keep the station in case, as relationships like segment.station will
-                # use the cached value in case and we avoid re-loading data:
+                # (do it before querying otherwise all queried stuff is detached from the session):
+                # 1. First keep the current station, if any, as relationships like segment.station
+                # might use the cached value and we avoid re-loading data:
                 # http://docs.sqlalchemy.org/en/latest/orm/query.html#sqlalchemy.orm.query.Query.yield_per
                 station = sta_query.get(int(station_id)) \
                     if inventory is not None and station_id == seg_sta_chunk[0, 1] else None
-                session.expunge_all()  # clear session identity map (sort of cache)
-                if station is not None:  # re-assign station and related stuff (datacenter),
-                    # we could use merge but it's useless as we do not have other instances
+                # now clear session identity map (sort of cache)
+                session.expunge_all()
+                # re-assign station to the identity map, if any (not None):
+                if station is not None:
+                    # Note1: we could use merge but it's useless as we do not have other instances:
                     # http://docs.sqlalchemy.org/en/latest/orm/session_state_management.html#merging
-                    # Note that also related objects are added (e.g., station's datacenter)
+                    # Note2: By adding a station, also related objects are added
+                    # (e.g., station's datacenter)
                     # The instance should be persistent after adding it, for info see:
                     # http://docs.sqlalchemy.org/en/latest/orm/session_state_management.html
                     session.add(station)
-                # the query with "in" operator might NOT return segments in the same order
-                # as the ids provided in the "in" argument. Store them into a dict:
 
-#                 segments = query_segments(seg_query, seg_sta_chunk[:, 0])
-#                 station_ids = seg_sta_chunk[:, 1]  # does not allocate new memory
-#                 for segment, sta_id in zip(segments, station_ids):
-#                     if station_id == sta_id:  # set cached inventory object (might be None)
-#                         segment._inventory = inventory  # pylint: disable=protected-access
-#                     output, is_ok = process_segment(segment, config, pyfunc)
-#                     process_output(output, is_ok, segment.id, ondone, done_skipped_errors)
-#                     # set cached inventory using private-like field:
-#                     inventory = getattr(segment, "_inventory", None)
-#                     station_id = sta_id
-#                 pbar.update(len(station_ids))
-
-                # station_id and inventory are updated and used only in the outer loop (see above)
                 for output, is_ok, segment_id, station_id, inventory in \
                         process_segments(session, seg_sta_chunk, config, pyfunc, station_id,
                                          inventory):
+                    # `process_segment` uses internally an inventory cache mechanism, i.e.
+                    # it avoids loading an inventory again, if we have it already calculated.
+                    # (this is why, to make the mechanism easier, we query to the db segments in a
+                    # particular order according to their station id first, see
+                    # :func:`joinandorder`).
+                    # `process_segment` yields also station_id and inventory with the only
+                    # purpose to perform the same inventory cache mechanism also on the first
+                    # segment of the next `seg_sta_chunk` loop (see above)
                     process_output(output, is_ok, segment_id, ondone, done_skipped_errors)
                 pbar.update(int(seg_sta_chunk.shape[0]))
-
-#     captured_warnings = warn_string_io.getvalue()
-#     if captured_warnings:
-#         logger.info("(external warnings captured, if provided, see log file for details)")
-#         logger.info("")
-#         logger.warning("Captured external warnings:")
-#         logger.warning("%s", captured_warnings)
-#         logger.warning("(only the first occurrence of an external warning for each location "
-#                        "where the warning is issued is reported. Because of maintainability "
-#                        "and performance potential issues, the segment id which originated "
-#                        "these warnings cannot be shown. However, in most cases the process "
-#                        "completed successfully, and if you want to check the correctness of "
-#                        "the data please check the results)")
-# 
-#     logging.captureWarnings(False)  # form the docs the redirection of warnings to the logging
-#     # system will stop, and warnings will be redirected to their original destinations
-#     # (i.e. those in effect before captureWarnings(True) was called).
 
     done, skipped, errors = done_skipped_errors
     # get stations with data and inform the user if any new has been saved:
@@ -232,25 +215,67 @@ def run(session, pyfunc, ondone=None, config=None, show_progress=False):
                 "(check log or details)\n", errors, seg_len)
 
 
+def get_advanced_settings(config, segments_count, show_progress):
+    '''Extracts the advanced settings from the given config, returning their defaults
+    if not given.
+
+    :return: the tuple chunksize (int, default:depends on segments_count and show_progress,
+                                  however it stems from a default_chunk_size of 1200),
+        multi_process (boolean, default:False), num_processes (int, default: cpu_count())
+    '''
+    adv_settings = config.get('advanced_settings', {})
+    multi_process = adv_settings.get('multi_process', False)
+    num_processes = adv_settings.get('num_processes', cpu_count())
+    chunksize = adv_settings.get('segments_chunk', None)
+    if chunksize is None:
+        default_chuknksize, min_pbar_iterations = _get_chunksize_defaults()
+        if not show_progress or segments_count >= 2 * default_chuknksize:
+            chunksize = default_chuknksize
+        else:
+            # determine the chunlsize in order to have `min_pbar_iterations` iterations
+            # use np.true_divide so that py2/3 division is not a problem:
+            chunksize = max(1, int(np.true_divide(segments_count, min_pbar_iterations).item()))
+    return chunksize, multi_process, num_processes
+
+
+def _get_chunksize_defaults():
+    '''returns a 2 element tuple with
+    the default segment chunksize (1200) and the minimum progressbar iterations (10)
+    This function is implemented mainly for mocking in tests
+    '''
+    return 1200, 10
+
 def process_segments_mp(args):
+    '''Function to be used INSIDE A CHILD python-process to process a chunk of segments
+        Takes care of releasing db session and other stuff.
+
+        :param args: the tuple (seg_sta_chunk, dburl, config, pyfile, funcname)
+        where seg_sta_chunk is a Nx2 nupy array of (segment_id, station_id) rows,
+        dburl is the database url (string), config is the config dict, pyfile is the
+        path to the processing module (string) and funcname is the processing function name
+        to be called
+
+        :return: a list of (output, is_ok, segment_id) tuples, where output is the
+        output of the processing funcion name (either iterable or Exception), is_ok (boolean)
+        tells if `output` is NOT an Exception, and segment_id is the id of the segment processed
+    '''
     seg_sta_chunk, dburl, config, pyfile, funcname = args
     pyfunc = load_pyfunc(pyfile, funcname)
     session = get_session(dburl)
     ret = []
-#     with create_processing_env(0, config, redirect_stderr=True, warnings_filter='ignore'):
-#         segments = query_segments(get_seg_query(session), segment_ids)
-#         try:
-#             for segment in segments:
-#                 output, is_ok = process_segment(segment, config, pyfunc)
-#                 ret.append(segment.id, output, is_ok)
-#             return ret
-#         finally:
-#             session.close()
-#             session.bind.engine.dispose()
-    with create_processing_env(0, config, redirect_stderr=True, warnings_filter='ignore'):
+
+    with create_processing_env(0, config, redirect_stderr=False, warnings_filter='ignore'):
         try:
             for output, is_ok, segment_id, station_id, inventory in \
                         process_segments(session, seg_sta_chunk, config, pyfunc):
+                # `process_segment` uses internally an inventory cache mechanism, i.e.
+                # it avoids loading an inventory again, if we have it already calculated.
+                # (this is why, to make the mechanism easier, we query to the db segments in a
+                # particular order according to their station id first, see :func:`joinandorder`).
+                # `process_segment` yields also station_id and inventory, but they are useless
+                # here: they are used only when `process_segments` is called inside an outer loop,
+                # to perform the same inventory cache mechanism also on the first segment of the
+                # next loop
                 ret.append((output, is_ok, segment_id))
             return ret
         finally:
@@ -259,9 +284,28 @@ def process_segments_mp(args):
 
 
 def process_segments(session, seg_sta_chunk, config, pyfunc, station_id=None, inventory=None):
+    '''Function that proceses a chunk of segments and yield the resulted output.
+    Yields a list of (output, is_ok, segment_id, station_id, inventory) tuples, where output is the
+    output of the processing funcion name (either iterable or Exception), is_ok (boolean)
+    tells if `output` is NOT an Exception, segment_id is the id of the segment processed,
+    station_id the segment station id, inventory is the station inventory, which might be None
+    if an inventory was not requested in `pyfunc` implementation, or an Exception if the
+    operation of reading the inventory raised.
+
+    :param session: the db session (sql-alcheemy session)
+    :param seg_sta_chunk: a Nx2 nupy array of (segment_id, station_id) rows,
+    :param config: the config dict
+    :param pyfunc: a python function to be invoked on each segment
+    :param station_id: the station id of the previously calculated segment, if this
+    function is called in a loop on the same process. Otherwise ignore (pass None)
+    :param inventory: the station inventory of the previously calculated segment,
+    if this function is called in a loop on the same python process. Otherwise ignore (pass None)
+    '''
+    # To make the query with "in" operator return segments in the same order
+    # (station id, then event id etceters) use joinandorder:
     segments = joinandorder(session.query(Segment)).\
         filter(Segment.id.in_(seg_sta_chunk[:, 0].tolist()))
-    station_ids = seg_sta_chunk[:, 1]  # does not allocate new memory
+    station_ids = seg_sta_chunk[:, 1]  # numpy note: does not allocate new memory
     for segment, sta_id in zip(segments, station_ids):
         if station_id == sta_id:  # set cached inventory object (might be None)
             segment._inventory = inventory  # pylint: disable=protected-access
@@ -273,6 +317,17 @@ def process_segments(session, seg_sta_chunk, config, pyfunc, station_id=None, in
 
 
 def process_segment(segment, config, pyfunc):
+    '''processes a signle segment and return the output of
+    `pyfunc(segment, config)
+
+    :return: the tuple (output, is_ok), where output is either an iterable or an Exception,
+    and is_ok is a boolean telling if output is NOT an exception (the variable might speedup
+    the check as isinstance(output, Exception) might be time consuming
+
+    Note that output is an exception if it's of type:
+    (ImportError, NameError, AttributeError, SyntaxError, TypeError).
+    Any other exception will raise
+    `'''
     try:
         return pyfunc(segment, config), True
     except (ImportError, NameError, AttributeError, SyntaxError,
@@ -283,7 +338,8 @@ def process_segment(segment, config, pyfunc):
 
 
 def process_output(output, is_ok, segment_id, ondone, done_skipped_errors):
-    '''to be executed in the main process'''
+    '''Function processing the output of `:func:process_segment`
+    This function MUST be executed in the main python-process, and not from within sub-processes'''
     if is_ok:
         if ondone:
             if output is not None:
@@ -318,12 +374,17 @@ def query4process(session, conditions=None):
 
 
 def joinandorder(query):
+    '''Given an already built query for processing, adds joins and order_by to the
+    query in order to return segments ordered by stationid, then event, and then
+    channel's location and channel's channel. This assures that if `query` had returned
+
+    :param query: an sql-alchemy query object
+    :return: a new query identical to the passed `auery` argument with joined table and
+    oredr_by applied
+    '''
+
     return query.join(Segment.station, Segment.channel).\
         order_by(Station.id, Segment.event_id, Channel.location, Channel.channel)
-
-
-# def get_seg_query(session):
-#     return order(session.query(Segment))
 
 
 @contextmanager
@@ -340,14 +401,14 @@ def create_processing_env(length=0, config=None, redirect_stderr=False, warnings
     Typical usage with multi-processing from the main function (activate only progressbar 'with'
     statement):
     ```
-        with create_proc_env(10, None, redirect_stderr=False, None) as pbar:
+        with create_proc_env(10, None, redirect_stderr=True, None) as pbar:
             ...
             pbar.update(1)
     ```
     Typical usage with multi-processing from a child process  (activate all but progressbar 'with'
     statement):
     ```
-        with create_proc_env(0, config, redirect_stderr=True, 'ignore') as pbar:
+        with create_proc_env(0, config, redirect_stderr=False, 'ignore') as pbar:
             ...
             pbar.update(1)
     ```
@@ -357,7 +418,7 @@ def create_processing_env(length=0, config=None, redirect_stderr=False, warnings
     :param config: if None, it does not enhance the Segment class. Otherwise, it adds to it
     methods for processing (e.g., segment.stream())
     :param redirect_stderr: if True, captures the output of all C external functions and does not
-    print them to the screen
+    print them to the screen, as it might be the case with some obspy C-imported libraries
     :param warnings_filter: if None, it does not capture python warnings. Otherwise it denotes the
     python filter. E.g. 'ignore'. For info see FIXME: add link
     '''
@@ -379,18 +440,21 @@ def create_processing_env(length=0, config=None, redirect_stderr=False, warnings
                 yield pbar
 
 
-# THE FUNCTION BELOW REDIRECTS STANDARD ERROR/OUTPUT FROM EXTERNAL PROGRAM
-# http://stackoverflow.com/questions/5081657/how-do-i-prevent-a-c-shared-library-to-print-on-stdout-in-python
-# there's a second one easier to understand but does not restore old std/err stdout
-# Added comments from
-# http://stackoverflow.com/questions/8804893/redirect-stdout-from-python-for-c-calls
 @contextmanager
 def redirect(src=None, dst=os.devnull):
     '''
-    FIXME: write doc
-    import os
+    This method prevents Python AND external C shared library to print to stdout/stderr in python,
+    and prevents leaking file descriptors.
+    If the first argument is None or any object not having a fileno() argument, this
+    context manager is simply no-op and will yield and then return
 
-    with stdout_redirected(src=sys.stderr):
+    See (in this order):
+    https://stackoverflow.com/a/14797594
+    and (final solution modified here):
+
+    Example
+
+    with redirect(sys.stdout):
         print("from Python")
         os.system("echo non-Python applications are also supported")
     '''
@@ -404,26 +468,32 @@ def redirect(src=None, dst=os.devnull):
         yield
         return
 
-    # # assert that Python and C stdio write using the same file descriptor
+    # if you want to assert that Python and C stdio write using the same file descriptor:
     # assert libc.fileno(ctypes.c_void_p.in_dll(libc, "stdout")) == file_desc == 1
 
-    def _redirect_stderr(to):
+    def _redirect_stderr_to(fileobject):
         sys.stderr.close()  # + implicit flush()
-        os.dup2(to.fileno(), file_desc)  # file_desc writes to 'to' file
-        sys.stderr = os.fdopen(file_desc, 'w')  # Python writes to file_desc
+        # make `file_desc` point to the same file as `fileobject`.
+        # First closes file_desc if necessary:
+        os.dup2(fileobject.fileno(), file_desc)
+        # Make Python write to file_desc
+        sys.stderr = os.fdopen(file_desc, 'w')
 
-    def _redirect_stdout(to):
+    def _redirect_stdout_to(fileobject):
         sys.stdout.close()  # + implicit flush()
-        os.dup2(to.fileno(), file_desc)  # file_desc writes to 'to' file
-        sys.stdout = os.fdopen(file_desc, 'w')  # Python writes to file_desc
+        # make `file_desc` point to the same file as `fileobject`.
+        # First closes file_desc if necessary:
+        os.dup2(fileobject.fileno(), file_desc)
+        # Make Python write to file_desc
+        sys.stdout = os.fdopen(file_desc, 'w')
 
-    _redirect_ = _redirect_stderr if src is sys.stderr else _redirect_stdout
+    _redirect_to = _redirect_stderr_to if src is sys.stderr else _redirect_stdout_to
 
-    with os.fdopen(os.dup(file_desc), 'w') as old_:
-        with open(dst, 'w') as fopen:
-            _redirect_(to=fopen)
+    with os.fdopen(os.dup(file_desc), 'w') as src_fileobject:
+        with open(dst, 'w') as dst_fileobject:
+            _redirect_to(dst_fileobject)
         try:
             yield  # allow code to be run with the redirected stdout/err
         finally:
-            # restore stdout. buffering and flags such as CLOEXEC may be different:
-            _redirect_(to=old_)
+            # restore stdout/err. buffering and flags such as CLOEXEC may be different:
+            _redirect_to(src_fileobject)

@@ -10,7 +10,7 @@ from builtins import str, object  # pylint: disable=redefined-builtin
 import os
 from datetime import datetime, timedelta
 import mock
-from mock import patch
+from mock import patch, MagicMock
 from future.backports.urllib.error import URLError
 import pytest
 import numpy as np
@@ -24,7 +24,10 @@ from stream2segment.io.db.models import Base, Event, Station, WebService, Segmen
     Channel, Download, DataCenter
 from stream2segment.utils.inputargs import yaml_load as orig_yaml_load
 from stream2segment import process
-from stream2segment.process.core import run as process_core_run
+from stream2segment.process.core import run as process_core_run, \
+    get_advanced_settings as o_get_advanced_settings, process_segments as o_process_segments,\
+    process_segments_mp as o_process_segments_mp\
+, query4process
 
 from future import standard_library
 from stream2segment.utils.resources import get_templates_fpaths
@@ -219,9 +222,6 @@ class Test(object):
             expected_first_row_seg_id = str(self.seg1.id)
             station_id_whose_inventory_is_saved = self.sta_ok.id
 
-            # need to reset this global variable: FIXME: better handling?
-            process.main._inventories = {}
-
             pyfile, conffile = get_templates_fpaths("save2fs.py", "save2fs.yaml")
 
             result = runner.invoke(cli, ['process', '--dburl', db.dburl,
@@ -267,3 +267,128 @@ class Test(object):
         assert any(s.inventory_xml for s in stas)
         assert db.session.query(Station).\
             filter(Station.id == station_id_whose_inventory_is_saved).first().inventory_xml
+
+
+    # Recall: we have 5 segments:
+    # 2 are empty, out of the remaining three:
+    # 1 has errors if its inventory is queried to the db. Out of the other two:
+    # 1 has gaps
+    # 1 has no gaps
+    # Thus we have several levels of selection possible
+    # as by default withdata is True in segment_select, then we process only the last three
+    #
+    # Here a simple test for a processing file returning dict. Save inventory and check it's saved
+    @pytest.mark.parametrize("advanced_settings, cmdline_opts",
+                             [({}, []),
+                              ({'segments_chunk': 1}, []),
+                              ({'segments_chunk': 1}, ['--multi-process']),
+                              ({}, ['--multi-process']),
+                              ({'segments_chunk': 1}, ['--multi-process', '--num-processes', '1']),
+                              ({}, ['--multi-process', '--num-processes', '1'])])
+    @mock.patch('stream2segment.utils.inputargs.yaml_load')
+    @mock.patch('stream2segment.process.core.Pool')
+    @mock.patch('stream2segment.process.core.get_advanced_settings',
+                side_effect=o_get_advanced_settings)
+    @mock.patch('stream2segment.process.core.process_segments', side_effect=o_process_segments)
+    @mock.patch('stream2segment.process.core.process_segments_mp',
+                side_effect=o_process_segments_mp)
+    def test_simple_run_no_outfile_provided_good_argslists(self, mock_process_segments_mp,
+                                            mock_process_segments, mock_get_advanced_settings,
+                                            mock_mp_Pool, mock_yaml_load, advanced_settings,
+                                            cmdline_opts,
+                                            # fixtures:
+                                            db):
+        '''test arguments and calls are ok. Mock Pool imap_unordered as we do not
+        want to confuse pytest in case
+        '''
+        class MockPool(object):
+            def __init__(self, *a, **kw):
+                pass
+            
+            def imap_unordered(self,*a, **kw):
+                return map(*a, **kw)
+            
+            def close(self, *a, **kw):
+                pass
+            
+            def join(self, *a, **kw):
+                pass
+
+        mock_mp_Pool.return_value = MockPool() 
+        
+        # set values which will override the yaml config in templates folder:
+        runner = CliRunner()
+        with runner.isolated_filesystem() as dir_:
+            config_overrides = {'save_inventory': True,
+                                'snr_threshold': 0,
+                                'segment_select': {'has_data': 'true'},
+                                'root_dir': os.path.abspath(dir_)}
+            if advanced_settings:
+                config_overrides['advanced_settings'] = advanced_settings
+
+            mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
+
+            # need to reset this global variable: FIXME: better handling?
+            # process.main._inventories = {}
+
+            pyfile, conffile = get_templates_fpaths("save2fs.py", "save2fs.yaml")
+
+            result = runner.invoke(cli, ['process', '--dburl', db.dburl,
+                                   '-p', pyfile, '-c', conffile] + cmdline_opts)
+
+            if result.exception:
+                import traceback
+                traceback.print_exception(*result.exc_info)
+                print(result.output)
+                assert False
+                return
+
+            # test some stuff and get configarg, the the REAL config passed in the processing
+            # subroutines:
+            assert mock_get_advanced_settings.called
+            assert len(mock_get_advanced_settings.call_args_list) == 1
+            configarg = mock_get_advanced_settings.call_args_list[0][0][0]  # positional argument
+
+            seg_processed_count = query4process(db.session,
+                                                configarg.get('segment_select', {})).count()
+            # assert we called the functions the specified amount of times
+            if '--multi-process' in cmdline_opts and not advanced_settings:
+                # remember that when we have advanced_settings it OVERRIDES
+                # the original advanced_settings key in config, thus also multi-process flag
+                assert mock_process_segments_mp.called
+                assert mock_process_segments_mp.call_count == (seg_processed_count if
+                                                               'segments_chunk' in advanced_settings
+                                                               else 1)
+                # process_segments_mp calls process_segments:
+                assert mock_process_segments_mp.call_count == mock_process_segments.call_count
+            else:
+                assert not mock_process_segments_mp.called
+                assert mock_process_segments.called
+                assert mock_process_segments.call_count == (seg_processed_count if
+                                                            'segments_chunk' in advanced_settings
+                                                            else 1)
+            # test that advanced settings where correctly written:
+            real_advanced_settings = configarg.get('advanced_settings', {})
+            assert ('segments_chunk' in real_advanced_settings) == \
+                ('segments_chunk' in advanced_settings)
+            # 'advanced_settings', if present HERE, will REPLACE 'advanced_settings' in config
+            #  See module function 'yaml_load_side_effect'. THus:
+            if advanced_settings:
+                assert sorted(real_advanced_settings.keys()) == sorted(advanced_settings.keys())
+                for k in advanced_settings.keys():
+                    assert advanced_settings[k] == real_advanced_settings[k]
+            else:
+                if 'segments_chunk' in advanced_settings:
+                    assert real_advanced_settings['segments_chunk'] == \
+                        advanced_settings['segments_chunk']
+                assert ('multi_process' in real_advanced_settings) == \
+                    ('--multi-process' in cmdline_opts)
+                if '--multi-process' in cmdline_opts:
+                    assert real_advanced_settings['multi_process'] is True
+                assert ('num_processes' in real_advanced_settings) == \
+                    ('--num-processes' in cmdline_opts)
+                if '--num-processes' in cmdline_opts:
+                    val = cmdline_opts[cmdline_opts.index('--num-processes')+1]
+                    assert str(real_advanced_settings['num_processes']) == val
+                    assert type(real_advanced_settings['num_processes']) == int
+

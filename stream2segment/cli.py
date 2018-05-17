@@ -296,7 +296,7 @@ def download(config, dburl, eventws, start, end, networks,  # pylint: disable=un
                    "Optional: defaults to '%s' when "
                    "missing" % inputargs.default_processing_funcname(),
               )  # do not set default='main', so that we can test when arg is missing or not
-@click.option("-mp", "--multi-process", is_flag=True,
+@click.option("-mp", "--multi-process", is_flag=True, default=None,
               help="Use parallel sub-processes to speed up the execution. "
                    "When missing, it defaults to false"
               )  # do not set default='main', so that we can test when arg is missing or not
@@ -304,7 +304,7 @@ def download(config, dburl, eventws, start, end, networks,  # pylint: disable=un
               help="The number of sub-processes. If missing, it is set as the "
                    "the number of CPUs in the system. This option is ignored "
                    "if --multi-process is not given",
-              )  # do not set default='main', so that we can test when arg is missing or not
+              )
 @click.argument('outfile', required=False)
 def process(dburl, config, pyfile, funcname,
             multi_process, num_processes,  # pylint: disable=unused-argument

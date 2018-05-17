@@ -200,15 +200,17 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, verbose=Fal
     session, pyfunc, funcname, config_dict = \
         load_config_for_process(dburl, pyfile, funcname, config, outfile, **param_overrides)
 
-    configlog4processing(logger, outfile, verbose)
+    loghandlers = configlog4processing(logger, outfile, verbose)
     try:
 
-        if outfile:
-            logger.info('Output file: %s', outfile)
         logger.info("Executing '%s' in '%s'", funcname, pyfile)
         logger.info("Input database: '%s", secure_dburl(dburl))
         if config and isinstance(config, string_types):
             logger.info("Config. file: %s", str(config))
+        logger.info('Log file: %s', str(loghandlers[0].baseFilename))
+        if outfile:
+            logger.info('Output file: %s', outfile)
+        logger.info('')
 
         stime = time.time()
         run_process(session, pyfunc, config_dict, outfile, verbose)

@@ -297,8 +297,6 @@ class Test(object):
         expected_first_row_seg_id = str(self.seg1.id)
         station_id_whose_inventory_is_saved = self.sta_ok.id
 
-        # need to reset this global variable: FIXME: better handling?
-        process.main._inventories = {}
         runner = CliRunner()
 
         pyfile, conffile = self.pyfile, self.conffile
@@ -372,8 +370,6 @@ class Test(object):
         expected_first_row_seg_id = str(self.seg1.id)
         station_id_whose_inventory_is_saved = self.sta_ok.id
 
-        # need to reset this global variable: FIXME: better handling?
-        process.main._inventories = {}
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             pyfile, conffile = self.pyfile, self.conffile
@@ -425,8 +421,19 @@ class Test(object):
     # as by default withdata is True in segment_select, then we process only the last three
     #
     # Here a simple test for a processing file returning dict. Save inventory and check it's saved
+    @pytest.mark.parametrize("advanced_settings, cmdline_opts",
+                             [({}, []),
+                              ({'segments_chunk': 1}, []),
+                              ({'segments_chunk': 1}, ['--multi-process']),
+                              ({}, ['--multi-process']),
+                              ({'segments_chunk': 1}, ['--multi-process', '--num-processes', '1']),
+                              ({}, ['--multi-process', '--num-processes', '1'])])
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_retDict_saveinv_complex_select(self, mock_yaml_load, db):
+    def test_simple_run_retDict_saveinv_complex_select(self, mock_yaml_load,
+                                                       advanced_settings,
+                                                       cmdline_opts,
+                                                       # fixtures:
+                                                       db):
         '''test a case where we have a more complex select involving joins'''
         # When we use our exprequery, we might join already joined tables.
         # previously, we had a
@@ -447,9 +454,11 @@ class Test(object):
                             join(Segment.event).filter(Segment.has_data))
 
         config_overrides = {'save_inventory': True,
-                                 'snr_threshold': 0,
-                                 'segment_select': {'has_data': 'true',
-                                                    'event.time': '<=%s' % (max(etimes).isoformat())}}
+                            'snr_threshold': 0,
+                            'segment_select': {'has_data': 'true',
+                                               'event.time': '<=%s' % (max(etimes).isoformat())}}
+        if advanced_settings:
+            config_overrides['advanced_settings'] = advanced_settings
         # the selection above should be the same as the previous test:
         # test_simple_run_retDict_saveinv,
         # as segment_select[event.time] includes all segments in segment_select['has_data'],
@@ -461,13 +470,11 @@ class Test(object):
         expected_first_row_seg_id = str(self.seg1.id)
         station_id_whose_inventory_is_saved = self.sta_ok.id
 
-        # need to reset this global variable: FIXME: better handling?
-        process.main._inventories = {}
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             pyfile, conffile = self.pyfile, self.conffile
             result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                                   '-p', pyfile, '-c', conffile, file.name])
+                                   '-p', pyfile, '-c', conffile, file.name] + cmdline_opts)
 
             if result.exception:
                 import traceback
@@ -508,7 +515,7 @@ class Test(object):
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
     def test_simple_run_retDict_saveinv_high_snr_threshold(self, mock_yaml_load, db):
         '''same as `test_simple_run_retDict_saveinv` above
-        but with a very high snr threshold'''
+        but with a very high snr threshold => no rows processed'''
         # set values which will override the yaml config in templates folder:
         config_overrides = {'save_inventory': True,
                                  'snr_threshold': 3,  # 3 is high enough to discard the only segment we would process otherwise
@@ -520,8 +527,6 @@ class Test(object):
         expected_first_row_seg_id = str(self.seg1.id)
         station_id_whose_inventory_is_saved = self.sta_ok.id
 
-        # need to reset this global variable: FIXME: better handling?
-        process.main._inventories = {}
         runner = CliRunner()
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             pyfile, conffile = self.pyfile, self.conffile
@@ -583,8 +588,8 @@ class Test(object):
         for seg_chunk in (None, 1):
             # set values which will override the yaml config in templates folder:
             config_overrides = {'save_inventory': False,
-                                     'snr_threshold': 0,  # don't skip any segment in processing
-                                     'segment_select': {'has_data': 'true'}}
+                                'snr_threshold': 0,  # don't skip any segment in processing
+                                'segment_select': {'has_data': 'true'}}
             if seg_chunk is not None:
                 config_overrides['advanced_settings'] = {'segments_chunk': seg_chunk}
             mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
@@ -593,8 +598,6 @@ class Test(object):
             # and thus we want to avoid DetachedInstanceError(s):
             expected_first_row_seg_id = str(self.seg1.id)
 
-            # need to reset this global variable: FIXME: better handling?
-            process.main._inventories = {}
             runner = CliRunner()
             with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
                 pyfile, conffile = self.pyfile, self.conffile
@@ -881,21 +884,22 @@ def main(segment, config):""")
                 assert not os.path.isfile(file.name+".log")
 
 
-    @pytest.mark.parametrize("advanced_settings",
-                             [{},
-#                               {'segments_chunk': 1},
-#                               {'segments_chunk': 1, 'multi_process': True},
-#                               {'multi_process': True},
-#                               {'segments_chunk': 1, 'multi_process': True, 'num_processes': 1},
-#                               {'multi_process': True, 'num_processes': 1}
-                              ])
+    @pytest.mark.parametrize("advanced_settings, cmdline_opts",
+                             [({}, []),
+                              # ({'segments_chunk': 1}, []),
+                              # ({'segments_chunk': 1}, ['--multi-process']),
+                              ({}, ['--multi-process']),
+                              # ({'segments_chunk': 1}, ['--multi-process', '--num-processes', '1']),
+                              ({}, ['--multi-process', '--num-processes', '1'])])
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_codeerror(self, mock_yaml_load, advanced_settings, db):
+    def test_simple_run_codeerror(self, mock_yaml_load, advanced_settings, cmdline_opts,
+                                  # fixtures:
+                                  db):
         '''test processing type error(wrong argumens)'''
         # set values which will override the yaml config in templates folder:
         config_overrides = {'save_inventory': False,
-                                 'snr_threshold': 0,  # take all segments
-                                 'segment_select': {'has_data': 'true'}}
+                            'snr_threshold': 0,  # take all segments
+                            'segment_select': {'has_data': 'true'}}
         if advanced_settings:
             config_overrides['advanced_settings'] = advanced_settings
         mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
@@ -920,7 +924,7 @@ def main(""")
                 result = runner.invoke(cli, ['process', '--dburl', db.dburl,
                                              '-p', tmpfile.name, '-f', "main_typeerr",
                                              '-c', conffile,
-                                             file.name])
+                                             file.name] + cmdline_opts)
 
                 # the file above are bad implementation (old one)
                 # we should not write anything
@@ -933,16 +937,17 @@ def main(""")
                 string2check = "TypeError: main_typeerr() "
                 assert string2check in logtext
 
-    @pytest.mark.parametrize("advanced_settings",
-                             [{},
-#                               {'segments_chunk': 1},
-#                               {'segments_chunk': 1, 'multi_process': True},
-#                               {'multi_process': True},
-#                               {'segments_chunk': 1, 'multi_process': True, 'num_processes': 1},
-#                               {'multi_process': True, 'num_processes': 1}
-                              ])
+    @pytest.mark.parametrize("advanced_settings, cmdline_opts",
+                             [({}, []),
+                              ({'segments_chunk': 1}, []),
+                              ({'segments_chunk': 1}, ['--multi-process']),
+                              ({}, ['--multi-process']),
+                              ({'segments_chunk': 1}, ['--multi-process', '--num-processes', '1']),
+                              ({}, ['--multi-process', '--num-processes', '1'])])
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_codeerror_nosegs(self, mock_yaml_load, advanced_settings, db):
+    def test_simple_run_codeerror_nosegs(self, mock_yaml_load, advanced_settings, cmdline_opts,
+                                         # fixtures:
+                                         db):
         '''test processing type error(wrong argumens), but test that
         since we do not have segments to process, the type error is not reached
         '''
@@ -970,7 +975,7 @@ def main(""")
                 result = runner.invoke(cli, ['process', '--dburl', db.dburl,
                                              '-p', tmpfile.name, '-f', "main_typeerr",
                                              '-c', conffile,
-                                             file.name])
+                                             file.name] + cmdline_opts)
 
                 # the file above are bad implementation (old one)
                 # we should not write anything

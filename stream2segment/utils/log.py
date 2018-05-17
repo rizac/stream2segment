@@ -42,7 +42,7 @@ class DbStreamHandler(logging.FileHandler):
         notified with each error and warning issued by this log
         """
         # w+: allows to read without closing first:
-        super(DbStreamHandler, self).__init__(gettmpfile(), mode='w+')
+        super(DbStreamHandler, self).__init__(gettmpfile(prefix='s2s_d'), mode='w+')
         # access the stream with self.stream
         self.errors = 0
         self.warnings = 0
@@ -69,11 +69,10 @@ class DbStreamHandler(logging.FileHandler):
         # we experienced the NoneType error which we could not test deterministically
         # so the if above serves to this, especially because we
         # know self.stream == None => already closed
-        
+
         # Completed succesfully, 45 warnings (execution ime: ...)
         # Not completed succesfully, 3 error, 45 warning (total execution time: )
-        
-        
+
         super(DbStreamHandler, self).flush()  # for safety
         self.stream.seek(0)  # offset of 0
         logcontent = self.stream.read()   # read again
@@ -139,8 +138,8 @@ def configlog4processing(logger, outcsvfile, isterminal):
        - If `isterminal` = True, a StreamHandler which redirects to standard output ONLY messages
          of level INFO (20) and ERROR (40) and CRITICAL (50): i.e., it does not print DEBUG
          WARNING messages
-    
-    Implementation detail: this method modifies permanently these values for performance reason: 
+
+    Implementation detail: this method modifies permanently these values for performance reason:
     ```
     logging._srcfile = None
     logging.logThreads = 0
@@ -150,7 +149,7 @@ def configlog4processing(logger, outcsvfile, isterminal):
     as needed
     """
     # https://docs.python.org/2/howto/logging.html#optimization:
-    logging._srcfile = None  #pylint: disable=protected-access
+    logging._srcfile = None  # pylint: disable=protected-access
     logging.logThreads = 0
     logging.logProcesses = 0
 
@@ -159,7 +158,8 @@ def configlog4processing(logger, outcsvfile, isterminal):
     if outcsvfile:
         handlers.append(logging.FileHandler(outcsvfile + ".log", mode='w'))
     else:
-        handlers.append(logging.StreamHandler(sys.stderr))
+        handlers.append(logging.FileHandler(gettmpfile(prefix='s2s_p'), mode='w'))
+        # handlers.append(logging.StreamHandler(sys.stderr))
     if isterminal:
         # configure print to stdout (by default only info errors and critical messages)
         handlers.append(SysOutStreamHandler(sys.stdout))
@@ -168,10 +168,13 @@ def configlog4processing(logger, outcsvfile, isterminal):
     return handlers
 
 
-def gettmpfile():
-    """returns a file under `tempfile.gettempdir()` with a datetimestamp prefixed with s2s
+def gettmpfile(prefix='s2s'):
+    """returns a file name with extension '.log'
+    under `tempfile.gettempdir()` with a datetimestamp prefixed with s2s
     """
-    return os.path.join(tempfile.gettempdir(), "s2s_%s.log" % datetime.utcnow().isoformat())
+    return os.path.join(tempfile.gettempdir(),
+                        "%s_%s.log" % (prefix,
+                                       datetime.utcnow().replace(microsecond=0).isoformat()))
 
 
 def configlog4download(logger, isterminal=False):
@@ -181,12 +184,12 @@ def configlog4download(logger, isterminal=False):
       its finalize() method is called, flushes the content of its file to the database (deleting
       the file if needed. This assures that if `finalize` is not called, possibly due to an
       exception, the file can be inspected)
-    
+
     - If `isterminal` = True, a StreamHandler which prints to standard output ONLY messages of
       level INFO (20) and ERROR (40) and CRITICAL (50): i.e., it does not rpint DEBUG and WARNING
       messages
 
-    Implementation detail: this method modifies permanently these values for performance reason: 
+    Implementation detail: this method modifies permanently these values for performance reason:
     ```
     logging._srcfile = None
     logging.logThreads = 0
@@ -196,7 +199,7 @@ def configlog4download(logger, isterminal=False):
     as needed
     """
     # https://docs.python.org/2/howto/logging.html#optimization:
-    logging._srcfile = None  #pylint: disable=protected-access
+    logging._srcfile = None  # pylint: disable=protected-access
     logging.logThreads = 0
     logging.logProcesses = 0
 
