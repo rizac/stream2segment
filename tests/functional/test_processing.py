@@ -313,16 +313,15 @@ class Test(object):
         lst = mock_run.call_args_list
         assert len(lst) == 1
         args, kwargs = lst[0][0], lst[0][1]
-        assert args[2] is None  # assert third argument (`ondone` callback) is None 'ondone' 
+        assert args[2] is None  # assert third argument (`ondone` callback) is None 'ondone'
         assert "Output file:" not in result.output
 
-        # Note that apparently CliRunner() puts stderr and stdout together 
+        # Note that apparently CliRunner() puts stderr and stdout together
         # (https://github.com/pallets/click/pull/868)
         # So we should test that we have these string twice:
-        for subs in ["Executing 'main' in ", "Config. file: "]:
+        for subs in ["Processing function: ", "Config. file: "]:
             idx = result.output.find(subs)
             assert idx > -1
-            assert result.output.find(subs, idx+1) > idx
 
         # these assertion are just copied from the test below and left here cause they
         # should still hold (db behaviour does not change of we provide output file or not):

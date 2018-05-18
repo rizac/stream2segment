@@ -1,3 +1,4 @@
+# -*- encoding: utf-8 -*-
 '''
 Created on Feb 14, 2017
 
@@ -188,6 +189,9 @@ www.dc1/dataselect/query   3         1          2      1      1      1        1 
 TOTAL                      3         1          2      1      1      1        1        1         1     12""" in result.output
 
         assert not mock_open_in_browser.called
+        assert '\n'.join(('╔════════════════╗',
+                          '║ Download id: 1 ║',
+                          '╚════════════════╝')) in result.output
         assert not mock_gettempdir.called
 
         # Test html output.

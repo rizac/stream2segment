@@ -35,7 +35,7 @@ from stream2segment.utils.log import configlog4download, configlog4processing
 from stream2segment.io.db.models import Download
 from stream2segment.process.main import run as run_process
 from stream2segment.download.main import run as run_download, new_db_download
-from stream2segment.utils import secure_dburl, strconvert, iterfuncs, open2writetext
+from stream2segment.utils import secure_dburl, strconvert, iterfuncs, open2writetext, ascii_decorate
 from stream2segment.utils.resources import get_templates_fpaths, get_templates_dirpath
 from stream2segment.gui.main import create_main_app, run_in_browser
 from stream2segment.process import math as s2s_math
@@ -203,14 +203,15 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, verbose=Fal
     loghandlers = configlog4processing(logger, outfile, verbose)
     try:
 
-        logger.info("Processing function: %s:%s", pyfile, funcname)
-        logger.info("Input database:      %s", secure_dburl(dburl))
-        if config and isinstance(config, string_types):
-            logger.info("Config. file:        %s", str(config))
-        logger.info('Log file:            %s', str(loghandlers[0].baseFilename))
-        if outfile:
-            logger.info('Output file:     %s', outfile)
-        logger.info('')
+        info = ["Processing function: %s:%s" % (pyfile, funcname),
+                "Input database:      %s" % secure_dburl(dburl),
+                "Config. file:        %s" % str('n/a' if not config else config),
+                "Log file:            %s" % str(loghandlers[0].baseFilename),
+                "Output file:         %s" % (outfile or '')]
+        if not outfile:
+            info = info[:-1]
+
+        logger.info(ascii_decorate("\n".join(info)))
 
         stime = time.time()
         run_process(session, pyfunc, config_dict, outfile, verbose)

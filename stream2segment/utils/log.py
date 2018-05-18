@@ -42,7 +42,7 @@ class DbStreamHandler(logging.FileHandler):
         notified with each error and warning issued by this log
         """
         # w+: allows to read without closing first:
-        super(DbStreamHandler, self).__init__(gettmpfile(prefix='s2s_d'), mode='w+')
+        super(DbStreamHandler, self).__init__(tmpfilepath(prefix='s2s_d'), mode='w+')
         # access the stream with self.stream
         self.errors = 0
         self.warnings = 0
@@ -92,7 +92,7 @@ class DbStreamHandler(logging.FileHandler):
         session.commit()
 
 
-class LevelFilter(object):
+class LevelFilter(object):  # pylint: disable=too-few-public-methods
     """
     This is a filter extending standard logging filter in that it handles logging messages
     not "up to a certain level" but for a particular set of levels only.
@@ -132,8 +132,7 @@ def configlog4processing(logger, outcsvfile, isterminal):
     """Configures a set of default handlers, add them to `logger` amd returns them as list:
 
        - A logging.FileHandler redirecting to a file named `outcsvfile`+".log"
-         (if outcsvfile is given, i.e. not falsy) OR
-         a logging.StreamHandler redirecting to standard error (if `outcsvfile` not given)
+         if outcsvfile is given (i.e. not falsy) OR temporary file with the current timestamp in it
 
        - If `isterminal` = True, a StreamHandler which redirects to standard output ONLY messages
          of level INFO (20) and ERROR (40) and CRITICAL (50): i.e., it does not print DEBUG
@@ -158,8 +157,7 @@ def configlog4processing(logger, outcsvfile, isterminal):
     if outcsvfile:
         handlers.append(logging.FileHandler(outcsvfile + ".log", mode='w'))
     else:
-        handlers.append(logging.FileHandler(gettmpfile(prefix='s2s_p'), mode='w'))
-        # handlers.append(logging.StreamHandler(sys.stderr))
+        handlers.append(logging.FileHandler(tmpfilepath(prefix='s2s_p'), mode='w'))
     if isterminal:
         # configure print to stdout (by default only info errors and critical messages)
         handlers.append(SysOutStreamHandler(sys.stdout))
@@ -168,13 +166,16 @@ def configlog4processing(logger, outcsvfile, isterminal):
     return handlers
 
 
-def gettmpfile(prefix='s2s'):
-    """returns a file name with extension '.log'
-    under `tempfile.gettempdir()` with a datetimestamp prefixed with s2s
+def tmpfilepath(prefix='s2s', extension='log'):
+    """returns a file path with dirname `tempfile.gettempdir()` and basename:
+        <prefix>_<now>.<extension>
+    where <now> is the iso format represenation of the current date-time (in UTC).
+    The returned path can be opened for writing temporary stuff (e.g. log filehandler)
     """
     return os.path.join(tempfile.gettempdir(),
-                        "%s_%s.log" % (prefix,
-                                       datetime.utcnow().replace(microsecond=0).isoformat()))
+                        "%s_%s.%s" % (prefix,
+                                      datetime.utcnow().replace(microsecond=0).isoformat(),
+                                      extension))
 
 
 def configlog4download(logger, isterminal=False):
@@ -212,43 +213,3 @@ def configlog4download(logger, isterminal=False):
     for hand in handlers:
         logger.addHandler(hand)
     return handlers
-
-
-# def configlog4stdout(logger):
-#     logger.setLevel(logging.INFO)  # necessary to forward to handlers
-#     # configure print to stdout (by default only info and critical messages):
-#     logger.addHandler(SysOutStreamHandler(sys.stdout))
-
-
-# @contextmanager
-# def elapsedtime2logger_when_finished(logger, method='info'):
-#     """contextmanager to be used in a with statement, will print to the logger how much time it
-#     required to
-#     execute the code in the with statement. At the end (if no exception is raised)
-#     `logger.info` (or whatever specified in `method`) will be called with a
-#     "Completed in ..." message with a nicely formatted timedelta
-#     :param logger: a logger object
-#     :param method: the string of the method to invoke. Defaults to 'info'. Possible other values
-#     are 'warning', 'error', 'debug' and 'critical'
-#     """
-#     starttime = time.time()
-#     yield
-#     getattr(logger, method)("(Completed in %s)",
-#                             str(timedeltaround(timedelta(seconds=time.time()-starttime))))
-
-# class MyFormatter(logging.Formatter):
-#         """Extends formatter to print different formatted messages according to levelname
-#         (or levelno). Warning: don't do too complex stuff as logger gets hard to mantain then
-#         """
-#         indent_n = 9
-#         indent = "%-{:d}s".format(indent_n)
-#
-#         def format(self, record):
-#             string = super(MyFormatter, self).format(record)  # defaults to "%(message)s"
-#             if record.levelno != 20:  # insert levelname, indent newlines
-#                 indent = self.indent
-#                 lname = indent % record.levelname
-#                 if "\n" in string:
-#                     string = "\n{}".format(indent % "").join(string.split("\n"))
-#                 string = "%s%s" % (lname, string)
-#             return string

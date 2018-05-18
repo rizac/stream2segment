@@ -18,7 +18,7 @@ from jinja2 import Environment, FileSystemLoader
 from sqlalchemy.sql.expression import func, or_
 
 from stream2segment.utils.resources import yaml_load
-from stream2segment.utils import get_session, get_progressbar, StringIO
+from stream2segment.utils import get_session, get_progressbar, StringIO, ascii_decorate
 from stream2segment.io.db.models import Segment, concat, Station, DataCenter, Download, substr, \
     Fdsnws
 from stream2segment.download.utils import custom_download_codes, DownloadStats
@@ -155,16 +155,6 @@ def get_dstats_str_iter(session, download_ids=None, maxgap_threshold=0.5):
         yield str(agg_statz)
 
 
-def ascii_decorate(string):
-    '''Decorates the string with a frame in unicode decoration characters, and returns
-    the decorated string'''
-    leng = (len(string) + 2)
-    firstline = "╔" + "═" * leng + "╗"
-    secondline = "║ " + string + " ║"
-    thirdline = "╚" + "═" * leng + "╝"
-    return "\n".join([firstline, secondline, thirdline])
-
-
 def get_template():
     '''Returns the jinja2 template for the html page of the download statistics'''
     thisdir = os.path.dirname(__file__)
@@ -231,7 +221,7 @@ def get_dstats_html_data(session, download_ids=None, maxgap_threshold=0.5):
     #            }
     sta_data = {}
     networks = {}
-    GAP_OVLAP_CODE = DownloadStats2.GAP_OVLAP_CODE
+    _gap_ovlap_code = DownloadStats2.GAP_OVLAP_CODE
     for segcount, staid, staname, lat, lon, dc_id, dwn_id, dwn_code, has_go in data:
         network = staname.split('.')[0]
         netindex = networks.get(network, -1)
@@ -244,7 +234,7 @@ def get_dstats_html_data(session, download_ids=None, maxgap_threshold=0.5):
             sta_data[staname] = sta_list
         sta_dic = sta_list[-1][dwn_id]
         if dwn_code == 200 and has_go is True:
-            dwn_code = GAP_OVLAP_CODE
+            dwn_code = _gap_ovlap_code
         sta_dic[dwn_code] += segcount
         codesfound.add(dwn_code)
         dcidsfound.add(dc_id)

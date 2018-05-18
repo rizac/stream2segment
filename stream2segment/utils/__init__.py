@@ -21,6 +21,7 @@ import os
 import sys
 import re
 import time
+from itertools import chain
 from datetime import datetime, timedelta
 from dateutil import parser as dateparser
 from dateutil.tz import tzutc
@@ -303,6 +304,23 @@ def secure_dburl(dburl):
     http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls
     """
     return re.sub(r"://(.*?):(.*)@", r"://\1:***@", dburl)
+
+
+def ascii_decorate(string):
+    '''Decorates the string with a frame in unicode decoration characters, and returns
+    the decorated string
+
+    :param string: a signle- or multi-line string
+    '''
+    if not string:
+        return ''
+    linez = string.splitlines()
+    maxlen = max(len(l) for l in linez)
+    frmt = "{:<%d}" % maxlen
+    hline = "═" * (maxlen + 2)
+    return "\n".join(chain(["╔" + hline + "╗"],
+                           ("║ " + frmt.format(l) + " ║" for l in linez),
+                           ["╚" + hline + "╝"]))
 
 
 # https://stackoverflow.com/questions/24946321/how-do-i-write-a-no-op-or-dummy-class-in-python

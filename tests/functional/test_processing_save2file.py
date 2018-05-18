@@ -26,8 +26,8 @@ from stream2segment.utils.inputargs import yaml_load as orig_yaml_load
 from stream2segment import process
 from stream2segment.process.core import run as process_core_run, \
     get_advanced_settings as o_get_advanced_settings, process_segments as o_process_segments,\
-    process_segments_mp as o_process_segments_mp\
-, query4process
+    process_segments_mp as o_process_segments_mp, \
+    _get_chunksize_defaults as _o_get_chunksize_defaults, query4process
 
 from future import standard_library
 from stream2segment.utils.resources import get_templates_fpaths
@@ -249,11 +249,12 @@ class Test(object):
 
         # Note that apparently CliRunner() puts stderr and stdout together
         # (https://github.com/pallets/click/pull/868)
-        # So we should test that we have these string twice:
-        for subs in ["Executing 'main' in ", "Config. file: "]:
+        # Reminder: previously, log erros where redirected to stderr
+        # This is dangerous as we use a redirect to avoid external libraries to pritn to stderr
+        # and logging to stderr might cause 'operation on closed file'.
+        for subs in ["Processing function: ", "Config. file: "]:
             idx = result.output.find(subs)
             assert idx > -1
-            assert result.output.find(subs, idx+1) > idx
 
         # these assertion are just copied from the test below and left here cause they
         # should still hold (db behaviour does not change of we provide output file or not):
@@ -278,6 +279,8 @@ class Test(object):
     # as by default withdata is True in segment_select, then we process only the last three
     #
     # Here a simple test for a processing file returning dict. Save inventory and check it's saved
+    @pytest.mark.parametrize("def_chunksize",
+                             [None, 2])
     @pytest.mark.parametrize("advanced_settings, cmdline_opts",
                              [({}, []),
                               ({'segments_chunk': 1}, []),
@@ -292,36 +295,45 @@ class Test(object):
     @mock.patch('stream2segment.process.core.process_segments', side_effect=o_process_segments)
     @mock.patch('stream2segment.process.core.process_segments_mp',
                 side_effect=o_process_segments_mp)
-    def test_simple_run_no_outfile_provided_good_argslists(self, mock_process_segments_mp,
+    @mock.patch('stream2segment.process.core._get_chunksize_defaults')
+    def test_simple_run_no_outfile_provided_good_argslists(self, mock_get_chunksize_defaults,
+                                                           mock_process_segments_mp,
                                             mock_process_segments, mock_get_advanced_settings,
                                             mock_mp_Pool, mock_yaml_load, advanced_settings,
-                                            cmdline_opts,
+                                            cmdline_opts, def_chunksize,
                                             # fixtures:
                                             db):
         '''test arguments and calls are ok. Mock Pool imap_unordered as we do not
         want to confuse pytest in case
         '''
+
+        if def_chunksize is None:
+            mock_get_chunksize_defaults.side_effect = _o_get_chunksize_defaults
+        else:
+            mock_get_chunksize_defaults.side_effect = lambda *a, **v: (def_chunksize,
+                                                                       _o_get_chunksize_defaults()[1])
+
         class MockPool(object):
             def __init__(self, *a, **kw):
                 pass
-            
-            def imap_unordered(self,*a, **kw):
+
+            def imap_unordered(self, *a, **kw):
                 return map(*a, **kw)
-            
+
             def close(self, *a, **kw):
                 pass
-            
+
             def join(self, *a, **kw):
                 pass
 
         mock_mp_Pool.return_value = MockPool() 
-        
+
         # set values which will override the yaml config in templates folder:
         runner = CliRunner()
         with runner.isolated_filesystem() as dir_:
             config_overrides = {'save_inventory': True,
                                 'snr_threshold': 0,
-                                'segment_select': {'has_data': 'true'},
+                                 'segment_select': {},  # take everything
                                 'root_dir': os.path.abspath(dir_)}
             if advanced_settings:
                 config_overrides['advanced_settings'] = advanced_settings
@@ -351,22 +363,26 @@ class Test(object):
 
             seg_processed_count = query4process(db.session,
                                                 configarg.get('segment_select', {})).count()
+            # seg_process_count is 5. advanced_settings is not given or 1.
+            # def_chunksize can be None (i,e., 1200) or given (2)
+            # See stream2segment.process.core._get_chunksize_defaults to see how we calculated
+            # the expected calls to mock_process_segments*:
+            expected_callcount = (seg_processed_count if 'segments_chunk' in advanced_settings
+                                  else seg_processed_count if def_chunksize is None else
+                                  2)
+
             # assert we called the functions the specified amount of times
             if '--multi-process' in cmdline_opts and not advanced_settings:
                 # remember that when we have advanced_settings it OVERRIDES
                 # the original advanced_settings key in config, thus also multi-process flag
                 assert mock_process_segments_mp.called
-                assert mock_process_segments_mp.call_count == (seg_processed_count if
-                                                               'segments_chunk' in advanced_settings
-                                                               else 1)
+                assert mock_process_segments_mp.call_count == expected_callcount
                 # process_segments_mp calls process_segments:
                 assert mock_process_segments_mp.call_count == mock_process_segments.call_count
             else:
                 assert not mock_process_segments_mp.called
                 assert mock_process_segments.called
-                assert mock_process_segments.call_count == (seg_processed_count if
-                                                            'segments_chunk' in advanced_settings
-                                                            else 1)
+                assert mock_process_segments.call_count == expected_callcount
             # test that advanced settings where correctly written:
             real_advanced_settings = configarg.get('advanced_settings', {})
             assert ('segments_chunk' in real_advanced_settings) == \
