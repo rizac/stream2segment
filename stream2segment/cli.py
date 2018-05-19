@@ -257,6 +257,7 @@ def download(config, dburl, eventws, start, end, networks,  # pylint: disable=un
     """Downloads waveform data segments with metadata in a specified database.
     The -c option (required) sets the defaults for all other options below, **which are optional**
     """
+    # REMEMBER: NO LOCAL VARIABLES OTHERWISE WE MESS UP THE CONFIG OVERRIDES ARGUMENTS
     try:
         overrides = {k: v for k, v in locals().items()
                      if v not in ((), {}, None) and k != 'config'}
@@ -270,12 +271,16 @@ def download(config, dburl, eventws, start, end, networks,  # pylint: disable=un
         if eventws_dict:
             overrides['eventws_query_args'] = eventws_dict
 
-        sys.exit(main.download(config, verbosity=2, **overrides))
+        ret = main.download(config, log2file=True, verbose=True, **overrides)
     except inputargs.BadArgument as aerr:
         print(aerr)
-        sys.exit(1)
-    except KeyboardInterrupt:  # this except avoids printing traceback
-        sys.exit(2)
+        ret = 2
+    except:  # @IgnorePep8 pylint: disable=bare-except
+        # do not print traceback, as we already did it by configuring loggers -> screen
+        ret = 3
+    # ret might return 0 or 1 the latter in case of QuitDownload, but tests
+    # expect a non-zero value thus we skip this feature for the moment
+    sys.exit(0 if ret <=1 else ret)
 
 
 @cli.command(short_help='Processes downloaded waveform data segments',
@@ -319,6 +324,7 @@ def process(dburl, config, pyfile, funcname,
     If this argument is missing, then the output of F (if any) will be discarded,
     and all logging messages will be redirected to the standard error
     """
+    # REMEMBER: NO LOCAL VARIABLES OTHERWISE WE MESS UP THE CONFIG OVERRIDES ARGUMENTS
     try:
         # override config values for multi_process and num_processes
         overrides = {k: v for k, v in locals().items()
@@ -327,12 +333,15 @@ def process(dburl, config, pyfile, funcname,
             # if given, put these into 'advanced_settings' sub-dict. Note that
             # nested dict will be merged with the values of the config
             overrides = {'advanced_settings': overrides}
-        sys.exit(main.process(dburl, pyfile, funcname, config, outfile, verbose=True, **overrides))
+        ret = main.process(dburl, pyfile, funcname, config, outfile, log2file=True,
+                              verbose=True, **overrides)
     except inputargs.BadArgument as aerr:
         print(aerr)
-        sys.exit(1)  # exit with 1 as normal python exceptions
-    except KeyboardInterrupt:  # this except avoids printing traceback
-        sys.exit(2)
+        ret = 2  # exit with 1 as normal python exceptions
+    except:  # @IgnorePep8 pylint: disable=bare-except
+        # do not print traceback, as we already did it by configuring loggers -> screen
+        ret = 3
+    sys.exit(ret)
 
 
 @cli.command(short_help='Shows raw and processed downloaded waveform\'s plots in a browser',

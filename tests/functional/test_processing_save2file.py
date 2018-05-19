@@ -23,7 +23,6 @@ from stream2segment.cli import cli
 from stream2segment.io.db.models import Base, Event, Station, WebService, Segment,\
     Channel, Download, DataCenter
 from stream2segment.utils.inputargs import yaml_load as orig_yaml_load
-from stream2segment import process
 from stream2segment.process.core import run as process_core_run, \
     get_advanced_settings as o_get_advanced_settings, process_segments as o_process_segments,\
     process_segments_mp as o_process_segments_mp, \

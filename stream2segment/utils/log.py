@@ -35,14 +35,14 @@ class DbStreamHandler(logging.FileHandler):
     For an example usijng sql-alchemy log rows (slightly different case but informative) see:
     http://docs.pylonsproject.org/projects/pyramid_cookbook/en/latest/logging/sqlalchemy_logger.html
     """
-    def __init__(self, min_level=20):
+    def __init__(self, basefilepath, min_level=20):
         """
         :param download_id: the id of the database instance reflecting a row of the Download table.
         THE INSTANCE MUST BE ADDED TO THE DATABASE ALREADY. It will be
         notified with each error and warning issued by this log
         """
         # w+: allows to read without closing first:
-        super(DbStreamHandler, self).__init__(tmpfilepath(prefix='s2s_d'), mode='w+')
+        super(DbStreamHandler, self).__init__(logfilepath(basefilepath), mode='w+')
         # access the stream with self.stream
         self.errors = 0
         self.warnings = 0
@@ -128,76 +128,33 @@ class SysOutStreamHandler(logging.StreamHandler):
         self.setFormatter(logging.Formatter('%(message)s'))
 
 
-def configlog4processing(logger, outcsvfile, isterminal):
-    """Configures a set of default handlers, add them to `logger` amd returns them as list:
+def configlog4download(logger, logfilebasepath='', verbose=False):
+    """"Configures the logger, setting it to a `INFO` level
+       with a list of default handlers:
 
-       - A logging.FileHandler redirecting to a file named `outcsvfile`+".log"
-         if outcsvfile is given (i.e. not falsy) OR temporary file with the current timestamp in it
-
-       - If `isterminal` = True, a StreamHandler which redirects to standard output ONLY messages
-         of level INFO (20) and ERROR (40) and CRITICAL (50): i.e., it does not print DEBUG
-         WARNING messages
-
-    Implementation detail: this method modifies permanently these values for performance reason:
-    ```
-    logging._srcfile = None
-    logging.logThreads = 0
-    logging.logProcesses = 0
-    ```
-    If you run the download inside a process re-using logging, store those values and re-set them
-    as needed
-    """
-    # https://docs.python.org/2/howto/logging.html#optimization:
-    logging._srcfile = None  # pylint: disable=protected-access
-    logging.logThreads = 0
-    logging.logProcesses = 0
-
-    logger.setLevel(logging.INFO)  # this is necessary to configure logger HERE, otherwise the
-    handlers = []
-    if outcsvfile:
-        handlers.append(logging.FileHandler(outcsvfile + ".log", mode='w'))
-    else:
-        handlers.append(logging.FileHandler(tmpfilepath(prefix='s2s_p'), mode='w'))
-    if isterminal:
-        # configure print to stdout (by default only info errors and critical messages)
-        handlers.append(SysOutStreamHandler(sys.stdout))
-    for hand in handlers:
-        logger.addHandler(hand)
-    return handlers
-
-
-def tmpfilepath(prefix='s2s', extension='log'):
-    """returns a file path with dirname `tempfile.gettempdir()` and basename:
-        <prefix>_<now>.<extension>
-    where <now> is the iso format represenation of the current date-time (in UTC).
-    The returned path can be opened for writing temporary stuff (e.g. log filehandler)
-    """
-    return os.path.join(tempfile.gettempdir(),
-                        "%s_%s.%s" % (prefix,
-                                      datetime.utcnow().replace(microsecond=0).isoformat(),
-                                      extension))
-
-
-def configlog4download(logger, isterminal=False):
-    """Configures a set of default handlers, add them to `logger` amd teturns them as list:
-
-    - A DbStreamHandler which will capture all INFO, ERROR and WARNING level messages, and when
-      its finalize() method is called, flushes the content of its file to the database (deleting
-      the file if needed. This assures that if `finalize` is not called, possibly due to an
+    - If `logfilebasepath` is truthy (evaluates to True), a DbStreamHandler redirecting to a file
+      named:
+         logfilebasepath.<now>.log
+      where <now> is the current date-time in iso-format. The handler will capture all
+      INFO, ERROR and WARNING level messages, and when its finalize() method is called,
+      flushes the content of its file to the database (deleting the file if needed.
+      This assures that if `finalize` is not called, possibly due to an
       exception, the file can be inspected)
 
-    - If `isterminal` = True, a StreamHandler which prints to standard output ONLY messages of
-      level INFO (20) and ERROR (40) and CRITICAL (50): i.e., it does not rpint DEBUG and WARNING
-      messages
+    - If `verbose` = True, a StreamHandler redirecting to standard output ONLY messages
+      of level INFO (20) and ERROR (40) and CRITICAL (50): i.e., it does not print DEBUG
+      WARNING messages (regardless of the level configured in `logger`)
 
-    Implementation detail: this method modifies permanently these values for performance reason:
+    The returned list can thus contain 0, 1 or 2 loggers depending on the arguments.
+
+    Implementation detail: this method modifies these values for performance reason:
     ```
     logging._srcfile = None
     logging.logThreads = 0
     logging.logProcesses = 0
     ```
-    If you run the download inside a process re-using logging, store those values and re-set them
-    as needed
+
+    :return: a list of handlers added to the logger
     """
     # https://docs.python.org/2/howto/logging.html#optimization:
     logging._srcfile = None  # pylint: disable=protected-access
@@ -206,10 +163,63 @@ def configlog4download(logger, isterminal=False):
 
     logger.setLevel(logging.INFO)  # necessary to forward to handlers
     # custom StreamHandler: count errors and warnings:
-    handlers = [DbStreamHandler()]
-    if isterminal:
+    handlers = []
+    if logfilebasepath:
+        handlers.append(DbStreamHandler(logfilebasepath))
+    if verbose:
         # configure print to stdout (by default only info errors and critical messages)
         handlers.append(SysOutStreamHandler(sys.stdout))
     for hand in handlers:
         logger.addHandler(hand)
     return handlers
+
+
+def configlog4processing(logger, logfilebasepath='', verbose=False):
+    """Configures the logger, setting it to a `INFO` level
+       with a list of default handlers:
+
+       - if `logfilebasepath` (string) is truthy (evaluates to True),
+         a logging.FileHandler redirecting to a file named:
+         logfilebasepath.<now>.log
+         where <now> is the current date-time in iso-format
+
+       - If `verbose` = True, a StreamHandler redirecting to standard output ONLY messages
+         of level INFO (20) and ERROR (40) and CRITICAL (50): i.e., it does not print DEBUG
+         WARNING messages (regardless of the level configured in `logger`)
+
+    The returned list can thus contain 0, 1 or 2 loggers depending on the arguments.
+
+    Implementation detail: this method modifies these values for performance reason:
+    ```
+    logging._srcfile = None
+    logging.logThreads = 0
+    logging.logProcesses = 0
+    ```
+
+    :return: a list of handlers added to the logger
+    """
+    # https://docs.python.org/2/howto/logging.html#optimization:
+    logging._srcfile = None  # pylint: disable=protected-access
+    logging.logThreads = 0
+    logging.logProcesses = 0
+
+    logger.setLevel(logging.INFO)  # this is necessary to properly cofngiure logger
+    handlers = []
+    if logfilebasepath:
+        handlers.append(logging.FileHandler(logfilepath(logfilebasepath), mode='w'))
+    if verbose:
+        # configure print to stdout (by default only info errors and critical messages)
+        handlers.append(SysOutStreamHandler(sys.stdout))
+    for hand in handlers:
+        logger.addHandler(hand)
+    return handlers
+
+
+def logfilepath(basefilepath):
+    """returns a file path with name `basefilepath`.<now>.log, where <now>
+    is the current date-time in iso format
+    :param basefilepath: a file path serving as base for the log file name. The only requirement
+    is that the directory of `basefilepath` (`os.path.dirname(basefilepath)`) exists
+    """
+    _now = datetime.utcnow().replace(microsecond=0).isoformat()
+    return basefilepath + (".%s.log" % _now)

@@ -60,28 +60,20 @@ else:
 logger = logging.getLogger("stream2segment")
 
 
-def download(config, verbosity=2, **param_overrides):
+def download(config, log2file=True, verbose=False, **param_overrides):
     """
         Downloads the given segment providing a set of keyword arguments to match those of the
-        config file (see confi.example.yaml for details)
+        config file `config`
 
         :param config: a valid path to a file in yaml format, or a dict of parameters reflecting
             a download config file
-        :param verbosity: integer: 0 means: no logger configured, no print to standard output.
-            Use this option if you want to have maximum flexibility (e.g. configure your logger)
-            and - in principle - shorter execution time (although the real benefits have not been
-            measured): this means however that no log information will be saved to the database
-            (including the execution time) unless a logger has been explicitly set by the user
-            beforehand (see :clas:`DbHandler` in case)
-            1 means: configure default logger, no print to standard output. Use this option if you
-            are not calling this function from the command line but you want to have all log
-            information stored to the database (including execution time)
-            2 (the default) means: configure default logger, and print to standard output. Use this
-            option if calling this program from the command line. This is the same as verbosity=1
-            but in addition some informations are printed to the standard output, including
-            progresss bars for displaying the estimated remaining time of each sub-task
-
-        :raise: ValueError if some parameter is invalid in configfile (yaml format)
+        :param log2file: if True (the default) configures a logger handler which redirects to
+            a file named: `config.<now>.log`, where now is the current date-time in iso format.
+            The file will be used to log all warning, error and critical messages and will write
+            its content in the Donwload table. If the program
+            does not exit for unexpected exception, the file will be deleted
+        :param verbose: if True (False by default) all info and critical messages, as well as
+            a progress-bar showing also the estimated remaining time will be printed on screen
     """
     # implementation details: this function can return 0 on success and 1 on failure.
     # First, it can raise ValueError for a bad parameter (checked before starting db session and
@@ -102,8 +94,7 @@ def download(config, verbosity=2, **param_overrides):
     # print yaml_dict to terminal if needed. Do not use input_yaml_dict as
     # params needs to be shown as expanded/converted so the user can check their correctness
     # Do no use loggers yet:
-    is_from_terminal = verbosity >= 2
-    if is_from_terminal:
+    if verbose:
         # print to terminal an informative config. First objects with custom string outputs:
         sessstr = "<session object, dburl='%s'>" % secure_dburl(str(session.bind.engine.url))
         tttablestr = "<%s object, model=%s, phases=%s>" % (tttable.__class__.__name__,
@@ -120,15 +111,14 @@ def download(config, verbosity=2, **param_overrides):
     # Note that we call again load_config with parseargs=False:
     download_id = new_db_download(session,
                                   load_config_for_download(config, False, **param_overrides))
-    loghandlers = configlog4download(logger, is_from_terminal) if verbosity > 0 else []
+    loghandlers = configlog4download(logger, config if log2file else None, verbose)
     ret = 0
     noexc_occurred = True
     log_elapsedtime_errs_warns = True
     try:
-        if is_from_terminal:  # (=> loghandlers not empty)
+        if log2file and verbose:  # (=> loghandlers not empty)
             print("Log file:\n'%s'\n"
-                  "(if the program does not quit for unexpected exceptions or external causes, "
-                  "e.g., memory overflow,\n"
+                  "(if the program does not quit for unexpected exceptions,\n"
                   "the file will be deleted before exiting and its content will be written\n"
                   "to the table '%s', column '%s')" % (str(loghandlers[0].baseFilename),
                                                        Download.__tablename__,
@@ -136,19 +126,27 @@ def download(config, verbosity=2, **param_overrides):
 
         stime = time.time()
         try:
-            run_download(download_id=download_id, isterminal=is_from_terminal, **yaml_dict)
+            run_download(download_id=download_id, isterminal=verbose, **yaml_dict)
         except QuitDownload as quitdownloadexc:
+            ret = 1
             log_elapsedtime_errs_warns = not quitdownloadexc.iscritical
 
         if log_elapsedtime_errs_warns:
+            # print "completed in ..." only if we do not have a critical quitdownload
+            # as in the latter case the message below might obfuscate more important
+            # messages, and the time completion
             logger.info("Completed in %s", str(totimedelta(stime)))
-            if loghandlers:
+            if log2file:
                 errs, warns = loghandlers[0].errors, loghandlers[0].warnings
+
                 def frmt(n, text):
                     '''stupid function to format 'No error', '1 error' , '2 errors', ...'''
                     return "%s %s%s" % ("No" if n == 0 else str(n), text, '' if n == 1 else 's')
                 logger.info("%s, %s", frmt(errs, 'error'), frmt(warns, 'warning'))
-
+    except KeyboardInterrupt:
+        # https://stackoverflow.com/questions/5191830/best-way-to-log-a-python-exception:
+        logger.critical("Aborted by user")
+        raise
     except:  # @IgnorePep8 pylint: disable=broad-except
         # log the exception traceback (only last) and raise,
         # so that in principle the full traceback is printed on terminal (or caught by the caller)
@@ -158,30 +156,32 @@ def download(config, verbosity=2, **param_overrides):
         raise
     finally:
         # write log to db if default handlers are provided:
-        if loghandlers:
-            # remove file if we do not print to terminal (as it would be impossible to
-            # know which file we logged into), or no exceptions occurred
-            loghandlers[0].finalize(session, download_id,
-                                    removefile=not is_from_terminal or noexc_occurred)
+        if log2file:
+            # remove file if no exceptions occurred:
+            loghandlers[0].finalize(session, download_id, removefile=noexc_occurred)
         closesession(session)
 
     return ret
 
 
-def process(dburl, pyfile, funcname=None, config=None, outfile=None, verbose=False,
+def process(dburl, pyfile, funcname=None, config=None, outfile=None, log2file=False, verbose=False,
             **param_overrides):
     """
         Process the segment saved in the db and optionally saves the results into `outfile`
-        in .csv format
-        If `outfile` is given, `pyfile` should return lists/dicts to be written as
-            csv row, and a handler will redirect all logged messages to a the file `[outfile].log`
-        If `outfile` is not given, then the returned values of `pyfile` will be ignored
-            (`pyfile` is supposed to process data without returning a value, e.g. save processed
-            miniSeed to the FileSystem), and a handler will redirect all logged messages to
-            `stderr`.
-        In both cases, if `verbose` is True, a handler will redirect all informations, errors
-            and critical logged messages to the standard output (also, and a progressbar will be
-            printed to standard output)
+        in .csv format. Calles F the function named `funcname` defined in `pyfile`
+        If `outfile` is given , then F should return lists/dicts to be written as
+            csv row.
+        If `outfile` is not given, then the returned values of F will be ignored
+            (F is supposed to process data without returning a value, e.g. save processed
+            miniSeed to the FileSystem)
+
+        :param log2file: if True, all messages with level >= logging.INFO will be printed to
+            a log file named  <outfile>.<now>.log  (where now is the current date and time ins iso
+            format) or <pyfile>.<now>.log, if <outfile> is None
+
+        :param verbose: if True, all messages with level logging.INFO, logging.ERROR and
+            logging.CRITICAL will be printed to the screen, as well as a progress-bar showing the
+            eta (estimated time available).
 
         :param param_overrides: paramter that will override the yaml config. Nested dict will be
             merged, not replaced
@@ -191,25 +191,22 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, verbose=Fal
     # logger),
     # Then, during processing, each segment error which is not (ImportError, NameError,
     # AttributeError, SyntaxError, TypeError) is logged as warning and the program continues.
-    # Other exceptions are raised, caught here and logged as error, with the stack trace:
+    # Other exceptions are raised, caught here and logged with level CRITICAL, with the stack trace:
     # this allows to help users to discovers possible bugs in pyfile, without waiting for
-    # the whole process to finish. Note that this does not distinguish the case where
-    # we have any other exception (e.g., keyboard interrupt), but that's not a requirement
+    # the whole process to finish
 
     # checks dic values (modify in place) and returns dic value(s) needed here:
     session, pyfunc, funcname, config_dict = \
         load_config_for_process(dburl, pyfile, funcname, config, outfile, **param_overrides)
 
-    loghandlers = configlog4processing(logger, outfile, verbose)
+    loghandlers = configlog4processing(logger, (outfile or pyfile) if log2file else None, verbose)
     try:
 
         info = ["Processing function: %s:%s" % (pyfile, funcname),
                 "Input database:      %s" % secure_dburl(dburl),
                 "Config. file:        %s" % str('n/a' if not config else config),
-                "Log file:            %s" % str(loghandlers[0].baseFilename),
-                "Output file:         %s" % (outfile or '')]
-        if not outfile:
-            info = info[:-1]
+                "Log file:            %s" % str(loghandlers[0].baseFilename if log2file else 'n/a'),
+                "Output file:         %s" % (outfile or 'n/a')]
 
         logger.info(ascii_decorate("\n".join(info)))
 
@@ -219,6 +216,9 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, verbose=Fal
         return 0  # contrarily to download, an exception should always raise and log as error
         # with the stack trace
         # (this includes pymodule exceptions e.g. TypeError)
+    except KeyboardInterrupt:
+        logger.critical("Aborted by user")  # see comment above
+        raise
     except:  # @IgnorePep8 pylint: disable=broad-except
         logger.critical("Process aborted", exc_info=True)  # see comment above
         raise
@@ -328,14 +328,14 @@ def helpmathiter(type, filter):  # @ReservedAssignment pylint: disable=redefined
     itr = [s2s_math.ndarrays] if type == 'numpy' else [s2s_math.traces] if type == 'obspy' else \
         [s2s_math.ndarrays, s2s_math.traces]
     reg = re.compile(strconvert.wild2re(filter))
-    INDENT = "   "
+    _indent = "   "
 
     def render(string, indent_num=0):
         '''renders a string stripping newlines at beginning and end and with the intended indent
         number'''
         if not indent_num:
             return string
-        indent = INDENT.join('' for _ in range(indent_num+1))
+        indent = _indent.join('' for _ in range(indent_num+1))
         return '\n'.join("%s%s" % (indent, s) for s in
                          string.replace('\r\n', '\n').split('\n'))
 
@@ -359,7 +359,7 @@ def helpmathiter(type, filter):  # @ReservedAssignment pylint: disable=redefined
                             # Consider anything that starts with _ private
                             # and don't document it
                             yield "\n"
-                            yield "%s%s%s:" % (INDENT, funcname, SIGNATURE(func_))
+                            yield "%s%s%s:" % (_indent, funcname, SIGNATURE(func_))
                             yield render(func_.__doc__, indent_num=2)
 
                 yield "\n"

@@ -44,15 +44,21 @@ class Test(object):
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
     @pytest.fixture(autouse=True)
-    def init(self, request, db, data):
+    def init(self, request, db, data, tmpdir):
         # re-init a sqlite database (no-op if the db is not sqlite):
         db.create(to_file=False)
         # Although we do not test db stuff here other than checking a download id has written,
         # we iterate through all given db's
 
         # patchers:
+        def cfd_side_effect(logger, logfilebasepath, verbose):
+            # config logger as usual, but redirects to a temp file
+            # that will be deleted by pytest, instead of polluting the program
+            # package:
+            return o_configlog4download(logger, str(tmpdir.join('logfile')), verbose)
+
         with patch('stream2segment.main.configlog4download',
-                   side_effect=o_configlog4download) as _:
+                   side_effect=cfd_side_effect) as _:
             self.mock_config4download = _
 
             with patch('stream2segment.main.new_db_download',
@@ -417,7 +423,7 @@ class Test(object):
 @patch('stream2segment.main.closesession')
 @patch('stream2segment.main.configlog4processing')
 @patch('stream2segment.main.run_process')
-def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, mock_getsess,
+def tst_process_verbosity(mock_run_process, mock_configlog, mock_closesess, mock_getsess,
                             capsys):
 
     # handlers should be removed each run_download call, otherwise we end up
@@ -485,14 +491,19 @@ def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, moc
 @patch('stream2segment.main.configlog4download')
 @patch('stream2segment.main.run_download')
 def test_download_verbosity(mock_run_download, mock_configlog, mock_closesess, mock_getsess,
-                            capsys):
+                            capsys, tmpdir):
     # handlers should be removed each run_download call, otherwise we end up
     # appending them
     numloggers = [0]
-    def clogd(logger, *a, **kv):
+    def clogd(logger, logfilebasepath, verbose):
         for h in logger.handlers[:]:
             logger.removeHandler(h)
-        ret = o_configlog4download(logger, *a, **kv)
+        # config logger as usual, but redirects to a temp file
+        # that will be deleted by pytest, instead of polluting the program
+        # package:
+        ret = o_configlog4download(logger,
+                                   str(tmpdir.join('logfile')) if logfilebasepath else None,
+                                   verbose)
         numloggers[0] = len(ret)
         return ret
     mock_configlog.side_effect = clogd
@@ -520,7 +531,7 @@ def test_download_verbosity(mock_run_download, mock_configlog, mock_closesess, m
     # run verbosity = 0. As this does not configure loggers, previous loggers will not be removed
     # (see mock above). Thus launch all tests in increasing verbosity order (from 0 on)
     mock_run_download.side_effect = lambda *a, **v: None
-    ret = o_download(d_yaml_file, verbosity=0, dburl=dburl)
+    ret = o_download(d_yaml_file, log2file=False, verbose=False, dburl=dburl)
     out, err = capsys.readouterr()
     assert not out  # assert empty (avoid comparing to strings and potential py2 py3 headache)
     log, err, warn = dblog_err_warn()
@@ -533,7 +544,7 @@ def test_download_verbosity(mock_run_download, mock_configlog, mock_closesess, m
     mock_run_download.side_effect = KeyError('a')
     # verbosity=1 configures loggers, but only the Db logger
     with pytest.raises(KeyError) as kerr:
-        ret = o_download(d_yaml_file, verbosity=0, dburl=dburl)
+        ret = o_download(d_yaml_file,  log2file=False, verbose=False, dburl=dburl)
     out, err = capsys.readouterr()
     assert not out
     log, err, warn = dblog_err_warn()
@@ -544,7 +555,7 @@ def test_download_verbosity(mock_run_download, mock_configlog, mock_closesess, m
 
     # verbosity=1 configures loggers, but only the Db logger
     mock_run_download.side_effect = lambda *a, **v: None
-    ret = o_download(d_yaml_file, verbosity=1, dburl=dburl)
+    ret = o_download(d_yaml_file,  log2file=True, verbose=False, dburl=dburl)
     out, err = capsys.readouterr()
     # this is also empty cause mock_run_download is no-op
     assert not out  # assert empty
@@ -557,7 +568,7 @@ def test_download_verbosity(mock_run_download, mock_configlog, mock_closesess, m
     # now let's see that if we raise an exception we also
     mock_run_download.side_effect = KeyError('a')
     with pytest.raises(KeyError) as kerr:
-        ret = o_download(d_yaml_file, verbosity=1, dburl=dburl)
+        ret = o_download(d_yaml_file, log2file=True, verbose=False, dburl=dburl)
     out, err = capsys.readouterr()
     assert not out
     log, err, warn = dblog_err_warn()
@@ -567,7 +578,7 @@ def test_download_verbosity(mock_run_download, mock_configlog, mock_closesess, m
     assert numloggers[0] == 1
 
     mock_run_download.side_effect = lambda *a, **v: None
-    ret = o_download(d_yaml_file, verbosity=2, dburl=dburl)
+    ret = o_download(d_yaml_file, log2file=True, verbose=True, dburl=dburl)
     out, err = capsys.readouterr()
     assert out  # assert non empty
     log, err, warn = dblog_err_warn()
@@ -579,7 +590,7 @@ def test_download_verbosity(mock_run_download, mock_configlog, mock_closesess, m
     # now let's see that if we raise an exception we also
     mock_run_download.side_effect = KeyError('a')
     with pytest.raises(KeyError) as kerr:
-        ret = o_download(d_yaml_file, verbosity=2, dburl=dburl)
+        ret = o_download(d_yaml_file, log2file=True, verbose=True, dburl=dburl)
     out, err = capsys.readouterr()
     # Now out is not empty cause the logger which prints to stdout infos errors and critical is set:
     assert "Traceback (most recent call last):" in out
