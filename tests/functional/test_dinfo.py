@@ -31,7 +31,6 @@ from stream2segment.cli import cli
 from stream2segment.io.db.models import Base, Event, Station, WebService, Segment,\
     Channel, Download, DataCenter
 from stream2segment.utils.inputargs import yaml_load as load_proc_cfg
-from stream2segment import process
 from stream2segment.utils.resources import get_templates_fpaths
 from stream2segment.process.utils import get_inventory_url, save_inventory as original_saveinv
 

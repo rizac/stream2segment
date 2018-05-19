@@ -30,14 +30,14 @@ from stream2segment.cli import cli
 from stream2segment.io.db.models import Base, Event, Station, WebService, Segment,\
     Channel, Download, DataCenter
 from stream2segment.utils.inputargs import yaml_load as orig_yaml_load
-from stream2segment import process
 from stream2segment.utils.resources import get_templates_fpaths
 from stream2segment.process.utils import get_inventory_url, save_inventory as original_saveinv
 from stream2segment.process.core import query4process
-
+from stream2segment.utils.log import configlog4processing as o_configlog4processing
 from stream2segment.process.core import run as process_core_run
 # from future import standard_library
 from stream2segment.process.utils import enhancesegmentclass
+import re
 # standard_library.install_aliases()
 
 
@@ -61,7 +61,7 @@ class Test(object):
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
     @pytest.fixture(autouse=True)
-    def init(self, request, db, data):
+    def init(self, request, db, data, tmpdir):
         # re-init a sqlite database (no-op if the db is not sqlite):
         db.create(to_file=True)
 
@@ -180,20 +180,35 @@ class Test(object):
             else:
                 return data.read("inventory_GE.APE.xml"), 200, 'Ok'
 
-        with patch('stream2segment.process.utils.urlread', side_effect=url_read) as mock:
-             self.mock_url_read = mock
-             with patch('stream2segment.utils.inputargs.get_session', return_value=session):
+        with patch('stream2segment.process.utils.urlread', side_effect=url_read) as mock1:
+            self.mock_url_read = mock1
+            with patch('stream2segment.utils.inputargs.get_session', return_value=session):
                 with patch('stream2segment.main.closesession',
                            side_effect=lambda *a, **v: None):
-                    yield
 
-    @staticmethod
-    def read_and_remove(filepath):
-        assert os.path.isfile(filepath)
-        with open(filepath) as opn:
-            sss = opn.read()
-        os.remove(filepath)
-        return sss
+                    with patch('stream2segment.main.configlog4processing') as mock2:
+
+                        def clogd(logger, logfilebasepath, verbose):
+                            # config logger as usual, but redirects to a temp file
+                            # that will be deleted by pytest, instead of polluting the program
+                            # package:
+                            ret = o_configlog4processing(logger,
+                                                         str(tmpdir.join('logfile')) \
+                                                         if logfilebasepath else None,
+                                                         verbose)
+
+                            self._logfilename = ret[0].baseFilename
+                            return ret
+
+                        mock2.side_effect = clogd
+
+                        yield
+
+    @property
+    def logfilecontent(self):
+        assert os.path.isfile(self._logfilename)
+        with open(self._logfilename) as opn:
+            return opn.read()
 
 # ## ======== ACTUAL TESTS: ================================
 
@@ -314,7 +329,8 @@ class Test(object):
         assert len(lst) == 1
         args, kwargs = lst[0][0], lst[0][1]
         assert args[2] is None  # assert third argument (`ondone` callback) is None 'ondone'
-        assert "Output file:" not in result.output
+        # assert "Output file:  n/a" in result output:
+        assert re.search('Output file:\\s+n/a', result.output)
 
         # Note that apparently CliRunner() puts stderr and stdout together
         # (https://github.com/pallets/click/pull/868)
@@ -393,7 +409,7 @@ class Test(object):
 #                         assert row[1] == self.db.seg1.start_time.isoformat()
 #                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 2
-                logtext = self.read_and_remove(file.name+".log")
+                logtext = self.logfilecontent
                 assert len(logtext) > 0
 
                 # REMEMBER, THIS DOES NOT WORK:
@@ -493,7 +509,7 @@ class Test(object):
 #                         assert row[1] == self.db.seg1.start_time.isoformat()
 #                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 2
-                logtext = self.read_and_remove(file.name+".log")
+                logtext = self.logfilecontent
                 assert len(logtext) > 0
 
                 # REMEMBER, THIS DOES NOT WORK:
@@ -550,7 +566,7 @@ class Test(object):
 #                         assert row[1] == self.db.seg1.start_time.isoformat()
 #                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 0
-                logtext = self.read_and_remove(file.name+".log")
+                logtext = self.logfilecontent
                 assert "low snr" in logtext
 
                 # REMEMBER, THIS DOES NOT WORK:
@@ -621,7 +637,7 @@ class Test(object):
     #                         assert row[1] == self.db.seg1.start_time.isoformat()
     #                         assert row[2] == self.db.seg1.end_time.isoformat()
                     assert rowz == 2
-                    logtext = self.read_and_remove(file.name+".log")
+                    logtext = self.logfilecontent
                     assert len(logtext) > 0
 
             # save_downloaded_inventory False, test that we did not save any:
@@ -683,7 +699,7 @@ class Test(object):
 #                         assert row[1] == self.db.seg1.start_time.isoformat()
 #                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 0
-                logtext = self.read_and_remove(file.name+".log")
+                logtext = self.logfilecontent
 
                 # THE TEST BELOW IS USELESS AS WE DO NOT CAPTURENWARNINGS ANYMORE
                 # as we have joined twice segment with stations (one is done by default, the other
@@ -764,7 +780,7 @@ class Test(object):
 #                         assert row[1] == self.db.seg1.start_time.isoformat()
 #                         assert row[2] == self.db.seg1.end_time.isoformat()
                 assert rowz == 0
-                logtext = self.read_and_remove(file.name+".log")
+                logtext = self.logfilecontent
                 assert len(logtext) > 0
                 # ===================================================================
                 # NOW WE CAN CHECK IF THE URLREAD HAS BEEN CALLED ONCE AND NOT MORE:
@@ -836,7 +852,7 @@ def main(segment, config):""")
     #                         assert row[1] == self.db.seg1.start_time.isoformat()
     #                         assert row[2] == self.db.seg1.end_time.isoformat()
                     assert rowz == 1
-                    logtext = self.read_and_remove(file.name+".log")
+                    logtext = self.logfilecontent
                     assert len(logtext) > 0
 
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
@@ -927,7 +943,7 @@ def main(""")
 
                 # the file above are bad implementation (old one)
                 # we should not write anything
-                logtext = Test.read_and_remove(file.name+".log")
+                logtext = self.logfilecontent
                 # messages very from python 2 to 3. If python4 changes again, write it here below
                 # the case py3 is something like: TypeError: main_typeerr() missing 1 required
                 # positional argument...
@@ -978,6 +994,6 @@ def main(""")
 
                 # the file above are bad implementation (old one)
                 # we should not write anything
-                logtext = Test.read_and_remove(file.name+".log")
+                logtext = self.logfilecontent
                 string2check = "0 segments"
                 assert string2check in logtext

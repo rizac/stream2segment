@@ -27,9 +27,11 @@ from stream2segment.process.core import run as process_core_run, \
     get_advanced_settings as o_get_advanced_settings, process_segments as o_process_segments,\
     process_segments_mp as o_process_segments_mp, \
     _get_chunksize_defaults as _o_get_chunksize_defaults, query4process
+from stream2segment.utils.log import configlog4processing as o_configlog4processing
 
 from future import standard_library
 from stream2segment.utils.resources import get_templates_fpaths
+import re
 standard_library.install_aliases()
 
 
@@ -51,7 +53,7 @@ class Test(object):
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
     @pytest.fixture(autouse=True)
-    def init(self, request, db, data):
+    def init(self, request, db, data, tmpdir):
         # re-init a sqlite database (no-op if the db is not sqlite):
         db.create(to_file=True)
 
@@ -174,7 +176,23 @@ class Test(object):
             with patch('stream2segment.utils.inputargs.get_session', return_value=session):
                 with patch('stream2segment.main.closesession',
                            side_effect=lambda *a, **v: None):
-                    yield
+                    with patch('stream2segment.main.configlog4processing') as mock2:
+
+                        def clogd(logger, logfilebasepath, verbose):
+                            # config logger as usual, but redirects to a temp file
+                            # that will be deleted by pytest, instead of polluting the program
+                            # package:
+                            ret = o_configlog4processing(logger,
+                                                         str(tmpdir.join('logfile')) \
+                                                         if logfilebasepath else None,
+                                                         verbose)
+
+                            self._logfilename = ret[0].baseFilename
+                            return ret
+
+                        mock2.side_effect = clogd
+
+                        yield
 
     # ## ======== ACTUAL TESTS: ================================
 
@@ -244,7 +262,8 @@ class Test(object):
         assert len(lst) == 1
         args, kwargs = lst[0][0], lst[0][1]
         assert args[2] is None  # assert third argument (`ondone` callback) is None 'ondone'
-        assert "Output file:" not in result.output
+        # assert "Output file:  n/a" in result output:
+        assert re.search('Output file:\\s+n/a', result.output)
 
         # Note that apparently CliRunner() puts stderr and stdout together
         # (https://github.com/pallets/click/pull/868)

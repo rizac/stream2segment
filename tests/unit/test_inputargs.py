@@ -423,17 +423,28 @@ class Test(object):
 @patch('stream2segment.main.closesession')
 @patch('stream2segment.main.configlog4processing')
 @patch('stream2segment.main.run_process')
-def tst_process_verbosity(mock_run_process, mock_configlog, mock_closesess, mock_getsess,
-                            capsys):
+def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, mock_getsess,
+                            capsys, tmpdir):
 
-    # handlers should be removed each run_download call, otherwise we end up
-    # appending them
-    numloggers = [0]
-    def clogd(logger, *a, **kv):
+    # store stuff in this dict when running configure loggers below:
+    vars = {'numloggers':0, 'logfilepath': None}
+    def clogd(logger, logfilebasepath, verbose):
         for h in logger.handlers[:]:
             logger.removeHandler(h)
-        ret = o_configlog4processing(logger, *a, **kv)
-        numloggers[0] = len(ret)
+        # config logger as usual, but redirects to a temp file
+        # that will be deleted by pytest, instead of polluting the program
+        # package:
+        ret = o_configlog4processing(logger,
+                                     str(tmpdir.join('logfile')) if logfilebasepath else  None,
+                                     verbose)
+
+        vars['numloggers'] = len(ret)
+
+        vars['logfilepath'] = None
+        try:
+            vars['logfilepath'] = ret[0].baseFilename
+        except (IndexError, AttributeError):
+            pass
         return ret
     mock_configlog.side_effect = clogd
 
@@ -453,37 +464,46 @@ def tst_process_verbosity(mock_run_process, mock_configlog, mock_closesess, mock
     with tempfile.NamedTemporaryFile() as outfile:
         mock_run_process.side_effect = lambda *a, **v: None
         ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=outfile.name,
-                        verbose=True)
+                        log2file=True, verbose=True)
         out, err = capsys.readouterr()
-        assert not err
         assert len(out)  # assert empty (avoid comparing to strings and potential py2 py3 headache)
-        assert numloggers[0] == 2
+        assert vars['numloggers'] == 2
 
     # run verbosity = False, with output file. This configures a logger to log file
     with tempfile.NamedTemporaryFile() as outfile:
         mock_run_process.side_effect = lambda *a, **v: None
         ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=outfile.name,
-                        verbose=False)
+                        log2file=False, verbose=False)
         out, err = capsys.readouterr()
-        assert not err
         assert not out  # assert empty (avoid comparing to strings and potential py2 py3 headache)
-        assert numloggers[0] == 1
+        assert vars['numloggers'] == 0
+
+    # run verbosity = False, with output file. This configures a logger to log file
+    with tempfile.NamedTemporaryFile() as outfile:
+        mock_run_process.side_effect = lambda *a, **v: None
+        ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=outfile.name,
+                        log2file=True, verbose=False)
+        out, err = capsys.readouterr()
+        assert not out  # assert empty (avoid comparing to strings and potential py2 py3 headache)
+        assert vars['numloggers'] == 1
 
     # run verbosity = True, with no output file. This configures a logger stderr and a logger stdout
     mock_run_process.side_effect = lambda *a, **v: None
-    ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=None, verbose=True)
+    ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=None,
+                    log2file=True, verbose=True)
     out, err = capsys.readouterr()
-    assert err == out  # assert empty (avoid comparing to strings and potential py2 py3 headache)
-    assert numloggers[0] == 2
+    assert open(vars['logfilepath']).read() == out  # assert empty (avoid comparing to strings and potential py2 py3 headache)
+    assert vars['numloggers'] == 2
 
     # run verbosity = False, with no output file. This configures a logger stderr but no logger stdout
     # with no file
     mock_run_process.side_effect = lambda *a, **v: None
-    ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=None, verbose=False)
+    ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=None,
+                    log2file=False, verbose=False)
     out, err = capsys.readouterr()
     assert not out  # assert empty (avoid comparing to strings and potential py2 py3 headache)
-    assert len(err)
-    assert numloggers[0] == 1
+    assert vars['logfilepath'] is None
+    assert vars['numloggers'] == 0
 
 
 @patch('stream2segment.utils.inputargs.get_session')
