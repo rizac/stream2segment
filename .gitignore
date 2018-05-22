@@ -1,8 +1,6 @@
 # Added by me:
 .DS_Store
 .env
-config.yaml
-conftest.py
 *.sqlite
 tmp/
 skip/
