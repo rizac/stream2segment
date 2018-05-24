@@ -237,6 +237,8 @@ def data(request):  # pylint: disable=unused-argument
                         arrival_time=(start_time + (end_time - start_time) / 3).datetime,
                         request_start=start_time.datetime,
                         request_end=end_time.datetime,
+                        start_time=start_time.datetime,
+                        end_time=end_time.datetime,
                         sample_rate=stream[0].stats.sampling_rate)
 
     return Data()

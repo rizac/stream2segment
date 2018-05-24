@@ -27,7 +27,7 @@ from stream2segment.io.db.models import Download
 from _pytest.capture import capsys
 import pytest
 from stream2segment.utils import get_session, secure_dburl
-from future.utils import string_types
+from future.utils import string_types, PY2
 
 # this can not apparently be fixed with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
@@ -492,7 +492,12 @@ def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, moc
     ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=None,
                     log2file=True, verbose=True)
     out, err = capsys.readouterr()
-    assert open(vars['logfilepath']).read() == out  # assert empty (avoid comparing to strings and potential py2 py3 headache)
+    with open(vars['logfilepath']) as _opn:
+        expected_out = _opn.read()
+    # out below is uncicode in PY2, whereas expected_string is str. Thus:
+    if PY2:
+        expected_out = expected_out.decode('utf8')
+    assert expected_out == out
     assert vars['numloggers'] == 2
 
     # run verbosity = False, with no output file. This configures a logger stderr but no logger stdout

@@ -34,12 +34,12 @@ from stream2segment.utils.inputargs import yaml_load as load_proc_cfg
 from stream2segment.utils.resources import get_templates_fpaths
 from stream2segment.process.utils import get_inventory_url, save_inventory as original_saveinv
 
-from stream2segment.process.core import run as process_core_run
 from future import standard_library
 from stream2segment.process.utils import enhancesegmentclass
 from stream2segment.download.utils import custom_download_codes
 import json
 import re
+from future.utils import PY2
 standard_library.install_aliases()
 
 
@@ -188,9 +188,14 @@ www.dc1/dataselect/query   3         1          2      1      1      1        1 
 TOTAL                      3         1          2      1      1      1        1        1         1     12""" in result.output
 
         assert not mock_open_in_browser.called
-        assert '\n'.join(('╔════════════════╗',
-                          '║ Download id: 1 ║',
-                          '╚════════════════╝')) in result.output
+        expected_string = '\n'.join(('╔════════════════╗',
+                                     '║ Download id: 1 ║',
+                                     '╚════════════════╝'))
+        # result.output below is uncicode in PY2, whereas expected_string is str
+        # Thus
+        if PY2:
+            expected_string = expected_string.decode('utf8')
+        assert expected_string in result.output
         assert not mock_gettempdir.called
 
         # Test html output.

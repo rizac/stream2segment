@@ -11,13 +11,6 @@ the template file, e.g.:
 '''
 
 
-def _linecomment(string, prefix, first=True):
-    '''prefixes any line of string with `prefix` and returns the resulting string'''
-    if first is False:
-        return ('\n' + prefix).join(line for line in string.splitlines())
-    return '\n'.join(prefix + line for line in string.splitlines())
-
-
 _SEGMENT_ATTRS = '''
 ===================================== ================================================
 segment attribute                     python type and description (if any)
@@ -617,16 +610,17 @@ PROCESS_YAML_ADVANCEDSETTINGS = '''
 If you want to setup advanced settings, uncomment
 # (i.e., remove the leading '#' from each line) and edit the text block below
 #advanced_settings:
-#  # Although each segment is processed separately, loading from the database one segment at a time
-#  # is time consuming. The number below defines how many segments will be loaded in a chunk.
-#  # When missing, the value defaults to 1200. If multi_process is true (see below), this
-#  # number defines how many segments will be loaded in each python sub-process. Increasing
-#  # this number might speed up the execution but consumes more memory
+#  # Although each segment is processed one at a time, loading segments in chunks from the
+#  # database is faster: the number below defines the chunk size.
+#  # If multi_process is true (see below), the chunk size also defines how many segments will be
+#  # loaded in each python sub-process. Increasing this number might speed up execution but
+#  # increases the memory usage. When missing, the value defaults to 1200 if the number N of
+#  # segments to be processed is >= 1200, otherwise N/10.
 #  segments_chunksize: 1200
 #  # Use parallel sub-processes to speed up the execution. When missing, it defaults to false
 #  multi_process: true
 #  # The number of sub-processes. If missing, it is set as the the number of CPUs in the system.
-#  # This option is ignored if multi_process is not given
+#  # This option is ignored if multi_process is not given or false
 #  num_processes: 4
 '''
 

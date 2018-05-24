@@ -4,7 +4,7 @@ Created on Jul 15, 2016
 
 @author: riccardo
 '''
-from builtins import str
+# from builtins import str
 import pytest, os
 import unittest
 import numpy as np
@@ -31,13 +31,13 @@ from obspy.core.stream import read
 from stream2segment.utils import load_source
 from stream2segment.utils.resources import yaml_load, get_templates_fpaths
 from stream2segment.gui.webapp.mainapp.plots.core import PlotManager
-from obspy.io.stationtxt.core import all_components
 from mock.mock import patch
 from stream2segment.gui.webapp import get_session
 from stream2segment.gui.main import create_main_app
 import json
 import tempfile
 import shutil
+from stream2segment.gui.webapp.mainapp.core import flatten_dict
 
 class Test(object):
     
@@ -50,109 +50,116 @@ class Test(object):
         # re-init a sqlite database (no-op if the db is not sqlite):
         db.create(to_file=True)
         
-        self.app = create_main_app(db.dburl, self.pyfile, self.configfile)
+        with patch('stream2segment.gui.webapp.mainapp.plots.core._default_size_limits',
+                   return_value=(1,1)) as mock1:
 
-        with self.app.app_context():
-            # create a configured "Session" class
-            # Session = sessionmaker(bind=self.engine)
-            # create a Session
-            # session = Session()
-            
-            session = self.session
-            
-            dc = DataCenter(station_url="345fbgfnyhtgrefs", dataselect_url='edfawrefdc')
-            session.add(dc)
+            self.app = create_main_app(db.dburl, self.pyfile, self.configfile)
     
-            utcnow = datetime.utcnow()
+            with self.app.app_context():
+                # create a configured "Session" class
+                # Session = sessionmaker(bind=self.engine)
+                # create a Session
+                # session = Session()
+                
+                session = self.session
+                
+                dc = DataCenter(station_url="345fbgfnyhtgrefs", dataselect_url='edfawrefdc')
+                session.add(dc)
+        
+                utcnow = datetime.utcnow()
+        
+                run = Download(run_time=utcnow)
+                session.add(run)
+                
+                ws = WebService(url='webserviceurl')
+                session.add(ws)
+                session.commit()
+                    
+                id = 'firstevent'
+                e1 = Event(event_id='event1', webservice_id=ws.id, time=utcnow, latitude=89.5, longitude=6,
+                                 depth_km=7.1, magnitude=56)
+                e2 = Event(event_id='event2', webservice_id=ws.id, time=utcnow + timedelta(seconds=5),
+                          latitude=89.5, longitude=6, depth_km=7.1, magnitude=56)
+                
+                session.add_all([e1, e2])
+                
+                session.commit()  # refresh datacenter id (alo flush works)
+        
+                d = datetime.utcnow()
+                
+                s = Station(network='network', station='station', datacenter_id=dc.id, latitude=90,
+                            longitude=-45,
+                            start_time=d)
+                session.add(s)
+                
+                channels = [
+                    Channel(location='01', channel='HHE', sample_rate=6),
+                    Channel(location='01', channel='HHN', sample_rate=6),
+                    Channel(location='01', channel='HHZ', sample_rate=6),
+                    Channel(location='01', channel='HHW', sample_rate=6),
+                    
+                    Channel(location='02', channel='HHE', sample_rate=6),
+                    Channel(location='02', channel='HHN', sample_rate=6),
+                    Channel(location='02', channel='HHZ', sample_rate=6),
+                    
+                    Channel(location='03', channel='HHE', sample_rate=6),
+                    Channel(location='03', channel='HHN', sample_rate=6),
+                    
+                    Channel(location='04', channel='HHZ', sample_rate=6),
+                    
+                    Channel(location='05', channel='HHE', sample_rate=6),
+                    Channel(location='05gap_merged', channel='HHN', sample_rate=6),
+                    Channel(location='05err', channel='HHZ', sample_rate=6),
+                    Channel(location='05gap_unmerged', channel='HHZ', sample_rate=6)
+                    ]
+                
+                s.channels.extend(channels)
+                session.commit()
+                
+                fixed_args = dict(datacenter_id=dc.id,
+                             download_id=run.id,
+                             )
+                    
+                data_gaps_unmerged = data.to_segment_dict("GE.FLT1..HH?.mseed")
+                data_gaps_merged = data.to_segment_dict("IA.BAKI..BHZ.D.2016.004.head")
+                obspy_trace = read(BytesIO(data_gaps_unmerged['data']))[0]
+                # write data_ok is actually bytes data of 3 traces, write just the first one, we have
+                # as it is it would be considered a trace with gaps, wwe have
+                # another trace with gaps
+                b = BytesIO()
+                obspy_trace.write(b, format='MSEED')
+                start, end = obspy_trace.stats.starttime.datetime, obspy_trace.stats.endtime.datetime
+                data_ok = dict(data_gaps_unmerged, data=b.getvalue(),
+                               start_time=start,
+                               end_time=end,
+                               arrival_time=start + (end-start)/3)
+                data_err = dict(data_ok, data=data_ok['data'][:5])
+                     
+                for ev, c in product([e1, e2], channels):
+                    val = int(c.location[:2])
+                    data_atts = data_gaps_merged if "gap_merged" in c.location else \
+                        data_err if "err" in c.location else data_gaps_unmerged \
+                        if 'gap_unmerged' in c.location else data_ok
+                    seg = Segment(event_distance_deg=val,
+                                  event_id=ev.id,
+                                  datacenter_id=dc.id,
+                                  download_id=run.id,
+                                  **data_atts
+                                  )
+                    c.segments.append(seg)
+                
+                session.commit()
+                
+                session.close()
+                
+                # set inventory
+    #             with open(os.path.join(folder, "GE.FLT1.xml"), 'rb') as opn:
+    #                 self.inventory = loads_inv(opn.read())
     
-            run = Download(run_time=utcnow)
-            session.add(run)
-            
-            ws = WebService(url='webserviceurl')
-            session.add(ws)
-            session.commit()
-                
-            id = 'firstevent'
-            e1 = Event(event_id='event1', webservice_id=ws.id, time=utcnow, latitude=89.5, longitude=6,
-                             depth_km=7.1, magnitude=56)
-            e2 = Event(event_id='event2', webservice_id=ws.id, time=utcnow + timedelta(seconds=5),
-                      latitude=89.5, longitude=6, depth_km=7.1, magnitude=56)
-            
-            session.add_all([e1, e2])
-            
-            session.commit()  # refresh datacenter id (alo flush works)
-    
-            d = datetime.utcnow()
-            
-            s = Station(network='network', station='station', datacenter_id=dc.id, latitude=90,
-                        longitude=-45,
-                        start_time=d)
-            session.add(s)
-            
-            channels = [
-                Channel(location='01', channel='HHE', sample_rate=6),
-                Channel(location='01', channel='HHN', sample_rate=6),
-                Channel(location='01', channel='HHZ', sample_rate=6),
-                Channel(location='01', channel='HHW', sample_rate=6),
-                
-                Channel(location='02', channel='HHE', sample_rate=6),
-                Channel(location='02', channel='HHN', sample_rate=6),
-                Channel(location='02', channel='HHZ', sample_rate=6),
-                
-                Channel(location='03', channel='HHE', sample_rate=6),
-                Channel(location='03', channel='HHN', sample_rate=6),
-                
-                Channel(location='04', channel='HHZ', sample_rate=6),
-                
-                Channel(location='05', channel='HHE', sample_rate=6),
-                Channel(location='05gap_merged', channel='HHN', sample_rate=6),
-                Channel(location='05err', channel='HHZ', sample_rate=6),
-                Channel(location='05gap_unmerged', channel='HHZ', sample_rate=6)
-                ]
-            
-            s.channels.extend(channels)
-            session.commit()
-            
-            fixed_args = dict(datacenter_id=dc.id,
-                         download_id=run.id,
-                         )
-                
-            data_gaps_unmerged = data.read("GE.FLT1..HH?.mseed")
-            data_gaps_merged = data.read("IA.BAKI..BHZ.D.2016.004.head")
-            
-            obspy_trace = read(BytesIO(data_gaps_unmerged))[0]
-            # write data_ok is actually bytes data of 3 traces, write just the first one, we have
-            # as it is it would be considered a trace with gaps, wwe have
-            # another trace with gaps
-            b = BytesIO()
-            obspy_trace.write(b, format='MSEED')
-            data_ok = b.getvalue()
-            data_err = data_ok[:5]  # whatever slice should be ok
-                 
-            for ev, c in product([e1, e2], channels):
-                val = int(c.location[:2])
-                mseed = data_gaps_merged if "gap_merged" in c.location else \
-                    data_err if "err" in c.location else data_gaps_unmerged if 'gap_unmerged' in c.location else data_ok
-                seg = Segment(request_start=ev.time + timedelta(seconds=val),
-                              arrival_time=ev.time + timedelta(seconds=2 * val),
-                              request_end=ev.time + timedelta(seconds=5 * val),
-                              data=mseed,
-                              data_seed_id=obspy_trace.get_id() if mseed == data_ok else None,
-                              event_distance_deg=val,
-                              event_id=ev.id,
-                              **fixed_args)
-                c.segments.append(seg)
-            
-            session.commit()
-            
-            session.close()
-            
-            # set inventory
-#             with open(os.path.join(folder, "GE.FLT1.xml"), 'rb') as opn:
-#                 self.inventory = loads_inv(opn.read())
-
-            # set inventory
-            self.inventory = data.read_inv("GE.FLT1.xml")
+                # set inventory
+                self.inventory = data.read_inv("GE.FLT1.xml")
+       
+            yield
 
     @property
     def session(self):
@@ -332,7 +339,7 @@ class Test(object):
                      plot_indices=plot_indices,  # data['plotIndices']
                      metadata=metadata,
                      classes=classes,
-                     all_components=all_components)
+                     all_components=True)
             rv = app.post("/get_segment", data=json.dumps(d),
                                headers={'Content-Type': 'application/json'})
             
@@ -346,12 +353,11 @@ class Test(object):
                      plot_indices=plot_indices,  # data['plotIndices']
                      metadata=metadata,
                      classes=classes,
-                     all_components=all_components)
+                     all_components=True)
             rv = app.post("/get_segment", data=json.dumps(d),
                                headers={'Content-Type': 'application/json'})
         
         # assert we have exceptions:
-        # FIXME: check why we have to access _app for global vars and not app (see setup method)
         pm = self.app.config['PLOTMANAGER']
         for plotlists in pm.values():
             plots = plotlists[1]
@@ -359,3 +365,152 @@ class Test(object):
                 continue
             for i in plot_indices:
                 assert "Station inventory (xml) error" in plots[i].warnings[0]
+                
+    @pytest.mark.parametrize('calculate_sn_spectra', [True, False])
+    def test_change_config(self, calculate_sn_spectra, db):
+        # db is a fixture (see conftest.py). Even if not used, it will
+        # assure this function is run once for each given dburl
+        '''test a change in the config from within the GUI'''
+        plot_indices = [0]
+        index_of_sn_spectra = None
+        if calculate_sn_spectra:
+            pm = self.app.config['PLOTMANAGER']
+            for ud in pm.userdefined_plots:
+                if ud['name'] == 'sn_spectra':
+                    index_of_sn_spectra = ud['index']
+                    plot_indices.append(index_of_sn_spectra)
+                    break
+        metadata = False
+        classes = False
+        
+        with self.app.test_request_context():
+            app = self.app.test_client()
+            d = dict(seg_id=1,
+                     pre_processed=False,
+                     # zooms = data['zooms']
+                     plot_indices=plot_indices,  # data['plotIndices']
+                     metadata=metadata,
+                     classes=classes,
+                     all_components=True)
+            rv1 = app.post("/get_segment", data=json.dumps(d),
+                           headers={'Content-Type': 'application/json'})
+            
+            # now change the config:
+            config = dict(self.app.config['CONFIG.YAML'])
+            config['sn_windows']['arrival_time_shift'] += .2  # shift by .2 second
+            d['config'] = flatten_dict(config)
+            # the dict passed from the client to the server has only strings, thus:
+            for key in list(d['config'].keys()):
+                d['config'][key] = json.dumps(d['config'][key])
+            rv2 = app.post("/get_segment", data=json.dumps(d),
+                           headers={'Content-Type': 'application/json'})
+
+            data1 = json.loads(rv1.data)
+            data2 = json.loads(rv2.data)
+
+            assert len(data1['sn_windows']) == 2
+            assert len(data2['sn_windows']) == 2
+            for wdw1, wdw2 in zip(data1['sn_windows'], data2['sn_windows']):
+                assert wdw1 != wdw2
+
+            plots1 = data1['plots']
+            plots2 = data2['plots']
+            assert len(plots1) == len(plots2) == len(plot_indices)
+
+            for index in range(len(plot_indices)):
+                # each plots* is:
+                # [plotdata[0], plotdata[2], ...]
+                # where each plotdata is:
+                # [plot.title or '', data, "\n".join(plot.warnings), plot.is_timeseries]
+                # each data is [x0, dx, y, label] all numeric except 'label'
+                # see class jsplot
+                # get each 'data' 
+                plot1data = plots1[index][1]
+                plot2data = plots2[index][1]
+                plotindex = plot_indices[index]
+                expected_lineseries_num = 1 if plotindex != index_of_sn_spectra else 2
+                assert len(plot1data) == len(plot2data) == expected_lineseries_num
+                for lineseriesindex in range(len(plot1data)):
+                    # plots are returned as a list of lineseries: [name, [startime, step, data, ...]]
+                    # ... is other stuff we do not test here (lineseries name)
+                    x0a, dxa, ya, labela = plot1data[lineseriesindex]
+                    x0b, dxb, yb, labelb = plot2data[lineseriesindex]
+                    assert x0a == x0b
+                    # the number of points should be equal also for frequencies, as it
+                    # depends on the time resolution, which is always the same:
+                    assert len(ya) == len(yb)
+                    if plotindex != index_of_sn_spectra:
+                        assert dxa == dxb
+                        assert np.allclose(ya, yb)
+                    else:
+                        # the delta frequency changes if we move the arrival time shif, so
+                        # this might be due to a change in pts of the original time series
+                        # too hard to test, skip this:
+                        # assert dxa == dxb
+                        assert not np.allclose(ya, yb)
+    
+    def test_limited_size_plotmanager(self, db):
+        '''test that the PlotManager stores at most one value at a time.
+        The size_limit of 1 is set as patch in the init method of this class'''
+        pm = self.app.config['PLOTMANAGER']
+        plot_indices = [0]
+        metadata = False
+        classes = False
+
+
+        assert len(pm) == 0
+
+        with self.app.test_request_context():
+            data = self.session.query(Segment.id, Channel.location).join(Segment.channel).all()
+
+        for (seg_id, location) in data:
+            with self.app.test_request_context():
+                app = self.app.test_client()
+                d = dict(seg_id=seg_id,
+                         pre_processed=True,
+                         # zooms = data['zooms']
+                         plot_indices=plot_indices,
+                         metadata=metadata,
+                         classes=classes,
+                         all_components=False)
+                rv1 = app.post("/get_segment", data=json.dumps(d),
+                               headers={'Content-Type': 'application/json'})
+            
+            assert list(pm.keys()) == [seg_id]
+            # inventory is updated only if read, i.e. if the segment does not have gaps/overlaps:
+            try:
+                # locations '01', '02', .. are streams with no errors/gaps,
+                # locations like '04err' '04gaps' have erros gaps: these
+                # last cases raise before querying the inventory thus inventory cache is not updated
+                int(location)
+                # did not raise, segment has no errors, thus:
+                assert list(pm.inv_cache.keys()) == [seg_id]
+            except ValueError:
+                pass
+#         with self.app.test_request_context():
+#             app = self.app.test_client()
+#             d = dict(seg_id=2,
+#                      pre_processed=False,
+#                      # zooms = data['zooms']
+#                      plot_indices=plot_indices,  # data['plotIndices']
+#                      metadata=metadata,
+#                      classes=classes,
+#                      all_components=True)
+#             rv1 = app.post("/get_segment", data=json.dumps(d),
+#                            headers={'Content-Type': 'application/json'})
+#         
+#         assert list(pm.keys()) == [2]
+#         
+#         with self.app.test_request_context():
+#             app = self.app.test_client()
+#             d = dict(seg_id=2,
+#                      pre_processed=False,
+#                      # zooms = data['zooms']
+#                      plot_indices=plot_indices,  # data['plotIndices']
+#                      metadata=metadata,
+#                      classes=classes,
+#                      all_components=True)
+#             rv1 = app.post("/get_segment", data=json.dumps(d),
+#                            headers={'Content-Type': 'application/json'})
+#         
+#         assert list(pm.keys()) == [2]

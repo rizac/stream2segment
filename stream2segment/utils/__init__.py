@@ -427,10 +427,13 @@ def open2writetext(file, **kw):
 
     :param buffering: same as open buffering argument
     :param kw: keyword arguments as for the python3 open function. 'mode' will be replaced
-    if present. If python2, 'encoding', 'newline' and 'errors' will be removed as not compatible
+    if present ('wb' for Python2, 'w' for Python 3). An optional 'append' argument (True or False)
+    will ad 'a' to the 'mode' (i.e., 'wba' for Python2, 'wa' for Python 3)
+    If python2, 'encoding', 'newline' and 'errors' will be removed as not compatible
     with the 'wb' mode (they raise if present)
     :return: the python3 open function for writing `str` types into text file
     '''
+    append = kw.pop('append', False)
     if PY2:
         kw.pop('encoding', None)
         kw.pop('errors', None)
@@ -438,4 +441,6 @@ def open2writetext(file, **kw):
         kw['mode'] = 'wb'
     else:
         kw['mode'] = 'w'
+    if append:
+        kw['mode'] = kw['mode'].replace('w', 'a')
     return compatible_open(file, **kw)

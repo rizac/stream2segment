@@ -23,7 +23,7 @@ from stream2segment.cli import cli
 from stream2segment.io.db.models import Base, Event, Station, WebService, Segment,\
     Channel, Download, DataCenter
 from stream2segment.utils.inputargs import yaml_load as orig_yaml_load
-from stream2segment.process.core import run as process_core_run, \
+from stream2segment.process.main import run as process_main_run, \
     get_advanced_settings as o_get_advanced_settings, process_segments as o_process_segments,\
     process_segments_mp as o_process_segments_mp, \
     _get_chunksize_defaults as _o_get_chunksize_defaults, query4process
@@ -32,6 +32,8 @@ from stream2segment.utils.log import configlog4processing as o_configlog4process
 from future import standard_library
 from stream2segment.utils.resources import get_templates_fpaths
 import re
+from stream2segment.process.writers import BaseWriter
+from future.utils import native, integer_types
 standard_library.install_aliases()
 
 
@@ -213,7 +215,7 @@ class Test(object):
                               ({'segments_chunk': 1}, ['--multi-process', '--num-processes', '1']),
                               ({}, ['--multi-process', '--num-processes', '1'])])
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    @mock.patch('stream2segment.process.main.process_core_run', side_effect=process_core_run)
+    @mock.patch('stream2segment.main.run_process', side_effect=process_main_run)
     def test_simple_run_no_outfile_provided(self, mock_run, mock_yaml_load, advanced_settings,
                                             cmdline_opts,
                                             # fixtures:
@@ -244,12 +246,7 @@ class Test(object):
             result = runner.invoke(cli, ['process', '--dburl', db.dburl,
                                    '-p', pyfile, '-c', conffile] + cmdline_opts)
 
-            if result.exception:
-                import traceback
-                traceback.print_exception(*result.exc_info)
-                print(result.output)
-                assert False
-                return
+            assert not result.exception
 
             filez = os.listdir(os.path.dirname(path))
             assert len(filez) == 2
@@ -261,7 +258,9 @@ class Test(object):
         lst = mock_run.call_args_list
         assert len(lst) == 1
         args, kwargs = lst[0][0], lst[0][1]
-        assert args[2] is None  # assert third argument (`ondone` callback) is None 'ondone'
+        # assert third argument (`ondone` callback) is None 'ondone' or is a BaseWriter (no-op)
+        # class:
+        assert args[2] is None or type(args[2]) == BaseWriter
         # assert "Output file:  n/a" in result output:
         assert re.search('Output file:\\s+n/a', result.output)
 
@@ -307,13 +306,13 @@ class Test(object):
                               ({'segments_chunk': 1}, ['--multi-process', '--num-processes', '1']),
                               ({}, ['--multi-process', '--num-processes', '1'])])
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    @mock.patch('stream2segment.process.core.Pool')
-    @mock.patch('stream2segment.process.core.get_advanced_settings',
+    @mock.patch('stream2segment.process.main.Pool')
+    @mock.patch('stream2segment.process.main.get_advanced_settings',
                 side_effect=o_get_advanced_settings)
-    @mock.patch('stream2segment.process.core.process_segments', side_effect=o_process_segments)
-    @mock.patch('stream2segment.process.core.process_segments_mp',
+    @mock.patch('stream2segment.process.main.process_segments', side_effect=o_process_segments)
+    @mock.patch('stream2segment.process.main.process_segments_mp',
                 side_effect=o_process_segments_mp)
-    @mock.patch('stream2segment.process.core._get_chunksize_defaults')
+    @mock.patch('stream2segment.process.main._get_chunksize_defaults')
     def test_simple_run_no_outfile_provided_good_argslists(self, mock_get_chunksize_defaults,
                                                            mock_process_segments_mp,
                                             mock_process_segments, mock_get_advanced_settings,
@@ -366,12 +365,7 @@ class Test(object):
             result = runner.invoke(cli, ['process', '--dburl', db.dburl,
                                    '-p', pyfile, '-c', conffile] + cmdline_opts)
 
-            if result.exception:
-                import traceback
-                traceback.print_exception(*result.exc_info)
-                print(result.output)
-                assert False
-                return
+            assert not result.exception
 
             # test some stuff and get configarg, the the REAL config passed in the processing
             # subroutines:
@@ -424,5 +418,9 @@ class Test(object):
                 if '--num-processes' in cmdline_opts:
                     val = cmdline_opts[cmdline_opts.index('--num-processes')+1]
                     assert str(real_advanced_settings['num_processes']) == val
-                    assert type(real_advanced_settings['num_processes']) == int
-
+                    # assert real_advanced_settings['num_processes'] is an int.
+                    # As we import int from futures in templates, we might end-up having
+                    # futures.newint. The type check is made by checking we have an integer
+                    # type as the native type. For info see:
+                    # http://python-future.org/what_else.html#passing-data-to-from-python-2-libraries
+                    assert type(native(real_advanced_settings['num_processes'])) in integer_types

@@ -31,11 +31,13 @@ from itertools import product
 from obspy.core.stream import read, Stream
 from stream2segment.utils import load_source
 from stream2segment.utils.resources import yaml_load, get_templates_fpaths
-from stream2segment.gui.webapp.mainapp.plots.core import PlotManager, LimitedSizeDict
+from stream2segment.gui.webapp.mainapp.plots.core import PlotManager, LimitedSizeDict, InventoryCache,\
+    _default_size_limits
 from mock.mock import patch
 
 from stream2segment.process.utils import get_inventory as original_get_inventory, get_stream as original_get_stream
 from obspy.core.utcdatetime import UTCDateTime
+from contextlib import contextmanager
 
 
 class Test(object):
@@ -166,7 +168,7 @@ class Test(object):
         session.commit()
         
         self.inventory_bytes = data.read("GE.FLT1.xml")
-        self.inventory = loads_inv(self.inventory_bytes)
+        self.inventory = data.read_inv("GE.FLT1.xml")
         
         pfile, cfile = get_templates_fpaths('paramtable.py', 'paramtable.yaml')
         self.pymodule = load_source(pfile)
@@ -270,6 +272,8 @@ class Test(object):
                 # test sn_windows first:
                 if is_invalidated:
                     assert plotlist.data['sn_windows'] is None  # reset from invalidation
+                    assert all(p is None for p in plotlist)
+                    return
                 elif iserr:
                     assert isinstance(plotlist.data['sn_windows'], Exception)
                     # assert also that it is the same exception raised from stream:
@@ -560,51 +564,108 @@ class Test(object):
 
 def test_limited_size_dict():
     
+    @contextmanager
+    def setup(limited_size_dict_instance):
+        with patch.object(LimitedSizeDict, '_size_limit_popped',
+                       wraps=limited_size_dict_instance._size_limit_popped) as _mock_popitem:
+            yield limited_size_dict_instance, _mock_popitem
     
-    l = LimitedSizeDict()
-    with patch.object(LimitedSizeDict, '_popitem_size_limit',
-                       wraps=l._popitem_size_limit) as mock_popitem:
+    # test LimitedSizeDict with no size_limit arg (no size limit):
+    with setup(LimitedSizeDict()) as (l, mock_popitem):
         for a in range(10000):
             l[a] = 5
         assert not mock_popitem.called
     
-    l = LimitedSizeDict(size_limit=50)
-    with patch.object(LimitedSizeDict, '_popitem_size_limit',
-                       wraps=l._popitem_size_limit) as mock_popitem:
+    with setup(LimitedSizeDict(size_limit=50)) as (l, mock_popitem):
         for a in range(50):
             l[a] = 5
         assert not mock_popitem.called
     
-    l = LimitedSizeDict(size_limit=50)
-    with patch.object(LimitedSizeDict, '_popitem_size_limit',
-                       wraps=l._popitem_size_limit) as mock_popitem:
+    with setup(LimitedSizeDict(size_limit=50)) as (l, mock_popitem):
         for a in range(51):
             l[a] = 5
         assert mock_popitem.call_count == 1
     
-    l = LimitedSizeDict(size_limit=50)
     # test wrong argument in update:
     with pytest.raises(TypeError):
-        with patch.object(LimitedSizeDict, '_popitem_size_limit',
-                           wraps=l._popitem_size_limit) as mock_popitem:
+        with setup(LimitedSizeDict(size_limit=50)) as (l, mock_popitem):
             l.update(*[{str(_) : 1} for _ in range(101)])
     
     # test update and setdefault:
-    l = LimitedSizeDict(size_limit=50)
-    with patch.object(LimitedSizeDict, '_popitem_size_limit',
-                       wraps=l._popitem_size_limit) as mock_popitem:
+    with setup(LimitedSizeDict(size_limit=50)) as (l, mock_popitem):
         l.update({str(_) : 1 for _ in range(101)})
         assert mock_popitem.call_count == 101-50
         
-    l = LimitedSizeDict(size_limit=50)
-    with patch.object(LimitedSizeDict, '_popitem_size_limit',
-                       wraps=l._popitem_size_limit) as mock_popitem:
+    # l = LimitedSizeDict(size_limit=50)
+    with setup(LimitedSizeDict(size_limit=50)) as (l, mock_popitem):
         l.update(**{str(_): 1 for _ in range(101)})
         assert mock_popitem.call_count == 101-50
         
-    l = LimitedSizeDict(size_limit=50)
-    with patch.object(LimitedSizeDict, '_popitem_size_limit',
-                       wraps=l._popitem_size_limit) as mock_popitem:
+    # l = LimitedSizeDict(size_limit=50)
+    with setup(LimitedSizeDict(size_limit=50)) as (l, mock_popitem):
         for _ in range(101):
             l.setdefault(str(_), 1)
         assert mock_popitem.call_count == 101-50
+
+
+def test_inv_cache(data):
+    
+    class Segment(object):
+        
+        def __init__(self, id, staid):
+            if staid is not None:
+                self.station = Segment(staid, None)
+            else:
+                self.station = None
+            self.id = id
+    
+    def_size_limit = _default_size_limits()[1]
+
+    inventory = data.read_inv("GE.FLT1.xml")
+
+    @contextmanager
+    def setup(inv_cache_instance):
+        with patch.object(InventoryCache, '_size_limit_popped',
+                       wraps=inv_cache_instance._size_limit_popped) as _mock_popitem:
+            yield inv_cache_instance, _mock_popitem
+    
+    # test LimitedSizeDict with no size_limit arg (no size limit):
+    with setup(InventoryCache()) as (inv, mock_popitem):
+        for i in range(def_size_limit):
+            inv[Segment(i, 1)] = inventory
+        assert not mock_popitem.called
+    
+    # test supplying always the same inventory
+    with setup(InventoryCache()) as (inv, mock_popitem):
+        # same station id (1) for all segments:
+        # it does not matter: keys are removed if they have the same value
+        # (via 'is' keyword), thus all keys will be removed
+        for i in range(def_size_limit+1):
+            inv[Segment(i, 1)] = inventory
+        assert mock_popitem.call_count == 1
+        assert len(inv) == 0
+    with setup(InventoryCache()) as (inv, mock_popitem):
+        # different station ids (0,1,2,..) for all segments:
+        # it does not matter: keys are removed if they have the same
+        # value (via 'is' keyword), thus all keys will be removed
+        mock_popitem.reset_mock()
+        for i in range(def_size_limit+1):
+            inv[Segment(i, i)] = inventory
+        assert mock_popitem.call_count == 1
+        assert len(inv) == 0
+    with setup(InventoryCache()) as (inv, mock_popitem):
+        # now provide different objects, we remove only one element
+        mock_popitem.reset_mock()
+        for i in range(def_size_limit+1):
+            inv[Segment(i, i)] = ValueError('a')
+        assert mock_popitem.call_count == 1
+        assert len(inv) == def_size_limit
+    with setup(InventoryCache()) as (inv, mock_popitem):
+        # now provide same object again, we are again with 0 items
+        v = ValueError('a')
+        mock_popitem.reset_mock()
+        for i in range(def_size_limit+1):
+            inv[Segment(i, i)] = v
+        assert mock_popitem.call_count == 1
+        assert len(inv) == 0
+        

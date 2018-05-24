@@ -29,41 +29,6 @@ from stream2segment.io.db.pdsql import mergeupdate, dfrowiter
 from stream2segment.download import logger  # @IgnorePep8
 
 
-def chaid2mseedid_dict(channels_df, drop_mseedid_columns=True):
-    '''returns a dict of the form {channel_id: mseed_id} from channels_df, where mseed_id is
-    a string of the form ```[network].[station].[location].[channel]```
-    :param channels_df: the result of `get_channels_df`
-    :param drop_mseedid_columns: boolean (default: True), removes all columns related to the mseed
-    id from `channels_df`. This might save up a lor of memory when cimputing the
-    segments resulting from each event -> stations binding (according to the search radius)
-    Remember that pandas strings are not optimized for memory as they are python objects
-    (https://www.dataquest.io/blog/pandas-big-data/)
-    '''
-    # For convenience and readability, define once the mapped column names representing the
-    # dataframe columns that we need:
-    CHA_ID = Channel.id.key
-    STA_NET = Station.network.key
-    STA_STA = Station.station.key
-    CHA_LOC = Channel.location.key
-    CHA_CHA = Channel.channel.key
-
-    n = channels_df[STA_NET].str.cat
-    s = channels_df[STA_STA].str.cat
-    l = channels_df[CHA_LOC].str.cat
-    c = channels_df[CHA_CHA]
-    _mseedids = n(s(l(c, sep='.', na_rep=''), sep='.', na_rep=''), sep='.', na_rep='')
-    if drop_mseedid_columns:
-        # remove string columns, we do not need it anymore and
-        # will save a lot of memory for subsequent operations
-        channels_df.drop([STA_NET, STA_STA, CHA_LOC, CHA_CHA], axis=1, inplace=True)
-    # we could return
-    # pd.DataFrame(index=channels_df[CHA_ID], {'mseed_id': _mseedids})
-    # but the latter does NOT consume less memory (strings are python string in pandas)
-    # and the search for an mseed_id given a loc[channel_id] is slower than python dicts.
-    # As the returned element is intended for searching, then return a dict:
-    return {chaid: mseedid for chaid, mseedid in zip(channels_df[CHA_ID], _mseedids)}
-
-
 def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius, maxmag_radius,
                           tttable, show_progress=False):
     """

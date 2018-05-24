@@ -34,7 +34,6 @@ import os
 from collections import OrderedDict
 
 import click
-# from click.exceptions import BadParameter, MissingParameter
 
 from stream2segment import main
 from stream2segment.utils.resources import get_templates_fpath, yaml_load_doc
@@ -42,7 +41,7 @@ from stream2segment.traveltimes import ttcreator
 from stream2segment.utils import inputargs
 
 
-class clickutils(object):
+class clickutils(object):  #pylint: disable=invalid-name, too-few-public-methods
     """Container for Options validations, default settings so as not to pollute the click
     decorators"""
 
@@ -280,7 +279,7 @@ def download(config, dburl, eventws, start, end, networks,  # pylint: disable=un
         ret = 3
     # ret might return 0 or 1 the latter in case of QuitDownload, but tests
     # expect a non-zero value thus we skip this feature for the moment
-    sys.exit(0 if ret <=1 else ret)
+    sys.exit(0 if ret <= 1 else ret)
 
 
 @cli.command(short_help='Processes downloaded waveform data segments',
@@ -300,18 +299,32 @@ def download(config, dburl, eventws, start, end, networks,  # pylint: disable=un
               help="The name of the user-defined processing function in the given python file. "
                    "Optional: defaults to '%s' when "
                    "missing" % inputargs.default_processing_funcname(),
-              )  # do not set default='main', so that we can test when arg is missing or not
+              )
+@click.option("-a", "--append", is_flag=True, default=False,
+              help="Append results to the output file (this flag is ignored if no output file "
+                   "is provided): 'append' means also that the program will first scan the "
+                   "output file to detect already processed segments and skip them. "
+                   "When missing, it defaults to false, meaning that an output file, if provided, "
+                   "will be overridden if it exists"
+              )
+@click.option("--no-prompt", is_flag=True, default=False,
+              help="Do not prompt the user when attempting to overwrite an existing output file. "
+                   "This flag is false by default, i.e. the user will be asked for  "
+                   "confirmation before overwriting an existing file. "
+                   "This flag is ignored if no output file is provided, or the 'append' "
+                   "flag is given"
+              )
 @click.option("-mp", "--multi-process", is_flag=True, default=None,
               help="Use parallel sub-processes to speed up the execution. "
                    "When missing, it defaults to false"
-              )  # do not set default='main', so that we can test when arg is missing or not
+              )  # default=None let us know when arg is missing or not
 @click.option("-np", "--num-processes", type=int, default=None,
               help="The number of sub-processes. If missing, it is set as the "
                    "the number of CPUs in the system. This option is ignored "
                    "if --multi-process is not given",
-              )
+              )  # default=None let us know when arg is missing or not
 @click.argument('outfile', required=False)
-def process(dburl, config, pyfile, funcname,
+def process(dburl, config, pyfile, funcname, append, no_prompt,
             multi_process, num_processes,  # pylint: disable=unused-argument
             outfile):
     """Processes downloaded waveform data segments via a custom python file and a configuration
@@ -320,21 +333,26 @@ def process(dburl, config, pyfile, funcname,
 
     [OUTFILE] (optional): the path of the .csv file where the output of the user-defined processing
     function F will be written to (one row per processed segment); all logging information,
-    errors or warnings will be written to the file [OUTFILE].log.
+    errors or warnings will be written to the file [OUTFILE].[now].log (where [now] denotes
+    the current utc date-time in iso format).
     If this argument is missing, then the output of F (if any) will be discarded,
-    and all logging messages will be redirected to the standard error
+    and all logging messages will be saved to the file [pyfile].[now].log
     """
     # REMEMBER: NO LOCAL VARIABLES OTHERWISE WE MESS UP THE CONFIG OVERRIDES ARGUMENTS
     try:
-        # override config values for multi_process and num_processes
-        overrides = {k: v for k, v in locals().items()
-                     if v not in ((), {}, None) and k in ('multi_process', 'num_processes')}
-        if overrides:
-            # if given, put these into 'advanced_settings' sub-dict. Note that
-            # nested dict will be merged with the values of the config
-            overrides = {'advanced_settings': overrides}
-        ret = main.process(dburl, pyfile, funcname, config, outfile, log2file=True,
-                              verbose=True, **overrides)
+        if not append and outfile and os.path.isfile(outfile) and not no_prompt and \
+                not click.confirm("'%s' already exists in '%s'.\nOverwrite?"):
+            ret = 1
+        else:
+            # override config values for multi_process and num_processes
+            overrides = {k: v for k, v in locals().items()
+                         if v not in ((), {}, None) and k in ('multi_process', 'num_processes')}
+            if overrides:
+                # if given, put these into 'advanced_settings' sub-dict. Note that
+                # nested dict will be merged with the values of the config
+                overrides = {'advanced_settings': overrides}
+            ret = main.process(dburl, pyfile, funcname, config, outfile, log2file=True,
+                               verbose=True, append=append, **overrides)
     except inputargs.BadArgument as aerr:
         print(aerr)
         ret = 2  # exit with 1 as normal python exceptions

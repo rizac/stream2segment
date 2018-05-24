@@ -105,9 +105,11 @@ class Test(object):
 
         assert len(self.successes) == 2
         
+        data_ = list(x[0] for x in self.successes)
         for res in data:
-            if not res: continue
-            assert any(res == x[0] for x in self.successes)
+            if not res:  # the empty byte is not returned, it serves only to stop urlread
+                continue
+            assert res in data_
         
         assert self.mock_urlread.call_count == len(data)
         
@@ -126,27 +128,19 @@ class Test(object):
         assert self.mock_urlread.call_count == len(self.urls)
         
         assert self.progress == 2
-        # check also argument calls:
-#         call_args = [a[0] for a in self.ondone.call_args_list]
-#         assert all(c[2] for c in call_args)  # all exc argument are truthy
-#         assert not any(c[1] for c in call_args) # all result argument are falsy
-
-
-    
         
     def test_general_exception_from_urlopen(self):
         self.config_urlopen([ValueError("")], sleep_time=None)
-        
+
         # self.urls has a valid url (which should execute onsuccess) and an invalid one
         # which should execute onerror)
         with pytest.raises(ValueError):
             self.read_async(self.urls)
         assert self.progress == 0
-        
-        
+
     def test_general_exception_inside_yield(self):
         data = [b'none', b''] * 10000  # supply an empty string otherwise urllib.read does not stop
-        self.config_urlopen(data, sleep_time=5)
+        self.config_urlopen(data)  # , sleep_time=1)
         
         # self.urls has a valid url (which should execute onsuccess) and an invalid one
         # which should execute onerror)
@@ -167,33 +161,3 @@ class Test(object):
         with pytest.raises(KeyboardInterrupt):
             self.read_async_raise_exc_in_called_func(self.urls)
         assert self.progress == 0
-    
-#     def test_exception_max_mem_cons(self):
-#         N= 50
-#         data = [b'abc', b''] * N  # supply an empty string otherwise urllib.read does not stop
-#         urls = ["http://sdgfjvkherkdfvsffd"] *N 
-#         self.config_urlopen(data)
-#         
-#         for _ in read_async(urls):
-#             pass
-#         ccount = self.mock_urlread.call_count
-#         
-#         self.config_urlopen(data)
-#         try:
-#             for _ in read_async(urls):
-#                 raise MemoryError('')
-#         except MemoryError:
-#             assert self.mock_urlread.call_count < ccount
-        
-#         itr = [0]
-#         def mmc_se(*a, **v):
-#             if itr[0] > 5:
-#                 return mmc+1
-#             itr[0] += 1
-#             return 0
-#         mock_mem_consumption.side_effect = mmc_se
-#         
-#         with pytest.raises(MemoryError) as excinfo:
-#             self.read_async(urls, max_memoru_consumption=mmc)
-#         assert self.progress == 6
-#         assert "Memory overflow: %.2f%% (used) > %.2f%% (threshold)" % (mmc+1, mmc) in str(excinfo.value)

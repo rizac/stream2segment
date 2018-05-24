@@ -3,7 +3,6 @@ Created on May 23, 2017
 
 @author: riccardo
 '''
-import unittest
 from click.testing import CliRunner
 from stream2segment.cli import cli
 from mock.mock import patch
@@ -283,8 +282,11 @@ def test_click_template(mock_main_init, mock_click_prompt):  #, mock_isfile, moc
                 # check loaded python modules, which also assures our templates are well formed:
                 sourcepy = load_source(sourcepath)
                 destpy = load_source(destpath)
-                sourcekeys = [a for a in dir(sourcepy)]
-                destkeys = [a for a in dir(destpy)]
+                # avoid comparing "__blabla__" methods as they are intended to be python
+                # 'private' attributes and there are differences between py2 and py3
+                # we want to test OUR stuff is the same
+                sourcekeys = [a for a in dir(sourcepy) if (a[:2] + a[-2:]) != "____"]
+                destkeys = [a for a in dir(destpy) if (a[:2] + a[-2:]) != "____"]
                 assert sorted(sourcekeys) == sorted(destkeys)
                 for key in sourcekeys:
                     assert type(getattr(sourcepy, key)) == type(getattr(destpy, key))

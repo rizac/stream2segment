@@ -17,7 +17,6 @@ import logging
 import re
 import sys
 import os
-import shutil
 import inspect
 from datetime import timedelta
 from webbrowser import open as open_in_browser
@@ -36,12 +35,13 @@ from stream2segment.io.db.models import Download
 from stream2segment.process.main import run as run_process
 from stream2segment.download.main import run as run_download, new_db_download
 from stream2segment.utils import secure_dburl, strconvert, iterfuncs, open2writetext, ascii_decorate
-from stream2segment.utils.resources import get_templates_fpaths, get_templates_dirpath
+from stream2segment.utils.resources import get_templates_dirpath
 from stream2segment.gui.main import create_main_app, run_in_browser
 from stream2segment.process import math as s2s_math
 from stream2segment.download.utils import QuitDownload
 from stream2segment.gui.dinfo import get_dstats_html, get_dstats_str_iter
 from stream2segment.resources.templates import DOCVARS
+from stream2segment.process.writers import get_writer, BaseWriter
 
 
 if PY2:
@@ -165,7 +165,7 @@ def download(config, log2file=True, verbose=False, **param_overrides):
 
 
 def process(dburl, pyfile, funcname=None, config=None, outfile=None, log2file=False, verbose=False,
-            **param_overrides):
+            append=False, **param_overrides):
     """
         Process the segment saved in the db and optionally saves the results into `outfile`
         in .csv format. Calles F the function named `funcname` defined in `pyfile`
@@ -211,7 +211,7 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, log2file=Fa
         logger.info(ascii_decorate("\n".join(info)))
 
         stime = time.time()
-        run_process(session, pyfunc, config_dict, outfile, verbose)
+        run_process(session, pyfunc, get_writer(outfile, append), config_dict, verbose)
         logger.info("Completed in %s", str(totimedelta(stime)))
         return 0  # contrarily to download, an exception should always raise and log as error
         # with the stack trace

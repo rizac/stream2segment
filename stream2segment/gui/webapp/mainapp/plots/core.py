@@ -37,6 +37,7 @@ from stream2segment.io.db.models import Segment
 from stream2segment.utils import iterfuncs
 from stream2segment.gui.webapp.mainapp.plots.jsplot import Plot
 from stream2segment.process.utils import enhancesegmentclass, getseg, gui
+from future.utils import viewitems
 
 
 class SegmentPlotList(list):
@@ -49,6 +50,7 @@ class SegmentPlotList(list):
     """
 
     # set here what to set to None when calling invalidate (see __init__ for details):
+    # self.data is a dict of currently two keys: 'stream' and 'sn_windows'
     _data_to_invalidate = ['sn_windows']
 
     def __init__(self, segid, functions, other_components_id_list=None):
@@ -69,23 +71,17 @@ class SegmentPlotList(list):
         All other data is shared with this object'''
         return SegmentPlotList(self.segment_id, self.functions, self.oc_segment_ids)
 
-    def invalidate(self, hard=False):
-        '''invalidates (sets to None) this object. Invalidate a value means setting it to None:
-         -  if `hard=False` (the default) leaves the plot resulting from the segment
-             without applying any function (usually at self[0]) and only `self.data` values whose
-             keys are not in `self._data_to_invalidate` (this means usually setting to None all
-             but data['stream'])
-         -  if `hard=True` (currently not used but left for potential new features),
-             invalidates all plots (elements of this list) and all `self.data`
-             values
+    def invalidate(self):
+        '''invalidates this object. All plots (element of this class which subclasses list)
+        are set to None, forcing them to re-calculate the next time.
+        All self.data keys are set to None, for those keys in self._data_to_invalidate
+        Note that currently this means leaving self.data['stream'] and setting to None
+        self.data['sn_windows'], which will be therefore re-calculated the next time
+        a plot is queried
         '''
-        index_of_main_plot = 0  # the index of the function returning the
-        # trace plot (main plot returning the trace as it is)
-        for key in self.data if hard else self._data_to_invalidate:
+        for key in self._data_to_invalidate:
             self.data[key] = None
         for i in range(len(self)):
-            if not hard and i == index_of_main_plot:
-                continue
             self[i] = None
 
     def get_plots(self, session, plot_indices, inv_cache, config):
@@ -272,32 +268,32 @@ class LimitedSizeDict(OrderedDict):
     def _check_size_limit(self):
         if self.size_limit is not None:
             while len(self) > self.size_limit:
-                self._popitem_size_limit()
+                item = self.popitem(last=False)
+                self._size_limit_popped(*item)
 
-    def _popitem_size_limit(self):
-        return self.popitem(last=False)
+    def _size_limit_popped(self, key, value):
+        pass
+
+
+def _default_size_limits():
+    '''Returns the size limits for the PlotManager and the InventoryCache in a 2 element
+    tuple. Private method useful for mocking in tests'''
+    return 30, 10
 
 
 class InventoryCache(LimitedSizeDict):
 
-    def __init__(self, size_limit=30):
-        super(InventoryCache, self).__init__(size_limit=size_limit)
-        self._segid2staid = dict()
+    def __init__(self, size_limit=None):
+        super(InventoryCache, self).__init__(size_limit=size_limit or _default_size_limits()[1])
 
     def __setitem__(self, segment, inventory_or_exception):
         if inventory_or_exception is None:
             return
-        super(InventoryCache, self).__setitem__(segment.station.id, inventory_or_exception)
-        self._segid2staid[segment.id] = segment.station.id
+        super(InventoryCache, self).__setitem__(segment.id, inventory_or_exception)
 
-    def __getitem__(self, segment_id):
-        inventory = None
-        staid = self._segid2staid.get(segment_id, None)
-        if staid is not None:
-            inventory = super(InventoryCache, self).get(staid, None)
-            if inventory is None:  # expired, remove the key:
-                self._segid2staid.pop(segment_id)
-        return inventory
+    def _size_limit_popped(self, key, value):
+        for segid_with_same_staid in [seg_id for seg_id, obj in viewitems(self) if obj is value]:
+            self.pop(segid_with_same_staid)
 
 
 class PlotManager(LimitedSizeDict):
@@ -306,12 +302,12 @@ class PlotManager(LimitedSizeDict):
     wraps a dict of segment ids mapped to ChannelComponentsPlotHandlers and returns the required
     plots to be displayed
     """
-    def __init__(self, pymodule, config, size_limit=30):
-        super(PlotManager, self).__init__(size_limit=size_limit)
+    def __init__(self, pymodule, config, size_limit=None):
+        super(PlotManager, self).__init__(size_limit=size_limit or _default_size_limits()[0])
         self.config = config
         self.functions = []
         self._functions_atts = []
-        self.inv_cache = InventoryCache(10)
+        self.inv_cache = InventoryCache()
 
         # define default functions if not found:
 
@@ -457,10 +453,9 @@ class PlotManager(LimitedSizeDict):
             # needed a config value
             val[1] = None
 
-    def _popitem_size_limit(self):
+    def _size_limit_popped(self, key, value):
         '''Called when super._check_size_limit is called. Remove also other components
         segmentPlotList(s)'''
-        _, item = super(PlotManager, self)._popitem_size_limit()
-        plotlist = item[0]
+        plotlist = value[0]
         for sid in plotlist.oc_segment_ids:
             self.pop(sid)

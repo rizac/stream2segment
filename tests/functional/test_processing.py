@@ -5,7 +5,7 @@ Created on Feb 14, 2017
 '''
 from __future__ import print_function, division
 
-from builtins import str, object
+# from builtins import str, object
 
 from tempfile import NamedTemporaryFile
 from past.utils import old_div
@@ -17,7 +17,7 @@ import tempfile
 import csv
 from future.backports.urllib.error import URLError
 import pytest
-
+import pandas as pd
 from click.testing import CliRunner
 
 from sqlalchemy.engine import create_engine
@@ -32,12 +32,14 @@ from stream2segment.io.db.models import Base, Event, Station, WebService, Segmen
 from stream2segment.utils.inputargs import yaml_load as orig_yaml_load
 from stream2segment.utils.resources import get_templates_fpaths
 from stream2segment.process.utils import get_inventory_url, save_inventory as original_saveinv
-from stream2segment.process.core import query4process
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
-from stream2segment.process.core import run as process_core_run
+from stream2segment.process.main import run as process_main_run, query4process
 # from future import standard_library
 from stream2segment.process.utils import enhancesegmentclass
 import re
+from stream2segment.process.writers import BaseWriter
+from pandas.errors import EmptyDataError
+from future.utils import PY2
 # standard_library.install_aliases()
 
 
@@ -53,6 +55,10 @@ def yaml_load_side_effect(**overrides):
             return ret
         return func
     return orig_yaml_load
+
+
+def readcsv(filename, header=True):
+    return pd.read_csv(filename, header=None) if not header else pd.read_csv(filename)
 
 class Test(object):
 
@@ -186,6 +192,7 @@ class Test(object):
                 with patch('stream2segment.main.closesession',
                            side_effect=lambda *a, **v: None):
 
+                    self._logfilename = None
                     with patch('stream2segment.main.configlog4processing') as mock2:
 
                         def clogd(logger, logfilebasepath, verbose):
@@ -298,13 +305,13 @@ class Test(object):
     #
     # Here a simple test for a processing file returning dict. Save inventory and check it's saved
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    @mock.patch('stream2segment.process.main.process_core_run', side_effect=process_core_run)
+    @mock.patch('stream2segment.main.run_process', side_effect=process_main_run)
     def test_simple_run_no_outfile_provided(self, mock_run, mock_yaml_load, db):
         '''test a case where save inventory is True, and that we saved inventories'''
         # set values which will override the yaml config in templates folder:
         config_overrides = {'save_inventory': True,
-                                 'snr_threshold': 0,
-                                 'segment_select': {'has_data': 'true'}}
+                            'snr_threshold': 0,
+                            'segment_select': {'has_data': 'true'}}
         mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
 
         # query data for testing now as the program will expunge all data from the session
@@ -318,17 +325,14 @@ class Test(object):
         result = runner.invoke(cli, ['process', '--dburl', db.dburl,
                                '-p', pyfile, '-c', conffile])
 
-        if result.exception:
-            import traceback
-            traceback.print_exception(*result.exc_info)
-            print(result.output)
-            assert False
-            return
+        assert not result.exception
 
         lst = mock_run.call_args_list
         assert len(lst) == 1
         args, kwargs = lst[0][0], lst[0][1]
-        assert args[2] is None  # assert third argument (`ondone` callback) is None 'ondone'
+        # assert third argument (`ondone` callback) is None 'ondone' or is a BaseWriter (no-op)
+        # class:
+        assert args[2] is None or type(args[2]) == BaseWriter
         # assert "Output file:  n/a" in result output:
         assert re.search('Output file:\\s+n/a', result.output)
 
@@ -382,40 +386,34 @@ class Test(object):
 
         # query data for testing now as the program will expunge all data from the session
         # and thus we want to avoid DetachedInstanceError(s):
-        expected_first_row_seg_id = str(self.seg1.id)
+        expected_first_row_seg_id = self.seg1.id
         station_id_whose_inventory_is_saved = self.sta_ok.id
 
         runner = CliRunner()
+        # test with a temporary file, i.e. a file which is created BEFORE, and supply --no-prompt
+        # test then that we print the message "overridden the file..." in log output
         with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
             pyfile, conffile = self.pyfile, self.conffile
-            result = runner.invoke(cli, ['process', '--dburl', db.dburl,
+            result = runner.invoke(cli, ['process', '--dburl', db.dburl, '--no-prompt',
                                    '-p', pyfile, '-c', conffile, file.name] + cmdline_opts)
 
-            if result.exception:
-                import traceback
-                traceback.print_exception(*result.exc_info)
-                print(result.output)
-                assert False
-                return
-
+            assert not result.exception
             # check file has been correctly written:
-            with open(file.name, 'r') as csvfile:
-                spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
-                rowz = 0
-                for row in spamreader:
-                    rowz += 1
-                    if rowz == 2:
-                        assert row[0] == expected_first_row_seg_id
-#                         assert row[1] == self.db.seg1.start_time.isoformat()
-#                         assert row[2] == self.db.seg1.end_time.isoformat()
-                assert rowz == 2
-                logtext = self.logfilecontent
-                assert len(logtext) > 0
+            csv1 = readcsv(file.name)
+            assert len(csv1) == 1
+            assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
+            logtext = self.logfilecontent
+            assert """Overwriting existing output file
+3 segment(s) found to process
 
-                # REMEMBER, THIS DOES NOT WORK:
-                # assert mock_url_read.call_count == 2
-                # that's why we tested above by mocking multiprocessing
-                # (there must be some issue with multiprocessing)
+segment (id=3): 4 traces (probably gaps/overlaps)
+segment (id=2): Station inventory (xml) error: <urlopen error error>
+
+station inventories saved: 1
+1 of 3 segment(s) successfully processed
+2 of 3 segment(s) skipped with error message (check log or details)""" in logtext
+            # assert logfile exists:
+            assert os.path.isfile(self._logfilename)
 
         # save_downloaded_inventory True, test that we did save any:
         assert len(db.session.query(Station).filter(Station.has_inventory).all()) > 0
@@ -482,40 +480,30 @@ class Test(object):
 
         # query data for testing now as the program will expunge all data from the session
         # and thus we want to avoid DetachedInstanceError(s):
-        expected_first_row_seg_id = str(self.seg1.id)
+        expected_first_row_seg_id = self.seg1.id
         station_id_whose_inventory_is_saved = self.sta_ok.id
 
         runner = CliRunner()
-        with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
+        with runner.isolated_filesystem() as cwd:
+            filename = os.path.join(cwd, 'tmp.csv')
             pyfile, conffile = self.pyfile, self.conffile
             result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                                   '-p', pyfile, '-c', conffile, file.name] + cmdline_opts)
+                                   '-p', pyfile, '-c', conffile, filename] + cmdline_opts)
 
-            if result.exception:
-                import traceback
-                traceback.print_exception(*result.exc_info)
-                print(result.output)
-                assert False
-                return
-
+            assert not result.exception
             # check file has been correctly written:
-            with open(file.name, 'r') as csvfile:
-                spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
-                rowz = 0
-                for row in spamreader:
-                    rowz += 1
-                    if rowz == 2:
-                        assert row[0] == expected_first_row_seg_id
-#                         assert row[1] == self.db.seg1.start_time.isoformat()
-#                         assert row[2] == self.db.seg1.end_time.isoformat()
-                assert rowz == 2
-                logtext = self.logfilecontent
-                assert len(logtext) > 0
+            csv1 = readcsv(filename)
+            assert len(csv1) == 1
+            assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
+            logtext = self.logfilecontent
+            assert """3 segment(s) found to process
 
-                # REMEMBER, THIS DOES NOT WORK:
-                # assert mock_url_read.call_count == 2
-                # that's why we tested above by mocking multiprocessing
-                # (there must be some issue with multiprocessing)
+segment (id=3): 4 traces (probably gaps/overlaps)
+segment (id=2): Station inventory (xml) error: <urlopen error error>
+
+station inventories saved: 1
+1 of 3 segment(s) successfully processed
+2 of 3 segment(s) skipped with error message (check log or details)""" in logtext
 
         # save_downloaded_inventory True, test that we did save any:
         assert len(db.session.query(Station).filter(Station.has_inventory).all()) > 0
@@ -533,46 +521,39 @@ class Test(object):
         but with a very high snr threshold => no rows processed'''
         # set values which will override the yaml config in templates folder:
         config_overrides = {'save_inventory': True,
-                                 'snr_threshold': 3,  # 3 is high enough to discard the only segment we would process otherwise
-                                 'segment_select': {'has_data': 'true'}}
+                            'snr_threshold': 3,  # 3 is high enough to discard the only segment we would process otherwise
+                            'segment_select': {'has_data': 'true'}}
         mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
 
         # query data for testing now as the program will expunge all data from the session
         # and thus we want to avoid DetachedInstanceError(s):
-        expected_first_row_seg_id = str(self.seg1.id)
+        expected_first_row_seg_id = self.seg1.id
         station_id_whose_inventory_is_saved = self.sta_ok.id
 
         runner = CliRunner()
-        with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
+        with runner.isolated_filesystem() as cwd:
+            filename = os.path.join(cwd, 'tmp.csv')
             pyfile, conffile = self.pyfile, self.conffile
             result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                                   '-p', pyfile, '-c', conffile, file.name])
+                                   '-p', pyfile, '-c', conffile, filename])
 
-            if result.exception:
-                import traceback
-                traceback.print_exception(*result.exc_info)
-                print(result.output)
-                assert False
-                return
-
+            assert not result.exception
             # check file has been correctly written:
-            with open(file.name, 'r') as csvfile:
-                spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
-                rowz = 0
-                for row in spamreader:
-                    rowz += 1
-                    if rowz == 2:
-                        assert row[0] == expected_first_row_seg_id
-#                         assert row[1] == self.db.seg1.start_time.isoformat()
-#                         assert row[2] == self.db.seg1.end_time.isoformat()
-                assert rowz == 0
-                logtext = self.logfilecontent
-                assert "low snr" in logtext
+            with pytest.raises(EmptyDataError):
+                csv1 = readcsv(filename)
+            # assert len(csv1) == 0
+            # assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
+            logtext = self.logfilecontent
+            assert """3 segment(s) found to process
 
-                # REMEMBER, THIS DOES NOT WORK:
-                # assert mock_url_read.call_count == 2
-                # that's why we tested above by mocking multiprocessing
-                # (there must be some issue with multiprocessing)
+segment (id=1): low snr 1.350154
+segment (id=3): 4 traces (probably gaps/overlaps)
+segment (id=2): Station inventory (xml) error: <urlopen error error>
+
+station inventories saved: 1
+0 of 3 segment(s) successfully processed
+3 of 3 segment(s) skipped with error message (check log or details)""" in logtext
+
 
         # save_downloaded_inventory True, test that we did save any:
         assert len(db.session.query(Station).filter(Station.has_inventory).all()) > 0
@@ -594,54 +575,48 @@ class Test(object):
     #
     # Here a simple test for a processing file returning dict. Don't save inventory and check it's
     # not saved
+    @pytest.mark.parametrize("seg_chunk", [None, 1])
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_retDict_dontsaveinv(self, mock_yaml_load, db):
+    def test_simple_run_retDict_dontsaveinv(self, mock_yaml_load, seg_chunk, db):
         '''same as `test_simple_run_retDict_saveinv` above
          but with a 0 snr threshold and do not save inventories'''
-        
-        # test also segment chunks:
-        for seg_chunk in (None, 1):
-            # set values which will override the yaml config in templates folder:
-            config_overrides = {'save_inventory': False,
-                                'snr_threshold': 0,  # don't skip any segment in processing
-                                'segment_select': {'has_data': 'true'}}
-            if seg_chunk is not None:
-                config_overrides['advanced_settings'] = {'segments_chunk': seg_chunk}
-            mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
 
-            # query data for testing now as the program will expunge all data from the session
-            # and thus we want to avoid DetachedInstanceError(s):
-            expected_first_row_seg_id = str(self.seg1.id)
+        # set values which will override the yaml config in templates folder:
+        config_overrides = {'save_inventory': False,
+                            'snr_threshold': 0,  # don't skip any segment in processing
+                            'segment_select': {'has_data': 'true'}}
+        if seg_chunk is not None:
+            config_overrides['advanced_settings'] = {'segments_chunk': seg_chunk}
+        mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
 
-            runner = CliRunner()
-            with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-                pyfile, conffile = self.pyfile, self.conffile
-                result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                                       '-p', pyfile, '-c', conffile, file.name])
+        # query data for testing now as the program will expunge all data from the session
+        # and thus we want to avoid DetachedInstanceError(s):
+        expected_first_row_seg_id = self.seg1.id
 
-                if result.exception:
-                    import traceback
-                    traceback.print_exception(*result.exc_info)
-                    print(result.output)
-                    assert False
-                    return
+        runner = CliRunner()
+        with runner.isolated_filesystem() as cwd:
+            filename = os.path.join(cwd, 'tmp.csv')
+            pyfile, conffile = self.pyfile, self.conffile
+            result = runner.invoke(cli, ['process', '--dburl', db.dburl,
+                                   '-p', pyfile, '-c', conffile, filename])
 
-                # check file has been correctly written:
-                with open(file.name, 'r') as csvfile:
-                    spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
-                    rowz = 0
-                    for row in spamreader:
-                        rowz += 1
-                        if rowz == 2:
-                            assert row[0] == expected_first_row_seg_id
-    #                         assert row[1] == self.db.seg1.start_time.isoformat()
-    #                         assert row[2] == self.db.seg1.end_time.isoformat()
-                    assert rowz == 2
-                    logtext = self.logfilecontent
-                    assert len(logtext) > 0
+            assert not result.exception
+            # check file has been correctly written:
+            csv1 = readcsv(filename)
+            assert len(csv1) == 1
+            assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
+            logtext = self.logfilecontent
+            # Note below: no 'station inventories saved' message:
+            assert """3 segment(s) found to process
 
-            # save_downloaded_inventory False, test that we did not save any:
-            assert len(db.session.query(Station).filter(Station.has_inventory).all()) == 0
+segment (id=3): 4 traces (probably gaps/overlaps)
+segment (id=2): Station inventory (xml) error: <urlopen error error>
+
+1 of 3 segment(s) successfully processed
+2 of 3 segment(s) skipped with error message (check log or details)""" in logtext
+
+        # save_downloaded_inventory False, test that we did not save any:
+        assert len(db.session.query(Station).filter(Station.has_inventory).all()) == 0
 
     # Recall: we have 5 segments:
     # 2 are empty, out of the remaining three:
@@ -652,15 +627,19 @@ class Test(object):
     # as by default withdata is True in segment_select, then we process only the last three
     #
     # Here a simple test for a processing NO file. We implement a filter that excludes the only
-    # processed file using associated stations lat and lon. 
+    # processed file using associated stations lat and lon.
+    @pytest.mark.parametrize('select_with_data', [True, False])
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_retDict_seg_select_empty_and_err_segments(self, mock_yaml_load, db):
-        '''test that segment selection works'''
+    def test_simple_run_retDict_seg_select_empty_and_err_segments(self, mock_yaml_load,
+                                                                 select_with_data, db):
+        '''test a segment selection that takes only non-processable segments'''
         # set values which will override the yaml config in templates folder:
         config_overrides = {'save_inventory': False,
-                                 'snr_threshold': 0,  # take all segments
-                                 'segment_select': {'station.latitude': '<10',
-                                                    'station.longitude': '<10'}}
+                            'snr_threshold': 0,  # take all segments
+                            'segment_select': {'station.latitude': '<10',
+                                               'station.longitude': '<10'}}
+        if select_with_data:
+            config_overrides['segment_select']['has_data'] = 'true'
         # Note on segment_select above:
         # s_ok stations have lat and lon > 11, other stations do not
         # now we want to set a filter which gets us only the segments from stations not ok.
@@ -670,123 +649,50 @@ class Test(object):
 
         # query data for testing now as the program will expunge all data from the session
         # and thus we want to avoid DetachedInstanceError(s):
-        expected_first_row_seg_id = str(self.seg1.id)
+        expected_first_row_seg_id = self.seg1.id
 
         runner = CliRunner()
-        with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
+        with runner.isolated_filesystem() as cwd:
+            filename = os.path.join(cwd, 'tmp.csv')
             pyfile, conffile = self.pyfile, self.conffile
 
             result = runner.invoke(cli, ['process', '--dburl', db.dburl,
                                          '-p', pyfile,
                                          '-c', conffile,
-                                         file.name])
+                                         filename])
 
-            if result.exception:
-                import traceback
-                traceback.print_exception(*result.exc_info)
-                print(result.output)
-                assert False
-                return
+            assert not result.exception
+            # check file has been correctly written:
+            with pytest.raises(EmptyDataError):
+                csv1 = readcsv(filename)
+#             assert len(csv1) == 1
+#             assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
+            logtext = self.logfilecontent
+            # Note below: no 'station inventories saved' message in any log:
+            if select_with_data:
+                assert """1 segment(s) found to process
 
-            # check file has been correctly written, we should have written two files
-            with open(file.name, 'r') as csvfile:
-                spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
-                rowz = 0
-                for row in spamreader:
-                    rowz += 1
-                    if rowz == 2:
-                        assert row[0] == expected_first_row_seg_id
-#                         assert row[1] == self.db.seg1.start_time.isoformat()
-#                         assert row[2] == self.db.seg1.end_time.isoformat()
-                assert rowz == 0
-                logtext = self.logfilecontent
+segment (id=2): Station inventory (xml) error: <urlopen error error>
 
-                # THE TEST BELOW IS USELESS AS WE DO NOT CAPTURENWARNINGS ANYMORE
-                # as we have joined twice segment with stations (one is done by default, the other
-                # has been set in custom_config['segment_select'] above), we should have a
-                # sqlalchemy warning in the log. But this is NOT ANYMORE THE CASE as now we
-                # join only un-joined tables: it turned out that joining already joined tables
-                # issued warnings in some cases, and errors in some other cases.
-                # FIXME: we should investigate why. One possible explanation is that if the joined
-                # table is in the query sql-alchemy issues a warning:
-                # query(Segment,Station).join(Segment.station).join(Segment.station)
-                # whereas if the joined table is not in the query, sql-alchemy issues an error:
-                # query(Segment,Station).join(Segment.event).join(Segment.event)
-                # an already added join is not added twice. as we realised that
-                # joins added multiple times where OK
-                assert "SAWarning: Pathed join target" not in logtext
+0 of 1 segment(s) successfully processed
+1 of 1 segment(s) skipped with error message (check log or details)""" in logtext
+            else:
+                assert """3 segment(s) found to process
 
-                # ===================================================================
-                # NOW WE CAN CHECK IF THE URLREAD HAS BEEN CALLED ONCE.
-                # Out of the three segments to process, two don't have data thus we do not reach
-                # the inventory() method. It remains only the third one, whcih downloads
-                # the inventory and calls mock_url_read:
-                # ===================================================================
-                assert self.mock_url_read.call_count == 1
+segment (id=2): Station inventory (xml) error: <urlopen error error>
+segment (id=4): MiniSeed error: no data
+segment (id=5): MiniSeed error: no data
 
-    # Recall: we have 5 segments:
-    # 2 are empty, out of the remaining three:
-    # 1 has errors if its inventory is queried to the db. Out of the other two:
-    # 1 has gaps
-    # 1 has no gaps
-    # Thus we have several levels of selection possible
-    # as by default withdata is True in segment_select, then we process only the last three
-    #
-    # Here a simple test for a processing NO file. We implement a filter that excludes the only
-    # processed file using associated stations lat and lon. 
-    @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_retDict_seg_select_only_one_err_segment(self, mock_yaml_load, db):
-        '''test that segment selection works (2)'''
-        # set values which will override the yaml config in templates folder:
-        config_overrides = {'save_inventory': False,
-                                 'snr_threshold': 0,  # take all segments
-                                 'segment_select': {'has_data': 'true',
-                                                    'station.latitude': '<10',
-                                                    'station.longitude': '<10'}}
-        # Note on segment_select above: s_ok stations have lat and lon > 11, other stations do not
-        # now we want to set a filter which gets us only the segments from stations not ok.
-        # Note: withdata is True so we will get 1 segment (1 with data which raises
-        # errors for station inventory)
-        mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
+0 of 3 segment(s) successfully processed
+3 of 3 segment(s) skipped with error message (check log or details)""" in logtext
 
-        # query data for testing now as the program will expunge all data from the session
-        # and thus we want to avoid DetachedInstanceError(s):
-        expected_first_row_seg_id = str(self.seg1.id)
-
-        runner = CliRunner()
-        with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = self.pyfile, self.conffile
-
-            result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                                         '-p', pyfile,
-                                         '-c', conffile,
-                                         file.name])
-
-            if result.exception:
-                import traceback
-                traceback.print_exception(*result.exc_info)
-                print(result.output)
-                assert False
-                return
-
-            # check file has been correctly written, we should have written two files
-            with open(file.name, 'r') as csvfile:
-                spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
-                rowz = 0
-                for row in spamreader:
-                    rowz += 1
-                    if rowz == 2:
-                        assert row[0] == expected_first_row_seg_id
-#                         assert row[1] == self.db.seg1.start_time.isoformat()
-#                         assert row[2] == self.db.seg1.end_time.isoformat()
-                assert rowz == 0
-                logtext = self.logfilecontent
-                assert len(logtext) > 0
-                # ===================================================================
-                # NOW WE CAN CHECK IF THE URLREAD HAS BEEN CALLED ONCE AND NOT MORE:
-                # out of three segmens, we called urlread
-                # ===================================================================
-                assert self.mock_url_read.call_count == 1
+            # ===================================================================
+            # NOW WE CAN CHECK IF THE URLREAD HAS BEEN CALLED ONCE.
+            # Out of the three segments to process, two don't have data thus we do not reach
+            # the inventory() method. It remains only the third one, whcih downloads
+            # the inventory and calls mock_url_read:
+            # ===================================================================
+            assert self.mock_url_read.call_count == 1
 
     # Recall: we have 5 segments:
     # 2 are empty, out of the remaining three:
@@ -797,161 +703,6 @@ class Test(object):
     # as by default withdata is True in segment_select, then we process only the last three
     #
     # Here a simple test for a processing file returning list. Just check it works
-    @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_ret_list(self, mock_yaml_load, db):
-        '''test processing returning list, and also when we specify a different main function'''
-        # set values which will override the yaml config in templates folder:
-        config_overrides = {'save_inventory': False,
-                                 'snr_threshold': 0,  # take all segments
-                                 'segment_select': {'has_data': 'true'}}
-        mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
-
-        runner = CliRunner()
-        # query data for testing now as the program will expunge all data from the session
-        # and thus we want to avoid DetachedInstanceError(s):
-        expected_first_row_seg_id = str(self.seg1.id)
-        with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = self.pyfile, self.conffile
-
-            # Now wrtite pyfile into a named temp file, with the method:
-            # def main_retlist(segment, config):
-            #    return main(segment, config).keys()
-            # the method returns a list (which is what we want to test
-            # and this way, we do not need to keep synchronized any additional file
-            with tempfile.NamedTemporaryFile(suffix='.py') as pyfile2:  # @ReservedAssignment
-
-                with open(pyfile, 'r') as opn:
-                    content = opn.read()
-
-                cont2 = content.replace("def main(segment, config):", """def main_retlist(segment, config):
-    return main(segment, config).keys()
-def main(segment, config):""")
-                pyfile2.write(cont2.encode('utf8'))
-                pyfile2.seek(0)
-
-                result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                                             '-p', pyfile2.name, '-f', "main_retlist",
-                                             '-c', conffile,
-                                             file.name])
-
-                if result.exception:
-                    import traceback
-                    traceback.print_exception(*result.exc_info)
-                    print(result.output)
-                    assert False
-                    return
-
-                # check file has been correctly written:
-                with open(file.name, 'r') as csvfile:
-                    spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
-                    rowz = 0
-                    for row in spamreader:
-                        rowz += 1
-                        if rowz == 1:
-                            assert row[0] == expected_first_row_seg_id
-    #                         assert row[1] == self.db.seg1.start_time.isoformat()
-    #                         assert row[2] == self.db.seg1.end_time.isoformat()
-                    assert rowz == 1
-                    logtext = self.logfilecontent
-                    assert len(logtext) > 0
-
-    @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_wrong_pyfile(self, mock_yaml_load, db):
-        '''test processing when supplying a wrong python file (not py extension, this seem
-        to raise when importing it in python3)'''
-        # set values which will override the yaml config in templates folder:
-
-        mock_yaml_load.side_effect = yaml_load_side_effect()
-
-        runner = CliRunner()
-        with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = self.pyfile, self.conffile
-
-            # Now wrtite pyfile into a named temp file, BUT DO NOT SUPPLY EXTENSION
-            # This seems to fail in python3 (FIXME: python2?)
-            with tempfile.NamedTemporaryFile() as pyfile2:  # @ReservedAssignment
-
-                with open(pyfile, 'r') as opn:
-                    content = opn.read()
-
-                pyfile2.write(content.encode('utf8'))
-                pyfile2.seek(0)
-
-                result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                                             '-p', pyfile2.name, '-f', "main_retlist",
-                                             '-c', conffile,
-                                             file.name])
-
-                # we did not raise but printed to stdout. However, click apparently
-                # makes result.exception being truthy
-                assert result.exception
-                assert 'Invalid value for "pyfile": ' in result.output
-                assert result.exit_code != 0
-
-                # check file has NOT be written:
-                # Note that file should in principle not exist, but we opened here 
-                # as temporary file
-                with open(file.name, 'r') as csvfile:
-                    spamreader = csv.reader(csvfile)  # , delimiter=' ', quotechar='|')
-                    rowz = sum(1 for _ in spamreader)
-                    assert rowz == 0
-                # however, log file has not been created:
-                assert not os.path.isfile(file.name+".log")
-
-
-    @pytest.mark.parametrize("advanced_settings, cmdline_opts",
-                             [({}, []),
-                              # ({'segments_chunk': 1}, []),
-                              # ({'segments_chunk': 1}, ['--multi-process']),
-                              ({}, ['--multi-process']),
-                              # ({'segments_chunk': 1}, ['--multi-process', '--num-processes', '1']),
-                              ({}, ['--multi-process', '--num-processes', '1'])])
-    @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_codeerror(self, mock_yaml_load, advanced_settings, cmdline_opts,
-                                  # fixtures:
-                                  db):
-        '''test processing type error(wrong argumens)'''
-        # set values which will override the yaml config in templates folder:
-        config_overrides = {'save_inventory': False,
-                            'snr_threshold': 0,  # take all segments
-                            'segment_select': {'has_data': 'true'}}
-        if advanced_settings:
-            config_overrides['advanced_settings'] = advanced_settings
-        mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
-
-        runner = CliRunner()
-
-        with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = self.pyfile, self.conffile
-
-            with NamedTemporaryFile(suffix='.py') as tmpfile:
-
-                with open(pyfile) as opn:
-                    content = opn.read()
-
-                content = content.replace("def main(", """def main_typeerr(segment, config, wrong_argument):
-    return [6]
-
-def main(""")
-                tmpfile.write(content.encode('utf8'))
-                tmpfile.seek(0)
-
-                result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                                             '-p', tmpfile.name, '-f', "main_typeerr",
-                                             '-c', conffile,
-                                             file.name] + cmdline_opts)
-
-                # the file above are bad implementation (old one)
-                # we should not write anything
-                logtext = self.logfilecontent
-                # messages very from python 2 to 3. If python4 changes again, write it here below
-                # the case py3 is something like: TypeError: main_typeerr() missing 1 required
-                # positional argument...
-                # py2 is something like: TypeError: main_typeerr() takes...
-                # so build a general string:
-                string2check = "TypeError: main_typeerr() "
-                assert string2check in logtext
-
     @pytest.mark.parametrize("advanced_settings, cmdline_opts",
                              [({}, []),
                               ({'segments_chunk': 1}, []),
@@ -960,40 +711,245 @@ def main(""")
                               ({'segments_chunk': 1}, ['--multi-process', '--num-processes', '1']),
                               ({}, ['--multi-process', '--num-processes', '1'])])
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_codeerror_nosegs(self, mock_yaml_load, advanced_settings, cmdline_opts,
-                                         # fixtures:
-                                         db):
-        '''test processing type error(wrong argumens), but test that
-        since we do not have segments to process, the type error is not reached
-        '''
+    def test_simple_run_ret_list(self, mock_yaml_load, advanced_settings, cmdline_opts,
+                                 db):
+        '''test processing returning list, and also when we specify a different main function'''
+        # set values which will override the yaml config in templates folder:
+        config_overrides = {'save_inventory': False,
+                            'snr_threshold': 0,  # take all segments
+                            'segment_select': {'has_data': 'true'}}
+        if advanced_settings:
+            config_overrides['advanced_settings'] = advanced_settings
 
-        mock_yaml_load.side_effect = yaml_load_side_effect() if not advanced_settings else \
-            yaml_load_side_effect(advanced_settings=advanced_settings)
+        mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
 
         runner = CliRunner()
+        # query data for testing now as the program will expunge all data from the session
+        # and thus we want to avoid DetachedInstanceError(s):
+        expected_first_row_seg_id = self.seg1.id
 
-        with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = self.pyfile, self.conffile
+        pyfile, conffile = self.pyfile, self.conffile
 
-            with NamedTemporaryFile(suffix='.py') as tmpfile:
+        # Now wrtite pyfile into a named temp file, with the method:
+        # def main_retlist(segment, config):
+        #    return main(segment, config).keys()
+        # the method returns a list (which is what we want to test
+        # and this way, we do not need to keep synchronized any additional file
+        with runner.isolated_filesystem() as cwd:
+            filename = os.path.join(cwd, 'tmp.csv')
+            pyfile2 = os.path.join(cwd, os.path.basename(pyfile))
+            if not os.path.isfile(pyfile2):
 
-                with open(pyfile) as opn:
+                with open(pyfile, 'r') as opn:
                     content = opn.read()
 
-                content = content.replace("def main(", """def main_typeerr(segment, config, wrong_argument):
-    return [6]
+                cont2 = content.replace("def main(segment, config):", """def main_retlist(segment, config):
+    return list(main(segment, config).values())
+def main(segment, config):""")
+                with open(pyfile2, 'wb') as _opn:
+                    _opn.write(cont2.encode('utf8'))
+
+            result = runner.invoke(cli, ['process', '--dburl', db.dburl,
+                                         '-p', pyfile2, '-f', "main_retlist",
+                                         '-c', conffile,
+                                         filename] + cmdline_opts)
+
+            assert not result.exception
+            # check file has been correctly written:
+            csv1 = readcsv(filename)  # read first with header:
+            # assert no rows:
+            assert csv1.empty
+            # now read without header:
+            csv1 = readcsv(filename, header=False)
+            assert len(csv1) == 1
+            assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
+            logtext = self.logfilecontent
+            assert """3 segment(s) found to process
+
+segment (id=3): 4 traces (probably gaps/overlaps)
+segment (id=2): Station inventory (xml) error: <urlopen error error>
+
+1 of 3 segment(s) successfully processed
+2 of 3 segment(s) skipped with error message (check log or details)""" in logtext
+            # assert logfile exists:
+            assert os.path.isfile(self._logfilename)
+
+    @pytest.mark.parametrize("cmdline_opts",
+                             [[], ['--multi-process'], ['--multi-process', '--num-processes', '1']])
+    
+    @pytest.mark.parametrize("err_type, expects_log_2_be_configured",
+                             [(None, False),
+                              (ImportError, False),
+                              (AttributeError, True),
+                              (TypeError, True)])
+    @mock.patch('stream2segment.utils.inputargs.yaml_load')
+    def test_errors_process_not_run(self, mock_yaml_load,
+                                           err_type, expects_log_2_be_configured,
+                                           cmdline_opts,
+                                           db):
+        '''test processing in case of severla 'critical' errors (which do not launch the process
+          None means simply a bad argument (funcname missing)'''
+        pyfile, conffile = self.pyfile, self.conffile
+
+        # REMEMBER THAT BY DEFAULT LEAVING THE segment_select IMPLEMENTED in conffile
+        # WE WOULD HAVE NO SEGMENTS, as maxgap_numsamples is None for all segments of this test
+        # Thus provide config overrides:
+        mock_yaml_load.side_effect = yaml_load_side_effect(segment_select={'has_data': 'true'})
+
+        runner = CliRunner()
+        # Now wrtite pyfile into a named temp file, BUT DO NOT SUPPLY EXTENSION
+        # This seems to fail in python3 (FIXME: python2?)
+        with runner.isolated_filesystem() as cwd:
+            filename = os.path.join(cwd, 'tmp.csv')
+            pyfile2 = os.path.join(cwd, os.path.basename(pyfile))
+
+            with open(pyfile, 'r') as opn:
+                content = opn.read()
+
+            # here replace the stuff we need:
+            if err_type == ImportError:
+                # create the exception: implement a fake import
+                content = content.replace("def main(", """import abcdefghijk_blablabla_456isjfger
+def main2(""")
+            elif err_type == AttributeError:
+                # create the exception. Implement a bad signature whci hraises a TypeError
+                content = content.replace("def main(", """def main2(segment, config):
+    return "".attribute_that_does_not_exist_i_guess_blabla()
 
 def main(""")
-                tmpfile.write(content.encode('utf8'))
-                tmpfile.seek(0)
+            elif err_type == TypeError:
+                # create the exception. Implement a bad signature whci hraises a TypeError
+                content = content.replace("def main(", """def main2(segment, config, wrong_argument):
+    return int(None)
 
-                result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                                             '-p', tmpfile.name, '-f', "main_typeerr",
-                                             '-c', conffile,
-                                             file.name] + cmdline_opts)
+def main(""")
+            else:  # err_type is None
+                # this case does not do anything, but since we will call 'main2' as funcname
+                # in `runner.invoke` (see below), we should raise a BadArgument
+                pass
 
-                # the file above are bad implementation (old one)
-                # we should not write anything
-                logtext = self.logfilecontent
-                string2check = "0 segments"
-                assert string2check in logtext
+            with open(pyfile2, 'wb') as _opn:
+                _opn.write(content.encode('utf8'))
+
+            result = runner.invoke(cli, ['process', '--dburl', db.dburl, '--no-prompt',
+                                         '-p', pyfile2, '-f', "main2",
+                                         '-c', conffile,
+                                         filename] + cmdline_opts)
+
+            assert result.exception
+            assert result.exit_code != 0
+            stdout = result.output
+            if expects_log_2_be_configured:
+                # these cases raise BEFORE running pyfile
+                # assert log config has not been called: (see self.init):
+                assert self._logfilename is not None
+                # we did open the output file:
+                assert os.path.isfile(filename)
+                # and we never wrote on it:
+                assert os.stat(filename).st_size == 0
+                # check correct outputs, in both log and output:
+                outputs = [stdout, self.logfilecontent]
+                for output in outputs:
+                    # Try to assert the messages on standard output being compatible with PY2,
+                    # as the messages might change
+                    assert err_type.__name__ in output \
+                        and 'Traceback' in output and ' line ' in output
+            else:
+                # these cases raise BEFORE running pyfile
+                # assert log config has not been called: (see self.init):
+                assert self._logfilename is None
+                assert 'Invalid value for "pyfile": ' in stdout
+                further_string = 'main2' if err_type is None else 'No module named'
+                assert further_string in stdout
+                # we did NOt open the output file:
+                assert not os.path.isfile(filename)
+
+    @pytest.mark.parametrize("err_type", [None, ValueError])
+    @mock.patch('stream2segment.utils.inputargs.yaml_load')
+    def test_errors_process_completed(self, mock_yaml_load, err_type, db):
+        '''test processing in case of non 'critical' errors i.e., which do not prevent the process
+          to be completed. None means we do not override segment_select which, with the current
+          templates, causes no segment to be selected'''
+        pyfile, conffile = self.pyfile, self.conffile
+
+        # REMEMBER THAT BY DEFAULT LEAVING THE segment_select IMPLEMENTED in conffile
+        # WE WOULD HAVE NO SEGMENTS, as maxgap_numsamples is None for all segments of this test
+        # Thus provide config overrides:
+        if err_type is not None:
+            mock_yaml_load.side_effect = yaml_load_side_effect(segment_select={'has_data': 'true'})
+        else:
+            mock_yaml_load.side_effect = yaml_load_side_effect()
+
+        runner = CliRunner()
+        # Now wrtite pyfile into a named temp file, BUT DO NOT SUPPLY EXTENSION
+        # This seems to fail in python3 (FIXME: python2?)
+        with runner.isolated_filesystem() as cwd:
+            filename = os.path.join(cwd, 'tmp.csv')
+            pyfile2 = os.path.join(cwd, os.path.basename(pyfile))
+
+            with open(pyfile, 'r') as opn:
+                content = opn.read()
+
+            if err_type == ValueError:
+                # create the exception. Implement a bad signature whci hraises a TypeError
+                content = content.replace("def main(", """def main2(segment, config):
+    return int('4d')
+
+def main(""")
+            else:
+                # rename main to main2, as we will call 'main2' as funcname in 'runner.invoke' below
+                # REMEMBER THAT THIS CASE HAS ACTUALLY NO SEGMENTS TO BE PROCESSED, see
+                # 'mock_yaml_load.side_effect' above
+                content = content.replace("def main(", """def main2(""")
+
+            with open(pyfile2, 'wb') as _opn:
+                _opn.write(content.encode('utf8'))
+
+            result = runner.invoke(cli, ['process', '--dburl', db.dburl, '--no-prompt',
+                                         '-p', pyfile2, '-f', "main2",
+                                         '-c', conffile,
+                                         filename])
+
+            assert not result.exception
+            assert result.exit_code == 0
+            stdout = result.output
+            # these cases raise BEFORE running pyfile
+            # assert log config has not been called: (see self.init):
+            assert self._logfilename is not None
+            # we did open the output file:
+            assert os.path.isfile(filename)
+            # and we never wrote on it:
+            assert os.stat(filename).st_size == 0
+            # check correct outputs, in both log and output:
+            logfilecontent = self.logfilecontent
+            if err_type is None:  # no segments processed
+                str2check = """0 segment(s) found to process
+
+
+0 of 0 segment(s) successfully processed
+0 of 0 segment(s) skipped with error message (check log or details)"""
+                assert str2check in stdout
+                assert str2check in logfilecontent
+            else:
+                str2check = """3 segment(s) found to process
+
+
+
+0 of 3 segment(s) successfully processed
+3 of 3 segment(s) skipped with error message (check log or details)"""
+                assert str2check in stdout
+                # logfile has also the messages of what was wrong. Note that
+                # py2 prints:
+                # "invalid literal for long() with base 10: '4d'"
+                # and PY3 prints:
+                # ""invalid literal for int() with base 10: '4d'"
+                # instead of writing:
+                # if PY2:
+                #     assert "invalid literal for long() with base 10: '4d'" in logfilecontent
+                # else:
+                #     assert "invalid literal for int() with base 10: '4d'" in logfilecontent
+                # let's be more relaxed:
+                assert "invalid literal for " in logfilecontent
+                assert "with base 10: '4d'" in logfilecontent
+                # now also assert that any line of str2check not empty is in logfilecontent:
+                assert all(l in logfilecontent for l in str2check.splitlines() if l.strip())
