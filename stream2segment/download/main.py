@@ -20,10 +20,9 @@ from stream2segment.utils.resources import version
 from stream2segment.download.utils import QuitDownload
 from stream2segment.download.modules.events import get_events_df
 from stream2segment.download.modules.datacenters import get_datacenters_df
-from stream2segment.download.modules.channels import get_channels_df
+from stream2segment.download.modules.channels import get_channels_df, chaid2mseedid_dict
 from stream2segment.download.modules.stationsearch import merge_events_stations
-from stream2segment.download.modules.segments import prepare_for_download, download_save_segments,\
-    chaid2mseedid_dict
+from stream2segment.download.modules.segments import prepare_for_download, download_save_segments
 from stream2segment.download.modules.stations import save_inventories, query4inventorydownload
 from stream2segment.utils import tounicode
 from stream2segment.io.db.models import Download

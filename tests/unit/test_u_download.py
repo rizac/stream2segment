@@ -39,10 +39,9 @@ from click.testing import CliRunner
 import pandas as pd
 from stream2segment.download.modules.events import get_events_df
 from stream2segment.download.modules.datacenters import get_datacenters_df
-from stream2segment.download.modules.channels import get_channels_df
+from stream2segment.download.modules.channels import get_channels_df, chaid2mseedid_dict
 from stream2segment.download.modules.stationsearch import merge_events_stations
-from stream2segment.download.modules.segments import prepare_for_download, download_save_segments,\
-    chaid2mseedid_dict
+from stream2segment.download.modules.segments import prepare_for_download, download_save_segments
 from stream2segment.download.utils import QuitDownload
 # ,\
 #     get_fdsn_channels_df, save_stations_and_channels, get_dists_and_times, set_saved_dist_and_times,\
