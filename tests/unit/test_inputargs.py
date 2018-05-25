@@ -9,12 +9,10 @@ from stream2segment.cli import cli
 from mock.mock import patch
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_templates_fpaths
 from stream2segment.main import init as orig_init, helpmathiter as main_helpmathiter, download
-from tempfile import NamedTemporaryFile
 import yaml
 from contextlib import contextmanager
 import os
 from datetime import datetime, timedelta
-import tempfile
 import shutil
 
 from stream2segment.main import configlog4download as o_configlog4download, \
@@ -44,7 +42,7 @@ class Test(object):
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
     @pytest.fixture(autouse=True)
-    def init(self, request, db, data, tmpdir):
+    def init(self, request, db, data, pytestdir):
         # re-init a sqlite database (no-op if the db is not sqlite):
         db.create(to_file=False)
         # Although we do not test db stuff here other than checking a download id has written,
@@ -55,7 +53,7 @@ class Test(object):
             # config logger as usual, but redirects to a temp file
             # that will be deleted by pytest, instead of polluting the program
             # package:
-            return o_configlog4download(logger, str(tmpdir.join('logfile')), verbose)
+            return o_configlog4download(logger, pytestdir.newfile('.log'), verbose)
 
         with patch('stream2segment.main.configlog4download',
                    side_effect=cfd_side_effect) as _:
@@ -424,7 +422,7 @@ class Test(object):
 @patch('stream2segment.main.configlog4processing')
 @patch('stream2segment.main.run_process')
 def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, mock_getsess,
-                            capsys, tmpdir):
+                            capsys, pytestdir):
 
     # store stuff in this dict when running configure loggers below:
     vars = {'numloggers':0, 'logfilepath': None}
@@ -435,7 +433,7 @@ def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, moc
         # that will be deleted by pytest, instead of polluting the program
         # package:
         ret = o_configlog4processing(logger,
-                                     str(tmpdir.join('logfile')) if logfilebasepath else  None,
+                                     pytestdir.newfile('.log') if logfilebasepath else  None,
                                      verbose)
 
         vars['numloggers'] = len(ret)
@@ -461,31 +459,31 @@ def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, moc
 
     # run verbosity = True, with output file. This configures a logger to log file and a logger
     # stdout
-    with tempfile.NamedTemporaryFile() as outfile:
-        mock_run_process.side_effect = lambda *a, **v: None
-        ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=outfile.name,
-                        log2file=True, verbose=True)
-        out, err = capsys.readouterr()
-        assert len(out)  # assert empty (avoid comparing to strings and potential py2 py3 headache)
-        assert vars['numloggers'] == 2
+    outfile = pytestdir.newfile()
+    mock_run_process.side_effect = lambda *a, **v: None
+    ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=outfile,
+                    log2file=True, verbose=True)
+    out, err = capsys.readouterr()
+    assert len(out)  # assert empty (avoid comparing to strings and potential py2 py3 headache)
+    assert vars['numloggers'] == 2
 
     # run verbosity = False, with output file. This configures a logger to log file
-    with tempfile.NamedTemporaryFile() as outfile:
-        mock_run_process.side_effect = lambda *a, **v: None
-        ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=outfile.name,
-                        log2file=False, verbose=False)
-        out, err = capsys.readouterr()
-        assert not out  # assert empty (avoid comparing to strings and potential py2 py3 headache)
-        assert vars['numloggers'] == 0
+    outfile = pytestdir.newfile()
+    mock_run_process.side_effect = lambda *a, **v: None
+    ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=outfile,
+                    log2file=False, verbose=False)
+    out, err = capsys.readouterr()
+    assert not out  # assert empty (avoid comparing to strings and potential py2 py3 headache)
+    assert vars['numloggers'] == 0
 
     # run verbosity = False, with output file. This configures a logger to log file
-    with tempfile.NamedTemporaryFile() as outfile:
-        mock_run_process.side_effect = lambda *a, **v: None
-        ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=outfile.name,
-                        log2file=True, verbose=False)
-        out, err = capsys.readouterr()
-        assert not out  # assert empty (avoid comparing to strings and potential py2 py3 headache)
-        assert vars['numloggers'] == 1
+    outfile = pytestdir.newfile()
+    mock_run_process.side_effect = lambda *a, **v: None
+    ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=outfile,
+                    log2file=True, verbose=False)
+    out, err = capsys.readouterr()
+    assert not out  # assert empty (avoid comparing to strings and potential py2 py3 headache)
+    assert vars['numloggers'] == 1
 
     # run verbosity = True, with no output file. This configures a logger stderr and a logger stdout
     mock_run_process.side_effect = lambda *a, **v: None
@@ -516,7 +514,7 @@ def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, moc
 @patch('stream2segment.main.configlog4download')
 @patch('stream2segment.main.run_download')
 def test_download_verbosity(mock_run_download, mock_configlog, mock_closesess, mock_getsess,
-                            capsys, tmpdir):
+                            capsys, pytestdir):
     # handlers should be removed each run_download call, otherwise we end up
     # appending them
     numloggers = [0]
@@ -527,7 +525,7 @@ def test_download_verbosity(mock_run_download, mock_configlog, mock_closesess, m
         # that will be deleted by pytest, instead of polluting the program
         # package:
         ret = o_configlog4download(logger,
-                                   str(tmpdir.join('logfile')) if logfilebasepath else None,
+                                   pytestdir.newfile('.log') if logfilebasepath else None,
                                    verbose)
         numloggers[0] = len(ret)
         return ret

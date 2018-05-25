@@ -35,7 +35,6 @@ from mock.mock import patch
 from stream2segment.gui.webapp import get_session
 from stream2segment.gui.main import create_main_app
 import json
-import tempfile
 import shutil
 from stream2segment.gui.webapp.mainapp.core import flatten_dict
 

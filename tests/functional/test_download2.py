@@ -79,7 +79,7 @@ class Test(object):
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
     @pytest.fixture(autouse=True)
-    def init(self, request, db, data, tmpdir):
+    def init(self, request, db, data, pytestdir):
         # re-init a sqlite database (no-op if the db is not sqlite):
         db.create(to_file=False)
         
@@ -278,7 +278,7 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
                                 # config logger as usual, but redirects to a temp file
                                 # that will be deleted by pytest, instead of polluting the program
                                 # package:
-                                ret = configlog4download(logger, str(tmpdir.join('logfile')),
+                                ret = configlog4download(logger, pytestdir.newfile('.log'),
                                                          verbose)
                                 logger.addHandler(self.handler)
                                 return ret

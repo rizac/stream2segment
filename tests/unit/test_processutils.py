@@ -12,14 +12,14 @@ from mock import patch
 from io import BytesIO
 import pytest
 import time
-from tempfile import NamedTemporaryFile as NamedTemporaryFile_
+from tempfile import NamedTemporaryFile
 
 class MockSegment(object):
      def __init__(self, data):
          self.data = data
 
 
-@patch('obspy.core.stream.NamedTemporaryFile', return_value = NamedTemporaryFile_())
+@patch('obspy.core.stream.NamedTemporaryFile', return_value=NamedTemporaryFile())
 def test_get_stream(mock_ntf, data):
     mseeddata = data.read('trace_GE.APE.mseed')
 

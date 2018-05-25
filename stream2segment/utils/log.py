@@ -7,10 +7,9 @@ Class handling logger for downloading and processing
 '''
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import object
+from builtins import object  # pylint: disable=redefined-builtin
 
 import os
-import tempfile
 import logging
 from datetime import timedelta, datetime
 import sys

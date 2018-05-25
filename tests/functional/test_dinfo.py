@@ -8,41 +8,23 @@ from __future__ import print_function, division
 
 from builtins import str, object
 
-# from tempfile import NamedTemporaryFile
-from past.utils import old_div
-import os, sys
+import os
+import sys
+import json
+import re
 from datetime import datetime, timedelta
-import mock
 from mock import patch
-import tempfile
-import csv
-from future.backports.urllib.error import URLError
 import pytest
 
 from click.testing import CliRunner
 
-from sqlalchemy.engine import create_engine
-from sqlalchemy.orm.session import sessionmaker
-# from urllib.error import URLError
-# import multiprocessing
-from obspy.core.stream import read
-
 from stream2segment.cli import cli
 from stream2segment.io.db.models import Base, Event, Station, WebService, Segment,\
     Channel, Download, DataCenter
-from stream2segment.utils.inputargs import yaml_load as load_proc_cfg
-from stream2segment.utils.resources import get_templates_fpaths
-from stream2segment.process.utils import get_inventory_url, save_inventory as original_saveinv
-
-from future import standard_library
-from stream2segment.process.utils import enhancesegmentclass
 from stream2segment.download.utils import custom_download_codes
-import json
-import re
 from future.utils import PY2
+from future import standard_library
 standard_library.install_aliases()
-
-
 
 
 class Test(object):
@@ -86,10 +68,10 @@ class Test(object):
         # d1 has one station
         s_d1 = Station(datacenter_id=d1.id, latitude=11, longitude=11, network='N1', station='S1',
                        start_time=datetime.utcnow())
-        s_d2 = Station(datacenter_id=d1.id, latitude=22.1, longitude=22.1, network='N1', station='S2a',
-                       start_time=datetime.utcnow())
-        s2_d2 = Station(datacenter_id=d1.id, latitude=22.2, longitude=22.2, network='N2', station='S2b',
-                       start_time=datetime.utcnow())
+        s_d2 = Station(datacenter_id=d1.id, latitude=22.1, longitude=22.1, network='N1',
+                       station='S2a', start_time=datetime.utcnow())
+        s2_d2 = Station(datacenter_id=d1.id, latitude=22.2, longitude=22.2, network='N2',
+                        station='S2b', start_time=datetime.utcnow())
         db.session.add_all([s_d1, s_d2, s2_d2])
         db.session.commit()
 
@@ -119,15 +101,15 @@ class Test(object):
                 c = Channel(station_id=s.id, location='', channel=cha, sample_rate=56.7)
                 db.session.add(c)
                 db.session.commit()
-                
+
                 data, code, gap = seg_data[i]
                 i += 1
                 seg = Segment(channel_id=c.id, datacenter_id=s.datacenter_id,
-                       event_id=e1.id, download_id=r.id,
-                       event_distance_deg=35, request_start=datetime.utcnow(),
-                       arrival_time=datetime.utcnow(),
-                       request_end=datetime.utcnow() + timedelta(seconds=5), data=data,
-                       download_code=code, maxgap_numsamples=gap)
+                              event_id=e1.id, download_id=r.id,
+                              event_distance_deg=35, request_start=datetime.utcnow(),
+                              arrival_time=datetime.utcnow(),
+                              request_end=datetime.utcnow() + timedelta(seconds=5), data=data,
+                              download_code=code, maxgap_numsamples=gap)
                 db.session.add(seg)
                 db.session.commit()
 
@@ -140,46 +122,33 @@ class Test(object):
 
     @patch('stream2segment.main.open_in_browser')
     @patch('stream2segment.main.gettempdir')
-    def test_simple_dinfo(self, mock_gettempdir, mock_open_in_browser, db):
+    def test_simple_dinfo(self, mock_gettempdir, mock_open_in_browser, db, pytestdir):
         '''test a case where save inventory is True, and that we saved inventories'''
-        
+
         runner = CliRunner()
 
         # text output, to file
-        with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            
-            result = runner.invoke(cli, ['utils', 'dinfo', '--dburl', db.dburl,
-                                         file.name])
+        outfile = pytestdir.newfile('.txt')
+        result = runner.invoke(cli, ['utils', 'dinfo', '--dburl', db.dburl, outfile])
 
-            if result.exception:
-                import traceback
-                traceback.print_exception(*result.exc_info)
-                print(result.output)
-                assert False
-
-            content = open(file.name).read()
-            assert """
+        assert not result.exception
+        content = open(outfile).read()
+        assert """
                               OK        OK         Time                 Segment           Internal       
                               Gaps      Partially  Span   MSeed  Url    Not      Bad      Server         
                           OK  Overlaps  Saved      Error  Error  Error  Found    Request  Error     TOTAL
 ------------------------  --  --------  ---------  -----  -----  -----  -------  -------  --------  -----
 www.dc1/dataselect/query   3         1          2      1      1      1        1        1         1     12
 TOTAL                      3         1          2      1      1      1        1        1         1     12""" in content
-            assert result.output.startswith("""Fetching data, please wait (this might take a while depending on the db size and connection)
+        assert result.output.startswith("""Fetching data, please wait (this might take a while depending on the db size and connection)
 download info and statistics written to """)
         assert not mock_open_in_browser.called
         assert not mock_gettempdir.called
 
         # text output, to stdout
         result = runner.invoke(cli, ['utils', 'dinfo', '--dburl', db.dburl])
-
-        if result.exception:
-            import traceback
-            traceback.print_exception(*result.exc_info)
-            print(result.output)
-            assert False
-
-            assert """
+        assert not result.exception
+        assert """
                               OK        OK         Time                 Segment           Internal       
                               Gaps      Partially  Span   MSeed  Url    Not      Bad      Server         
                           OK  Overlaps  Saved      Error  Error  Error  Found    Request  Error     TOTAL
@@ -216,165 +185,135 @@ TOTAL                      3         1          2      1      1      1        1 
             return json.loads(content[start:end])
 
         # html output, to file
-        with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            result = runner.invoke(cli, ['utils', 'dinfo', '--html',  '--dburl', db.dburl,
-                                         file.name])
+        outfile = pytestdir.newfile('.html')
+        result = runner.invoke(cli, ['utils', 'dinfo', '--html',  '--dburl', db.dburl, outfile])
 
-            if result.exception:
-                import traceback
-                traceback.print_exception(*result.exc_info)
-                print(result.output)
-                assert False
+        assert not result.exception
+        content = open(outfile).read()
 
-            content = open(file.name).read()
+        sta_data = jsonloads('sta_data', content)
+        networks = jsonloads('networks', content)
+        assert len(sta_data) == db.session.query(Station.id).count() * 2
+        for i in range(0, len(sta_data), 2):
+            staname = sta_data[i]
+            data = sta_data[i+1]
+            # Each sta is: [sta_name, [staid, stalat, stalon, sta_dcid,
+            #                        d_id1, [code1, num_seg1 , ..., codeN, num_seg],
+            #                        d_id2, [code1, num_seg1 , ..., codeN, num_seg],
+            #                       ]
+            if staname == 'S1':
+                assert data[0] == 1
+                assert data[1] == 11  # lat
+                assert data[2] == 11  # lon
+                assert data[3] == 1  # dc id
+                assert data[4] == networks.index('N1')
+                assert data[5] == 1  # download id (only 1)
+                # assert the correct segments categories
+                # (list length is the number of categories,
+                # each element is the num of segments for that category,
+                # and the sum of all elements must be 4)
+                assert sorted(data[6][1::2]) == [1, 1, 1, 1]
+            elif staname == 'S2a':
+                assert data[0] == 2
+                assert data[1] == 22.1  # lat
+                assert data[2] == 22.1  # lon
+                assert data[3] == 1  # dc id
+                assert data[4] == networks.index('N1')
+                assert data[5] == 1  # download id (only 1)
+                # assert the correct segments categories
+                # (list length is the number of categories,
+                # each element is the num of segments for that category,
+                # and the sum of all elements must be 4)
+                assert sorted(data[6][1::2]) == [1, 1, 2]
+            elif staname == 'S2b':
+                assert data[0] == 3
+                assert data[1] == 22.2  # lat
+                assert data[2] == 22.2  # lon
+                assert data[3] == 1  # dc id
+                assert data[4] == networks.index('N2')
+                assert data[5] == 1  # download id (only 1)
+                # assert the correct segments categories
+                # (list length is the number of categories,
+                # each element is the num of segments for that category,
+                # and the sum of all elements must be 4)
+                assert sorted(data[6][1::2]) == [1, 1, 1, 1]
+            else:
+                raise Exception('station should not be there: %s' % staname)
 
-            sta_data = jsonloads('sta_data', content)
-            networks = jsonloads('networks', content)
-            assert len(sta_data) == db.session.query(Station.id).count() * 2
-            for i in range(0, len(sta_data), 2):
-                staname = sta_data[i]
-                data = sta_data[i+1]
-                #Each sta is: [sta_name, [staid, stalat, stalon, sta_dcid,
-                #                        d_id1, [code1, num_seg1 , ..., codeN, num_seg],
-                #                        d_id2, [code1, num_seg1 , ..., codeN, num_seg],
-                #                       ]
-                if staname == 'S1':
-                    assert data[0] == 1
-                    assert data[1] == 11  # lat
-                    assert data[2] == 11  # lon
-                    assert data[3] == 1  # dc id
-                    assert data[4] == networks.index('N1')
-                    assert data[5] == 1  # download id (only 1)
-                    # assert the correct segments categories
-                    # (list length is the number of categories,
-                    # each element is the num of segments for that category,
-                    # and the sum of all elements must be 4)
-                    assert sorted(data[6][1::2]) == [1, 1, 1, 1]
-                elif staname == 'S2a':
-                    assert data[0] == 2
-                    assert data[1] == 22.1  # lat
-                    assert data[2] == 22.1  # lon
-                    assert data[3] == 1  # dc id
-                    assert data[4] == networks.index('N1')
-                    assert data[5] == 1  # download id (only 1)
-                    # assert the correct segments categories
-                    # (list length is the number of categories,
-                    # each element is the num of segments for that category,
-                    # and the sum of all elements must be 4)
-                    assert sorted(data[6][1::2]) == [1, 1, 2]
-                elif staname == 'S2b':
-                    assert data[0] == 3
-                    assert data[1] == 22.2  # lat
-                    assert data[2] == 22.2  # lon
-                    assert data[3] == 1  # dc id
-                    assert data[4] == networks.index('N2')
-                    assert data[5] == 1  # download id (only 1)
-                    # assert the correct segments categories
-                    # (list length is the number of categories,
-                    # each element is the num of segments for that category,
-                    # and the sum of all elements must be 4)
-                    assert sorted(data[6][1::2]) == [1, 1, 1, 1]
-                else:
-                    raise Exception('station should not be there: %s' % staname)
-
-            assert result.output.startswith("""Fetching data, please wait (this might take a while depending on the db size and connection)
+        assert result.output.startswith("""Fetching data, please wait (this might take a while depending on the db size and connection)
 download info and statistics written to """)
         assert not mock_open_in_browser.called
         assert not mock_gettempdir.called
-
 
         # html output, to file, setting maxgap to 0.2, so that S1a' has all three ok segments with gaps
-        with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            result = runner.invoke(cli, ['utils', 'dinfo', '-g', '0.15', '--html',  '--dburl', db.dburl,
-                                         file.name])
+        result = runner.invoke(cli, ['utils', 'dinfo', '-g', '0.15', '--html',  '--dburl', db.dburl,
+                                     outfile])
 
-            if result.exception:
-                import traceback
-                traceback.print_exception(*result.exc_info)
-                print(result.output)
-                assert False
+        assert not result.exception
 
-            content = open(file.name).read()
-            # parse the sta_data content into dict and check stuff:
-            sta_data = jsonloads('sta_data', content)
-            networks = jsonloads('networks', content)
-            assert len(sta_data) == db.session.query(Station.id).count() * 2
-            for i in range(0, len(sta_data), 2):
-                staname = sta_data[i]
-                data = sta_data[i+1]
-                #Each sta is: [sta_name, [staid, stalat, stalon, sta_dcid,
-                #                        d_id1, [code1, num_seg1 , ..., codeN, num_seg],
-                #                        d_id2, [code1, num_seg1 , ..., codeN, num_seg],
-                #                       ]
-                if staname == 'S1':
-                    assert data[0] == 1
-                    assert data[1] == 11  # lat
-                    assert data[2] == 11  # lon
-                    assert data[3] == 1  # dc id
-                    assert data[4] == networks.index('N1')
-                    assert data[5] == 1  # download id (only 1)
-                    # assert the correct segments categories
-                    # (list length is the number of categories,
-                    # each element is the num of segments for that category,
-                    # and the sum of all elements must be 4)
-                    assert sorted(data[6][1::2]) == [1, 1, 1, 1]
-                elif staname == 'S2a':
-                    assert data[0] == 2
-                    assert data[1] == 22.1  # lat
-                    assert data[2] == 22.1  # lon
-                    assert data[3] == 1  # dc id
-                    assert data[4] == networks.index('N1')
-                    assert data[5] == 1  # download id (only 1)
-                    # assert the correct segments categories
-                    # (list length is the number of categories,
-                    # each element is the num of segments for that category,
-                    # and the sum of all elements must be 4)
-                    assert sorted(data[6][1::2]) == [1, 3]
-                elif staname == 'S2b':
-                    assert data[0] == 3
-                    assert data[1] == 22.2  # lat
-                    assert data[2] == 22.2  # lon
-                    assert data[3] == 1  # dc id
-                    assert data[4] == networks.index('N2')
-                    assert data[5] == 1  # download id (only 1)
-                    # assert the correct segments categories
-                    # (list length is the number of categories,
-                    # each element is the num of segments for that category,
-                    # and the sum of all elements must be 4)
-                    assert sorted(data[6][1::2]) == [1, 1, 1, 1]
-                else:
-                    raise Exception('station should not be there: %s' % staname)
+        content = open(outfile).read()
+        # parse the sta_data content into dict and check stuff:
+        sta_data = jsonloads('sta_data', content)
+        networks = jsonloads('networks', content)
+        assert len(sta_data) == db.session.query(Station.id).count() * 2
+        for i in range(0, len(sta_data), 2):
+            staname = sta_data[i]
+            data = sta_data[i+1]
+            # Each sta is: [sta_name, [staid, stalat, stalon, sta_dcid,
+            #                        d_id1, [code1, num_seg1 , ..., codeN, num_seg],
+            #                        d_id2, [code1, num_seg1 , ..., codeN, num_seg],
+            #                       ]
+            if staname == 'S1':
+                assert data[0] == 1
+                assert data[1] == 11  # lat
+                assert data[2] == 11  # lon
+                assert data[3] == 1  # dc id
+                assert data[4] == networks.index('N1')
+                assert data[5] == 1  # download id (only 1)
+                # assert the correct segments categories
+                # (list length is the number of categories,
+                # each element is the num of segments for that category,
+                # and the sum of all elements must be 4)
+                assert sorted(data[6][1::2]) == [1, 1, 1, 1]
+            elif staname == 'S2a':
+                assert data[0] == 2
+                assert data[1] == 22.1  # lat
+                assert data[2] == 22.1  # lon
+                assert data[3] == 1  # dc id
+                assert data[4] == networks.index('N1')
+                assert data[5] == 1  # download id (only 1)
+                # assert the correct segments categories
+                # (list length is the number of categories,
+                # each element is the num of segments for that category,
+                # and the sum of all elements must be 4)
+                assert sorted(data[6][1::2]) == [1, 3]
+            elif staname == 'S2b':
+                assert data[0] == 3
+                assert data[1] == 22.2  # lat
+                assert data[2] == 22.2  # lon
+                assert data[3] == 1  # dc id
+                assert data[4] == networks.index('N2')
+                assert data[5] == 1  # download id (only 1)
+                # assert the correct segments categories
+                # (list length is the number of categories,
+                # each element is the num of segments for that category,
+                # and the sum of all elements must be 4)
+                assert sorted(data[6][1::2]) == [1, 1, 1, 1]
+            else:
+                raise Exception('station should not be there: %s' % staname)
 
-            assert result.output.startswith("""Fetching data, please wait (this might take a while depending on the db size and connection)
+        assert result.output.startswith("""Fetching data, please wait (this might take a while depending on the db size and connection)
 download info and statistics written to """)
         assert not mock_open_in_browser.called
         assert not mock_gettempdir.called
 
-
         # html output, to temp file
-        tmpdir = tempfile.gettempdir()
-        mock_gettempdir.side_effect = lambda *a, **v: tmpdir
-        try:
-            result = runner.invoke(cli, ['utils', 'dinfo', '--html', '--dburl',  db.dburl])
+        mytmpdir = pytestdir.makedir()
+        assert not os.listdir(mytmpdir)
+        mock_gettempdir.side_effect = lambda *a, **v: mytmpdir
+        result = runner.invoke(cli, ['utils', 'dinfo', '--html', '--dburl',  db.dburl])
+        assert not result.exception
+        assert mock_open_in_browser.called
+        assert mock_gettempdir.called
+        assert os.listdir(mytmpdir) == ['s2s_dinfo.html']
 
-            if result.exception:
-                import traceback
-                traceback.print_exception(*result.exc_info)
-                print(result.output)
-                assert False
-
-#                 assert """           OK        OK         Time                          Internal  Segment       
-#                Gaps      Partially  Span   MSeed  Url    Bad      Server    Not           
-#            OK  Overlaps  Saved      Error  Error  Error  Request  Error     Found    TOTAL
-#     -----  --  --------  ---------  -----  -----  -----  -------  --------  -------  -----
-#             3         1          2      1      1      1        1         1        1     12
-#     TOTAL   3         1          2      1      1      1        1         1        1     12""" in result.output
-            assert mock_open_in_browser.called
-            assert mock_gettempdir.called
-        finally:
-            file = os.path.join(tmpdir, 's2s_dinfo.html')
-            assert os.path.isfile(file)
-            try:
-                os.remove(file)
-            except:
-                pass

@@ -7,13 +7,11 @@ from __future__ import print_function, division
 
 from builtins import str, object
 
-from tempfile import NamedTemporaryFile
 from past.utils import old_div
 import os, sys
 from datetime import datetime, timedelta
 import mock
 from mock import patch
-import tempfile
 import csv
 from future.backports.urllib.error import URLError
 import pytest
@@ -69,7 +67,7 @@ class Test(object):
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
     @pytest.fixture(autouse=True)
-    def init(self, request, db, data, tmpdir):
+    def init(self, request, db, data, pytestdir):
         # re-init a sqlite database (no-op if the db is not sqlite):
         db.create(to_file=True)
 
@@ -201,7 +199,7 @@ class Test(object):
                             # that will be deleted by pytest, instead of polluting the program
                             # package:
                             ret = o_configlog4processing(logger,
-                                                         str(tmpdir.join('logfile')) \
+                                                         pytestdir.newfile('.log') \
                                                          if logfilebasepath else None,
                                                          verbose)
 
@@ -280,6 +278,8 @@ class Test(object):
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
     def test_simple_run_retDict_saveinv_emptyfile(self, mock_yaml_load, advanced_settings,
                                                   cmdline_opts,
+                                                  # fixtures:
+                                                  pytestdir,
                                                   db):
         '''test a case where we create a temporary file, empty but opened before writing'''
         # set values which will override the yaml config in templates folder:
@@ -296,20 +296,20 @@ class Test(object):
         station_id_whose_inventory_is_saved = self.sta_ok.id
 
         runner = CliRunner()
-        with tempfile.NamedTemporaryFile() as file:  # @ReservedAssignment
-            pyfile, conffile = self.pyfile, self.conffile
-            result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                                   '-p', pyfile, '-c', conffile, file.name] + cmdline_opts)
+        filename = pytestdir.newfile('output.csv', create=True)
+        pyfile, conffile = self.pyfile, self.conffile
+        result = runner.invoke(cli, ['process', '--dburl', db.dburl,
+                               '-p', pyfile, '-c', conffile, filename] + cmdline_opts)
 
-            assert not result.exception
+        assert not result.exception
 
-            # check file has been correctly written:
-            csv1 = readcsv(file.name)
-            assert len(csv1) == 1
-            assert str(csv1.loc[0, csv1.columns[0]]) == expected_first_row_seg_id
-            logtext = self.logfilecontent
-            assert len(logtext) > 0
-            assert "Appending results to existing file." in logtext
+        # check file has been correctly written:
+        csv1 = readcsv(filename)
+        assert len(csv1) == 1
+        assert str(csv1.loc[0, csv1.columns[0]]) == expected_first_row_seg_id
+        logtext = self.logfilecontent
+        assert len(logtext) > 0
+        assert "Appending results to existing file." in logtext
 
         # save_downloaded_inventory True, test that we did save any:
         assert len(db.session.query(Station).filter(Station.has_inventory).all()) > 0
@@ -339,6 +339,8 @@ class Test(object):
     @mock.patch('stream2segment.cli.click.confirm', return_value=True)
     def test_append(self, mock_click_confirm, mock_yaml_load, advanced_settings, cmdline_opts,
                     return_list,
+                    # fixtures:
+                    pytestdir,
                     db):
         '''test a typical case where we supply the append option'''
         # set values which will override the yaml config in templates folder:
@@ -355,105 +357,104 @@ class Test(object):
         station_id_whose_inventory_is_saved = self.sta_ok.id
 
         runner = CliRunner()
-        with runner.isolated_filesystem() as cwd:
-            pyfile, conffile = self.pyfile, self.conffile
-            filename = os.path.join(cwd, 'test.csv')
+        filename = pytestdir.newfile('.csv')
+        pyfile, conffile = self.pyfile, self.conffile
 
-            if return_list:
-                # modify python so taht 'main' returns a list by calling the default 'main'
-                # and returning its keys:
-                with open(pyfile, 'r') as opn:
-                    content = opn.read()
+        if return_list:
+            # modify python so taht 'main' returns a list by calling the default 'main'
+            # and returning its keys:
+            with open(pyfile, 'r') as opn:
+                content = opn.read()
 
-                pyfile = os.path.join(cwd, os.path.basename(pyfile))
-                cont2 = content.replace("def main(segment, config):", """def main(segment, config):
+            pyfile = pytestdir.newfile('.py')
+            cont2 = content.replace("def main(segment, config):", """def main(segment, config):
     return list(main2(segment, config).values())
 def main2(segment, config):""")
-                with open(pyfile, 'wb') as _opn:
-                    _opn.write(cont2.encode('utf8'))
+            with open(pyfile, 'wb') as _opn:
+                _opn.write(cont2.encode('utf8'))
 
-            mock_click_confirm.reset_mock()
-            result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                                   '-p', pyfile, '-c', conffile, filename] + cmdline_opts)
+        mock_click_confirm.reset_mock()
+        result = runner.invoke(cli, ['process', '--dburl', db.dburl,
+                               '-p', pyfile, '-c', conffile, filename] + cmdline_opts)
 
-            assert not result.exception
+        assert not result.exception
 
-            # check file has been correctly written:
-            csv1 = readcsv(filename, header=not return_list)
-            assert len(csv1) == 1
-            assert str(csv1.loc[0, csv1.columns[0]]) == expected_first_row_seg_id
-            logtext1 = self.logfilecontent
-            assert "3 segment(s) found to process" in logtext1
-            assert "Skipping 1 already processed segment(s)" not in logtext1
-            assert "Ignoring `append` functionality: output file does not exist or not provided" \
-                in logtext1
-            assert "1 of 3 segment(s) successfully processed" in logtext1
-            assert not mock_click_confirm.called
+        # check file has been correctly written:
+        csv1 = readcsv(filename, header=not return_list)
+        assert len(csv1) == 1
+        assert str(csv1.loc[0, csv1.columns[0]]) == expected_first_row_seg_id
+        logtext1 = self.logfilecontent
+        assert "3 segment(s) found to process" in logtext1
+        assert "Skipping 1 already processed segment(s)" not in logtext1
+        assert "Ignoring `append` functionality: output file does not exist or not provided" \
+            in logtext1
+        assert "1 of 3 segment(s) successfully processed" in logtext1
+        assert not mock_click_confirm.called
 
-            # now test a second call, the same as before:
-            mock_click_confirm.reset_mock()
-            result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                                   '-p', pyfile, '-c', conffile, filename] + cmdline_opts)
-            # check file has been correctly written:
-            # check file has been correctly written:
-            csv2 = readcsv(filename, header=not return_list)
-            assert len(csv2) == 1
-            assert str(csv2.loc[0, csv1.columns[0]]) == expected_first_row_seg_id
-            logtext2 = self.logfilecontent
-            assert "2 segment(s) found to process" in logtext2
-            assert "Skipping 1 already processed segment(s)" in logtext2
-            assert "Appending results to existing file." in logtext2
-            assert "0 of 2 segment(s) successfully processed" in logtext2
-            assert not mock_click_confirm.called
-            # assert two rows are equal:
-            assert_frame_equal(csv1, csv2, check_dtype=True)
+        # now test a second call, the same as before:
+        mock_click_confirm.reset_mock()
+        result = runner.invoke(cli, ['process', '--dburl', db.dburl,
+                               '-p', pyfile, '-c', conffile, filename] + cmdline_opts)
+        # check file has been correctly written:
+        # check file has been correctly written:
+        csv2 = readcsv(filename, header=not return_list)
+        assert len(csv2) == 1
+        assert str(csv2.loc[0, csv1.columns[0]]) == expected_first_row_seg_id
+        logtext2 = self.logfilecontent
+        assert "2 segment(s) found to process" in logtext2
+        assert "Skipping 1 already processed segment(s)" in logtext2
+        assert "Appending results to existing file." in logtext2
+        assert "0 of 2 segment(s) successfully processed" in logtext2
+        assert not mock_click_confirm.called
+        # assert two rows are equal:
+        assert_frame_equal(csv1, csv2, check_dtype=True)
 
-            # change the segment id of the written segment
-            seg = db.session.query(Segment).filter(Segment.id == expected_first_row_seg_id).\
-                first()
-            new_seg_id = seg.id * 100
-            seg.id = new_seg_id
-            db.session.commit()
+        # change the segment id of the written segment
+        seg = db.session.query(Segment).filter(Segment.id == expected_first_row_seg_id).\
+            first()
+        new_seg_id = seg.id * 100
+        seg.id = new_seg_id
+        db.session.commit()
 
-            # now test a second call, the same as before:
-            mock_click_confirm.reset_mock()
-            result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                                   '-p', pyfile, '-c', conffile, filename] + cmdline_opts)
-            # check file has been correctly written:
-            csv3 = readcsv(filename, header=not return_list)
-            assert len(csv3) == 2
-            assert str(csv3.loc[0, csv1.columns[0]]) == expected_first_row_seg_id
-            assert csv3.loc[1, csv1.columns[0]] == new_seg_id
-            logtext3 = self.logfilecontent
-            assert "3 segment(s) found to process" in logtext3
-            assert "Skipping 1 already processed segment(s)" in logtext3
-            assert "Appending results to existing file." in logtext3
-            assert "1 of 3 segment(s) successfully processed" in logtext3
-            assert not mock_click_confirm.called
-            # assert two rows are equal:
-            assert_frame_equal(csv1, csv3[:1], check_dtype=True)
+        # now test a second call, the same as before:
+        mock_click_confirm.reset_mock()
+        result = runner.invoke(cli, ['process', '--dburl', db.dburl,
+                               '-p', pyfile, '-c', conffile, filename] + cmdline_opts)
+        # check file has been correctly written:
+        csv3 = readcsv(filename, header=not return_list)
+        assert len(csv3) == 2
+        assert str(csv3.loc[0, csv1.columns[0]]) == expected_first_row_seg_id
+        assert csv3.loc[1, csv1.columns[0]] == new_seg_id
+        logtext3 = self.logfilecontent
+        assert "3 segment(s) found to process" in logtext3
+        assert "Skipping 1 already processed segment(s)" in logtext3
+        assert "Appending results to existing file." in logtext3
+        assert "1 of 3 segment(s) successfully processed" in logtext3
+        assert not mock_click_confirm.called
+        # assert two rows are equal:
+        assert_frame_equal(csv1, csv3[:1], check_dtype=True)
 
-            # last try: no append (also set no-prompt to test that we did not prompt the user)
-            mock_click_confirm.reset_mock()
-            result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                                   '-p', pyfile, '-c', conffile, filename] + cmdline_opts[1:])
-            # check file has been correctly written:
-            csv4 = readcsv(filename, header=not return_list)
-            assert len(csv4) == 1
-            assert csv4.loc[0, csv1.columns[0]] == new_seg_id
-            logtext4 = self.logfilecontent
-            assert "3 segment(s) found to process" in logtext4
-            assert "Skipping 1 already processed segment(s)" not in logtext4
-            assert "Appending results to existing file." not in logtext4
-            assert "1 of 3 segment(s) successfully processed" in logtext4
-            assert 'Overwriting existing output file' in logtext4
-            assert mock_click_confirm.called
+        # last try: no append (also set no-prompt to test that we did not prompt the user)
+        mock_click_confirm.reset_mock()
+        result = runner.invoke(cli, ['process', '--dburl', db.dburl,
+                               '-p', pyfile, '-c', conffile, filename] + cmdline_opts[1:])
+        # check file has been correctly written:
+        csv4 = readcsv(filename, header=not return_list)
+        assert len(csv4) == 1
+        assert csv4.loc[0, csv1.columns[0]] == new_seg_id
+        logtext4 = self.logfilecontent
+        assert "3 segment(s) found to process" in logtext4
+        assert "Skipping 1 already processed segment(s)" not in logtext4
+        assert "Appending results to existing file." not in logtext4
+        assert "1 of 3 segment(s) successfully processed" in logtext4
+        assert 'Overwriting existing output file' in logtext4
+        assert mock_click_confirm.called
 
-            # last try: prompt return False
-            mock_click_confirm.reset_mock()
-            mock_click_confirm.return_value = False
-            result = runner.invoke(cli, ['process',  '--dburl', db.dburl,
-                                   '-p', pyfile, '-c', conffile, filename] + cmdline_opts[1:])
-            assert result.exception
-            assert type(result.exception) == SystemExit
-            assert result.exception.code == 1
+        # last try: prompt return False
+        mock_click_confirm.reset_mock()
+        mock_click_confirm.return_value = False
+        result = runner.invoke(cli, ['process',  '--dburl', db.dburl,
+                               '-p', pyfile, '-c', conffile, filename] + cmdline_opts[1:])
+        assert result.exception
+        assert type(result.exception) == SystemExit
+        assert result.exception.code == 1

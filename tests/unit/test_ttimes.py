@@ -49,43 +49,41 @@ def ttdata(data):
                                       'values': _values })
 
 
-def test_ttcreator():
+def test_ttcreator(pytestdir):
 
     runner = CliRunner()
-    with runner.isolated_filesystem():
-        mydir = os.getcwd()
-        result = runner.invoke(ttcreate, catch_exceptions=True)
-        assert result.exit_code != 0
+    mydir = pytestdir.makedir()
+    result = runner.invoke(ttcreate, catch_exceptions=True)
+    assert result.exit_code != 0
 
-        phase = 'ttp'  # NOTE: by setting e.g. just 'P' we do NOT make it faster, cause
-        # some numbers might be nan and thus the iteration is slower
-        # try to make ttp which should be faster than ttp+ and most likely without
-        # nans that are not in ttp+
-        result = runner.invoke(ttcreate, ['-o', mydir, '-m', 'iasp91', '-t', 10, '-p',
-                                               phase, '-s', 51.3, '-r', 2, '-d', 34.3],
-                               catch_exceptions=False)
-        assert result.exit_code == 0
-        assert os.path.isfile(_filepath(mydir, 'iasp91', [phase]) + ".npz")
+    phase = 'ttp'  # NOTE: by setting e.g. just 'P' we do NOT make it faster, cause
+    # some numbers might be nan and thus the iteration is slower
+    # try to make ttp which should be faster than ttp+ and most likely without
+    # nans that are not in ttp+
+    result = runner.invoke(ttcreate, ['-o', mydir, '-m', 'iasp91', '-t', 10, '-p',
+                                           phase, '-s', 51.3, '-r', 2, '-d', 34.3],
+                           catch_exceptions=False)
+    assert result.exit_code == 0
+    assert os.path.isfile(_filepath(mydir, 'iasp91', [phase]) + ".npz")
         # fixme: we should load the file and assert something...
 
 
 # the test below might be refined and assert more stuff
 # (it has however been inspected with eclipse debugger once to test everything worked fine)
-def test_ttcreator_tts():
+def test_ttcreator_tts(pytestdir):
 
     runner = CliRunner()
-    with runner.isolated_filesystem():
-        mydir = os.getcwd()
-        result = runner.invoke(ttcreate, catch_exceptions=True)
-        assert result.exit_code != 0
+    mydir = pytestdir.makedir()
+    result = runner.invoke(ttcreate, catch_exceptions=True)
+    assert result.exit_code != 0
 
-        # test with no receiver depths (set to 0)
-        phase = 'tts'
-        result = runner.invoke(ttcreate, ['-o', mydir, '-m', 'ak135', '-t', 10, '-p',
-                                               phase, '-s', 51.3, '-r', 0 , '-d', 34.3],
-                               catch_exceptions=False)
-        assert result.exit_code == 0
-        assert os.path.isfile(_filepath(mydir, 'ak135', [phase]) + ".npz")
+    # test with no receiver depths (set to 0)
+    phase = 'tts'
+    result = runner.invoke(ttcreate, ['-o', mydir, '-m', 'ak135', '-t', 10, '-p',
+                                           phase, '-s', 51.3, '-r', 0 , '-d', 34.3],
+                           catch_exceptions=False)
+    assert result.exit_code == 0
+    assert os.path.isfile(_filepath(mydir, 'ak135', [phase]) + ".npz")
         # fixme: we should load the file and assert something...
 
 

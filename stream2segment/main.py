@@ -10,7 +10,7 @@ from __future__ import print_function
 
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
-from builtins import range, round, open, input
+from builtins import range, round, open, input  # pylint: disable=redefined-builtin
 
 import time
 import logging
@@ -23,7 +23,7 @@ from webbrowser import open as open_in_browser
 import threading
 from tempfile import gettempdir
 
-from future.utils import string_types, text_type, PY2
+from future.utils import PY2
 
 import yaml
 import jinja2
@@ -41,7 +41,7 @@ from stream2segment.process import math as s2s_math
 from stream2segment.download.utils import QuitDownload
 from stream2segment.gui.dinfo import get_dstats_html, get_dstats_str_iter
 from stream2segment.resources.templates import DOCVARS
-from stream2segment.process.writers import get_writer, BaseWriter
+from stream2segment.process.writers import get_writer
 
 
 if PY2:
@@ -57,7 +57,7 @@ else:
 # howver, based on how we configured entry points in config, the name is (as november 2016)
 # 'stream2segment.main', which messes up all hineritances. So basically setup a main logger
 # with the package name
-logger = logging.getLogger("stream2segment")
+logger = logging.getLogger("stream2segment")  # pylint: disable=invalid-name
 
 
 def download(config, log2file=True, verbose=False, **param_overrides):

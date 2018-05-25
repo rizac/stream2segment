@@ -12,7 +12,6 @@ from __future__ import print_function
 from future import standard_library
 import random
 import yaml
-import tempfile
 standard_library.install_aliases()
 from builtins import str, map
 import re
@@ -84,7 +83,7 @@ class Test(object):
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
     @pytest.fixture(autouse=True)
-    def init(self, request, db, data, tmpdir):
+    def init(self, request, db, data, pytestdir):
         # re-init a sqlite database (no-op if the db is not sqlite):
         db.create(to_file=False)
         
@@ -203,7 +202,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                 # config logger as usual, but redirects to a temp file
                                 # that will be deleted by pytest, instead of polluting the program
                                 # package:
-                                ret = configlog4download(logger, str(tmpdir.join('logfile')),
+                                ret = configlog4download(logger, pytestdir.newfile('.log'),
                                                          verbose)
                                 logger.addHandler(self.handler)
                                 return ret
@@ -955,7 +954,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
 
 
     @patch('stream2segment.main.run_download')
-    def test_yaml_optional_params(self, mock_run):
+    def test_yaml_optional_params(self, mock_run, pytestdir):
         with open(self.configfile) as fp:
             _yaml_dict = yaml.load(fp)
         
@@ -983,10 +982,42 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
             if cha is not None:
                 chaname = params[random.randint(9, 11)]
                 yaml_dict[chaname] = cha
+
+            configfilename = pytestdir.newfile('.yaml')
+            with open(configfilename, 'w') as outfile:
+                yaml.dump(yaml_dict, outfile, default_flow_style=False)
+
+            mock_run.reset_mock()
                 
+            runner = CliRunner()
+            result = runner.invoke(cli , ['download',
+                                           '-c', configfilename,
+                                           # '--dburl', db.dburl,
+                                           #'--start', '2016-05-08T00:00:00',
+                                           #'--end', '2016-05-08T9:00:00'
+                                           ])
+            args = mock_run.call_args_list
+            assert len(args) == 1  # called just once (for safety)
+            args = args[0]
+            assert not args[0]  # no *args supplied (all kwargs)
+            args = args[1]
+            for name, val in zip(['networks', 'stations', 'locations', 'channels'],
+                                 [net, sta, loc, cha]):
+                if val is None or val == ['*']:
+                    assert args[name] == []
+#                     elif name=='locations' and val == ['--']:
+#                         assert args[name] == ['']
+                else:
+                    assert args[name] == sorted(val)
+
+        # now test errors (duplicates)
+        for i in range(4):
+            yaml_dict = dict(_yaml_dict)  # copy, otherwise old params are still there ... 
+            
+            for p1, p2 in combinations(params[i*3: (i+1)*3], 2):
+                yaml_dict[p1] = []
+                yaml_dict[p2] = []
         
-            with tempfile.NamedTemporaryFile() as keyfile:
-                configfilename = keyfile.name
                 with open(configfilename, 'w') as outfile:
                     yaml.dump(yaml_dict, outfile, default_flow_style=False)
 
@@ -999,80 +1030,5 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                                                #'--start', '2016-05-08T00:00:00',
                                                #'--end', '2016-05-08T9:00:00'
                                                ])
-                args = mock_run.call_args_list
-                assert len(args) == 1  # called just once (for safety)
-                args = args[0]
-                assert not args[0]  # no *args supplied (all kwargs)
-                args = args[1]
-                for name, val in zip(['networks', 'stations', 'locations', 'channels'],
-                                     [net, sta, loc, cha]):
-                    if val is None or val == ['*']:
-                        assert args[name] == []
-#                     elif name=='locations' and val == ['--']:
-#                         assert args[name] == ['']
-                    else:
-                        assert args[name] == sorted(val)
-        
-        # test locations empty: NOT SUPPORTED ANYMORE: locations must be input as ''
-        # the '--' NOTATION WILL BE USED FOR POST REQUESTS
-#         val = ['--']
-#         yaml_dict = dict(_yaml_dict)  # copy, otherwise old params are still there ... 
-#         netname, staname, locname, chaname = None, None, None, None
-#         yaml_dict['net'] = val
-#         yaml_dict['sta'] = val
-#         yaml_dict['loc'] = val
-#         yaml_dict['cha'] = val
-#             
-#     
-#         with tempfile.NamedTemporaryFile() as keyfile:
-#             configfilename = keyfile.name
-#             with open(configfilename, 'w') as outfile:
-#                 yaml.dump(yaml_dict, outfile, default_flow_style=False)
-# 
-#             mock_run.reset_mock()
-#                 
-#             runner = CliRunner()
-#             result = runner.invoke(cli , ['download',
-#                                            '-c', configfilename,
-#                                            # '--dburl', db.dburl,
-#                                            #'--start', '2016-05-08T00:00:00',
-#                                            #'--end', '2016-05-08T9:00:00'
-#                                            ])
-#             args = mock_run.call_args_list
-#             assert len(args) == 1  # called just once (for safety)
-#             args = args[0]
-#             assert not args[0]  # no *args supplied (all kwargs)
-#             args = args[1]
-#             for name, val in zip(['networks', 'stations', 'locations', 'channels'],
-#                                  [net, sta, loc, cha]):
-#                 if name=='locations':
-#                     assert args[name] == ['']
-#                 else:
-#                     assert args[name] == ['--']
-        
-        
-          
-        # now test errors (duplicates)
-        for i in range(4):
-            yaml_dict = dict(_yaml_dict)  # copy, otherwise old params are still there ... 
-            
-            for p1, p2 in combinations(params[i*3: (i+1)*3], 2):
-                yaml_dict[p1] = []
-                yaml_dict[p2] = []
-        
-                with tempfile.NamedTemporaryFile() as keyfile:
-                    configfilename = keyfile.name
-                    with open(configfilename, 'w') as outfile:
-                        yaml.dump(yaml_dict, outfile, default_flow_style=False)
-    
-                    mock_run.reset_mock()
-                        
-                    runner = CliRunner()
-                    result = runner.invoke(cli , ['download',
-                                                   '-c', configfilename,
-                                                   # '--dburl', db.dburl,
-                                                   #'--start', '2016-05-08T00:00:00',
-                                                   #'--end', '2016-05-08T9:00:00'
-                                                   ])
-                    assert result.exit_code != 0
-                    assert 'Conflicting' in result.output
+                assert result.exit_code != 0
+                assert 'Conflicting' in result.output

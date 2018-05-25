@@ -6,7 +6,6 @@ Created on 3 May 2018
 @author: riccardo
 '''
 
-import tempfile
 import os
 from io import BytesIO
 
@@ -18,11 +17,11 @@ from obspy.core.inventory.inventory import read_inventory
 
 from stream2segment.io.db.models import Base
 from stream2segment.traveltimes.ttloader import TTTable
+import uuid
 
 
 # https://docs.pytest.org/en/3.0.0/parametrize.html#basic-pytest-generate-tests-example
 # add option --dburl to the command line
-# FIXME: how do we invoke the help command? what is the library used under the hood (OptionParse)?
 def pytest_addoption(parser):
     '''Adds the dburl option to pytest command line arguments. The option can be input multiple
     times and will parametrize all tests with the 'db' fixture with all defined databases
@@ -52,7 +51,7 @@ def pytest_generate_tests(metafunc):
 
 
 @pytest.fixture
-def db(request):  # pylint: disable=invalid-name
+def db(request, tmpdir_factory):  # pylint: disable=invalid-name
     '''Fixture handling all db reoutine stuff. Pass it as argument to a test function
     ```
         def test_bla(..., db,...)
@@ -81,7 +80,8 @@ def db(request):  # pylint: disable=invalid-name
             default) it defaults to streams2segment.io.db.models.Base
             '''
             self.delete()
-            self.dburl = 'sqlite:///' + tempfile.NamedTemporaryFile(delete=False).name \
+            self.dburl = 'sqlite:///' + \
+                str(tmpdir_factory.mktemp('db', numbered=True).join('db.sqlite')) \
                 if self.is_sqlite and to_file else self.dburl
 
             self.engine = create_engine(self.dburl)
@@ -242,3 +242,107 @@ def data(request):  # pylint: disable=unused-argument
                         sample_rate=stream[0].stats.sampling_rate)
 
     return Data()
+
+
+@pytest.fixture
+def pytestdir(tmpdir):
+    '''This fixture "inherits" from tmpdir fixture in that it allows to create non-existing
+    (unique) file paths and directories inside `tmpdir`, which is a LocalPath object
+    (http://py.readthedocs.io/en/latest/_modules/py/_path/local.html#LocalPath)
+    representing a temporary directory unique to each test function invocation.
+    `str(tmpdir)` represents in turn a path inside the base temporary directory of the test session
+    (`tmpdir_factory.mktemp`).
+
+    Curiously, there is no feature in pytest to create random unique files and directory names.
+
+    Usage:
+
+    def my_test(pytestdir):
+        pytestdir.path()           # Return a STRING denoting the path of this dir (i.e. the
+                                   # string of the underlying tmpdir)
+        pytestdir.newfile()        # Returns a STRING denoting an UNIQUE path in `pytestdir.path`
+        pytestdir.newfile('.py')   # Same as above, but with the given extension
+        pytestdir.makedir()        # Returns a STRING denoting an UNIQUE (sub)directory of
+                                   # `pytestdir.path
+        pytestdir.join('out.csv')  # Return a STRING os.path.join(`self.path`, "out.csv")
+        pytestdir.join('out.csv', True)  # same as above but file will be created if it does not
+                                          # exists
+    '''
+
+    class Pytestdir(object):
+        '''Pytestdir object'''
+
+        @staticmethod
+        def join(filename):
+            '''Returns a file under `self.path`. Implemented for compatibility with
+               `tmpdir.join`'''
+            return str(tmpdir.join(filename))
+
+        @staticmethod
+        def path():
+            '''returns the string of the realpath of the underlying tmpdir'''
+            return str(tmpdir.realpath)
+
+        @staticmethod
+        def newfile(name_or_extension=None, create=False):
+            '''returns an file path inside `self.path`. If 'name_or_extension' starts with the
+            dot or is falsy (empty or None), the file is assured to be unique (no file with that
+            name exists on `self.path`). If 'name_or_extension'  starts with a dot, then the
+            (unique) file name has the given extension.
+            If `create` is True (False by default), the file will be also created if it does not
+            exist.
+            Summary table:
+            "unique" below denotes a random sequence of 16 alpha numeric digits which assures
+            the file name does NOT denote an existing file name prior to this call.
+            +---------------------------------+--------------------+--------------+
+            |                                 | Returned           | Returned     |
+            | call:                           | file name is:      | file exists: |
+            +---------------------------------+--------------------+--------------+
+            | newfile()                       | unique             | False        |
+            | newfile(create=True)            |                    | True         |
+            +---------------------------------+--------------------+--------------+
+            | newfile('.py')                  | unique with suffix | False        |
+            | newfile('.py', create=True)     | (extension) '.py'  | True         |
+            +---------------------------------+--------------------+--------------+
+            | newfile('abc.txt')              | 'abc.txt'          | it may exist |
+            | newfile('abc.txt', create=True) |                    | True         |
+            +---------------------------------+--------------------+--------------+
+
+            :param name_or_extension: string. if truthy (not empty and not None), and does not
+            start with a dot, it's the file name. If it starts with a dot, an unique file name
+            is created with suffix `name_or_extension`. If falsy (empty or None), an unique file
+            name is created
+            :param create: boolean (default False) whether to create the given file before
+            returning its path (string) if it does not exist.
+            '''
+            if not name_or_extension:
+                extension = ''
+                filename = None
+            elif name_or_extension[:1] == '.':
+                extension = name_or_extension
+                filename = None
+            else:
+                extension = ''
+                filename = name_or_extension
+            while filename is None:
+                filename = str(uuid.uuid4()) + extension
+                _path = str(tmpdir.join(filename).realpath())
+                if os.path.exists(_path) or os.path.isfile(_path):
+                    filename = None
+            path = str(tmpdir.join(filename).realpath())
+            if create:
+                open(path, 'a').close()
+            return path
+
+        @staticmethod
+        def makedir():
+            '''creates and returns a unique (sub)directory of `self.path`'''
+            name = None
+            while True:
+                name = str(uuid.uuid4())
+                ret = str(tmpdir.join(name).realpath())
+                if not os.path.exists(ret) and not os.path.isdir(ret):
+                    break
+            return str(tmpdir.mkdir(name))
+
+    return Pytestdir

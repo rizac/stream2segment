@@ -55,7 +55,7 @@ class Test(object):
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
     @pytest.fixture(autouse=True)
-    def init(self, request, db, data, tmpdir):
+    def init(self, request, db, data, pytestdir):
         # re-init a sqlite database (no-op if the db is not sqlite):
         db.create(to_file=True)
 
@@ -185,7 +185,7 @@ class Test(object):
                             # that will be deleted by pytest, instead of polluting the program
                             # package:
                             ret = o_configlog4processing(logger,
-                                                         str(tmpdir.join('logfile')) \
+                                                         pytestdir.newfile('.log') \
                                                          if logfilebasepath else None,
                                                          verbose)
 
@@ -219,41 +219,42 @@ class Test(object):
     def test_simple_run_no_outfile_provided(self, mock_run, mock_yaml_load, advanced_settings,
                                             cmdline_opts,
                                             # fixtures:
+                                            pytestdir,
                                             db):
         '''test a case where save inventory is True, and that we saved inventories
         db is a fixture implemented in conftest.py and setup here in self.transact fixture
         '''
         # set values which will override the yaml config in templates folder:
         runner = CliRunner()
-        with runner.isolated_filesystem() as dir_:
-            config_overrides = {'save_inventory': True,
-                                'snr_threshold': 0,
-                                'segment_select': {'has_data': 'true'},
-                                'root_dir': os.path.abspath(dir_)}
-            if advanced_settings:
-                config_overrides['advanced_settings'] = advanced_settings
+        dir_ = pytestdir.makedir()
+        config_overrides = {'save_inventory': True,
+                            'snr_threshold': 0,
+                            'segment_select': {'has_data': 'true'},
+                            'root_dir': os.path.abspath(dir_)}
+        if advanced_settings:
+            config_overrides['advanced_settings'] = advanced_settings
 
-            mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
-            # get seiscomp path of OK segment before the session is closed:
-            path = os.path.join(dir_, self.seg1.seiscomp_path())
-            # query data for testing now as the program will expunge all data from the session
-            # and thus we want to avoid DetachedInstanceError(s):
-            expected_first_row_seg_id = str(self.seg1.id)
-            station_id_whose_inventory_is_saved = self.sta_ok.id
+        mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
+        # get seiscomp path of OK segment before the session is closed:
+        path = os.path.join(dir_, self.seg1.seiscomp_path())
+        # query data for testing now as the program will expunge all data from the session
+        # and thus we want to avoid DetachedInstanceError(s):
+        expected_first_row_seg_id = str(self.seg1.id)
+        station_id_whose_inventory_is_saved = self.sta_ok.id
 
-            pyfile, conffile = get_templates_fpaths("save2fs.py", "save2fs.yaml")
+        pyfile, conffile = get_templates_fpaths("save2fs.py", "save2fs.yaml")
 
-            result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                                   '-p', pyfile, '-c', conffile] + cmdline_opts)
+        result = runner.invoke(cli, ['process', '--dburl', db.dburl,
+                               '-p', pyfile, '-c', conffile] + cmdline_opts)
 
-            assert not result.exception
+        assert not result.exception
 
-            filez = os.listdir(os.path.dirname(path))
-            assert len(filez) == 2
-            stream1 = read(os.path.join(os.path.dirname(path), filez[0]), format='MSEED')
-            stream2 = read(os.path.join(os.path.dirname(path), filez[1]), format='MSEED')
-            assert len(stream1) == len(stream2) == 1
-            assert not np.allclose(stream1[0].data, stream2[0].data)
+        filez = os.listdir(os.path.dirname(path))
+        assert len(filez) == 2
+        stream1 = read(os.path.join(os.path.dirname(path), filez[0]), format='MSEED')
+        stream2 = read(os.path.join(os.path.dirname(path), filez[1]), format='MSEED')
+        assert len(stream1) == len(stream2) == 1
+        assert not np.allclose(stream1[0].data, stream2[0].data)
 
         lst = mock_run.call_args_list
         assert len(lst) == 1
@@ -315,11 +316,14 @@ class Test(object):
     @mock.patch('stream2segment.process.main._get_chunksize_defaults')
     def test_simple_run_no_outfile_provided_good_argslists(self, mock_get_chunksize_defaults,
                                                            mock_process_segments_mp,
-                                            mock_process_segments, mock_get_advanced_settings,
-                                            mock_mp_Pool, mock_yaml_load, advanced_settings,
-                                            cmdline_opts, def_chunksize,
-                                            # fixtures:
-                                            db):
+                                                           mock_process_segments,
+                                                           mock_get_advanced_settings,
+                                                           mock_mp_Pool, mock_yaml_load,
+                                                           advanced_settings,
+                                                           cmdline_opts, def_chunksize,
+                                                           # fixtures:
+                                                           pytestdir,
+                                                           db):
         '''test arguments and calls are ok. Mock Pool imap_unordered as we do not
         want to confuse pytest in case
         '''
@@ -327,8 +331,8 @@ class Test(object):
         if def_chunksize is None:
             mock_get_chunksize_defaults.side_effect = _o_get_chunksize_defaults
         else:
-            mock_get_chunksize_defaults.side_effect = lambda *a, **v: (def_chunksize,
-                                                                       _o_get_chunksize_defaults()[1])
+            mock_get_chunksize_defaults.side_effect = \
+                lambda *a, **v: (def_chunksize, _o_get_chunksize_defaults()[1])
 
         class MockPool(object):
             def __init__(self, *a, **kw):
@@ -343,84 +347,84 @@ class Test(object):
             def join(self, *a, **kw):
                 pass
 
-        mock_mp_Pool.return_value = MockPool() 
+        mock_mp_Pool.return_value = MockPool()
 
         # set values which will override the yaml config in templates folder:
         runner = CliRunner()
-        with runner.isolated_filesystem() as dir_:
-            config_overrides = {'save_inventory': True,
-                                'snr_threshold': 0,
-                                 'segment_select': {},  # take everything
-                                'root_dir': os.path.abspath(dir_)}
-            if advanced_settings:
-                config_overrides['advanced_settings'] = advanced_settings
+        dir_ = pytestdir.makedir()
+        config_overrides = {'save_inventory': True,
+                            'snr_threshold': 0,
+                            'segment_select': {},  # take everything
+                            'root_dir': os.path.abspath(dir_)}
+        if advanced_settings:
+            config_overrides['advanced_settings'] = advanced_settings
 
-            mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
+        mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
 
-            # need to reset this global variable: FIXME: better handling?
-            # process.main._inventories = {}
+        # need to reset this global variable: FIXME: better handling?
+        # process.main._inventories = {}
 
-            pyfile, conffile = get_templates_fpaths("save2fs.py", "save2fs.yaml")
+        pyfile, conffile = get_templates_fpaths("save2fs.py", "save2fs.yaml")
 
-            result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                                   '-p', pyfile, '-c', conffile] + cmdline_opts)
+        result = runner.invoke(cli, ['process', '--dburl', db.dburl,
+                               '-p', pyfile, '-c', conffile] + cmdline_opts)
 
-            assert not result.exception
+        assert not result.exception
 
-            # test some stuff and get configarg, the the REAL config passed in the processing
-            # subroutines:
-            assert mock_get_advanced_settings.called
-            assert len(mock_get_advanced_settings.call_args_list) == 1
-            configarg = mock_get_advanced_settings.call_args_list[0][0][0]  # positional argument
+        # test some stuff and get configarg, the the REAL config passed in the processing
+        # subroutines:
+        assert mock_get_advanced_settings.called
+        assert len(mock_get_advanced_settings.call_args_list) == 1
+        configarg = mock_get_advanced_settings.call_args_list[0][0][0]  # positional argument
 
-            seg_processed_count = query4process(db.session,
-                                                configarg.get('segment_select', {})).count()
-            # seg_process_count is 5. advanced_settings is not given or 1.
-            # def_chunksize can be None (i,e., 1200) or given (2)
-            # See stream2segment.process.core._get_chunksize_defaults to see how we calculated
-            # the expected calls to mock_process_segments*:
-            expected_callcount = (seg_processed_count if 'segments_chunk' in advanced_settings
-                                  else seg_processed_count if def_chunksize is None else
-                                  2)
+        seg_processed_count = query4process(db.session,
+                                            configarg.get('segment_select', {})).count()
+        # seg_process_count is 5. advanced_settings is not given or 1.
+        # def_chunksize can be None (i,e., 1200) or given (2)
+        # See stream2segment.process.core._get_chunksize_defaults to see how we calculated
+        # the expected calls to mock_process_segments*:
+        expected_callcount = (seg_processed_count if 'segments_chunk' in advanced_settings
+                              else seg_processed_count if def_chunksize is None else
+                              2)
 
-            # assert we called the functions the specified amount of times
-            if '--multi-process' in cmdline_opts and not advanced_settings:
-                # remember that when we have advanced_settings it OVERRIDES
-                # the original advanced_settings key in config, thus also multi-process flag
-                assert mock_process_segments_mp.called
-                assert mock_process_segments_mp.call_count == expected_callcount
-                # process_segments_mp calls process_segments:
-                assert mock_process_segments_mp.call_count == mock_process_segments.call_count
-            else:
-                assert not mock_process_segments_mp.called
-                assert mock_process_segments.called
-                assert mock_process_segments.call_count == expected_callcount
-            # test that advanced settings where correctly written:
-            real_advanced_settings = configarg.get('advanced_settings', {})
-            assert ('segments_chunk' in real_advanced_settings) == \
-                ('segments_chunk' in advanced_settings)
-            # 'advanced_settings', if present HERE, will REPLACE 'advanced_settings' in config
-            #  See module function 'yaml_load_side_effect'. THus:
-            if advanced_settings:
-                assert sorted(real_advanced_settings.keys()) == sorted(advanced_settings.keys())
-                for k in advanced_settings.keys():
-                    assert advanced_settings[k] == real_advanced_settings[k]
-            else:
-                if 'segments_chunk' in advanced_settings:
-                    assert real_advanced_settings['segments_chunk'] == \
-                        advanced_settings['segments_chunk']
-                assert ('multi_process' in real_advanced_settings) == \
-                    ('--multi-process' in cmdline_opts)
-                if '--multi-process' in cmdline_opts:
-                    assert real_advanced_settings['multi_process'] is True
-                assert ('num_processes' in real_advanced_settings) == \
-                    ('--num-processes' in cmdline_opts)
-                if '--num-processes' in cmdline_opts:
-                    val = cmdline_opts[cmdline_opts.index('--num-processes')+1]
-                    assert str(real_advanced_settings['num_processes']) == val
-                    # assert real_advanced_settings['num_processes'] is an int.
-                    # As we import int from futures in templates, we might end-up having
-                    # futures.newint. The type check is made by checking we have an integer
-                    # type as the native type. For info see:
-                    # http://python-future.org/what_else.html#passing-data-to-from-python-2-libraries
-                    assert type(native(real_advanced_settings['num_processes'])) in integer_types
+        # assert we called the functions the specified amount of times
+        if '--multi-process' in cmdline_opts and not advanced_settings:
+            # remember that when we have advanced_settings it OVERRIDES
+            # the original advanced_settings key in config, thus also multi-process flag
+            assert mock_process_segments_mp.called
+            assert mock_process_segments_mp.call_count == expected_callcount
+            # process_segments_mp calls process_segments:
+            assert mock_process_segments_mp.call_count == mock_process_segments.call_count
+        else:
+            assert not mock_process_segments_mp.called
+            assert mock_process_segments.called
+            assert mock_process_segments.call_count == expected_callcount
+        # test that advanced settings where correctly written:
+        real_advanced_settings = configarg.get('advanced_settings', {})
+        assert ('segments_chunk' in real_advanced_settings) == \
+            ('segments_chunk' in advanced_settings)
+        # 'advanced_settings', if present HERE, will REPLACE 'advanced_settings' in config
+        #  See module function 'yaml_load_side_effect'. THus:
+        if advanced_settings:
+            assert sorted(real_advanced_settings.keys()) == sorted(advanced_settings.keys())
+            for k in advanced_settings.keys():
+                assert advanced_settings[k] == real_advanced_settings[k]
+        else:
+            if 'segments_chunk' in advanced_settings:
+                assert real_advanced_settings['segments_chunk'] == \
+                    advanced_settings['segments_chunk']
+            assert ('multi_process' in real_advanced_settings) == \
+                ('--multi-process' in cmdline_opts)
+            if '--multi-process' in cmdline_opts:
+                assert real_advanced_settings['multi_process'] is True
+            assert ('num_processes' in real_advanced_settings) == \
+                ('--num-processes' in cmdline_opts)
+            if '--num-processes' in cmdline_opts:
+                val = cmdline_opts[cmdline_opts.index('--num-processes')+1]
+                assert str(real_advanced_settings['num_processes']) == val
+                # assert real_advanced_settings['num_processes'] is an int.
+                # As we import int from futures in templates, we might end-up having
+                # futures.newint. The type check is made by checking we have an integer
+                # type as the native type. For info see:
+                # http://python-future.org/what_else.html#passing-data-to-from-python-2-libraries
+                assert type(native(real_advanced_settings['num_processes'])) in integer_types
