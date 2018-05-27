@@ -83,15 +83,14 @@ eventws_query_args:
   mindepth: 1
   maxdepth: 50
 
-# data-select web service to use (url). It should be fdsn compliant, so that the relative
-# station url can be retrieved automatically. You can also type two special values, "iris" 
-# (shortcut for: https://service.iris.edu/fdsnws/dataselect/1/query) or "eida"
-# (which will automatically fetch all eida datacenters and their urls).
-# Implementation details: For any datacenter which fails to download stations and channels
-# (e.g., network error, client/server error) the database will be queried with the same filters
-# (see network, station, location, channel and min_sample_rate, if provided) after converting
-# FDSN syntax to SQL, when needed. If no datacenter station's url returns data and the db is
-# empty (first download) the download process will stop
+# data-select web service to use (url). It should be FDSN compliant, so that the relative
+# station web service url can be retrieved automatically. You can also type two special values,
+# "iris" (shortcut for: https://service.iris.edu/fdsnws/dataselect/1/query) or "eida"
+# (which will automatically fetch data from the urls of all EIDA datacenters).
+# Implementation details: If the station web service(s) did not return data
+# (e.g., connection problems), then the requested stations and channales will be fetched from the
+# database. In this case, if the database is empty the download process will stop with an error
+# message.
 dataws: 'eida'
 
 # Limit the search to the specified channels.
@@ -99,7 +98,7 @@ dataws: 'eida'
 # Wildcards '?' and '*' are recognized (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf),
 # as well as the operator '!' placed as first character to indicate logical NOT.
 # Example: "!B*,BBB" accepts all channels NOT starting with "B" OR the channel "BBB"
-# Implementation details: 'cha' or 'channel' are also valid names for the parameter. You can
+# Implementation details: 'cha' or 'channels' are also valid names for the parameter. You can
 # also specify a list/array of strings in yaml format instead of comma-separated strings.
 # E.g., these are quivalent:
 # channels: "A,B"
@@ -107,28 +106,28 @@ dataws: 'eida'
 # channel:
 #  - "A"
 #  - "B"
-channels:
+channel:
  - "HH?"
  - 'HN?'
  - 'HL?'
  
-# Limit the search to the specified networks (see 'channels' parameter above for details).
-# Implementation details: 'net' or 'network' are also valid names for the parameter.
+# Limit the search to the specified networks (see 'channel' parameter above for details).
+# Implementation details: 'net' or 'networks' are also valid names for the parameter.
 # By default the line below is commented, meaning that all networks are accepted:
-# networks: '*'
+# network: '*'
 
-# Limit the search to the specified stations (see 'channels' parameter above for details).
-# Implementation details: 'sta' or 'station' are also valid names for the parameter.
+# Limit the search to the specified stations (see 'channel' parameter above for details).
+# Implementation details: 'sta' or 'stations' are also valid names for the parameter.
 # By default the line below is commented, meaning that all stations are accepted:
-# stations: '*'
+# station: '*'
 
-# Limit the search to the specified locations (see 'channels' parameter above for details).
-# Implementation details: 'loc' or 'location' are also valid names for the parameter.
+# Limit the search to the specified locations (see 'channel' parameter above for details).
+# Implementation details: 'loc' or 'locations' are also valid names for the parameter.
 # By default the line below is commented, meaning that all locations are accepted:
-# locations: '*'
+# location: '*'
 
-# Limit the search to channels with at least min_sample_rate (in Hz).
-# The relative segments are *mot likely* (not always) matching the channel sample rate.
+# Limit the search to channels with at least the following sample rate (in Hz).
+# The relative segments will *mot likely* (but not always) match the channel sample rate.
 # Set to 0 or negative number to ignore the sampling rate
 min_sample_rate: 60
 
@@ -179,8 +178,8 @@ traveltimes_model: 'ak135_ttp+'
 # second to avoid floating point errors when checking for segments to re-download because of a
 # changed window.
 timespan:
- - 1.0 # start time of the waveform segment to download, in minutes *before* the previously calculated arrival time.
- - 3.0 # end time of the waveform segment to download, in minutes *after* the previously calculated arrival time
+ - 1.0 # start time of the waveform segment to download, in minutes *before* the calculated arrival time.
+ - 3.0 # end time of the waveform segment to download, in minutes *after* the calculated arrival time
 
 
 # ====================================================================================================

@@ -77,7 +77,7 @@ def get_events_df(session, eventws_url, db_bufsize, **args):
 
     # try to release memory for unused columns (FIXME: NEEDS TO BE TESTED)
     return events_df[[Event.id.key, Event.magnitude.key, Event.latitude.key, Event.longitude.key,
-                     Event.depth_km.key, Event.time.key]].copy()
+                      Event.depth_km.key, Event.time.key]].copy()
 
 
 def get_events_list(eventws, **args):

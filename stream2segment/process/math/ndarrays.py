@@ -253,12 +253,12 @@ def cumsumsq(signal, normalize=True):
     ret = np.cumsum(np.square(signal), axis=None, dtype=None, out=None)
     if normalize:
         # first check if any not nan, as np.nanmax issues warnings if computed on all-nan array:
-        if not np.isnan(ret[0]): # in a cumulative, 1st element nan => all nan
+        if not np.isnan(ret[0]):  # in a cumulative, 1st element nan => all nan
             min_ = ret[0]
             max_ = ret[-1] if not np.isnan(ret[-1]) else np.nanmax(ret)
             if max_ != min_:
                 # normalize between 0 and 1. Note that ret /= max_ might lead to cast problems, so:
-                ret = (ret - min_ ) / (max_ - min_)
+                ret = (ret - min_) / (max_ - min_)
     return ret
 
 

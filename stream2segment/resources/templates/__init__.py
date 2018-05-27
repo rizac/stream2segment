@@ -1,13 +1,17 @@
-'''doc strings to be injected via jinja2 into the templates when running `s2s init`.
+'''This module holds doc strings to be injected via jinja2 into the templates when running
+`s2s init`.
 Any NON PRIVATE variable name (i.e., without leading underscore '_') of this module
 can be injected in a template file in the usual way, e.g.:
 {{ PROCESS_PY_BANDPASSFUNC }}
-For any new variable name to be implemented here, note also that: the variables values are
-stripped before being assigned to the gobal DOCVARS (the dict passed to to jinja). *_PY_* variable
-names are for python docs, *_YAML_* variable names for yaml docs. In the latter case,
-yaml variables values do not need a leading '# ' on the first line, as it is usually input in
-the template file, e.g.:
+For any new variable name to be implemented here in the future, note also that:
+1. the variables
+values are stripped before being assigned to the gobal DOCVARS (the dict passed to to jinja).
+2. By convention, *_PY_* variable names are for python docs, *_YAML_* variable names for yaml docs.
+2b. In the latter case, yaml variables values do not need a leading '# ' on the first line,
+as it is usually input in the template file, e.g.:
 # {{ PROCESS_YAML_MAIN }}
+
+.. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
 
 
@@ -224,43 +228,49 @@ selected segment. Useful links for functions, libraries and utilities:
 - `obspy Stream object <https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.html>_`
 - `obspy Trace object <https://docs.obspy.org/packages/autogen/obspy.core.trace.Trace.html>_`
 
-IMPORTANT: The output messages of this program will be redirected either to standard error or
-to a log file (see documentation of `s2s process` for details). This includes exceptions
-raised by this function: note that any of the following exceptions:
-    `TypeError`, `SyntaxError`, `NameError`, `ImportError`, `AttributeError`
-is most likely a bug: if raised by this function, then the whole process will **stop**.
-On the other hand, any other exception will just skip the current segment and can be
-raised programmatically. E.g. one could write:
+IMPORTANT: Most exceptions raised by this function  will stop the segment processing and continue
+the execution. Exception messages will be redirected to a .log file
+(see documentation of `s2s process` for details), prefixed with the processed segment id
+for later inspection. This is a feature that the user can also trigger programmatically to
+skip the currently processed segment, e.g.:
 ```
     if snr < 0.4:
         raise Exception('SNR ratio to low')
 ```
-to print the current segment id with the message 'SNR ratio too low' in the
-log file or standard error (the segment id is added automatically by the program).
+Note however, that some particular critical categories of exceptions represent most likely code
+bugs and by design will stop the execution of the **WHOLE** processing subroutine. The exception
+message and the stack trace will be redirected as well to the log file (and the standard output)
+for debugging. Critical exceptions are:
+    `TypeError`, `SyntaxError`, `NameError`, `ImportError`, `AttributeError`
 
 :param: segment (ptyhon object): An object representing a waveform data to be processed,
-reflecting the relative database table row. See module docstring above for a detailed list
+reflecting the relative database table row. See above for a detailed list
 of attributes and methods
 
 :param: config (python dict): a dictionary reflecting what has been implemented in the configuration
 file. You can write there whatever you want (in yaml format, e.g. "propertyname: 6.7" ) and it
 will be accessible as usual via `config['propertyname']`
 
-:return: If the processing routine calling this function needs not generate a .csv file output,
-the return value of this function will not be processed and can be whatever.
-Otherwise, this function must return an iterable (list, tuple, numpy array, dict...
-obviously, the same type should be returned for all segments, with the same number of elements).
-The iterable will be written as a row of the resulting csv file. The .csv file will have a
+:return: If the processing routine calling this function needs not generate a file output
+(e.g., .csv file), this function does not need to return a value, and if it does, it will be
+ignored.
+Otherwise, this function must return an iterable will be written as a row of the resulting csv
+file (e.g. list, tuple, numpy array, dict). The .csv file will have a
 row header only if `dict`s are returned: in this case, the dict keys are used as row header
-columns.
-If you want to preserve in the .csv the order of the dict keys as the were inserted
+columns. If you want to preserve in the .csv the order of the dict keys as the were inserted
 in the dict, use `OrderedDict` instead of `dict` or `{}`.
-Returning None is also valid: in this case the segment will be silently skipped
+Returning None or nothing is also valid: in this case the segment will be silently skipped
 
-NOTES: The first column of the resulting csv will be *always* the segment id
-(an integer stored in the database uniquely identifying the segment)
+NOTES:
 
-Pay attention when setting complex objects (e.g., everything neither string nor numeric) as
+1. The first column of the resulting csv will be *always* the segment id (an integer
+stored in the database uniquely identifying the segment) with column name 'Segment.db.id'
+
+2. Pay attention to consistency: the same type of object with the same number of elements
+should be returned by all processed segments. Unexpected (non tested) result otherwise, e.g.
+when returning a list for some segments, an a dict for some others
+
+3. Pay attention when setting complex objects (e.g., everything neither string nor numeric) as
 elements of the iterable: the values will be most likely converted to string according
 to python `__str__` function and might be out of control for the user.
 Thus, it is suggested to convert everything to string or number. E.g., for obspy's
@@ -296,8 +306,8 @@ def main(segment, config)
 ```
 the program will iterate over each selected segment (according to 'segment_select' parameter
 in the config) and execute the function, writing its output to the given .csv file, if given.
-If you do not need to use this module for visualizing stuff, skip the section below and go to the
-next one.
+If you do not need to use this module for visualizing stuff, skip the section 'Visualization'
+below and go to the next one.
 
 
 Visualization (web GUI)
@@ -348,9 +358,9 @@ a numeric sequence y taken at successive equally spaced points in any of these f
     - dx (numeric or `timedelta`) is the sampling period
     - y (numpy array or numeric list) are the sequence values
     - label (string, optional) is the sequence name to be displayed on the plot legend.
-      (if x0 is numeric and `dx` is a `timedelta` object, then x0 will be converted
-      to `UTCDateTime(x0)`; if x0 is a `datetime` or `UTCDateTime` object and `dx` is
-      numeric, then `dx` will be converted to `timedelta(seconds=dx)`)
+    Note: if x0 is numeric and `dx` is a `timedelta` object, then x0 will be converted
+    to `UTCDateTime(x0)`; if x0 is a `datetime` or `UTCDateTime` object and `dx` is
+    numeric, then `dx` will be converted to `timedelta(seconds=dx)`)
 - a dict of any of the above types, where the keys (string) will denote each sequence
   name to be displayed on the plot legend.
 
@@ -368,10 +378,10 @@ all functions can safely raise Exceptions, as all exceptions will be caught by t
 * displaying the error message on the plot if the function is called for visualization,
 
 * printing it to a log file, if the function is called for processing into .csv
-  (More details on this in the "main" function doc-string).
-  Issuing `print` statements for debugging it's thus useless (and a bad practice overall):
-  if any information should be given, simply raise a base exception, e.g.:
-  `raise Exception("segment sample rate too low")`.
+
+Issuing `print` statements for debugging it's thus useless (and a bad practice overall):
+if any information should be given, simply raise a base exception, e.g.:
+`raise Exception("segment sample rate too low")`.
 
 Conventions and suggestions
 ---------------------------
@@ -380,14 +390,14 @@ Conventions and suggestions
 easily and safely experiment different configurations on the same code, if needed. We strongly
 discuourage to implement a python file and copy/paste it by changing some parameters only,
 as it is very unmantainable and bug-prone. That said, it's up to you (e.g. a script-like
-processing file for saving once some selected segments to a file might have the output directory
-hard-coded)
+processing file for saving once some selected segments to a file might not need a separate
+configuration file and have the output directory hard-coded here)
 
 2) This module is designed to force the DRY (don't repeat yourself) principle. This is particularly
 important when using the GUI to visually debug / inspect some code for processing
 implemented in `main`: we strongly encourage to *move* the portion of code into a separate
 function F and call F from 'main' AND decorate it with '@gui.plot'. That said, it's up to you
-also in this case (e.g. a file becoming too big might be separated into processing and
+also in this case (e.g. a file becoming too large might need to be separated into processing and
 visualization, paying attention that modification of the code in one file might need
 synchronization with the other file)
 
@@ -422,15 +432,17 @@ segment methods:
   associated to the segment. Please remember that many obspy functions modify the
   stream in-place:
   ```
-      stream = segment.stream()
-      stream_remresp = s.remove_response(segment.inventory())
-      segment.stream() is stream          # False !!!
-      segment.stream() is stream_remresp  # True !!!
+      stream_remresp = segment.stream().remove_response(segment.inventory())
+      segment.stream() is stream_remresp  # True: segment.stream() is modified permanently
   ```
   When visualizing plots, where efficiency is less important, each function is executed on a
   copy of segment.stream(). However, from within the `main` function, the user has to handle when
-  to copy the segment's stream or not. For info see:
-  https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.copy.html
+  to copy the segment's stream or not, e.g.:
+  ```
+      stream_remresp = segment.stream().copy().remove_response(segment.inventory())
+      segment.stream() is stream_remresp  # False: segment.stream() is still the original object
+  ```
+  For info see https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.copy.html
 
 * segment.inventory(): the `obspy.core.inventory.inventory.Inventory`. This object is useful e.g.,
   for removing the instrumental response from `segment.stream()`
@@ -450,7 +462,7 @@ segment methods:
   same station, identified by the tuple of the codes (newtwork, station). 'networkname':
   returns all segments of the same network (network code). 'datacenter',
   'event', 'station', 'channel': returns all segments of the same datacenter, event,
-  station or channel, all identified by the associated id.
+  station or channel, all identified by the associated database id.
   NOTES: 1. The returned segment list is always a subset of the segments selected for processing
   (see configuration file). Thus, if there are N sibling segments in the
   database, this method returns 0 <= M <= N siblings.
@@ -473,7 +485,8 @@ segment methods:
   E.g.: `segment.set_classes('class1')`, `segment.set_classes('class1', 'class2', annotator='Jim')`
 
 * segment.add_classes(*labels, annotator=None): Same as `segment.set_classes` but does not
-  delete segment classes first. If a label is already assigned to the segment, it is not added again
+  delete segment classes first. If a label is already assigned to the segment, it is not added
+  again (regardless of whether the 'annotator' changed or not)
 
 * segment.seiscomp_path(root='.'): Returns a file system path where to store
   the given segment or any data associated to it in the seiscomp-compatible format:
@@ -482,7 +495,9 @@ segment methods:
   that the paths ends intentionally with no extension because the user might be interested to save
   different types of segment's data (metadata, spectra, etcetera). In the typical case where the
   segment's stream has to be saved you can type:
+  ```
       segment.stream().write(segment.seiscomp_path() + '.mseed', format='MSEED')
+  ```
 
 * segment.dbsession(): WARNING: this is for advanced users experienced with Sql-Alchemy library:
   returns the database session for custom IO operations with the database
@@ -508,9 +523,9 @@ PROCESS_YAML_MAIN = '''
 # This editable template defines the configuration parameters which will
 # be accessible in the associated processing / visualization python file.
 #
-# You are free to implement here anything you need: there are no mandatory parameters, although few
-# ('segment_select', 'save_inventory' and 'sn_windows') are in most cases useful. Moreover,
-# 'segment_select' and 'sn_windows', if present, add also special features to the GUI..
+# You are free to implement here anything you need: there are no mandatory parameters, although one
+# ('segment_select') is almost necessary and few ('save_inventory' and 'sn_windows') very useful.
+# Moreover, 'segment_select' and 'sn_windows' add also special features to the GUI.
 '''
 
 # yamelise _SEGMENT_ATTRS (first line not commented, see below)
@@ -530,22 +545,26 @@ The parameter 'segment_select' defines what segments to be processed or
 # where each <att> is a segment attribute and <expression> is a simplified SQL-select string
 # expression. Example:
 #
-# 1. To select and work on segments of stations activated in 2017 only:
+# 1. To select and work on segments with downloaded data (at least one byte of data):
+# segment_select:
+#   has_data: "true"
+#
+# 2. To select and work on segments of stations activated in 2017 only:
 # segment_select:
 #   station.start_time: "[2017-01-01, 2018-01-01T00:00:00)"
 # (brackets denote intervals. Square brackets include end-points, round brackets exclude endpoints)
 #
-# 2. To select segments from specified ids, e.g. 1, 4, 342, 67 (e.g., ids which raised errors during
+# 3. To select segments from specified ids, e.g. 1, 4, 342, 67 (e.g., ids which raised errors during
 # a previous run and whose id where logged might need inspection in the GUI):
 # segment_select:
 #   id: "1 4 342 67"
 #
-# 3. To select segments whose event magnitude is greater than 4.2:
+# 4. To select segments whose event magnitude is greater than 4.2:
 # segment_select:
 #   event.magnitude: ">4.2"
 # (the same way work the operators: =, >=, <=, <, !=)
 #
-# 4. To select segments with a particular channel sensor description:
+# 5. To select segments with a particular channel sensor description:
 # segment_select:
 #   channel.sensor_description: "'GURALP CMG-40T-30S'"
 # (note: for attributes with str values and spaces, we need to quote twice, as otherwise
@@ -566,12 +585,10 @@ Boolean flag indicating whether station inventories (in xml format) should be sa
 
 PROCESS_YAML_SNWINDOWS = '''
 Settings for computing the 'signal' and 'noise' time windows on a segment waveform.
-# This parameter defines the signal and noise windows of each segment obtained from
+# This parameter defines the signal and noise windows of each segment obtained when calling
 # `segment.sn_windows()` (see associated python module help).
-# If you do not need the functionality, you can safely remove this parameter.
-# From within the GUI, signal and noise windows will be visualized as shaded areas
-# on the plot of the currently selected segment. If this parameter is
-# missing, the areas will not be shown.
+# From within the GUI, signal and noise windows will be visualized as shaded areas on the plot
+# of the currently selected segment. If this parameter is missing, the areas will not be shown.
 #
 # Arrival time shift: shifts the calculated arrival time of
 # each segment by the specified amount of time (in seconds). Negative values are allowed.
@@ -615,7 +632,7 @@ If you want to setup advanced settings, uncomment
 #  # If multi_process is true (see below), the chunk size also defines how many segments will be
 #  # loaded in each python sub-process. Increasing this number might speed up execution but
 #  # increases the memory usage. When missing, the value defaults to 1200 if the number N of
-#  # segments to be processed is >= 1200, otherwise N/10.
+#  # segments to be processed is > 1200, otherwise N/10.
 #  segments_chunksize: 1200
 #  # Use parallel sub-processes to speed up the execution. When missing, it defaults to false
 #  multi_process: true

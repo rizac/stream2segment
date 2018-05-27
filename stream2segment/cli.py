@@ -288,41 +288,36 @@ def download(config, dburl, eventws, start, end, networks,  # pylint: disable=un
 @click.option("-c", "--config",
               help="The path to the configuration file in yaml format "
                    "(https://learn.getgrav.org/advanced/yaml).",
-              type=clickutils.ExistingPath, required=True
-              )
+              type=clickutils.ExistingPath, required=True)
 @click.option("-p", "--pyfile",
               help="The path to the python file where the user-defined processing function "
                    "is implemented. The function will be called iteratively on each segment "
-                   "selected in the config file", type=clickutils.ExistingPath, required=True
-              )
+                   "selected in the config file", type=clickutils.ExistingPath, required=True)
 @click.option("-f", "--funcname",
               help="The name of the user-defined processing function in the given python file. "
                    "Optional: defaults to '%s' when "
-                   "missing" % inputargs.default_processing_funcname(),
-              )
+                   "missing" % inputargs.default_processing_funcname())
 @click.option("-a", "--append", is_flag=True, default=False,
               help="Append results to the output file (this flag is ignored if no output file "
                    "is provided): 'append' means also that the program will first scan the "
                    "output file to detect already processed segments and skip them. "
                    "When missing, it defaults to false, meaning that an output file, if provided, "
-                   "will be overridden if it exists"
-              )
+                   "will be overridden if it exists")
 @click.option("--no-prompt", is_flag=True, default=False,
               help="Do not prompt the user when attempting to overwrite an existing output file. "
                    "This flag is false by default, i.e. the user will be asked for  "
                    "confirmation before overwriting an existing file. "
                    "This flag is ignored if no output file is provided, or the 'append' "
-                   "flag is given"
-              )
-@click.option("-mp", "--multi-process", is_flag=True, default=None,
+                   "flag is given")
+@click.option("-mp", "--multi-process", is_flag=True,
+              default=None,  # default=None let us know when arg is missing or not
               help="Use parallel sub-processes to speed up the execution. "
-                   "When missing, it defaults to false"
-              )  # default=None let us know when arg is missing or not
-@click.option("-np", "--num-processes", type=int, default=None,
+                   "When missing, it defaults to false")
+@click.option("-np", "--num-processes", type=int,
+              default=None,  # default=None let us know when arg is missing or not
               help="The number of sub-processes. If missing, it is set as the "
                    "the number of CPUs in the system. This option is ignored "
-                   "if --multi-process is not given",
-              )  # default=None let us know when arg is missing or not
+                   "if --multi-process is not given")
 @click.argument('outfile', required=False)
 def process(dburl, config, pyfile, funcname, append, no_prompt,
             multi_process, num_processes,  # pylint: disable=unused-argument
@@ -368,12 +363,10 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
 @click.option("-c", "--configfile",
               help="The path to the configuration file in yaml format "
                    "(https://learn.getgrav.org/advanced/yaml).", type=clickutils.ExistingPath,
-              required=True
-              )
+              required=True)
 @click.option("-p", "--pyfile",
               help="The path to the python file with the plot functions implemented",
-              type=clickutils.ExistingPath, required=True
-              )
+              type=clickutils.ExistingPath, required=True)
 def show(dburl, configfile, pyfile):
     """Shows raw and processed downloaded waveform\'s plots in a browser"""
     main.show(dburl, pyfile, configfile)
@@ -428,14 +421,14 @@ def dinfo(dburl, download_id, maxgap_threshold, html, outfile):
 @click.option("-t", "--type", type=click.Choice(['numpy', 'obspy', 'all']), default='all',
               show_default=True,
               help="Show help only for the function matching the given type. Numpy indicates "
-                    "functions operating on numpy arrays "
-                    "(module `stream2segment.process.math.ndarrays`). "
-                    "Obspy (module `stream2segment.process.math.traces`) the functions operating "
-                    "on obspy Traces, most of which are simply the numpy counterparts defined "
-                    "for Trace objects")
+                   "functions operating on numpy arrays "
+                   "(module `stream2segment.process.math.ndarrays`). "
+                   "Obspy (module `stream2segment.process.math.traces`) the functions operating "
+                   "on obspy Traces, most of which are simply the numpy counterparts defined "
+                   "for Trace objects")
 @click.option("-f", "--filter", default='*', show_default=True,
               help="Show doc only for the function whose name matches the given filter. "
-                    "Wildcards (* and ?) are allowed")
+                   "Wildcards (* and ?) are allowed")
 def mathinfo(type, filter):  # @ReservedAssignment pylint: disable=redefined-outer-name
     '''Prints on screen the doc-strings of the math functions implemented in this package,
     according to the given type and filter'''
@@ -453,7 +446,7 @@ def mathinfo(type, filter):  # @ReservedAssignment pylint: disable=redefined-out
                     'file name. The extension .npz will be added automatically'))
 @click.option("-m", "--model", required=True,
               help="the model name, e.g. iasp91, ak135, ..")
-@click.option('-p', '--phases', multiple=True,  required=True,
+@click.option('-p', '--phases', multiple=True, required=True,
               help=("The phases used, e.g. ttp+, tts+. Can be typed multiple times, e.g."
                     "-m P -m p"))
 @click.option('-t', '--tt_errtol', type=float, required=True,

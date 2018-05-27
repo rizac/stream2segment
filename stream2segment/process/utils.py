@@ -266,7 +266,7 @@ def get_sn_windows(config, a_time, stream):
 
     if len(stream) != 1:
         raise ValueError(("Unable to get sn-windows: %d traces in stream "
-                         "(possible gaps/overlaps)") % len(stream))
+                          "(possible gaps/overlaps)") % len(stream))
 
     a_time = UTCDateTime(a_time) + atime_shift
     # Note above: UTCDateTime +float considers the latter in seconds

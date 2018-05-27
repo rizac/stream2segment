@@ -130,7 +130,7 @@ class CsvWriter(BaseWriter):
                 if not self.append or self.outputfileempty:
                     csvwriter.writeheader()
             else:
-                csvwriter = self.csvwriter = csv.writer(self.outputfilep,  **self.csvwriterkwargs)
+                csvwriter = self.csvwriter = csv.writer(self.outputfilep, **self.csvwriterkwargs)
 
         if isdict:
             result[seg_id_colname] = segment_id

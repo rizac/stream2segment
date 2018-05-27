@@ -47,7 +47,7 @@ def mysmooth(signal, time, fm, cycle, dt):
     helf_npts = npts // 2  # as int
     signal_smooth = []
     time_smooth = []
-    for i in range(0, len(signal) - helf_npts,  helf_npts):  # data c'est chaque point du signal
+    for i in range(0, len(signal) - helf_npts, helf_npts):  # data c'est chaque point du signal
         end_ = i + npts
         signal_smooth.append(np.mean(signal[i:end_]))
         time_smooth.append(time[i + helf_npts])

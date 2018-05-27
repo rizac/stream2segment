@@ -261,10 +261,8 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid, 
     # NOTE: SEG_START and SEG_END MUST BE ALWAYS PRESENT IN THE SECOND AND THORD POSITION!!!!!
     requeststart_index = 1
     requestend_index = 2
-    groupsby = [
-                [SEG_DCID, SEG_START, SEG_END],
-                [SEG_DCID, SEG_START, SEG_END, SEG_CHAID],
-                ]
+    groupsby = [[SEG_DCID, SEG_START, SEG_END],
+                [SEG_DCID, SEG_START, SEG_END, SEG_CHAID]]
 
     if sys.version_info[0] < 3:
         def get_host(r):

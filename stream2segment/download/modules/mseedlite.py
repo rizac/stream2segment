@@ -115,9 +115,9 @@ class Record(object):
             raise MSeedError("unexpected end of header")
 
         (recno_str, self.rectype, sta, loc, cha, net, bt_year, bt_doy, bt_hour,
-            bt_minute, bt_second, bt_tms, self.nsamp, self.sr_factor,
-            self.sr_mult, self.aflgs, self.cflgs, self.qflgs, self.__num_blk,
-            self.time_correction, self.__pdata, self.__pblk) = \
+         bt_minute, bt_second, bt_tms, self.nsamp, self.sr_factor,
+         self.sr_mult, self.aflgs, self.cflgs, self.qflgs, self.__num_blk,
+         self.time_correction, self.__pdata, self.__pblk) = \
             struct.unpack(">6scx5s2s3s2s2H3Bx2H2h4Bl2H", fixhead)
 
         try:
@@ -133,8 +133,8 @@ class Record(object):
             raise MSeedNoData("non-data record", self._record_id)
 
         if ((self.__pdata < _FIXHEAD_LEN) or (self.__pdata >= _MAX_RECLEN) or
-                ((self.__pblk != 0) and ((self.__pblk < _FIXHEAD_LEN) or
-                 (self.__pblk >= self.__pdata)))):
+            ((self.__pblk != 0) and ((self.__pblk < _FIXHEAD_LEN) or
+                                     (self.__pblk >= self.__pdata)))):
             fd.read(_MAX_RECLEN - _FIXHEAD_LEN)
             raise MSeedError("invalid pointers", self._record_id)
 

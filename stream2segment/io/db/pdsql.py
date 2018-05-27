@@ -362,118 +362,15 @@ def _get_max(session, numeric_column):
 
 
 def dbquery2df(query):
-    """Returns a query result as a dataframe 
+    """Returns a query result as a dataframe
     :param query: sqlalchemy query. IT MUST BE GIVEN WITH ALL COLUMNS OF INTEREST SEPARATED, e.g.:
         ```session.query(Table.columna, Table.column_b)```
         and not:
         ```session.query(Table)```
         this method has been tested for queries from a single table with no joins
     """
-    colnames = [c['name'] for c in query.column_descriptions]
-    return pd.DataFrame(columns=colnames, data=query.all())
-
-
-# def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=False,
-#            buf_size=10, drop_duplicates=True, return_df=True, on_insert_err=None,
-#            on_update_err=None):
-#     """
-#     Efficiently synchronizes `dataframe` with the corresponding database table T.
-# 
-#     Returns the tuple:
-# 
-#     new, updated, total, df
-# 
-#     where:
-# 
-#     * new: the number of rows of `dataframe` which where newly added
-#     * updated: the number of rows of `dataframe` successfully updated
-#     * total: the number of `dataframe` rows with a corresponding row in T (>=`new`)
-#     * df: None if return_df=False. Otherwise, it is `dataframe` with only rows with a corresponding
-#       row in T (either because `autoincrement_pkey_col` is not NA or because the row has been
-#       successfully inserted on T). `d` will surely have A among its columns (A.key to be precise)
-# 
-# 
-#     This function works by:
-#     1. Setting first the value of `autoincrement_pkey_col` for those rows found on T
-#        (according to `matching_columns`)
-#     2. Auto-incrementing `autoincrement_pkey_col` values for the remaining rows
-#        (not found on the db), and finally writing those rows to T
-# 
-#     Returns the tuple `(d, new)` where:
-# 
-#     `return_df`  `d`:                                        `new`:
-#     ===========  =========================================== ===================================
-#     `True`       `dataframe` with only rows with a           the number of rows of which
-#                  corresponding row in T (according to        where inserted on T (`new<=len(d)`)
-#                  `matching_columns`) and the column
-#                  `autoincrement_pkey_col` set (the column
-#                  needs not to be in `dataframe.columns`)
-#     -----------  ------------------------------------------- ------------------------------------
-#     `False`      the total number of rows `<=len(dataframe)` the number of rows of which
-#                  (depending on `drop_duplicates`)            where inserted on T (`new<=d`)
-#     ===========  =========================================== ====================================
-# 
-#     `return_df=False` is in principle faster as less operations are involved.
-# 
-#     :param dataframe: a pandas dataframe
-#     :param session: an sql-alchemy session
-#     :param matching_columns: a list of ORM columns for comparing `dataframe` rows and T rows:
-#     when two rows are found that are equal (according to all `matching_columns` values), then
-#     the data frame row `autoincrement_pkey_col` value is set = T row value
-#     :param autoincrement_pkey_col: the ORM column denoting an auto-increment primary key of T.
-#     Unexpected results if the column does not match those criteria. The column
-#     needs not to be a column of `dataframe`. The returned `dataframe` will have in any case this
-#     column set
-#     :param buf_size: integer, defaults to 10. The buffer size before committing. Increase this
-#     number for better performances (speed) at the cost of some "false negative" (committing a
-#     series of operations where one raise an integrity error discards all subsequent operations
-#     regardless if they would raise as well or not)
-#     :param drop_duplicates: boolean, True. After having fetched the primary keys and set it to
-#     the dataframe corresponding column, drop duplicates under `matching_columns`. You should
-#     always set this argument to True unless you are really sure `dataframe` has no duplicates
-#     under `matching_columns`, and you really want to save the extra time of dropping again
-#     (but is that saved time actually remarkable?)
-# 
-#     :return: the tuple `(d, new)` where
-#     1. `d` is `dataframe` where rows without a corresponding row on T have been filtered out.
-#     `d` has surely the column `autoincrement_pkey_col` (see Technical notes below for details),
-#     which on the other hand needs not to to be a column of `dataframe`, and
-#     2. `new` (`<= len(d)`) is the number of rows of `d` which are "new" (i.e., whose corresponding
-#     row was not present on T before this function call). `d` index is not reset, so a ref.
-#     to `dataframe` is always possible
-# 
-#     Technical notes
-#     ================================================================================================
-# 
-#     1. T is obtained as the `class_` attribute of the first passed
-#     `Column <http://docs.sqlalchemy.org/en/latest/core/metadata.html#sqlalchemy.schema.Column>`_,
-#     therefore `autoincrement_pkey_col` and each element of `matching_columns` must refer to the
-#     same db table T.
-#     2. The mapping between an sql-alchemy Column C and a pandas dataframe *string*
-#     column K is based on the sql-alchemy `key` attribute: `C.key == K`
-#     3. On the db session side, we do not use ORM functionalities but lower
-#     level sql-alchemy core methods, which are faster (FIXME: ref needed). This, together with
-#     the "buffer size" argument, speeds up a lot items insertion on the database (for update
-#     operations this needs tests).
-#     The drawbacks of these approaches is that we need to create by ourself the primary keys before
-#     inserting a row to T, and that if a single item of a buffer raises an SqlAlchemtError, all
-#     following items are not added to the db, even if they where well formed
-#     """
-#     dframe_with_pkeys = fetchsetpkeys(dataframe, session, matching_columns, autoincrement_pkey_col)
-# 
-#     if drop_duplicates:
-#         subset_cols = [k.key for k in matching_columns]
-#         dframe_with_pkeys = dframe_with_pkeys.drop_duplicates(subset=subset_cols)
-#         dframe_with_pkeys.is_copy = False
-#
-#     if update:
-#
-#         updated, df = updatedf(dframe_with_pkeys, session, autoincrement_pkey_col,
-#                                share, buf_size, return_df, onerr)
-#
-#
-#     return syncdf_insert_na_pkeys(dframe_with_pkeys, session, autoincrement_pkey_col, buf_size,
-#                                   return_df, on_insert_err)
+    columns = [c['name'] for c in query.column_descriptions]
+    return pd.DataFrame(columns=columns, data=query.all())
 
 
 def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=False,

@@ -48,8 +48,8 @@ _Base = declarative_base()
 from sqlalchemy.engine import Engine  # @IgnorePep8
 
 
-# making standard functions. These functions are not standard across sql dialects (sqlite and postgres)
-# and thus need to be standardized here
+# making standard functions. These functions are not standard across sql dialects
+# (sqlite and postgres) and thus need to be standardized here
 # For info see: http://docs.sqlalchemy.org/en/latest/core/compiler.html#further-examples
 class strpos(FunctionElement):
     name = 'strpos'
@@ -229,7 +229,7 @@ class Base(_Base):
         cls = self.__class__
         ret = [str(cls.__name__)]
         # provide a meaningful str representation, but show only loaded attributes
-        # (https://stackoverflow.com/questions/258775/how-to-find-out-if-a-lazy-relation-isnt-loaded-yet-with-sqlalchemy)
+        # https://stackoverflow.com/questions/258775/how-to-find-out-if-a-lazy-relation-isnt-loaded-yet-with-sqlalchemy
         mapper = inspect(cls)
         me_dict = self.__dict__
         loaded_cols, unloaded_cols = 0, 0
@@ -330,9 +330,7 @@ class Event(Base):  # pylint: disable=too-few-public-methods
     mag_author = Column(String)
     event_location_name = Column(String)
 
-    __table_args__ = (
-                      UniqueConstraint('webservice_id', 'event_id', name='ws_eventid_uc'),
-                     )
+    __table_args__ = (UniqueConstraint('webservice_id', 'event_id', name='ws_eventid_uc'),)
     # segments = relationship("Segment", back_populates="event")
 
 
@@ -348,9 +346,7 @@ class WebService(Base):
     # segments = relationship("Segment", backref="data_centers")
     # stations = relationship("Station", backref="data_centers")
 
-    __table_args__ = (
-                      UniqueConstraint('url', name='url_uc'),
-                     )
+    __table_args__ = (UniqueConstraint('url', name='url_uc'),)
 
 
 class DataCenter(Base):
@@ -363,10 +359,8 @@ class DataCenter(Base):
     dataselect_url = Column(String, nullable=False)
     organization_name = Column(String)
 
-    __table_args__ = (
-                      UniqueConstraint('station_url', 'dataselect_url',
-                                       name='sta_data_uc'),
-                     )
+    __table_args__ = (UniqueConstraint('station_url', 'dataselect_url',
+                                       name='sta_data_uc'),)
 
 
 # global var defining the substring to search for returning the network location
@@ -405,19 +399,19 @@ class Fdsnws(object):
     ```
     '''
 
-    ''' equals to the string 'station', used in urls for identifying the fdsn station service'''
+    # equals to the string 'station', used in urls for identifying the fdsn station service:
     STATION = 'station'
-    ''' equals to the string 'dataselect', used in urls for identifying the fdsn data service'''
+    # equals to the string 'dataselect', used in urls for identifying the fdsn data service:
     DATASEL = 'dataselect'
-    ''' equals to the string 'event', used in urls for identifying the fdsn event service'''
+    # equals to the string 'event', used in urls for identifying the fdsn event service:
     EVENT = 'event'
-    ''' equals to the string 'query', used in urls for identifying the fdsn service query method'''
+    # equals to the string 'query', used in urls for identifying the fdsn service query method:
     QUERY = 'query'
-    ''' equals to the string 'version', used in urls for identifying the fdsn service
-        query method'''
+    # equals to the string 'version', used in urls for identifying the fdsn service
+    # query method:
     VERSION = 'version'
-    '''equals to the string 'application.wadl', used in urls for identifying the fdsn service
-        query method'''
+    # equals to the string 'application.wadl', used in urls for identifying the fdsn service
+    # query method:
     APPLWADL = 'application.wadl'
 
     def __init__(self, url):
@@ -460,9 +454,8 @@ class Station(Base):
     def has_inventory(cls):  # pylint:disable=no-self-argument
         return withdata(cls.inventory_xml)
 
-    __table_args__ = (
-                      UniqueConstraint('network', 'station', 'start_time', name='net_sta_stime_uc'),
-                     )
+    __table_args__ = (UniqueConstraint('network', 'station', 'start_time',
+                                       name='net_sta_stime_uc'),)
 
     datacenter = relationship("DataCenter", backref=backref("stations", lazy="dynamic"))
 
@@ -532,10 +525,8 @@ class Channel(Base):
         # return an sql expression matching the last char or None if not three letter channel
         return substr(cls.channel, 3, 1)
 
-    __table_args__ = (
-                      UniqueConstraint('station_id', 'location', 'channel',
-                                       name='net_sta_loc_cha_uc'),
-                     )
+    __table_args__ = (UniqueConstraint('station_id', 'location', 'channel',
+                                       name='net_sta_loc_cha_uc'),)
 
     station = relationship("Station", backref=backref("channels", lazy="dynamic"))
 
@@ -623,23 +614,6 @@ class Segment(Base):
     def has_class(cls):  # pylint:disable=no-self-argument
         return cls.classes.any()
 
-#     def get(self, *columns):  # DEPRECATED: used for testing
-#         '''Gets the values in the relative columns'''
-#         qry = object_session(self).query(*columns)  # .select_from(self.__class__)
-#         jointables = set(c.class_ for c in columns)
-#         if jointables:
-#             joins = []
-#             model = self.__class__
-#             for r in self.__mapper__.relationships.values():
-#                 if r.mapper.class_ in jointables:
-#                     joins.append(getattr(model, r.key))
-#             if joins:
-#                 qry = qry.join(*joins)
-#         metadata = qry.filter(Segment.id == self.id).all()
-#         if len(metadata) == 1:
-#             return metadata[0]
-#         else:
-#             return metadata
 
     def seiscomp_path(self, root='.'):
         '''Creates the seiscomp compatible path where to store the given segment or any
@@ -842,10 +816,8 @@ class Segment(Base):
     datacenter = relationship("DataCenter", backref=backref("segments", lazy="dynamic"))
     download = relationship("Download", backref=backref("segments", lazy="dynamic"))
 
-    __table_args__ = (
-                      UniqueConstraint('channel_id', 'event_id',
-                                       name='chaid_evtid_uc'),
-                     )
+    __table_args__ = (UniqueConstraint('channel_id', 'event_id',
+                                       name='chaid_evtid_uc'),)
 
 
 class Class(Base):

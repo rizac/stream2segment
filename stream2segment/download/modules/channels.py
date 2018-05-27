@@ -94,7 +94,7 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
     if url_failed_dc_ids:  # if some datacenter does not return station, warn with INFO
         dc_df_fromdb = datacenters_df.loc[datacenters_df[DataCenter.id.key].isin(url_failed_dc_ids)]
         logger.info(MSG("Fetching stations from database for %d (of %d) data-center(s)",
-                    "download errors occurred") %
+                        "download errors occurred") %
                     (len(dc_df_fromdb), len(datacenters_df)) + ":")
         logger.info(dc_df_fromdb[DataCenter.dataselect_url.key].to_string(index=False))
         db_cha_df = get_channels_df_from_db(session, dc_df_fromdb, net, sta, loc, cha,
@@ -131,9 +131,9 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
     if web_cha_df.empty and db_cha_df.empty:
         # ok, now let's see if we have remaining datacenters to be fetched from the db
         raise QuitDownload(Exception(MSG("No station found",
-                                     ("Unable to fetch stations from all data-centers, "
-                                      "no data to fetch from the database. "
-                                      "Check config and log for details"))))
+                                         ("Unable to fetch stations from all data-centers, "
+                                          "no data to fetch from the database. "
+                                          "Check config and log for details"))))
 
     # the columns for the channels dataframe that will be returned
     colnames = [c.key for c in [Channel.id, Channel.station_id, Station.latitude,

@@ -31,10 +31,6 @@ def pytest_addoption(parser):
                            "to the default SQLite database"))
 
 
-# def _sqlite(string):
-#     return string[:10] == 'sqlite:///'
-
-
 # make all test functions having 'db' in their argument use the passed databases
 def pytest_generate_tests(metafunc):
     '''This function is called before generating all tests and parametrizes all tests with the
@@ -43,7 +39,7 @@ def pytest_generate_tests(metafunc):
         dburls = ["sqlite:///:memory:",
                   os.getenv("DB_URL", None)] + metafunc.config.option.dburl  # command line (list)
         dburls = [_ for _ in dburls if _]
-        ids = [_[:_.find('/')] for _ in dburls]
+        ids = [_[:_.find('://')] for _ in dburls]
         # metafunc.parametrize("db", dburls)
         metafunc.parametrize('db', dburls,
                              ids=ids,

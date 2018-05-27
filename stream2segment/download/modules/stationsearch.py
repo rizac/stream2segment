@@ -140,8 +140,9 @@ def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius,
 
 def locations2degrees(lat1, lon1, lat2, lon2):
     """
-    Same as obspy `locations2degree` but works with numpy arrays. NOTE: current obspy version
-    supports this function, but we prefer to decouple obspy from the download package
+    Same as obspy `locations2degree` but works with numpy arrays. NOTE: thanks to our PR ;)
+    the current obspy version supports this function, but we prefer to decouple obspy from
+    the download package
 
     From the doc:
     Convenience function to calculate the great circle distance between two
@@ -169,15 +170,11 @@ def locations2degrees(lat1, lon1, lat2, lon2):
     lon1 = np.radians(np.asarray(lon1))
     lon2 = np.radians(np.asarray(lon2))
     long_diff = lon2 - lon1
-    gd = np.degrees(
-        np.arctan2(
-            np.sqrt((
-                np.cos(lat2) * np.sin(long_diff)) ** 2 +
-                (np.cos(lat1) * np.sin(lat2) - np.sin(lat1) *
-                    np.cos(lat2) * np.cos(long_diff)) ** 2),
-            np.sin(lat1) * np.sin(lat2) + np.cos(lat1) * np.cos(lat2) *
-            np.cos(long_diff)))
-    return gd
+    deg, atan2, cos, sin, sqrt = np.degrees, np.arctan2, np.cos, np.sin, np.sqrt
+    ret = deg(atan2(sqrt((cos(lat2) * sin(long_diff)) ** 2 +
+                         (cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(long_diff)) ** 2),
+                    sin(lat1) * sin(lat2) + cos(lat1) * cos(lat2) * cos(long_diff)))
+    return ret
 
 
 def get_search_radius(mag, minmag, maxmag, minmag_radius, maxmag_radius):
