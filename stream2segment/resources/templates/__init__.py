@@ -228,19 +228,20 @@ selected segment. Useful links for functions, libraries and utilities:
 - `obspy Stream object <https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.html>_`
 - `obspy Trace object <https://docs.obspy.org/packages/autogen/obspy.core.trace.Trace.html>_`
 
-IMPORTANT: Most exceptions raised by this function  will stop the segment processing and continue
-the execution. Exception messages will be redirected to a .log file
-(see documentation of `s2s process` for details), prefixed with the processed segment id
-for later inspection. This is a feature that the user can also trigger programmatically to
-skip the currently processed segment, e.g.:
+IMPORTANT: Most exceptions raised by this function will continue the execution of the next
+segment(s) after writing the exception messages to a .log file (see documentation of
+`s2s process` for details), prefixing the message with the segment id for later inspection.
+This is a feature that can be trigger programmatically to skip the currently processed segment,
+e.g.:
 ```
     if snr < 0.4:
         raise Exception('SNR ratio to low')
 ```
-Note however, that some particular critical categories of exceptions represent most likely code
-bugs and by design will stop the execution of the **WHOLE** processing subroutine. The exception
-message and the stack trace will be redirected as well to the log file (and the standard output)
-for debugging. Critical exceptions are:
+Note however, that some exceptions will stop the execution of the **WHOLE** processing subroutine:
+in this case, the exception message and the stack trace will be redirected as well to the log file
+(and the standard output) for debugging.
+These critical exceptions are those preventing the execution of this function and
+those that possibly indicate deeper problems or bugs. They are:
     `TypeError`, `SyntaxError`, `NameError`, `ImportError`, `AttributeError`
 
 :param: segment (ptyhon object): An object representing a waveform data to be processed,
@@ -254,7 +255,7 @@ will be accessible as usual via `config['propertyname']`
 :return: If the processing routine calling this function needs not generate a file output
 (e.g., .csv file), this function does not need to return a value, and if it does, it will be
 ignored.
-Otherwise, this function must return an iterable will be written as a row of the resulting csv
+Otherwise, this function must return an iterable that will be written as a row of the resulting csv
 file (e.g. list, tuple, numpy array, dict). The .csv file will have a
 row header only if `dict`s are returned: in this case, the dict keys are used as row header
 columns. If you want to preserve in the .csv the order of the dict keys as the were inserted
@@ -264,13 +265,13 @@ Returning None or nothing is also valid: in this case the segment will be silent
 NOTES:
 
 1. The first column of the resulting csv will be *always* the segment id (an integer
-stored in the database uniquely identifying the segment) with column name 'Segment.db.id'
+stored in the database uniquely identifying the segment)
 
 2. Pay attention to consistency: the same type of object with the same number of elements
-should be returned by all processed segments. Unexpected (non tested) result otherwise, e.g.
-when returning a list for some segments, an a dict for some others
+should be returned by all processed segments. Unexpected (non tested) result otherwise: e.g.
+when returning a list for some segments, and a dict for some others
 
-3. Pay attention when setting complex objects (e.g., everything neither string nor numeric) as
+3. Pay attention when returning complex objects (e.g., everything neither string nor numeric) as
 elements of the iterable: the values will be most likely converted to string according
 to python `__str__` function and might be out of control for the user.
 Thus, it is suggested to convert everything to string or number. E.g., for obspy's
@@ -347,7 +348,7 @@ will be placed in the GUI ('b' means bottom, the default, 'r' means next to the 
 right) and the other two, `xaxis` and `yaxis`, are dict (defaulting to the empty dict {})
 controlling the x and y axis of the plot. For info, see:
 https://plot.ly/python/axes/
-When not given, axis types will be inferred from the function return type (see below) and in most
+When not given, axis types will be inferred from the function's return type (see below) and in most
 cases defaults to 'date' (i.e., date-times on the x values).
 Functions decorated with '@gui.plot' must return
 a numeric sequence y taken at successive equally spaced points in any of these forms:
@@ -465,7 +466,7 @@ segment methods:
   station or channel, all identified by the associated database id.
   NOTES: 1. The returned segment list is always a subset of the segments selected for processing
   (see configuration file). Thus, if there are N sibling segments in the
-  database, this method returns 0 <= M <= N siblings.
+  database according to the given `parent`, this method returns 0 <= M <= N siblings.
   2. Use with care (or with multi-processing enabled) when providing a `parent` argument,
   as the amount of segments might be huge (up to hundreds of thousands of segments).
   The amount of returned segments is (almost exponentially) increasing according to the following

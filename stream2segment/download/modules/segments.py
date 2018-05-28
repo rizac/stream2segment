@@ -19,9 +19,8 @@ import pandas as pd
 
 from stream2segment.io.db.models import DataCenter, Station, Channel, Segment
 from stream2segment.download.utils import read_async, QuitDownload,\
-    handledbexc, custom_download_codes, logwarn_dataframe, DownloadStats
+    handledbexc, custom_download_codes, logwarn_dataframe, DownloadStats, formatmsg
 from stream2segment.download.modules.mseedlite import MSeedError, unpack as mseedunpack
-from stream2segment.utils.msgs import MSG
 from stream2segment.utils import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, mergeupdate, DbManager
 
@@ -130,7 +129,7 @@ def prepare_for_download(session, segments_df, timespan, retry_seg_not_found, re
     segments_df = segments_df[segments_df[SEG_RETRY]].copy()
     if oldlen != len(segments_df):
         reason = "already downloaded, no retry"
-        logger.info(MSG("%d segments discarded", reason), oldlen-len(segments_df))
+        logger.info(formatmsg("%d segments discarded", reason), oldlen-len(segments_df))
 
     if segments_df.empty:
         raise QuitDownload("Nothing to download: all segments already downloaded according to "
@@ -144,12 +143,9 @@ def prepare_for_download(session, segments_df, timespan, retry_seg_not_found, re
     seg_dupes_mask = segments_df.duplicated(subset=[SEG_CHID, SEG_START, SEG_END], keep=False)
     if seg_dupes_mask.any():
         seg_dupes = segments_df[seg_dupes_mask]
-        logger.info(MSG("%d suspiciously duplicated segments found:\n"
-                        "this is due to different events arriving at the same station's channel\n"
-                        "at the same exact date and time (rounded to the nearest second).\n"
-                        "Probably, the same event has been returned with different id(s)\n"
-                        "by the event web service, but this is not checked for: \n"
-                        "all suspiciously duplicated segments will be written to the database."),
+        logger.info(formatmsg("%d suspiciously duplicated segments found: this is most likely\n"
+                              "due to events fetched from the event catalog with different ids\n"
+                              "but same latitude, longitude and time."),
                     len(seg_dupes))
         logwarn_dataframe(seg_dupes.sort_values(by=[SEG_CHID, SEG_START, SEG_END]),
                           "Suspicious duplicated segments",
@@ -398,8 +394,8 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid, 
                 if exc is not None:
                     df.loc[:, SEG_DSCODE] = code
                     stats[url][code] += len(df)
-                    logger.warning(MSG("Segment download error, code %s" % str(code),
-                                       exc, request))
+                    logger.warning(formatmsg("Segment download error, code %s" % str(code),
+                                             exc, request))
 
                 segmanager.add(df)
                 bar.update(len(df))

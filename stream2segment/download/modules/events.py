@@ -14,9 +14,8 @@ from datetime import timedelta, datetime
 
 import pandas as pd
 
-from stream2segment.download.utils import dbsyncdf, QuitDownload, response2normalizeddf
+from stream2segment.download.utils import dbsyncdf, QuitDownload, response2normalizeddf, formatmsg
 from stream2segment.io.db.models import WebService, Event
-from stream2segment.utils.msgs import MSG
 from stream2segment.utils.url import urlread, URLException
 from stream2segment.utils import urljoin, strptime
 
@@ -51,23 +50,22 @@ def get_events_df(session, eventws_url, db_bufsize, **args):
         raise QuitDownload(exc)
 
     if len(datalist) > 1:
-        logger.info(MSG("Request was split into sub-queries, aggregating the results",
-                        "Original request entity too large", url))
+        logger.info(formatmsg("Request was split into sub-queries, aggregating the results",
+                              "Original request entity too large", url))
 
     for data, msg, url in datalist:
         if not data and msg:
-            logger.warning(MSG("Discarding request", msg, url))
+            logger.warning(formatmsg("Discarding request", msg, url))
         elif data:
             try:
                 events_df = response2normalizeddf(url, data, "event")
                 ret.append(events_df)
             except ValueError as exc:
-                logger.warning(MSG("Discarding response", exc, url))
+                logger.warning(formatmsg("Discarding response", exc, url))
 
     if not ret:  # pd.concat below raise ValueError if ret is empty:
-        raise QuitDownload(Exception(MSG("",
-                                         "No events found. Check input config. or log for details",
-                                         url)))
+        raise QuitDownload(Exception(formatmsg("", ("No events found. Check input config. "
+                                                    "or log for details"), url)))
 
     events_df = pd.concat(ret, axis=0, ignore_index=True, copy=False)
     events_df[Event.webservice_id.key] = eventws_id

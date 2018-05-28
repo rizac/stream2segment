@@ -13,10 +13,9 @@ from __future__ import division
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import zip, range
 
-import logging
 import os
-from itertools import chain, cycle
-from collections import defaultdict, OrderedDict
+from itertools import chain
+from collections import OrderedDict
 from functools import cmp_to_key
 
 from future.utils import viewitems
@@ -28,7 +27,6 @@ from stream2segment.io.db.models import Event, Station, Channel
 from stream2segment.io.db.pdsql import harmonize_columns, \
     harmonize_rows, colnames, syncdf
 from stream2segment.utils.url import read_async as original_read_async
-from stream2segment.utils.msgs import MSG
 
 from future.standard_library import install_aliases
 install_aliases()
@@ -65,7 +63,7 @@ class QuitDownload(Exception):
     The method 'iscritical' of any `QuitDownload` object tells the user if the object has been built
     for indicating a download error (first case).
 
-    Note that in both cases the string messages need most likely to be built with the `MSG`
+    Note that in both cases the string messages need most likely to be built with the `formatmsg`
     function for harmonizing the message outputs.
     (Note also that with the default logging settings defined in stream2segment.main from the
     command line `log.info` and `log.error` both print also to `stdout`, `log.warning` and
@@ -80,6 +78,58 @@ class QuitDownload(Exception):
         """
         super(QuitDownload, self).__init__(str(exc_or_msg))
         self.iscritical = isinstance(exc_or_msg, Exception)
+
+
+def formatmsg(action=None, errmsg=None, url=None):
+    """Function which formats a message in order to have normalized message
+    types across the program (e.g., in logging utilities). The argument can contain new
+    (e.g., "{}") but also old-style format keywords (such as '%s', '%d') for usage within the
+    logging functions, e.g.: `logging.warning(msg('%d segments discarded', 'no response'), 3)`.
+    The resulting string message will be in any of the following formats (according to
+    how many arguments are non-empty):
+    ```
+        "{action} ({errmsg}). url: {url}"
+        "{action} ({errmsg})"
+        "{action}"
+        "{errmsg}. url: {url}"
+        "{errmsg}"
+        "{url}"
+        ""
+    ```
+    :param action: string or None: what has been done (e.g. "discarded 3 events")
+    :param errmsg: string or Exception: the Exception or error message which caused the action
+    :param url: the url (string) or `urllib2.Request` object: the url originating the message, if
+    the latter was issued from a web request
+    """
+    msg = action.strip()
+    if errmsg:
+        # sometimes exceptions have no message, append their name
+        # (e.g. socket.timeout would now print at least 'timeout')
+        strerr = (str(errmsg) or str(errmsg.__class__.__name__)).strip()
+        msg = "{} ({})".format(msg, strerr) if msg else strerr
+    if url:
+        urlmsg = url2str(url).strip()
+        msg = "{}. url: {}".format(msg, urlmsg) if msg else urlmsg
+    return msg
+
+
+def url2str(obj):
+    """converts an url or `urllib2.Request` object to string. In the latter case, the format is:
+    "{obj.get_full_url()}" if `obj.data` is falsy
+    "{obj.get_full_url()}, data: '{obj.get_data()}'" if `obj.data` has no newlines, or
+    "{obj.get_full_url()}, data: '{obj.get_data()[:I]}'" otherwise (I=obj.get_data().find('\n')`)
+    """
+    try:
+        url = obj.get_full_url()
+        data = obj.data
+        if data is not None:
+            maxnum = 200
+            str_data = ("%s\n...(showing first %d characters only)" % (data[:maxnum], maxnum)) \
+                if len(data) > maxnum else data
+        url = "%s, POST data:\n%s" % (url, str_data)
+    except AttributeError:
+        url = obj
+    return url
 
 
 def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024 * 1024,
@@ -125,8 +175,9 @@ def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, updat
 
     table = autoincrement_pkey_col.class_
     if df.empty:
-        raise QuitDownload(Exception(MSG("No row saved to table '%s'" % table.__tablename__,
-                                         "unknown error, check log for details and db connection")))
+        raise QuitDownload(Exception(formatmsg("No row saved to table '%s'" % table.__tablename__,
+                                               "unknown error, check log for details and db "
+                                               "connection")))
     dblog(table, inserted, not_inserted, updated, not_updated)
     return df
 
@@ -148,8 +199,8 @@ def handledbexc(cols_to_print_on_err, update=False):
                 # just use the string representation of exception
                 errmsg = str(exception)
             len_df = len(dataframe)
-            msg = MSG("%d database rows not %s" % (len_df, "updated" if update else "inserted"),
-                      errmsg)
+            msg = formatmsg("%d database rows not %s" %
+                            (len_df, "updated" if update else "inserted"), errmsg)
             logwarn_dataframe(dataframe, msg, cols_to_print_on_err)
 
     return hde
@@ -187,7 +238,7 @@ def dblog(table, inserted, not_inserted, updated=0, not_updated=0):
             if notok:
                 msg += nookstr % notok
                 infomsg = _errmsg
-            logger.info(MSG("%s: %s" % (_header, msg), infomsg))
+            logger.info(formatmsg("%s: %s" % (_header, msg), infomsg))
 
         dolog(inserted, not_inserted, "%d new %s inserted", ", %d discarded")
         dolog(updated, not_updated, "%d %s updated", ", %d discarded")
@@ -205,8 +256,8 @@ def response2normalizeddf(url, raw_data, dbmodel_key):
     oldlen, dframe = len(dframe), normalize_fdsn_dframe(dframe, dbmodel_key)
     # stations_df surely not empty:
     if oldlen > len(dframe):
-        logger.warning(MSG("%d row(s) discarded",
-                           "malformed server response data, e.g. NaN's", url),
+        logger.warning(formatmsg("%d row(s) discarded",
+                                 "malformed server response data, e.g. NaN's", url),
                        oldlen - len(dframe))
     return dframe
 
@@ -525,10 +576,12 @@ class DownloadStats(OrderedDict):
     def __missing__(self, key):  # @UnusedVariable
         '''returns an new intkeysdict and **sets** it in this dict
         '''
-        # To implement a defaultdict like behaviour, we might simply `return intkeysdict()`
-        # But this would work in something like: `downloadstats['geofon'] += 5` which is NOT
-        # the case here, where `downloadstats['geofon'][204] += 5` would NOT work, as the latter
-        # would create a new intkeysdict() and assign 5 to IT, not to this dict. o:
+        # To implement a defaultdict like behaviour, we might simply `return intkeysdict()`,
+        # but this would work when setting a key of this dict directly. E.g.
+        # `downloadstats['geofon'] += 5`
+        # This dict, on the other hand, has assignements of this type:
+        # `downloadstats['geofon'][204] += 5`
+        # so we need to assign here the intkeysdict() before returning it
         value = intkeysdict()
         OrderedDict.__setitem__(self, key, value)
         return value

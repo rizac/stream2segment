@@ -10,14 +10,12 @@ Download module for segments download
 from builtins import map, next, zip, range, object
 
 from datetime import timedelta
-import logging
 
 import numpy as np
 import pandas as pd
 
 from stream2segment.io.db.models import Station, Channel, Event, Segment
-from stream2segment.download.utils import QuitDownload
-from stream2segment.utils.msgs import MSG
+from stream2segment.download.utils import QuitDownload, formatmsg
 from stream2segment.utils import get_progressbar
 from stream2segment.io.db.pdsql import mergeupdate, dfrowiter
 
@@ -110,8 +108,8 @@ def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius,
     # create total segments dataframe:
     # first check we have data:
     if not ret:
-        raise QuitDownload(Exception(MSG("No segments to process",
-                                         "No station within search radia")))
+        raise QuitDownload(Exception(formatmsg("No segments to process",
+                                               "No station within search radia")))
     # now concat:
     ret = pd.concat(ret, axis=0, ignore_index=True, copy=True)
     # compute travel times. Doing it on a single array is much faster
@@ -131,10 +129,11 @@ def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius,
     oldlen = len(ret)
     ret.dropna(subset=[SEG_ATIME], inplace=True)
     if oldlen > len(ret):
-        logger.info(MSG("%d of %d segments discarded", "Travel times NaN"),
+        logger.info(formatmsg("%d of %d segments discarded", "Travel times NaN"),
                     oldlen-len(ret), oldlen)
-        if not len(ret):
-            raise QuitDownload(Exception(MSG("No segments to process", "All travel times NaN")))
+        if ret.empty:
+            raise QuitDownload(Exception(formatmsg("No segments to process",
+                                                   "All travel times NaN")))
     return ret
 
 

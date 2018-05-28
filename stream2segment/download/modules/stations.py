@@ -15,8 +15,7 @@ from datetime import datetime
 import pandas as pd
 
 from stream2segment.io.db.models import DataCenter, Station, Segment
-from stream2segment.download.utils import read_async, handledbexc
-from stream2segment.utils.msgs import MSG
+from stream2segment.download.utils import read_async, handledbexc, formatmsg
 from stream2segment.utils import get_progressbar
 from stream2segment.io.db.pdsql import DbManager
 from stream2segment.io.utils import dumps_inv
@@ -77,13 +76,13 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
             bar.update(1)
             sta_id = obj[0]
             if exc:
-                logger.warning(MSG(_msg, exc, request), sta_id)
+                logger.warning(formatmsg(_msg, exc, request), sta_id)
                 errors += 1
             else:
                 data, code, msg = result  # @UnusedVariable
                 if not data:
                     empty += 1
-                    logger.warning(MSG(_msg, "empty response", request), sta_id)
+                    logger.warning(formatmsg(_msg, "empty response", request), sta_id)
                 else:
                     downloaded += 1
                     dbmanager.add(pd.DataFrame({Station.id.key: [sta_id],

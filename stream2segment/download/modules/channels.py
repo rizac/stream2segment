@@ -18,8 +18,7 @@ from sqlalchemy import or_, and_
 
 from stream2segment.io.db.models import DataCenter, Station, Channel
 from stream2segment.download.utils import read_async, response2normalizeddf, QuitDownload,\
-    handledbexc, dbsyncdf, to_fdsn_arg
-from stream2segment.utils.msgs import MSG
+    handledbexc, dbsyncdf, to_fdsn_arg, formatmsg
 from stream2segment.utils import get_progressbar, strconvert
 from stream2segment.io.db.pdsql import dbquery2df, shared_colnames, mergeupdate
 
@@ -78,7 +77,7 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
             dcen_id = obj[0]
             if exc:
                 url_failed_dc_ids.append(dcen_id)
-                logger.warning(MSG("Unable to fetch stations", exc, url))
+                logger.warning(formatmsg("Unable to fetch stations", exc, url))
             else:
                 try:
                     df = response2normalizeddf(url, result[0], "channel")
@@ -88,13 +87,13 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
                         df[Station.datacenter_id.key] = dcen_id
                         ret.append(df)
                 except ValueError as verr:
-                    logger.warning(MSG("Discarding response data", verr, url))
+                    logger.warning(formatmsg("Discarding response data", verr, url))
 
     db_cha_df = pd.DataFrame()
     if url_failed_dc_ids:  # if some datacenter does not return station, warn with INFO
         dc_df_fromdb = datacenters_df.loc[datacenters_df[DataCenter.id.key].isin(url_failed_dc_ids)]
-        logger.info(MSG("Fetching stations from database for %d (of %d) data-center(s)",
-                        "download errors occurred") %
+        logger.info(formatmsg("Fetching stations from database for %d (of %d) data-center(s)",
+                              "download errors occurred") %
                     (len(dc_df_fromdb), len(datacenters_df)) + ":")
         logger.info(dc_df_fromdb[DataCenter.dataselect_url.key].to_string(index=False))
         db_cha_df = get_channels_df_from_db(session, dc_df_fromdb, net, sta, loc, cha,
@@ -111,8 +110,8 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
                 web_cha_df[web_cha_df[srate_col] >= min_sample_rate]
             discarded_sr = oldlen - len(web_cha_df)
             if discarded_sr:
-                logger.warning(MSG("%d channel(s) discarded",
-                                   "sample rate < %s Hz" % str(min_sample_rate)),
+                logger.warning(formatmsg("%d channel(s) discarded",
+                                         "sample rate < %s Hz" % str(min_sample_rate)),
                                discarded_sr)
             if web_cha_df.empty and db_cha_df.empty:
                 raise QuitDownload(Exception("No channel found with sample rate >= %f"
@@ -130,10 +129,10 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
 
     if web_cha_df.empty and db_cha_df.empty:
         # ok, now let's see if we have remaining datacenters to be fetched from the db
-        raise QuitDownload(Exception(MSG("No station found",
-                                         ("Unable to fetch stations from all data-centers, "
-                                          "no data to fetch from the database. "
-                                          "Check config and log for details"))))
+        raise QuitDownload(Exception(formatmsg("No station found",
+                                               ("Unable to fetch stations from all data-centers, "
+                                                "no data to fetch from the database. "
+                                                "Check config and log for details"))))
 
     # the columns for the channels dataframe that will be returned
     colnames = [c.key for c in [Channel.id, Channel.station_id, Station.latitude,
