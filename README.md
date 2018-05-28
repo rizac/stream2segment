@@ -172,26 +172,23 @@ pip install -e .
 
 #### Run using pre-built script ...
 
-Type
+Move in the project directory and run the command:
 ```
-./runtests --help
-```
-which explains how to execute `runtests`. This is a script which gives the option for specifying a custom database path (e.g., postgres, if installed) and run tests requiring a database with both the custom and the default one (sqlite)
-
-#### ... or the old (longer) way:
-
-move in the project directory and run the command:
-```
-pytest ./tests/ --ignore=./tests/skip --cov=./stream2segment
+pytest -xv --dburl postgresql://riccardo:@localhost/s2s_test --ignore=./tests/skip ./tests/
 ```
 or (if 'pytest not found' message appears):
 ```
-python -m pytest ./tests/ --ignore=./tests/skip --cov=./stream2segment
+python -m pytest ./tests/ -xv --ignore=./tests/skip
 ```
 Wait, tests are time consuming (some minutes currently) and you should see a message with no errors, such as
 `"===== 8 passed in 1.30 seconds ======"`
 
-The database used for testing will be the value of the environment variable 'DB_PATH'. If missing, an in-memory 'sqlite' will be used. You should preferably test with the database type used for downloading and processing.
+The database used for testing will be an sqlite database. If you want to provide other database urls use the variable ```--dburl``` (you can type it multiple times and all tests requireing a database will be run with all provided database urls).
+Example: if you have postgres installed with an already created database named ```s2s_test```, run:
+```
+pytest -xv --dburl postgresql://riccardo:@localhost/s2s_test --ignore=./tests/skip ./tests/
+```
+(the data on any given database will be overwritten if the database is not empty)
 
 ## Usage
 
@@ -202,7 +199,7 @@ Move (`cd` on a terminal) to the stream2segment folder. If you installed and act
 source env/bin/activate
 ```
 
-> <sub>When you're finished, type `deactivate` on the terminal to deactivate the current pythoin virtual environment and return to the global system defined Python</sub>
+<sub>When you're finished, type `deactivate` on the terminal to deactivate the current pythoin virtual environment and return to the global system defined Python</sub>
 
 Type:
 ```
@@ -219,9 +216,20 @@ files which can be inspected, edited and then used: one for downloading data (do
 and several others for processing downloaded data (where each processing template is represented by two files:
 a python module + associated configuration file).
 All instructions are written in the templates, as comments. Browse/edit the download configuration file and start a download via
-`s2s download` (type `s2s download --help` for details). Once downloaded, browse (and edit them if needed)
-a couple of processing files for processing (`s2s process --help` for details) or
-visualize (`s2s show --help` for details) the segment waveforms.
+```
+s2s download
+```
+(type `s2s download --help` for details). Once downloaded, browse (and edit them if needed)
+the processing file and its configuration file and run the processing subroutine via
+```
+s2s process
+```
+(type `s2s process --help` for details) or visualize plots of the downloaded data via
+
+```
+s2s show
+```
+(type `s2s show --help` for details).
 
 ## Installation Notes:
 
