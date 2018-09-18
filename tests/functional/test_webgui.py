@@ -404,9 +404,15 @@ class Test(object):
             rv2 = app.post("/get_segment", data=json.dumps(d),
                            headers={'Content-Type': 'application/json'})
 
-            data1 = json.loads(rv1.data)
-            data2 = json.loads(rv2.data)
-
+            try:
+                data1 = json.loads(rv1.data)
+                data2 = json.loads(rv2.data)
+            except TypeError:
+                # avoid TypeError: the JSON object must be str, not 'bytes'
+                # in py 3.5:
+                data1 = json.loads(rv1.data.decode('utf8'))
+                data2 = json.loads(rv2.data.decode('utf8'))
+                
             assert len(data1['sn_windows']) == 2
             assert len(data2['sn_windows']) == 2
             for wdw1, wdw2 in zip(data1['sn_windows'], data2['sn_windows']):

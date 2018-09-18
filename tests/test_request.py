@@ -4,12 +4,22 @@ Created on Sep 18, 2018
 @author: rizac
 '''
 
-
+import pytest
 import re
 
 
-from stream2segment.utils.url import read_async, Request
+from stream2segment.utils.url import read_async, Request, urlread
 
+
+def no_connection():
+    try:
+        urlread("https://geofon.gfz-potsdam.de-/")
+        return False
+    except:
+        return True
+        
+@pytest.mark.skipif(no_connection(),
+                    reason="no internet connection")
 def test_request():
     '''This test performs a REAL connection to test a real case. It should be removed
     in case of no connection'''
