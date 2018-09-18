@@ -50,7 +50,7 @@ from obspy.core.stream import Stream, read
 from stream2segment.io.db.models import DataCenter, Segment, Download, Station, Channel, WebService,\
     withdata
 from itertools import cycle, repeat, count, product
-from urllib.error import URLError
+
 import socket
 from obspy.taup.helper_classes import TauModelError
 # import logging
@@ -62,17 +62,23 @@ from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf,  _get_max
 from logging import StreamHandler
 import logging
 from io import BytesIO
-import urllib.request, urllib.error, urllib.parse
+# import urllib.request, urllib.error, urllib.parse
 from stream2segment.download.utils import custom_download_codes
 from stream2segment.download.modules.mseedlite import MSeedError, unpack
 import threading
-from stream2segment.utils.url import read_async
+# from urllib.error import URLError
+from stream2segment.utils.url import read_async, URLError, HTTPError
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
 from stream2segment.utils.log import configlog4download
 
-from future.standard_library import install_aliases
-install_aliases()
-from http.client import responses  # @UnresolvedImport @IgnorePep8
+# from future.standard_library import install_aliases
+# install_aliases()
+from future.utils import PY2
+if PY2:
+    from BaseHTTPServer import BaseHTTPRequestHandler
+    responses = BaseHTTPRequestHandler.responses
+else:
+    from http.client import responses
 
 # when debugging, I want the full dataframe with to_string(), not truncated
 pd.set_option('display.max_colwidth', -1)
@@ -158,7 +164,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # self._logout_cache = ""
         
         # class-level patchers:
-        with patch('stream2segment.utils.url.urllib.request.urlopen') as mock_urlopen:
+        with patch('stream2segment.utils.url.urlopen') as mock_urlopen:
             self.mock_urlopen = mock_urlopen
             with patch('stream2segment.utils.inputargs.get_session', return_value=db.session):
                 # this mocks yaml_load and sets inventory to False, as tests rely on that
@@ -235,7 +241,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         for k in urlread_side_effect:
             a = Mock()
             if type(k) == int:
-                a.read.side_effect = urllib.error.HTTPError('url', int(k),  responses[k], None, None)
+                a.read.side_effect = HTTPError('url', int(k),  responses[k], None, None)
             elif type(k) in (bytes, str):
                 def func(k):
                     b = BytesIO(k.encode('utf8') if type(k) == str else k)  # py2to3 compatible

@@ -9,6 +9,7 @@ Download module for stations (level=channel) download
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import map, next, zip, range, object
 
+import re
 import logging
 from itertools import cycle
 
@@ -22,13 +23,7 @@ from stream2segment.download.utils import read_async, response2normalizeddf, Qui
 from stream2segment.utils import get_progressbar, strconvert
 from stream2segment.io.db.pdsql import dbquery2df, shared_colnames, mergeupdate
 
-# make the following(s) behave like python3 counterparts if running from python2.7.x
-# (http://python-future.org/imports.html#aliased-imports):
-from future import standard_library
-import re
-standard_library.install_aliases()
-from urllib.parse import urlparse  # @IgnorePep8
-from urllib.request import Request  # @IgnorePep8
+from stream2segment.utils.url import Request  # this handles py2and3 compatibility
 
 
 # logger: do not use logging.getLogger(__name__) but point to stream2segment.download.logger:

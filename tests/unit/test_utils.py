@@ -4,9 +4,11 @@ Created on Dec 12, 2016
 
 @author: riccardo
 '''
-from future import standard_library
+
 from itertools import product
-standard_library.install_aliases()
+
+# from future import standard_library
+# standard_library.install_aliases()
 
 from datetime import datetime, timedelta
 from builtins import range
@@ -15,9 +17,8 @@ from builtins import str
 import unittest
 from mock import patch
 from io import StringIO
-from stream2segment.utils.url import urlread, URLException
+from stream2segment.utils.url import urlread, URLException, URLError, HTTPError
 import pytest
-from urllib.error import URLError, HTTPError
 import socket
 import mock
 from stream2segment.utils import secure_dburl, get_progressbar, Nop, strconvert, strptime
@@ -64,7 +65,7 @@ def test_strconvert():
     
 
 
-@patch('stream2segment.utils.url.urllib.request.urlopen')
+@patch('stream2segment.utils.url.urlopen')
 def test_utils_url_read(mock_urlopen):  # mock_ul_urlopen, mock_ul_request, mock_ul):
     
 

@@ -50,6 +50,7 @@ def yaml_load_side_effect(**overrides):
 
 def readcsv(filename, header=True):
     return pd.read_csv(filename, header=None) if not header else pd.read_csv(filename)
+    
 
 class Test(object):
 
@@ -207,6 +208,13 @@ class Test(object):
         assert os.path.isfile(self._logfilename)
         with open(self._logfilename) as opn:
             return opn.read()
+        
+    
+#     def inlogtext(self, string):
+#         logtext = self.logfilecontent
+#         for i in range(1 + len(logtext)-len(string)):
+#             if (sum(ord(a)-ord(b) for a, b in zip(string, logtext[i:])))
+        
 
 # ## ======== ACTUAL TESTS: ================================
 
@@ -487,14 +495,16 @@ station inventories saved: 1
         assert len(csv1) == 1
         assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
         logtext = self.logfilecontent
-        assert """3 segment(s) found to process
+        cmpstr =  """3 segment(s) found to process
 
 segment (id=3): 4 traces (probably gaps/overlaps)
 segment (id=2): Station inventory (xml) error: <urlopen error error>
 
 station inventories saved: 1
 1 of 3 segment(s) successfully processed
-2 of 3 segment(s) skipped with error message (check log or details)""" in logtext
+2 of 3 segment(s) skipped with error message (check log or details)"""
+        
+        assert cmpstr in logtext
 
         # save_downloaded_inventory True, test that we did save any:
         assert len(db.session.query(Station).filter(Station.has_inventory).all()) > 0

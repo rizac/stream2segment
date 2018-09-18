@@ -1,0 +1,41 @@
+'''
+Created on Sep 18, 2018
+
+@author: rizac
+'''
+
+
+import re
+
+
+from stream2segment.utils.url import read_async, Request
+
+def test_request():
+    '''This test performs a REAL connection to test a real case. It should be removed
+    in case of no connection'''
+    
+    post_data_str = """* * * HH?,HL?,HN? 2017-01-01T00:00:00 2017-06-01T00:00:00
+format=text
+level=channel"""
+    urls = ["http://geofon.gfz-potsdam.de/fdsnws/station/1/query",
+            "http://geofon.gfz-potsdam.de/fdsnws/station/1/query2"]
+    ids = [1]
+    iterable = ((id_, Request(url,
+                              data=('format=text\nlevel=channel\n'+post_data_str).encode('utf8')))
+                for url, id_ in zip(urls, ids))
+    
+    
+    
+    for obj, result, exc, url in read_async(iterable, urlkey=lambda obj: obj[-1],
+                                                blocksize=1048576,
+                                                max_workers=None,
+                                                decode='utf8', timeout=120):
+    
+        pass
+#     r = Request("http://geofon.gfz-potsdam.de/fdsnws/station/1/query",
+#                 data="""* * * HH?,HL?,HN? 2017-01-01T00:00:00 2017-06-01T00:00:00
+# format=text
+# level=channel""".encode('utf8'))
+#     
+#     urlread(r)
+#     h = 9

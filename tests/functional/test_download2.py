@@ -9,8 +9,9 @@ from __future__ import print_function
 # from utils import date
 # assert sys.path[0] == os.path.realpath(myPath + '/../../')
 
-from future import standard_library
-standard_library.install_aliases()
+# from future import standard_library
+# standard_library.install_aliases()
+
 from builtins import str
 import re
 import numpy as np
@@ -46,7 +47,7 @@ from obspy.core.stream import Stream, read
 from stream2segment.io.db.models import DataCenter, Segment, Download, Station, Channel, WebService,\
     withdata
 from itertools import cycle, repeat, count, product
-from urllib.error import URLError
+# from urllib.error import URLError
 import socket
 from obspy.taup.helper_classes import TauModelError
 # import logging
@@ -58,18 +59,22 @@ from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf,  _get_max
 from logging import StreamHandler
 import logging
 from io import BytesIO
-import urllib.request, urllib.error, urllib.parse
+# import urllib.request, urllib.error, urllib.parse
 from stream2segment.download.utils import custom_download_codes
 from stream2segment.download.modules.mseedlite import MSeedError, unpack
 import threading
-from stream2segment.utils.url import read_async
+from stream2segment.utils.url import read_async, URLError, HTTPError
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
 from stream2segment.utils.log import configlog4download
 
-from future.standard_library import install_aliases
-install_aliases()
-from http.client import responses  # @UnresolvedImport @IgnorePep8
-
+# from future.standard_library import install_aliases
+# install_aliases()
+from future.utils import PY2
+if PY2:
+    from BaseHTTPServer import BaseHTTPRequestHandler
+    responses = BaseHTTPRequestHandler.responses
+else:
+    from http.client import responses
 # when debugging, I want the full dataframe with to_string(), not truncated
 pd.set_option('display.max_colwidth', -1)
 
@@ -234,7 +239,7 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
         # self._logout_cache = ""
         
                 # class-level patchers:
-        with patch('stream2segment.utils.url.urllib.request.urlopen') as mock_urlopen:
+        with patch('stream2segment.utils.url.urlopen') as mock_urlopen:
             self.mock_urlopen = mock_urlopen
             with patch('stream2segment.utils.inputargs.get_session', return_value=db.session):
                 # this mocks yaml_load and sets inventory to False, as tests rely on that
@@ -316,7 +321,7 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
         for k in urlread_side_effect:
             a = Mock()
             if type(k) == int:
-                a.read.side_effect = urllib.error.HTTPError('url', int(k),  responses[k], None, None)
+                a.read.side_effect = HTTPError('url', int(k),  responses[k], None, None)
             elif type(k) in (bytes, str):
                 def func(k):
                     b = BytesIO(k.encode('utf8') if type(k) == str else k)  # py2to3 compatible

@@ -24,13 +24,7 @@ from stream2segment.download.modules.mseedlite import MSeedError, unpack as msee
 from stream2segment.utils import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, mergeupdate, DbManager
 
-# make the following(s) behave like python3 counterparts if running from python2.7.x
-# (http://python-future.org/imports.html#aliased-imports):
-from future import standard_library
-standard_library.install_aliases()
-from urllib.parse import urlparse  # @IgnorePep8
-from urllib.request import Request  # @IgnorePep8
-
+from stream2segment.utils.url import Request  # this handles py2and3 compatibility
 
 # logger: do not use logging.getLogger(__name__) but point to stream2segment.download.logger:
 # this way we preserve the logging namespace hierarchy

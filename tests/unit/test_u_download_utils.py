@@ -8,11 +8,14 @@ Created on Feb 4, 2016
 from __future__ import print_function
 
 
-from future import standard_library
+# from future import standard_library
+# standard_library.install_aliases()
+
+
 from stream2segment.download.main import get_datacenters_df
 from stream2segment.io.db.models import DataCenter
 import re
-standard_library.install_aliases()
+
 from builtins import zip
 from mock import patch
 import pytest

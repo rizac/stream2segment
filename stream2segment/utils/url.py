@@ -12,11 +12,30 @@ import socket
 from multiprocessing.pool import ThreadPool
 import os
 
+from future.utils import PY2
+
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#aliased-imports):
-from future import standard_library
-standard_library.install_aliases()
-import urllib.request, urllib.error  # @IgnorePep8
+# from future import standard_library
+# standard_library.install_aliases()
+# import urllib.request, urllib.error  # @IgnorePep8
+
+
+# Python 2 and 3: Futures (http://python-future.org/imports.html#aliased-imports) backports
+# to python2 are buggy when used with ThreadPools (like here). As there seem to be no particular
+# difference in function signature but only import placement, we do the old way
+# ALSO, ALL IMPORTS REQUIRING ANY OF THE MODULES/CLASSES BELOW SHOULD IMPORT FROM HERE
+# TO GUARANTEE PY2+3 COMPATIBILITY
+try:
+    from urllib.parse import urlparse, urlencode
+    from urllib.request import urlopen, Request
+    from urllib.error import HTTPError, URLError
+    from http.client import HTTPException 
+except ImportError:
+    from urlparse import urlparse
+    from urllib import urlencode
+    from urllib2 import urlopen, Request, HTTPError, URLError
+    from httplib import HTTPException 
 
 
 def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
@@ -64,11 +83,13 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
         # normalize it fiorst to None. If None, don't pass it to urlopen
         if timeout is None or timeout <= 0:
             timeout = None
+#         if PY2 and hasattr(url, 'data'):
+#             kwargs.setdefault('method', 'POST')
         # urlib2 does not support with statement in py2. See:
         # http://stackoverflow.com/questions/3880750/closing-files-properly-opened-with-urllib2-urlopen
         # https://docs.python.org/2.7/library/contextlib.html#contextlib.closing
-        with closing(urllib.request.urlopen(url, **kwargs) if timeout is None else
-                     urllib.request.urlopen(url, timeout=timeout, **kwargs)) as conn:
+        with closing(urlopen(url, **kwargs) if timeout is None else
+                     urlopen(url, timeout=timeout, **kwargs)) as conn:
             if blocksize < 0:  # https://docs.python.org/2.4/lib/bltin-file-objects.html
                 ret = conn.read()  # pylint: disable=no-member
             else:
@@ -80,7 +101,7 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
         if decode:
             ret = ret.decode(decode)
         return ret, conn.code, conn.msg  # pylint: disable=no-member
-    except urllib.error.HTTPError as exc:
+    except HTTPError as exc:
         if not raise_http_err:
             return None, exc.code, exc.msg
         else:
@@ -88,8 +109,8 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
                 raise URLException(exc)
             else:
                 raise exc
-    except (http.client.HTTPException,  # @UndefinedVariable
-            urllib.error.URLError, socket.error) as exc:
+    except (HTTPException,  # @UndefinedVariable
+            URLError, socket.error) as exc:
         if wrap_exceptions:
             raise URLException(exc)
         else:

@@ -9,9 +9,6 @@ Created on Feb 4, 2016
 # from utils import date
 # assert sys.path[0] == os.path.realpath(myPath + '/../../')
 
-from future import standard_library
-standard_library.install_aliases()
-
 from builtins import str
 import numpy as np
 from mock import patch
@@ -49,7 +46,7 @@ from stream2segment.download.utils import QuitDownload
 from obspy.core.stream import Stream, read
 from stream2segment.io.db.models import DataCenter, Segment, Download, Station, Channel, WebService
 from itertools import cycle, repeat, count, product
-from urllib.error import URLError
+
 import socket
 from obspy.taup.helper_classes import TauModelError
 # import logging
@@ -61,19 +58,22 @@ from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf
 from logging import StreamHandler
 import logging
 from io import BytesIO
-import urllib.request, urllib.error, urllib.parse
+# import urllib.request, urllib.error, urllib.parse
 from stream2segment.download.utils import custom_download_codes 
 from stream2segment.download.modules.mseedlite import MSeedError, unpack
 import threading
-from stream2segment.utils.url import read_async
+from stream2segment.utils.url import read_async, URLError, HTTPError
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_ttable_fpath
 from stream2segment.traveltimes.ttloader import TTTable
 from stream2segment.download.utils import dblog
 from stream2segment.utils import urljoin as original_urljoin
 
-from future.standard_library import install_aliases
-install_aliases()
-from http.client import responses  # @UnresolvedImport @IgnorePep8
+from future.utils import PY2
+if PY2:
+    from BaseHTTPServer import BaseHTTPRequestHandler
+    responses = BaseHTTPRequestHandler.responses
+else:
+    from http.client import responses
 
 import logging
 
@@ -178,7 +178,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # see below
         patchers = []
         
-        patchers.append(patch('stream2segment.utils.url.urllib.request.urlopen'))
+        patchers.append(patch('stream2segment.utils.url.urlopen'))
         self.mock_urlopen = patchers[-1].start()
         
         # mock ThreadPool (tp) to run one instance at a time, so we get deterministic results:
@@ -246,7 +246,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         for k in urlread_side_effect:
             a = Mock()
             if type(k) == int:
-                a.read.side_effect = urllib.error.HTTPError('url', int(k),  responses[k], None, None)
+                a.read.side_effect = HTTPError('url', int(k),  responses[k], None, None)
             elif type(k) in (bytes, str):
                 def func(k):
                     b = BytesIO(k.encode('utf8') if type(k) == str else k)  # py2to3 compatible
