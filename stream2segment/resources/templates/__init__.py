@@ -434,7 +434,7 @@ segment methods:
   stream in-place:
   ```
       stream_remresp = segment.stream().remove_response(segment.inventory())
-      segment.stream() is stream_remresp  # True: segment.stream() is modified permanently
+      segment.stream() is stream_remresp  # == True: segment.stream() is modified permanently!
   ```
   When visualizing plots, where efficiency is less important, each function is executed on a
   copy of segment.stream(). However, from within the `main` function, the user has to handle when
@@ -466,11 +466,10 @@ segment methods:
   station or channel, all identified by the associated database id.
   NOTES: 1. The returned segment list is always a subset of the segments selected for processing
   (see configuration file). Thus, if there are N sibling segments in the
-  database according to the given `parent`, this method returns 0 <= M <= N siblings.
-  2. Use with care (or with multi-processing enabled) when providing a `parent` argument,
-  as the amount of segments might be huge (up to hundreds of thousands of segments).
-  The amount of returned segments is (almost exponentially) increasing according to the following
-  order of the `parent` argument:
+  database according to the given `parent` argument, this method returns 0 <= M <= N siblings.
+  2. Use with care when providing a `parent` argument, as the amount of segments might be huge
+  (up to hundreds of thousands of segments). The amount of returned segments is increasing
+  (non linearly) according to the following order of the `parent` argument:
   'channel', 'station', 'stationname', 'networkname', 'event' or 'datacenter'
 
 * segment.del_classes(*labels): Deletes the given classes of the segment. The argument is
@@ -489,18 +488,21 @@ segment methods:
   delete segment classes first. If a label is already assigned to the segment, it is not added
   again (regardless of whether the 'annotator' changed or not)
 
-* segment.seiscomp_path(root='.'): Returns a file system path where to store
-  the given segment or any data associated to it in the seiscomp-compatible format:
+* segment.sds_path(root='.'): Returns the segment's file path in a seiscomp data
+  structure (SDS) format:
      <root>/<net>/<sta>/<loc>/<cha>.D/<net>.<sta>.<loc>.<cha>.<year>.<day>.<event_id>
-  The optional root argument, when missing, defaults to '.' (current working directory). Note
-  that the paths ends intentionally with no extension because the user might be interested to save
-  different types of segment's data (metadata, spectra, etcetera). In the typical case where the
-  segment's stream has to be saved you can type:
+  See https://www.seiscomp3.org/doc/applications/slarchive/SDS.html for details.
+  Note that the last token 'event_id' is not SDS standard. Called the returnedd path 's',
+  you can remove it by calling:
+  `s[:s.rfind('.')]`
+  but this might result in two different segments returning the same string.
+  Example: to save the segment's waveform as miniSEED you can type (explicitly
+  adding the file extension '.mseed' to the output path):
   ```
-      segment.stream().write(segment.seiscomp_path() + '.mseed', format='MSEED')
+      segment.stream().write(segment.sds_path() + '.mseed', format='MSEED')
   ```
 
-* segment.dbsession(): WARNING: this is for advanced users experienced with Sql-Alchemy library:
+* segment.dbsession(): WARNING: this is for advanced users experienced with SQLAlchemy library:
   returns the database session for custom IO operations with the database
 
 
@@ -598,10 +600,9 @@ Settings for computing the 'signal' and 'noise' time windows on a segment wavefo
 #
 # Signal window: specifies the time window of the segment's signal, in seconds from the
 # arrival time. If not numeric it must be a 2-element numeric array, denoting the
-# start and end points, relative to the squares cumulative of the segment's signal.
-# E.g.: [0.05, 0.95]
-# sets the signal window from the time the cumulative reaches 5% of its maximum, until
-# the time it reaches 95% of its maximum.
+# start and end points, relative to the squares cumulative of the segment's signal portion.
+# E.g.: [0.05, 0.95] sets the signal window from the time the cumulative reaches 5% of its
+# maximum, until the time it reaches 95% of its maximum.
 # The segment's noise window will be set equal to the signal window (i.e., same duration) and
 # shifted in order to always end on the segment's arrival time
 '''

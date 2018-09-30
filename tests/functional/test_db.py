@@ -588,7 +588,7 @@ class Test(object):
         
         
         # test seiscomp path:
-        p = seg__1.seiscomp_path()
+        p = seg__1.sds_path()
         # do some assertions:
         assert '.'.join((seg__1.station.network, seg__1.station.station, seg__1.channel.location,
                          seg__1.channel.channel)) in p
@@ -598,9 +598,11 @@ class Test(object):
         assert "." + str(seg__1.request_start.year) + "." in p
         assert p.startswith("." + os.sep)
         assert p.endswith("." + str(seg__1.event_id))
+        assert len(p.split('.')[-2]) == 3
         
-        p = seg__1.seiscomp_path('abcdefghijklm')
+        p = seg__1.sds_path('abcdefghijklm')
         assert p.startswith('abcdefghijklm' + os.sep)
+        assert len(p.split('.')[-2]) == 3
 
 
         ###########################################

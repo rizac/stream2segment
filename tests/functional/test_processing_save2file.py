@@ -236,7 +236,7 @@ class Test(object):
 
         mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
         # get seiscomp path of OK segment before the session is closed:
-        path = os.path.join(dir_, self.seg1.seiscomp_path())
+        path = os.path.join(dir_, self.seg1.sds_path())
         # query data for testing now as the program will expunge all data from the session
         # and thus we want to avoid DetachedInstanceError(s):
         expected_first_row_seg_id = str(self.seg1.id)

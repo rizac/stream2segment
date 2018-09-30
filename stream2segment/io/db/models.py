@@ -614,30 +614,28 @@ class Segment(Base):
     def has_class(cls):  # pylint:disable=no-self-argument
         return cls.classes.any()
 
-
-    def seiscomp_path(self, root='.'):
-        '''Creates the seiscomp compatible path where to store the given segment or any
-        data associated to it. The returned path has no extension (to be supplied by the user)
+    def sds_path(self, root='.'):
+        '''returns a string representing the seiscomp data structure (sds) path
+        where to store the given segment or any data associated with it.
+        The returned path has no extension (to be supplied by the user)
         and has the following format:
         <root>/<net>/<sta>/<loc>/<cha>.D/<net>.<sta>.<loc>.<cha>.<year>.<day>.<event_id>
-        where
-        <net> is the segment network
-        <sta> is the segment station
-        <loc> is the segment location
-        <cha> is the segment channel
-        <year> is the segment start time's year
-        <day> is the segment start time's day (in [1, 366])
-        <event_id> is the segment event id
+        Note that the last <event_id> is NOT a standard in sds but it is needed to
+        differentiate event-based segments. In any case, to get the
+        sds standard path, call :```sds[:sds.rfind('.')]```.
+        For info see:
+        https://www.seiscomp3.org/doc/applications/slarchive/SDS.html
         '''
         # year > N > S > L > C.D > segments > N.S.L.C.year.day.event_id.mseed
         seg_dtime = self.request_start  # note that start_time might be None
         year = seg_dtime.year
         net, sta = self.station.network, self.station.station
         loc, cha = self.channel.location, self.channel.channel
-        day = (seg_dtime - datetime(year, 1, 1)).days + 1
+        # day is in [1, 366], padded with zeroes:
+        day = '%03d' % ((seg_dtime - datetime(year, 1, 1)).days + 1)
         eid = self.event_id
         return os.path.join(root, str(year), net, sta, loc, cha + ".D",
-                            '.'.join((net, sta, loc, cha, str(year), str(day), str(eid))))
+                            '.'.join((net, sta, loc, cha, str(year), day, str(eid))))
 
     def del_classes(self, *ids_or_labels, **kwargs):
         '''deletes segment classes
