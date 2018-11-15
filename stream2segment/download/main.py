@@ -19,7 +19,7 @@ from stream2segment.io.db.pdsql import dbquery2df
 from stream2segment.utils.resources import version
 from stream2segment.download.utils import QuitDownload
 from stream2segment.download.modules.events import get_events_df
-from stream2segment.download.modules.datacenters import get_datacenters_df
+from stream2segment.download.modules.datacenters import get_datacenters_df, get_users_passwords
 from stream2segment.download.modules.channels import get_channels_df, chaid2mseedid_dict
 from stream2segment.download.modules.stationsearch import merge_events_stations
 from stream2segment.download.modules.segments import prepare_for_download, download_save_segments
@@ -35,7 +35,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
         networks, stations, locations, channels, min_sample_rate,
         search_radius, update_metadata, inventory, timespan,
         retry_seg_not_found, retry_url_err, retry_mseed_err, retry_client_err, retry_server_err,
-        retry_timespan_err, tt_table, advanced_settings, isterminal=False):
+        retry_timespan_err, tt_table, advanced_settings, authorizer, isterminal=False):
     """
         Downloads waveforms related to events to a specific path.
         This function is not intended to be called directly (PENDING: update doc?)
@@ -58,7 +58,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
     dbbufsize = min(advanced_settings['db_buf_size'], 1)
 
     process = psutil.Process(os.getpid()) if isterminal else None
-    __steps = 6 + inventory  # bool substraction works, e.g: 8 - True == 7
+    __steps = 6 + inventory + (not authorizer.isnoop)  # bool math works, e.g: 8 - True == 7
     stepiter = iter(range(1, __steps+1))
 
     # custom function for logging.info different steps:
@@ -84,6 +84,11 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
         datacenters_df, eidavalidator = \
             get_datacenters_df(session, dataws, advanced_settings['routing_service_url'],
                                networks, stations, locations, channels, start, end, dbbufsize)
+        # simple check
+        if authorizer.hastoken and len(datacenters_df) > 1:
+            raise QuitDownload(Exception('The only provided user and password cannot be used '
+                                         'with more than one datacenter: if you are attempting '
+                                         'to download from EIDA, provide a token file instead'))
 
         stepinfo("Requesting stations and channels from %d %s", len(datacenters_df),
                  "data-center" if len(datacenters_df) == 1 else "data-centers")
@@ -95,7 +100,6 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
                                       advanced_settings['s_timeout'],
                                       advanced_settings['download_blocksize'], dbbufsize,
                                       isterminal)
-
         # get channel id to mseed id dict and purge channels_df
         # the dict will be used to download the segments later, but we use it now to drop
         # unnecessary columns and save space (and time)
@@ -118,6 +122,10 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
                                  retry_server_err, retry_timespan_err,
                                  retry_timespan_warn=False)
 
+        if not authorizer.isnoop:
+            stepinfo("Requesting data-centers credentials for restricted data")
+        authorizer.build(datacenters_df)
+
         # download_save_segments raises a QuitDownload if there is no data, so if we are here
         # segments_df is not empty
         stepinfo("Downloading %d segments and saving to db", len(segments_df))
@@ -129,7 +137,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
         session.close()
 
         d_stats = download_save_segments(session, segments_df, datacenters_df,
-                                         chaid2mseedid, download_id,
+                                         chaid2mseedid, usrpswd_dict, download_id,
                                          request_timebounds_need_update,
                                          advanced_settings['max_thread_workers'],
                                          advanced_settings['w_timeout'],

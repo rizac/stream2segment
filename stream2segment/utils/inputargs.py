@@ -18,6 +18,7 @@ from stream2segment.utils.resources import yaml_load, get_ttable_fpath, \
 from stream2segment.utils import get_session, strptime, load_source
 from stream2segment.traveltimes.ttloader import TTTable
 from stream2segment.io.db.models import Fdsnws
+from stream2segment.download.utils import Auth
 
 
 class BadArgument(Exception):
@@ -317,6 +318,25 @@ def create_session(dburl):
     return get_session(dburl, scoped=False)
 
 
+def create_auth(restricted_data, dataws):
+    '''Creates an Auth class (handling authentication/authorization)
+    from the given restricted_data
+
+    :param restricted_data: either file path, to token, token data in bytes, or
+        tuple (user, password). If None, or the empty string, None is returned
+    '''
+    if restricted_data in ('', None, b''):
+        restricted_data = None
+    ret = Auth(restricted_data)
+    # here we have 4 cases: two ok ('eida' + token, any other fdsn + username & password)
+    # Bad cases: eida + username & password: raise
+    # any other fdsn + token: return normally, we might have provided a single eida datacenter
+    #    in which case the parameter set is fine.
+    if dataws.lower() == 'eida' and not ret.hastoken:
+        raise ValueError('downloading from EIDA requires a token, not username and password')
+    return ret
+
+
 def load_tt_table(file_or_name):
     '''Loads the given TTTable object from the given file path or name. If name (string)
     it must match any of the builtin TTTable .npz files defined in this package
@@ -398,6 +418,10 @@ def load_config_for_download(config, parseargs, **param_overrides):
 
         # parse arguments (dic keys):
 
+        # parse token if provided:
+        argument = S2SArgument('restricted_data')
+        dic['authorizer'] = argument.popfrom(dic, callback=create_auth, dataws=dic['dataws'])
+
         # First, two arguments which have to be replaced (pop=True)
         # and assigned to new dic key:
         argument = S2SArgument('dburl')
@@ -411,10 +435,10 @@ def load_config_for_download(config, parseargs, **param_overrides):
 
         # parse "simple" arguments where we must only parse a value and replace it in the dict
         # (no key replacement / no variable num of arg names):
-        for argument, func in  [(S2SArgument('start', 'starttime'), valid_date),
-                                (S2SArgument('end', 'endtime'), valid_date),
-                                (S2SArgument('eventws'), valid_fdsn),
-                                (S2SArgument('dataws'), valid_fdsn)]:
+        for argument, func in [(S2SArgument('start', 'starttime'), valid_date),
+                               (S2SArgument('end', 'endtime'), valid_date),
+                               (S2SArgument('eventws'), valid_fdsn),
+                               (S2SArgument('dataws'), valid_fdsn)]:
             dic[argument.name] = argument.getfrom(dic, callback=func)
             remainingkeys -= argument.names
 
@@ -423,7 +447,8 @@ def load_config_for_download(config, parseargs, **param_overrides):
                          S2SArgument('stations', 'sta', 'station'),
                          S2SArgument('locations', 'loc', 'location'),
                          S2SArgument('channels', 'cha', 'channel'),):
-            dic[argument.name] = argument.popfrom(dic, default=[], callback=nslc_param_value_aslist)
+            dic[argument.name] = argument.popfrom(dic, default=[],
+                                                  callback=nslc_param_value_aslist)
             remainingkeys -= argument.names
 
         # For all remaining arguments, just check the type as it should match the

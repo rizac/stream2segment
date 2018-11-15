@@ -17,7 +17,7 @@ from collections import OrderedDict
 import numpy as np
 import pandas as pd
 
-from stream2segment.io.db.models import DataCenter, Station, Channel, Segment
+from stream2segment.io.db.models import DataCenter, Station, Channel, Segment, Fdsnws
 from stream2segment.download.utils import read_async, QuitDownload,\
     handledbexc, custom_download_codes, logwarn_dataframe, DownloadStats, formatmsg
 from stream2segment.download.modules.mseedlite import MSeedError, unpack as mseedunpack
@@ -31,6 +31,8 @@ from stream2segment.utils.url import Request  # this handles py2and3 compatibili
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial) when calling logging
 # functions of stream2segment.download.utils:
 from stream2segment.download import logger  # @IgnorePep8
+from stream2segment.utils.url import get_opener
+import os
 
 
 def prepare_for_download(session, segments_df, timespan, retry_seg_not_found, retry_url_err,
@@ -172,8 +174,8 @@ def get_seg_request(segments_df, datacenter_url, chaid2mseedid):
     return Request(url=datacenter_url, data=post_data.encode('utf8'))
 
 
-def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid, download_id,
-                           update_request_timebounds, max_thread_workers, timeout,
+def download_save_segments(session, segments_df, dataws_request_handler, chaid2mseedid,
+                           download_id, update_request_timebounds, max_thread_workers, timeout,
                            download_blocksize, db_bufsize, show_progress=False):
 
     """Downloads and saves the segments. segments_df MUST not be empty (this is not checked for)
@@ -187,8 +189,6 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid, 
     # dataframe columns that we need:
     SEG_CHAID = Segment.channel_id.key
     SEG_DCID = Segment.datacenter_id.key
-    DC_ID = DataCenter.id.key
-    DC_DSURL = DataCenter.dataselect_url.key
     SEG_ID = Segment.id.key
     SEG_START = Segment.request_start.key
     SEG_END = Segment.request_end.key
@@ -221,7 +221,13 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid, 
 
     stats = DownloadStats()
 
-    datcen_id2url = datacenters_df.set_index([DC_ID])[DC_DSURL].to_dict()
+#     datcen_id2url = datacenters_df.set_index([DC_ID])[DC_DSURL].to_dict()
+#     urlopeners = {}
+#     if usrpswd_dict:
+#         for dcid, (user, password) in usrpswd_dict.items():
+#             urlopeners[dcid] = get_opener(baseurl, user, password)
+
+    
 
     colnames2update = [SEG_DOWNLID, SEG_DATA, SEG_SRATE, SEG_MGAP, SEG_DATAID, SEG_DSCODE,
                        SEG_STIME, SEG_ETIME]
@@ -261,6 +267,15 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid, 
         def get_host(r):
             return r.host
 
+    def req(obj):
+        '''calls get_seg_request from an item of Pandas groupby. Used in read_async below'''
+        dframe, dcurl = obj[1], dataws_request_handler.baseurl(obj[0][0])
+        return get_seg_request(dframe, dcurl, chaid2mseedid)
+
+    def openerfunc(obj):
+        '''calls get_seg_request from an item of Pandas groupby. Used in read_async below'''
+        return dataws_request_handler.opener(obj[0][0])
+
     # we assume it's the terminal, thus allocate the current process to track
     # memory overflows
     with get_progressbar(show_progress, length=len(segments_df)) as bar:
@@ -275,12 +290,9 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid, 
             seg_groups = segments_df.groupby(group_, sort=False)
             # seg group is an iterable of 2 element tuples. The first element is the tuple
             # of keys[:idx] values, and the second element is the dataframe
-            itr = read_async(seg_groups,
-                             urlkey=lambda obj: get_seg_request(obj[1], datcen_id2url[obj[0][0]],
-                                                                chaid2mseedid),
-                             raise_http_err=False,
-                             max_workers=max_thread_workers,
-                             timeout=timeout, blocksize=download_blocksize)
+            itr = read_async(seg_groups, urlkey=req, raise_http_err=False,
+                             max_workers=max_thread_workers, timeout=timeout,
+                             blocksize=download_blocksize, openers=openerfunc)
 
             for df, result, exc, request in itr:
                 groupkeys_tuple = df[0]
@@ -407,3 +419,76 @@ def download_save_segments(session, segments_df, datacenters_df, chaid2mseedid, 
     segmanager.close()  # flush remaining stuff to insert / update, if any, and prints info
 
     return stats
+
+
+class DatawsRequestHandler(object):
+    '''Class building dataselect requests and other stuff for downloading waveform data,
+    including authorization and authentication. Create an instance and then call its `build`
+    method'''
+
+    def __init__(self, datacenters_df, authorizer):
+        '''initializes a new DatawsRequestHandler'''
+        DC_ID = DataCenter.id.key
+        DC_DSURL = DataCenter.dataselect_url.key
+
+        # there is a handy function datacenters_df.set_index(keys_col)[values_col].to_dict,
+        # but we want iterrows cause we convert any dc url to its fdsnws object
+        dcid2fdsn = {int(row[DC_ID]): Fdsnws(row[DC_DSURL]) for _, row in
+                     datacenters_df.iterrows()}
+        # Note: Fdsnws might raise, but at this point datacenters_df is assumed to be well
+        # formed
+        errors = {}  # urls mapped to their exception
+        if authorizer.isnoop:
+            self._data = {id_: [fdsn, fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERY),
+                                None]
+                          for id_, fdsn in dcid2fdsn.items()}
+        elif not authorizer.hastoken:
+            usr, psw = authorizer.userpass
+            self._data = {id_: [fdsn, fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERYAUTH),
+                                get_opener(fdsn.site, usr, psw)]
+                          for id_, fdsn in dcid2fdsn.items()}
+        else:
+            data = self._data = {}
+            token = authorizer.token
+
+            def req(dcid):
+                '''returns a request from a datacenter id'''
+                return Request(dcid2fdsn[dcid].url(service=Fdsnws.DATASEL, method=Fdsnws.AUTH),
+                               data=token)
+
+            for dcid, result, exc, _ in \
+                    read_async(dcid2fdsn.keys(), urlkey=req, decode='utf8', raise_http_err=True):
+                # yield url (string), not Request object (4th argument `_`), as it is most
+                # likely logged or printed to screen in case of errors, and contains sensitive
+                # information on its post data. This is why we built read_async with a redundant
+                # urlkey parameter (we might have passed directly an iterable of Request objects,
+                # but then url and _ would hev been equal to the Request with no info on the url)
+                fdsn = dcid2fdsn[dcid]
+                if exc is None:
+                    user, pswd = result.split(':')
+                    data[dcid] = [fdsn,
+                                  fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERYAUTH),
+                                  get_opener(fdsn.site, user, pswd)]
+                else:
+                    url = fdsn.site
+                    data[dcid] = [fdsn,
+                                  fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERY),
+                                  None]  # No opener, download open data only
+                    errors[url] = exc
+        if errors:
+            logger.info(formatmsg('Downloading open waveform data from: %s' % ", ".join(errors),
+                                  'Unable to acquire credentials for restricted data'))
+            for url, exc in errors.items():
+                logger.warning(formatmsg("Downloading open waveform data, "
+                                         "Unable to acquire credentials for restricted data",
+                                         str(exc), url))
+
+    def baseurl(self, dc_id):
+        '''Returns the base url from a given datacenter id'''
+        return self._data[dc_id][1]
+
+    def opener(self, dc_id):
+        '''Returns an Opener to be user with urllib module, or None (i.e., dc_id
+        should download only open data'''
+        return self._data[dc_id][2]
+

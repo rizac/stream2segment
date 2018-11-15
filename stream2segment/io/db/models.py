@@ -389,16 +389,17 @@ class Fdsnws(object):
     associated to services and methods
     of the site url. Raises ValueError if the url is not a valid fdsn url of the form
     '<site>/fdsnws/<service>/<majorversion>'
+    <site> MUST start with either 'http:' or 'https:'
     Examples:
     ```
         fdsn = Fdsnws('...')
         normalized_station_query_url = fdsn.url(Fdsnws.STATION)
         normalized_dataselect_query_url = fdsn.url(Fdsnws.DATASEL)
-        site_url = fdsn.site  # the portion of text before '/fdsnws/....'
+        site_url = fdsn.site  # the portion of text before '/fdsnws/....', must start with
+            http: or https:
         majorversion = fdsn.majorversion  # int
     ```
     '''
-
     # equals to the string 'station', used in urls for identifying the fdsn station service:
     STATION = 'station'
     # equals to the string 'dataselect', used in urls for identifying the fdsn data service:
@@ -407,24 +408,54 @@ class Fdsnws(object):
     EVENT = 'event'
     # equals to the string 'query', used in urls for identifying the fdsn service query method:
     QUERY = 'query'
+    # equals to the string 'queryauth', used in urls for identifying the fdsn service query
+    # method (with authentication):
+    QUERYAUTH = 'queryauth'
+    # equals to the string 'auth', used  (by EIDA only?) in urls for querying username and
+    # password with provided token:
+    AUTH = 'queryauth'
     # equals to the string 'version', used in urls for identifying the fdsn service
     # query method:
     VERSION = 'version'
     # equals to the string 'application.wadl', used in urls for identifying the fdsn service
-    # query method:
+    # application wadl method:
     APPLWADL = 'application.wadl'
 
     def __init__(self, url):
+        '''initializes a Fdsnws object from a fdsn url'''
+        # do not use urlparse as we should import from stream2segment.url for py2 compatibility
+        # but this will cause circular imports:
         reg = re.match("^(.+?)/(?:fdsnws)/(?P<service>.*?)/(?P<majorversion>\\d+)(?:|/.*)$", url)
         try:
             assert reg.group('service') in [self.STATION, self.DATASEL, self.EVENT]
             self.majorversion = int(reg.group('majorversion'))
             self.service = reg.group('service')
-            self.site = reg.group(1)
+            self._site = reg.group(1)
+            assert self._site.startswith("http:") or self._site.startswith("https:")
+            self._ssite = self._site
+            if self._site.startswith("http:"):
+                self._ssite = 'https:' + self._site[len("http:"):]
         except Exception:
             raise ValueError("invalid FDSN url '%s'" % str(url))
 
+    @property
+    def site(self):
+        '''returns the site portion of the url, string starting with http: or https:'''
+        return self._site
+
+    @property
+    def ssite(self):
+        '''returns the site portion of the url, coerced to "https:" scheme. Might be equal
+        to self.site depending on the url passed in the __init__ function'''
+        return self._ssite
+
     def url(self, service=None, majorversion=None, method='query'):
+        '''builds anew url from this object url. Arguments which are 'None' will default
+        to this object's url
+
+        :param method: The method, ususally one of `self.QUERY` (the default), `self.QUERYAUTH`,
+            `self.VERSION` or `self.APPLWADL`
+        '''
         return "%s/fdsnws/%s/%d/%s" % (self.site, service or self.service,
                                        majorversion or self.majorversion, method)
 

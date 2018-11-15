@@ -14,6 +14,7 @@ from __future__ import division
 from builtins import zip, range
 
 import os
+import re
 from itertools import chain
 from collections import OrderedDict
 from functools import cmp_to_key
@@ -23,10 +24,11 @@ from future.utils import viewitems
 import pandas as pd
 import psutil
 
-from stream2segment.io.db.models import Event, Station, Channel
+from stream2segment.io.db.models import Event, Station, Channel, Fdsnws, DataCenter
 from stream2segment.io.db.pdsql import harmonize_columns, \
     harmonize_rows, colnames, syncdf
-from stream2segment.utils.url import read_async as original_read_async
+from stream2segment.utils.url import read_async as original_read_async, urlread, \
+    urlparse, Request, get_opener
 
 from future.standard_library import install_aliases
 install_aliases()
@@ -728,3 +730,63 @@ class DownloadStats(OrderedDict):
             legend = ["\n\nCOLUMNS DETAILS:"] + legend
             ret += "\n - ".join(legend)
         return ret
+
+
+class Authorizer(object):
+    '''Class handling authorization/authentication'''
+
+    def __init__(self, token):
+        '''initializes a new Authorizer, a class handling authorization and authentication
+        for restricted data
+
+        :param arg: a filepath (to a token), the token data (bytes),
+            or a tuple (username, password). If None, this authorizer is no-op (open data only)
+        '''
+        self._uname, self._pswd, self._token = None, None, None
+        if token is not None:
+            token_file = None
+            if isinstance(token, (tuple, list)):
+                if len(token) != 2 or not all(isinstance(_, str) for _ in token):
+                    raise ValueError('provide username and password as list/tuple of two '
+                                     'strings')
+                self._uname, self._pswd = token
+            else:
+                # check if there's a local file that matches the provided string
+                token_file = token if os.path.isfile(token) else None
+                if token_file is not None:
+                    with open(token_file, 'rb') as fhd:
+                        token = fhd.read()
+                self._token = token
+                if not self._validate_eida_token(token):
+                    raise ValueError("Invalid token. If you passed a file path, "
+                                     "check also the file exixtence")
+
+    @staticmethod
+    def _validate_eida_token(token):
+        """Along the lines of obspy: basic check to test that a token is ok"""
+        if re.search(pattern='BEGIN PGP MESSAGE', string=token,
+                     flags=re.IGNORECASE):  # @UndefinedVariable
+            return True
+        return False
+
+    @property
+    def isnoop(self):
+        '''Returns if this authorizer does actually nothing (download open data only)'''
+        return (self._uname, self._pswd, self._token) == (None, None, None)
+
+    @property
+    def hastoken(self):
+        '''Returns True if this object was built with a token. If True, then self.userpassword
+        returns None. If False, then self.userpassword returns a tuple of strings'''
+        return self._token is not None
+
+    @property
+    def token(self):
+        '''returns the token, or None. Use this method if `self.hastoken and not self.isnoop`'''
+        return self._token
+
+    @property
+    def userpass(self):
+        '''Returnss the tuple (user, passowrd), or None, None.
+        Use this method if `not self.hastoken and not self.isnoop`'''
+        return self._uname, self._pswd

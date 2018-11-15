@@ -89,20 +89,27 @@ def download(config, log2file=True, verbose=False, **param_overrides):
     # check and parse config values (modify in place):
     yaml_dict = load_config_for_download(config, True, **param_overrides)
     # get the session object and the tt_table object (needed separately, see below):
-    session, tttable = yaml_dict['session'], yaml_dict['tt_table']
-
+    session = yaml_dict['session']
     # print yaml_dict to terminal if needed. Do not use input_yaml_dict as
     # params needs to be shown as expanded/converted so the user can check their correctness
     # Do no use loggers yet:
     if verbose:
         # print to terminal an informative config. First objects with custom string outputs:
-        sessstr = "<session object, dburl='%s'>" % secure_dburl(str(session.bind.engine.url))
+        sessstr = "<db session object, dburl='%s'>" % secure_dburl(str(session.bind.engine.url))
+        tttable = yaml_dict['tt_table']
         tttablestr = "<%s object, model=%s, phases=%s>" % (tttable.__class__.__name__,
                                                            str(tttable.model),
                                                            str(tttable.phases))
         # replace dburl hiding passowrd for printing to terminal, tt_table with a short repr str,
         # and restore traveltimes_model because we popped from yaml_dict it out in load_tt_table
         yaml_safe = dict(yaml_dict, session=sessstr, tt_table=tttablestr)
+        # replace authorizer class with the original 'restricted_data' config param and a
+        # meaningful message
+        authorizer = yaml_safe.pop('authorizer')
+        yaml_safe['restricted_data'] = "disabled (download open data only)" \
+            if authorizer.isnoop else \
+            "enabled, with %s" % ('token' if authorizer.hastoken else 'username and password')
+        # create a yaml string from the yaml_safe and print/log the string:
         ip_params = yaml.safe_dump(yaml_safe, default_flow_style=False)
         ip_title = "Input parameters"
         print("%s\n%s\n%s\n" % (ip_title, "-" * len(ip_title), ip_params))
@@ -164,8 +171,8 @@ def download(config, log2file=True, verbose=False, **param_overrides):
     return ret
 
 
-def process(dburl, pyfile, funcname=None, config=None, outfile=None, log2file=False, verbose=False,
-            append=False, **param_overrides):
+def process(dburl, pyfile, funcname=None, config=None, outfile=None, log2file=False,
+            verbose=False, append=False, **param_overrides):
     """
         Process the segment saved in the db and optionally saves the results into `outfile`
         in .csv format. Calles F the function named `funcname` defined in `pyfile`

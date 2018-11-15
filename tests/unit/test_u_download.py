@@ -400,6 +400,9 @@ Db table 'stations': 4 rows updated (no sql error)""" in s
                     "https://mock/fdsnws/station/1/whatever/abcde?h=8&b=76"]:
             fdsn = Fdsnws(url)
             assert fdsn.site == 'https://mock'
+            assert fdsn.site == fdsn.ssite
+            fdsn2 =  Fdsnws(url.replace('https:', 'http:'))
+            assert fdsn2.ssite == fdsn2.site.replace('http:', 'https:')
             assert fdsn.service == Fdsnws.STATION
             assert fdsn.majorversion == 1
             normalizedurl = fdsn.url()
@@ -409,12 +412,14 @@ Db table 'stations': 4 rows updated (no sql error)""" in s
             
             assert fdsn.url(majorversion=55) == normalizedurl.replace('1', '55')
             
-            for method in [Fdsnws.QUERY, Fdsnws.APPLWADL, Fdsnws.VERSION, 'abcdefg']:
+            for method in [Fdsnws.QUERY, Fdsnws.QUERYAUTH, Fdsnws.APPLWADL, Fdsnws.VERSION,
+                           'abcdefg']:
                 assert fdsn.url(method=method) == normalizedurl.replace('query', method)
         
         for url in ["fdsnws/station/1/query",
                     "/fdsnws/station/1/query",
-                    "http://www.google.com", "https://mock/fdsnws/station/abc/1/whatever/abcde?h=8&b=76",
+                    "http://www.google.com",
+                    "https://mock/fdsnws/station/abc/1/whatever/abcde?h=8&b=76",
                     "https://mock/fdsnws/station/", "https://mock/fdsnws/station"]:
             with pytest.raises(ValueError):
                  Fdsnws(url)

@@ -18,7 +18,7 @@ import pandas as pd
 from stream2segment.io.db.models import DataCenter, Fdsnws
 from stream2segment.download.utils import QuitDownload, dbsyncdf, to_fdsn_arg, formatmsg
 from stream2segment.utils import strconvert, urljoin
-from stream2segment.utils.url import URLException, urlread
+from stream2segment.utils.url import URLException, urlread, urlparse
 from stream2segment.io.db.pdsql import dbquery2df
 
 
@@ -85,8 +85,8 @@ def get_datacenters_df(session, service, routing_service_url,
 
 def get_eida_datacenters_df(session, routing_service_url, net, sta, loc, cha,
                             starttime=None, endtime=None):
-    """Returns the tuple (datacenters_df, eidavalidator) from eidars or from the db (in this latter
-    case eidavalidator is None)
+    """Returns the tuple (datacenters_df, eidavalidator) from eidars or from the db (in this
+    latter case eidavalidator is None)
     """
     # For convenience and readability, define once the mapped column names representing the
     # dataframe columns that we need:
@@ -234,3 +234,44 @@ def eidarsiter(responsetext):
         start = end + 2
 
 
+def get_users_passwords(datacenters_df, restricted_data):
+    '''Returns a dict of integers (datacenter_df ids) mapped to the tuple
+    (user, password)
+
+    :param datacenter_df: a dataframe of datacenters, with length >= 1
+    :param restricted_data: None, or an object of type
+    :class:`stream2segment.download.utils.Auth` built with a user+password, token bytes, or
+        token file path
+    '''
+    try:
+        if restricted_data is None:
+            logger.info(formatmsg('Downloading open waveform data '
+                                  '(no user+password/token provided)'))
+            return None
+
+        if restricted_data.hastoken and len(datacenters_df) > 1:
+            raise ValueError('The only provided user and password cannot be used with more '
+                             'than one datacenter: if you are attempting to download from '
+                             'EIDA, provide a token file instead')
+
+        DC_ID = DataCenter.id.key
+        DC_DURL = DataCenter.dataselect_url.key
+
+        dcurl2id = datacenters_df.set_index([DC_DURL])[DC_ID].to_dict()
+        ret = []
+        errors = []
+        for result, url, exc in restricted_data.get_credentials(*list(dcurl2id.keys())):
+            if exc:
+                logger.warning(formatmsg("Downloading open waveform data, "
+                                         "error acquiring credentials for restricted data",
+                                         str(exc), url))
+                errors.append(urlparse(url).netloc)
+                continue
+            ret[dcurl2id[url]] = result  # username, password
+        if errors:
+            logger.info(formatmsg('Downloading open waveform data from: %s' % ", ".join(errors),
+                                  'Unable to acquire credentials for restricted data'))
+        return ret
+    except Exception as exc:
+        raise QuitDownload(Exception(formatmsg(("Error acquiring credentials "
+                                                "for restricted data"), str(exc))))

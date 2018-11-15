@@ -52,6 +52,14 @@ update_metadata: false
 # if required
 inventory: true
 
+# this parameter controls how to access restricted data. It can be:
+# - in case of eida (see "dataws" parameter) a single string pointing to a token file for
+#   restricted data authorization
+#   (https://geofon.gfz-potsdam.de/waveform/archive/auth/auth-overview.php)
+# - a list of two strings denoting username and password
+# when null, or the empty string, data services will be accessed unauthenticated, thus only
+# open (unrestricted) waveform data will be downloaded
+restricted_data: "path to myfile"
 
 # =====================
 # DATA QUERY PARAMETERS
