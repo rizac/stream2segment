@@ -59,7 +59,7 @@ inventory: true
 # - a list of two strings denoting username and password
 # when null, or the empty string, data services will be accessed unauthenticated, thus only
 # open (unrestricted) waveform data will be downloaded
-restricted_data: "path to myfile"
+restricted_data: ""
 
 # =====================
 # DATA QUERY PARAMETERS

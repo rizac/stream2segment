@@ -174,7 +174,7 @@ def get_seg_request(segments_df, datacenter_url, chaid2mseedid):
     return Request(url=datacenter_url, data=post_data.encode('utf8'))
 
 
-def download_save_segments(session, segments_df, dataws_request_handler, chaid2mseedid,
+def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2mseedid,
                            download_id, update_request_timebounds, max_thread_workers, timeout,
                            download_blocksize, db_bufsize, show_progress=False):
 
@@ -269,12 +269,12 @@ def download_save_segments(session, segments_df, dataws_request_handler, chaid2m
 
     def req(obj):
         '''calls get_seg_request from an item of Pandas groupby. Used in read_async below'''
-        dframe, dcurl = obj[1], dataws_request_handler.baseurl(obj[0][0])
+        dframe, dcurl = obj[1], dc_dataselect_manager.baseurl(obj[0][0])
         return get_seg_request(dframe, dcurl, chaid2mseedid)
 
     def openerfunc(obj):
         '''calls get_seg_request from an item of Pandas groupby. Used in read_async below'''
-        return dataws_request_handler.opener(obj[0][0])
+        return dc_dataselect_manager.opener(obj[0][0])
 
     # we assume it's the terminal, thus allocate the current process to track
     # memory overflows
@@ -421,13 +421,22 @@ def download_save_segments(session, segments_df, dataws_request_handler, chaid2m
     return stats
 
 
-class DatawsRequestHandler(object):
-    '''Class building dataselect requests and other stuff for downloading waveform data,
-    including authorization and authentication. Create an instance and then call its `build`
-    method'''
+class DcDataselectManager(object):
+    '''Class building the ground requirements for a dataselect download: it merges
+    datacenters and authorization information in order to build
+    urls and openers for downloading waveform data'''
 
-    def __init__(self, datacenters_df, authorizer):
-        '''initializes a new DatawsRequestHandler'''
+    def baseurl(self, dc_id):
+        '''Returns the base url from a given datacenter id'''
+        return self._data[dc_id][1]
+
+    def opener(self, dc_id):
+        '''Returns an Opener to be user with urllib module, or None (if no token/user+password
+        has been provided for the given datacenter `dc_id`'''
+        return self._data[dc_id][2]
+
+    def __init__(self, datacenters_df, authorizer, show_progress=False):
+        '''initializes a new DcDataselectManager'''
         DC_ID = DataCenter.id.key
         DC_DSURL = DataCenter.dataselect_url.key
 
@@ -438,31 +447,52 @@ class DatawsRequestHandler(object):
         # Note: Fdsnws might raise, but at this point datacenters_df is assumed to be well
         # formed
         errors = {}  # urls mapped to their exception
-        if authorizer.isnoop:
-            self._data = {id_: [fdsn, fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERY),
-                                None]
-                          for id_, fdsn in dcid2fdsn.items()}
-        elif not authorizer.hastoken:
-            usr, psw = authorizer.userpass
-            self._data = {id_: [fdsn, fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERYAUTH),
-                                get_opener(fdsn.site, usr, psw)]
-                          for id_, fdsn in dcid2fdsn.items()}
-        else:
-            data = self._data = {}
+        if authorizer.token:
             token = authorizer.token
+            self._data, errors = self._get_data_from_token(dcid2fdsn, token, show_progress)
+        elif authorizer.userpass:
+            user, password = authorizer.userpass
+            self._data, errors = self._get_data_from_userpass(dcid2fdsn, user, password)
+        else:  # no authorization required
+            self._data, errors = self._get_data_open(dcid2fdsn)
 
-            def req(dcid):
-                '''returns a request from a datacenter id'''
-                return Request(dcid2fdsn[dcid].url(service=Fdsnws.DATASEL, method=Fdsnws.AUTH),
-                               data=token)
+        if errors:
+            for url, exc in errors.items():
+                logger.warning(formatmsg("Downloading open waveform data, "
+                                         "Unable to acquire credentials for restricted data",
+                                         str(exc), url))
+            logger.info(formatmsg('Downloading open waveform data from: %s' % ", ".join(errors),
+                                  'Unable to acquire credentials for restricted data'))
 
-            for dcid, result, exc, _ in \
-                    read_async(dcid2fdsn.keys(), urlkey=req, decode='utf8', raise_http_err=True):
-                # yield url (string), not Request object (4th argument `_`), as it is most
-                # likely logged or printed to screen in case of errors, and contains sensitive
-                # information on its post data. This is why we built read_async with a redundant
-                # urlkey parameter (we might have passed directly an iterable of Request objects,
-                # but then url and _ would hev been equal to the Request with no info on the url)
+    @staticmethod
+    def _get_data_open(dcid2fdsn):
+        return {id_: [fdsn, fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERY), None]
+                for id_, fdsn in dcid2fdsn.items()}, {}
+
+    @staticmethod
+    def _get_data_from_userpass(dcid2fdsn, user, password):
+        return {id_: [fdsn, fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERYAUTH),
+                      get_opener(fdsn.site, user, password)]
+                for id_, fdsn in dcid2fdsn.items()}, {}
+
+    @staticmethod
+    def _get_data_from_token(dcid2fdsn, token, show_progress=False):
+
+        def req(dcid):
+            '''returns a request from a datacenter id'''
+            url = dcid2fdsn[dcid].url(service=Fdsnws.DATASEL, method=Fdsnws.AUTH)
+            if url.lower().startswith('http:'):
+                url = "https:" + url[5:]
+            elif not url.lower().startswith('https:'):
+                url = 'https:' + ('//' if url[:2] != '//' else '') + url
+            return Request(url, data=token)
+
+        data, errors = {}, {}
+        with get_progressbar(show_progress, length=len(dcid2fdsn)) as pbar:
+            for dcid, result, exc, _ in read_async(dcid2fdsn.keys(), urlkey=req,
+                                                   decode='utf8', raise_http_err=True):
+
+                pbar.update(1)
                 fdsn = dcid2fdsn[dcid]
                 if exc is None:
                     user, pswd = result.split(':')
@@ -475,20 +505,4 @@ class DatawsRequestHandler(object):
                                   fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERY),
                                   None]  # No opener, download open data only
                     errors[url] = exc
-        if errors:
-            logger.info(formatmsg('Downloading open waveform data from: %s' % ", ".join(errors),
-                                  'Unable to acquire credentials for restricted data'))
-            for url, exc in errors.items():
-                logger.warning(formatmsg("Downloading open waveform data, "
-                                         "Unable to acquire credentials for restricted data",
-                                         str(exc), url))
-
-    def baseurl(self, dc_id):
-        '''Returns the base url from a given datacenter id'''
-        return self._data[dc_id][1]
-
-    def opener(self, dc_id):
-        '''Returns an Opener to be user with urllib module, or None (i.e., dc_id
-        should download only open data'''
-        return self._data[dc_id][2]
-
+        return data, errors

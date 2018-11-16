@@ -18,7 +18,7 @@ from stream2segment.utils.resources import yaml_load, get_ttable_fpath, \
 from stream2segment.utils import get_session, strptime, load_source
 from stream2segment.traveltimes.ttloader import TTTable
 from stream2segment.io.db.models import Fdsnws
-from stream2segment.download.utils import Auth
+from stream2segment.download.utils import Authorizer
 
 
 class BadArgument(Exception):
@@ -327,12 +327,12 @@ def create_auth(restricted_data, dataws):
     '''
     if restricted_data in ('', None, b''):
         restricted_data = None
-    ret = Auth(restricted_data)
+    ret = Authorizer(restricted_data)
     # here we have 4 cases: two ok ('eida' + token, any other fdsn + username & password)
     # Bad cases: eida + username & password: raise
     # any other fdsn + token: return normally, we might have provided a single eida datacenter
     #    in which case the parameter set is fine.
-    if dataws.lower() == 'eida' and not ret.hastoken:
+    if dataws.lower() == 'eida' and ret.userpass:
         raise ValueError('downloading from EIDA requires a token, not username and password')
     return ret
 
@@ -421,6 +421,7 @@ def load_config_for_download(config, parseargs, **param_overrides):
         # parse token if provided:
         argument = S2SArgument('restricted_data')
         dic['authorizer'] = argument.popfrom(dic, callback=create_auth, dataws=dic['dataws'])
+        remainingkeys -= argument.names  # argument.names is simply set(['restricted_data])
 
         # First, two arguments which have to be replaced (pop=True)
         # and assigned to new dic key:

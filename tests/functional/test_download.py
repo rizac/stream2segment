@@ -37,7 +37,6 @@ from stream2segment.io.db.models import Base, Event, Class, WebService
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from stream2segment.cli import cli
-from click.testing import CliRunner
 import pandas as pd
 
 from stream2segment.download.main import get_events_df, get_datacenters_df, \
@@ -305,7 +304,9 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     @patch('stream2segment.io.db.pdsql.updatedf')
     def test_cmdline_dberr(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                            mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
-                           mock_get_datacenters_df, mock_get_events_df, mock_autoinc_db, db):
+                           mock_get_datacenters_df, mock_get_events_df, mock_autoinc_db,
+                           # fixtures:
+                           db, clirunner):
         
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
@@ -331,26 +332,14 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                 df[Segment.id.key] = np.arange(len(df), dtype=int) + 1
             return insertdf(*a, **v)
         mock_insertdf.side_effect = insdf
-                
-        
-        
-        runner = CliRunner()
-        result = runner.invoke(cli , ['download',
+
+
+        result = clirunner.invoke(cli , ['download',
                                        '-c', self.configfile,
                                         '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
-        if result.exception:
-            print("EXCEPTION")
-            print("=========")
-            print("")
-            import traceback
-            traceback.print_exception(*result.exc_info)
-            print(result.output)
-            print("")
-            print("=========")
-            assert False
-            return
+        assert clirunner.ok(result)
         
         assert db.session.query(Station).count() == 4
         
@@ -391,7 +380,9 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
     @patch('stream2segment.io.db.pdsql.updatedf')
     def test_cmdline_outofbounds(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                                  mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
-                                 mock_get_datacenters_df, mock_get_events_df, db):
+                                 mock_get_datacenters_df, mock_get_events_df,
+                                 # fixtures:
+                                 db, clirunner):
         
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
@@ -407,25 +398,12 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         # for checking run_ids, store here the number of runs we have in the table:
         runs = len(db.session.query(Download.id).all())
 
-
-
-        runner = CliRunner()
-        result = runner.invoke(cli , ['download',
+        result = clirunner.invoke(cli , ['download',
                                        '-c', self.configfile,
                                         '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
-        if result.exception:
-            print("EXCEPTION")
-            print("=========")
-            print("")
-            import traceback
-            traceback.print_exception(*result.exc_info)
-            print(result.output)
-            print("")
-            print("=========")
-            assert False
-            return
+        assert clirunner.ok(result)
         
         assert len(db.session.query(Download.id).all()) == runs + 1
         runs += 1
@@ -467,7 +445,9 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
     @patch('stream2segment.io.db.pdsql.updatedf')
     def test_cmdline_unexpected_err(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                      mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
-                     mock_get_datacenters_df, mock_get_events_df, db):
+                     mock_get_datacenters_df, mock_get_events_df,
+                     # fixtures:
+                     db, clirunner):
         ''' we experienced once a UnicodeDecodeError in mseed_unpack, whcih, has expected
         raised. Fine, but we got also another error: attempt to write on an apparently already-closed logger,
         as if threads where trying to access concurrently to the same logger.
@@ -495,8 +475,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
 
 
 
-        runner = CliRunner()
-        result = runner.invoke(cli , ['download',
+        clirunner.invoke(cli , ['download',
                                        '-c', self.configfile,
                                         '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
@@ -514,7 +493,9 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
     @patch('stream2segment.io.db.pdsql.updatedf')
     def test_cmdline(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                      mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
-                     mock_get_datacenters_df, mock_get_events_df, db):
+                     mock_get_datacenters_df, mock_get_events_df,
+                     # fixtures:
+                     db, clirunner):
         
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
@@ -531,26 +512,13 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         # for checking run_ids, store here the number of runs we have in the table:
         runs = len(db.session.query(Download.id).all())
 
-
-
-        runner = CliRunner()
-        result = runner.invoke(cli , ['download',
+        result = clirunner.invoke(cli , ['download',
                                        '-c', self.configfile,
                                         '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
-        if result.exception:
-            print("EXCEPTION")
-            print("=========")
-            print("")
-            import traceback
-            traceback.print_exception(*result.exc_info)
-            print(result.output)
-            print("")
-            print("=========")
-            assert False
-            return
-        
+        assert clirunner.ok(result)
+
         assert len(db.session.query(Download.id).all()) == runs + 1
         runs += 1
         segments = db.session.query(Segment).all()
@@ -587,13 +555,14 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         mock_insertdf.reset_mock()
         self._seg_urlread_sideeffect = [413]
         idx = len(self.log_msg())
-        runner = CliRunner()
-        result = runner.invoke(cli , ['download',
+
+        result = clirunner.invoke(cli , ['download',
                                        '-c', self.configfile,
                                         '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
-        
+        assert clirunner.ok(result)
+
         dfres2 = dbquery2df(db.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
                                                Segment.event_id,
                                          Segment.download_code, Segment.data,
@@ -632,18 +601,13 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         # Ok, now with the current config 413 is not retried: 
         # check that now we should skip all segments
         mock_download_save_segments.reset_mock()
-        runner = CliRunner()
-        result = runner.invoke(cli , ['download', 
+        
+        result = clirunner.invoke(cli , ['download', 
                                        '-c', self.configfile,
                                        '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
-        if result.exception:
-            import traceback
-            traceback.print_exception(*result.exc_info)
-            print(result.output)
-            assert False
-            return
+        assert clirunner.ok(result)
         
         assert not mock_download_save_segments.called
         
@@ -655,18 +619,13 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert str_err not in self.log_msg()
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(500, *a, **v) 
         mock_download_save_segments.reset_mock()
-        runner = CliRunner()
-        result = runner.invoke(cli , ['download', '-c', self.configfile,
+
+        result = clirunner.invoke(cli , ['download', '-c', self.configfile,
                                        '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
-        if result.exception:
-            import traceback
-            traceback.print_exception(*result.exc_info)
-            print(result.output)
-            assert False
-            return
-        
+        assert clirunner.ok(result)
+
         assert not mock_download_save_segments.called
         x = self.log_msg()
         assert str_err in self.log_msg()
@@ -685,17 +644,12 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
             return self.get_channels_df(None, *aa, **v) 
         mock_get_channels_df.side_effect = mgdf
         
-        runner = CliRunner()
-        result = runner.invoke(cli , ['download', '-c', self.configfile,
+        result = clirunner.invoke(cli , ['download', '-c', self.configfile,
                                        '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
-        if result.exception:
-            import traceback
-            traceback.print_exception(*result.exc_info)
-            print(result.output)
-            assert False
-            return
+        assert clirunner.ok(result)
+
         assert str_err in self.log_msg()
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v) 
         
@@ -708,8 +662,8 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert idx > -1
         rem = self._sta_urlread_sideeffect
         self._sta_urlread_sideeffect = 500
-        runner = CliRunner()
-        result = runner.invoke(cli , ['download', '-c', self.configfile,
+        
+        result = clirunner.invoke(cli , ['download', '-c', self.configfile,
                                        '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
@@ -734,17 +688,13 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         # and be more safe about the fact that we will have only ONE station inventory saved
         inv_urlread_ret_val = [self._inv_data, URLError('a')]
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(inv_urlread_ret_val, *a, **v)
-        runner = CliRunner()
-        result = runner.invoke(cli , ['download', '-c', self.configfile,
+        
+        result = clirunner.invoke(cli , ['download', '-c', self.configfile,
                                        '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00', '--inventory'])
-        if result.exception:
-            import traceback
-            traceback.print_exception(*result.exc_info)
-            print(result.output)
-            assert False
-            return
+        assert clirunner.ok(result)
+
         stainvs = db.session.query(Station).filter(Station.has_inventory).all()
         assert len(stainvs) == 1
         assert "Unable to save inventory" in self.log_msg()
@@ -760,17 +710,13 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
 
         # Now mock empty data:
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories([b""], *a, **v)
-        runner = CliRunner()
-        result = runner.invoke(cli , ['download', '-c', self.configfile,
+        
+        result = clirunner.invoke(cli , ['download', '-c', self.configfile,
                                        '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00', '--inventory'])
-        if result.exception:
-            import traceback
-            traceback.print_exception(*result.exc_info)
-            print(result.output)
-            assert False
-            return
+        assert clirunner.ok(result)
+
         stainvs = db.session.query(Station).filter(Station.has_inventory).all()
         # assert we still have one station (the one we saved before):
         assert len(stainvs) == num_downloaded_inventories_first_try
@@ -779,17 +725,12 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         
         # now mock url returning always data (the default: it returns self._inv_data:
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
-        runner = CliRunner()
-        result = runner.invoke(cli , ['download', '-c', self.configfile,
+        
+        result = clirunner.invoke(cli , ['download', '-c', self.configfile,
                                        '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00', '--inventory'])
-        if result.exception:
-            import traceback
-            traceback.print_exception(*result.exc_info)
-            print(result.output)
-            assert False
-            return
+        assert clirunner.ok(result)
         
         ix = db.session.query(Station.id, Station.inventory_xml).filter(Station.has_inventory).all()
         assert len(ix) == num_expected_inventories_to_download
@@ -797,17 +738,12 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         
         # check now that none is downloaded
         mock_save_inventories.reset_mock()
-        runner = CliRunner()
-        result = runner.invoke(cli , ['download', '-c', self.configfile,
+
+        result = clirunner.invoke(cli , ['download', '-c', self.configfile,
                                        '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00', '--inventory'])
-        if result.exception:
-            import traceback
-            traceback.print_exception(*result.exc_info)
-            print(result.output)
-            assert False
-            return
+        assert clirunner.ok(result)
         
         stainvs2 = db.session.query(Station).filter(Station.has_inventory).all()
         assert len(stainvs2) == num_expected_inventories_to_download
@@ -838,17 +774,11 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         oldst_se = self._sta_urlread_sideeffect  # keep last side effect to restore it later
         self._sta_urlread_sideeffect = oldst_se[::-1]  # swap station return values from urlread
     
-        runner = CliRunner()
-        result = runner.invoke(cli , ['download', '-c', self.configfile,
+        result = clirunner.invoke(cli , ['download', '-c', self.configfile,
                                        '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00', '--inventory'])
-        if result.exception:
-            import traceback
-            traceback.print_exception(*result.exc_info)
-            print(result.output)
-            assert False
-            return
+        assert clirunner.ok(result)
  
         # try to get
         dfz2 = dbquery2df(db.session.query(Segment.id, Segment.data_seed_id,
@@ -897,11 +827,11 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(inv_urlread_ret_val, *a, **v)
     
         # run without flag update on:
-        result = runner.invoke(cli , ['download', '-c', self.configfile,
+        result = clirunner.invoke(cli , ['download', '-c', self.configfile,
                                        '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00', '--inventory'])
-        assert result.exit_code == 0
+        assert clirunner.ok(result)
         
         # update_metadata False: assert nothing has been updated:
         assert db.session.query(Station).filter(Station.elevation == new_elevation).first()
@@ -912,12 +842,12 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         
         # NOW UPDATE METADATA
         
-        result = runner.invoke(cli , ['download', '-c', self.configfile,
+        result = clirunner.invoke(cli , ['download', '-c', self.configfile,
                                        '--update-metadata',
                                        '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00', '--inventory'])
-        assert result.exit_code == 0
+        assert clirunner.ok(result)
         
         # assert that we overwritten the values set above, so we
         assert not db.session.query(Station).filter(Station.elevation == new_elevation).first()
@@ -945,22 +875,22 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert errmsg_py3 not in self.log_msg()
         suse = self._seg_urlread_sideeffect  # remainder (reset later)
         self._seg_urlread_sideeffect = re.compile(".*")  # just return something not number nor string
-        runner = CliRunner()
-        result = runner.invoke(cli , ['download', '-c', self.configfile,
+
+        result = clirunner.invoke(cli , ['download', '-c', self.configfile,
                                        '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00', '--inventory'])
-        if result.exception:
-            assert result.exc_info[0] == SystemExit
-            assert errmsg_py2 in self.log_msg() or errmsg_py3 in self.log_msg()
-        else:
-            print("DID NOT RAISE!!")
-            assert False
+        assert result.exception
+        assert result.exc_info[0] == SystemExit
+        assert errmsg_py2 in self.log_msg() or errmsg_py3 in self.log_msg()
+
         self._seg_urlread_sideeffect = suse  # restore default
 
 
     @patch('stream2segment.main.run_download')
-    def test_yaml_optional_params(self, mock_run, pytestdir):
+    def test_yaml_optional_params(self, mock_run,
+                                  # fixtures:
+                                  pytestdir, clirunner):
         with open(self.configfile) as fp:
             _yaml_dict = yaml.load(fp)
         
@@ -995,8 +925,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
 
             mock_run.reset_mock()
                 
-            runner = CliRunner()
-            result = runner.invoke(cli , ['download',
+            result = clirunner.invoke(cli , ['download',
                                            '-c', configfilename,
                                            # '--dburl', db.dburl,
                                            #'--start', '2016-05-08T00:00:00',
@@ -1029,8 +958,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
 
                 mock_run.reset_mock()
                     
-                runner = CliRunner()
-                result = runner.invoke(cli , ['download',
+                result = clirunner.invoke(cli , ['download',
                                                '-c', configfilename,
                                                # '--dburl', db.dburl,
                                                #'--start', '2016-05-08T00:00:00',

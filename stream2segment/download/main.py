@@ -22,7 +22,8 @@ from stream2segment.download.modules.events import get_events_df
 from stream2segment.download.modules.datacenters import get_datacenters_df, get_users_passwords
 from stream2segment.download.modules.channels import get_channels_df, chaid2mseedid_dict
 from stream2segment.download.modules.stationsearch import merge_events_stations
-from stream2segment.download.modules.segments import prepare_for_download, download_save_segments
+from stream2segment.download.modules.segments import prepare_for_download,\
+    download_save_segments, DcDataselectManager
 from stream2segment.download.modules.stations import save_inventories, query4inventorydownload
 from stream2segment.utils import tounicode
 from stream2segment.io.db.models import Download
@@ -58,7 +59,8 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
     dbbufsize = min(advanced_settings['db_buf_size'], 1)
 
     process = psutil.Process(os.getpid()) if isterminal else None
-    __steps = 6 + inventory + (not authorizer.isnoop)  # bool math works, e.g: 8 - True == 7
+    # calculate steps (note that bool math works, e.g: 8 - True == 7):
+    __steps = 6 + inventory + (True if authorizer.token or authorizer.userpass else False)
     stepiter = iter(range(1, __steps+1))
 
     # custom function for logging.info different steps:
@@ -84,11 +86,6 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
         datacenters_df, eidavalidator = \
             get_datacenters_df(session, dataws, advanced_settings['routing_service_url'],
                                networks, stations, locations, channels, start, end, dbbufsize)
-        # simple check
-        if authorizer.hastoken and len(datacenters_df) > 1:
-            raise QuitDownload(Exception('The only provided user and password cannot be used '
-                                         'with more than one datacenter: if you are attempting '
-                                         'to download from EIDA, provide a token file instead'))
 
         stepinfo("Requesting stations and channels from %d %s", len(datacenters_df),
                  "data-center" if len(datacenters_df) == 1 else "data-centers")
@@ -122,22 +119,21 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
                                  retry_server_err, retry_timespan_err,
                                  retry_timespan_warn=False)
 
-        if not authorizer.isnoop:
-            stepinfo("Requesting data-centers credentials for restricted data")
-        authorizer.build(datacenters_df)
+        if authorizer.token or authorizer.userpass:
+            stepinfo("Setting up data-centers credentials for restricted data")
+        dc_dataselect_manager = DcDataselectManager(datacenters_df, authorizer, isterminal)
 
         # download_save_segments raises a QuitDownload if there is no data, so if we are here
         # segments_df is not empty
         stepinfo("Downloading %d segments and saving to db", len(segments_df))
-
         # frees memory. Although maybe unecessary, let's do our best to free stuff cause the
         # next one is memory consuming:
         # https://stackoverflow.com/questions/30021923/how-to-delete-a-sqlalchemy-mapped-object-from-memory
         session.expunge_all()
         session.close()
 
-        d_stats = download_save_segments(session, segments_df, datacenters_df,
-                                         chaid2mseedid, usrpswd_dict, download_id,
+        d_stats = download_save_segments(session, segments_df, dc_dataselect_manager,
+                                         chaid2mseedid, download_id,
                                          request_timebounds_need_update,
                                          advanced_settings['max_thread_workers'],
                                          advanced_settings['w_timeout'],

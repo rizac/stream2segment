@@ -14,9 +14,7 @@ from mock import patch, MagicMock
 from future.backports.urllib.error import URLError
 import pytest
 import numpy as np
-from click.testing import CliRunner
-# from urllib.error import URLError
-# import multiprocessing
+
 from obspy.core.stream import read
 
 from stream2segment.cli import cli
@@ -219,13 +217,11 @@ class Test(object):
     def test_simple_run_no_outfile_provided(self, mock_run, mock_yaml_load, advanced_settings,
                                             cmdline_opts,
                                             # fixtures:
-                                            pytestdir,
-                                            db):
+                                            pytestdir, db, clirunner):
         '''test a case where save inventory is True, and that we saved inventories
         db is a fixture implemented in conftest.py and setup here in self.transact fixture
         '''
         # set values which will override the yaml config in templates folder:
-        runner = CliRunner()
         dir_ = pytestdir.makedir()
         config_overrides = {'save_inventory': True,
                             'snr_threshold': 0,
@@ -244,10 +240,9 @@ class Test(object):
 
         pyfile, conffile = get_templates_fpaths("save2fs.py", "save2fs.yaml")
 
-        result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                               '-p', pyfile, '-c', conffile] + cmdline_opts)
-
-        assert not result.exception
+        result = clirunner.invoke(cli, ['process', '--dburl', db.dburl,
+                                        '-p', pyfile, '-c', conffile] + cmdline_opts)
+        assert clirunner.ok(result)
 
         filez = os.listdir(os.path.dirname(path))
         assert len(filez) == 2
@@ -265,8 +260,8 @@ class Test(object):
         # assert "Output file:  n/a" in result output:
         assert re.search('Output file:\\s+n/a', result.output)
 
-        # Note that apparently CliRunner() puts stderr and stdout together
-        # (https://github.com/pallets/click/pull/868)
+        # Note that apparently CliRunner() (see clirunner fixture) puts stderr and stdout
+        # together (https://github.com/pallets/click/pull/868)
         # Reminder: previously, log erros where redirected to stderr
         # This is dangerous as we use a redirect to avoid external libraries to pritn to stderr
         # and logging to stderr might cause 'operation on closed file'.
@@ -322,8 +317,7 @@ class Test(object):
                                                            advanced_settings,
                                                            cmdline_opts, def_chunksize,
                                                            # fixtures:
-                                                           pytestdir,
-                                                           db):
+                                                           pytestdir, db, clirunner):
         '''test arguments and calls are ok. Mock Pool imap_unordered as we do not
         want to confuse pytest in case
         '''
@@ -350,7 +344,6 @@ class Test(object):
         mock_mp_Pool.return_value = MockPool()
 
         # set values which will override the yaml config in templates folder:
-        runner = CliRunner()
         dir_ = pytestdir.makedir()
         config_overrides = {'save_inventory': True,
                             'snr_threshold': 0,
@@ -366,10 +359,9 @@ class Test(object):
 
         pyfile, conffile = get_templates_fpaths("save2fs.py", "save2fs.yaml")
 
-        result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                               '-p', pyfile, '-c', conffile] + cmdline_opts)
-
-        assert not result.exception
+        result = clirunner.invoke(cli, ['process', '--dburl', db.dburl,
+                                        '-p', pyfile, '-c', conffile] + cmdline_opts)
+        assert clirunner.ok(result)
 
         # test some stuff and get configarg, the the REAL config passed in the processing
         # subroutines:

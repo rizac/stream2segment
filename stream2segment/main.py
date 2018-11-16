@@ -106,9 +106,13 @@ def download(config, log2file=True, verbose=False, **param_overrides):
         # replace authorizer class with the original 'restricted_data' config param and a
         # meaningful message
         authorizer = yaml_safe.pop('authorizer')
-        yaml_safe['restricted_data'] = "disabled (download open data only)" \
-            if authorizer.isnoop else \
-            "enabled, with %s" % ('token' if authorizer.hastoken else 'username and password')
+        if authorizer.token:
+            str_ = "enabled, with token"
+        elif authorizer.userpass:
+            str_ = "enabled, with user+password"
+        else:
+            str_ = "disabled, download open data only"
+        yaml_safe['restricted_data'] = str_
         # create a yaml string from the yaml_safe and print/log the string:
         ip_params = yaml.safe_dump(yaml_safe, default_flow_style=False)
         ip_title = "Input parameters"

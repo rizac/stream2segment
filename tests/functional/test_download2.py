@@ -34,7 +34,6 @@ from stream2segment.io.db.models import Base, Event, Class, WebService
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from stream2segment.cli import cli
-from click.testing import CliRunner
 import pandas as pd
 
 from stream2segment.download.main import get_events_df, get_datacenters_df, \
@@ -386,7 +385,9 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
     @patch('stream2segment.io.db.pdsql.updatedf')
     def test_cmdline_outofbounds(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
                                  mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
-                                 mock_get_datacenters_df, mock_get_events_df, db):
+                                 mock_get_datacenters_df, mock_get_events_df,
+                                 # fixtures:
+                                 db, clirunner):
         
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
@@ -402,25 +403,12 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
         # for checking run_ids, store here the number of runs we have in the table:
         runs = len(db.session.query(Download.id).all())
 
-
-
-        runner = CliRunner()
-        result = runner.invoke(cli , ['download',
-                                       '-c', self.configfile,
-                                        '--dburl', db.dburl,
-                                       '--start', '2016-05-08T00:00:00',
-                                       '--end', '2016-05-08T9:00:00'])
-        if result.exception:
-            print("EXCEPTION")
-            print("=========")
-            print("")
-            import traceback
-            traceback.print_exception(*result.exc_info)
-            print(result.output)
-            print("")
-            print("=========")
-            assert False
-            return
+        result = clirunner.invoke(cli , ['download',
+                                         '-c', self.configfile,
+                                         '--dburl', db.dburl,
+                                         '--start', '2016-05-08T00:00:00',
+                                         '--end', '2016-05-08T9:00:00'])
+        assert clirunner.ok(result)
         
         assert len(db.session.query(Download.id).all()) == runs + 1
         runs += 1

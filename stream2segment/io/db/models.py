@@ -389,7 +389,6 @@ class Fdsnws(object):
     associated to services and methods
     of the site url. Raises ValueError if the url is not a valid fdsn url of the form
     '<site>/fdsnws/<service>/<majorversion>'
-    <site> MUST start with either 'http:' or 'https:'
     Examples:
     ```
         fdsn = Fdsnws('...')
@@ -413,7 +412,7 @@ class Fdsnws(object):
     QUERYAUTH = 'queryauth'
     # equals to the string 'auth', used  (by EIDA only?) in urls for querying username and
     # password with provided token:
-    AUTH = 'queryauth'
+    AUTH = 'auth'
     # equals to the string 'version', used in urls for identifying the fdsn service
     # query method:
     VERSION = 'version'
@@ -431,31 +430,24 @@ class Fdsnws(object):
             self.majorversion = int(reg.group('majorversion'))
             self.service = reg.group('service')
             self._site = reg.group(1)
-            assert self._site.startswith("http:") or self._site.startswith("https:")
-            self._ssite = self._site
-            if self._site.startswith("http:"):
-                self._ssite = 'https:' + self._site[len("http:"):]
         except Exception:
-            raise ValueError("invalid FDSN url '%s'" % str(url))
+            raise ValueError("Invalid FDSN url '%s'" % str(url))
 
     @property
     def site(self):
-        '''returns the site portion of the url, string starting with http: or https:'''
+        '''returns the site portion of the url (in the typical case where
+        the original url had only single slashes, the `site` string has no trailing slashes)'''
         return self._site
 
-    @property
-    def ssite(self):
-        '''returns the site portion of the url, coerced to "https:" scheme. Might be equal
-        to self.site depending on the url passed in the __init__ function'''
-        return self._ssite
-
-    def url(self, service=None, majorversion=None, method='query'):
+    def url(self, service=None, majorversion=None, method=None):
         '''builds anew url from this object url. Arguments which are 'None' will default
         to this object's url
 
         :param method: The method, ususally one of `self.QUERY` (the default), `self.QUERYAUTH`,
-            `self.VERSION` or `self.APPLWADL`
+            `self.VERSION`, `self.AUTH` or `self.APPLWADL`
         '''
+        if method is None:
+            method = self.QUERY
         return "%s/fdsnws/%s/%d/%s" % (self.site, service or self.service,
                                        majorversion or self.majorversion, method)
 

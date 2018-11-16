@@ -8,12 +8,15 @@ Created on 3 May 2018
 
 import os
 from io import BytesIO
+import traceback
 
 import pytest
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm.session import sessionmaker
 from obspy.core.stream import read as read_stream
 from obspy.core.inventory.inventory import read_inventory
+
+from click.testing import CliRunner
 
 from stream2segment.io.db.models import Base
 from stream2segment.traveltimes.ttloader import TTTable
@@ -134,6 +137,33 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
     ret = DB(request.param)
     request.addfinalizer(ret.delete)
     return ret
+
+
+@pytest.fixture(scope="session")
+def clirunner(request):  # pylint: disable=unused-argument
+    '''Shorthand for
+        runner = CliRunner()
+    with an additional method `assertok(result)` which asserts the returned value of
+    the cli (command line interface) is ok, and prints relevant information to the standard
+    output and error:
+
+        result = clirunner.invoke(...)
+        assert clirunner.ok(result)
+    '''
+    class Clirunner(CliRunner):
+
+        @classmethod
+        def ok(cls, result):
+            '''Returns True if result's exit_code is 0. If nonzero, prints
+            relevant info to the standard output and error for debugging'''
+            if result.exit_code != 0:
+                print(result.output)
+                if result.exception:
+                    if result.exc_info[0] != SystemExit:
+                        traceback.print_exception(*result.exc_info)
+            return result.exit_code == 0
+
+    return Clirunner()
 
 
 @pytest.fixture(scope="session")

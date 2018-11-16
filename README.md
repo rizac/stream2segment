@@ -174,7 +174,7 @@ pip install -e .
 
 Move in the project directory and run the command:
 ```
-pytest -xv --dburl postgresql://riccardo:@localhost/s2s_test --ignore=./tests/skip ./tests/
+pytest -xv --dburl <additional db url> --ignore=./tests/skip ./tests/
 ```
 or (if 'pytest not found' message appears):
 ```
@@ -186,7 +186,7 @@ Wait, tests are time consuming (some minutes currently) and you should see a mes
 The database used for testing will be an sqlite database. If you want to provide other database urls use the variable ```--dburl``` (you can type it multiple times and all tests requireing a database will be run with all provided database urls).
 Example: if you have postgres installed with an already created database named ```s2s_test```, run:
 ```
-pytest -xv --dburl postgresql://riccardo:@localhost/s2s_test --ignore=./tests/skip ./tests/
+pytest -xv --dburl postgresql://<user>:<password>@localhost/<dbname> --ignore=./tests/skip ./tests/
 ```
 (the data on any given database will be overwritten if the database is not empty)
 

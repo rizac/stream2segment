@@ -18,8 +18,6 @@ import pytest
 import pandas as pd
 import numpy as np
 
-from click.testing import CliRunner
-
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm.session import sessionmaker
 # from urllib.error import URLError
@@ -230,7 +228,9 @@ class Test(object):
     # Here a simple test for a processing file returning dict. Save inventory and check it's saved
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
     @mock.patch('stream2segment.main.run_process', side_effect=process_main_run)
-    def test_simple_run_no_outfile_provided(self, mock_run, mock_yaml_load, db):
+    def test_simple_run_no_outfile_provided(self, mock_run, mock_yaml_load,
+                                            # fixtures:
+                                            db, clirunner):
         '''test a case where save inventory is True, and that we saved inventories'''
         # set values which will override the yaml config in templates folder:
         config_overrides = {'save_inventory': True,
@@ -243,13 +243,10 @@ class Test(object):
         expected_first_row_seg_id = str(self.seg1.id)
         station_id_whose_inventory_is_saved = self.sta_ok.id
 
-        runner = CliRunner()
-
         pyfile, conffile = self.pyfile, self.conffile
-        result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                               '-p', pyfile, '-c', conffile, '-a'])
-
-        assert not result.exception
+        result = clirunner.invoke(cli, ['process', '--dburl', db.dburl,
+                                        '-p', pyfile, '-c', conffile, '-a'])
+        assert clirunner.ok(result)
 
         lst = mock_run.call_args_list
         assert len(lst) == 1
@@ -279,8 +276,7 @@ class Test(object):
     def test_simple_run_retDict_saveinv_emptyfile(self, mock_yaml_load, advanced_settings,
                                                   cmdline_opts,
                                                   # fixtures:
-                                                  pytestdir,
-                                                  db):
+                                                  pytestdir, db, clirunner):
         '''test a case where we create a temporary file, empty but opened before writing'''
         # set values which will override the yaml config in templates folder:
         config_overrides = {'save_inventory': True,
@@ -295,13 +291,12 @@ class Test(object):
         expected_first_row_seg_id = str(self.seg1.id)
         station_id_whose_inventory_is_saved = self.sta_ok.id
 
-        runner = CliRunner()
         filename = pytestdir.newfile('output.csv', create=True)
         pyfile, conffile = self.pyfile, self.conffile
-        result = runner.invoke(cli, ['process', '--dburl', db.dburl,
+        result = clirunner.invoke(cli, ['process', '--dburl', db.dburl,
                                '-p', pyfile, '-c', conffile, filename] + cmdline_opts)
 
-        assert not result.exception
+        assert clirunner.ok(result)
 
         # check file has been correctly written:
         csv1 = readcsv(filename)
@@ -340,8 +335,7 @@ class Test(object):
     def test_append(self, mock_click_confirm, mock_yaml_load, advanced_settings, cmdline_opts,
                     return_list,
                     # fixtures:
-                    pytestdir,
-                    db):
+                    pytestdir, db, clirunner):
         '''test a typical case where we supply the append option'''
         # set values which will override the yaml config in templates folder:
         config_overrides = {'save_inventory': True,
@@ -356,7 +350,6 @@ class Test(object):
         expected_first_row_seg_id = str(self.seg1.id)
         station_id_whose_inventory_is_saved = self.sta_ok.id
 
-        runner = CliRunner()
         filename = pytestdir.newfile('.csv')
         pyfile, conffile = self.pyfile, self.conffile
 
@@ -374,10 +367,9 @@ def main2(segment, config):""")
                 _opn.write(cont2.encode('utf8'))
 
         mock_click_confirm.reset_mock()
-        result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                               '-p', pyfile, '-c', conffile, filename] + cmdline_opts)
-
-        assert not result.exception
+        result = clirunner.invoke(cli, ['process', '--dburl', db.dburl,
+                                        '-p', pyfile, '-c', conffile, filename] + cmdline_opts)
+        assert clirunner.ok(result)
 
         # check file has been correctly written:
         csv1 = readcsv(filename, header=not return_list)
@@ -393,8 +385,8 @@ def main2(segment, config):""")
 
         # now test a second call, the same as before:
         mock_click_confirm.reset_mock()
-        result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                               '-p', pyfile, '-c', conffile, filename] + cmdline_opts)
+        result = clirunner.invoke(cli, ['process', '--dburl', db.dburl,
+                                        '-p', pyfile, '-c', conffile, filename] + cmdline_opts)
         # check file has been correctly written:
         # check file has been correctly written:
         csv2 = readcsv(filename, header=not return_list)
@@ -418,8 +410,8 @@ def main2(segment, config):""")
 
         # now test a second call, the same as before:
         mock_click_confirm.reset_mock()
-        result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                               '-p', pyfile, '-c', conffile, filename] + cmdline_opts)
+        result = clirunner.invoke(cli, ['process', '--dburl', db.dburl, '-p', pyfile,
+                                        '-c', conffile, filename] + cmdline_opts)
         # check file has been correctly written:
         csv3 = readcsv(filename, header=not return_list)
         assert len(csv3) == 2
@@ -436,8 +428,8 @@ def main2(segment, config):""")
 
         # last try: no append (also set no-prompt to test that we did not prompt the user)
         mock_click_confirm.reset_mock()
-        result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                               '-p', pyfile, '-c', conffile, filename] + cmdline_opts[1:])
+        result = clirunner.invoke(cli, ['process', '--dburl', db.dburl, '-p', pyfile,
+                                        '-c', conffile, filename] + cmdline_opts[1:])
         # check file has been correctly written:
         csv4 = readcsv(filename, header=not return_list)
         assert len(csv4) == 1
@@ -453,8 +445,8 @@ def main2(segment, config):""")
         # last try: prompt return False
         mock_click_confirm.reset_mock()
         mock_click_confirm.return_value = False
-        result = runner.invoke(cli, ['process',  '--dburl', db.dburl,
-                               '-p', pyfile, '-c', conffile, filename] + cmdline_opts[1:])
+        result = clirunner.invoke(cli, ['process',  '--dburl', db.dburl, '-p', pyfile,
+                                        '-c', conffile, filename] + cmdline_opts[1:])
         assert result.exception
         assert type(result.exception) == SystemExit
         assert result.exception.code == 1

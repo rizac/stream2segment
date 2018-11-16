@@ -207,21 +207,21 @@ def init(outdir):
 @click.option('-r5', '--retry-server-err', is_flag=True, default=None)
 @click.option('-r6', '--retry-timespan-err', is_flag=True, default=None)
 @click.option('-i', '--inventory', is_flag=True, default=None)
-@click.option('--minlatitude', '--minlat', type=float,
+@click.option('-minlat', '--minlatitude', type=float,
               help=(clickutils.EQA + " Limit to events with a latitude larger than "
                     "or equal to the specified minimum"))
-@click.option('--maxlatitude', '--maxlat', type=float,
+@click.option('-maxlat', '--maxlatitude', type=float,
               help=(clickutils.EQA + " Limit to events with a latitude smaller than "
                     "or equal to the specified maximum"))
-@click.option('--minlongitude', '--minlon', type=float,
+@click.option('-minlon', '--minlongitude', type=float,
               help=(clickutils.EQA + " Limit to events with a longitude larger than "
                     "or equal to the specified minimum"))
-@click.option('--maxlongitude', '--maxlon', type=float,
+@click.option('-maxlon', '--maxlongitude', type=float,
               help=(clickutils.EQA + " Limit to events with a longitude smaller than "
                     "or equal to the specified maximum"))
-@click.option('--latitude', '--lat', type=float,
+@click.option('-lat', '--latitude', type=float,
               help=(clickutils.EQA + " Specify the latitude to be used for a radius search."))
-@click.option('--longitude', '--lon', type=float,
+@click.option('-lon', '--longitude', type=float,
               help=(clickutils.EQA + " Specify the longitude to be used for a radius search"))
 @click.option('--minradius', type=float,
               help=(clickutils.EQA + " Limit to events within the specified minimum "
@@ -237,10 +237,10 @@ def init(outdir):
 @click.option('--maxdepth', type=float,
               help=(clickutils.EQA + " Limit to events with depth less than the "
                     "specified maximum"))
-@click.option('--minmagnitude', '--minmag', type=float,
+@click.option('-minmag', '--minmagnitude', type=float,
               help=(clickutils.EQA + " Limit to events with a magnitude larger than "
                     "the specified minimum"))
-@click.option('--maxmagnitude', '--maxmag', type=float,
+@click.option('-maxmag', '--maxmagnitude', type=float,
               help=(clickutils.EQA + " Limit to events with a magnitude smaller than "
                     "the specified maximum"))
 def download(config, dburl, eventws, start, end, networks,  # pylint: disable=unused-argument

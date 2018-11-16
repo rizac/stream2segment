@@ -400,9 +400,6 @@ Db table 'stations': 4 rows updated (no sql error)""" in s
                     "https://mock/fdsnws/station/1/whatever/abcde?h=8&b=76"]:
             fdsn = Fdsnws(url)
             assert fdsn.site == 'https://mock'
-            assert fdsn.site == fdsn.ssite
-            fdsn2 =  Fdsnws(url.replace('https:', 'http:'))
-            assert fdsn2.ssite == fdsn2.site.replace('http:', 'https:')
             assert fdsn.service == Fdsnws.STATION
             assert fdsn.majorversion == 1
             normalizedurl = fdsn.url()

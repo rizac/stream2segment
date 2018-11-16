@@ -740,7 +740,7 @@ class Authorizer(object):
         for restricted data
 
         :param arg: a filepath (to a token), the token data (bytes),
-            or a tuple (username, password). If None, this authorizer is no-op (open data only)
+            or a tuple (username, password). If None, this authorizer is no-op
         '''
         self._uname, self._pswd, self._token = None, None, None
         if token is not None:
@@ -759,7 +759,7 @@ class Authorizer(object):
                 self._token = token
                 if not self._validate_eida_token(token):
                     raise ValueError("Invalid token. If you passed a file path, "
-                                     "check also the file exixtence")
+                                     "check also that the file exists")
 
     @staticmethod
     def _validate_eida_token(token):
@@ -775,18 +775,13 @@ class Authorizer(object):
         return (self._uname, self._pswd, self._token) == (None, None, None)
 
     @property
-    def hastoken(self):
-        '''Returns True if this object was built with a token. If True, then self.userpassword
-        returns None. If False, then self.userpassword returns a tuple of strings'''
-        return self._token is not None
-
-    @property
     def token(self):
-        '''returns the token, or None. Use this method if `self.hastoken and not self.isnoop`'''
+        '''returns the token, or None. You can safely use this method also in an if
+        statement: `if auth.token`, as the token can not be empty'''
         return self._token
 
     @property
     def userpass(self):
-        '''Returnss the tuple (user, passowrd), or None, None.
-        Use this method if `not self.hastoken and not self.isnoop`'''
-        return self._uname, self._pswd
+        '''Returnss the tuple (user, passowrd), or None, You can safely use this method also
+        in an if statement: `if auth.userpass`'''
+        return None if (self._uname, self._pswd) == (None, None) else (self._uname, self._pswd)
