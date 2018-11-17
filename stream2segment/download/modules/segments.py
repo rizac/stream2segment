@@ -8,7 +8,7 @@ Download module for segments download
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import map, next, zip, range, object
-
+import os
 from datetime import timedelta
 import sys
 from collections import OrderedDict
@@ -32,7 +32,6 @@ from stream2segment.utils.url import Request  # this handles py2and3 compatibili
 # functions of stream2segment.download.utils:
 from stream2segment.download import logger  # @IgnorePep8
 from stream2segment.utils.url import get_opener
-import os
 
 
 def prepare_for_download(session, segments_df, timespan, retry_seg_not_found, retry_url_err,
@@ -49,16 +48,16 @@ def prepare_for_download(session, segments_df, timespan, retry_seg_not_found, re
     """
     # For convenience and readability, define once the mapped column names representing the
     # dataframe columns that we need:
-    SEG_EVID = Segment.event_id.key
-    SEG_ATIME = Segment.arrival_time.key
-    SEG_START = Segment.request_start.key
-    SEG_END = Segment.request_end.key
-    SEG_CHID = Segment.channel_id.key
-    SEG_ID = Segment.id.key
-    SEG_DSC = Segment.download_code.key
-    SEG_RETRY = "__do.download__"
+    SEG_EVID = Segment.event_id.key  # pylint: disable=invalid-name
+    SEG_ATIME = Segment.arrival_time.key  # pylint: disable=invalid-name
+    SEG_START = Segment.request_start.key  # pylint: disable=invalid-name
+    SEG_END = Segment.request_end.key  # pylint: disable=invalid-name
+    SEG_CHID = Segment.channel_id.key  # pylint: disable=invalid-name
+    SEG_ID = Segment.id.key  # pylint: disable=invalid-name
+    SEG_DSC = Segment.download_code.key  # pylint: disable=invalid-name
+    SEG_RETRY = "__do.download__"  # pylint: disable=invalid-name
 
-    URLERR_CODE, MSEEDERR_CODE, OUTTIME_ERR, OUTTIME_WARN = custom_download_codes()
+    URLERR_CODE, MSEEDERR_CODE, OUTTIME_ERR_CODE, OUTTIME_WARN_CODE = custom_download_codes()
     # we might use dbsync('sync', ...) which sets pkeys and updates non-existing, but then we
     # would issue a second db query to check which segments should be re-downloaded (retry).
     # As the segments table might be big (hundred of thousands of records) we want to optimize
@@ -87,9 +86,9 @@ def prepare_for_download(session, segments_df, timespan, retry_seg_not_found, re
     if retry_server_err:
         mask |= db_seg_df[SEG_DSC].between(500, 599.9999, inclusive=True)
     if retry_timespan_err:
-        mask |= db_seg_df[SEG_DSC] == OUTTIME_ERR
+        mask |= db_seg_df[SEG_DSC] == OUTTIME_ERR_CODE
     if retry_timespan_warn:
-        mask |= db_seg_df[SEG_DSC] == OUTTIME_WARN
+        mask |= db_seg_df[SEG_DSC] == OUTTIME_WARN_CODE
 
     db_seg_df[SEG_RETRY] = mask
 
@@ -153,27 +152,6 @@ def prepare_for_download(session, segments_df, timespan, retry_seg_not_found, re
     return segments_df, request_timebounds_need_update.item()
 
 
-def get_seg_request(segments_df, datacenter_url, chaid2mseedid):
-    """returns a Request object from the given segments_df
-
-    :param chaid2mseedid: dict of channel ids (int) mapped to mseed ids
-        (strings in "Network.station.location.channel" format)
-    """
-    # For convenience and readability, define once the mapped column names representing the
-    # dataframe columns that we need:
-    SEG_START = Segment.request_start.key
-    SEG_END = Segment.request_end.key
-    CHA_ID = Segment.channel_id.key
-
-    stime = segments_df[SEG_START].iloc[0].isoformat()
-    etime = segments_df[SEG_END].iloc[0].isoformat()
-
-    post_data = "\n".join("{} {} {}".format(*(chaid2mseedid[chaid].replace("..", ".--.").
-                                              replace(".", " "), stime, etime))
-                          for chaid in segments_df[CHA_ID] if chaid in chaid2mseedid)
-    return Request(url=datacenter_url, data=post_data.encode('utf8'))
-
-
 def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2mseedid,
                            download_id, update_request_timebounds, max_thread_workers, timeout,
                            download_blocksize, db_bufsize, show_progress=False):
@@ -214,9 +192,9 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
     # Define separate keys cause we will use it elsewhere:
     # Note that the order of these keys must match `mseed_unpack` returned data
     # (this is why we used OrderedDict above)
-    SEG_COLNAMES = list(segvals.keys())
+    SEG_COLNAMES = list(segvals.keys())  # pylint: disable=invalid-name
     # define default error codes:
-    URLERR_CODE, MSEEDERR_CODE, OUTTIME_ERR, OUTTIME_WARN = custom_download_codes()
+    URLERR_CODE, MSEEDERR_CODE, OUTTIME_ERR_CODE, OUTTIME_WARN_CODE = custom_download_codes()
     SEG_NOT_FOUND = None
 
     stats = DownloadStats()
@@ -285,27 +263,26 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                              max_workers=max_thread_workers, timeout=timeout,
                              blocksize=download_blocksize, openers=openerfunc)
 
-            for df, result, exc, request in itr:
-                groupkeys_tuple = df[0]
-                df = df[1]  # copy data so that we do not have refs to the old dataframe
-                # and hopefully the gc works better
+            for dframe, result, exc, request in itr:
+                groupkeys_tuple = dframe[0]
+                dframe = dframe[1]
                 url = get_host(request)
                 data, code, msg = result if not exc else (None, None, None)
-                if code == 413 and len(df) > 1 and not islast:
-                    skipped_dataframes.append(df)
+                if code == 413 and len(dframe) > 1 and not islast:
+                    skipped_dataframes.append(dframe)
                     continue
                 # Seems that copy(), although allocates a new small memory chunk,
                 # helps gc better managing total memory (which might be an issue):
-                df = df.copy()
+                dframe = dframe.copy()
                 # init columns with default values:
                 for col in SEG_COLNAMES:
-                    df[col] = segvals[col]
+                    dframe[col] = segvals[col]
                     # Note that we could use
-                    # df.insert(len(df.columns), col, segvals[col])
+                    # dframe.insert(len(dframe.columns), col, segvals[col])
                     # to preserve order, if needed. A starting discussion on adding new column:
                     # https://stackoverflow.com/questions/12555323/adding-new-column-to-existing-dataframe-in-python-pandas
                 # init download id column with our download_id:
-                df[SEG_DOWNLID] = download_id
+                dframe[SEG_DOWNLID] = download_id
                 if exc:
                     code = URLERR_CODE
                 elif code >= 400:
@@ -314,74 +291,28 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                     # if we have empty data set only specific columns:
                     # (avoid mseed_id as is useless string data on the db, and we can retrieve it
                     # via station and channel joins in case)
-                    df.loc[:, SEG_DATA] = b''
-                    df.loc[:, SEG_DSCODE] = code
-                    stats[url][code] += len(df)
+                    dframe.loc[:, SEG_DATA] = b''
+                    dframe.loc[:, SEG_DSCODE] = code
+                    stats[url][code] += len(dframe)
                 else:
                     try:
                         starttime = groupkeys_tuple[requeststart_index]
                         endtime = groupkeys_tuple[requestend_index]
                         resdict = mseedunpack(data, starttime, endtime)
-                        oks = 0
-                        errors = 0
-                        outtime_warns = 0
-                        outtime_errs = 0
-                        # iterate over df rows and assign the relative data
-                        # Note that we could use iloc which is SLIGHTLY faster than
-                        # loc for setting the data, but this would mean using column
-                        # indexes and we have column labels. A conversion is possible but
-                        # would make the code  hard to understand (even more ;))
-                        for idxval, chaid in zip(df.index.values, df[SEG_CHAID]):
-                            mseedid = chaid2mseedid.get(chaid, None)
-                            if mseedid is None:
-                                continue
-                            # get result:
-                            res = resdict.get(mseedid, None)
-                            if res is None:
-                                continue
-                            err, data, s_rate, max_gap_ratio, stime, etime, outoftime = res
-                            if err is not None:
-                                # set only the code field.
-                                # Use set_value as it's faster for single elements
-                                df.set_value(idxval, SEG_DSCODE, MSEEDERR_CODE)
-                                errors += 1
-                            else:
-                                _code = code
-                                if outoftime is True:
-                                    if data:
-                                        _code = OUTTIME_WARN
-                                        outtime_warns += 1
-                                    else:
-                                        _code = OUTTIME_ERR
-                                        outtime_errs += 1
-                                else:
-                                    oks += 1
-                                # This raises a UnicodeDecodeError:
-                                # df.loc[idxval, SEG_COLNAMES] = (data, s_rate,
-                                #                                 max_gap_ratio,
-                                #                                 mseedid, code)
-                                # The problem (bug?) is in pandas.core.indexing.py
-                                # on line 517: np.array((data, s_rate, max_gap_ratio,
-                                #                                  mseedid, code))
-                                # (numpy coerces to unicode if one of the values is unicode,
-                                #  and thus fails for the `data` field?)
-                                # Anyway, we set first an empty string (which can be
-                                # decoded) and then use set_value only for the `data` field
-                                # set_value should be relatively fast
-                                df.loc[idxval, SEG_COLNAMES] = (b'', s_rate, max_gap_ratio,
-                                                                mseedid, _code, stime, etime)
-                                df.set_value(idxval, SEG_DATA, data)
+                        oks, errors, outtime_warns, outtime_errs, unknowns = \
+                            _process_downloaded_data(dframe, code, resdict, chaid2mseedid,
+                                                     SEG_DATA, SEG_CHAID, SEG_DSCODE,
+                                                     SEG_COLNAMES, MSEEDERR_CODE,
+                                                     OUTTIME_WARN_CODE, OUTTIME_ERR_CODE)
 
                         if oks:
                             stats[url][code] += oks
                         if errors:
                             stats[url][MSEEDERR_CODE] += errors
                         if outtime_errs:
-                            stats[url][OUTTIME_ERR] += outtime_errs
+                            stats[url][OUTTIME_ERR_CODE] += outtime_errs
                         if outtime_warns:
-                            stats[url][OUTTIME_WARN] += outtime_warns
-
-                        unknowns = len(df) - oks - errors - outtime_errs - outtime_warns
+                            stats[url][OUTTIME_WARN_CODE] += outtime_warns
                         if unknowns > 0:
                             stats[url][SEG_NOT_FOUND] += unknowns
                     except MSeedError as mseedexc:
@@ -389,13 +320,13 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                         exc = mseedexc
 
                 if exc is not None:
-                    df.loc[:, SEG_DSCODE] = code
-                    stats[url][code] += len(df)
+                    dframe.loc[:, SEG_DSCODE] = code
+                    stats[url][code] += len(dframe)
                     logger.warning(formatmsg("Segment download error, code %s" % str(code),
                                              exc, request))
 
-                segmanager.add(df)
-                bar.update(len(df))
+                segmanager.add(dframe)
+                bar.update(len(dframe))
 
             segmanager.flush()  # flush remaining stuff to insert / update, if any
 
@@ -410,6 +341,84 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
     segmanager.close()  # flush remaining stuff to insert / update
 
     return stats
+
+
+def get_seg_request(segments_df, datacenter_url, chaid2mseedid):
+    """returns a Request object from the given segments_df
+
+    :param chaid2mseedid: dict of channel ids (int) mapped to mseed ids
+        (strings in "Network.station.location.channel" format)
+    """
+    # For convenience and readability, define once the mapped column names representing the
+    # dataframe columns that we need:
+    SEG_START = Segment.request_start.key  # pylint: disable=invalid-name
+    SEG_END = Segment.request_end.key  # pylint: disable=invalid-name
+    CHA_ID = Segment.channel_id.key  # pylint: disable=invalid-name
+
+    stime = segments_df[SEG_START].iloc[0].isoformat()
+    etime = segments_df[SEG_END].iloc[0].isoformat()
+
+    post_data = "\n".join("{} {} {}".format(*(chaid2mseedid[chaid].replace("..", ".--.").
+                                              replace(".", " "), stime, etime))
+                          for chaid in segments_df[CHA_ID] if chaid in chaid2mseedid)
+    return Request(url=datacenter_url, data=post_data.encode('utf8'))
+
+
+def _process_downloaded_data(dframe, code, resdict, chaid2mseedid, *args):
+    oks = 0
+    errors = 0
+    outtime_warns = 0
+    outtime_errs = 0
+    SEG_DATA, SEG_CHAID, SEG_DSCODE, SEG_COLNAMES, \
+        MSEEDERR_CODE, OUTTIME_WARN_CODE, OUTTIME_ERR_CODE = args
+    # iterate over dframe rows and assign the relative data
+    # Note that we could use iloc which is SLIGHTLY faster than
+    # loc for setting the data, but this would mean using column
+    # indexes and we have column labels. A conversion is possible but
+    # would make the code  hard to understand (even more ;))
+    for idxval, chaid in zip(dframe.index.values, dframe[SEG_CHAID]):
+        mseedid = chaid2mseedid.get(chaid, None)
+        if mseedid is None:
+            continue
+        # get result:
+        res = resdict.get(mseedid, None)
+        if res is None:
+            continue
+        err, data, s_rate, max_gap_ratio, stime, etime, outoftime = res
+        if err is not None:
+            # set only the code field.
+            # Use set_value as it's faster for single elements
+            dframe.set_value(idxval, SEG_DSCODE, MSEEDERR_CODE)
+            errors += 1
+        else:
+            _code = code
+            if outoftime is True:
+                if data:
+                    _code = OUTTIME_WARN_CODE
+                    outtime_warns += 1
+                else:
+                    _code = OUTTIME_ERR_CODE
+                    outtime_errs += 1
+            else:
+                oks += 1
+            # This raises a UnicodeDecodeError:
+            # dframe.loc[idxval, SEG_COLNAMES] = (data, s_rate,
+            #                                 max_gap_ratio,
+            #                                 mseedid, code)
+            # The problem (bug?) is in pandas.core.indexing.py
+            # on line 517: np.array((data, s_rate, max_gap_ratio,
+            #                                  mseedid, code))
+            # (numpy coerces to unicode if one of the values is unicode,
+            #  and thus fails for the `data` field?)
+            # Anyway, we set first an empty string (which can be
+            # decoded) and then use set_value only for the `data` field
+            # set_value should be relatively fast
+            dframe.loc[idxval, SEG_COLNAMES] = (b'', s_rate, max_gap_ratio,
+                                                mseedid, _code, stime, etime)
+            dframe.set_value(idxval, SEG_DATA, data)
+
+    unknowns = max(0, len(dframe) - oks - errors - outtime_errs - outtime_warns)
+    return oks, errors, outtime_warns, outtime_errs, unknowns
 
 
 class DcDataselectManager(object):
@@ -428,8 +437,8 @@ class DcDataselectManager(object):
 
     def __init__(self, datacenters_df, authorizer, show_progress=False):
         '''initializes a new DcDataselectManager'''
-        DC_ID = DataCenter.id.key
-        DC_DSURL = DataCenter.dataselect_url.key
+        DC_ID = DataCenter.id.key  # pylint: disable=invalid-name
+        DC_DSURL = DataCenter.dataselect_url.key  # pylint: disable=invalid-name
 
         # there is a handy function datacenters_df.set_index(keys_col)[values_col].to_dict,
         # but we want iterrows cause we convert any dc url to its fdsnws object

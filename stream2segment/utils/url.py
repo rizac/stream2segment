@@ -52,7 +52,7 @@ def get_opener(url, user, password):
 
 
 def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
-            raise_http_err=True, timeout=None, opener=None):
+            raise_http_err=True, timeout=None, opener=None, **kwargs):
     """
     Reads and return data from the given url. Wrapper around urllib2.open with some
     features added. Returns the tuple (content_read, status, message)
@@ -77,7 +77,9 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
         default timeout setting will be used). This actually only works for HTTP, HTTPS
         and FTP connections.
     :param opener: a custom opener. When None (the default), the default urllib opener is used.
-        See :func:`get_opener` fr creating an opener from a base url, user and passowrd
+        See :func:`get_opener` for, e.g., creating an opener from a base url, user and passowrd
+    :param kwargs: optional arguments to be passed to the underlying python `urlopen` function.
+        These arguments are ignored if a custom opener is provided
 
     :return: the tuple (content_read, status code, status message), where the first item is
         the bytes sequence read (can be None if `raise_http_err=False`, is string - unicode
@@ -93,7 +95,8 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
         # set default for timeout: timeout in urlopen defaults to socket._GLOBAL_DEFAULT_TIMEOUT
         # so we unfortunately either pass it or skip it. As we allow for non-negative numbers
         # normalize it fiorst to None. If None, don't pass it to urlopen
-        kwargs = {} if timeout is None or timeout <= 0 else {'timeout': timeout}
+        if timeout is not None and timeout > 0:
+            kwargs['timeout'] = timeout
 #         if PY2 and hasattr(url, 'data'):
 #             kwargs.setdefault('method', 'POST')
         # urlib2 does not support with statement in py2. See:
@@ -212,7 +215,9 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, dec
         feature of `ProcessPool`s) this argument is False by default
     :param openers: a function behaving like `urlkey`, should return a specific opener
         for the given item of iterable. When None, the default urllib opener is used
-        See :func:`get_opener` fr creating an opener from a base url, user and passowrd
+        See :func:`get_opener` for, e.g., creating an opener from a base url, user and passowrd
+    :param kwargs: optional arguments to be passed to the underlying python `urlopen` function.
+        These arguments are ignored if a custom openers function is provided
 
     Notes:
     ======
@@ -247,7 +252,9 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, dec
         opener = openers(obj) if openers is not None else None
         try:
             return obj, \
-                urlread(url, blocksize, decode, True, raise_http_err, timeout, opener), None, url
+                urlread(url, blocksize, decode, True, raise_http_err, timeout, opener,
+                        **kwargs), \
+                None, url
         except URLException as urlexc:
             return obj, None, urlexc.exc, url
 

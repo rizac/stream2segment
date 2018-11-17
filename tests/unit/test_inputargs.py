@@ -170,7 +170,7 @@ class Test(object):
         assert other_param not in def_yaml_dict
         oldval = def_yaml_dict[param]  # which also asserts we do have the value
         newval = oldval + 1.1
-        result = self.run_cli_download('--%s' % param, newval)  # invalid type
+        result = self.run_cli_download('-%s' % param, newval)  # invalid type
         assert result.exit_code == 0  # WHAT?? because networks needs to be just an iterable
         # assert new yaml (as saved on the db) has the correct value:
         new_yaml_dict = yaml_load(StringIO(self.lastrun_lastdownload_config))['eventws_query_args']
@@ -197,7 +197,7 @@ class Test(object):
         newval = 1.1
         expected_param = other_param  #  because it is the default cli param name
         nonexpected_param = param  # see above
-        result = self.run_cli_download('--%s' % param, newval)  # invalid type
+        result = self.run_cli_download('-%s' % param, newval)  # invalid type
         assert result.exit_code == 0  # WHAT?? because networks needs to be just an iterable
         # assert new yaml (as saved on the db) has the correct value:
         new_yaml_dict = yaml_load(StringIO(self.lastrun_lastdownload_config))['eventws_query_args']

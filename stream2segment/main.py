@@ -95,7 +95,7 @@ def download(config, log2file=True, verbose=False, **param_overrides):
     # Do no use loggers yet:
     if verbose:
         # print to terminal an informative config. First objects with custom string outputs:
-        sessstr = "<db session object, dburl='%s'>" % secure_dburl(str(session.bind.engine.url))
+        sessstr = "<session object, dburl='%s'>" % secure_dburl(str(session.bind.engine.url))
         tttable = yaml_dict['tt_table']
         tttablestr = "<%s object, model=%s, phases=%s>" % (tttable.__class__.__name__,
                                                            str(tttable.model),
