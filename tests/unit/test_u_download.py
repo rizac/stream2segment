@@ -38,8 +38,9 @@ from stream2segment.download.modules.events import get_events_df
 from stream2segment.download.modules.datacenters import get_datacenters_df
 from stream2segment.download.modules.channels import get_channels_df, chaid2mseedid_dict
 from stream2segment.download.modules.stationsearch import merge_events_stations
-from stream2segment.download.modules.segments import prepare_for_download, download_save_segments
-from stream2segment.download.utils import QuitDownload
+from stream2segment.download.modules.segments import prepare_for_download, download_save_segments,\
+    DcDataselectManager
+from stream2segment.download.utils import QuitDownload, Authorizer
 # ,\
 #     get_fdsn_channels_df, save_stations_and_channels, get_dists_and_times, set_saved_dist_and_times,\
 #     download_segments, drop_already_downloaded, set_download_urls, save_segments
@@ -1714,9 +1715,11 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # self._seg_data[:2] is a way to mock data corrupted
         urlread_sideeffect = [self._seg_data, 413, self._seg_data[:2], 413,
                               '', self._seg_data_gaps, self._seg_data_gaps, URLError("++urlerror++"), 500, 413]
+        # define a dc_dataselect_manager for open data only:
+        dc_dataselect_manager = DcDataselectManager(datacenters_df, Authorizer(None), False)
         # Let's go:
         ztatz = self.download_save_segments(urlread_sideeffect, db.session, segments_df,
-                                            datacenters_df, 
+                                            dc_dataselect_manager, 
                                             chaid2mseedid,
                                             self.run.id, request_timebounds_need_update,
                                             1,2,3, db_bufsize=self.db_buf_size)
@@ -1837,8 +1840,11 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         urlread_sideeffect = [413]
         mock_updatedf.reset_mock()
         mock_insertdf.reset_mock()
+        # define a dc_dataselect_manager for open data only:
+        dc_dataselect_manager = DcDataselectManager(datacenters_df, Authorizer(None), False)
         # Let's go:
-        ztatz = self.download_save_segments(urlread_sideeffect, db.session, segments_df, datacenters_df,
+        ztatz = self.download_save_segments(urlread_sideeffect, db.session, segments_df,
+                                            dc_dataselect_manager,
                                             chaid2mseedid,
                                             self.run.id, request_timebounds_need_update,
                                             1,2,3, db_bufsize=self.db_buf_size)
@@ -2031,10 +2037,11 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # self._seg_data[:2] is a way to mock data corrupted
         urlread_sideeffect = [self._seg_data, 413, self._seg_data[:2], 413,
                               '', self._seg_data_gaps, self._seg_data_gaps, URLError("++urlerror++"), 500, 413]
-        
+        # define a dc_dataselect_manager for open data only:
+        dc_dataselect_manager = DcDataselectManager(datacenters_df, Authorizer(None), False)
         # Let's go:
         ztatz = self.download_save_segments(urlread_sideeffect, db.session, segments_df,
-                                            datacenters_df, 
+                                            dc_dataselect_manager, 
                                             chaid2mseedid,
                                             self.run.id, request_timebounds_need_update,
                                             1,2,3, db_bufsize=self.db_buf_size)
@@ -2104,8 +2111,10 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # sequence of bytes. The sequence actually is OK, but in the first case it will be PARTIALLY saved
         # in the second case TOTALLY, and in the thrid case NOT AT ALL:
         urlread_sideeffect = [self._seg_data, self._seg_data, self._seg_data]
+        # define a dc_dataselect_manager for open data only:
+        dc_dataselect_manager = DcDataselectManager(datacenters_df, Authorizer(None), False)
         ztatz = self.download_save_segments(urlread_sideeffect, db.session, new_segments_df,
-                                            datacenters_df, 
+                                            dc_dataselect_manager, 
                                             chaid2mseedid,
                                             self.run.id, request_timebounds_need_update,
                                             1,2,3, db_bufsize=self.db_buf_size)

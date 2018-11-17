@@ -187,20 +187,20 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
     """
     # For convenience and readability, define once the mapped column names representing the
     # dataframe columns that we need:
-    SEG_CHAID = Segment.channel_id.key
-    SEG_DCID = Segment.datacenter_id.key
-    SEG_ID = Segment.id.key
-    SEG_START = Segment.request_start.key
-    SEG_END = Segment.request_end.key
-    SEG_STIME = Segment.start_time.key
-    SEG_ETIME = Segment.end_time.key
-    SEG_DATA = Segment.data.key
-    SEG_DSCODE = Segment.download_code.key
-    SEG_DATAID = Segment.data_seed_id.key
-    SEG_MGAP = Segment.maxgap_numsamples.key
-    SEG_SRATE = Segment.sample_rate.key
-    SEG_DOWNLID = Segment.download_id.key
-    SEG_ATIME = Segment.arrival_time.key
+    SEG_CHAID = Segment.channel_id.key  # pylint: disable=invalid-name
+    SEG_DCID = Segment.datacenter_id.key  # pylint: disable=invalid-name
+    SEG_ID = Segment.id.key  # pylint: disable=invalid-name
+    SEG_START = Segment.request_start.key  # pylint: disable=invalid-name
+    SEG_END = Segment.request_end.key  # pylint: disable=invalid-name
+    SEG_STIME = Segment.start_time.key  # pylint: disable=invalid-name
+    SEG_ETIME = Segment.end_time.key  # pylint: disable=invalid-name
+    SEG_DATA = Segment.data.key  # pylint: disable=invalid-name
+    SEG_DSCODE = Segment.download_code.key  # pylint: disable=invalid-name
+    SEG_DATAID = Segment.data_seed_id.key  # pylint: disable=invalid-name
+    SEG_MGAP = Segment.maxgap_numsamples.key  # pylint: disable=invalid-name
+    SEG_SRATE = Segment.sample_rate.key  # pylint: disable=invalid-name
+    SEG_DOWNLID = Segment.download_id.key  # pylint: disable=invalid-name
+    SEG_ATIME = Segment.arrival_time.key  # pylint: disable=invalid-name
 
     # set once the dict of column names mapped to their default values.
     # Set nan to let pandas understand it's numeric. None I don't know how it is converted
@@ -220,15 +220,6 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
     SEG_NOT_FOUND = None
 
     stats = DownloadStats()
-
-#     datcen_id2url = datacenters_df.set_index([DC_ID])[DC_DSURL].to_dict()
-#     urlopeners = {}
-#     if usrpswd_dict:
-#         for dcid, (user, password) in usrpswd_dict.items():
-#             urlopeners[dcid] = get_opener(baseurl, user, password)
-
-    
-
     colnames2update = [SEG_DOWNLID, SEG_DATA, SEG_SRATE, SEG_MGAP, SEG_DATAID, SEG_DSCODE,
                        SEG_STIME, SEG_ETIME]
     if update_request_timebounds:
@@ -416,7 +407,7 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                 # break the next loop, if any
                 segments_df = pd.DataFrame()
 
-    segmanager.close()  # flush remaining stuff to insert / update, if any, and prints info
+    segmanager.close()  # flush remaining stuff to insert / update
 
     return stats
 
