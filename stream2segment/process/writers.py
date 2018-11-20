@@ -20,7 +20,9 @@ def get_writer(outputfile=None, append=False):
 
 
 class BaseWriter(object):
-    '''Base class, basically no-op: it can be used in a with statement but it's basically no-op'''
+    '''Base class, basically no-op: it can be used in a with statement but it's basically no-op
+    **IMPORTANT**: subclasses need to call super.__init__ !!!
+    '''
 
     def __init__(self, outputfile=None, append=False):
         self.append = append
@@ -28,6 +30,12 @@ class BaseWriter(object):
         self.seg_id_attname = Segment.id.key
         self.seg_id_colname = "Segment.db.%s" % self.seg_id_attname
         self.outputfilep = None
+        self._isbasewriter = self.__class__ is BaseWriter
+
+    @property
+    def isbasewriter(self):
+        '''property returning if this object is a base writer, i.e., no-op'''
+        return self._isbasewriter
 
     @property
     def outputfileexists(self):
@@ -86,6 +94,7 @@ class CsvWriter(BaseWriter):
     into a csv file'''
 
     def __init__(self, outputfile, append):
+        '''calls super.__init__ (**mandatory**) and sets up class specific stuff'''
         super(CsvWriter, self).__init__(outputfile, append)
         self.csvwriterkwargs = dict(delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
         self.csvwriter = None  # bad hack: in python3, we might use 'nonlocal' @UnusedVariable

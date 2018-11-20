@@ -366,18 +366,18 @@ def process_segment(segment, config, pyfunc):
         return generr, False
 
 
-def process_output(output, is_ok, segment_id, ondone, done_skipped_errors):
+def process_output(output, is_ok, segment_id, writer, done_skipped_errors):
     '''Function processing the output of `:func:process_segment`
     This function MUST be executed in the main python-process, and not from within sub-processes'''
     if is_ok:
-        if ondone:
+        if writer.isbasewriter:
+            done_skipped_errors[0] += 1
+        else:
             if output is not None:
-                ondone(segment_id, output)
+                writer(segment_id, output)
                 done_skipped_errors[0] += 1
             else:
                 done_skipped_errors[1] += 1
-        else:
-            done_skipped_errors[0] += 1
     else:
         logger.warning("segment (id=%d): %s", segment_id, str(output))
         done_skipped_errors[2] += 1

@@ -322,6 +322,10 @@ The GUI can be customized by providing here functions decorated with
 "@gui.preprocess" or "@gui.plot".
 Functions decorated this way (Plot functions) can return only special 'plottable' values
 (basically arrays, more details in their doc-strings, if provided in this template).
+
+Pre-process function
+--------------------
+
 The function decorated with "@gui.preprocess", e.g.:
 ```
 @gui.preprocess
@@ -330,6 +334,10 @@ def applybandpass(segment, config)
 will be associated to a check-box in the GUI. By clicking the check-box,
 all plots of the page will be re-calculated with the output of this function,
 which **must thus return an obspy Stream or Trace object**.
+
+Plot functions
+--------------
+
 The function decorated with "@gui.plot", e.g.:
 ```
 @gui.plot
@@ -343,27 +351,35 @@ You can also call @gui.plot with arguments, e.g.:
 def spectra(segment, config)
 ...
 ```
-The first one controls where the plot
-will be placed in the GUI ('b' means bottom, the default, 'r' means next to the main plot, on its
-right) and the other two, `xaxis` and `yaxis`, are dict (defaulting to the empty dict {})
-controlling the x and y axis of the plot. For info, see:
-https://plot.ly/python/axes/
-When not given, axis types will be inferred from the function's return type (see below) and in most
-cases defaults to 'date' (i.e., date-times on the x values).
-Functions decorated with '@gui.plot' must return
-a numeric sequence y taken at successive equally spaced points in any of these forms:
+The 'position' argument controls where the plot will be placed in the GUI ('b' means bottom,
+the default, 'r' means next to the main plot, on its right) and the other two, `xaxis` and
+`yaxis`, are dict (defaulting to the empty dict {}) controlling the x and y axis of the plot
+(for info, see: https://plot.ly/python/axes/). When not given, axis types will be inferred
+from the function's return type (see below) and in most cases defaults to 'date' (i.e.,
+date-times on the x values).
+
+Functions decorated with '@gui.plot' must return a numeric sequence y taken at successive
+qually spaced points in any of these forms:
+
 - a Trace object
+
 - a Stream object
+
 - the tuple (x0, dx, y) or (x0, dx, y, label), where
-    - x0 (numeric, `datetime` or `UTCDateTime`) is the abscissa of the first point
-    - dx (numeric or `timedelta`) is the sampling period
+
+    - x0 (numeric, `datetime` or `UTCDateTime`) is the abscissa of the first point. If numeric,
+        it is the number of **seconds** since 1st of January 1970, e.g.,
+        45.67 = 45 seconds and 670000 microseconds after midnight of 1970-01-01
+
+    - dx (numeric or `timedelta`) is the sampling period. If numeric, its unit is in seconds,
+        e.g. 45.67 = 45 seconds and 670000 microseconds
+
     - y (numpy array or numeric list) are the sequence values
+
     - label (string, optional) is the sequence name to be displayed on the plot legend.
-    Note: if x0 is numeric and `dx` is a `timedelta` object, then x0 will be converted
-    to `UTCDateTime(x0)`; if x0 is a `datetime` or `UTCDateTime` object and `dx` is
-    numeric, then `dx` will be converted to `timedelta(seconds=dx)`)
+
 - a dict of any of the above types, where the keys (string) will denote each sequence
-  name to be displayed on the plot legend.
+  name to be displayed on the plot legend (and will override the 'label' argument, if provided)
 
 Functions implementation
 ========================

@@ -32,7 +32,7 @@ retry_url_err: true
 retry_mseed_err: false
 # Try to dowonload again already saved segments with no waveform data because of a client error
 # (response code in [400,499])
-retry_client_err: false
+retry_client_err: true
 # Try to dowonload again already saved segments with no waveform data because of a server error
 # (response code in [500,599])
 retry_server_err: true

@@ -366,6 +366,9 @@ class Test(object):
         # test some stuff and get configarg, the the REAL config passed in the processing
         # subroutines:
         assert mock_get_advanced_settings.called
+        # assert there is no "skipped without messages" message, as it should be the case
+        # when there is no function processing the output:
+        assert "skipped without messages" not in result.output.lower()
         assert len(mock_get_advanced_settings.call_args_list) == 1
         configarg = mock_get_advanced_settings.call_args_list[0][0][0]  # positional argument
 

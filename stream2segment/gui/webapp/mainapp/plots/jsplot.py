@@ -75,8 +75,8 @@ class Plot(object):
             `dx=1000*dx.total_seconds()` (if `dx` is not a `timedelta` object).
             Note that a Plot can have series with all the same domain type, otherwise this method
             raises a ValueError
-        :param dx: (numeric, timedelta): the value of the distance of two points on the x axis. See
-            note above for `x0`.
+        :param dx: (numeric, timedelta): the value of the distance of two points on the x axis.
+            See note above for `x0`.
         :param y: (numeric iterable, numpy array) the y values
         :param label: (string or None): the label of this series. Typically, this is the string
             displayed on the plot legend, if any
