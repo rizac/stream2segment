@@ -7,13 +7,13 @@ Http requests with multi-threading (async) utilities
 '''
 from contextlib import closing
 import threading
-import http.client
+# import http.client
 import socket
 from multiprocessing.pool import ThreadPool
 import os
 
 from future.utils import PY2
-from obspy.clients.fdsn.client import Client
+# from obspy.clients.fdsn.client import Client
 
 # make the following(s) behave like python3 counterparts if running from python2.7.x
 # (http://python-future.org/imports.html#aliased-imports):
@@ -145,7 +145,7 @@ class URLException(Exception):
 
 
 def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, decode=None,
-               raise_http_err=True, timeout=None, unordered=True, openers=None, 
+               raise_http_err=True, timeout=None, unordered=True, openers=None,
                **kwargs):  # pylint:disable=too-many-arguments
     """
     Wrapper around `multiprocessing.pool.ThreadPool()` for downloading
@@ -273,11 +273,11 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, dec
         # According to this post:
         # http://stackoverflow.com/questions/29177490/how-do-you-kill-futures-once-they-have-started,
         # after a KeyboardInterrupt this method does not return until all
-        # working threads have finished. Thus, we implement the urlreader._kill flag
+        # working threads have finished. Thus, we implement the `kill` flag
         # which makes them exit immediately, and hopefully this function will return within
         # seconds at most. We catch  a bare except cause we want the same to apply to all
         # other exceptions which we might raise (see few line above)
-        kill = True  # pylint:disable=protected-access
+        kill = True
         # the time here before executing 'raise' below is the time taken to finish all threads.
         # Without the line above, it might be a lot (minutes, hours), now it is much shorter
         # (in the order of few seconds max) and the command below can be executed quickly:

@@ -369,8 +369,8 @@ def _process_downloaded_data(dframe, code, resdict, chaid2mseedid, *args):
     errors = 0
     outtime_warns = 0
     outtime_errs = 0
-    SEG_DATA, SEG_CHAID, SEG_DSCODE, SEG_COLNAMES, \
-        MSEEDERR_CODE, OUTTIME_WARN_CODE, OUTTIME_ERR_CODE = args
+    (SEG_DATA, SEG_CHAID, SEG_DSCODE, SEG_COLNAMES,  # pylint: disable=invalid-name
+     MSEEDERR_CODE, OUTTIME_WARN_CODE, OUTTIME_ERR_CODE) = args  # pylint: disable=invalid-name
     # iterate over dframe rows and assign the relative data
     # Note that we could use iloc which is SLIGHTLY faster than
     # loc for setting the data, but this would mean using column
@@ -447,22 +447,31 @@ class DcDataselectManager(object):
         # Note: Fdsnws might raise, but at this point datacenters_df is assumed to be well
         # formed
         errors = {}  # urls mapped to their exception
+        self._allopen = False
         if authorizer.token:
             token = authorizer.token
             self._data, errors = self._get_data_from_token(dcid2fdsn, token, show_progress)
+            self._allopen = len(errors) >= len(dcid2fdsn)
         elif authorizer.userpass:
             user, password = authorizer.userpass
             self._data, errors = self._get_data_from_userpass(dcid2fdsn, user, password)
         else:  # no authorization required
+            self._allopen = True
             self._data, errors = self._get_data_open(dcid2fdsn)
 
         if errors:
+            logger.info(formatmsg('Downloading open data only from: %s' % ", ".join(errors),
+                                  'Unable to acquire credentials for restricted data'))
             for url, exc in errors.items():
-                logger.warning(formatmsg("Downloading open waveform data, "
+                logger.warning(formatmsg("Downloading open data only, "
                                          "Unable to acquire credentials for restricted data",
                                          str(exc), url))
-            logger.info(formatmsg('Downloading open waveform data from: %s' % ", ".join(errors),
-                                  'Unable to acquire credentials for restricted data'))
+
+    @ property
+    def opendataonly(self):
+        '''Returns true if all datacenters will download open data only. This might happen
+        when no token is provided, or a wrong one'''
+        return self._allopen
 
     @staticmethod
     def _get_data_open(dcid2fdsn):
@@ -495,11 +504,15 @@ class DcDataselectManager(object):
                 pbar.update(1)
                 fdsn = dcid2fdsn[dcid]
                 if exc is None:
-                    user, pswd = result.split(':')
-                    data[dcid] = [fdsn,
-                                  fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERYAUTH),
-                                  get_opener(fdsn.site, user, pswd)]
-                else:
+                    if ':' not in result[0]:
+                        exc = ValueError('Invalid user and password returned. '
+                                         'This could be a data-center bug')
+                    else:
+                        user, pswd = result[0].split(':')
+                        data[dcid] = [fdsn,
+                                      fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERYAUTH),
+                                      get_opener(fdsn.site, user, pswd)]
+                if exc is not None:
                     url = fdsn.site
                     data[dcid] = [fdsn,
                                   fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERY),

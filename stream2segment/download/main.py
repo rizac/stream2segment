@@ -19,7 +19,7 @@ from stream2segment.io.db.pdsql import dbquery2df
 from stream2segment.utils.resources import version
 from stream2segment.download.utils import QuitDownload
 from stream2segment.download.modules.events import get_events_df
-from stream2segment.download.modules.datacenters import get_datacenters_df, get_users_passwords
+from stream2segment.download.modules.datacenters import get_datacenters_df
 from stream2segment.download.modules.channels import get_channels_df, chaid2mseedid_dict
 from stream2segment.download.modules.stationsearch import merge_events_stations
 from stream2segment.download.modules.segments import prepare_for_download,\
@@ -60,7 +60,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
 
     process = psutil.Process(os.getpid()) if isterminal else None
     # calculate steps (note that bool math works, e.g: 8 - True == 7):
-    __steps = 6 + inventory + (True if authorizer.token or authorizer.userpass else False)
+    __steps = 6 + inventory + (True if authorizer.token else False)
     stepiter = iter(range(1, __steps+1))
 
     # custom function for logging.info different steps:
@@ -119,13 +119,14 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
                                  retry_server_err, retry_timespan_err,
                                  retry_timespan_warn=False)
 
-        if authorizer.token or authorizer.userpass:
-            stepinfo("Setting up data-centers credentials for restricted data")
+        if authorizer.token:
+            stepinfo("Acquiring credentials from token in order to download restricted data")
         dc_dataselect_manager = DcDataselectManager(datacenters_df, authorizer, isterminal)
 
         # download_save_segments raises a QuitDownload if there is no data, so if we are here
         # segments_df is not empty
-        stepinfo("Downloading %d segments and saving to db", len(segments_df))
+        stepinfo("Downloading %d segments %sand saving to db", len(segments_df),
+                 '(open data only) ' if dc_dataselect_manager.opendataonly else '')
         # frees memory. Although maybe unecessary, let's do our best to free stuff cause the
         # next one is memory consuming:
         # https://stackoverflow.com/questions/30021923/how-to-delete-a-sqlalchemy-mapped-object-from-memory

@@ -131,17 +131,29 @@ def yaml_load(filepath, **updates):
         # we cannot modify a dict while in iteration, thus create a new dict of possibly
         # modified sqlite paths and use later dict.update
         newdict = {}
-        for k, v in viewitems(ret):
+        for key, val in viewitems(ret):
             try:
-                if v.startswith(sqlite_prefix) and ":memory:" not in v:
-                    dbpath = v[len(sqlite_prefix):]
-                    if not isabs(dbpath):
-                        newdict[k] = sqlite_prefix + abspath(normpath(join(configfilepath, dbpath)))
+                if val.startswith(sqlite_prefix) and ":memory:" not in val:
+                    dbpath = val[len(sqlite_prefix):]
+                    npath = normalizedpath(dbpath, configfilepath)
+                    if npath != dbpath:
+                        newdict[key] = sqlite_prefix + npath
             except AttributeError:
                 pass
-    
+
         ret.update(newdict)
     return ret
+
+
+def normalizedpath(path, basedir):
+    '''normalizes `path` is it's not absolute, making it relative to `basedir`
+
+    :param path: the path
+    :param basedir: the base directory path
+    '''
+    if isabs(path):
+        return path
+    return abspath(normpath(join(basedir, path)))
 
 
 def yaml_load_doc(filepath, varname=None, preserve_newlines=False):

@@ -757,7 +757,8 @@ class Authorizer(object):
                     with open(token_file, 'rb') as fhd:
                         token = fhd.read()
                 self._token = token
-                if not self._validate_eida_token(token):
+                if not self._validate_eida_token(token.decode() if isinstance(token, bytes)
+                                                 else token):
                     raise ValueError("Invalid token. If you passed a file path, "
                                      "check also that the file exists")
 
@@ -776,7 +777,7 @@ class Authorizer(object):
 
     @property
     def token(self):
-        '''returns the token, or None. You can safely use this method also in an if
+        '''returns the token (as bytes), or None. You can safely use this method also in an if
         statement: `if auth.token`, as the token can not be empty'''
         return self._token
 

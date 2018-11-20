@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from future.utils import string_types
 
 from stream2segment.utils.resources import yaml_load, get_ttable_fpath, \
-    get_templates_fpath
+    get_templates_fpath, normalizedpath
 from stream2segment.utils import get_session, strptime, load_source
 from stream2segment.traveltimes.ttloader import TTTable
 from stream2segment.io.db.models import Fdsnws
@@ -318,7 +318,7 @@ def create_session(dburl):
     return get_session(dburl, scoped=False)
 
 
-def create_auth(restricted_data, dataws):
+def create_auth(restricted_data, dataws, configfile=None):
     '''Creates an Auth class (handling authentication/authorization)
     from the given restricted_data
 
@@ -327,6 +327,8 @@ def create_auth(restricted_data, dataws):
     '''
     if restricted_data in ('', None, b''):
         restricted_data = None
+    elif isinstance(restricted_data, string_types) and configfile is not None:
+        restricted_data = normalizedpath(restricted_data, configfile)
     ret = Authorizer(restricted_data)
     # here we have 4 cases: two ok ('eida' + token, any other fdsn + username & password)
     # Bad cases: eida + username & password: raise
@@ -420,7 +422,10 @@ def load_config_for_download(config, parseargs, **param_overrides):
 
         # parse token if provided:
         argument = S2SArgument('restricted_data')
-        dic['authorizer'] = argument.popfrom(dic, callback=create_auth, dataws=dic['dataws'])
+        configfile = config if (isinstance(config, string_types) and os.path.isfile(config))\
+            else None
+        dic['authorizer'] = argument.popfrom(dic, callback=create_auth, dataws=dic['dataws'],
+                                             configfile=configfile)
         remainingkeys -= argument.names  # argument.names is simply set(['restricted_data])
 
         # First, two arguments which have to be replaced (pop=True)
