@@ -562,7 +562,7 @@ class DownloadStats(OrderedDict):
 
         In this case, please note:
         1. titles should be all with first letters capitalized (to conform to HTTP
-           messages implemented in `http.client.responses`)
+           messages implemented as values of `stream2segment.utils.url.responses`)
         2. legends should have the format:
            '<Data saved|No data saved> (download <ok|failed|completed><optional details>)'
         3. The last tuple element is a float denoting the column position (order)
