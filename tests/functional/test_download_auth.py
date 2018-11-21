@@ -1,83 +1,57 @@
-#@PydevCodeAnalysisIgnore
 '''
 Created on Feb 4, 2016
 
 @author: riccardo
 '''
 from __future__ import print_function
-# from event2waveform import getWaveforms
-# from utils import date
-# assert sys.path[0] == os.path.realpath(myPath + '/../../')
 
-from future import standard_library
+from builtins import str, map
+import os
 import random
 import yaml
 import stream2segment
-from stream2segment.download.modules.segments import DcDataselectManager
-standard_library.install_aliases()
-from builtins import str, map
 import re
-import numpy as np
-from mock import patch
-import pytest
-from mock import Mock
+from itertools import cycle, repeat, count, product
+import socket
 from datetime import datetime, timedelta
 import sys
-
+from itertools import product, combinations
+import logging
+from io import BytesIO
+from logging import StreamHandler
+import threading
 # this can apparently not be avoided neither with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
 try:
     from cStringIO import StringIO  # python2.x
 except ImportError:
     from io import StringIO
+from mock import patch
+from mock import Mock
 
-from itertools import product, combinations
 
-import unittest, os
+import numpy as np
+import pandas as pd
+import pytest
 from sqlalchemy.engine import create_engine
-from stream2segment.io.db.models import Base, Event, Class, WebService, Fdsnws
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from stream2segment.cli import cli
-import pandas as pd
-
-from stream2segment.download.main import get_events_df, get_datacenters_df, \
-get_channels_df, merge_events_stations, \
-    prepare_for_download, download_save_segments, save_inventories
-# ,\
-#     get_fdsn_channels_df, save_stations_and_channels, get_dists_and_times, set_saved_dist_and_times,\
-#     download_segments, drop_already_downloaded, set_download_urls, save_segments
-from obspy.core.stream import Stream, read
-from stream2segment.io.db.models import DataCenter, Segment, Download, Station, Channel, WebService,\
-    withdata
-from itertools import cycle, repeat, count, product
-
-import socket
-from obspy.taup.helper_classes import TauModelError
-# import logging
-# from logging import StreamHandler
-
-# from stream2segment.main import logger as main_logger
 from sqlalchemy.sql.expression import func
+from obspy.core.stream import Stream, read
+from obspy.taup.helper_classes import TauModelError
+
+from stream2segment.download.modules.segments import DcDataselectManager
+from stream2segment.cli import cli
+from stream2segment.download.main import get_events_df, get_datacenters_df, get_channels_df, \
+    merge_events_stations, prepare_for_download, download_save_segments, save_inventories
+from stream2segment.io.db.models import Base, Event, Class, WebService, Fdsnws,\
+    DataCenter, Segment, Download, Station, Channel, WebService, withdata
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf,  _get_max as _get_db_autoinc_col_max
-from logging import StreamHandler
-import logging
-from io import BytesIO
-# import urllib.request, urllib.error, urllib.parse
 from stream2segment.download.utils import custom_download_codes
 from stream2segment.download.modules.mseedlite import MSeedError, unpack
-import threading
-# from urllib.error import URLError
-from stream2segment.utils.url import read_async, URLError, HTTPError, get_opener
+from stream2segment.utils.url import read_async, URLError, HTTPError, get_opener, responses
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
 from stream2segment.utils.log import configlog4download
-
-from future.utils import PY2
-if PY2:
-    from BaseHTTPServer import BaseHTTPRequestHandler
-    responses = BaseHTTPRequestHandler.responses
-else:
-    from http.client import responses
 
 # when debugging, I want the full dataframe with to_string(), not truncated
 pd.set_option('display.max_colwidth', -1)
@@ -569,12 +543,13 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                                              *a, **kw)
             self.config_overrides = {'restricted_data': os.path.abspath(tokenfile)}
             result = clirunner.invoke(cli , ['download',
-                                           '-c', self.configfile,
+                                           '-c', pytestdir.yamlfile(self.configfile,
+                                                                    retry_client_err=False),
                                             '--dburl', db.dburl,
                                            '--start', '2016-05-08T00:00:00',
                                            '--end', '2016-05-08T9:00:00'])
             assert clirunner.ok(result)
-            assert 'restricted_data: enabled, with token' in result.output
+            assert 'restricted_data: %s' % os.path.abspath(tokenfile) in result.output
             assert 'STEP 6 of 8: Acquiring credentials from token' in result.output
             # assert we print that we are downloading open and restricted data:
             assert re.search(r'STEP 7 of 8\: Downloading \d+ segments and saving to db',

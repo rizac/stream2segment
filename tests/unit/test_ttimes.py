@@ -4,22 +4,18 @@ Created on Sep 4, 2017
 @author: riccardo
 '''
 from __future__ import division
-from future import standard_library
-import pytest
-standard_library.install_aliases()
 
-from stream2segment.cli import ttcreate
-from builtins import zip
-from builtins import str
+from builtins import zip, str
+from os.path import dirname, join, isfile
+
 from past.utils import old_div
 import numpy as np
-from os.path import dirname, join, isfile
-import unittest
+import pytest
+from click.testing import CliRunner
+
+from stream2segment.cli import ttcreate
 from stream2segment.traveltimes.ttloader import TTTable
 from stream2segment.traveltimes import ttcreator
-# from stream2segment.download.utils import get_min_travel_time
-from click.testing import CliRunner
-import os
 from stream2segment.traveltimes.ttcreator import _filepath, StepIterator, min_traveltimes,\
     min_traveltime
 
@@ -64,7 +60,7 @@ def test_ttcreator(pytestdir):
                                            phase, '-s', 51.3, '-r', 2, '-d', 34.3],
                            catch_exceptions=False)
     assert result.exit_code == 0
-    assert os.path.isfile(_filepath(mydir, 'iasp91', [phase]) + ".npz")
+    assert isfile(_filepath(mydir, 'iasp91', [phase]) + ".npz")
         # fixme: we should load the file and assert something...
 
 
@@ -83,7 +79,7 @@ def test_ttcreator_tts(pytestdir):
                                            phase, '-s', 51.3, '-r', 0 , '-d', 34.3],
                            catch_exceptions=False)
     assert result.exit_code == 0
-    assert os.path.isfile(_filepath(mydir, 'ak135', [phase]) + ".npz")
+    assert isfile(_filepath(mydir, 'ak135', [phase]) + ".npz")
         # fixme: we should load the file and assert something...
 
 

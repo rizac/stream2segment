@@ -1,81 +1,57 @@
-#@PydevCodeAnalysisIgnore
 '''
 Created on Feb 4, 2016
 
 @author: riccardo
 '''
 from __future__ import print_function
-# from event2waveform import getWaveforms
-# from utils import date
-# assert sys.path[0] == os.path.realpath(myPath + '/../../')
 
-from future import standard_library
+from builtins import str, map
+import os
 import random
 import yaml
-standard_library.install_aliases()
-from builtins import str, map
 import re
 import numpy as np
-from mock import patch
-import pytest
-from mock import Mock
 from datetime import datetime, timedelta
 import sys
-
+from itertools import product, combinations
+import socket
+from itertools import cycle, repeat, count, product
+from logging import StreamHandler
+import logging
+from io import BytesIO
+import threading
 # this can apparently not be avoided neither with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
 try:
     from cStringIO import StringIO  # python2.x
 except ImportError:
     from io import StringIO
+from mock import patch
+from mock import Mock
 
-from itertools import product, combinations
-
-import unittest, os
+import pytest
+import pandas as pd
 from sqlalchemy.engine import create_engine
-from stream2segment.io.db.models import Base, Event, Class, WebService
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from stream2segment.cli import cli
-import pandas as pd
-
-from stream2segment.download.main import get_events_df, get_datacenters_df, \
-get_channels_df, merge_events_stations, \
-    prepare_for_download, download_save_segments, save_inventories
-# ,\
-#     get_fdsn_channels_df, save_stations_and_channels, get_dists_and_times, set_saved_dist_and_times,\
-#     download_segments, drop_already_downloaded, set_download_urls, save_segments
-from obspy.core.stream import Stream, read
-from stream2segment.io.db.models import DataCenter, Segment, Download, Station, Channel, WebService,\
-    withdata
-from itertools import cycle, repeat, count, product
-
-import socket
-from obspy.taup.helper_classes import TauModelError
-# import logging
-# from logging import StreamHandler
-
-# from stream2segment.main import logger as main_logger
 from sqlalchemy.sql.expression import func
-from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf,  _get_max as _get_db_autoinc_col_max
-from logging import StreamHandler
-import logging
-from io import BytesIO
-# import urllib.request, urllib.error, urllib.parse
+
+from obspy.core.stream import Stream, read
+from obspy.taup.helper_classes import TauModelError
+
+from stream2segment.cli import cli
+from stream2segment.download.main import get_events_df, get_datacenters_df, \
+    get_channels_df, merge_events_stations, \
+    prepare_for_download, download_save_segments, save_inventories
+from stream2segment.io.db.models import DataCenter, Segment, Download, Station, Channel, \
+    WebService, withdata, Base, Event, Class, WebService
+from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf,\
+    _get_max as _get_db_autoinc_col_max
 from stream2segment.download.utils import custom_download_codes
 from stream2segment.download.modules.mseedlite import MSeedError, unpack
-import threading
-# from urllib.error import URLError
-from stream2segment.utils.url import read_async, URLError, HTTPError
+from stream2segment.utils.url import read_async, URLError, HTTPError, responses
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
 from stream2segment.utils.log import configlog4download
-
-from future.utils import PY2
-if PY2:
-    from BaseHTTPServer import BaseHTTPRequestHandler
-    responses = BaseHTTPRequestHandler.responses
-else:
-    from http.client import responses
 
 # when debugging, I want the full dataframe with to_string(), not truncated
 pd.set_option('display.max_colwidth', -1)
@@ -596,24 +572,19 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert mock_download_save_segments.called
 
 
-
         # Ok, now with the current config 413 is not retried: 
         # check that now we should skip all segments
         # FIX nov 2018: retry_client_err is now True by default.
-        # Replace it
-        newconfigfile = pytestdir.newfile('.yaml', create=True)
-        with open(self.configfile) as fp:
-            data = yaml.load(fp)
-        data['retry_client_err'] = False
-        with open(newconfigfile, 'w') as outfile:
-            yaml.dump(data, outfile, default_flow_style=False)
+        # That's why we use pytestdir.yamlfile below
+
         # reset mock and run with newconfigfile:
         mock_download_save_segments.reset_mock()
         result = clirunner.invoke(cli , ['download', 
-                                       '-c', newconfigfile,
-                                       '--dburl', db.dburl,
-                                       '--start', '2016-05-08T00:00:00',
-                                       '--end', '2016-05-08T9:00:00'])
+                                         '-c', pytestdir.yamlfile(self.configfile,
+                                                                  retry_client_err=False),
+                                         '--dburl', db.dburl,
+                                         '--start', '2016-05-08T00:00:00',
+                                         '--end', '2016-05-08T9:00:00'])
         assert clirunner.ok(result)
         assert not mock_download_save_segments.called
         
@@ -625,11 +596,12 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert str_err not in self.log_msg()
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(500, *a, **v) 
         mock_download_save_segments.reset_mock()
-
-        result = clirunner.invoke(cli , ['download', '-c', newconfigfile,
-                                       '--dburl', db.dburl,
-                                       '--start', '2016-05-08T00:00:00',
-                                       '--end', '2016-05-08T9:00:00'])
+        result = clirunner.invoke(cli , ['download',
+                                         '-c', pytestdir.yamlfile(self.configfile,
+                                                                  retry_client_err=False),
+                                         '--dburl', db.dburl,
+                                         '--start', '2016-05-08T00:00:00',
+                                         '--end', '2016-05-08T9:00:00'])
         assert clirunner.ok(result)
         assert not mock_download_save_segments.called
         x = self.log_msg()

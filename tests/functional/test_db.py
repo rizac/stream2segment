@@ -1,33 +1,32 @@
-#@PydevCodeAnalysisIgnore
 '''
 Created on Jul 15, 2016
 
 @author: riccardo
 '''
-from builtins import str
-from builtins import range
+from builtins import str, range
 import pytest, os
 import unittest
 import numpy as np
 import os
-from stream2segment.io.db.models import Base, Event, WebService, Channel, Station, \
-    DataCenter, Segment, Class, Download, ClassLabelling, withdata
+import time
+from datetime import datetime, timedelta
+
+import pandas as pd
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, load_only
-import pandas as pd
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError, DataError
-from stream2segment.io.db.pdsql import _harmonize_columns, harmonize_columns, \
-    harmonize_rows, colnames, dbquery2df
-from stream2segment.io.utils import dumps_inv, loads_inv
 from sqlalchemy.orm.exc import FlushError
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.inspection import inspect
-from datetime import datetime, timedelta
 from sqlalchemy.orm.session import object_session
 from sqlalchemy.sql.expression import func, bindparam
-import time
+
+from stream2segment.io.db.models import Base, Event, WebService, Channel, Station, \
+    DataCenter, Segment, Class, Download, ClassLabelling, withdata
+from stream2segment.io.db.pdsql import _harmonize_columns, harmonize_columns, \
+    harmonize_rows, colnames, dbquery2df
+from stream2segment.io.utils import dumps_inv, loads_inv
 from stream2segment.io.db.sqlevalexpr import exprquery
-# from stream2segment.process.core import query4process
 from stream2segment.utils import get_session
 
 class Test(object):

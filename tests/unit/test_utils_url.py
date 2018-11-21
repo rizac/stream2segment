@@ -1,4 +1,3 @@
-#@PydevCodeAnalysisIgnore
 '''
 Created on Nov 18, 2016
 
@@ -6,20 +5,18 @@ Created on Nov 18, 2016
 '''
 from builtins import str
 from builtins import next
-import unittest
-
-import concurrent.futures
 import time
 import threading
-import http.client
 import mock
-from stream2segment.utils.url import _ismainthread, read_async
 from mock import patch
 from itertools import product, cycle
-import pytest
-from stream2segment.utils.url import URLError
 from time import sleep
 from subprocess import call
+
+import pytest
+
+from stream2segment.utils.url import _ismainthread, read_async
+from stream2segment.utils.url import URLError
 
 
 class Test(object):

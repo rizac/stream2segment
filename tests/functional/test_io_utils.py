@@ -5,10 +5,11 @@ Created on Sep 14, 2017
 '''
 from builtins import range
 import os
-import unittest
-from stream2segment.io.utils import compress, decompress
 from itertools import product
+
 import pytest
+
+from stream2segment.io.utils import compress, decompress
 
 
 def test_compress_decompress():

@@ -5,16 +5,17 @@ Created on Apr 9, 2017
 '''
 import os
 from datetime import datetime, timedelta
-from obspy.core.stream import read, Stream
-# from cStringIO import StringIO
+from io import BytesIO
 from math import log
 from collections import defaultdict
-from stream2segment.download.modules.mseedlite import unpack, _FIXHEAD_LEN, MSeedError, Input
-import pytest
+
 import numpy as np
+import pytest
+from obspy.core.stream import read, Stream
 from obspy.core.trace import Trace
 from obspy.io.mseed.core import _read_mseed
-from io import BytesIO
+
+from stream2segment.download.modules.mseedlite import unpack, _FIXHEAD_LEN, MSeedError, Input
 
 
 @pytest.fixture
@@ -23,7 +24,7 @@ def mock_response_inbytes(data, scope='module'):
     class Return(object):
 
         def __call__(self, with_gaps=False):
-            name = "IA.BAKI..BHZ.D.2016.004.head" if with_gaps else "GE.FLT1..HH?.mseed" 
+            name = "IA.BAKI..BHZ.D.2016.004.head" if with_gaps else "GE.FLT1..HH?.mseed"
             return data.read(name)
 
     return Return()
@@ -147,7 +148,8 @@ def test_standard_timebounds(mock_response_inbytes):
         # check the time differences between these unpacked data and the original miniseed without
         # time bounds: the new time diffs should be greater than the old time diffs:
         timediffs2 = list(max(abs(v[4] - s2s_stream[i].stats.starttime.datetime),
-                              abs(v[5]-s2s_stream[i].stats.endtime.datetime)) for i, v in enumerate(dic.values()))
+                              abs(v[5] - s2s_stream[i].stats.endtime.datetime))
+                          for i, v in enumerate(dic.values()))
         assert all(t2 > t1 for t2, t1 in zip(timediffs2, timediffs))
 
     # now test for complete out of bounds:
@@ -159,7 +161,7 @@ def test_standard_timebounds(mock_response_inbytes):
     # AND no errors are found (v[0] is None)
     # AND that the last element v[6] (chunks out of bounds) is True
     assert all(v[1] == b'' and v[0] is None and v[6] is True for v in dic.values())
-    
+
 
 def test_fsamp_mismatchs(mock_response_inbytes):
     bytez = mock_response_inbytes()
@@ -197,7 +199,7 @@ def test_fsamp_mismatchs(mock_response_inbytes):
     # and whose second element (the data) is None
     values = list(dic.values())[0]
     assert str(values[0]) == "records sample rate mismatch" and values[1] is None
-   
+
 
 def test_with_gaps_overlaps(mock_response_inbytes):
     bytez = mock_response_inbytes(True)
@@ -207,7 +209,7 @@ def test_with_gaps_overlaps(mock_response_inbytes):
     assert not haserr(dic)
     assert len(dic) == 1
     values = list(dic.values())[0]
-    
+
     # get the same dict by calling obspy.read:
     obspy_stream = get_stream(bytez)
     obspygaps = obspy_stream.get_gaps()
@@ -305,7 +307,3 @@ def test_invalid_pointers(mock_response_inbytes):
 #     # However, for the trace saved, the traces are the same:
 #     assert all(np.array_equal(read(StringIO(x))[0].data,
 #                               obspy_dic[id].data) for id, x in mseed_dic.iteritems())
-    
-    
-
-

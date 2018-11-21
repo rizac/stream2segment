@@ -1,4 +1,3 @@
-#@PydevCodeAnalysisIgnore
 # -*- coding: utf-8 -*-
 '''
 Created on Feb 4, 2016
@@ -7,28 +6,26 @@ Created on Feb 4, 2016
 '''
 from __future__ import print_function
 
-from stream2segment.download.main import get_datacenters_df
-from stream2segment.io.db.models import DataCenter
-import re
-
 from builtins import zip
-from mock import patch
-import pytest
-from mock import Mock
 from datetime import datetime, timedelta
-from io import StringIO
-import stream2segment
-from stream2segment.download.modules.stationsearch import locations2degrees as s2sloc2deg, get_search_radius
-from stream2segment.download.modules.datacenters import EidaValidator
-from stream2segment.download.utils import custom_download_codes, DownloadStats, to_fdsn_arg, intkeysdict
-from obspy.geodetics.base import locations2degrees  as obspyloc2deg
-import numpy as np
-import pandas as pd
-import code
+import re
+from mock import patch, Mock
 from itertools import count, product
 import time
+
+import pytest
+import numpy as np
+import pandas as pd
+from obspy.geodetics.base import locations2degrees  as obspyloc2deg
 from obspy.taup.tau_model import TauModel
 
+from stream2segment.download.main import get_datacenters_df
+from stream2segment.io.db.models import DataCenter
+from stream2segment.download.modules.stationsearch import locations2degrees as s2sloc2deg,\
+    get_search_radius
+from stream2segment.download.modules.datacenters import EidaValidator
+from stream2segment.download.utils import custom_download_codes, DownloadStats, to_fdsn_arg,\
+    intkeysdict
 
 @pytest.mark.parametrize('lat1, lon1, lat2, lon2',
                          [
@@ -51,18 +48,17 @@ def dummy_test_perf():
     lon1 = np.random.randint(0, 90, N).astype(float)
     lat2 = np.random.randint(0, 90, N).astype(float)
     lon2 = np.random.randint(0, 90, N).astype(float)
-    
+
     s = time.time()
     s2sloc2deg(lat1, lon1, lat2, lon2)
     end = time.time() - s
-    
+
     s2 = time.time()
     for l1, l2, l3, l4 in zip(lat1, lon1, lat2, lon2):
         s2sloc2deg(l1, l2, l3, l4)
     end2 = time.time() - s2
-    
-    print("%d loops. Numpy loc2deg: %f, obspy loc2deg: %f" % (N, end, end2))        
 
+    print("%d loops. Numpy loc2deg: %f, obspy loc2deg: %f" % (N, end, end2))        
 
 @pytest.mark.parametrize('mag, minmag_maxmag_minradius_maxradius, expected_val',
                          [
@@ -83,27 +79,25 @@ def test_get_search_radius(mag, minmag_maxmag_minradius_maxradius, expected_val)
         assert get_search_radius(*minmag_maxmag_minradius_maxradius) == expected_val
     except ValueError:  # we passed an array as magnitude, so check with numpy.all()
         assert (get_search_radius(*minmag_maxmag_minradius_maxradius) == expected_val).all()
-            
-            
 
 def test_stats_table():
-    
+
     ikd = intkeysdict()
     ikd['a'] += 5
     ikd['b'] = 5
     ikd[1] += 5
     ikd[2] = 5
-    
+
     assert all(_ in ikd for _ in ['a', 'b', 1, 2])
-    
+
     urlerr, mseederr, tbound_err, tbound_warn = custom_download_codes()
     seg_not_found = None
-    
+
     d = DownloadStats()
     assert str(d) == ""
-    
+
     d['geofon'][200] += 5
-    
+
     assert str(d) == """
         OK  TOTAL
 ------  --  -----
@@ -112,9 +106,9 @@ TOTAL    5      5
 
 COLUMNS DETAILS:
  - OK: Data saved (download ok, no additional warning)"""[1:]
-    
+
     d['geofon']['200'] += 100
-    
+
     assert str(d) == """
         OK   TOTAL
 ------  ---  -----
@@ -124,9 +118,8 @@ TOTAL   105    105
 COLUMNS DETAILS:
  - OK: Data saved (download ok, no additional warning)"""[1:]
 
-    
     d['geofon'][413] += 5
-    
+
     assert str(d) == """
              Request       
              Entity        
@@ -139,9 +132,9 @@ TOTAL   105        5    110
 COLUMNS DETAILS:
  - OK: Data saved (download ok, no additional warning)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)"""[1:]
-    
+
     d['geofon'][urlerr] += 3
-    
+
     assert str(d) == """
                     Request       
                     Entity        
@@ -155,9 +148,9 @@ COLUMNS DETAILS:
  - OK: Data saved (download ok, no additional warning)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)"""[1:]
-    
+
     d['geofon'][mseederr] += 11
-    
+
     assert str(d) == """
                            Request       
                            Entity        
@@ -172,9 +165,9 @@ COLUMNS DETAILS:
  - MSeed Error: No data saved (download ok, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)"""[1:]
-   
+
     d['eida'][tbound_err] += 3
-    
+
     assert str(d) == """
                                   Request       
              Time                 Entity        
@@ -191,9 +184,9 @@ COLUMNS DETAILS:
  - MSeed Error: No data saved (download ok, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)"""[1:]
-   
+
     d['eida'][tbound_warn] += 0
-    
+
     assert str(d) == """
                                              Request       
              OK         Time                 Entity        
@@ -211,9 +204,9 @@ COLUMNS DETAILS:
  - MSeed Error: No data saved (download ok, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)"""[1:]
-    
+
     d['eida'][tbound_warn] += 6
-    
+
     assert str(d) == """
                                              Request       
              OK         Time                 Entity        
@@ -231,9 +224,9 @@ COLUMNS DETAILS:
  - MSeed Error: No data saved (download ok, malformed MiniSeed data)
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)"""[1:]
-   
+
     d['geofon'][500] += 1
-    
+
     assert str(d) == """
                                              Request                 
              OK         Time                 Entity   Internal       
@@ -252,10 +245,9 @@ COLUMNS DETAILS:
  - Url Error: No data saved (download failed, generic url error: timeout, no internet connection, ...)
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
  - Internal Server Error: No data saved (download failed: Server error, server response code 500)"""[1:]
-    
-    
+
     d['eida'][300] += 3
-    
+
     assert str(d) == """
                                              Request                           
              OK         Time                 Entity   Internal                 
@@ -275,10 +267,9 @@ COLUMNS DETAILS:
  - Request Entity Too Large: No data saved (download failed: Client error, server response code 413)
  - Internal Server Error: No data saved (download failed: Server error, server response code 500)
  - Multiple Choices: Data status unknown (download completed, server response code 300 indicates Redirection)"""[1:]
-    
-     
+
     d['geofon'][599] += 3
-    
+
     assert str(d) == """
                                              Request                                 
              OK         Time                 Entity   Internal                       
@@ -299,9 +290,9 @@ COLUMNS DETAILS:
  - Internal Server Error: No data saved (download failed: Server error, server response code 500)
  - Multiple Choices: Data status unknown (download completed, server response code 300 indicates Redirection)
  - Code 599: Data status unknown (download completed, server response code 599 is unknown)"""[1:]
-    
+
     d['eida'][204] += 3
-    
+
     assert str(d) == """
                                                       Request                                 
              OK                  Time                 Entity   Internal                       
@@ -323,10 +314,9 @@ COLUMNS DETAILS:
  - Internal Server Error: No data saved (download failed: Server error, server response code 500)
  - Multiple Choices: Data status unknown (download completed, server response code 300 indicates Redirection)
  - Code 599: Data status unknown (download completed, server response code 599 is unknown)"""[1:]
-     
-    
+
     d['what'][seg_not_found] += 0
-    
+
     assert str(d) == """
                                                                Request                                 
              OK                  Time                 Segment  Entity   Internal                       
@@ -350,10 +340,9 @@ COLUMNS DETAILS:
  - Internal Server Error: No data saved (download failed: Server error, server response code 500)
  - Multiple Choices: Data status unknown (download completed, server response code 300 indicates Redirection)
  - Code 599: Data status unknown (download completed, server response code 599 is unknown)"""[1:]
-    
-    
+
     d['geofon'][413] += 33030000
-    
+
     assert str(d) == """
                                                                Request                                     
              OK                  Time                 Segment  Entity    Internal                          
@@ -379,7 +368,7 @@ COLUMNS DETAILS:
  - Code 599: Data status unknown (download completed, server response code 599 is unknown)"""[1:]
 
     d['what'][100] -= 8  # try a negative one. It should work
-    
+
     assert str(d) == """
                                                                Request                                               
              OK                  Time                 Segment  Entity    Internal                                    
@@ -405,13 +394,12 @@ COLUMNS DETAILS:
  - Multiple Choices: Data status unknown (download completed, server response code 300 indicates Redirection)
  - Code 599: Data status unknown (download completed, server response code 599 is unknown)"""[1:]
 
-
     # test supplying an object as http code (e.g. a regular expression),
     # everything should work anyway. As classes string representations might have different across
     # python version, supply a new object
-    
+
     class MYObj():
-        
+
         def __str__(self):
             return 'abc_123'
     d['what'][MYObj()] = 14
@@ -441,10 +429,9 @@ COLUMNS DETAILS:
  - Multiple Choices: Data status unknown (download completed, server response code 300 indicates Redirection)
  - Code 599: Data status unknown (download completed, server response code 599 is unknown)
  - Code abc_123: Data status unknown (download completed, server response code abc_123 is unknown)"""[1:]
-    
 
     d['what']['206'] = 14
-    
+
     assert str(d) == """
                                                                         Request                                                        
              OK                           Time                 Segment  Entity    Internal                                             
@@ -472,18 +459,17 @@ COLUMNS DETAILS:
  - Code 599: Data status unknown (download completed, server response code 599 is unknown)
  - Code abc_123: Data status unknown (download completed, server response code abc_123 is unknown)"""[1:]
 
-
 def eq(str1, str2):
     """too much pain to compare if two dataframes string representations are equal: sometimes
     alignment are different (the number of spaces) and the result is ok BUT == returns False.
     let's implement a custom method which tests what we cares"""
-    
+
     ll1 = str1.split("\n")
     ll2 = str2.split("\n")
-    
+
     if len(ll1) != len(ll2):
         return False
-    
+
     # assert splits on each line returns the same lists and if there is an offset
     # (different num spaces) this offset is maintained
     offset = None
@@ -494,17 +480,16 @@ def eq(str1, str2):
 
         c1 = l1.split()
         c2 = l2.split()
-        
+
         if c1 != c2:
             return False
-        
+
         if i == 1: # skip header (i==0, lengths might not match)
             offset = len(l1) - len(l2)
         elif i > 1 and offset != len(l1) - len(l2):
             return False
 
     return True
-    
 
 def test_eidavalidator():
     responsetext = """http://ws.resif.fr/fdsnws/station/1/query
@@ -521,7 +506,7 @@ http:wrong
                          data=[[1, 'http://ws.resif.fr/fdsnws/station/1/query', 'http://ws.resif.fr/fdsnws/dataselect/1/query' ],
                                [2, 'http://eida.ethz.ch/fdsnws/station/1/query', 'http://eida.ethz.ch/fdsnws/dataselect/1/query' ]])
     eidavalidator = EidaValidator(dc_df, responsetext)
-    
+
     tests = {
         (1, 'Z3', 'A001A', '01', 'HLLL'): False,
         (1, 'Z3', 'A001A', '01', 'HLL'): True,
@@ -541,7 +526,7 @@ http:wrong
         (1, 'YFA', 'aewf*', '', 'HHH'): False,
         (1, 'YFA', 'aewf*', '', 'HHH'): False,
         }
-    
+
     for k, expected in tests.items():
         assert eidavalidator.isin(*k) == expected
 
@@ -563,16 +548,15 @@ def test_to_fdsn_arg():
 
     val = ['A' , 'B']
     assert to_fdsn_arg(val) == 'A,B'
-    
+
     val = ['!A' , 'B']
     assert to_fdsn_arg(val) == 'B'
-    
+
     val = ['!A' , 'B  ']
     assert to_fdsn_arg(val) == 'B  '
-    
 
 # PIECES OF MUSEUMS BELOW!!! preserving as one would do with ancient ruins ;)    
-    
+
 # @pytest.mark.parametrize('inargs, expected_dt',
 #                          [
 #                            ((56,True,True), 56),
@@ -598,7 +582,6 @@ def test_to_fdsn_arg():
 #                            ]
 #                          )
 
-        
 # @pytest.mark.parametrize('prepare_datestr_return_value, strptime_callcount, expected_dt',
 #                          [
 #                           (56, 1, TypeError()),
@@ -639,7 +622,6 @@ def test_to_fdsn_arg():
 #     first_args_to_strptime = [c[0][0] for c in mock_strptime.call_args_list]
 #     assert all(x == prepare_datestr_return_value for x in first_args_to_strptime)
 #     assert mock_strptime.call_count == strptime_callcount
-
 
 # @patch('stream2segment.download.utils.url_read', return_value='url_read')
 # def test_get_events(mock_url_read):  # , mock_urlopen, mock_request):
@@ -734,7 +716,6 @@ def test_to_fdsn_arg():
 #         assert not mock_url_read.called
 #         mock_get_tr.assert_called_with('d', minutes=('3','5'))
 
-
 # @patch('stream2segment.query_utils.url_read', return_value='url_read')
 # def test_get_stations(mock_url_read):
 #     mock_url_read.reset_mock()
@@ -794,7 +775,6 @@ def test_to_fdsn_arg():
 #         assert lst[0][6] == d
 #         assert lst[0][7] == d2
 
-
 # @patch('stream2segment.query_utils.timedelta', side_effect=lambda *args, **kw: timedelta(*args, **kw))
 # def test_get_timerange(mock_timedelta):
 #     mock_timedelta.reset_mock()
@@ -830,7 +810,6 @@ def test_to_fdsn_arg():
 #         _, _ = get_time_range(d, days="abc", minutes=1)
 #         # assert mock_timedelta.called
 
-
 # @patch('mod_a.urllib2.urlopen')
 # def mytest(mock_urlopen):
 #     a = Mock()
@@ -850,7 +829,7 @@ def test_to_fdsn_arg():
 #         raise IOError('oops')
 #     mock_ul.urlopen.read.side_effect = excp
 #     assert url_read(val, "name") == ''
-    
+
 # @patch('stream2segment.query_utils.ul.urlopen')
 # def test_url_read(mock_ul_urlopen):  # mock_ul_urlopen, mock_ul_request, mock_ul):
 #     a = Mock()
@@ -863,8 +842,6 @@ def test_to_fdsn_arg():
 #     assert url_read(val, "name") == "resp2"
 #     
 #     pass
-
-
 
 # @patch('stream2segment.query_utils.locations2degrees', return_value = 'l2d')
 # @patch('stream2segment.query_utils.get_arrival_time')
@@ -905,7 +882,6 @@ def test_to_fdsn_arg():
 #                                   "end": "end",
 #                                   "outpath": "outpath"})
 #     assert not mock_gs.called and not mock_gw.called and not mock_gat.called and not mock_ltd.called
-
 
 # # global vars (FIXME: check if good!)
 # dcs = {'dc1' : 'www.dc1'}
@@ -1093,8 +1069,6 @@ def test_to_fdsn_arg():
 #     mock_os_path_join.assert_called_with('outpath', 'ev-%s-%s-%s.mseed' % (ev[0], st[1], mock_gw.return_value[0]))
 #     mock_open.assert_called_with(mock_os_path_join.return_value, 'wb')
 
-
-
 # mock_dt.py
 # import datetime
 # import mock
@@ -1125,4 +1099,3 @@ def test_to_fdsn_arg():
 #     
 #     
 #     return mock.patch.object(dt, 'datetime', MockedDatetime)
-

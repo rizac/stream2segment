@@ -1,38 +1,37 @@
-#@PydevCodeAnalysisIgnore
 '''
 Created on Jul 15, 2016
 
 @author: riccardo
 '''
 from builtins import str
-import pytest, os
-import unittest
-import numpy as np
 import os
-from stream2segment.io.db.models import Base  # This is your declarative base class
+from datetime import datetime, timedelta
+
+import pytest
+import numpy as np
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 import pandas as pd
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError, InvalidRequestError, ProgrammingError
-from stream2segment.io.db.pdsql import _harmonize_columns, harmonize_columns,\
-    harmonize_rows, colnames, dbquery2df
-from stream2segment.io.utils import dumps_inv, loads_inv
 from sqlalchemy.orm.exc import FlushError
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.inspection import inspect
-from datetime import datetime, timedelta
 from sqlalchemy.orm.session import object_session
-from stream2segment.io.db.sqlevalexpr import exprquery, binexpr, inspect_list, inspect_model,\
-    inspect_instance
-from stream2segment.io.db.models import ClassLabelling, Class, Segment, Station, Channel,\
-    Event, DataCenter, Download, WebService
 from sqlalchemy.sql.expression import desc
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.hybrid import hybrid_property, hybrid_method
-
 from sqlalchemy.orm.query import aliased
 from sqlalchemy.sql.functions import func
+
+from stream2segment.io.db.models import Base  # This is your declarative base class
+from stream2segment.io.db.pdsql import _harmonize_columns, harmonize_columns,\
+    harmonize_rows, colnames, dbquery2df
+from stream2segment.io.utils import dumps_inv, loads_inv
+from stream2segment.io.db.sqlevalexpr import exprquery, binexpr, inspect_list, inspect_model,\
+    inspect_instance
+from stream2segment.io.db.models import ClassLabelling, Class, Segment, Station, Channel,\
+    Event, DataCenter, Download, WebService
 
 class Test(object):
 

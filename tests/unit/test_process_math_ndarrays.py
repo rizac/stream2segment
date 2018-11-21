@@ -1,4 +1,3 @@
-#@PydevCodeAnalysisIgnore
 '''
 Created on Feb 23, 2016
 
@@ -6,26 +5,23 @@ Created on Feb 23, 2016
 '''
 from __future__ import division
 
-from past.utils import old_div
-import mock, os, sys
-import pytest
+import mock
+import os
+import sys
 import re
 import argparse
+from mock.mock import patch, Mock
+from itertools import count
+
+from past.utils import old_div
+import pytest
 import numpy as np
-from numpy import true_divide as np_true_divide  # needed for mock and return original func (see below)
+from numpy import true_divide as np_true_divide
 import pandas as pd
-from stream2segment.process.math.ndarrays import cumsumsq, argtrim, snr, dfreq, freqs, powspec, \
-    triangsmooth
 from scipy.signal import hilbert
 
-from mock.mock import patch, Mock
-# from obspy.core.inventory import read_inventory
-# from obspy.core import read as obspy_read
-# from obspy.core import Trace, Stream
-# from StringIO import StringIO
-# from obspy.io.stationxml.core import _read_stationxml
-# from obspy.core.trace import Trace
-from itertools import count
+from stream2segment.process.math.ndarrays import cumsumsq, argtrim, snr, dfreq, freqs, powspec, \
+    triangsmooth
 
 
 @pytest.mark.parametrize('y',

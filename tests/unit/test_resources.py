@@ -3,9 +3,10 @@ Created on 14 Mar 2018
 
 @author: riccardo
 '''
+import os
+
 from stream2segment.utils.resources import yaml_load, get_templates_fpath, get_templates_fpaths,\
     get_templates_dirpath
-import os
 
 
 def test_yaml_load():

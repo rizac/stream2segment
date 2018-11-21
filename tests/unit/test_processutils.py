@@ -3,16 +3,18 @@ Created on Oct 7, 2017
 
 @author: riccardo
 '''
-import unittest
 import os
-import numpy as np
-from obspy.core.stream import read
-from stream2segment.process.utils import get_stream, get_slices
 from mock import patch
 from io import BytesIO
-import pytest
 import time
 from tempfile import NamedTemporaryFile
+
+import pytest
+import numpy as np
+from obspy.core.stream import read
+
+from stream2segment.process.utils import get_stream, get_slices
+
 
 class MockSegment(object):
      def __init__(self, data):
@@ -74,7 +76,3 @@ def test_getindices(input, expected_result):
         assert np.array_equal(nparray, expected_list[s:e])
     # test for safety that we get until the last element:
     assert np.array_equal(nparray[-1], expected_list[-1])
-
-if __name__ == "__main__":
-    #import sys;sys.argv = ['', 'Test.testName']
-    unittest.main()

@@ -6,16 +6,16 @@ Created on Feb 14, 2017
 from __future__ import print_function, division
 
 from builtins import str, object  # pylint: disable=redefined-builtin
-
 import os
 from datetime import datetime, timedelta
 import mock
-from mock import patch, MagicMock
-from future.backports.urllib.error import URLError
+from mock import patch
+import re
+
 import pytest
 import numpy as np
-
 from obspy.core.stream import read
+from future.utils import integer_types
 
 from stream2segment.cli import cli
 from stream2segment.io.db.models import Base, Event, Station, WebService, Segment,\
@@ -26,13 +26,9 @@ from stream2segment.process.main import run as process_main_run, \
     process_segments_mp as o_process_segments_mp, \
     _get_chunksize_defaults as _o_get_chunksize_defaults, query4process
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
-
-from future import standard_library
+from stream2segment.utils.url import URLError
 from stream2segment.utils.resources import get_templates_fpaths
-import re
 from stream2segment.process.writers import BaseWriter
-from future.utils import native, integer_types
-standard_library.install_aliases()
 
 
 def yaml_load_side_effect(**overrides):
@@ -422,4 +418,5 @@ class Test(object):
                 # futures.newint. The type check is made by checking we have an integer
                 # type as the native type. For info see:
                 # http://python-future.org/what_else.html#passing-data-to-from-python-2-libraries
-                assert type(native(real_advanced_settings['num_processes'])) in integer_types
+                # assert type(native(real_advanced_settings['num_processes'])) in integer_types
+                assert isinstance(real_advanced_settings['num_processes'], integer_types)

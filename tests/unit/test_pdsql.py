@@ -3,27 +3,26 @@ Created on Apr 11, 2017
 
 @author: riccardo
 '''
-from builtins import zip
-from builtins import str
-from builtins import range
-import unittest
+from builtins import zip, str, range
+from mock import patch
+import math
+from datetime import datetime
+import os
+
+import psutil
+import numpy as np
+import pytest
+import pandas as pd
 from sqlalchemy.ext.declarative.api import declarative_base
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.orm.scoping import scoped_session
-import pandas as pd
 from sqlalchemy import Column, Integer, String,  create_engine, Binary, DateTime
+from sqlalchemy.sql.expression import bindparam
+from sqlalchemy.sql import default_comparator
+from sqlalchemy.exc import SQLAlchemyError
+
 from stream2segment.io.db.pdsql import fetchsetpkeys, insertdf, _get_max, syncdf,\
     mergeupdate, updatedf, dbquery2df, DbManager, set_pkeys
-from datetime import datetime
-import numpy as np
-import pytest
-from sqlalchemy.sql.expression import bindparam
-import os
-import psutil
-from sqlalchemy.sql import default_comparator
-from mock import patch
-import math
-from sqlalchemy.exc import SQLAlchemyError
 
 Base = declarative_base()
 
@@ -730,7 +729,3 @@ class Test(object):
 def array_equal(a1, a2):
     """test array equality by assuming nan == nan. Probably already implemented somewhere in numpy, no time for browsing now"""
     return len(a1) == len(a2) and all([c ==d or (np.isnan(c) == np.isnan(d)) for c, d in zip(a1, a2)])
-
-# if __name__ == "__main__":
-#     #import sys;sys.argv = ['', 'Test.testName']
-#     unittest.main()

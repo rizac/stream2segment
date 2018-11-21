@@ -32,7 +32,10 @@ except ImportError:
         build_opener, HTTPPasswordMgrWithDefaultRealm, HTTPDigestAuthHandler  # @UnusedImport
     from httplib import HTTPException
     from BaseHTTPServer import BaseHTTPRequestHandler
-    responses = BaseHTTPRequestHandler.responses
+    # responses values are tuples, map to the response message (1st tuple item, str)
+    # and make this response compatible with the python3 response above:
+    responses = {k: v[0]
+                 for k, v in BaseHTTPRequestHandler.responses.iteritems()}
 
 
 def get_opener(url, user, password):
@@ -159,9 +162,9 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, dec
                **kwargs):  # pylint:disable=too-many-arguments
     """
     Wrapper around `multiprocessing.pool.ThreadPool()` for downloading
-    data from urls in `iterable` asynchronously (i.e., most likely faster).
-    Each download is executed on a separate *worker thread*, yielding the result of each
-    `url` read.
+    data from urls in `iterable` asynchronously with remarkable performance boost for large
+    downloads. Each download is executed on a separate *worker thread*, yielding the result of
+    each `url` read.
 
     Yields the tuple:
     ```

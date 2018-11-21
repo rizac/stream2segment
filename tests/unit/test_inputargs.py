@@ -3,36 +3,36 @@ Created on May 23, 2017
 
 @author: riccardo
 '''
-import unittest
-from click.testing import CliRunner
-from stream2segment.cli import cli
-from mock.mock import patch
-from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_templates_fpaths
-from stream2segment.main import init as orig_init, helpmathiter as main_helpmathiter, download
-import yaml
 from contextlib import contextmanager
 import os
 from datetime import datetime, timedelta
 import shutil
-
-from stream2segment.main import configlog4download as o_configlog4download, \
-    new_db_download as o_new_db_download, run_download as o_run_download, \
-    configlog4processing as o_configlog4processing, run_process as o_run_process, process as o_process, \
-    download as o_download
-from stream2segment.utils.inputargs import yaml_load as o_yaml_load, get_session as o_get_session,\
-    nslc_param_value_aslist
-from stream2segment.io.db.models import Download
-from _pytest.capture import capsys
-import pytest
-from stream2segment.utils import get_session, secure_dburl
-from future.utils import string_types, PY2
-
+from mock.mock import patch
 # this can not apparently be fixed with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
 try:
     from cStringIO import StringIO  # python2.x pylint: disable=unused-import
 except ImportError:
     from io import StringIO  # @UnusedImport
+
+from future.utils import string_types, PY2
+from click.testing import CliRunner
+from _pytest.capture import capsys
+import pytest
+import yaml
+
+from stream2segment.cli import cli
+from stream2segment.main import configlog4download as o_configlog4download,\
+    new_db_download as o_new_db_download, run_download as o_run_download,\
+    configlog4processing as o_configlog4processing, run_process as o_run_process, \
+    process as o_process, download as o_download
+from stream2segment.utils.inputargs import yaml_load as o_yaml_load,\
+    get_session as o_get_session, nslc_param_value_aslist
+from stream2segment.io.db.models import Download
+from stream2segment.utils import get_session, secure_dburl
+from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_templates_fpaths
+from stream2segment.main import init as orig_init, helpmathiter as main_helpmathiter, download
+
 
 class Test(object):
 
@@ -112,21 +112,25 @@ class Test(object):
                                                 # if we passed a file name then override
                                                 # the template dburl with our one
                                                 # If it's not the case, leave as it is:
-                                                dic['dburl'] = db.dburl  # in download.yaml, it is a fake address
-                                            # provide a valid one so that we explicitly inject a bad one in self.yaml_overrides,
+                                                # in download.yaml, it is a fake address
+                                                dic['dburl'] = db.dburl
+                                            # provide a valid one so that we explicitly inject
+                                            # a bad one in self.yaml_overrides,
                                             # if needed
                                             dic.update(self.yaml_overrides or {})
-                                            # IMPORTANT: reset NOW yaml overrides. In download, yaml_load is called
-                                            # twice, the second time reading from the builtin download.yaml to check unknown
-                                            # parameters. In this case, the yaml must return EXECTLY the file ignoring our
-                                            # overrides. NOTE THAT THIS IS A HACK AND FAILS IF WE READ
-                                            # FROM THE BUILTIN CONFIG FIRST
+                                            # IMPORTANT: reset NOW yaml overrides.
+                                            # In download, yaml_load is called
+                                            # twice, the second time reading from the builtin
+                                            # download.yaml to check unknown
+                                            # parameters. In this case, the yaml must return
+                                            # EXACTLY the file ignoring our
+                                            # overrides. NOTE THAT THIS IS A HACK AND FAILS
+                                            # IF WE READ FROM THE BUILTIN CONFIG FIRST
                                             self.yaml_overrides = {}
                                             return dic
                                         self.mock_yaml_load.side_effect = yload  # no-op
 
                                         yield
-
 
     def run_cli_download(self, *args, **yaml_overrides):
         # reset database stuff:
@@ -173,7 +177,8 @@ class Test(object):
         result = self.run_cli_download('-%s' % param, newval)  # invalid type
         assert result.exit_code == 0  # WHAT?? because networks needs to be just an iterable
         # assert new yaml (as saved on the db) has the correct value:
-        new_yaml_dict = yaml_load(StringIO(self.lastrun_lastdownload_config))['eventws_query_args']
+        new_yaml_dict = \
+            yaml_load(StringIO(self.lastrun_lastdownload_config))['eventws_query_args']
         assert new_yaml_dict[param] == newval
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.lastrun_download_count == 1
@@ -182,25 +187,28 @@ class Test(object):
         newval += 1.1
         result = self.run_cli_download('--%s' % other_param, newval)  # invalid type
         assert result.exit_code == 0
-        new_yaml_dict = yaml_load(StringIO(self.lastrun_lastdownload_config))['eventws_query_args']
+        new_yaml_dict = \
+            yaml_load(StringIO(self.lastrun_lastdownload_config))['eventws_query_args']
         assert new_yaml_dict[param] == newval
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.lastrun_download_count == 1
         assert other_param not in new_yaml_dict
 
-        # SECOND SCENARIO: PROVIDE A PARAMETER P in the cli NOT PRESENT IN THE CONFIG eventws_query_args
-        # Test that the name is the one provided from the cli (long name) regardless of the cli name (short or long)
+        # SECOND SCENARIO: PROVIDE A PARAMETER P in the cli NOT PRESENT IN THE CONFIG
+        # eventws_query_args. Test that the name is the one provided from the cli (long name)
+        # regardless of the cli name (short or long)
         param = 'lat'
         other_param = 'latitude'
         assert param not in def_yaml_dict  # if it fails, change param/other_param name above
         assert other_param not in def_yaml_dict  # if it fails, change/other_param param name above
         newval = 1.1
-        expected_param = other_param  #  because it is the default cli param name
+        expected_param = other_param  # because it is the default cli param name
         nonexpected_param = param  # see above
         result = self.run_cli_download('-%s' % param, newval)  # invalid type
         assert result.exit_code == 0  # WHAT?? because networks needs to be just an iterable
         # assert new yaml (as saved on the db) has the correct value:
-        new_yaml_dict = yaml_load(StringIO(self.lastrun_lastdownload_config))['eventws_query_args']
+        new_yaml_dict = \
+            yaml_load(StringIO(self.lastrun_lastdownload_config))['eventws_query_args']
         assert new_yaml_dict[expected_param] == newval
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.lastrun_download_count == 1
@@ -210,7 +218,8 @@ class Test(object):
         result = self.run_cli_download('--%s' % other_param, newval)  # invalid type
         assert result.exit_code == 0  # WHAT?? because networks needs to be just an iterable
         # assert new yaml (as saved on the db) has the correct value:
-        new_yaml_dict = yaml_load(StringIO(self.lastrun_lastdownload_config))['eventws_query_args']
+        new_yaml_dict = \
+            yaml_load(StringIO(self.lastrun_lastdownload_config))['eventws_query_args']
         assert new_yaml_dict[expected_param] == newval
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.lastrun_download_count == 1
@@ -438,7 +447,7 @@ def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, moc
         # that will be deleted by pytest, instead of polluting the program
         # package:
         ret = o_configlog4processing(logger,
-                                     pytestdir.newfile('.log') if logfilebasepath else  None,
+                                     pytestdir.newfile('.log') if logfilebasepath else None,
                                      verbose)
 
         vars['numloggers'] = len(ret)

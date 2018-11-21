@@ -5,16 +5,17 @@ Created on Feb 14, 2017
 '''
 from __future__ import print_function, division
 
-# from builtins import str, object
-
 from past.utils import old_div
-import os, sys
+import os
+import sys
 from datetime import datetime, timedelta
 import mock
 from mock import patch
-from future.backports.urllib.error import URLError
+import re
+
 import pytest
 import pandas as pd
+from pandas.errors import EmptyDataError
 from click.testing import CliRunner
 
 from stream2segment.cli import cli
@@ -25,12 +26,9 @@ from stream2segment.utils.resources import get_templates_fpaths
 from stream2segment.process.utils import get_inventory_url, save_inventory as original_saveinv
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
 from stream2segment.process.main import run as process_main_run, query4process
-# from future import standard_library
+from stream2segment.utils.url import URLError
 from stream2segment.process.utils import enhancesegmentclass
-import re
 from stream2segment.process.writers import BaseWriter
-from pandas.errors import EmptyDataError
-from future.utils import PY2
 
 
 def yaml_load_side_effect(**overrides):
@@ -49,7 +47,7 @@ def yaml_load_side_effect(**overrides):
 
 def readcsv(filename, header=True):
     return pd.read_csv(filename, header=None) if not header else pd.read_csv(filename)
-    
+
 
 class Test(object):
 

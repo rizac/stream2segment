@@ -8,20 +8,20 @@ from __future__ import print_function, division
 from builtins import str, object
 
 from past.utils import old_div
-import os, sys
+import re
+import os
+import sys
 from datetime import datetime, timedelta
 import mock
 from mock import patch
 import csv
-from future.backports.urllib.error import URLError
+
 import pytest
 import pandas as pd
+from pandas.util.testing import assert_frame_equal
 import numpy as np
-
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm.session import sessionmaker
-# from urllib.error import URLError
-# import multiprocessing
 from obspy.core.stream import read
 
 from stream2segment.cli import cli
@@ -32,11 +32,9 @@ from stream2segment.utils.resources import get_templates_fpaths
 from stream2segment.process.utils import get_inventory_url, save_inventory as original_saveinv
 from stream2segment.process.main import run as process_main_run, query4process
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
-# from future import standard_library
 from stream2segment.process.utils import enhancesegmentclass
-import re
+from stream2segment.utils.url import URLError
 from stream2segment.process.writers import BaseWriter
-from pandas.util.testing import assert_frame_equal
 
 
 def yaml_load_side_effect(**overrides):

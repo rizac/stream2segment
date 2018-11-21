@@ -3,20 +3,21 @@ Created on May 23, 2017
 
 @author: riccardo
 '''
-from click.testing import CliRunner
-from stream2segment.cli import cli
-from mock.mock import patch
-from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_templates_dirpath,\
-    get_templates_fpaths
-from stream2segment.main import init as orig_init, helpmathiter as main_helpmathiter, \
-    show as orig_show
-import yaml
 import os
 from datetime import datetime, timedelta
 import time
+from mock.mock import patch
 
-from stream2segment.utils import load_source
 import pytest
+import yaml
+from click.testing import CliRunner
+
+from stream2segment.cli import cli
+from stream2segment.utils.resources import get_templates_fpath, yaml_load, \
+    get_templates_dirpath, get_templates_fpaths
+from stream2segment.main import init as orig_init, helpmathiter as main_helpmathiter, \
+    show as orig_show
+from stream2segment.utils import load_source
 
 
 @pytest.fixture

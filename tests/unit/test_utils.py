@@ -1,4 +1,3 @@
-#@PydevCodeAnalysisIgnore
 '''
 Created on Dec 12, 2016
 
@@ -7,20 +6,20 @@ Created on Dec 12, 2016
 
 from itertools import product
 
-from datetime import datetime, timedelta
-from builtins import range
-from builtins import object
-from builtins import str
-import unittest
-from mock import patch
+from builtins import range, object, str
+
 from io import StringIO
-from stream2segment.utils.url import urlread, URLException, URLError, HTTPError
-import pytest
+from datetime import datetime, timedelta
 import socket
 import mock
-from stream2segment.utils import secure_dburl, get_progressbar, Nop, strconvert, strptime
+from mock import patch
 from io import BytesIO
+
+import pytest
 from click.termui import progressbar
+
+from stream2segment.utils.url import urlread, URLException, URLError, HTTPError
+from stream2segment.utils import secure_dburl, get_progressbar, Nop, strconvert, strptime
 
 DEFAULT_TIMEOUT = socket._GLOBAL_DEFAULT_TIMEOUT
 

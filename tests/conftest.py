@@ -9,6 +9,8 @@ Created on 3 May 2018
 import os
 from io import BytesIO
 import traceback
+import uuid
+import yaml
 
 import pytest
 from sqlalchemy.engine import create_engine
@@ -20,7 +22,7 @@ from click.testing import CliRunner
 
 from stream2segment.io.db.models import Base
 from stream2segment.traveltimes.ttloader import TTTable
-import uuid
+from stream2segment.utils.resources import yaml_load
 
 
 # https://docs.pytest.org/en/3.0.0/parametrize.html#basic-pytest-generate-tests-example
@@ -278,6 +280,8 @@ def pytestdir(tmpdir):
     representing a temporary directory unique to each test function invocation.
     `str(tmpdir)` represents in turn a path inside the base temporary directory of the test session
     (`tmpdir_factory.mktemp`).
+    Another option is to use `newyaml(file, **overrides)` or `newyaml(dict, **overrides)` which
+    returns a file path to a new yaml with optional overrides
 
     Curiously, there is no feature in pytest to create random unique files and directory names.
 
@@ -297,6 +301,17 @@ def pytestdir(tmpdir):
 
     class Pytestdir(object):
         '''Pytestdir object'''
+
+        @classmethod
+        def yamlfile(cls, src, **overrides):
+            '''creates a yaml file from src (a dict or path to yaml file) and optional
+            overrides. Returns the newly created yaml file path'''
+            newyamlfile = cls.newfile('.yaml', create=False)
+            data_ = yaml_load(src)
+            data_.update(**overrides)
+            with open(newyamlfile, 'w') as outfile:
+                yaml.dump(data_, outfile, default_flow_style=False)
+            return newyamlfile
 
         @staticmethod
         def join(filename):
