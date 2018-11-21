@@ -37,7 +37,6 @@ from stream2segment.process.utils import enhancesegmentclass
 import re
 from stream2segment.process.writers import BaseWriter
 from pandas.util.testing import assert_frame_equal
-# standard_library.install_aliases()
 
 
 def yaml_load_side_effect(**overrides):

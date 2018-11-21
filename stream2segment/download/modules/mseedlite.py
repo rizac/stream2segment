@@ -14,9 +14,6 @@ import struct
 from math import log
 from io import BytesIO
 
-# from future import standard_library
-# standard_library.install_aliases()
-
 
 _FIXHEAD_LEN = 48
 _BLKHEAD_LEN = 4

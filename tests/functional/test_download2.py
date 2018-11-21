@@ -9,9 +9,6 @@ from __future__ import print_function
 # from utils import date
 # assert sys.path[0] == os.path.realpath(myPath + '/../../')
 
-# from future import standard_library
-# standard_library.install_aliases()
-
 from builtins import str
 import re
 import numpy as np
@@ -66,8 +63,6 @@ from stream2segment.utils.url import read_async, URLError, HTTPError
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
 from stream2segment.utils.log import configlog4download
 
-# from future.standard_library import install_aliases
-# install_aliases()
 from future.utils import PY2
 if PY2:
     from BaseHTTPServer import BaseHTTPRequestHandler

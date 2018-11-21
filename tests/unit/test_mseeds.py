@@ -5,9 +5,6 @@ Created on Feb 23, 2016
 @author: riccardo
 '''
 
-# from future import standard_library
-# standard_library.install_aliases()
-
 import mock, os, sys
 import pytest
 import re

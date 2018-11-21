@@ -72,8 +72,6 @@ from stream2segment.utils.url import read_async, URLError, HTTPError, get_opener
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
 from stream2segment.utils.log import configlog4download
 
-# from future.standard_library import install_aliases
-# install_aliases()
 from future.utils import PY2
 if PY2:
     from BaseHTTPServer import BaseHTTPRequestHandler

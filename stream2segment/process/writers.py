@@ -16,7 +16,8 @@ from future.utils import viewkeys
 def get_writer(outputfile=None, append=False):
     '''Returns the writer from the given outputfile (string denoting a file path, or None)
     and append flag (boolean)'''
-    return BaseWriter(outputfile, append) if outputfile is None else CsvWriter(outputfile, append)
+    return BaseWriter(outputfile, append) if outputfile is None else \
+        CsvWriter(outputfile, append)
 
 
 class BaseWriter(object):
@@ -59,8 +60,10 @@ class BaseWriter(object):
             self.already_processed_segments_iter(self.outputfile)
 
     def already_processed_segments_iter(self, outputfile):
-        '''Returns an iterator of integers denoting already processed files which have to be skipped
-        :param outputfile: the output file passed in the constructor, IT DENOTES AN EXISTING FILE'''
+        '''Returns an iterator of integers denoting already processed files which have to be
+            skipped
+        :param outputfile: the output file passed in the constructor
+            **It must denote an existing file**'''
         return []
 
     def __call__(self, segment_id, result):  # result is surely not None

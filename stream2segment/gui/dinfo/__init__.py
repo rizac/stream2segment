@@ -8,24 +8,20 @@ Module implementing the download info (print statistics and generate html page)
 '''
 from __future__ import print_function
 
+import os
+import json
 from collections import defaultdict
-from future.standard_library import install_aliases
 from future.utils import viewitems, itervalues, viewvalues, viewkeys
-
-from urllib.parse import urlparse  # @IgnorePep8
 
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy.sql.expression import func, or_
 
 from stream2segment.utils.resources import yaml_load
+from stream2segment.utils.url import urlparse
 from stream2segment.utils import get_session, get_progressbar, StringIO, ascii_decorate
 from stream2segment.io.db.models import Segment, concat, Station, DataCenter, Download, substr, \
     Fdsnws
 from stream2segment.download.utils import custom_download_codes, DownloadStats
-import os
-import json
-
-install_aliases()
 
 
 def filterquery(query, download_ids=None):
@@ -50,7 +46,8 @@ def get_downloads(sess, download_ids=None):
     (download_run_time, download_eventws_query_args)
     the first element is a string, the second a dict
     '''
-    query = filterquery(sess.query(Download.id, Download.run_time, Download.config), download_ids)
+    query = filterquery(sess.query(Download.id, Download.run_time, Download.config),
+                        download_ids)
     return {did: (time.isoformat(), yaml_get(cfg))
             for (did, time, cfg) in query}
 
@@ -84,13 +81,6 @@ class DownloadStats2(DownloadStats):
                             'Data saved (download ok, '  # legend
                             'data has gaps or overlaps)',
                             0.1)  # sort order (just after 200 ok)
-#     def __init__(self):
-#         super(DownloadStats2, self).__init__()
-#         self.GAP_OVLAP_CODE = 200.1  # place it right after 200 OK responses and before -204 (some
-#         # chunks out of bounds)
-#         self.resp[self.GAP_OVLAP_CODE] = ('OK Gaps Overlaps',
-#                                           'Data saved (download ok, '
-#                                           'data has gaps or overlaps)')
 
 
 def get_dstats_str_iter(session, download_ids=None, maxgap_threshold=0.5):

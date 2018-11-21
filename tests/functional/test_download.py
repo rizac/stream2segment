@@ -70,8 +70,6 @@ from stream2segment.utils.url import read_async, URLError, HTTPError
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
 from stream2segment.utils.log import configlog4download
 
-# from future.standard_library import install_aliases
-# install_aliases()
 from future.utils import PY2
 if PY2:
     from BaseHTTPServer import BaseHTTPRequestHandler
@@ -495,7 +493,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                      mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
                      mock_get_datacenters_df, mock_get_events_df,
                      # fixtures:
-                     db, clirunner):
+                     db, clirunner, pytestdir):
         
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
@@ -592,7 +590,8 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert (retried[Segment.download_code.key] == 413).all()
         # asssert we changed the run_id for segments which should be retried
         # WARNING: THIS TEST COULD FAIL IF WE CHANGE THE DEFAULTS. CHANGE THE `mask` IN CASE
-        assert (retried[Segment.download_id.key] > dfres1.loc[retried.index, Segment.download_id.key]).all()
+        assert (retried[Segment.download_id.key] >
+                dfres1.loc[retried.index, Segment.download_id.key]).all()
         
         assert mock_download_save_segments.called
 
@@ -600,15 +599,22 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
 
         # Ok, now with the current config 413 is not retried: 
         # check that now we should skip all segments
+        # FIX nov 2018: retry_client_err is now True by default.
+        # Replace it
+        newconfigfile = pytestdir.newfile('.yaml', create=True)
+        with open(self.configfile) as fp:
+            data = yaml.load(fp)
+        data['retry_client_err'] = False
+        with open(newconfigfile, 'w') as outfile:
+            yaml.dump(data, outfile, default_flow_style=False)
+        # reset mock and run with newconfigfile:
         mock_download_save_segments.reset_mock()
-        
         result = clirunner.invoke(cli , ['download', 
-                                       '-c', self.configfile,
+                                       '-c', newconfigfile,
                                        '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         assert clirunner.ok(result)
-        
         assert not mock_download_save_segments.called
         
         
@@ -620,12 +626,11 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(500, *a, **v) 
         mock_download_save_segments.reset_mock()
 
-        result = clirunner.invoke(cli , ['download', '-c', self.configfile,
+        result = clirunner.invoke(cli , ['download', '-c', newconfigfile,
                                        '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
                                        '--end', '2016-05-08T9:00:00'])
         assert clirunner.ok(result)
-
         assert not mock_download_save_segments.called
         x = self.log_msg()
         assert str_err in self.log_msg()

@@ -23,8 +23,6 @@ from stream2segment.io.db.models import Base, Event, Station, WebService, Segmen
     Channel, Download, DataCenter
 from stream2segment.download.utils import custom_download_codes
 from future.utils import PY2
-# from future import standard_library
-# standard_library.install_aliases()
 
 
 class Test(object):

@@ -28,11 +28,7 @@ from stream2segment.io.db.models import Event, Station, Channel, Fdsnws, DataCen
 from stream2segment.io.db.pdsql import harmonize_columns, \
     harmonize_rows, colnames, syncdf
 from stream2segment.utils.url import read_async as original_read_async, urlread, \
-    urlparse, Request, get_opener
-
-from future.standard_library import install_aliases
-install_aliases()
-from http.client import responses  # @UnresolvedImport @IgnorePep8
+    urlparse, Request, get_opener, responses
 
 # logger: do not use logging.getLogger(__name__) but point to stream2segment.download.logger:
 # this way we preserve the logging namespace hierarchy

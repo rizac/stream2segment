@@ -31,7 +31,6 @@ import re
 from stream2segment.process.writers import BaseWriter
 from pandas.errors import EmptyDataError
 from future.utils import PY2
-# standard_library.install_aliases()
 
 
 def yaml_load_side_effect(**overrides):

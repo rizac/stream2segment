@@ -13,35 +13,38 @@ from multiprocessing.pool import ThreadPool
 import os
 
 from future.utils import PY2
-# from obspy.clients.fdsn.client import Client
-
-# make the following(s) behave like python3 counterparts if running from python2.7.x
-# (http://python-future.org/imports.html#aliased-imports):
-# from future import standard_library
-# standard_library.install_aliases()
-# import urllib.request, urllib.error  # @IgnorePep8
-
 
 # Python 2 and 3: Futures (http://python-future.org/imports.html#aliased-imports) backports
 # to python2 are buggy when used with ThreadPools (like here). As there seem to be no particular
 # difference in function signature but only import placement, we do the old way
 # ALSO, ALL IMPORTS REQUIRING ANY OF THE MODULES/CLASSES BELOW SHOULD IMPORT FROM HERE
 # TO GUARANTEE PY2+3 COMPATIBILITY
-try:
+try:  # py3:
     from urllib.parse import urlparse, urlencode  # pylint: disable=unused-import
     from urllib.request import urlopen, Request, \
         build_opener, HTTPPasswordMgrWithDefaultRealm, HTTPDigestAuthHandler  # pylint: disable=unused-import
     from urllib.error import HTTPError, URLError
-    from http.client import HTTPException  # pylint: disable=ungrouped-imports
+    from http.client import HTTPException, responses  # pylint: disable=ungrouped-imports
 except ImportError:
     from urlparse import urlparse  # @UnusedImport pylint: disable=bad-option-value
     from urllib import urlencode  # @UnusedImport pylint: disable=ungrouped-imports
     from urllib2 import urlopen, Request, HTTPError, URLError, \
         build_opener, HTTPPasswordMgrWithDefaultRealm, HTTPDigestAuthHandler  # @UnusedImport
     from httplib import HTTPException
+    from BaseHTTPServer import BaseHTTPRequestHandler
+    responses = BaseHTTPRequestHandler.responses
 
 
 def get_opener(url, user, password):
+    '''Returns an opener to be used for downloading data with a given user and password.
+    All arguments should be strings.
+
+    :param url: the domain name of the given url
+    :param: string, the user name
+    :param password: the password
+
+    :return: an urllib opener
+    '''
     parsed_url = urlparse(url)
     base_url = "%s://%s" % (parsed_url.scheme, parsed_url.netloc)
     handlers = []
@@ -63,14 +66,16 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
     :param: decode: string or None, default: None. The string used for decoding to string
         (e.g., 'utf8'). If None, the result is returned as it is (type `bytes`, note that in
         Python2 this is equivalent to `str`), otherwise as unicode string (`str` in python3+)
-    :param wrap_exceptions: if True (the default), all url-related exceptions
+    :param wrap_exceptions: if True (the default), all url-related exceptions (python2)
         ```urllib2.HTTPError, urllib2.URLError, httplib.HTTPException, socket.error```
-        will be caught and wrapped into an `URLException` object E that will be raised
-        (the original exception can always be retrieved via `E.exc`)
-    :param raise_http_err: If True (the default) `urllib2.HTTPError`s will be treated as
+        or the equivalent (python3):
+        ```urllib.error.HTTPError, urllib.error.URLError, http.client.HTTPException, socket.error```
+        will be caught and wrapped into an :class:`url.URLException` object E that will be
+        raised (the original exception can always be retrieved via `E.exc`)
+    :param raise_http_err: If True (the default) `HTTPError`s will be treated as
         normal exceptions. Otherwise, they will treated as response object and the
         tuple (None, status, message) will be returned, where `status` (int) is the
-        http status code (from the doc, most likely in the range 4xx-5xx) and `message`
+        http status code (most likely in the range [400-599]) and `message`
         (string) is the string denoting the status message, respectively
     :param timeout: timeout parameter specifies a timeout in seconds for blocking operations
         like the connection attempt (if not specified, None or non-positive, the global
@@ -79,16 +84,22 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
     :param opener: a custom opener. When None (the default), the default urllib opener is used.
         See :func:`get_opener` for, e.g., creating an opener from a base url, user and passowrd
     :param kwargs: optional arguments to be passed to the underlying python `urlopen` function.
-        These arguments are ignored if a custom opener is provided
+        These arguments are ignored if a custom `opener` argument is provided
 
-    :return: the tuple (content_read, status code, status message), where the first item is
-        the bytes sequence read (can be None if `raise_http_err=False`, is string - unicode
-        in python2 - if `decode` is given, i.e. not None), the second item is the int
-        denoting the http status code (int), and the third the http status message (string)
+    :return: the tuple (content_read, status_code, status_message), where:
+
+        - content_read (bytes) is the response content (if `decode` is given,
+          it is a str (py3) / unicode (py2). If the response is issued from an HTTPError
+          and raise_http_err=False, it is None)
+
+        - status_code (int) is the response HTTP status code
+
+        - status_message (string) is the response HTTP status message
 
     :raise: `URLException` if `wrap_exceptions` is True. Otherwise any of the following:
         `urllib2.HTTPError`, `urllib2.URLError`, `httplib.HTTPException`, `socket.error`
-        (the latter is the superclass of all `socket` exceptions such as `socket.timeout`)
+        or the equivalent (python3):
+        ```urllib.error.HTTPError, urllib.error.URLError, http.client.HTTPException, socket.error```
     """
     try:
         ret = b''
@@ -97,8 +108,7 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
         # normalize it fiorst to None. If None, don't pass it to urlopen
         if timeout is not None and timeout > 0:
             kwargs['timeout'] = timeout
-#         if PY2 and hasattr(url, 'data'):
-#             kwargs.setdefault('method', 'POST')
+
         # urlib2 does not support with statement in py2. See:
         # http://stackoverflow.com/questions/3880750/closing-files-properly-opened-with-urllib2-urlopen
         # https://docs.python.org/2.7/library/contextlib.html#contextlib.closing
@@ -124,7 +134,7 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
             else:
                 raise exc
     except (HTTPException,  # @UndefinedVariable
-            URLError, socket.error) as exc:
+            URLError, socket.error) as exc:  # socket.error is the superclass of all socket exc.
         if wrap_exceptions:
             raise URLException(exc)
         else:
@@ -172,11 +182,11 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, dec
       ```urllib2.URLError, httplib.HTTPException, socket.error```
       Any other exception is raised and will stop the download
       - url: the original url (either string or Request object). If `iterable` is an iterable
-      of `Request` objects or strings, then `url` is equal to `obj`
+      of `Request` objects or url strings, then `url` is equal to `obj`
 
-    Note that if `raise_http_err=False` then `urllib2.HTTPError` are treated as 'normal'
-    response and will return a tuple where `data=None` and `status_code` is most likely greater
-    or equal to 400.
+    Note that if `raise_http_err=False` then `HTTPError`s are treated as 'normal'
+    response and will be yielded in `result` as a tuple where `data=None` and `status_code`
+    is most likely greater or equal to 400.
     Finally, this function can cleanly cancel yet-to-be-processed *worker threads* via Ctrl+C
     if executed from the command line. In the following we will simply refer to `urlread`
     to indicate the `urllib2.urlopen.read` function.
@@ -198,11 +208,10 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, dec
         of the url must be decoded. None means: return the byte string as it was read.
         Otherwise, use this argument for string content (not bytes) by supplying a decoding,
         such as e.g. 'utf8'
-    :param raise_http_err: boolean (True by default) tells whether `urllib2.HTTPError` should
-        be raised as url-like exceptions and passed as the argument `exc` in `ondone`. When
-        False, `urllib2.HTTPError`s are treated as 'normal' response and passed as the argument
-        `result` in `ondone` as a tuple `(None, status_code, message)` (where `status_code` is
-        most likely greater or equal to 400)
+    :param raise_http_err: boolean (True by default) tells whether `HTTPError`s should
+        be yielded as exceptions or not. When False, `HTTPError`s are yielded as normal
+        responses in `result` as the tuple `(None, status_code, message)`  (where `status_code`
+        is most likely greater or equal to 400)
     :param timeout: timeout parameter specifies a timeout in seconds for blocking operations
         like the connection attempt (if not specified, None or non-positive, the global default
         timeout setting will be used). This actually only works for HTTP, HTTPS and FTP
@@ -217,7 +226,7 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, dec
         for the given item of iterable. When None, the default urllib opener is used
         See :func:`get_opener` for, e.g., creating an opener from a base url, user and passowrd
     :param kwargs: optional arguments to be passed to the underlying python `urlopen` function.
-        These arguments are ignored if a custom openers function is provided
+        These arguments are ignored if a custom `openers` function is provided
 
     Notes:
     ======
@@ -236,10 +245,10 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, dec
     -------------------------------------
 
     this function handles any kind of unexpected exception (particularly relevant in case of
-    e.g., `KeyboardInterrupt`) or the case when `ondone` returns True, by canceling all worker
-    threads before raising. As ThreadPoolExecutor returns (or raises) after all worker
-    threads have finished, an internal boolean flag makes all remaining worker threads quit as
-    soon as possible, making the function return (or raise) much more quickly
+    e.g., `KeyboardInterrupt`) by canceling all worker threads before raising. As
+    ThreadPoolExecutor returns (or raises) after all worker threads have finished, an internal
+    boolean flag makes all remaining worker threads quit as soon as possible, making the
+    function return (or raise) much more quickly
     """
     # flag for CTRL-C or cancelled tasks
     kill = False

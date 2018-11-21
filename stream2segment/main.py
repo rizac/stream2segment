@@ -18,6 +18,7 @@ import re
 import sys
 import os
 import inspect
+from collections import OrderedDict
 from datetime import timedelta
 from webbrowser import open as open_in_browser
 import threading
@@ -94,29 +95,9 @@ def download(config, log2file=True, verbose=False, **param_overrides):
     # params needs to be shown as expanded/converted so the user can check their correctness
     # Do no use loggers yet:
     if verbose:
-        # print to terminal an informative config. First objects with custom string outputs:
-        sessstr = "<session object, dburl='%s'>" % secure_dburl(str(session.bind.engine.url))
-        tttable = yaml_dict['tt_table']
-        tttablestr = "<%s object, model=%s, phases=%s>" % (tttable.__class__.__name__,
-                                                           str(tttable.model),
-                                                           str(tttable.phases))
-        # replace dburl hiding passowrd for printing to terminal, tt_table with a short repr str,
-        # and restore traveltimes_model because we popped from yaml_dict it out in load_tt_table
-        yaml_safe = dict(yaml_dict, session=sessstr, tt_table=tttablestr)
-        # replace authorizer class with the original 'restricted_data' config param and a
-        # meaningful message
-        authorizer = yaml_safe.pop('authorizer')
-        if authorizer.token:
-            str_ = "enabled, with token"
-        elif authorizer.userpass:
-            str_ = "enabled, with user+password"
-        else:
-            str_ = "disabled, download open data only"
-        yaml_safe['restricted_data'] = str_
-        # create a yaml string from the yaml_safe and print/log the string:
-        ip_params = yaml.safe_dump(yaml_safe, default_flow_style=False)
-        ip_title = "Input parameters"
-        print("%s\n%s\n%s\n" % (ip_title, "-" * len(ip_title), ip_params))
+        _pp = _to_pretty_str(load_config_for_download(config, False, **param_overrides))
+        if _pp:
+            print(_pp)
 
     # create download row with unprocessed config (yaml_load function)
     # Note that we call again load_config with parseargs=False:
@@ -173,6 +154,46 @@ def download(config, log2file=True, verbose=False, **param_overrides):
         closesession(session)
 
     return ret
+
+
+def _to_pretty_str(yaml_dict):
+    '''returns a pretty printed string from yaml_dict'''
+    # Define a yaml preferred order. Use an OrderedDict which outlines the
+    # grouping, although its keys are currently not used
+    # also see we account for optional nams (start+starttime, cha+channel+channels, etcetera)
+    pref_order = OrderedDict([['global', ['dburl', 'start', 'starttime', 'end', 'endtime']],
+                              ['event', ['eventws', 'eventws_query_args']],
+                              ['stations+channels', ['networks', 'network', 'net',
+                                                     'stations', 'station', 'sta',
+                                                     'locations', 'location', 'loc',
+                                                     'channels', 'channel', 'cha',
+                                                     'update_metadata', 'inventory',
+                                                     'min_sample_rate', 'search_radius']],
+                              ['segments', ['dataws', 'timespan', 'tt_table', 'restricted_data',
+                                            'retry_client_err', 'retry_mseed_err',
+                                            'retry_seg_not_found', 'retry_server_err',
+                                            'retry_timespan_err', 'retry_url_err']]])
+    yaml_dict['dburl'] = secure_dburl(yaml_dict['dburl'])  # don't show passowrd, if any
+    ret = []
+    for group, fields in pref_order.items():
+        first_of_group = True
+        for field in fields:
+            if field in yaml_dict:
+                if first_of_group:
+                    # removed: do not display the group (this "if" branch is currently no-nop):
+                    # ret.append("%s:" % group)
+                    first_of_group = False
+                ret.append(yaml.safe_dump({field: yaml_dict.pop(field)},
+                           default_flow_style=False).strip())
+    for field in yaml_dict:  # remaining params
+        ret.append(yaml.safe_dump({field: yaml_dict[field]},
+                                  default_flow_style=False).strip())
+    if not ret:
+        return ''
+    # create a yaml string from the yaml_safe and print/log the string:
+    ret.insert(0, "Input parameters")
+    ret.insert(1, '-' * len(ret[0]))
+    return "%s\n" % ('\n'.join(ret))
 
 
 def process(dburl, pyfile, funcname=None, config=None, outfile=None, log2file=False,

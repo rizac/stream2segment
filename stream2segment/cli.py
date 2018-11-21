@@ -19,15 +19,13 @@ from builtins import (ascii, bytes, chr, dict, filter, hex, input,
                       int, map, next, oct, open, pow, range, round,
                       str, super, zip)
 
-# future aliased imports(needs future package installed, otherwise remove):
-# You want to import and use safely, e.g. collections.UserDict, collections.UserList,
+# NOTE: do not use future aliased imports, they fail with urllib related functions
+# with multithreading (see utils.url module). In principle, aliases let use safely, e.g.
+# collections.UserDict, collections.UserList,
 # collections.UserString, urllib.parse, urllib.request, urllib.response, urllib.robotparser,
 # urllib.error, itertools.filterfalse, itertools.zip_longest, subprocess.getoutput,
 # subprocess.getstatusoutput, sys.intern (a full list available on
 # http://python-future.org/imports.html#aliased-imports)
-# If none of the above is needed, you can safely remove the next two lines
-# from future.standard_library import install_aliases
-# install_aliases()
 
 import sys
 import os

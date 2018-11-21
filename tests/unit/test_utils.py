@@ -7,9 +7,6 @@ Created on Dec 12, 2016
 
 from itertools import product
 
-# from future import standard_library
-# standard_library.install_aliases()
-
 from datetime import datetime, timedelta
 from builtins import range
 from builtins import object
