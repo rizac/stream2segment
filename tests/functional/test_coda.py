@@ -3,7 +3,6 @@ Created on Jul 25, 2016
 
 @author: riccardo
 '''
-import unittest
 import os
 from obspy import read as obspy_read
 from stream2segment.process.math import coda as coda_module

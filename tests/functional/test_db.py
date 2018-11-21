@@ -4,13 +4,12 @@ Created on Jul 15, 2016
 @author: riccardo
 '''
 from builtins import str, range
-import pytest, os
-import unittest
-import numpy as np
 import os
 import time
 from datetime import datetime, timedelta
 
+import pytest
+import numpy as np
 import pandas as pd
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, load_only
