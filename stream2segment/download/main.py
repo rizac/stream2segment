@@ -17,7 +17,7 @@ import yaml
 
 from stream2segment.io.db.pdsql import dbquery2df
 from stream2segment.utils.resources import version
-from stream2segment.download.utils import QuitDownload
+from stream2segment.download.utils import NothingToDownload, FailedDownload
 from stream2segment.download.modules.events import get_events_df
 from stream2segment.download.modules.datacenters import get_datacenters_df
 from stream2segment.download.modules.channels import get_channels_df, chaid2mseedid_dict
@@ -41,7 +41,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
         Downloads waveforms related to events to a specific path.
         This function is not intended to be called directly (PENDING: update doc?)
 
-        :raise: QuitDownload exceptions
+        :raise: :class:`FailedDownload` exceptions
     """
 
     # RAMAINDER: **Any function here EXPECTS THEIR DATAFRAME INPUT TO BE NON-EMPTY.**
@@ -76,20 +76,20 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
 
     try:
         stepinfo("Requesting events")
-        # get events (might raise QuitDownload)
+        # get events (might raise FailedDownload)
         events_df = get_events_df(session, eventws, dbbufsize, start=startiso, end=endiso,
                                   **eventws_query_args)
 
         # Get datacenters, store them in the db, returns the dc instances (db rows) correctly added
         stepinfo("Requesting data-centers")
-        # get dacatanters (might raise QuitDownload):
+        # get dacatanters (might raise FailedDownload):
         datacenters_df, eidavalidator = \
             get_datacenters_df(session, dataws, advanced_settings['routing_service_url'],
                                networks, stations, locations, channels, start, end, dbbufsize)
 
         stepinfo("Requesting stations and channels from %d %s", len(datacenters_df),
                  "data-center" if len(datacenters_df) == 1 else "data-centers")
-        # get dacatanters (might raise QuitDownload):
+        # get dacatanters (might raise FailedDownload):
         channels_df = get_channels_df(session, datacenters_df, eidavalidator,
                                       networks, stations, locations, channels, start, end,
                                       min_sample_rate, update_metadata,
@@ -103,7 +103,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
         chaid2mseedid = chaid2mseedid_dict(channels_df, drop_mseedid_columns=True)
 
         stepinfo("Selecting stations within search area from %d events", len(events_df))
-        # merge vents and stations (might raise QuitDownload):
+        # merge vents and stations (might raise FailedDownload):
         segments_df = merge_events_stations(events_df, channels_df, search_radius['minmag'],
                                             search_radius['maxmag'], search_radius['minmag_radius'],
                                             search_radius['maxmag_radius'], tt_table, isterminal)
@@ -112,7 +112,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
         del channels_df
 
         stepinfo("%d segments found. Checking already downloaded segments", len(segments_df))
-
+        # raises NothingToDownload
         segments_df, request_timebounds_need_update = \
             prepare_for_download(session, segments_df, timespan, retry_seg_not_found,
                                  retry_url_err, retry_mseed_err, retry_client_err,
@@ -123,7 +123,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
             stepinfo("Acquiring credentials from token in order to download restricted data")
         dc_dataselect_manager = DcDataselectManager(datacenters_df, authorizer, isterminal)
 
-        # download_save_segments raises a QuitDownload if there is no data, so if we are here
+        # prepare_for_download raises a NothingToDownload if there is no data, so if we are here
         # segments_df is not empty
         stepinfo("Downloading %d segments %sand saving to db", len(segments_df),
                  '(open data only) ' if dc_dataselect_manager.opendataonly else '')
@@ -149,21 +149,19 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
                      "status (columns):\n%s") %
                     str(d_stats) or "Nothing to show")
 
-    except QuitDownload as dexc:
-        # we are here when any of the function above raised, and this happens when
-        # we do not have data to download. E.g.
-        # in prepare_for_download (the last function raising QuitDownload), if:
-        # 1) we didn't have segments in prepare_for... (QuitDownload with string message)
-        # 2) we ran out of memory in download, some url error prevents continuation,
-        #    e.g., event ws down) (QuitDownload with exception message)
-
-        # in the first case avoid downloading inventories:
-        if dexc.iscritical:
-            inventory = False
-            logger.error(dexc)
-        else:
-            logger.info(str(dexc))
-
+    except NothingToDownload as ntdexc:
+        # we are here if some function raised a NothingToDownload (e.g., in prepare_for_download
+        # there is nothing according to current config). Print message as info, not that
+        # inventory might be downloaded (see finally below)
+        logger.info(str(ntdexc))
+        # comment out: DO NOT RAISE:
+        # raise
+    except FailedDownload as dexc:
+        # We are here if we raised a FailedDownload. Same behaviour as NothingToDownload,
+        # except we log an error message, and we prevent downloading inventories by forcing
+        # the flag to be false
+        inventory = False
+        logger.error(dexc)
         raise
     except:  # @IgnorePep8
         inventory = False

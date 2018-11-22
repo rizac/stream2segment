@@ -18,7 +18,7 @@ import pandas as pd
 from sqlalchemy import or_, and_
 
 from stream2segment.io.db.models import DataCenter, Station, Channel
-from stream2segment.download.utils import read_async, response2normalizeddf, QuitDownload,\
+from stream2segment.download.utils import read_async, response2normalizeddf, FailedDownload,\
     handledbexc, dbsyncdf, to_fdsn_arg, formatmsg
 from stream2segment.utils import get_progressbar, strconvert
 from stream2segment.io.db.pdsql import dbquery2df, shared_colnames, mergeupdate
@@ -109,14 +109,13 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
                                          "sample rate < %s Hz" % str(min_sample_rate)),
                                discarded_sr)
             if web_cha_df.empty and db_cha_df.empty:
-                raise QuitDownload(Exception("No channel found with sample rate >= %f"
-                                             % min_sample_rate))
+                raise FailedDownload("No channel found with sample rate >= %f" % min_sample_rate)
 
         try:
-            # this raises QuitDownload if we cannot save any element:
+            # this raises FailedDownload if we cannot save any element:
             web_cha_df = save_stations_and_channels(session, web_cha_df, eidavalidator, update,
                                                     db_bufsize)
-        except QuitDownload as qexc:
+        except FailedDownload as qexc:
             if db_cha_df.empty:
                 raise
             else:
@@ -124,10 +123,10 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
 
     if web_cha_df.empty and db_cha_df.empty:
         # ok, now let's see if we have remaining datacenters to be fetched from the db
-        raise QuitDownload(Exception(formatmsg("No station found",
-                                               ("Unable to fetch stations from all data-centers, "
-                                                "no data to fetch from the database. "
-                                                "Check config and log for details"))))
+        raise FailedDownload(formatmsg("No station found",
+                                       ("Unable to fetch stations from all data-centers, "
+                                        "no data to fetch from the database. "
+                                        "Check config and log for details")))
 
     # the columns for the channels dataframe that will be returned
     colnames = [c.key for c in [Channel.id, Channel.station_id, Station.latitude,
@@ -329,14 +328,14 @@ def save_stations_and_channels(session, channels_df, eidavalidator, update, db_b
         :param channels_df: pandas DataFrame resulting from `get_channels_df`
     """
     # define columns (sql-alchemy model attrs) and their string names (pandas col names) once:
-    STA_NET = Station.network.key
-    STA_STA = Station.station.key
-    STA_STIME = Station.start_time.key
-    STA_DCID = Station.datacenter_id.key
-    STA_ID = Station.id.key
-    CHA_STAID = Channel.station_id.key
-    CHA_LOC = Channel.location.key
-    CHA_CHA = Channel.channel.key
+    STA_NET = Station.network.key  # pylint: disable=invalid-name
+    STA_STA = Station.station.key  # pylint: disable=invalid-name
+    STA_STIME = Station.start_time.key  # pylint: disable=invalid-name
+    STA_DCID = Station.datacenter_id.key  # pylint: disable=invalid-name
+    STA_ID = Station.id.key  # pylint: disable=invalid-name
+    CHA_STAID = Channel.station_id.key  # pylint: disable=invalid-name
+    CHA_LOC = Channel.location.key  # pylint: disable=invalid-name
+    CHA_CHA = Channel.channel.key  # pylint: disable=invalid-name
     # set columns to show in the log on error (no row written):
     STA_ERRCOLS = [STA_NET, STA_STA, STA_STIME, STA_DCID]
     CHA_ERRCOLS = [STA_NET, STA_STA, CHA_LOC, CHA_CHA, STA_STIME, STA_DCID]
@@ -379,8 +378,8 @@ def save_stations_and_channels(session, channels_df, eidavalidator, update, db_b
             # https://stackoverflow.com/questions/28901683/pandas-get-rows-which-are-not-in-other-dataframe:
             sta_df = sta_df.loc[~sta_df.index.isin(sta_df_dupes.index)]
 
-    # remember: dbsyncdf raises a QuitDownload, so no need to check for empty(dataframe)
-    # also, if update is True, for stations only it must NOT update inventories HERE (handled later)
+    # remember: dbsyncdf raises a FailedDownload, so no need to check for empty(dataframe). Also,
+    # if update is True, for stations only it must NOT update inventories HERE (handled later)
     _update_stations = update
     if _update_stations:
         _update_stations = [_ for _ in shared_colnames(Station, sta_df, pkey=False)

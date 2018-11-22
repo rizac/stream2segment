@@ -39,43 +39,45 @@ from stream2segment.download import logger  # @IgnorePep8
 
 class QuitDownload(Exception):
     """
-    This is an exception that should be raised from the functions of this package, when something
-    prevents the continuation of the download process.
+    This is an abstract-like class representing an Exception to be raised
+    as soon as something causes no segments to be downloaded.
 
-    Passing an Exception in the construcor makes this exception "critical", which is
-    handled differntly by the main download process. E.g.:
-
-    - There is no data because of a download error (no data fetched). A function should then:
-
-      ```raise QuitDownload(Exception(...))```
-
-      and the caller function might then log.error the exception, and return non-zero.
-
-    - There is no data because of current settings (e.g., all segments already downloaded
-      with current retry settings): the program should then:
-
-      ```raise QuitDownload(string_message)```
-
-      and the caller function might then log.info the message, and return zero.
-
-    The method 'iscritical' of any `QuitDownload` object tells the user if the object has been built
-    for indicating a download error (first case).
-
-    Note that in both cases the string messages need most likely to be built with the `formatmsg`
-    function for harmonizing the message outputs.
-    (Note also that with the default logging settings defined in stream2segment.main from the
-    command line `log.info` and `log.error` both print also to `stdout`, `log.warning` and
-    `log.debug` do not).
+    This class should not be called directly. Rather, the user should reaise a
+    :class:`NothingToDownload` or :class:`FailedDownload` (see their documentation)
     """
 
     def __init__(self, exc_or_msg):
         """Creates a new QuitDownload instance
-        :param exc_or_msg: if Exception, then this object will log.error in the `log()` method
-        and return a nonzero exit code (error), otherwise (if string) this object will log.info
-        inthere and return 0
+
+        :param exc_or_msg: an Exception or a message string. If string, it is usually
+            passed via the :function:`formatmsg` function in order to provide harmonized
+            message formats
         """
+        if isinstance(exc_or_msg, KeyError):  # just re-format key errors
+            exc_or_msg = 'KeyError: %s' % str(exc_or_msg)
         super(QuitDownload, self).__init__(str(exc_or_msg))
-        self.iscritical = isinstance(exc_or_msg, Exception)
+
+
+class NothingToDownload(QuitDownload):
+    '''This class represents an exception that should be raised whenever the download process
+    has no segments to download according to the user's settings.
+    Currently, stream2segments catches these Exceptions logging their message as level INFO and
+    returning a 0 (=successful) status code
+
+    This class and :class:`FailedDownload` both inherit from :class:`QuitDownload`.
+    '''
+    pass
+
+
+class FailedDownload(QuitDownload):
+    '''This class represents an exception that should be raised whenever the download process
+    could not proceed. E.g., a download error (e.g., no internet connection) prevents to
+    fetch any data. Currently, stream2segments catches these Exceptions logging their message as
+    level CRITICAL or ERROR and returning a nonzero (=unsuccessful) status code
+
+    This class and :class:`NothingToDownload` both inherit from :class:`QuitDownload`
+    '''
+    pass
 
 
 def formatmsg(action=None, errmsg=None, url=None):
@@ -133,7 +135,8 @@ def url2str(obj):
 def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024 * 1024,
                decode=None, raise_http_err=True, timeout=None, max_mem_consumption=90,
                **kwargs):
-    """Wrapper around read_async defined in url which raises a QuitDownload in case of MemoryError
+    """Wrapper around read_async defined in url which raises a :class:`FailedDownload` in case
+    of MemoryError
     :param max_mem_consumption: a value in (0, 100] denoting the threshold in % of the
     total memory after which the program should raise. This should return as fast as possible
     consuming the less memory possible, and assuring the quit-download message will be sent to
@@ -152,15 +155,15 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024 * 1024,
                 count = 0
                 mem_percent = process.memory_percent()
                 if mem_percent > max_mem_consumption:
-                    raise QuitDownload(MemoryError(("Memory overflow: %.2f%% (used) > "
-                                                    "%.2f%% (threshold)") %
-                                                   (mem_percent, max_mem_consumption)))
+                    raise FailedDownload(("Memory overflow: %.2f%% (used) > "
+                                          "%.2f%% (threshold)") %
+                                         (mem_percent, max_mem_consumption))
 
 
 def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=False,
              buf_size=10, drop_duplicates=True, return_df=True, cols_to_print_on_err=None):
-    """Calls `syncdf` and writes to the logger before returning the
-    new dataframe. Raises `QuitDownload` if the returned dataframe is empty (no row saved)"""
+    """Calls `syncdf` and writes to the logger before returning the new dataframe.
+    Raises a :class:`FailedDownload` if the returned dataframe is empty (no row saved)"""
 
     oninsert_err_callback = handledbexc(cols_to_print_on_err, update=False)
     onupdate_err_callback = handledbexc(cols_to_print_on_err, update=True)
@@ -173,9 +176,8 @@ def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, updat
 
     table = autoincrement_pkey_col.class_
     if df.empty:
-        raise QuitDownload(Exception(formatmsg("No row saved to table '%s'" % table.__tablename__,
-                                               "unknown error, check log for details and db "
-                                               "connection")))
+        raise FailedDownload(formatmsg("No row saved to table '%s'" % table.__tablename__,
+                                       "unknown error, check log for details and db connection"))
     dblog(table, inserted, not_inserted, updated, not_updated)
     return df
 

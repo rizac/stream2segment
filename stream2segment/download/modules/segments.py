@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 
 from stream2segment.io.db.models import DataCenter, Station, Channel, Segment, Fdsnws
-from stream2segment.download.utils import read_async, QuitDownload,\
+from stream2segment.download.utils import read_async, NothingToDownload,\
     handledbexc, custom_download_codes, logwarn_dataframe, DownloadStats, formatmsg
 from stream2segment.download.modules.mseedlite import MSeedError, unpack as mseedunpack
 from stream2segment.utils import get_progressbar
@@ -127,8 +127,8 @@ def prepare_for_download(session, segments_df, timespan, retry_seg_not_found, re
         logger.info(formatmsg("%d segments discarded", reason), oldlen-len(segments_df))
 
     if segments_df.empty:
-        raise QuitDownload("Nothing to download: all segments already downloaded according to "
-                           "the current configuration")
+        raise NothingToDownload("Nothing to download: all segments already downloaded "
+                                "according to the current configuration")
 
     # warn the user if we have duplicated segments, i.e. segments of the same
     # (channel_id, request_start, request_end). This can happen when we have to very close

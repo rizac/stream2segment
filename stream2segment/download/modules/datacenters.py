@@ -16,7 +16,7 @@ from collections import defaultdict
 import pandas as pd
 
 from stream2segment.io.db.models import DataCenter, Fdsnws
-from stream2segment.download.utils import QuitDownload, dbsyncdf, to_fdsn_arg, formatmsg
+from stream2segment.download.utils import FailedDownload, dbsyncdf, to_fdsn_arg, formatmsg
 from stream2segment.utils import strconvert, urljoin
 from stream2segment.utils.url import URLException, urlread, urlparse
 from stream2segment.io.db.pdsql import dbquery2df
@@ -66,9 +66,9 @@ def get_datacenters_df(session, service, routing_service_url,
                                        DC_SURL: fdsn.url(Fdsnws.STATION),
                                        DC_ORG: None}, index=[0])
         except ValueError:
-            raise QuitDownload(Exception(formatmsg("Unable to use datacenter",
-                                                   "Url does not seem to be a valid fdsn url",
-                                                   service)))
+            raise FailedDownload(formatmsg("Unable to use datacenter",
+                                           "Url does not seem to be a valid fdsn url",
+                                           service))
     else:
         dc_df, eidars_responsetext = get_eida_datacenters_df(session, routing_service_url,
                                                              net, sta, loc, cha, starttime, endtime)
@@ -132,7 +132,7 @@ def get_eida_datacenters_df(session, routing_service_url, net, sta, loc, cha,
         if dc_df.empty:
             msg = formatmsg("Eida routing service error, no eida data-center saved in database",
                             urlexc.exc, url)
-            raise QuitDownload(Exception(msg))
+            raise FailedDownload(msg)
         else:
             msg = formatmsg("Eida routing service error", urlexc.exc, url)
             logger.warning(msg)

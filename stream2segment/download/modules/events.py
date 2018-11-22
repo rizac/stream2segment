@@ -14,7 +14,8 @@ from datetime import timedelta, datetime
 
 import pandas as pd
 
-from stream2segment.download.utils import dbsyncdf, QuitDownload, response2normalizeddf, formatmsg
+from stream2segment.download.utils import dbsyncdf, FailedDownload, response2normalizeddf, \
+    formatmsg
 from stream2segment.io.db.models import WebService, Event
 from stream2segment.utils.url import urlread, URLException
 from stream2segment.utils import urljoin, strptime
@@ -47,7 +48,7 @@ def get_events_df(session, eventws_url, db_bufsize, **args):
     try:
         datalist = get_events_list(eventws_url, **args)
     except ValueError as exc:
-        raise QuitDownload(exc)
+        raise FailedDownload(exc)
 
     if len(datalist) > 1:
         logger.info(formatmsg("Request was split into sub-queries, aggregating the results",
@@ -64,8 +65,9 @@ def get_events_df(session, eventws_url, db_bufsize, **args):
                 logger.warning(formatmsg("Discarding response", exc, url))
 
     if not ret:  # pd.concat below raise ValueError if ret is empty:
-        raise QuitDownload(Exception(formatmsg("", ("No events found. Check input config. "
-                                                    "or log for details"), url)))
+        raise FailedDownload(formatmsg("",
+                                       ("No events found. Check input config. "
+                                        "or log for details"), url))
 
     events_df = pd.concat(ret, axis=0, ignore_index=True, copy=False)
     events_df[Event.webservice_id.key] = eventws_id

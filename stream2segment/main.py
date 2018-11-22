@@ -39,7 +39,7 @@ from stream2segment.utils import secure_dburl, strconvert, iterfuncs, open2write
 from stream2segment.utils.resources import get_templates_dirpath
 from stream2segment.gui.main import create_main_app, run_in_browser
 from stream2segment.process import math as s2s_math
-from stream2segment.download.utils import QuitDownload
+from stream2segment.download.utils import FailedDownload
 from stream2segment.gui.dinfo import get_dstats_html, get_dstats_str_iter
 from stream2segment.resources.templates import DOCVARS
 from stream2segment.process.writers import get_writer
@@ -84,7 +84,7 @@ def download(config, log2file=True, verbose=False, **param_overrides):
     # For any other case where we cannot proceed (we do not have data, e.g. no stations,
     # for whatever reason it is), 1 is returned. We should actually check better if there
     # might be some of these cases where 0 should be returned instead of 1.
-    # When 1 is returned, a QuitDownload is raised and logged to error.
+    # When 1 is returned, a FailedDownload is raised and logged to error.
     # Other exceptions are caught, logged with the stack trace as critical, and raised
 
     # check and parse config values (modify in place):
@@ -106,7 +106,6 @@ def download(config, log2file=True, verbose=False, **param_overrides):
     loghandlers = configlog4download(logger, config if log2file else None, verbose)
     ret = 0
     noexc_occurred = True
-    log_elapsedtime_errs_warns = True
     try:
         if log2file and verbose:  # (=> loghandlers not empty)
             print("Log file:\n'%s'\n"
@@ -117,24 +116,21 @@ def download(config, log2file=True, verbose=False, **param_overrides):
                                                        Download.log.key))
 
         stime = time.time()
-        try:
-            run_download(download_id=download_id, isterminal=verbose, **yaml_dict)
-        except QuitDownload as quitdownloadexc:
-            ret = 1
-            log_elapsedtime_errs_warns = not quitdownloadexc.iscritical
+        run_download(download_id=download_id, isterminal=verbose, **yaml_dict)
+        # print "completed in ..." only if we do not have a critical quitdownload
+        # as in the latter case the message below might obfuscate more important
+        # messages, and the time completion
+        logger.info("Completed in %s", str(totimedelta(stime)))
+        if log2file:
+            errs, warns = loghandlers[0].errors, loghandlers[0].warnings
 
-        if log_elapsedtime_errs_warns:
-            # print "completed in ..." only if we do not have a critical quitdownload
-            # as in the latter case the message below might obfuscate more important
-            # messages, and the time completion
-            logger.info("Completed in %s", str(totimedelta(stime)))
-            if log2file:
-                errs, warns = loghandlers[0].errors, loghandlers[0].warnings
-
-                def frmt(n, text):
-                    '''stupid function to format 'No error', '1 error' , '2 errors', ...'''
-                    return "%s %s%s" % ("No" if n == 0 else str(n), text, '' if n == 1 else 's')
-                logger.info("%s, %s", frmt(errs, 'error'), frmt(warns, 'warning'))
+            def frmt(n, text):
+                '''stupid function to format 'No error', '1 error' , '2 errors', ...'''
+                return "%s %s%s" % ("No" if n == 0 else str(n), text, '' if n == 1 else 's')
+            logger.info("%s, %s", frmt(errs, 'error'), frmt(warns, 'warning'))
+    except FailedDownload as fdwnld:
+        # we logged the exception in run_download, just set return value as 1 for convention:
+        ret = 1
     except KeyboardInterrupt:
         # https://stackoverflow.com/questions/5191830/best-way-to-log-a-python-exception:
         logger.critical("Aborted by user")

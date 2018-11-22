@@ -44,7 +44,7 @@ from stream2segment.download.modules.channels import get_channels_df, chaid2msee
 from stream2segment.download.modules.stationsearch import merge_events_stations
 from stream2segment.download.modules.segments import prepare_for_download, \
     download_save_segments, DcDataselectManager
-from stream2segment.download.utils import QuitDownload, Authorizer
+from stream2segment.download.utils import NothingToDownload, FailedDownload, Authorizer
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf
 from stream2segment.download.utils import custom_download_codes
 from stream2segment.download.modules.mseedlite import MSeedError, unpack
@@ -318,7 +318,7 @@ Db table 'stations': 4 rows updated (no sql error)""" in s
         # as urlread returns alternatively a 413 and a good string, also sub-queries
         # will return that, so that we will end up having a 413 when the string is not
         # further splittable:
-        with pytest.raises(QuitDownload):
+        with pytest.raises(FailedDownload):
             data = self.get_events_df(urlread_sideeffect, db.session, "http://eventws", self.db_buf_size,
                                       start=datetime(2010, 1, 1).isoformat(),
                                       end=datetime(2011, 1, 1).isoformat())
@@ -335,7 +335,7 @@ Db table 'stations': 4 rows updated (no sql error)""" in s
         urlread_sideeffect = [413]  # this is useless, we test stuff which raises before it
 
         # we want to return all times 413, and see that we raise a ValueError:
-        with pytest.raises(QuitDownload):
+        with pytest.raises(FailedDownload):
             # now it should raise because of a 413:
             data = self.get_events_df(urlread_sideeffect, db.session, "abcd", self.db_buf_size,
                                       start=datetime(2010, 1, 1).isoformat(),
@@ -401,7 +401,7 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
         net, sta, loc, cha, start, end = [], [], [], [], None, None
 
         # no fdsn service ("http://myservice")
-        with pytest.raises(QuitDownload):
+        with pytest.raises(FailedDownload):
             data, _ = self.get_datacenters_df(urlread_sideeffect, db.session,
                                               "http://myservice", self.routing_service,
                                               net, sta, loc, cha, start, end,
@@ -585,7 +585,7 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
 
         # eida:
         # test that everything is not ok because urlread raises and we do not have data on the db
-        with pytest.raises(QuitDownload) as qdown:
+        with pytest.raises(FailedDownload) as qdown:
             data, _ = self.get_datacenters_df(urlread_sideeffect, db.session, "eida",
                                               self.routing_service,
                                               net, sta, loc, cha, starttime, endtime,
@@ -652,7 +652,7 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
                                     net, sta, loc, cha, db_bufsize=self.db_buf_size)
         # first we mock url errors in all queries. We still did not write anything in the db
         # so we should quit:
-        with pytest.raises(QuitDownload) as qd:
+        with pytest.raises(FailedDownload) as qd:
             _ = self.get_channels_df(URLError('urlerror_wat'), db.session,
                                      datacenters_df, eidavalidator,
                                      net, sta, loc, cha, None, None, 100,
@@ -863,7 +863,7 @@ E|F|11|HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|8388
                                               eidavalidator, n, s, l, c, st, e, m,
                                               False, None, None, -1, self.db_buf_size)
                 assert len(cha_df) == expected_length
-            except QuitDownload as qd:
+            except FailedDownload as qd:
                 assert expected_length == 0
                 assert "Unable to fetch stations from all data-centers" in str(qd)
 
@@ -911,7 +911,7 @@ E|F|11|HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|8388
                                               eidavalidator, n, s, l, c, st, e, m,
                                               False, None, None, -1, self.db_buf_size)
                 assert len(cha_df) == expected_length
-            except QuitDownload as qd:
+            except FailedDownload as qd:
                 assert expected_length == 0
                 assert "Unable to fetch stations from all data-centers" in str(qd)
 
@@ -1401,6 +1401,58 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             assert len(s_df) == len(orig_seg_df)
             assert request_timebounds_need_update is True  # because we changed wtimespan
         # this hol
+
+        # now test that we raise a NothingToDownload
+        # first, write all remaining segments to db, with 204 code so they will not be
+        # re-downloaded
+        for i in range(len(segments_df)):
+            download_code = 204
+            dic = segments_df.iloc[i].to_dict()
+            dic['download_code'] = download_code
+            dic['download_id'] = self.run.id
+            # hack for deleting unused columns:
+            for col in [Station.network.key, Station.station.key,
+                        Channel.location.key, Channel.channel.key]:
+                if col in dic:
+                    del dic[col]
+            # convet numpy values to python scalars:
+            # pandas 20+ seems to keep numpy types in to_dict
+            # https://github.com/pandas-dev/pandas/issues/13258
+            # this was not the case in pandas 0.19.2
+            # sql alchemy does not like that
+            # (Curiosly, our pd2sql methods still work fine (we should check why)
+            # So, quick and dirty:
+            for k in dic.keys():
+                if hasattr(dic[k], "item"):
+                    dic[k] = dic[k].item()
+            # postgres complains about nan primary keys
+            if math.isnan(dic.get(Segment.id.key, 0)):
+                del dic[Segment.id.key]
+
+            # now we can safely add it:
+            # brutal approach: add and commit, if error, rollback
+            # if error it means we already wrote the segment on db and an uniqueconstraint
+            # is raised
+            try:
+                db.session.add(Segment(**dic))
+                db.session.commit()
+            except SQLAlchemyError as _err:
+                db.session.rollback()
+        # test that we have the correct number of segments saved:
+        assert db.session.query(Segment.id).count() == len(orig_seg_df)
+        # try to test a NothingToDownload:
+        # reset the old wtimespan otherwise everything will be flagged to be redownloaded:
+        wtimespan[1] -= 5
+        with pytest.raises(NothingToDownload):
+            segments_df, request_timebounds_need_update = \
+                prepare_for_download(db.session, orig_seg_df, wtimespan,
+                                     retry_seg_not_found=False,
+                                     retry_url_err=False,
+                                     retry_mseed_err=False,
+                                     retry_client_err=False,
+                                     retry_server_err=False,
+                                     retry_timespan_err=False,
+                                     retry_timespan_warn=False)
 
     def test_prepare_for_download_sametimespans(self, db, tt_ak135_tts):
         # prepare. event ws returns two events very close by
