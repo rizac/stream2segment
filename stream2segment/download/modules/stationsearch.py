@@ -63,8 +63,7 @@ def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius,
 
     channels_df = channels_df.rename(columns={CHA_ID: SEG_CHAID})
     # get unique stations, rename Channel.id into Segment.channel_id now so we do not bother later
-    stations_df = channels_df.drop_duplicates(subset=[CHA_STAID])
-    stations_df.is_copy = False
+    stations_df = channels_df.drop_duplicates(subset=[CHA_STAID]).copy()
 
     ret = []
     max_radia = get_search_radius(events_df[EVT_MAG].values, minmag, maxmag,
@@ -96,8 +95,7 @@ def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius,
             cha_df = mergeupdate(channels_df, stations_df[condition], [CHA_STAID], [SEG_EVDIST],
                                  drop_other_df_duplicates=False)  # dupes already dropped
             # drop channels which are not related to station within radius:
-            cha_df = cha_df.dropna(subset=[SEG_EVDIST], inplace=False)
-            cha_df.is_copy = False  # avoid SettingWithCopyWarning...
+            cha_df = cha_df.dropna(subset=[SEG_EVDIST], inplace=False).copy()
             cha_df[SEG_EVID] = evt_dic[EVT_ID]  # ...and add "safely" SEG_EVID values
             # append to arrays (calculate arrival times in one shot a t the end, it's faster):
             sourcedepths += [evt_dic[EVT_DEPTH]] * len(cha_df)

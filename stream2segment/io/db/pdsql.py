@@ -476,8 +476,7 @@ def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=
             if onduplicates_callback:
                 onduplicates_callback(dataframe[dupes_mask],
                                       Exception("Duplicated instances violate db constraint"))
-            dataframe = dataframe[~dupes_mask]
-            dataframe.is_copy = False
+            dataframe = dataframe[~dupes_mask].copy()
 
     dframe_with_pkeys = fetchsetpkeys(dataframe, session, matching_columns, autoincrement_pkey_col)
     d = DbManager(session, autoincrement_pkey_col,
@@ -487,7 +486,7 @@ def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=
     d.add(dframe_with_pkeys)
     table, inserted, not_inserted, updated, not_updated = d.close()
     # since we called fetchsetpkeys, we might have integer values casted to float
-    # we could not cast prreviously because dframe_with_pkeys might have had NaN's, now
+    # we could not cast previously because dframe_with_pkeys might have had NaN's, now
     # we are sure that d.dataframe does not have NaN's anymore
     dataframe = _cast_column(d.dataframe, autoincrement_pkey_col)
 
@@ -588,7 +587,7 @@ class DbManager(object):
                 self.inserts.append(dfinsert)
                 total_inserts_count = self._toinsert_count + newinserts
                 if total_inserts_count >= bufsize:
-                    self.insert(bufsize)  # will reset self._toinsert_count to 0
+                    self._insert(bufsize)  # will reset self._toinsert_count to 0
                 else:
                     self._toinsert_count = total_inserts_count
 
@@ -598,7 +597,7 @@ class DbManager(object):
                 self.updates.append(dfupdate)
                 total_updates_count = self._toupdate_count + newupdates
                 if total_updates_count >= bufsize:
-                    self.update(bufsize)  # will reset self._toupdate_count to 0
+                    self._update(bufsize)  # will reset self._toupdate_count to 0
                 else:
                     self._toupdate_count = total_updates_count
 
@@ -618,14 +617,14 @@ class DbManager(object):
             pd.concat(dfs, axis=0, ignore_index=False, copy=False,
                       verify_integrity=False)
 
-    def insert(self, buf_size=None):
+    def _insert(self, buf_size=None):
         inserts = self.inserts
         df = inserts[0] if len(inserts) == 1 else \
             pd.concat(inserts, axis=0, ignore_index=True, copy=False, verify_integrity=False)
         session = self.session
         id_col = self.id_col
-        df.is_copy = False
-        df = set_pkeys(df, session, id_col, overwrite=True, pkeycol_maxval=self._max)
+        with pd.option_context('mode.chained_assignment', None):  # No SettingsWithCopy warning?
+            df = set_pkeys(df, session, id_col, overwrite=True, pkeycol_maxval=self._max)
         insert_cols = self.colnames2insert
         if insert_cols is None:
             insert_cols = self.colnames2insert = _get_shared_colnames(self.table, df)
@@ -651,7 +650,7 @@ class DbManager(object):
         self._toinsert_count = 0
         self.inserts = []  # this is faster in py3 than del inserts[:] (=del self.inserts[:])
 
-    def update(self, buf_size=None):
+    def _update(self, buf_size=None):
         updates = self.updates
         df = updates[0] if len(updates) == 1 else \
             pd.concat(updates, axis=0, ignore_index=True, copy=False, verify_integrity=False)
@@ -681,9 +680,9 @@ class DbManager(object):
     def flush(self):
         """flushes remaining stuff to insert/ update, if any"""
         if self.inserts:
-            self.insert()
+            self._insert()
         if self.updates:
-            self.update()
+            self._update()
 
     def close(self):
         """flushes remaining stuff to insert/ update, if any, prints to log updates and inserts

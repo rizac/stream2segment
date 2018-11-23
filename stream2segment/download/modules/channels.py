@@ -361,8 +361,9 @@ def save_stations_and_channels(session, channels_df, eidavalidator, update, db_b
                         break
             sta_df_dupes = sta_df_dupes.loc[~sta_df_dupes.index.isin(keep_indices)]
         else:
-            sta_df_dupes.is_copy = False
-            sta_df_dupes[STA_DCID + "_tmp"] = sta_df_dupes[STA_DCID].copy()
+            sta_df_dupes = sta_df_dupes.copy()
+            sta_df_dupes.rename(columns={STA_DCID: STA_DCID + "_tmp"}, inplace=True)
+            # sta_df_dupes[STA_DCID + "_tmp"] = sta_df_dupes[STA_DCID].copy()
             sta_df_dupes[STA_DCID] = np.nan
             sta_db = dbquery2df(session.query(Station.network, Station.station, Station.start_time,
                                               Station.datacenter_id))
