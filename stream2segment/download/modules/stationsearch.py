@@ -31,7 +31,7 @@ def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius,
                           tttable, show_progress=False):
     """
         Merges `events_df` and `channels_df` by returning a new dataframe representing all
-        channels within a specific search radius. *Each row of the resturned data frame is
+        channels within a specific search radius. *Each row of the returned data frame is
         basically a segment to be potentially donwloaded*.
         The returned dataframe will be the same as `channels_df` with one or more rows repeated
         (some channels might be in the search radius of several events), plus a column
@@ -43,23 +43,23 @@ def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius,
     """
     # For convenience and readability, define once the mapped column names representing the
     # dataframe columns that we need:
-    EVT_ID = Event.id.key
-    EVT_MAG = Event.magnitude.key
-    EVT_LAT = Event.latitude.key
-    EVT_LON = Event.longitude.key
-    EVT_TIME = Event.time.key
-    EVT_DEPTH = Event.depth_km.key
-    STA_LAT = Station.latitude.key
-    STA_LON = Station.longitude.key
-    STA_STIME = Station.start_time.key
-    STA_ETIME = Station.end_time.key
-    CHA_ID = Channel.id.key
-    CHA_STAID = Channel.station_id.key
-    SEG_EVID = Segment.event_id.key
-    SEG_EVDIST = Segment.event_distance_deg.key
-    SEG_ATIME = Segment.arrival_time.key
-    SEG_DCID = Segment.datacenter_id.key
-    SEG_CHAID = Segment.channel_id.key
+    EVT_ID = Event.id.key  # pylint: disable=invalid-name
+    EVT_MAG = Event.magnitude.key  # pylint: disable=invalid-name
+    EVT_LAT = Event.latitude.key  # pylint: disable=invalid-name
+    EVT_LON = Event.longitude.key  # pylint: disable=invalid-name
+    EVT_TIME = Event.time.key  # pylint: disable=invalid-name
+    EVT_DEPTH = Event.depth_km.key  # pylint: disable=invalid-name
+    STA_LAT = Station.latitude.key  # pylint: disable=invalid-name
+    STA_LON = Station.longitude.key  # pylint: disable=invalid-name
+    STA_STIME = Station.start_time.key  # pylint: disable=invalid-name
+    STA_ETIME = Station.end_time.key  # pylint: disable=invalid-name
+    CHA_ID = Channel.id.key  # pylint: disable=invalid-name
+    CHA_STAID = Channel.station_id.key  # pylint: disable=invalid-name
+    SEG_EVID = Segment.event_id.key  # pylint: disable=invalid-name
+    SEG_EVDIST = Segment.event_distance_deg.key  # pylint: disable=invalid-name
+    SEG_ATIME = Segment.arrival_time.key  # pylint: disable=invalid-name
+    SEG_DCID = Segment.datacenter_id.key  # pylint: disable=invalid-name
+    SEG_CHAID = Segment.channel_id.key  # pylint: disable=invalid-name
 
     channels_df = channels_df.rename(columns={CHA_ID: SEG_CHAID})
     # get unique stations, rename Channel.id into Segment.channel_id now so we do not bother later
