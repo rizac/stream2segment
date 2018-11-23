@@ -291,9 +291,9 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                     # cases (new segments and segments previously not found (all with no id none
                     # or n/a) will never be skipped
                     _skipped = dframe[SEG_DSCODE] == code
-                    _skippedcount = _skipped.sum()
-                    if _skippedcount:
+                    if _skipped.any():
                         dframe = dframe[~_skipped]
+                        _skippedcount = _skipped.sum()
                         stats[url][code] += _skippedcount
                         skipped_same_code += _skippedcount
                         if dframe.empty:
