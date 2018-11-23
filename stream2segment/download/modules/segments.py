@@ -92,14 +92,19 @@ def prepare_for_download(session, segments_df, timespan, retry_seg_not_found, re
 
     db_seg_df[SEG_RETRY] = mask
 
-    # update existing dataframe. If db_seg_df we might NOT set the columns of db_seg_df not
-    # in segments_df. So for safetey set them now:
-    segments_df[SEG_ID] = np.nan  # coerce to valid type (should be int, however allow nans)
-    segments_df[SEG_RETRY] = True  # coerce to valid type
-    segments_df[SEG_START] = pd.NaT  # coerce to valid type
-    segments_df[SEG_END] = pd.NaT  # coerce to valid type
+    # update existing dataframe. Set defaults on segments_df first:
+    # set columns and defaults (for int types, set np.nan):
+    cols2set = OrderedDict([(SEG_ID, np.nan), (SEG_RETRY, True), (SEG_START, pd.NaT),
+                            (SEG_END, pd.NaT)])
+    # if there is something to update, then add also download_code as column of segments_df:
+    if db_seg_df[SEG_RETRY].any():
+        cols2set[SEG_DSC] = np.nan
+    # assign default values to segments_df:
+    for colname, default_ in cols2set.items():
+        segments_df[colname] = default_
+    # assign values of db_seg_df to segments_df, matching rows via the [SEG_CHID, SEG_EVID] cols:
     segments_df = mergeupdate(segments_df, db_seg_df, [SEG_CHID, SEG_EVID],
-                              [SEG_ID, SEG_RETRY, SEG_START, SEG_END])
+                              list(cols2set.keys()))
 
     # Now check time bounds: segments_df[SEG_START] and segments_df[SEG_END] are the OLD time
     # bounds, cause we just set them on segments_df from db_seg_df. Some of them might be NaT,
@@ -245,6 +250,10 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
         '''calls get_seg_request from an item of Pandas groupby. Used in read_async below'''
         return dc_dataselect_manager.opener(obj[0][0])
 
+    # check first if there is somethign to update, set a boolean outside the loop below
+    # for performance:
+    toupdate = SEG_DSCODE in segments_df.columns
+    skipped_same_code = 0  # to log info segments with no report
     # we assume it's the terminal, thus allocate the current process to track
     # memory overflows
     with get_progressbar(show_progress, length=len(segments_df)) as bar:
@@ -267,12 +276,31 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                 groupkeys_tuple = dframe[0]
                 dframe = dframe[1]
                 url = get_host(request)
-                data, code, msg = result if not exc else (None, None, None)
-                if code == 413 and len(dframe) > 1 and not islast:
+                data, code, msg = result if not exc else (None, URLERR_CODE, None)
+                if code == 413 and not islast and len(dframe) > 1:
                     skipped_dataframes.append(dframe)
                     continue
+                # update bar now:
+                bar.update(len(dframe))
+                # if there are rows to update and response has no data, then
+                # discard those for which the code is the same. If we requested a different
+                # time window, do not update the time window for those segments as they have
+                # no data anyway, there is no single case where this might be a problem
+                if toupdate and not data:
+                    # note that checking for dframe[SEG_DSCODE] is enough. Borderline
+                    # cases (new segments and segments previously not found (all with no id none
+                    # or n/a) will never be skipped
+                    _skipped = dframe[SEG_DSCODE] == code
+                    _skippedcount = _skipped.sum()
+                    if _skippedcount:
+                        dframe = dframe[~_skipped]
+                        stats[url][code] += _skippedcount
+                        skipped_same_code += _skippedcount
+                        if dframe.empty:
+                            continue
                 # Seems that copy(), although allocates a new small memory chunk,
-                # helps gc better managing total memory (which might be an issue):
+                # helps gc better managing total memory (which might be an issue).
+                # Moreover, let's avoid pandas SettingsWithCopy warning:
                 dframe = dframe.copy()
                 # init columns with default values:
                 for col in SEG_COLNAMES:
@@ -283,41 +311,40 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                     # https://stackoverflow.com/questions/12555323/adding-new-column-to-existing-dataframe-in-python-pandas
                 # init download id column with our download_id:
                 dframe[SEG_DOWNLID] = download_id
-                if exc:
-                    code = URLERR_CODE
-                elif code >= 400:
-                    exc = "%d: %s" % (code, msg)
-                elif not data:
-                    # if we have empty data set only specific columns:
-                    # (avoid mseed_id as is useless string data on the db, and we can retrieve it
-                    # via station and channel joins in case)
-                    dframe.loc[:, SEG_DATA] = b''
-                    dframe.loc[:, SEG_DSCODE] = code
-                    stats[url][code] += len(dframe)
-                else:
-                    try:
-                        starttime = groupkeys_tuple[requeststart_index]
-                        endtime = groupkeys_tuple[requestend_index]
-                        resdict = mseedunpack(data, starttime, endtime)
-                        oks, errors, outtime_warns, outtime_errs, unknowns = \
-                            _process_downloaded_data(dframe, code, resdict, chaid2mseedid,
-                                                     SEG_DATA, SEG_CHAID, SEG_DSCODE,
-                                                     SEG_COLNAMES, MSEEDERR_CODE,
-                                                     OUTTIME_WARN_CODE, OUTTIME_ERR_CODE)
+                if exc is None:
+                    if code >= 400:
+                        exc = "%d: %s" % (code, msg)
+                    elif not data:
+                        # if we have empty data set only specific columns:
+                        # (avoid mseed_id as is useless string data on the db, and we can
+                        # retrieve it via station and channel joins in case)
+                        dframe.loc[:, SEG_DATA] = b''
+                        dframe.loc[:, SEG_DSCODE] = code
+                        stats[url][code] += len(dframe)
+                    else:
+                        try:
+                            starttime = groupkeys_tuple[requeststart_index]
+                            endtime = groupkeys_tuple[requestend_index]
+                            resdict = mseedunpack(data, starttime, endtime)
+                            oks, errors, outtime_warns, outtime_errs, unknowns = \
+                                _process_downloaded_data(dframe, code, resdict, chaid2mseedid,
+                                                         SEG_DATA, SEG_CHAID, SEG_DSCODE,
+                                                         SEG_COLNAMES, MSEEDERR_CODE,
+                                                         OUTTIME_WARN_CODE, OUTTIME_ERR_CODE)
 
-                        if oks:
-                            stats[url][code] += oks
-                        if errors:
-                            stats[url][MSEEDERR_CODE] += errors
-                        if outtime_errs:
-                            stats[url][OUTTIME_ERR_CODE] += outtime_errs
-                        if outtime_warns:
-                            stats[url][OUTTIME_WARN_CODE] += outtime_warns
-                        if unknowns > 0:
-                            stats[url][SEG_NOT_FOUND] += unknowns
-                    except MSeedError as mseedexc:
-                        code = MSEEDERR_CODE
-                        exc = mseedexc
+                            if oks:
+                                stats[url][code] += oks
+                            if errors:
+                                stats[url][MSEEDERR_CODE] += errors
+                            if outtime_errs:
+                                stats[url][OUTTIME_ERR_CODE] += outtime_errs
+                            if outtime_warns:
+                                stats[url][OUTTIME_WARN_CODE] += outtime_warns
+                            if unknowns:
+                                stats[url][SEG_NOT_FOUND] += unknowns
+                        except MSeedError as mseedexc:
+                            code = MSEEDERR_CODE
+                            exc = mseedexc
 
                 if exc is not None:
                     dframe.loc[:, SEG_DSCODE] = code
@@ -326,7 +353,6 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                                              exc, request))
 
                 segmanager.add(dframe)
-                bar.update(len(dframe))
 
             segmanager.flush()  # flush remaining stuff to insert / update, if any
 
@@ -340,6 +366,11 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
 
     segmanager.close()  # flush remaining stuff to insert / update
 
+    if skipped_same_code:
+        logger.warning(formatmsg(("%d already saved segment(s) with no waveform data skipped "
+                                  "with no messages, only their count is reported "
+                                  "in statistics") % skipped_same_code,
+                                 "Still receiving the same download code"))
     return stats
 
 

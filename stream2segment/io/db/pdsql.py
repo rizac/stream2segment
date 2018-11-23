@@ -558,11 +558,15 @@ class DbManager(object):
             all2update = not mask.any()
 
             if self.colnames2update:
+                # We want to update existing rows. Rows will be updated when needed, their
+                # content added then to self.dfs if return_df = True
                 if all2update:
                     dfupdate = df
                 else:
                     dfupdate = df[~mask]  # pylint: disable=invalid-unary-operand-type
             elif self.return_df:
+                # we do NOT want to update existing rows, but we want to return
+                # a dataframe with all (inserted + existing) rows => add to self.dfs
                 if all2update:
                     self.dfs.append(df)
                 else:
