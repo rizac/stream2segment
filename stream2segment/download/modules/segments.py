@@ -432,7 +432,7 @@ def _process_downloaded_data(dframe, code, resdict, chaid2mseedid, *args):
                     outtime_errs += 1
             else:
                 oks += 1
-            # This raises a UnicodeDecodeError:
+            # This raised a UnicodeDecodeError:
             # dframe.loc[idxval, SEG_COLNAMES] = (data, s_rate,
             #                                 max_gap_ratio,
             #                                 mseedid, code)
@@ -443,10 +443,11 @@ def _process_downloaded_data(dframe, code, resdict, chaid2mseedid, *args):
             #  and thus fails for the `data` field?)
             # Anyway, we set first an empty string (which can be
             # decoded) and then use set_value only for the `data` field
-            # set_value should be relatively fast
+            # set_value should be relatively fast. Update 2018: set_value deprecated
+            # we use at
             dframe.loc[idxval, SEG_COLNAMES] = (b'', s_rate, max_gap_ratio,
                                                 mseedid, _code, stime, etime)
-            dframe.set_value(idxval, SEG_DATA, data)
+            dframe.at[idxval, SEG_DATA] = data
 
     unknowns = max(0, len(dframe) - oks - errors - outtime_errs - outtime_warns)
     return oks, errors, outtime_warns, outtime_errs, unknowns

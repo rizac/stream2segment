@@ -448,7 +448,7 @@ class Input(object):
                 rec = Record(self.__fd)
                 yield rec, False
             except EndOfData:
-                raise StopIteration
+                break
             except MSeedError as mse:
                 if mse._record_id is None:  # header errror, cannot guess id
                     raise
