@@ -1,8 +1,8 @@
 '''
 Utilities for interaction between pandas DataFrames and sqlalchemy tables objects
 (according to `models.py`).
-Some of these functions are copied and pasted from `pandas.io.sql.SqlTable`, some other account for
-performance improvements in both pandas and SqlAlchemy
+Some of these functions are copied and pasted from `pandas.io.sql.SqlTable`, some other account
+for performance improvements in both pandas and SqlAlchemy
 (http://docs.sqlalchemy.org/en/latest/faq/performance.html).
 In a near future, some or many of these functions might be available in the respective packages
 
@@ -109,14 +109,15 @@ def colnames(table, pkey=None, fkey=None, nullable=None):
     """
         Returns an iterator returning the attributes names (as string) reflecting database
         columns with the given properties specified as argument.
+
         :param table: an ORM model class (python class)
-        :param pkey: boolean or None. If None, filter on primary keys is off. If True, only primary
-        key columns are yielded, if False, only non-primary key columns are yielded
-        :param fkey: boolean or None. If None, filter on foreign keys is off. If True, only foreign
-        key columns are yielded, if False, only non-foreign key columns are yielded
+        :param pkey: boolean or None. If None, filter on primary keys is off. If True, only
+            primary key columns are yielded, if False, only non-primary key columns are yielded
+        :param fkey: boolean or None. If None, filter on foreign keys is off. If True, only
+            foreign key columns are yielded, if False, only non-foreign key columns are yielded
         :param nullable: boolean or None. If None, filter on nullable columns is off.
-        If True, only columns where nullable=True are yielded, if False, only columns where
-        nullable=False are yielded
+            If True, only columns where nullable=True are yielded, if False, only columns where
+            nullable=False are yielded
     """
     mapper = inspect(table)
     # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper.mapped_table
@@ -165,6 +166,7 @@ def harmonize_rows(table, dataframe, inplace=True):
     those columns only which have a corresponding name in any of the table attributes.
     Consider calling `harmonize_cols` first to make sure the column values
     align with the table column types
+
     :param inplace: argument to be passed to pandas `dropna`
     """
     non_nullable_cols = list(shared_colnames(table, dataframe, nullable=False))
@@ -183,6 +185,7 @@ def harmonize_columns(table, dataframe, parse_dates=None):
     are left as they are. Columns of the table are assumed to be its attribute names (as typed
     in the code), thus the DataFrame is assumed to have string columns as well.
     The returned dataframe row numbers is not modified
+
     :param table: an ORM model class
     """
     _, dfr = _harmonize_columns(table, dataframe, parse_dates)
@@ -451,7 +454,7 @@ def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=
         Set to None to not execute any callback on update errors
 
     Technical notes
-    ================================================================================================
+    ===============================================================================================
 
     1. T is obtained as the `class_` attribute of the first passed
     `Column <http://docs.sqlalchemy.org/en/latest/core/metadata.html#sqlalchemy.schema.Column>`_,
@@ -517,12 +520,16 @@ class DbManager(object):
     def __init__(self, session, id_col, update, buf_size, return_df=False,
                  oninsert_err_callback=None, onupdate_err_callback=None):
         '''
+        Initializes a new `DbManager`
+
+        :param return_df: (boolean, False by default) if True, the property `self.dataframe`
+            will return the db-synced dataframe. Setting this argument to True might increase
+            memory allocation and time execution
 
         :param update: boolean or list of strings. Whether to update or not:
-
             - If True, all shared columns between dataframes and table model will be updated
-              (except id_col): the shared columns are calculated only the first time a dataframe is
-              added to this object.
+              (except id_col): the shared columns are calculated only the first time a dataframe
+              is added to this object.
             - If list of STRINGS, then the columns which matching
               names are updated only (the string name of id_col should not be in the list)
             - If False (or, in general falsy, so None works): do not update
@@ -545,38 +552,35 @@ class DbManager(object):
         self.oninsert_err_callback = oninsert_err_callback
         self.onupdate_err_callback = onupdate_err_callback
 
-    def add(self, df):
+    def add(self, dframe):
         '''
-        :param df: the dataframe. It MUST have self.id_col.key as column, either NA or non-NA
+        Adds the given dataframe to be inserted or updated (according to dframe[self.id_col.key])
+
+        :param dframe: the dataframe. It MUST have `self.id_col.key` as column, either NA or
+            non-NA
         '''
         bufsize = self.buf_size
         dfinsert, dfupdate = None, None
 
-        mask = pd.isnull(df[self.id_col.key])
-        if not mask.all():  # some elements have non-na id, thus they SHOULD be updated
+        mask = pd.isnull(dframe[self.id_col.key])
+        if mask.all():
+            dfinsert = dframe
+        else:  # some elements have non-na id, thus they SHOULD be updated
 
-            all2update = not mask.any()
+            if mask.any():
+                dfinsert = dframe[mask]
 
-            if self.colnames2update:
-                # We want to update existing rows. Rows will be updated when needed, their
-                # content added then to self.dfs if return_df = True
-                if all2update:
-                    dfupdate = df
-                else:
-                    dfupdate = df[~mask]  # pylint: disable=invalid-unary-operand-type
-            elif self.return_df:
-                # we do NOT want to update existing rows, but we want to return
-                # a dataframe with all (inserted + existing) rows => add to self.dfs
-                if all2update:
-                    self.dfs.append(df)
-                else:
-                    self.dfs.append(df[~mask])  # pylint: disable=invalid-unary-operand-type
+            performupdate = self.colnames2update
 
-            if not all2update:
-                dfinsert = df[mask]
-
-        else:
-            dfinsert = df
+            if performupdate or self.return_df:
+                dfupdate = dframe if dfinsert is None else \
+                    dframe[~mask]  # pylint: disable=invalid-unary-operand-type
+                if not performupdate:
+                    # in this case, we do not want to update existing rows, but we want
+                    # to return the dataframe in the `self.dataframe` property. Thus, append
+                    # dfupdate to self.dfs AND set dfupdate to None (==skip update see below)
+                    self.dfs.append(dfupdate)
+                    dfupdate = None
 
         if dfinsert is not None:
             newinserts = len(dfinsert)
@@ -600,7 +604,9 @@ class DbManager(object):
 
     @property
     def dataframe(self):
-        '''returns the dataframe of all inserted / updated / existing instances (rows)
+        '''returns the dataframe of all inserted / updated / existing instances (rows).
+        You should close this object or call flush before calling this method.
+
         Note that if id_col passed in the constructor is of type int, it might be of type float
         Use _cast_column in case, the returned dataframe[id_col.key] is assured NOT to have NaNs
         Raises if self.return_df is False
@@ -711,15 +717,15 @@ def set_pkeys(dataframe, session, autoincrement_pkey_col, overwrite=False, pkeyc
 
     :param session: an sql-alchemy session object
     :param autoincrement_pkey_col: an ORM column of some model mapped to an sql table. The
-    column, as the name says, must be a primary key with auto-increment.
-    **The column MUST be of sql type INTEGER, otherwise this method should not be used**
-    dataframe[A] will have dtype int64, which is fine as we replace (or add) **all** the row values.
-    Note that if we replaced only partially some values, then dataframe[A] might still hold the old
-    dtype (e.g., float) which **would be bad** as some db (e.g., postgres) are strict and will issue
-    an `sqlalchemy.exc.DataError` if inserting/updating a non-nan/non-int value
-    (e.g., 6.0 instead of 6)
+        column, as the name says, must be a primary key with auto-increment.
+        **The column MUST be of sql type INTEGER, otherwise this method should not be used**
+        dataframe[A] will have dtype int64, which is fine as we replace (or add) **all** the row
+        values. Note that if we replaced only partially some values, then dataframe[A] might still
+        hold the old dtype (e.g., float) which **would be bad** as some db (e.g., postgres) are
+        strict and will issue an `sqlalchemy.exc.DataError` if inserting/updating a
+        non-nan/non-int value (e.g., 6.0 instead of 6)
     :param dataframe: the dataframe with values to be inserted/updated/deleted from the table
-    mapped by `autoincrement_pkey_col`
+        mapped by `autoincrement_pkey_col`
     '''
     if pkeycol_maxval is None:
         pkeycol_maxval = _get_max(session, autoincrement_pkey_col)
@@ -782,15 +788,15 @@ def insertdf(dataframe, session, autoincrement_pkey_col, colnames2insert=None,
     :param dataframe: a pandas dataframe
     :param session: the sql-alchemy session
     :param colnames2insert: a list of columns to be inserted. None will default to all
-    `dataframe` columns. This latter case might be more time consuming if
-    this method is called several times
+        `dataframe` columns. This latter case might be more time consuming if
+        this method is called several times
     :param query_first: boolean (defaults to True): queries T for rows already present. If this
-    argument is False no skip is done, i.e. for all rows of `dataframe` the function will
-    attempt to add them to T. **Set to False to speed up the function as long as you are sure no
-    row of `dataframe` violates any T constraint**
+        argument is False no skip is done, i.e. for all rows of `dataframe` the function will
+        attempt to add them to T. **Set to False to speed up the function as long as you are sure
+        no row of `dataframe` violates any T constraint**
     :param check_pkeycol: True will check intelligently pkeycol, adding only NA values from
-    the database (assuming the column is an auto-incrementing integer primary key). False
-    will skip the check (faster, but pkeys must have already been correctly set)
+        the database (assuming the column is an auto-incrementing integer primary key). False
+        will skip the check (faster, but pkeys must have already been correctly set)
 
     The remainder of the documentation is the same as `syncdf`, so please see there for details
     """
@@ -848,7 +854,6 @@ def updatedf(dataframe, session, where_col, colnames2update=None, buf_size=10, r
     """
     Efficiently updates row of `dataframe` to the corresponding database table T.
     Returns the tuple:
-
     ```
     (updated, d)
     ```
@@ -859,8 +864,8 @@ def updatedf(dataframe, session, where_col, colnames2update=None, buf_size=10, r
       Its length is 'updated'
 
     :param colnames2update: a list of columns to be updated. None will default to all
-    `dataframe` columns EXCEPT `where_col`. This latter case might be more time consuming if
-    this method is called several times
+        `dataframe` columns EXCEPT `where_col`. This latter case might be more time consuming if
+        this method is called several times
 
     `return_df=False` is in most cases faster, use it if you do not need a database-synchronized
     version of `dataframe`
@@ -938,17 +943,16 @@ def fetchsetpkeys(dataframe, session, matching_columns, pkey_col):
     :param dataframe: a pandas dataframe
     :param session: an sql-alchemy session
     :param matching_columns: a list of ORM columns for comparing `dataframe` rows and T rows:
-    when two rows are found that are equal (according to all `matching_columns` values), then
-    the primary key value of T row is set on the `dataframe` corresponding row
+        when two rows are found that are equal (according to all `matching_columns` values), then
+        the primary key value of T row is set on the `dataframe` corresponding row
     :param pkey_col: the ORM column denoting T primary key. It does not need to be a column
-    of `dataframe`
+        of `dataframe`
 
     :return: a new data frame with the column `pkey_col` populated with the primary keys
-    of T. Values that are n/a, None's or NaN's (see `pandas.DataFrameisnull`) denote rows that do
-    not have corresponding T row and might need to be added to T.
-    The index of `d` is **not** reset, so that a track
-    to the original dataframe is always possible (the user must issue a `d.reset_index` to reset
-    the index).
+        of T. Values that are n/a, None's or NaN's (see `pandas.DataFrameisnull`) denote rows that
+        do not have corresponding T row and might need to be added to T.
+        The index of `d` is **not** reset, so that a track to the original dataframe is always
+        possible (the user must issue a `d.reset_index` to reset the index).
 
     Technical notes:
     1. T is retrieved by means of the passed
@@ -971,37 +975,49 @@ def fetchsetpkeys(dataframe, session, matching_columns, pkey_col):
 
 def mergeupdate(dataframe, other_df, matching_columns, set_columns, drop_other_df_duplicates=True):
     """
-        Kind-of pandas.DataFrame update: sets
-        `dataframe[set_columns]` = `other_df[set_columns]`
-        for those row where `dataframe[matching_columns]` = `other_df[matching_columns]` only.
+        Modifies `dataframe` from `other_df` and returns it.
+        Sets `dataframe[set_columns]` = `other_df[set_columns]` for those row where
+        `dataframe[matching_columns]` = `other_df[matching_columns]` only.
+        Shared columns will be treated like this: row-wise, if a value is in both dataframes,
+        then take `other_df` value. Otherwise, take `dataframe` value.
         `other_df` **should** have unique rows under `matching columns` (see argument
         `drop_other_df_duplicates`)
+
         :param dataframe: the pandas DataFrame whose values should be replaced
         :param other_df: the pandas DataFrame which should set the new values to `dataframe`
         :param matching_columns: list of strings: the columns to be checked for matches. They must
-        be shared between both data frames
-        :param set_columns: list of strings denoting the column to be set from `other_df` to
-        `dataframe` for those rows matching under `matching_cols`
+            be shared between both data frames
+        :param set_columns: list of strings denoting the column(s) to be set from `other_df` to
+            `dataframe` for those rows matching under `matching_cols`. They must be present in
+            `other_df` columns
         :param drop_other_df_duplicates: If True (the default) drops ALL duplicates of `other_df`
-        under `matching_columns` before updating `dataframe`. If 'first', drops duplicates except
-        for the first occurrence. if 'last' drops duplicates except for the last occurrence.
+            under `matching_columns` before updating `dataframe`. If 'first', drops duplicates
+            except for the first occurrence. if 'last' drops duplicates except for the last
+            occurrence.
     """
     if drop_other_df_duplicates:
         keep = False if drop_other_df_duplicates is True else drop_other_df_duplicates
         other_df = other_df.drop_duplicates(subset=matching_columns, keep=keep)
 
-    # use other_df[matching_columns + set_columns] only for relevant columns
-    # (should speed up merging?):
+    # Use dataframe.merge. For any column C in `matching_columns + set_columns`
+    # which is shared between `dataframe` and `other_df`, then `merge_df` will have two columns:
+    # C + '_x' (populated with `dataframe` values) and C + '_y' (with `other_df` values)
     mergedf = dataframe.merge(other_df[matching_columns + set_columns], how='left',
                               on=list(matching_columns), indicator=True)
 
-    # set values of new_df by means of the _merge column created via the arg indicator=True above:
-    # _merge is in ('both', 'right_only', 'left_only'). We should never have 'right_only because of
-    # the how='left' above. Skip checking for the moment
+    # Now set the `merge_df` columns back into `dataframe`. The idea is that
+    # for all shared columns, then perform **row-wise** the following: if value was specified in
+    # both `dataframe` and `other_df`, then take `other_df` value. Otherwise `dataframe` value.
+    # Remember that the indicator=True argument above has created also a '_merge' column in
+    # `merge_df`: the column values are catagorical and can be 'both', 'left_only' (value only
+    # in `dataframe`). We should never have 'right_only because of
+    # the how='left' above (skip this check for the moment)
     for col in set_columns:
-        if col not in dataframe:
+        if col not in dataframe:  # trivial case: `dataframe` did not have a column, add it
             ser = mergedf[col].values
         else:
+            # if value was in both, take `other_df` value (mergedf[col+"_y"]), otherwise
+            # take `dataframe` value (mergedf[col+"_x"])
             ser = np.where(mergedf['_merge'] == 'both', mergedf[col+"_y"], mergedf[col+"_x"])
         dataframe[col] = ser
 

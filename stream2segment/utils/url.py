@@ -34,8 +34,7 @@ except ImportError:
     from BaseHTTPServer import BaseHTTPRequestHandler
     # responses values are tuples, map to the response message (1st tuple item, str)
     # and make this response compatible with the python3 response above:
-    responses = {k: v[0]
-                 for k, v in BaseHTTPRequestHandler.responses.iteritems()}
+    responses = {k: v[0] for k, v in BaseHTTPRequestHandler.responses.iteritems()}
 
 
 def get_opener(url, user, password):
@@ -75,10 +74,10 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
         ```urllib.error.HTTPError, urllib.error.URLError, http.client.HTTPException, socket.error```
         will be caught and wrapped into an :class:`url.URLException` object E that will be
         raised (the original exception can always be retrieved via `E.exc`)
-    :param raise_http_err: If True (the default) `HTTPError`s will be treated as
-        normal exceptions. Otherwise, they will treated as response object and the
+    :param raise_http_err: If True (the default) `HTTPError`s will be raised normally as
+        exceptions. Otherwise, they will treated as response object and the
         tuple (None, status, message) will be returned, where `status` (int) is the
-        http status code (most likely in the range [400-599]) and `message`
+        `HTTPError` status code (most likely in the range [400-599]) and `message`
         (string) is the string denoting the status message, respectively
     :param timeout: timeout parameter specifies a timeout in seconds for blocking operations
         like the connection attempt (if not specified, None or non-positive, the global
@@ -147,14 +146,14 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
 class URLException(Exception):
     """Custom exception wrapping any url/http related exception:
     `urllib2.HTTPError`, `urllib2.URLError`, `httplib.HTTPException`, `socket.error`
-    The original exception is retrievable via the `exc` attribute
+    The original exception is retrievable via the `self.exc` attribute
     """
     def __init__(self, original_exception):
+        # this constructor makes str(self) behave like str(original_exception) in both
+        # py 2.7.14 and 3.6.2: But in principle, this class should act as container and
+        # any operation be performed on self.exc
+        super(URLException, self).__init__(original_exception)
         self.exc = original_exception
-
-    def __str__(self):
-        """Represent this object as the original exception"""
-        return str(self.exc)
 
 
 def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, decode=None,
