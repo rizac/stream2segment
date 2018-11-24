@@ -30,7 +30,7 @@ from stream2segment.utils.url import URLError
 from stream2segment.process.utils import enhancesegmentclass
 from stream2segment.process.writers import BaseWriter
 
-
+import obspy.io.mseed.core
 def yaml_load_side_effect(**overrides):
     """Side effect for the function reading the yaml config which enables the input
     of parameters to be overridden just after reading and before any other operation"""
@@ -932,21 +932,29 @@ def main(""")
         # check correct outputs, in both log and output:
         logfilecontent = self.logfilecontent
         if err_type is None:  # no segments processed
-            str2check = """0 segment(s) found to process
-
-
-0 of 0 segment(s) successfully processed
-0 of 0 segment(s) skipped with error message (check log or details)"""
-            assert str2check in stdout
-            assert str2check in logfilecontent
+            # we want to check that a particular string (str2check) is in the stdout
+            # However, str2check newlines count is not constant through
+            # libraries and python versions. It might be due to click progressbar not showing on
+            # eclipse. Therefore, assert a regex, where we relax the condition on newlines (\n+)
+            str2check = \
+                (r"0 segment\(s\) found to process\n"
+                 r"\n+"
+                 r"0 of 0 segment\(s\) successfully processed\n"
+                 r"0 of 0 segment\(s\) skipped with error message \(check log or details\)")
+            assert re.search(str2check, stdout)
+            assert re.search(str2check, logfilecontent)
         else:
-            str2check = """3 segment(s) found to process
+            # we want to check that a particular string (str2check) is in the stdout
+            # However, str2check newlines count is not constant through
+            # libraries and python versions. It might be due to click progressbar not showing on
+            # eclipse. Therefore, assert a regex, where we relax the condition on newlines (\n+)
+            str2check = \
+                (r'3 segment\(s\) found to process\n'
+                 r'\n+'
+                 r'0 of 3 segment\(s\) successfully processed\n'
+                 r'3 of 3 segment\(s\) skipped with error message \(check log or details\)')
+            assert re.search(str2check, stdout)
 
-
-
-0 of 3 segment(s) successfully processed
-3 of 3 segment(s) skipped with error message (check log or details)"""
-            assert str2check in stdout
             # logfile has also the messages of what was wrong. Note that
             # py2 prints:
             # "invalid literal for long() with base 10: '4d'"
@@ -957,8 +965,15 @@ def main(""")
             #     assert "invalid literal for long() with base 10: '4d'" in logfilecontent
             # else:
             #     assert "invalid literal for int() with base 10: '4d'" in logfilecontent
-            # let's be more relaxed:
-            assert "invalid literal for " in logfilecontent
-            assert "with base 10: '4d'" in logfilecontent
-            # now also assert that any line of str2check not empty is in logfilecontent:
-            assert all(l in logfilecontent for l in str2check.splitlines() if l.strip())
+            # let's be more relaxed (use .*). Also, use a regexp for cross-versions
+            # compatibility about newlines (see comments above)
+            str2check = \
+                (r"3 segment\(s\) found to process\n"
+                 r"\n+"
+                 r"segment \([^\)]+\)\: invalid literal for .* with base 10: '4d'\n"
+                 r"segment \([^\)]+\)\: invalid literal for .* with base 10: '4d'\n"
+                 r"segment \([^\)]+\)\: invalid literal for .* with base 10: '4d'\n"
+                 r"\n+"
+                 r"0 of 3 segment\(s\) successfully processed\n"
+                 r"3 of 3 segment\(s\) skipped with error message \(check log or details\)")
+            assert re.search(str2check, logfilecontent)
