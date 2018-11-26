@@ -58,14 +58,6 @@ def prepare_for_download(session, segments_df, timespan, retry_seg_not_found, re
     SEG_RETRY = "__do.download__"  # pylint: disable=invalid-name
 
     URLERR_CODE, MSEEDERR_CODE, OUTTIME_ERR_CODE, OUTTIME_WARN_CODE = custom_download_codes()
-    # we might use dbsync('sync', ...) which sets pkeys and updates non-existing, but then we
-    # would issue a second db query to check which segments should be re-downloaded (retry).
-    # As the segments table might be big (hundred of thousands of records) we want to optimize
-    # db queries, thus we first "manually" set the existing pkeys with a SINGLE db query which
-    # gets ALSO the status codes (whereby we know what to re-download), and AFTER we call we
-    # call dbsync('syncpkeys',..) which sets the null pkeys.
-    # This function is basically what dbsync('sync', ...) does with the addition that we set whcch
-    # segments have to be re-downloaded, if any
 
     # query relevant data into data frame:
     db_seg_df = dbquery2df(session.query(Segment.id, Segment.channel_id, Segment.request_start,
