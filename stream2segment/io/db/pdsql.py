@@ -479,16 +479,16 @@ def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=
             dataframe = dataframe[~dupes_mask].copy()
 
     dframe_with_pkeys = fetchsetpkeys(dataframe, session, matching_columns, autoincrement_pkey_col)
-    d = DbManager(session, autoincrement_pkey_col,
-                  update, buf_size, return_df=True,
-                  oninsert_err_callback=oninsert_err_callback,
-                  onupdate_err_callback=onupdate_err_callback)
-    d.add(dframe_with_pkeys)
-    table, inserted, not_inserted, updated, not_updated = d.close()
+    dbm = DbManager(session, autoincrement_pkey_col,
+                    update, buf_size, return_df=True,
+                    oninsert_err_callback=oninsert_err_callback,
+                    onupdate_err_callback=onupdate_err_callback)
+    dbm.add(dframe_with_pkeys)
+    table, inserted, not_inserted, updated, not_updated = dbm.close()
     # since we called fetchsetpkeys, we might have integer values casted to float
     # we could not cast previously because dframe_with_pkeys might have had NaN's, now
     # we are sure that d.dataframe does not have NaN's anymore
-    dataframe = _cast_column(d.dataframe, autoincrement_pkey_col)
+    dataframe = _cast_column(dbm.dataframe, autoincrement_pkey_col)
 
     return inserted, not_inserted, updated, not_updated, dataframe
 
@@ -496,15 +496,10 @@ def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=
 class DbManager(object):
     """Class managing the insertion of table rows into db. This class is optimized for adding
     several dataframes in series, but can be used also to insert/update a single dataframe in one
-    shot. The user has to provide ALWAYS the same dataframe type (i.e., with the same columns
-    and dtypes) which does not necessarily need to have all columns of the underlying db table.
-
-    There are two typical usages, when we want to update/insert a huge number of dataframes and
-    we do not want the final concatenation of all of updated/existing/inserted rows:
+    shot:
 
     ```
         d = DbManager(..., return_df=False)  # this makes insertion / updates faster
-        # add stuff:
         d.add(first_dataframe)
         ...
         d.add(last_dataframe)
@@ -512,15 +507,23 @@ class DbManager(object):
         table, inserted, not_inserted, updated, not_updated = d.close()
     ```
 
-     mode. As insertion/updates should
-    be happening during download for not losing data in case of unexpected error, this class
-    manages the buffer size for the insertion/ updates on the db"""
+    The `add` method takes care to split between rows to update and rows to insert, eventually
+    writing to the database when the amount of rows exceeds `buf_size`: this should avoid memory
+    issues and be more efficient. The dataframes passed to `add` should have always the same
+    columns and types, the columns need to be a subset of the underlying table columns.
+    If you want to return the dataframe **synchronized** with the db, pass return_df=True
+    and, after closing this classs, call the `dataframe` property
+    """
 
     def __init__(self, session, id_col, update, buf_size, return_df=False,
                  oninsert_err_callback=None, onupdate_err_callback=None):
         '''
         Initializes a new `DbManager`
 
+        :param id_col: a primary key column of the underlying SQLAlchemy ORM. The table will
+            be inferred from this attribute. For each dataframe passed to `add`, identified the
+            dataframe column C mapped to id_col (having the same name), the rows to
+            insert will be those with Nones under C, and the others those to update
         :param return_df: (boolean, False by default) if True, the property `self.dataframe`
             will return the db-synced dataframe. Setting this argument to True might increase
             memory allocation and time execution
@@ -972,10 +975,11 @@ def fetchsetpkeys(dataframe, session, matching_columns, pkey_col):
     return mergeupdate(dataframe, df_new, [c.key for c in matching_columns], [pkey_col.key], False)
 
 
-def mergeupdate(dataframe, other_df, matching_columns, set_columns, drop_other_df_duplicates=True):
+def mergeupdate(dataframe, other_df, matching_columns, merge_columns,
+                drop_other_df_duplicates=True):
     """
         Modifies `dataframe` from `other_df` and returns it.
-        Sets `dataframe[set_columns]` = `other_df[set_columns]` for those row where
+        Sets `dataframe[merge_columns]` = `other_df[merge_columns]` for those row where
         `dataframe[matching_columns]` = `other_df[matching_columns]` only.
         Shared columns will be treated like this: row-wise, if a value is in both dataframes,
         then take `other_df` value. Otherwise, take `dataframe` value.
@@ -986,9 +990,9 @@ def mergeupdate(dataframe, other_df, matching_columns, set_columns, drop_other_d
         :param other_df: the pandas DataFrame which should set the new values to `dataframe`
         :param matching_columns: list of strings: the columns to be checked for matches. They must
             be shared between both data frames
-        :param set_columns: list of strings denoting the column(s) to be set from `other_df` to
-            `dataframe` for those rows matching under `matching_cols`. They must be present in
-            `other_df` columns
+        :param merge_columns: list of strings denoting the column(s) to be merged or set from
+            `other_df` to `dataframe` for those rows matching under `matching_cols`. They must be
+            present in `other_df` columns
         :param drop_other_df_duplicates: If True (the default) drops ALL duplicates of `other_df`
             under `matching_columns` before updating `dataframe`. If 'first', drops duplicates
             except for the first occurrence. if 'last' drops duplicates except for the last
@@ -998,11 +1002,35 @@ def mergeupdate(dataframe, other_df, matching_columns, set_columns, drop_other_d
         keep = False if drop_other_df_duplicates is True else drop_other_df_duplicates
         other_df = other_df.drop_duplicates(subset=matching_columns, keep=keep)
 
-    # Use dataframe.merge. For any column C in `matching_columns + set_columns`
-    # which is shared between `dataframe` and `other_df`, then `merge_df` will have two columns:
-    # C + '_x' (populated with `dataframe` values) and C + '_y' (with `other_df` values)
-    mergedf = dataframe.merge(other_df[matching_columns + set_columns], how='left',
-                              on=list(matching_columns), indicator=True)
+    otherdf = other_df[matching_columns + merge_columns]  # restrict to relevant columns
+    try:
+        # Use dataframe.merge. For any column C in `matching_columns + merge_columns`
+        # which is shared between `dataframe` and `other_df`, then `merge_df` will have two columns:
+        # C + '_x' (populated with `dataframe` values) and C + '_y' (with `other_df` values)
+        mergedf = dataframe.merge(otherdf, how='left', on=list(matching_columns), indicator=True)
+    except ValueError:
+        # Apparently, pandas 0.23+ raises if the the dtypes of a column does
+        # not matchacross the two dataframes (in previous pandas versions, the dtypes where
+        # upcasted if needed, e.g.: dataframe[C] = datetime, other_df[C] = object,
+        # mergedf[C] = object). We handle here the only "false positive" of this new beahviour:
+        # i.e. when either column has all Nones
+        retry = False
+        # if there is a mismatch, it is surely for a column in BOTH dataframes:
+        for col in set(dataframe.columns) & set(otherdf.columns):
+            if dataframe[col].dtype == otherdf[col].dtype:
+                continue
+            # the casting below might raise (e.g., ints do not accept nones) which is fine
+            if pd.isnull(otherdf[col]).all():
+                retry = True
+                otherdf[col] = otherdf[col].astype(dataframe[col].dtype)
+            elif pd.isnull(dataframe[col]).all():
+                retry = True
+                dataframe[col] = dataframe[col].astype(otherdf[col].dtype)
+        if retry:
+            mergedf = dataframe.merge(otherdf, how='left', on=list(matching_columns),
+                                      indicator=True)
+        else:
+            raise  # raise original ValueError
 
     # Now set the `merge_df` columns back into `dataframe`. The idea is that
     # for all shared columns, then perform **row-wise** the following: if value was specified in
@@ -1011,7 +1039,7 @@ def mergeupdate(dataframe, other_df, matching_columns, set_columns, drop_other_d
     # `merge_df`: the column values are catagorical and can be 'both', 'left_only' (value only
     # in `dataframe`). We should never have 'right_only because of
     # the how='left' above (skip this check for the moment)
-    for col in set_columns:
+    for col in merge_columns:
         if col not in dataframe:  # trivial case: `dataframe` did not have a column, add it
             ser = mergedf[col].values
         else:
