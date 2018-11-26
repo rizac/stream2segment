@@ -119,7 +119,21 @@ class Test(object):
         dtypes_pre = dfr_post.dtypes
         dfr_post2 = harmonize_columns(Customer, dfr_post.copy())
         dtypes_post = dfr_post2.dtypes
-        sdf = 9
+        # The conversion did converted only boolean because None values had to be handled
+        # id                    int64
+        # name                 object
+        # data                 object
+        # time         datetime64[ns]
+        # count               float64
+        # price               float64
+        # validated           float64 -> boolean
+
+        # let's check that:
+        assert all(dfr_post[c].dtype == dfr_post2[c].dtype for c in dfr_post.columns
+                   if c != 'validated')
+        assert dfr_post['validated'].dtype == object
+        assert dfr_post2['validated'].dtype == np.dtype('float64')
+
 #         src_dtypes = dfr.dtypes
 #         dfr2 = self.init_db(db.session, dfr)
 #         assert all([dfr.dtypes[c] == dfr2.dtypes[c] for c in dfr.dtypes.keys()])

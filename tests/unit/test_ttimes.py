@@ -10,6 +10,7 @@ from os.path import dirname, join, isfile
 
 from past.utils import old_div
 import numpy as np
+import pandas as pd
 import pytest
 from click.testing import CliRunner
 
@@ -89,7 +90,7 @@ def test_stepiterator():
     results = []
     stepiterator = StepIterator(0, 700.0, 31.5)
     for val in stepiterator:
-        if int(old_div(val, 100.0)) > lastnum:  # condition whereby we crossed the 'mark' 
+        if int(old_div(val, 100.0)) > lastnum:  # condition whereby we crossed the 'mark'
             if stepiterator.moveback():
                 continue
             else:
@@ -174,6 +175,7 @@ def test_edge_cases(ttdata):
             # distances equidistant from 180 degree are also treated as equal:
             assert ttable.min(567.5, 0, 180+1.66, method) == ttable.min(567.5, 0, 180-1.66, method)
 
+
 def test_tostr(ttdata):
     repr = str(ttdata.tables[0])
     expected = """Model: 'iasp91'
@@ -195,6 +197,14 @@ Data:
       Distances->      0.0    0.225     0.45 ...   179.55  179.775    180.0"""
     # do a comparison line by line cause apparently the string above is not equal to repr
     # but we suspect is because we have problems with eclipse
+    linenum = 0
     for l_1, l_2 in zip(repr.split("\n"), expected.split("\n")):
-        assert l_1.strip() == l_2.strip()
-
+        # also, due to different obspy versions, numbers might be different. Thus:
+        if linenum in (8, 9, 10, 12, 13, 14, 16):
+            ar1 = pd.to_numeric([_ for _ in l_1.split()], errors='coerce')
+            ar2 = pd.to_numeric([_ for _ in l_2.split()], errors='coerce')
+            val = np.allclose(ar1, ar2, equal_nan=True)
+            assert val
+        else:
+            assert l_1.strip() == l_2.strip()
+        linenum += 1

@@ -39,7 +39,7 @@ from datetime import datetime, date
 import numpy as np
 import pandas as pd
 
-from pandas.io.sql import _handle_date_column
+from pandas import to_datetime
 # from pandas.types.api import DatetimeTZDtype
 # pandas zip seems a wrapper around itertools.izip (generator instead than list):
 from pandas.compat import (lzip, map, zip, raise_with_traceback,
@@ -47,18 +47,15 @@ from pandas.compat import (lzip, map, zip, raise_with_traceback,
 # is this below the same as pd.isnull? For safety we leave it like it is (the line is imported
 # from pandas.io.sql and used in one of the copied methods below)
 from pandas.core.common import isnull
-# but we need also pd.isnull so we import it like this for safety:
-# from pandas import isnull as pd_isnull
-from pandas.core.dtypes.dtypes import DatetimeTZDtype
-# sql-alchemy:
-from sqlalchemy.exc import SQLAlchemyError, IntegrityError
-# from sqlalchemy.sql.elements import BinaryExpression
-from sqlalchemy.sql.expression import and_, or_
-from sqlalchemy.orm.attributes import InstrumentedAttribute
-# from pandas import to_numeric
-# from sqlalchemy.engine import create_engine
+# drop import for DatetimeTZDtype, as we do not support TIMESTAMPs in sql (all datetimes are
+# assumed in UTC). So comment out line below:
+# from pandas.core.dtypes.dtypes import DatetimeTZDtype
+
+# Sql-alchemy:
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.sql.expression import func, bindparam
+from sqlalchemy.types import Integer, Float, Boolean, DateTime, Date  # , TIMESTAMP
 
 # future package implements a iterkeys which checks if the attribute iterkeys is defined on a dict.
 # This looks inefficient. Moreover it lacks a listkeys function. Let's implement both here:
@@ -81,26 +78,29 @@ else:
 
 
 def _get_dtype(sqltype):
-    """Converts a sql type to a numpy type. Copied from pandas.io.sql"""
-    from sqlalchemy.types import (Integer, Float, Boolean, DateTime,
-                                  Date, TIMESTAMP)
+    """Converts a sql type to a numpy type. Modified from pandas.io.sql
 
+    :param sqltype: one of the following: Integer, Float, Boolean, DateTime, Date. Any other sql
+        type will result in `object` being returned. This includes TIMESTAMPs as no support for
+        TIMESTAMP as we assume all datetime(s) are in UTC thus they do not require a timezone set
+    """
     if isinstance(sqltype, Float):
         return float
-    elif isinstance(sqltype, Integer):
+    if isinstance(sqltype, Integer):
         # TODO: Refine integer size.
         return np.dtype('int64')
-    elif isinstance(sqltype, TIMESTAMP):
-        # we have a timezone capable type
-        if not sqltype.timezone:
-            return datetime
-        return DatetimeTZDtype
-    elif isinstance(sqltype, DateTime):
+    # Drop compatibility with TIMESTAMPS. If needed in the future, here the old code:
+    # if isinstance(sqltype, TIMESTAMP):
+    #     # we have a timezone capable type
+    #     if not sqltype.timezone:
+    #         return datetime
+    #     return DatetimeTZDtype
+    if isinstance(sqltype, DateTime):
         # Caution: np.datetime64 is also a subclass of np.number.
         return datetime
-    elif isinstance(sqltype, Date):
+    if isinstance(sqltype, Date):
         return date
-    elif isinstance(sqltype, Boolean):
+    if isinstance(sqltype, Boolean):
         return bool
     return object
 
@@ -200,12 +200,16 @@ def _harmonize_columns(table, dataframe, parse_dates=None):
 
     Modified because it uses pandas.to_numeric when df.as_type fails. It
     should silently converts all non-numeric non-date values to NaN and NaT respectively,
-    the only drawback is that int types are float64 in case. This should not be a problem
-    for conversion to db's. And in any case is better than having the original type, when
-    it was, e.g., object or something else
+    the only drawback is that int types are float64 in case, which **might** be a problem with
+    some SQL backends which require ints and are not casting it. The issue is handled by
+    all method of this modules (for details, see `setpkeys` in case)
+
+    :param parse_dates: a dict of `dataframe` column names which need to be forcibly casted
+        to datetime(s). The dict values can be None (infer the cast format) or a letter in
+         ['D', 'd', 'h', 'm', 's', 'ms', 'us', 'ns'] denoting the unit of the column values, if
+         they are numeric. If this parameter is falsy (e.g. None) it defaults to the empty dict
 
     Original pandas doc:
-
     Need to work around limited NA value support. Floats are always
     fine, ints must always be floats if there are Null values.
     Booleans are hard because converting bool column with None replaces
@@ -216,16 +220,8 @@ def _harmonize_columns(table, dataframe, parse_dates=None):
     by means of parse_dates (a list of strings denoting the name of the additional columns
     to be parsed as dates. None by default)
     """
-    # Note by me: _handle_date_column calls pd.to_datetime which coerces invalid dates to NaT
-    # However, astype raises Errors, so we replace the "astype" with to_numeric if the former
-    # fails
-
-    # handle non-list entries for parse_dates gracefully
-    if parse_dates is True or parse_dates is None or parse_dates is False:
-        parse_dates = []
-
-    if not hasattr(parse_dates, '__iter__'):
-        parse_dates = [parse_dates]
+    if not parse_dates:
+        parse_dates = {}
 
     column_names = []  # added by me
     # note below: it seems that the original pandas module uses Column objects
@@ -240,8 +236,7 @@ def _harmonize_columns(table, dataframe, parse_dates=None):
             # the type the dataframe column should have
             col_type = _get_dtype(sql_col.type)
 
-            if (col_type is datetime or col_type is date or
-                    col_type is DatetimeTZDtype):
+            if col_type is datetime or col_type is date:  # or col_type is DatetimeTZDtype:
                 dataframe[col_name] = _handle_date_column(df_col)
 
             elif col_type is float:
@@ -269,6 +264,8 @@ def _harmonize_columns(table, dataframe, parse_dates=None):
                 # boolean seems to convert without errors but
                 # converts NaN's to True, None to False. So, for preserving None's and NaN:
                 bool_col = df_col.astype(col_type, copy=True)
+                # in the presence of Nones, the line below will convert type from bool to float
+                # to account for Nones (stored as nans):
                 bool_col[pd.isnull(df_col)] = None
                 dataframe[col_name] = bool_col
 
@@ -279,7 +276,8 @@ def _harmonize_columns(table, dataframe, parse_dates=None):
 #                     dataframe[col_name] = df_col.astype(
 #                         col_type, copy=False)
 
-            # Handle date parsing
+            # Handle date parsing. Try to get if it is a dict, in that case use the values
+            # as the format argument, otherwise use None:
             if col_name in parse_dates:
                 try:
                     fmt = parse_dates[col_name]
@@ -292,6 +290,24 @@ def _harmonize_columns(table, dataframe, parse_dates=None):
             pass  # this column not in results
 
     return column_names, dataframe
+
+
+def _handle_date_column(col, format=None):  # @ReservedAssignment
+    '''Copied and simplified from pandas.io.sql._handle_date_column for parsing datetime(s)
+        which are supposed to be in UTC.
+
+        :param col: pandas Series or numpy array with values to be cated to datetime
+        :param format: either None (in that case the col values are supposed to be datetime
+            parsable) or a string in  ['D', 'd', 'h', 'm', 's', 'ms', 'us', 'ns'] denoting the
+            unit of `col`, in which case `col` must be numeric. If `col` is numeric and
+            `format` is None, then `format` defaults to 's' (seconds)
+    '''
+    if format is None and (issubclass(col.dtype.type, np.floating) or
+                           issubclass(col.dtype.type, np.integer)):
+        format = 's'  # @ReservedAssignment
+    if format in ['D', 'd', 'h', 'm', 's', 'ms', 'us', 'ns']:
+        return to_datetime(col, errors='coerce', unit=format)
+    return to_datetime(col, errors='coerce', format=format)
 
 
 def _insert_data(dataframe):
