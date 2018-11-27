@@ -69,11 +69,12 @@ def main(segment, config):
     processed_trace = bandpass_remresp(segment, config)
 
     stream_path = segment.sds_path(config['root_dir'])
-    basedir = os.path.dirname(stream_path) 
+    basedir = os.path.dirname(stream_path)
     path1 = stream_path + ".s2s.raw.mseed"
     path2 = stream_path + ".s2s.processed.mseed"
     # assure directories exists, making all intermediate paths if needed:
-    os.makedirs(basedir)
+    if not os.path.exists(basedir):
+        os.makedirs(basedir)
     original_trace.write(path1, format='MSEED')
     processed_trace.write(path2, format='MSEED')
 

@@ -53,7 +53,6 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
     (all channels)
     """
     postdata = get_post_data(net, sta, loc, cha, starttime, endtime)
-    purgedf = get_pd_filterfunc(net, sta, loc, cha)  # it's a function(dataframe, copy=False)
 
     ret = []
     url_failed_dc_ids = []
@@ -75,21 +74,19 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
                 logger.warning(formatmsg("Unable to fetch stations", exc, url))
             else:
                 try:
-                    df = response2normalizeddf(url, result[0], "channel")
-                    # remove stuff we do not want, if specified in any net, sta, loc, cha param:
-                    df = purgedf(df)
-                    if not df.empty:
-                        df[Station.datacenter_id.key] = dcen_id
-                        ret.append(df)
+                    dframe = response2normalizeddf(url, result[0], "channel")
+                    if not dframe.empty:
+                        dframe[Station.datacenter_id.key] = dcen_id
+                        ret.append(dframe)
                 except ValueError as verr:
                     logger.warning(formatmsg("Discarding response data", verr, url))
 
     db_cha_df = pd.DataFrame()
     if url_failed_dc_ids:  # if some datacenter does not return station, warn with INFO
-        dc_df_fromdb = datacenters_df.loc[datacenters_df[DataCenter.id.key].isin(url_failed_dc_ids)]
+        dc_df_fromdb = \
+            datacenters_df.loc[datacenters_df[DataCenter.id.key].isin(url_failed_dc_ids)]
         logger.info(formatmsg("Fetching stations from database for %d (of %d) data-center(s)",
-                              "download errors occurred") %
-                    (len(dc_df_fromdb), len(datacenters_df)) + ":")
+                              "download errors occurred:"), len(dc_df_fromdb), len(datacenters_df))
         logger.info(dc_df_fromdb[DataCenter.dataselect_url.key].to_string(index=False))
         db_cha_df = get_channels_df_from_db(session, dc_df_fromdb, net, sta, loc, cha,
                                             starttime, endtime, min_sample_rate)
@@ -97,21 +94,23 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
     # build two dataframes which we will concatenate afterwards
     web_cha_df = pd.DataFrame()
     if ret:  # pd.concat complains for empty list
-        web_cha_df = pd.concat(ret, axis=0, ignore_index=True, copy=False)
-        # remove unmatching sample rates:
-        if min_sample_rate > 0:
-            srate_col = Channel.sample_rate.key
-            oldlen, web_cha_df = len(web_cha_df), \
-                web_cha_df[web_cha_df[srate_col] >= min_sample_rate]
-            discarded_sr = oldlen - len(web_cha_df)
-            if discarded_sr:
-                logger.warning(formatmsg("%d channel(s) discarded",
-                                         "sample rate < %s Hz" % str(min_sample_rate)),
-                               discarded_sr)
-            if web_cha_df.empty and db_cha_df.empty:
-                raise FailedDownload("No channel found with sample rate >= %f" % min_sample_rate)
-
         try:
+            web_cha_df = filter_channels_df(pd.concat(ret, axis=0, ignore_index=True, copy=False),
+                                            net, sta, loc, cha, min_sample_rate)
+
+#             _ = pd.concat(ret, axis=0, ignore_index=True, copy=False)
+#             oldlen = len(_)
+#             web_cha_df = filter_channels_df(_, net, sta, loc, cha, min_sample_rate)
+#
+#             discarded_sr = oldlen - len(web_cha_df)
+#             if discarded_sr:
+#                 logger.warning(formatmsg("%d channel(s) discarded according to the config. filters ",
+#                                          "(network channel, sample rate, ...)"), discarded_sr)
+#             if web_cha_df.empty and db_cha_df.empty:
+#                 raise FailedDownload("No channel found matching config. filters "
+#                                      "(network, channel, sample rate, ...)")
+
+
             # this raises FailedDownload if we cannot save any element:
             web_cha_df = save_stations_and_channels(session, web_cha_df, eidavalidator, update,
                                                     db_bufsize)
@@ -121,23 +120,24 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
             else:
                 logger.warning(qexc)
 
-    if web_cha_df.empty and db_cha_df.empty:
+    if db_cha_df.empty and web_cha_df.empty:
         # ok, now let's see if we have remaining datacenters to be fetched from the db
         raise FailedDownload(formatmsg("No station found",
                                        ("Unable to fetch stations from all data-centers, "
                                         "no data to fetch from the database. "
                                         "Check config and log for details")))
-
+    ret = None
+    if db_cha_df.empty:
+        ret = web_cha_df
+    elif web_cha_df.empty:
+        ret = db_cha_df
+    else:
+        ret = pd.concat((web_cha_df, db_cha_df), axis=0, ignore_index=True)
     # the columns for the channels dataframe that will be returned
-    colnames = [c.key for c in [Channel.id, Channel.station_id, Station.latitude,
+    return ret[[c.key for c in (Channel.id, Channel.station_id, Station.latitude,
                                 Station.longitude, Station.datacenter_id, Station.start_time,
                                 Station.end_time, Station.network, Station.station,
-                                Channel.location, Channel.channel]]
-    if db_cha_df.empty:
-        return web_cha_df[colnames]
-    elif web_cha_df.empty:
-        return db_cha_df[colnames]
-    return pd.concat((web_cha_df, db_cha_df), axis=0, ignore_index=True)[colnames].copy()
+                                Channel.location, Channel.channel)]].copy()
 
 
 def get_post_data(net, sta, loc, cha, starttime=None, endtime=None):
@@ -175,29 +175,19 @@ def get_post_data(net, sta, loc, cha, starttime=None, endtime=None):
     return "{} {} {} {} {} {}".format(*args)
 
 
-def get_pd_filterfunc(net, sta, loc, cha):
-    '''Returns a function which can filter out the given
-        net(works), sta(tions), loc(ations) and cha(nnels)
-    from a pandas dataframe resulting from a FDSN station query (level=channel).
-    The returned function signature is: func(dataframe, copy=False) and copy is an optional
-    parameter denoting if the returned dataframe should be a copy or not (the argument will be
-    ignored in some cases where no filter will be applied)
+def filter_channels_df(channels_df, net, sta, loc, cha, min_sample_rate):
+    '''Filters out `channels_df` according to the given parameters. Raises
+    `FailedDownload` if the returned filtered data frame woul be empty
+
+    Note that `net, sta, loc, cha` filters will be considered only if negations (i.e.,
+    with leading exclamation mark: "!A*") because the 'positive' filters are FDSN stantard and
+    are supposed to be already used in producing channels_df
 
     Example:
-        aspdfilter([], ['ABC'], [''], ['!A*', 'HH?', 'HN?']) returns a function
+        filter_channels_df(d, [], ['ABC'], [''], ['!A*', 'HH?', 'HN?'])
 
-        func(dataframe, copy=False)
-
-        which basically takes the dataframe, finds the column related to the `channels` key and
-        removes all rowv whose channel starts with 'A'.
-
-        The dataframe should be the result from `:func:normalize_fdsn_dframe` with second argument
-        'channel', otherwise any column related to network, station, location or channel might not
-        be found
-
-    See :func:`get_channels_df` of this module for its usage in the download workflow.
-    Note that standard FDSN strings, i.e. non negations ('ABC', '', 'HH?', 'HN?') are NOT
-    used by the function
+        basically takes the dataframe `d`, finds the column related to the `channels` key and
+        removes all rowv whose channel starts with 'A', returning the new filtered data frame
 
     Arguments are usually the output of :func:`stream2segment.download.utils.nslc_lists`
 
@@ -205,38 +195,59 @@ def get_pd_filterfunc(net, sta, loc, cha):
     :param sta: an iterable of strings denoting stations.
     :param loc: an iterable of strings denoting locations.
     :param cha: an iterable of strings denoting channels.
+    :param min_sample_rate: numeric, minimum sample rate. If negative or zero, this parameter
+        is ignored
     '''
     # create a dict of regexps for pandas dataframe. FDSNWS do not support NOT
-    # operators and thus we need to call filter(dataframe) after dataframe has been
-    # created from fetched url data
-    pd_re = {}
+    # operators . Thus concatenate expression with OR
+    dffilter = None
     sa_cols = (Station.network, Station.station, Channel.location, Channel.channel)
 
     for lst, sa_col in zip((net, sta, loc, cha), sa_cols):
         if not lst:
             continue
-        lst = [_ for _ in lst if _[0:1] == '!']
+        lst = [_ for _ in lst if _[0:1] == '!']  # take only negation expression
         if not lst:
             continue
         condition = ("^%s$" if len(lst) == 1 else "^(?:%s)$") % \
             "|".join(strconvert.wild2re(x[1:]) for x in lst)
-        colname = sa_col.key
-        pd_re[colname] = re.compile(condition)
+        flt = channels_df[sa_col.key].str.match(re.compile(condition))
+        if dffilter is None:
+            dffilter = flt
+        else:
+            dffilter &= flt
 
-    if not pd_re:
-        return lambda dataframe, *a, **kw: dataframe  # @UnusedVariable
+    if min_sample_rate > 0:
+        # account for Nones, thus negate the predicate below:
+        flt = ~(channels_df[Channel.sample_rate.key] >= min_sample_rate)
+        if dffilter is None:
+            dffilter = flt
+        else:
+            dffilter &= flt
 
-    def func(dataframe, copy=False):
-        flt = None
-        for colname, reg in pd_re.items():
-            colflt = dataframe[colname].str.match(reg)
-            if flt is None:
-                flt = ~colflt
-            else:
-                flt |= ~colflt
-        return dataframe if flt is None else dataframe[flt].copy() if copy else dataframe[flt]
+    ret = channels_df if dffilter is None else \
+        channels_df[~dffilter].copy()  # pylint: disable=invalid-unary-operand-type
 
-    return func
+    if ret.empty:
+        raise FailedDownload("No channel matches user defined filters "
+                             "(network, channel, sample rate, ...)")
+
+    discarded_sr = len(channels_df) - len(ret)
+    if discarded_sr:
+        logger.warning(("%d channel(s) discarded according to current config. filters "
+                        "(network, channel, sample rate, ...)"), discarded_sr)
+
+    return ret
+#     flt = None
+#     for colname, reg in pd_re.items():
+#         colflt = dataframe[colname].str.match(reg)
+#         if flt is None:
+#             flt = ~colflt
+#         else:
+#             flt |= ~colflt
+#     return dataframe if flt is None else dataframe[flt].copy() if copy else dataframe[flt]
+# 
+#     return func
 
 
 def get_channels_df_from_db(session, datacenters_df, net, sta, loc, cha, starttime, endtime,

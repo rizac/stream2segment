@@ -774,7 +774,7 @@ level=channel
                                        net, sta, loc, cha, None, None,  100,
                                        False, None, None, -1, self.db_buf_size)
         assert len(cha_df3) == len(cha_df)-2
-        assert "2 channel(s) discarded (sample rate < 100 Hz)" in self.log_msg()
+        assert "2 channel(s) discarded according to current config. filters" in self.log_msg()
 
         # now change this:
 

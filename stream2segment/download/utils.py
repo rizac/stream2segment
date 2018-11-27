@@ -299,6 +299,25 @@ def response2df(response_data, strip_cells=True):
     return pd.DataFrame(data=data, columns=columns)
 
 
+def normalize_fdsn_dframe(dframe, query_type):
+    """Calls `rename_columns` and `harmonize_fdsn_dframe`. The returned
+    dataframe has the first N columns with normalized names according to `query` and correct data
+    types (rows with unparsable values, e.g. NaNs, are removed). The data frame is ready to be
+    saved to the internal database
+    :param query_df: the dataframe resulting from the string url `query`
+    :param query_type: either 'event', 'channel', 'station'
+    :return: a new dataframe, whose length is <= `len(dframe)`
+    :raise: ValueError in case of errors (e.g., mismatching column number, or returning
+    dataframe is empty, e.g. **all** rows have at least one invalid value: in fact, note that
+    invalid cell numbers are removed (their row is removed from the returned data frame)
+    """
+    dframe = rename_columns(dframe, query_type)
+    ret = harmonize_fdsn_dframe(dframe, query_type)
+    if ret.empty:
+        raise ValueError("Malformed data (invalid values, e.g., NaN's)")
+    return ret
+
+
 def rename_columns(query_df, query_type):
     """Renames the columns of `query_df` according to the "standard" expected column names given by
     query_type, so that IO operation with the database are not suffering naming mismatch (e.g., non
@@ -377,25 +396,6 @@ def harmonize_fdsn_dframe(query_df, query_type):
         query_df = harmonize_rows(fdsn_model_class, query_df)
 
     return query_df
-
-
-def normalize_fdsn_dframe(dframe, query_type):
-    """Calls `rename_columns` and `harmonize_fdsn_dframe`. The returned
-    dataframe has the first N columns with normalized names according to `query` and correct data
-    types (rows with unparsable values, e.g. NaNs, are removed). The data frame is ready to be
-    saved to the internal database
-    :param query_df: the dataframe resulting from the string url `query`
-    :param query_type: either 'event', 'channel', 'station'
-    :return: a new dataframe, whose length is <= `len(dframe)`
-    :raise: ValueError in case of errors (e.g., mismatching column number, or returning
-    dataframe is empty, e.g. **all** rows have at least one invalid value: in fact, note that
-    invalid cell numbers are removed (their row is removed from the returned data frame)
-    """
-    dframe = rename_columns(dframe, query_type)
-    ret = harmonize_fdsn_dframe(dframe, query_type)
-    if ret.empty:
-        raise ValueError("Malformed data (invalid values, e.g., NaN's)")
-    return ret
 
 
 def custom_download_codes():
