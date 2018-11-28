@@ -111,17 +111,18 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
         del events_df
         del channels_df
 
-        stepinfo("%d segments found. Checking already downloaded segments", len(segments_df))
-        # raises NothingToDownload
-        segments_df, request_timebounds_need_update = \
-            prepare_for_download(session, segments_df, timespan, retry_seg_not_found,
-                                 retry_url_err, retry_mseed_err, retry_client_err,
-                                 retry_server_err, retry_timespan_err,
-                                 retry_timespan_warn=False)
-
         if authorizer.token:
             stepinfo("Acquiring credentials from token in order to download restricted data")
         dc_dataselect_manager = DcDataselectManager(datacenters_df, authorizer, isterminal)
+
+        stepinfo("%d segments found. Checking already downloaded segments", len(segments_df))
+        # raises NothingToDownload
+        segments_df, request_timebounds_need_update = \
+            prepare_for_download(session, segments_df, dc_dataselect_manager,
+                                 timespan, retry_seg_not_found,
+                                 retry_url_err, retry_mseed_err, retry_client_err,
+                                 retry_server_err, retry_timespan_err,
+                                 retry_timespan_warn=False)
 
         # prepare_for_download raises a NothingToDownload if there is no data, so if we are here
         # segments_df is not empty

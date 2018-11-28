@@ -575,6 +575,7 @@ class Segment(Base):
     download_id = Column(Integer, ForeignKey("downloads.id"), nullable=False)
     request_start = Column(DateTime, nullable=False)
     request_end = Column(DateTime, nullable=False)
+    queryauth = Column(Boolean, nullable=False, server_default="0")  # note: null fails in sqlite!
 
     # DEFINE HYBRID PROPERTIES. ACTUALY, WE ARE JUST INTERESTED IN HYBRID CLASSMETHODS FOR
     # QUERYING, BUT IT SEEMS THERE IS NO WAY TO DEFINE THEM WITHOUT DEFINING THE INSTANCE METHOD

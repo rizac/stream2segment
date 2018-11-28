@@ -52,12 +52,14 @@ update_metadata: false
 # if required
 inventory: true
 
-# this parameter controls how to access restricted data. It can be:
+# this parameter sets the credentials in order to download restricted data. It can be:
 # - a single string pointing to a token file for restricted data authorization if "dataws" is "eida") 
 #   (https://geofon.gfz-potsdam.de/waveform/archive/auth/auth-overview.php). Non-absolute
 #   paths will be relative to the config file they are written in.
 # - a list of two strings denoting username and password
-# when null, or the empty string, only open (unrestricted) waveform data will be downloaded
+# when this parameter is null, or the empty string, only open (unrestricted) waveform data will
+# be downloaded. When provided, restricted segments previosuly downloaded with no credentials
+# (thus, with no waveform data) will be always re-downloaded regardless of the retry_* parameters set.
 restricted_data: ""
 
 # =====================

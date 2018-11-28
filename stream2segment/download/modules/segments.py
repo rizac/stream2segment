@@ -34,9 +34,9 @@ from stream2segment.download import logger  # @IgnorePep8
 from stream2segment.utils.url import get_opener
 
 
-def prepare_for_download(session, segments_df, timespan, retry_seg_not_found, retry_url_err,
-                         retry_mseed_err, retry_client_err, retry_server_err, retry_timespan_err,
-                         retry_timespan_warn=False):
+def prepare_for_download(session, segments_df, dc_dataselect_manager, timespan,
+                         retry_seg_not_found, retry_url_err, retry_mseed_err, retry_client_err,
+                         retry_server_err, retry_timespan_err, retry_timespan_warn=False):
     """
         Drops the segments which are already present on the database and updates the primary
         keys for those not present (adding them to the db).
@@ -55,14 +55,25 @@ def prepare_for_download(session, segments_df, timespan, retry_seg_not_found, re
     SEG_CHID = Segment.channel_id.key  # pylint: disable=invalid-name
     SEG_ID = Segment.id.key  # pylint: disable=invalid-name
     SEG_DSC = Segment.download_code.key  # pylint: disable=invalid-name
+    SEG_DCID = Segment.datacenter_id.key  # pylint: disable=invalid-name
+    SEG_QAUTH = Segment.queryauth.key  # pylint: disable=invalid-name
     SEG_RETRY = "__do.download__"  # pylint: disable=invalid-name
 
     URLERR_CODE, MSEEDERR_CODE, OUTTIME_ERR_CODE, OUTTIME_WARN_CODE = custom_download_codes()
 
+    columns2query = [Segment.id, Segment.channel_id, Segment.request_start, Segment.request_end,
+                     Segment.download_code, Segment.event_id]
+    if not dc_dataselect_manager.opendataonly:
+        columns2query.extend([Segment.datacenter_id, Segment.queryauth])
+
     # query relevant data into data frame:
-    db_seg_df = dbquery2df(session.query(Segment.id, Segment.channel_id, Segment.request_start,
-                                         Segment.request_end, Segment.download_code,
-                                         Segment.event_id))
+    chids, evids = \
+        pd.unique(segments_df[SEG_CHID]).tolist(), pd.unique(segments_df[SEG_EVID]).tolist()
+    db_seg_df = dbquery2df(session.query(*columns2query).
+                           filter(Segment.channel_id.in_(chids) &  # @UndefinedVariable
+                                  Segment.event_id.in_(evids)  # @UndefinedVariable
+                                  )
+                           )
 
     # set the boolean array telling whether we need to retry db_seg_df elements (those already
     # downloaded)
@@ -83,18 +94,30 @@ def prepare_for_download(session, segments_df, timespan, retry_seg_not_found, re
         mask |= db_seg_df[SEG_DSC] == OUTTIME_WARN_CODE
 
     db_seg_df[SEG_RETRY] = mask
+    # add retry flag for suspicious restricted segments (204 or 404 and no restricted flag):
+    _restricted_mask = None
+    if not dc_dataselect_manager.opendataonly:
+        _restricted_mask = \
+            db_seg_df[SEG_DCID].isin(dc_dataselect_manager.restricted_enabled_ids) & \
+            db_seg_df[SEG_DSC].isin((404, 204, 403, 401)) & ~db_seg_df[SEG_QAUTH]
+        db_seg_df[SEG_RETRY] |= _restricted_mask
 
     # update existing dataframe. Set defaults on segments_df first:
     # set columns and defaults (for int types, set np.nan):
     cols2set = OrderedDict([(SEG_ID, np.nan), (SEG_RETRY, True), (SEG_START, pd.NaT),
                             (SEG_END, pd.NaT)])
     # if there is something to update, then add also download_code as column of segments_df:
-    if db_seg_df[SEG_RETRY].any():
+    # A None download code will force rewrite (SQL update) because the response code will
+    # never be equal to None. Note that here we set the default, in mergeupdate below some
+    # download codes might be overwritten
+    retry_any = db_seg_df[SEG_RETRY].any()
+    if retry_any:
         cols2set[SEG_DSC] = np.nan
     # assign default values to segments_df:
     for colname, default_ in cols2set.items():
         segments_df[colname] = default_
-    # assign values of db_seg_df to segments_df, matching rows via the [SEG_CHID, SEG_EVID] cols:
+    # assign/override values of cols2set from db_seg_df to segments_df,
+    # matching rows via the [SEG_CHID, SEG_EVID] cols:
     segments_df = mergeupdate(segments_df, db_seg_df, [SEG_CHID, SEG_EVID],
                               list(cols2set.keys()))
 
@@ -144,7 +167,15 @@ def prepare_for_download(session, segments_df, timespan, retry_seg_not_found, re
                           [SEG_CHID, SEG_START, SEG_END, SEG_EVID],
                           max_row_count=100)
 
+    # Now set the download code for 204 and 404 with none download code to force rewrite
+    # A None download code will force rewrite (SQL update) because the response code will
+    # never be equal to None.
+    if retry_any and _restricted_mask is not None:
+        ids2retry = db_seg_df[SEG_ID][_restricted_mask]
+        segments_df.loc[segments_df[SEG_ID].isin(ids2retry), SEG_DSC] = np.nan
+
     segments_df.drop([SEG_RETRY], axis=1, inplace=True)
+
     # return python bool, not numpy bool: use .item():
     return segments_df, request_timebounds_need_update.item()
 
@@ -176,6 +207,7 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
     SEG_SRATE = Segment.sample_rate.key  # pylint: disable=invalid-name
     SEG_DOWNLID = Segment.download_id.key  # pylint: disable=invalid-name
     SEG_ATIME = Segment.arrival_time.key  # pylint: disable=invalid-name
+    SEG_QAUTH = Segment.queryauth.key  # pylint: disable=invalid-name
 
     # set once the dict of column names mapped to their default values.
     # Set nan to let pandas understand it's numeric. None I don't know how it is converted
@@ -196,7 +228,7 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
 
     stats = DownloadStats()
     colnames2update = [SEG_DOWNLID, SEG_DATA, SEG_SRATE, SEG_MGAP, SEG_DATAID, SEG_DSCODE,
-                       SEG_STIME, SEG_ETIME]
+                       SEG_STIME, SEG_ETIME, SEG_QAUTH]
     if update_request_timebounds:
         colnames2update += [SEG_START, SEG_ATIME, SEG_END]
 
@@ -235,13 +267,14 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
 
     def req(obj):
         '''calls get_seg_request from an item of Pandas groupby. Used in read_async below'''
-        dframe, dcurl = obj[1], dc_dataselect_manager.baseurl(obj[0][0])
+        dframe, dcurl = obj[1], dc_dataselect_manager.baseurl(obj[0][0])  # obj[0][0] = dc_id
         return get_seg_request(dframe, dcurl, chaid2mseedid)
 
     def openerfunc(obj):
         '''calls get_seg_request from an item of Pandas groupby. Used in read_async below'''
-        return dc_dataselect_manager.opener(obj[0][0])
+        return dc_dataselect_manager.opener(obj[0][0])  # obj[0][0] = dc_id
 
+    restricted_enable_dcids = dc_dataselect_manager.restricted_enabled_ids
     # check first if there is somethign to update, set a boolean outside the loop below
     # for performance:
     toupdate = SEG_DSCODE in segments_df.columns
@@ -264,9 +297,9 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                              max_workers=max_thread_workers, timeout=timeout,
                              blocksize=download_blocksize, openers=openerfunc)
 
-            for dframe, result, exc, request in itr:
-                groupkeys_tuple = dframe[0]
-                dframe = dframe[1]
+            for seg_group, result, exc, request in itr:
+                groupkeys_tuple, dframe = seg_group
+                dc_id = groupkeys_tuple[0]
                 url = get_host(request)
                 data, code, msg = result if not exc else (None, URLERR_CODE, None)
                 if code == 413 and not islast and len(dframe) > 1:
@@ -303,6 +336,7 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                     # https://stackoverflow.com/questions/12555323/adding-new-column-to-existing-dataframe-in-python-pandas
                 # init download id column with our download_id:
                 dframe[SEG_DOWNLID] = download_id
+                dframe[SEG_QAUTH] = dc_id in restricted_enable_dcids
                 if exc is None:
                     if code >= 400:
                         exc = "%d: %s" % (code, msg)
@@ -471,17 +505,16 @@ class DcDataselectManager(object):
         # Note: Fdsnws might raise, but at this point datacenters_df is assumed to be well
         # formed
         errors = {}  # urls mapped to their exception
-        self._allopen = False
         if authorizer.token:
             token = authorizer.token
             self._data, errors = self._get_data_from_token(dcid2fdsn, token, show_progress)
-            self._allopen = len(errors) >= len(dcid2fdsn)
         elif authorizer.userpass:
             user, password = authorizer.userpass
             self._data, errors = self._get_data_from_userpass(dcid2fdsn, user, password)
         else:  # no authorization required
-            self._allopen = True
             self._data, errors = self._get_data_open(dcid2fdsn)
+
+        self._restricted_id = [did for did in self._data if self.opener(did) is not None]
 
         if errors:
             logger.info(formatmsg('Downloading open data only from: %s' % ", ".join(errors),
@@ -491,11 +524,17 @@ class DcDataselectManager(object):
                                          "Unable to acquire credentials for restricted data",
                                          str(exc), url))
 
-    @ property
+    @property
+    def restricted_enabled_ids(self):
+        '''returns a set of integers denoting the datacenter id for which restricted data
+        download is enabled'''
+        return set(self._restricted_id)
+
+    @property
     def opendataonly(self):
-        '''Returns true if all datacenters will download open data only. This might happen
-        when no token is provided, or a wrong one'''
-        return self._allopen
+        '''Returns true if **all** datacenters will download open data only.
+        Open data only will be downloaded when no token is provided, or a wrong one'''
+        return False if self._restricted_id else True
 
     @staticmethod
     def _get_data_open(dcid2fdsn):

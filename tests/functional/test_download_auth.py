@@ -65,8 +65,8 @@ class Test(object):
     def init(self, request, db, data, pytestdir):
         # re-init a sqlite database (no-op if the db is not sqlite):
         db.create(to_file=False)
-        
-        
+
+
         self.logout = StringIO()
         self.handler = StreamHandler(stream=self.logout)
         # THIS IS A HACK:
@@ -75,7 +75,7 @@ class Test(object):
         # otherwise it stays what we set two lines above. Problems might arise if closing
         # sets a different level, but for the moment who cares
         # s2s_download_logger.addHandler(self.handler)
-             
+
 
         # setup a run_id:
         r = Download()
@@ -84,7 +84,7 @@ class Test(object):
         self.run = r
 
         # side effects:
-        
+
         self._evt_urlread_sideeffect =  """#EventID | Time | Latitude | Longitude | Depth/km | Author | Catalog | Contributor | ContributorID | MagType | Magnitude | MagAuthor | EventLocationName
 20160508_0000129|2016-05-08 05:17:11.500000|1|1|60.0|AZER|EMSC-RTS|AZER|505483|ml|3|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 01:45:30.300000|90|90|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|4|EMSC|CROATIA
@@ -119,11 +119,11 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # self._sta_urlread_sideeffect = cycle([partial_valid, '', invalid, '', '', URLError('wat'), socket.timeout()])
 
         self._mintraveltime_sideeffect = cycle([1])        
-        
+
         self._seg_data = data.read("GE.FLT1..HH?.mseed")
         self._seg_data_gaps = data.read("IA.BAKI..BHZ.D.2016.004.head")
         self._seg_data_empty = b''
-            
+
         self._seg_urlread_sideeffect = [self._seg_data, self._seg_data_gaps, 413, 500, self._seg_data[:2],
                                         self._seg_data_empty,  413, URLError("++urlerror++"),
                                         socket.timeout()]
@@ -135,7 +135,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
         self.configfile = get_templates_fpath("download.yaml")
         self.config_overrides = {}
-        
+
         # store DcDataselectManager method here:
         self.dc_get_data_open = DcDataselectManager._get_data_open
         self.dc_get_data_from_userpass = DcDataselectManager._get_data_from_userpass
@@ -146,7 +146,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                 self.setup_urlopen(url_read_side_effect)
             return _get_data_from_token(*a, **kw)
         self.dc_get_data_from_token = dc_get_data_from_token_func
-        
+
         # class-level patchers:
         with patch('stream2segment.utils.url.urlopen') as mock_urlopen:
             self.mock_urlopen = mock_urlopen
@@ -166,26 +166,26 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                         # mock ThreadPool (tp) to run one instance at a time, so we
                         # get deterministic results:
                         class MockThreadPool(object):
-                            
+
                             def __init__(self, *a, **kw):
                                 pass
-                                
+
                             def imap(self, func, iterable, *args):
                                 # make imap deterministic: same as standard python map:
                                 # everything is executed in a single thread the right input order
                                 return map(func, iterable)
-                            
+
                             def imap_unordered(self, func, iterable, *args):
                                 # make imap_unordered deterministic: same as standard python map:
                                 # everything is executed in a single thread in the right input order
                                 return map(func, iterable)
-                            
+
                             def close(self, *a, **kw):
                                 pass
                         # assign patches and mocks:
                         with patch('stream2segment.utils.url.ThreadPool',
                                    side_effect=MockThreadPool) as mock_thread_pool:
-                            
+
                             def c4d(logger, logfilebasepath, verbose):
                                 # config logger as usual, but redirects to a temp file
                                 # that will be deleted by pytest, instead of polluting the program
@@ -199,27 +199,29 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                 self.mock_config4download = mock_config4download
 
                                 yield
-    
+
     def log_msg(self):
         return self.logout.getvalue()
 
     def setup_urlopen(self, urlread_side_effect):
-        """setup urlopen return value. 
-        :param urlread_side_effect: a LIST of strings or exceptions returned by urlopen.read, that will be converted
-        to an itertools.cycle(side_effect) REMEMBER that any element of urlread_side_effect which is a nonempty
-        string must be followed by an EMPTY
-        STRINGS TO STOP reading otherwise we fall into an infinite loop if the argument
-        blocksize of url read is not negative !"""
+        """setup urlopen return value.
+        :param urlread_side_effect: a LIST of strings or exceptions returned by urlopen.read,
+            that will be converted to an itertools.cycle(side_effect) REMEMBER that any
+            element of urlread_side_effect which is a nonempty string must be followed by an EMPTY
+            STRINGS TO STOP reading otherwise we fall into an infinite loop if the argument
+            blocksize of url read is not negative !"""
 
         self.mock_urlopen.reset_mock()
         # convert returned values to the given urlread return value (tuple data, code, msg)
         # if k is an int, convert to an HTTPError
         retvals = []
         # Check if we have an iterable (where strings are considered not iterables):
-        if not hasattr(urlread_side_effect, "__iter__") or isinstance(urlread_side_effect, (bytes, str)):
-            # it's not an iterable (wheere str/bytes/unicode are considered NOT iterable in both py2 and 3)
+        if not hasattr(urlread_side_effect, "__iter__") or \
+                isinstance(urlread_side_effect, (bytes, str)):
+            # it's not an iterable (wheere str/bytes/unicode are considered
+            # NOT iterable in both py2 and 3)
             urlread_side_effect = [urlread_side_effect]
-            
+
         for k in urlread_side_effect:
             a = Mock()
             if type(k) == int:
@@ -246,34 +248,33 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             else:
                 a.read.side_effect = k
             retvals.append(a)
-#         
         self.mock_urlopen.side_effect = cycle(retvals)
-#        self.mock_urlopen.side_effect = Cycler(urlread_side_effect)
-        
 
     def get_events_df(self, url_read_side_effect, *a, **v):
-        self.setup_urlopen(self._evt_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
+        self.setup_urlopen(self._evt_urlread_sideeffect if url_read_side_effect is None
+                           else url_read_side_effect)
         return get_events_df(*a, **v)
-        
-
 
     def get_datacenters_df(self, url_read_side_effect, *a, **v):
-        self.setup_urlopen(self._dc_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
+        self.setup_urlopen(self._dc_urlread_sideeffect if url_read_side_effect is None
+                           else url_read_side_effect)
         return get_datacenters_df(*a, **v)
-    
 
     def get_channels_df(self, url_read_side_effect, *a, **kw):
-        self.setup_urlopen(self._sta_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
+        self.setup_urlopen(self._sta_urlread_sideeffect if url_read_side_effect is None
+                           else url_read_side_effect)
         return get_channels_df(*a, **kw)
 
 # # ================================================================================================= 
 
     def download_save_segments(self, url_read_side_effect, *a, **kw):
-        self.setup_urlopen(self._seg_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
+        self.setup_urlopen(self._seg_urlread_sideeffect if url_read_side_effect is None
+                           else url_read_side_effect)
         return download_save_segments(*a, **kw)
-    
+
     def save_inventories(self, url_read_side_effect, *a, **v):
-        self.setup_urlopen(self._inv_data if url_read_side_effect is None else url_read_side_effect)
+        self.setup_urlopen(self._inv_data if url_read_side_effect is None
+                           else url_read_side_effect)
         return save_inventories(*a, **v)
 
     # only last 4 patches are actually needed, the other are there
@@ -290,19 +291,23 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     @patch('stream2segment.download.main.DcDataselectManager._get_data_open')
     @patch('stream2segment.download.main.DcDataselectManager._get_data_from_userpass')
     @patch('stream2segment.download.main.DcDataselectManager._get_data_from_token')
-    def test_cmdline(self, mock_get_data_from_token, mock_get_data_from_userpass,
-                     mock_get_data_open, mock_updatedf, mock_insertdf, mock_mseed_unpack,
-                     mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
-                     mock_get_datacenters_df, mock_get_events_df,
-                     # fixtures:
-                     db, clirunner, pytestdir):
-        
+    def test_opendata_and_errors(self, mock_get_data_from_token, mock_get_data_from_userpass,
+                                 mock_get_data_open, mock_updatedf, mock_insertdf,
+                                 mock_mseed_unpack, mock_download_save_segments,
+                                 mock_save_inventories, mock_get_channels_df,
+                                 mock_get_datacenters_df, mock_get_events_df,
+                                 # fixtures:
+                                 db, clirunner, pytestdir):
+
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
-        mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
+        mock_get_datacenters_df.side_effect = \
+            lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
-        mock_download_save_segments.side_effect = lambda *a, **v: self.download_save_segments(None, *a, **v)
-        # mseed unpack is mocked by accepting only first arg (so that time bounds are not considered)
+        mock_download_save_segments.side_effect = \
+            lambda *a, **v: self.download_save_segments(None, *a, **v)
+        # mseed unpack is mocked by accepting only first arg
+        # (so that time bounds are not considered)
         mock_mseed_unpack.side_effect = lambda *a, **v: unpack(a[0])
         mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
@@ -317,18 +322,18 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_get_data_open.side_effect = self.dc_get_data_open
         mock_get_data_from_userpass.side_effect = self.dc_get_data_from_userpass
         mock_get_data_from_token.side_effect = self.dc_get_data_from_token
-        
+
         # TEST 1: NORMAL CASE (NO AUTH):
         # mock yaml_load to override restricted_data:
         self.config_overrides = {'restricted_data': ''}
         # The run table is populated with a run_id in the constructor of this class
         # for checking run_ids, store here the number of runs we have in the table:
         runs = len(db.session.query(Download.id).all())
-        result = clirunner.invoke(cli , ['download',
-                                       '-c', self.configfile,
+        result = clirunner.invoke(cli, ['download',
+                                        '-c', self.configfile,
                                         '--dburl', db.dburl,
-                                       '--start', '2016-05-08T00:00:00',
-                                       '--end', '2016-05-08T9:00:00'])
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00'])
         assert clirunner.ok(result)
         assert 'restricted_data: disabled, download open data only' in result.output
         assert mock_get_data_open.called
@@ -340,11 +345,11 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         segments = db.session.query(Segment).all()
         assert len(segments) == 12
         segments = db.session.query(Segment).filter(Segment.has_data).all()
-        assert len(segments) == 4        
+        assert len(segments) == 4
         assert len(db.session.query(Station).filter(Station.has_inventory).all()) == 2
         assert mock_updatedf.called  # called while saving inventories
         assert mock_insertdf.called
-        
+
         # TEST 1: USERPASS AND EIDA (PROBLEM):
         # test that we provide userpass and eida: error:
         # mock yaml_load to override restricted_data:
@@ -352,26 +357,26 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_get_data_from_token.reset_mock()
         mock_get_data_from_userpass.reset_mock()
         self.config_overrides = {'restricted_data': ['user', 'password'], 'dataws': 'eida'}
-        result = clirunner.invoke(cli , ['download',
-                                       '-c', self.configfile,
+        result = clirunner.invoke(cli, ['download',
+                                        '-c', self.configfile,
                                         '--dburl', db.dburl,
-                                       '--start', '2016-05-08T00:00:00',
-                                       '--end', '2016-05-08T9:00:00'])
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00'])
         assert not clirunner.ok(result)
         assert ('Error: Invalid value for "restricted_data": '
                 'downloading from EIDA requires a token') in result.output
-                
+
         # TEST 2: TOKEN FILE NOT EXISTING
         mock_get_data_open.reset_mock()
         mock_get_data_from_token.reset_mock()
         mock_get_data_from_userpass.reset_mock()
         self.config_overrides = {'restricted_data': 'abcdg465du97_Sdr4fvssgflero',
                                  'dataws': 'eida'}
-        result = clirunner.invoke(cli , ['download',
-                                       '-c', self.configfile,
+        result = clirunner.invoke(cli, ['download',
+                                        '-c', self.configfile,
                                         '--dburl', db.dburl,
-                                       '--start', '2016-05-08T00:00:00',
-                                       '--end', '2016-05-08T9:00:00'])
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00'])
         assert not clirunner.ok(result)
         assert ('Invalid token. If you passed a file path, '
                 'check also that the file exists') in result.output
@@ -383,11 +388,11 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_get_data_from_userpass.reset_mock()
         self.config_overrides = {'restricted_data': os.path.abspath(filepath),
                                  'dataws': 'eida'}
-        result = clirunner.invoke(cli , ['download',
-                                       '-c', self.configfile,
+        result = clirunner.invoke(cli, ['download',
+                                        '-c', self.configfile,
                                         '--dburl', db.dburl,
-                                       '--start', '2016-05-08T00:00:00',
-                                       '--end', '2016-05-08T9:00:00'])
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00'])
         assert not clirunner.ok(result)
         assert ('Invalid token. If you passed a file path, '
                 'check also that the file exists') in result.output
@@ -408,19 +413,21 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     @patch('stream2segment.download.main.DcDataselectManager._get_data_from_userpass')
     @patch('stream2segment.download.main.DcDataselectManager._get_data_from_token')
     @patch('stream2segment.download.modules.segments.get_opener', side_effect=get_opener)
-    def test_cmdline(self, mock_get_opener, mock_get_data_from_token,
-                     mock_get_data_from_userpass,
-                     mock_get_data_open, mock_updatedf, mock_insertdf, mock_mseed_unpack,
-                     mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
-                     mock_get_datacenters_df, mock_get_events_df,
-                     # fixtures:
-                     db, clirunner, pytestdir):
-        
-        mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
-        mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
+    def test_restricted(self, mock_get_opener, mock_get_data_from_token,
+                        mock_get_data_from_userpass,
+                        mock_get_data_open, mock_updatedf, mock_insertdf, mock_mseed_unpack,
+                        mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
+                        mock_get_datacenters_df, mock_get_events_df,
+                        # fixtures:
+                        db, clirunner, pytestdir):
+
+        mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v)
+        mock_get_datacenters_df.side_effect = \
+            lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
-        mock_download_save_segments.side_effect = lambda *a, **v: self.download_save_segments(None, *a, **v)
+        mock_download_save_segments.side_effect = \
+            lambda *a, **v: self.download_save_segments(None, *a, **v)
         # mseed unpack is mocked by accepting only first arg (so that time bounds are not considered)
         mock_mseed_unpack.side_effect = lambda *a, **v: unpack(a[0])
         mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
@@ -437,7 +444,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_get_data_from_userpass.side_effect = self.dc_get_data_from_userpass
         mock_get_data_from_token.side_effect = \
             lambda *a, **kw: self.dc_get_data_from_token([URLError('a'), 'abc'], *a, **kw)
-        
+
         # TEST 1: provide a file with valid token:
         tokenfile = pytestdir.newfile(create=True)
         with open(tokenfile, 'w') as fh:
@@ -447,11 +454,11 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # The run table is populated with a run_id in the constructor of this class
         # for checking run_ids, store here the number of runs we have in the table:
         runs = len(db.session.query(Download.id).all())
-        result = clirunner.invoke(cli , ['download',
-                                       '-c', self.configfile,
+        result = clirunner.invoke(cli, ['download',
+                                        '-c', self.configfile,
                                         '--dburl', db.dburl,
-                                       '--start', '2016-05-08T00:00:00',
-                                       '--end', '2016-05-08T9:00:00'])
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00'])
         assert clirunner.ok(result)
         assert 'restricted_data: enabled, with token' in result.output
         assert 'STEP 6 of 8: Acquiring credentials from token' in result.output
@@ -469,12 +476,10 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         segments = db.session.query(Segment).all()
         assert len(segments) == 12
         segments = db.session.query(Segment).filter(Segment.has_data).all()
-        assert len(segments) == 4        
+        assert len(segments) == 4
         assert len(db.session.query(Station).filter(Station.has_inventory).all()) == 2
         assert mock_updatedf.called  # called while saving inventories
         assert mock_insertdf.called
-
-
 
     # only last 4 patches are actually needed, the other are there
     # simply because this module was copied-pasted from other tests. too lazy to check/remove
@@ -491,14 +496,14 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     @patch('stream2segment.download.main.DcDataselectManager._get_data_from_userpass')
     @patch('stream2segment.download.main.DcDataselectManager._get_data_from_token')
     @patch('stream2segment.download.modules.segments.get_opener', side_effect=get_opener)
-    def test_cmdline(self, mock_get_opener, mock_get_data_from_token,
-                     mock_get_data_from_userpass,
-                     mock_get_data_open, mock_updatedf, mock_insertdf, mock_mseed_unpack,
-                     mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
-                     mock_get_datacenters_df, mock_get_events_df,
-                     # fixtures:
-                     db, clirunner, pytestdir):
-        
+    def test_retry(self, mock_get_opener, mock_get_data_from_token,
+                   mock_get_data_from_userpass,
+                   mock_get_data_open, mock_updatedf, mock_insertdf, mock_mseed_unpack,
+                   mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
+                   mock_get_datacenters_df, mock_get_events_df,
+                   # fixtures:
+                   db, clirunner, pytestdir):
+
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
@@ -520,7 +525,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_get_data_from_userpass.side_effect = self.dc_get_data_from_userpass
         mock_get_data_from_token.side_effect = \
             lambda *a, **kw: self.dc_get_data_from_token([URLError('a'), 'abc'], *a, **kw)
-        
+
         # TEST 1: provide a file with valid token:
         tokenfile = pytestdir.newfile(create=True)
         with open(tokenfile, 'w') as fh:
@@ -542,12 +547,12 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                 lambda *a, **kw: self.dc_get_data_from_token(tokenquery_mocked_return_values,
                                                              *a, **kw)
             self.config_overrides = {'restricted_data': os.path.abspath(tokenfile)}
-            result = clirunner.invoke(cli , ['download',
-                                           '-c', pytestdir.yamlfile(self.configfile,
-                                                                    retry_client_err=False),
+            result = clirunner.invoke(cli, ['download',
+                                            '-c', pytestdir.yamlfile(self.configfile,
+                                                                     retry_client_err=False),
                                             '--dburl', db.dburl,
-                                           '--start', '2016-05-08T00:00:00',
-                                           '--end', '2016-05-08T9:00:00'])
+                                            '--start', '2016-05-08T00:00:00',
+                                            '--end', '2016-05-08T9:00:00'])
             assert clirunner.ok(result)
             assert 'restricted_data: %s' % os.path.abspath(tokenfile) in result.output
             assert 'STEP 6 of 8: Acquiring credentials from token' in result.output
@@ -557,7 +562,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             assert not mock_get_data_open.called
             assert mock_get_data_from_token.called
             assert not mock_get_data_from_userpass.called
-            
+
             assert "Downloading open data only from: %s" % dc_token_failed
             dc_token_ok = 'http://ws.resif.fr' \
                 if dc_token_failed == "http://geofon.gfz-potsdam.de" else \
@@ -582,4 +587,3 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             if expected_call_count > 0:
                 assert self.mock_urlopen.call_args_list[-1][0][0].get_full_url() == \
                     dc_token_failed + "/fdsnws/station/1/query"
-            

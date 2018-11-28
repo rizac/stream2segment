@@ -398,6 +398,14 @@ def harmonize_fdsn_dframe(query_df, query_type):
     return query_df
 
 
+class s2scodes(object):  # pylint: disable=too-few-public-methods, invalid-name
+    '''simple container for download codes'''
+    url_err = -1
+    mseed_err = -2
+    timespan_err = -204
+    timespan_warn = -200
+
+
 def custom_download_codes():
     """returns the tuple (url_err, mseed_err, timespan_err, timespan_warn), i.e. the tuple
     (-1, -2, -204, -200) where each number represents a custom download code

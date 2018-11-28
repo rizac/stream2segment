@@ -65,8 +65,8 @@ class Test(object):
     def init(self, request, db, data, pytestdir):
         # re-init a sqlite database (no-op if the db is not sqlite):
         db.create(to_file=False)
-        
-        
+
+
         self.logout = StringIO()
         self.handler = StreamHandler(stream=self.logout)
         # THIS IS A HACK:
@@ -75,7 +75,6 @@ class Test(object):
         # otherwise it stays what we set two lines above. Problems might arise if closing
         # sets a different level, but for the moment who cares
         # s2s_download_logger.addHandler(self.handler)
-             
 
         # setup a run_id:
         r = Download()
@@ -84,7 +83,7 @@ class Test(object):
         self.run = r
 
         # side effects:
-        
+
         self._evt_urlread_sideeffect =  """#EventID | Time | Latitude | Longitude | Depth/km | Author | Catalog | Contributor | ContributorID | MagType | Magnitude | MagAuthor | EventLocationName
 20160508_0000129|2016-05-08 05:17:11.500000|1|1|60.0|AZER|EMSC-RTS|AZER|505483|ml|3|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 01:45:30.300000|90|90|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|4|EMSC|CROATIA
@@ -119,23 +118,19 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # self._sta_urlread_sideeffect = cycle([partial_valid, '', invalid, '', '', URLError('wat'), socket.timeout()])
 
         self._mintraveltime_sideeffect = cycle([1])        
-        
+
         self._seg_data = data.read("GE.FLT1..HH?.mseed")
         self._seg_data_gaps = data.read("IA.BAKI..BHZ.D.2016.004.head")
         self._seg_data_empty = b''
-            
         self._seg_urlread_sideeffect = [self._seg_data, self._seg_data_gaps, 413, 500, self._seg_data[:2],
                                         self._seg_data_empty,  413, URLError("++urlerror++"),
                                         socket.timeout()]
 
-
         self._inv_data = data.read("inventory_GE.APE.xml")
-
         self.service = ''  # so get_datacenters_df accepts any row by default
-
         self.configfile = get_templates_fpath("download.yaml")
         # self._logout_cache = ""
-        
+
         # class-level patchers:
         with patch('stream2segment.utils.url.urlopen') as mock_urlopen:
             self.mock_urlopen = mock_urlopen
@@ -157,26 +152,26 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                         # mock ThreadPool (tp) to run one instance at a time, so we
                         # get deterministic results:
                         class MockThreadPool(object):
-                            
+
                             def __init__(self, *a, **kw):
                                 pass
-                                
+
                             def imap(self, func, iterable, *args):
                                 # make imap deterministic: same as standard python map:
                                 # everything is executed in a single thread the right input order
                                 return map(func, iterable)
-                            
+
                             def imap_unordered(self, func, iterable, *args):
                                 # make imap_unordered deterministic: same as standard python map:
                                 # everything is executed in a single thread in the right input order
                                 return map(func, iterable)
-                            
+
                             def close(self, *a, **kw):
                                 pass
                         # assign patches and mocks:
                         with patch('stream2segment.utils.url.ThreadPool',
                                    side_effect=MockThreadPool) as mock_thread_pool:
-                            
+
                             def c4d(logger, logfilebasepath, verbose):
                                 # config logger as usual, but redirects to a temp file
                                 # that will be deleted by pytest, instead of polluting the program
@@ -190,14 +185,16 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                 self.mock_config4download = mock_config4download
 
                                 yield
-    
+
     def log_msg(self):
         return self.logout.getvalue()
 
     def setup_urlopen(self, urlread_side_effect):
         """setup urlopen return value. 
-        :param urlread_side_effect: a LIST of strings or exceptions returned by urlopen.read, that will be converted
-        to an itertools.cycle(side_effect) REMEMBER that any element of urlread_side_effect which is a nonempty
+        :param urlread_side_effect: a LIST of strings or exceptions returned by urlopen.read,
+            that will be converted
+        to an itertools.cycle(side_effect) REMEMBER that any element of urlread_side_effect
+            which is a nonempty
         string must be followed by an EMPTY
         STRINGS TO STOP reading otherwise we fall into an infinite loop if the argument
         blocksize of url read is not negative !"""
@@ -207,10 +204,12 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # if k is an int, convert to an HTTPError
         retvals = []
         # Check if we have an iterable (where strings are considered not iterables):
-        if not hasattr(urlread_side_effect, "__iter__") or isinstance(urlread_side_effect, (bytes, str)):
-            # it's not an iterable (wheere str/bytes/unicode are considered NOT iterable in both py2 and 3)
+        if not hasattr(urlread_side_effect, "__iter__") or \
+                isinstance(urlread_side_effect, (bytes, str)):
+            # it's not an iterable (wheere str/bytes/unicode are considered NOT iterable in
+            # both py2 and 3)
             urlread_side_effect = [urlread_side_effect]
-            
+
         for k in urlread_side_effect:
             a = Mock()
             if type(k) == int:
@@ -237,24 +236,26 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             else:
                 a.read.side_effect = k
             retvals.append(a)
-#         
+
         self.mock_urlopen.side_effect = cycle(retvals)
-#        self.mock_urlopen.side_effect = Cycler(urlread_side_effect)
-        
+
 
     def get_events_df(self, url_read_side_effect, *a, **v):
-        self.setup_urlopen(self._evt_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
+        self.setup_urlopen(self._evt_urlread_sideeffect if url_read_side_effect is None else
+                           url_read_side_effect)
         return get_events_df(*a, **v)
-        
+
 
 
     def get_datacenters_df(self, url_read_side_effect, *a, **v):
-        self.setup_urlopen(self._dc_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
+        self.setup_urlopen(self._dc_urlread_sideeffect if url_read_side_effect is None else
+                           url_read_side_effect)
         return get_datacenters_df(*a, **v)
-    
+
 
     def get_channels_df(self, url_read_side_effect, *a, **kw):
-        self.setup_urlopen(self._sta_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
+        self.setup_urlopen(self._sta_urlread_sideeffect if url_read_side_effect is None else
+                           url_read_side_effect)
         return get_channels_df(*a, **kw)
 
 # # ================================================================================================= 
@@ -262,7 +263,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     def download_save_segments(self, url_read_side_effect, *a, **kw):
         self.setup_urlopen(self._seg_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
         return download_save_segments(*a, **kw)
-    
+
     def save_inventories(self, url_read_side_effect, *a, **v):
         self.setup_urlopen(self._inv_data if url_read_side_effect is None else url_read_side_effect)
         return save_inventories(*a, **v)
@@ -281,22 +282,24 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                            mock_get_datacenters_df, mock_get_events_df, mock_autoinc_db,
                            # fixtures:
                            db, clirunner):
-        
+
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
-        mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
+        mock_get_datacenters_df.side_effect = \
+            lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
-        mock_download_save_segments.side_effect = lambda *a, **v: self.download_save_segments(None, *a, **v)
+        mock_download_save_segments.side_effect = \
+            lambda *a, **v: self.download_save_segments(None, *a, **v)
         mock_mseed_unpack.side_effect = lambda *a, **v: unpack(*a, **v)
         # mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
         mock_autoinc_db.side_effect = lambda *a, **v: _get_db_autoinc_col_max(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
         # prevlen = len(db.session.query(Segment).all())
-     
+
         # The run table is populated with a run_id in the constructor of this class
         # for checking run_ids, store here the number of runs we have in the table:
         runs = len(db.session.query(Download.id).all())
-        
+
         # mock insertdf to mess-up the ids so that we can check db errors
         def insdf(*a, **v):
             a = list(a)
@@ -308,36 +311,36 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_insertdf.side_effect = insdf
 
 
-        result = clirunner.invoke(cli , ['download',
-                                       '-c', self.configfile,
+        result = clirunner.invoke(cli, ['download',
+                                        '-c', self.configfile,
                                         '--dburl', db.dburl,
-                                       '--start', '2016-05-08T00:00:00',
-                                       '--end', '2016-05-08T9:00:00'])
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00'])
         assert clirunner.ok(result)
-        
+
         assert db.session.query(Station).count() == 4
-        
+
         # assert log msg printed
         assert """duplicate key value violates unique constraint "segments_pkey"
 DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
-"(UNIQUE constraint failed: segments.id)" in self.log_msg() 
-    
-        
+"(UNIQUE constraint failed: segments.id)" in self.log_msg()
+
         # get the excpeted segment we should have downloaded:
         segments_df = mock_download_save_segments.call_args_list[0][0][1]
         assert db.session.query(Segment).count() < len(segments_df)
-        
+
         # get the first group written to the db. Note that as we mocked read_async (see above)
         # the first dataframe given to urlread should be also the first to be written to db,
         # and so on for the second, third. If the line below fails, check that maybe it's not
         # the case and we should be less strict. Actually, we will be less strict, 
         # turns out the check is undeterministic Comment out:
-#         first_segments_df = segments_df.groupby(['datacenter_id', 'request_start', 'request_end'], sort=False).first()
-        assert db.session.query(Segment).count()  == 3  # len(first_segments_df)
+        # first_segments_df = segments_df.groupby(['datacenter_id', 'request_start',
+        #                                          'request_end'], sort=False).first()
+        assert db.session.query(Segment).count() == 3  # len(first_segments_df)
         # assert 
         assert db.session.query(Channel).count() == 12
         assert db.session.query(Event).count() == 2
-        
+
         # assert run log has been written correctly, i.e. that the db error on the segments
         # has not affected further writing operations. To do this quickly, assert that
         # all run.log have something written in (not null, not empty)
@@ -357,7 +360,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                                  mock_get_datacenters_df, mock_get_events_df,
                                  # fixtures:
                                  db, clirunner):
-        
+
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
@@ -367,35 +370,34 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
         # prevlen = len(db.session.query(Segment).all())
-     
+
         # The run table is populated with a run_id in the constructor of this class
         # for checking run_ids, store here the number of runs we have in the table:
         runs = len(db.session.query(Download.id).all())
 
-        result = clirunner.invoke(cli , ['download',
-                                       '-c', self.configfile,
+        result = clirunner.invoke(cli, ['download',
+                                        '-c', self.configfile,
                                         '--dburl', db.dburl,
-                                       '--start', '2016-05-08T00:00:00',
-                                       '--end', '2016-05-08T9:00:00'])
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00'])
         assert clirunner.ok(result)
-        
+
         assert len(db.session.query(Download.id).all()) == runs + 1
         runs += 1
         segments = db.session.query(Segment).all()
         assert len(segments) == 12
         segments = db.session.query(Segment).filter(Segment.has_data).all()
         assert len(segments) == 0  # all out of bounds
-        
+
         assert len(db.session.query(Station).filter(Station.has_inventory).all()) == 0
-        
+
         assert not mock_updatedf.called
         assert mock_insertdf.called
-        
+
         dfres1 = dbquery2df(db.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
-                                               Segment.event_id,
-                                         Segment.download_code, Segment.data,
-                                         Segment.maxgap_numsamples, Segment.download_id,
-                                         Segment.sample_rate, Segment.data_seed_id))
+                                             Segment.event_id, Segment.download_code, Segment.data,
+                                             Segment.maxgap_numsamples, Segment.download_id,
+                                             Segment.sample_rate, Segment.data_seed_id))
         dfres1.sort_values(by=Segment.id.key, inplace=True)  # for easier visual compare
         dfres1.reset_index(drop=True, inplace=True)  # we need to normalize indices for comparison later
         # just change the value of the bytes so that we can better 
@@ -405,8 +407,8 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         # assert the segments we should have data for are actually out-of-time-bounds
         _, _, TBOUND_ERRCODE, TBOUND_WARNCODE = custom_download_codes()
         assert len(dfres1[dfres1[Segment.download_code.key] == TBOUND_ERRCODE]) == 4
-        
-    
+
+
     @pytest.mark.skip(reason=("no way of currently testing what we want to test, "
                               "error not reproducible. See comments below"))
     @patch('stream2segment.download.main.get_events_df')
@@ -417,46 +419,47 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
     @patch('stream2segment.download.modules.segments.mseedunpack')
     @patch('stream2segment.io.db.pdsql.insertdf')
     @patch('stream2segment.io.db.pdsql.updatedf')
-    def test_cmdline_unexpected_err(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
-                     mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
-                     mock_get_datacenters_df, mock_get_events_df,
-                     # fixtures:
-                     db, clirunner):
+    def test_SKIPPED_cmdline_unexpected_err(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
+                                            mock_download_save_segments, mock_save_inventories,
+                                            mock_get_channels_df, mock_get_datacenters_df,
+                                            mock_get_events_df,
+                                            # fixtures:
+                                            db, clirunner):
         ''' we experienced once a UnicodeDecodeError in mseed_unpack, whcih, has expected
         raised. Fine, but we got also another error: attempt to write on an apparently already-closed logger,
         as if threads where trying to access concurrently to the same logger.
         Try to test this case even if unfortunately we did not experience this issue in this test'''
-        mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
-        mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
+        mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v)
+        mock_get_datacenters_df.side_effect = \
+            lambda *a, **v: self.get_datacenters_df(None, *a, **v)
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
-        mock_download_save_segments.side_effect = lambda *a, **v: self.download_save_segments(None, *a, **v)
+        mock_download_save_segments.side_effect = \
+            lambda *a, **v: self.download_save_segments(None, *a, **v)
         # =========================
         # HERE IS THE IMPORTANT PART
-        # mseed unpack is mocked by accepting only first arg (so that time bounds are not considered)
+        # mseed unpack is mocked by accepting only first arg
+        # (so that time bounds are not considered)
         # =========================
         def mockunpack(*a, **v):
             # https://gehrcke.de/2015/12/how-to-raise-unicodedecodeerror-in-python-3/
             raise UnicodeDecodeError('funnycodec', b'\x00\x00', 1, 2, 'This is just a fake reason!')
-        mock_mseed_unpack.side_effect = mockunpack  # now is cought, and a MiniSeed Error is raised, but let's see
+        mock_mseed_unpack.side_effect = mockunpack
+        # now is cought, and a MiniSeed Error is raised, but let's see
         mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
         # prevlen = len(db.session.query(Segment).all())
-     
+
         # The run table is populated with a run_id in the constructor of this class
         # for checking run_ids, store here the number of runs we have in the table:
         runs = len(db.session.query(Download.id).all())
+        result = clirunner.invoke(cli, ['download', '-c', self.configfile, '--dburl', db.dburl,
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00'])
+        
 
 
 
-        clirunner.invoke(cli , ['download',
-                                       '-c', self.configfile,
-                                        '--dburl', db.dburl,
-                                       '--start', '2016-05-08T00:00:00',
-                                       '--end', '2016-05-08T9:00:00'])
-        h= 9
-    
-    
     @patch('stream2segment.download.main.get_events_df')
     @patch('stream2segment.download.main.get_datacenters_df')
     @patch('stream2segment.download.main.get_channels_df')
@@ -470,7 +473,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                      mock_get_datacenters_df, mock_get_events_df,
                      # fixtures:
                      db, clirunner, pytestdir):
-        
+
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
@@ -481,16 +484,16 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
         # prevlen = len(db.session.query(Segment).all())
-     
+
         # The run table is populated with a run_id in the constructor of this class
         # for checking run_ids, store here the number of runs we have in the table:
         runs = len(db.session.query(Download.id).all())
 
-        result = clirunner.invoke(cli , ['download',
-                                       '-c', self.configfile,
+        result = clirunner.invoke(cli, ['download',
+                                        '-c', self.configfile,
                                         '--dburl', db.dburl,
-                                       '--start', '2016-05-08T00:00:00',
-                                       '--end', '2016-05-08T9:00:00'])
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00'])
         assert clirunner.ok(result)
 
         assert len(db.session.query(Download.id).all()) == runs + 1
@@ -499,12 +502,12 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert len(segments) == 12
         segments = db.session.query(Segment).filter(Segment.has_data).all()
         assert len(segments) == 4
-        
+
         assert len(db.session.query(Station).filter(Station.has_inventory).all()) == 0
-        
+
         assert not mock_updatedf.called
         assert mock_insertdf.called
-        
+
         dfres1 = dbquery2df(db.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
                                                Segment.event_id,
                                          Segment.download_code, Segment.data,
@@ -518,8 +521,6 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                   Segment.data.key] = b'data'
 
 
-
-
         # re-launch with the same setups.
         # what we want to test is the 413 error on every segment. This should split downloads and
         # retry until there is just one segment and this should write 413 for all segments to retry
@@ -529,66 +530,62 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         mock_insertdf.reset_mock()
         self._seg_urlread_sideeffect = [413]
         idx = len(self.log_msg())
-
-        result = clirunner.invoke(cli , ['download',
-                                       '-c', self.configfile,
+        result = clirunner.invoke(cli, ['download',
+                                        '-c', self.configfile,
                                         '--dburl', db.dburl,
-                                       '--start', '2016-05-08T00:00:00',
-                                       '--end', '2016-05-08T9:00:00'])
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00'])
         assert clirunner.ok(result)
 
         dfres2 = dbquery2df(db.session.query(Segment.id, Segment.channel_id, Segment.datacenter_id,
-                                               Segment.event_id,
-                                         Segment.download_code, Segment.data,
-                                         Segment.maxgap_numsamples, Segment.download_id,
-                                         Segment.sample_rate, Segment.data_seed_id))
+                                             Segment.event_id,
+                                             Segment.download_code, Segment.data,
+                                             Segment.maxgap_numsamples, Segment.download_id,
+                                             Segment.sample_rate, Segment.data_seed_id))
         dfres2.sort_values(by=Segment.id.key, inplace=True)  # for easier visual compare
         dfres2.reset_index(drop=True, inplace=True)  # we need to normalize indices for comparison later
         # just change the value of the bytes so that we can better 
         # visually inspect dataframe under clipse, in case:
         dfres2.loc[(~pd.isnull(dfres2[Segment.data.key])) & (dfres2[Segment.data.key].str.len()>0),
                   Segment.data.key] = b'data'
-        
+
         assert mock_updatedf.called
         assert not mock_insertdf.called
-        
+
         URLERROR, MSEEDERROR, OUTTIME_ERR, OUTTIME_WARN = custom_download_codes()
-        
+
         assert len(dfres2) == len(dfres1)
         assert len(db.session.query(Download.id).all()) == runs + 1
         runs += 1
         # asssert we changed the download status code for segments which should be retried
         # WARNING: THIS TEST COULD FAIL IF WE CHANGE THE DEFAULTS. CHANGE `mask` here below IN CASE
         mask = dfres1[Segment.download_code.key].between(500, 599.999, inclusive=True) | \
-                      (dfres1[Segment.download_code.key] == URLERROR) | \
-                      pd.isnull(dfres1[Segment.download_code.key])
+            (dfres1[Segment.download_code.key] == URLERROR) | \
+            pd.isnull(dfres1[Segment.download_code.key])
         retried = dfres2.loc[mask, :]
         assert (retried[Segment.download_code.key] == 413).all()
         # asssert we changed the run_id for segments which should be retried
         # WARNING: THIS TEST COULD FAIL IF WE CHANGE THE DEFAULTS. CHANGE THE `mask` IN CASE
         assert (retried[Segment.download_id.key] >
                 dfres1.loc[retried.index, Segment.download_id.key]).all()
-        
         assert mock_download_save_segments.called
 
-
-        # Ok, now with the current config 413 is not retried: 
+        # Ok, now with the current config 413 is not retried:
         # check that now we should skip all segments
         # FIX nov 2018: retry_client_err is now True by default.
         # That's why we use pytestdir.yamlfile below
 
         # reset mock and run with newconfigfile:
         mock_download_save_segments.reset_mock()
-        result = clirunner.invoke(cli , ['download', 
-                                         '-c', pytestdir.yamlfile(self.configfile,
-                                                                  retry_client_err=False),
-                                         '--dburl', db.dburl,
-                                         '--start', '2016-05-08T00:00:00',
-                                         '--end', '2016-05-08T9:00:00'])
+        result = clirunner.invoke(cli, ['download', 
+                                        '-c', pytestdir.yamlfile(self.configfile,
+                                                                 retry_client_err=False),
+                                        '--dburl', db.dburl,
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00'])
         assert clirunner.ok(result)
         assert not mock_download_save_segments.called
-        
-        
+
         # test some edge cases, if run from eclipse, a debugger and inspection of self.log_msg()
         # might be needed to check that everything is printed right. IF WE CHANGE THE MESSAGES
         # TO BE DISPLAYED, THEN CHANGE THE STRING BELOW:
@@ -596,23 +593,23 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert str_err not in self.log_msg()
         mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(500, *a, **v) 
         mock_download_save_segments.reset_mock()
-        result = clirunner.invoke(cli , ['download',
-                                         '-c', pytestdir.yamlfile(self.configfile,
-                                                                  retry_client_err=False),
-                                         '--dburl', db.dburl,
-                                         '--start', '2016-05-08T00:00:00',
-                                         '--end', '2016-05-08T9:00:00'])
+        result = clirunner.invoke(cli, ['download',
+                                        '-c', pytestdir.yamlfile(self.configfile,
+                                                                 retry_client_err=False),
+                                        '--dburl', db.dburl,
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00'])
         assert clirunner.ok(result)
         assert not mock_download_save_segments.called
         x = self.log_msg()
         assert str_err in self.log_msg()
-        mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
-        
+        mock_get_datacenters_df.side_effect = \
+            lambda *a, **v: self.get_datacenters_df(None, *a, **v)
 
         # test some edge cases, if run from eclipse, a debugger and inspection of self.log_msg()
         # might be needed to check that everything is printed right. IF WE CHANGE THE MESSAGES
         # TO BE DISPLAYED, THEN CHANGE THE STRING BELOW:
-        str_err = "No channel found with sample rate"
+        str_err = "No channel matches user defined filters"
         assert str_err not in self.log_msg()
         # assert str_err not in self.log_msg()
         def mgdf(*a, **v):
@@ -620,17 +617,17 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
             aa[9] = 100000  # change min sample rate to a huge number
             return self.get_channels_df(None, *aa, **v) 
         mock_get_channels_df.side_effect = mgdf
-        
-        result = clirunner.invoke(cli , ['download', '-c', self.configfile,
-                                       '--dburl', db.dburl,
-                                       '--start', '2016-05-08T00:00:00',
-                                       '--end', '2016-05-08T9:00:00'])
+
+        result = clirunner.invoke(cli, ['download', '-c', self.configfile,
+                                        '--dburl', db.dburl,
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00'])
         assert clirunner.ok(result)
 
         assert str_err in self.log_msg()
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v) 
-        
-        
+
+
         # now we mock urlread for stations: it always raises 500 error 500
         # thus the program should query the database as station urlread raises
         # and we cannot get any station from the web
@@ -639,20 +636,20 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert idx > -1
         rem = self._sta_urlread_sideeffect
         self._sta_urlread_sideeffect = 500
-        
-        result = clirunner.invoke(cli , ['download', '-c', self.configfile,
-                                       '--dburl', db.dburl,
-                                       '--start', '2016-05-08T00:00:00',
-                                       '--end', '2016-05-08T9:00:00'])
+
+        result = clirunner.invoke(cli, ['download', '-c', self.configfile,
+                                        '--dburl', db.dburl,
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00'])
         # assert we wrote again str_2:
         assert self.log_msg().rfind(str_2) > idx
-        
+
         # reset to default:
         self._sta_urlread_sideeffect = rem
-        
-        
+
+
         # test with loading station inventories:
-        
+
         # we should not have inventories saved:
         stainvs = db.session.query(Station).filter(Station.has_inventory).all()
         assert len(stainvs) == 0
@@ -665,7 +662,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         # and be more safe about the fact that we will have only ONE station inventory saved
         inv_urlread_ret_val = [self._inv_data, URLError('a')]
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(inv_urlread_ret_val, *a, **v)
-        
+
         result = clirunner.invoke(cli , ['download', '-c', self.configfile,
                                        '--dburl', db.dburl,
                                        '--start', '2016-05-08T00:00:00',
@@ -680,97 +677,88 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert len(ix) == num_downloaded_inventories_first_try
         staid, invdata = ix[0][0], ix[0][1]
         expected_invs_to_download_ids.remove(staid)  # remove the saved inventory
-        assert not invdata.startswith(b'<?xml ') # assert we compressed data  
-        assert mock_save_inventories.called                                                    
+        assert not invdata.startswith(b'<?xml ')  # assert we compressed data
+        assert mock_save_inventories.called
         mock_save_inventories.reset_mock
-
 
         # Now mock empty data:
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories([b""], *a, **v)
-        
-        result = clirunner.invoke(cli , ['download', '-c', self.configfile,
-                                       '--dburl', db.dburl,
-                                       '--start', '2016-05-08T00:00:00',
-                                       '--end', '2016-05-08T9:00:00', '--inventory'])
-        assert clirunner.ok(result)
 
+        result = clirunner.invoke(cli, ['download', '-c', self.configfile,
+                                        '--dburl', db.dburl,
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00', '--inventory'])
+        assert clirunner.ok(result)
         stainvs = db.session.query(Station).filter(Station.has_inventory).all()
         # assert we still have one station (the one we saved before):
         assert len(stainvs) == num_downloaded_inventories_first_try
         mock_save_inventories.reset_mock
 
-        
         # now mock url returning always data (the default: it returns self._inv_data:
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
-        
-        result = clirunner.invoke(cli , ['download', '-c', self.configfile,
-                                       '--dburl', db.dburl,
-                                       '--start', '2016-05-08T00:00:00',
-                                       '--end', '2016-05-08T9:00:00', '--inventory'])
+
+        result = clirunner.invoke(cli, ['download', '-c', self.configfile,
+                                        '--dburl', db.dburl,
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         assert clirunner.ok(result)
-        
         ix = db.session.query(Station.id, Station.inventory_xml).filter(Station.has_inventory).all()
         assert len(ix) == num_expected_inventories_to_download
-        
-        
+
         # check now that none is downloaded
         mock_save_inventories.reset_mock()
 
-        result = clirunner.invoke(cli , ['download', '-c', self.configfile,
-                                       '--dburl', db.dburl,
-                                       '--start', '2016-05-08T00:00:00',
-                                       '--end', '2016-05-08T9:00:00', '--inventory'])
+        result = clirunner.invoke(cli, ['download', '-c', self.configfile,
+                                        '--dburl', db.dburl,
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         assert clirunner.ok(result)
-        
         stainvs2 = db.session.query(Station).filter(Station.has_inventory).all()
         assert len(stainvs2) == num_expected_inventories_to_download
-        assert not mock_save_inventories.called  
-                                                                                    
-        
+        assert not mock_save_inventories.called
+
         # now test that if a station chanbges datacenter "owner", then the new datacenter
         # is used. Test also that if we remove a single miniseed component of a download that
         # miniseed only is downloaded again
         dfz = dbquery2df(db.session.query(Segment.id, Segment.data_seed_id,
                                             Segment.datacenter_id, Channel.station_id).
                          join(Segment.station, Segment.channel).filter(Segment.has_data))
-        
+
         # dfz:
     #     id  data_seed_id    datacenter_id  Station.datacenter_id
     #  0  1   GE.FLT1..HHE    1              1            
     #  1  2   GE.FLT1..HHN    1              1            
     #  2  3   GE.FLT1..HHZ    1              1            
     #  3  6   IA.BAKI..BHZ    2              2 
-        
+
         # remove the first one:
         deleted_seg_id = 1
         seed_to_redownload = dfz[dfz[Segment.id.key] == deleted_seg_id].iloc[0]
         db.session.query(Segment).filter(Segment.id == deleted_seg_id).delete()
         # be sure we deleted it:
         assert len(db.session.query(Segment.id).filter(Segment.has_data).all()) == len(dfz) - 1
-        
+
         oldst_se = self._sta_urlread_sideeffect  # keep last side effect to restore it later
         self._sta_urlread_sideeffect = oldst_se[::-1]  # swap station return values from urlread
-    
-        result = clirunner.invoke(cli , ['download', '-c', self.configfile,
-                                       '--dburl', db.dburl,
-                                       '--start', '2016-05-08T00:00:00',
-                                       '--end', '2016-05-08T9:00:00', '--inventory'])
+
+        result = clirunner.invoke(cli, ['download', '-c', self.configfile,
+                                        '--dburl', db.dburl,
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         assert clirunner.ok(result)
- 
+
         # try to get
         dfz2 = dbquery2df(db.session.query(Segment.id, Segment.data_seed_id,
-                                             Segment.datacenter_id, Channel.station_id,
-                                             Station.network, Station.station, Channel.location, Channel.channel).
-                         join(Segment.station, Segment.channel))
-        
+                                           Segment.datacenter_id, Channel.station_id,
+                                           Station.network, Station.station, Channel.location,
+                                           Channel.channel).
+                          join(Segment.station, Segment.channel))
+
         # build manually the seed identifier id:
-        
-        
         dfz2[Segment.data_seed_id.key] = dfz2[Station.network.key].str.cat(dfz2[Station.station.key].str.cat(dfz2[Channel.location.key].str.cat(dfz2[Channel.channel.key], "."),"."), ".")
         seed_redownloaded = dfz2[dfz2[Segment.data_seed_id.key] == seed_to_redownload[Segment.data_seed_id.key]]
         assert len(seed_redownloaded) == 1
         seed_redownloaded = seed_redownloaded.iloc[0]
-        
         # assert the seed_to_redownload and seed_redownloaded have still the same station_id:
         assert seed_redownloaded[Channel.station_id.key] == seed_to_redownload[Channel.station_id.key]
         # but different datacenters:
@@ -778,11 +766,9 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
 
         # restore default:
         self._sta_urlread_sideeffect =  oldst_se   
-        
+
         # test update flag:
-        
-        
-        
+
         # first change some values on the db, so that we can MOCK that the next download
         # has some metadata changed:
         sta1 = db.session.query(Station).filter(Station.has_inventory == False).first()
@@ -798,34 +784,35 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         cha.sample_rate = new_srate
         sta_inv.inventory_xml = new_sta_inv
         db.session.commit()
-        
+
         # assure some data is returned from inventoriy url:
         inv_urlread_ret_val = self._inv_data
-        mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(inv_urlread_ret_val, *a, **v)
-    
+        mock_save_inventories.side_effect = \
+            lambda *a, **v: self.save_inventories(inv_urlread_ret_val, *a, **v)
+
         # run without flag update on:
-        result = clirunner.invoke(cli , ['download', '-c', self.configfile,
-                                       '--dburl', db.dburl,
-                                       '--start', '2016-05-08T00:00:00',
-                                       '--end', '2016-05-08T9:00:00', '--inventory'])
+        result = clirunner.invoke(cli, ['download', '-c', self.configfile,
+                                        '--dburl', db.dburl,
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         assert clirunner.ok(result)
-        
+
         # update_metadata False: assert nothing has been updated:
         assert db.session.query(Station).filter(Station.elevation == new_elevation).first()
         assert db.session.query(Station).filter(Station.site_name == new_sitename).first()
         assert db.session.query(Channel).filter(Channel.sample_rate == new_srate).first()
         # assert segment without inventory has still No inventory:
         assert db.session.query(Station).filter(Station.id == sta_inv_id).first().inventory_xml == new_sta_inv
-        
+
         # NOW UPDATE METADATA
-        
-        result = clirunner.invoke(cli , ['download', '-c', self.configfile,
-                                       '--update-metadata',
-                                       '--dburl', db.dburl,
-                                       '--start', '2016-05-08T00:00:00',
-                                       '--end', '2016-05-08T9:00:00', '--inventory'])
+
+        result = clirunner.invoke(cli, ['download', '-c', self.configfile,
+                                        '--update-metadata',
+                                        '--dburl', db.dburl,
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         assert clirunner.ok(result)
-        
+
         # assert that we overwritten the values set above, so we
         assert not db.session.query(Station).filter(Station.elevation == new_elevation).first()
         assert not db.session.query(Channel).filter(Channel.sample_rate == new_srate).first()
@@ -834,15 +821,14 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert db.session.query(Station).filter(Station.id == sta_inv_id).first().inventory_xml != new_sta_inv
         # and now this:
         assert db.session.query(Station).filter(Station.site_name == new_sitename).first()
-        # WHY? because site_name has been implemented for compatibility when the query level=station
-        # is done. When querying level=channel (as we do) site_name is not returned (FDSN weird behaviour?)
-        # so THAT attribute, and that only, is stille the old one
-        
-        
+        # WHY? because site_name has been implemented for compatibility when the query
+        # level=station is done. When querying level=channel (as we do) site_name is not returned
+        # (FDSN weird behaviour?) so THAT attribute, and that only, is stille the old one
+
         # ------------------------------------------------------------------------
         # NOTE: THIS LAST TEST DELETES ALL SEGMENTS THUS EXECUTE IT AT THE REAL END
         # -----------------------------------------------------------------------
-               
+
         # test a type error in the url_segment_side effect
         db.session.query(Segment).delete()
         assert len(db.session.query(Segment).all()) == 0
@@ -853,10 +839,10 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         suse = self._seg_urlread_sideeffect  # remainder (reset later)
         self._seg_urlread_sideeffect = re.compile(".*")  # just return something not number nor string
 
-        result = clirunner.invoke(cli , ['download', '-c', self.configfile,
-                                       '--dburl', db.dburl,
-                                       '--start', '2016-05-08T00:00:00',
-                                       '--end', '2016-05-08T9:00:00', '--inventory'])
+        result = clirunner.invoke(cli, ['download', '-c', self.configfile,
+                                        '--dburl', db.dburl,
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00', '--inventory'])
         assert result.exception
         assert result.exc_info[0] == SystemExit
         assert errmsg_py2 in self.log_msg() or errmsg_py3 in self.log_msg()
@@ -870,16 +856,16 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                                   pytestdir, clirunner):
         with open(self.configfile) as fp:
             _yaml_dict = yaml.load(fp)
-        
+
         # do not provide trailing spaces for easier comparison here below
         vals = [None, ['*'], ['HH?', 'AB']]
-        
+
         params = ['net', 'networks', 'network', 'sta', 'stations', 'station',
                   'loc', 'location', 'locations', 'cha', 'channels', 'channel']
         for p in params:
             _yaml_dict.pop(p, None)
-        
-        
+
+
         for net, sta, loc, cha in product(vals, vals, vals, vals):
             yaml_dict = dict(_yaml_dict)  # copy, otherwise old params are still there ... 
             netname, staname, locname, chaname = None, None, None, None
@@ -901,12 +887,12 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                 yaml.dump(yaml_dict, outfile, default_flow_style=False)
 
             mock_run.reset_mock()
-                
-            result = clirunner.invoke(cli , ['download',
-                                           '-c', configfilename,
-                                           # '--dburl', db.dburl,
-                                           #'--start', '2016-05-08T00:00:00',
-                                           #'--end', '2016-05-08T9:00:00'
+
+            result = clirunner.invoke(cli, ['download',
+                                            '-c', configfilename,
+                                            # '--dburl', db.dburl,
+                                            #'--start', '2016-05-08T00:00:00',
+                                            #'--end', '2016-05-08T9:00:00'
                                            ])
             args = mock_run.call_args_list
             assert len(args) == 1  # called just once (for safety)
@@ -925,21 +911,21 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         # now test errors (duplicates)
         for i in range(4):
             yaml_dict = dict(_yaml_dict)  # copy, otherwise old params are still there ... 
-            
+
             for p1, p2 in combinations(params[i*3: (i+1)*3], 2):
                 yaml_dict[p1] = []
                 yaml_dict[p2] = []
-        
+
                 with open(configfilename, 'w') as outfile:
                     yaml.dump(yaml_dict, outfile, default_flow_style=False)
 
                 mock_run.reset_mock()
-                    
-                result = clirunner.invoke(cli , ['download',
-                                               '-c', configfilename,
-                                               # '--dburl', db.dburl,
-                                               #'--start', '2016-05-08T00:00:00',
-                                               #'--end', '2016-05-08T9:00:00'
+
+                result = clirunner.invoke(cli, ['download',
+                                                '-c', configfilename,
+                                                # '--dburl', db.dburl,
+                                                #'--start', '2016-05-08T00:00:00',
+                                                #'--end', '2016-05-08T9:00:00'
                                                ])
                 assert result.exit_code != 0
                 assert 'Conflicting' in result.output
