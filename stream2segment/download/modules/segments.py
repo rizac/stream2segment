@@ -55,18 +55,23 @@ def prepare_for_download(session, segments_df, dc_dataselect_manager, timespan,
     SEG_CHID = Segment.channel_id.key  # pylint: disable=invalid-name
     SEG_ID = Segment.id.key  # pylint: disable=invalid-name
     SEG_DSC = Segment.download_code.key  # pylint: disable=invalid-name
-    SEG_DCID = Segment.datacenter_id.key  # pylint: disable=invalid-name
-    SEG_QAUTH = Segment.queryauth.key  # pylint: disable=invalid-name
     SEG_RETRY = "__do.download__"  # pylint: disable=invalid-name
 
     URLERR_CODE, MSEEDERR_CODE, OUTTIME_ERR_CODE, OUTTIME_WARN_CODE = custom_download_codes()
 
-    columns2query = [Segment.id, Segment.channel_id, Segment.request_start, Segment.request_end,
-                     Segment.download_code, Segment.event_id]
-    if not dc_dataselect_manager.opendataonly:
-        columns2query.extend([Segment.datacenter_id, Segment.queryauth])
+    opendataonly = dc_dataselect_manager.opendataonly
 
-    # query relevant data into data frame:
+    # set the list of columns to query. Add a boolean last column representing when retry has to
+    # be forced (no queryauth and code indicating - or suggesting - unauthorized access):
+    columns2query = [Segment.id, Segment.channel_id, Segment.request_start, Segment.request_end,
+                     Segment.download_code, Segment.event_id] + \
+                     ([] if opendataonly else [(Segment.download_code.isnot(None) &
+                                                Segment.download_code.in_([204, 404, 401, 403]) &
+                                                Segment.queryauth.isnot(True)).label(SEG_RETRY)])
+    # Note above: we need isnot(None) because in_([204, ...]) might return Nones for segment
+    # with NULL download status code
+
+    # query relevant data into data frame (speeds up calculations:
     chids, evids = \
         pd.unique(segments_df[SEG_CHID]).tolist(), pd.unique(segments_df[SEG_EVID]).tolist()
     db_seg_df = dbquery2df(session.query(*columns2query).
@@ -93,30 +98,32 @@ def prepare_for_download(session, segments_df, dc_dataselect_manager, timespan,
     if retry_timespan_warn:
         mask |= db_seg_df[SEG_DSC] == OUTTIME_WARN_CODE
 
-    db_seg_df[SEG_RETRY] = mask
-    # add retry flag for suspicious restricted segments (204 or 404 and no restricted flag):
-    _restricted_mask = None
-    if not dc_dataselect_manager.opendataonly:
-        _restricted_mask = \
-            db_seg_df[SEG_DCID].isin(dc_dataselect_manager.restricted_enabled_ids) & \
-            db_seg_df[SEG_DSC].isin((404, 204, 403, 401)) & ~db_seg_df[SEG_QAUTH]
-        db_seg_df[SEG_RETRY] |= _restricted_mask
+    force_retry_ids = None
+    if opendataonly:
+        # SEG_RETRY is not in db_seg_df, assing:
+        db_seg_df[SEG_RETRY] = mask
+    else:
+        # store segments to retry ALWAYS now, before merging with other 'retry':
+        # these are the segments which are suspiciously restricted and must be always re-downloaded
+        # How? by setting their download_code
+        force_retry_ids = db_seg_df[SEG_ID][db_seg_df[SEG_RETRY]]
+        if force_retry_ids.empty:  # force to None if there are no ids to retry:
+            force_retry_ids = None
+        if mask is not False:  # just to avoid useless operations
+            # SEG_RETRY is in db_seg_df, merge:
+            db_seg_df[SEG_RETRY] |= mask
 
-    # update existing dataframe. Set defaults on segments_df first:
-    # set columns and defaults (for int types, set np.nan):
+    # update existing dataframe:
+    # 1) set columns and defaults (for int types, set np.nan):
+    # Note that if we have something to retry (db_seg_df[SEG_RETRY].any()), we add also
+    # a None download code as default. Merged with db_seg_df later, we will know when we can skip
+    # the download (doiwnload code did not change):
     cols2set = OrderedDict([(SEG_ID, np.nan), (SEG_RETRY, True), (SEG_START, pd.NaT),
-                            (SEG_END, pd.NaT)])
-    # if there is something to update, then add also download_code as column of segments_df:
-    # A None download code will force rewrite (SQL update) because the response code will
-    # never be equal to None. Note that here we set the default, in mergeupdate below some
-    # download codes might be overwritten
-    retry_any = db_seg_df[SEG_RETRY].any()
-    if retry_any:
-        cols2set[SEG_DSC] = np.nan
-    # assign default values to segments_df:
+                            (SEG_END, pd.NaT)] +
+                           ([(SEG_DSC, np.nan)] if db_seg_df[SEG_RETRY].any() else []))
     for colname, default_ in cols2set.items():
         segments_df[colname] = default_
-    # assign/override values of cols2set from db_seg_df to segments_df,
+    # 2) assign/override values of cols2set from db_seg_df to segments_df,
     # matching rows via the [SEG_CHID, SEG_EVID] cols:
     segments_df = mergeupdate(segments_df, db_seg_df, [SEG_CHID, SEG_EVID],
                               list(cols2set.keys()))
@@ -169,10 +176,10 @@ def prepare_for_download(session, segments_df, dc_dataselect_manager, timespan,
 
     # Now set the download code for 204 and 404 with none download code to force rewrite
     # A None download code will force rewrite (SQL update) because the response code will
-    # never be equal to None.
-    if retry_any and _restricted_mask is not None:
-        ids2retry = db_seg_df[SEG_ID][_restricted_mask]
-        segments_df.loc[segments_df[SEG_ID].isin(ids2retry), SEG_DSC] = np.nan
+    # never be equal to None. Do this if there is something to retry
+    # (SEG_DSC in segments_df.columns) and we have ids suspiciously downloaded as open:
+    if force_retry_ids is not None and SEG_DSC in segments_df.columns:
+        segments_df.loc[segments_df[SEG_ID].isin(force_retry_ids), SEG_DSC] = np.nan
 
     segments_df.drop([SEG_RETRY], axis=1, inplace=True)
 
@@ -186,7 +193,12 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
 
     """Downloads and saves the segments. segments_df MUST not be empty (this is not checked for)
 
-        :param segments_df: the dataframe resulting from `prepare_for_download`
+        :param segments_df: the dataframe resulting from `prepare_for_download`. The Dataframe
+            might or might not have the column 'download_code'. If it has, it will skip
+            writing to db segments whose code did not change: in this case, nans stored under
+            'download_code' in segments_df indicate new segments, or segments for which the update
+            has to be forced, whatever code is obtained (e.g., queryauth when previously a simple
+            query was used)
         :param chaid2mseedid: dict of channel ids (int) mapped to mseed ids
         (strings in "Network.station.location.channel" format)
 
@@ -208,6 +220,14 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
     SEG_DOWNLID = Segment.download_id.key  # pylint: disable=invalid-name
     SEG_ATIME = Segment.arrival_time.key  # pylint: disable=invalid-name
     SEG_QAUTH = Segment.queryauth.key  # pylint: disable=invalid-name
+
+    # set queryauth column here, outside the loop:
+    restricted_enable_dcids = dc_dataselect_manager.restricted_enabled_ids
+    if restricted_enable_dcids:
+        segments_df[SEG_QAUTH] = \
+            segments_df[SEG_DCID].isin(dc_dataselect_manager.restricted_enabled_ids)
+    else:
+        segments_df[SEG_QAUTH] = False
 
     # set once the dict of column names mapped to their default values.
     # Set nan to let pandas understand it's numeric. None I don't know how it is converted
@@ -274,7 +294,6 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
         '''calls get_seg_request from an item of Pandas groupby. Used in read_async below'''
         return dc_dataselect_manager.opener(obj[0][0])  # obj[0][0] = dc_id
 
-    restricted_enable_dcids = dc_dataselect_manager.restricted_enabled_ids
     # check first if there is somethign to update, set a boolean outside the loop below
     # for performance:
     toupdate = SEG_DSCODE in segments_df.columns
@@ -309,12 +328,12 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                 bar.update(len(dframe))
                 # if there are rows to update and response has no data, then
                 # discard those for which the code is the same. If we requested a different
-                # time window, do not update the time window for those segments as they have
-                # no data anyway, there is no single case where this might be a problem
-                if toupdate and not data:
-                    # note that checking for dframe[SEG_DSCODE] is enough. Borderline
-                    # cases (new segments and segments previously not found (all with no id none
-                    # or n/a) will never be skipped
+                # time window, we should update the time windows but there is no point as the
+                # db segment does not have data stored. The last if (response code is not None)
+                # should never happen but for safety, otherwise we risk to skip segments
+                # with download_code NA (which means exactly the opposite: force insert/update
+                # them to the db): 
+                if toupdate and not data and code is not None:
                     _skipped = dframe[SEG_DSCODE] == code
                     if _skipped.any():
                         dframe = dframe[~_skipped]
@@ -336,7 +355,6 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                     # https://stackoverflow.com/questions/12555323/adding-new-column-to-existing-dataframe-in-python-pandas
                 # init download id column with our download_id:
                 dframe[SEG_DOWNLID] = download_id
-                dframe[SEG_QAUTH] = dc_id in restricted_enable_dcids
                 if exc is None:
                     if code >= 400:
                         exc = "%d: %s" % (code, msg)
@@ -508,15 +526,18 @@ class DcDataselectManager(object):
         if authorizer.token:
             token = authorizer.token
             self._data, errors = self._get_data_from_token(dcid2fdsn, token, show_progress)
+            self._restricted_id = [did for did in self._data if did not in errors]
         elif authorizer.userpass:
             user, password = authorizer.userpass
             self._data, errors = self._get_data_from_userpass(dcid2fdsn, user, password)
+            self._restricted_id = list(dcid2fdsn.keys())
         else:  # no authorization required
             self._data, errors = self._get_data_open(dcid2fdsn)
-
-        self._restricted_id = [did for did in self._data if self.opener(did) is not None]
+            self._restricted_id = []
 
         if errors:
+            # map urls site to error, not dcids:
+            errors = {dcid2fdsn[dcid].site: err for dcid, err in errors.items()}
             logger.info(formatmsg('Downloading open data only from: %s' % ", ".join(errors),
                                   'Unable to acquire credentials for restricted data'))
             for url, exc in errors.items():
@@ -538,14 +559,16 @@ class DcDataselectManager(object):
 
     @staticmethod
     def _get_data_open(dcid2fdsn):
+        errors = {}  # dummy var to return no error
         return {id_: [fdsn, fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERY), None]
-                for id_, fdsn in dcid2fdsn.items()}, {}
+                for id_, fdsn in dcid2fdsn.items()}, errors
 
     @staticmethod
     def _get_data_from_userpass(dcid2fdsn, user, password):
+        errors = {}  # dummy var to return no error
         return {id_: [fdsn, fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERYAUTH),
                       get_opener(fdsn.site, user, password)]
-                for id_, fdsn in dcid2fdsn.items()}, {}
+                for id_, fdsn in dcid2fdsn.items()}, errors
 
     @staticmethod
     def _get_data_from_token(dcid2fdsn, token, show_progress=False):
@@ -576,9 +599,8 @@ class DcDataselectManager(object):
                                       fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERYAUTH),
                                       get_opener(fdsn.site, user, pswd)]
                 if exc is not None:
-                    url = fdsn.site
                     data[dcid] = [fdsn,
                                   fdsn.url(service=Fdsnws.DATASEL, method=Fdsnws.QUERY),
                                   None]  # No opener, download open data only
-                    errors[url] = exc
+                    errors[dcid] = exc
         return data, errors

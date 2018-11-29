@@ -382,11 +382,19 @@ def _get_max(session, numeric_column):
 
 def dbquery2df(query):
     """Returns a query result as a dataframe
-    :param query: sqlalchemy query. IT MUST BE GIVEN WITH ALL COLUMNS OF INTEREST SEPARATED, e.g.:
+    :param query: SqlAlchemy query. IT MUST BE GIVEN WITH ALL COLUMNS OF INTEREST SEPARATED, e.g.:
         ```session.query(Table.columna, Table.column_b)```
-        and not:
+        and **not**:
         ```session.query(Table)```
-        this method has been tested for queries from a single table with no joins
+
+        It accepts joins and filters, e.g.:
+        ```session.query(Table.columna, Table.column_b).join(...).filter(...)```
+
+        And also expressions as column, e.g.:
+        ```session.query(Table.columna, (Table.column_b >0).label('abc'))```
+        Where `label` associated to the query will be the dataframe column name (when passing
+        normal columns, the data frame column name is inferred from the SQLAlchemy column
+        name)
     """
     columns = [c['name'] for c in query.column_descriptions]
     return pd.DataFrame(columns=columns, data=query.all())

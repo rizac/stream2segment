@@ -20,6 +20,7 @@ import logging
 from io import BytesIO
 from logging import StreamHandler
 import threading
+from collections import defaultdict
 # this can apparently not be avoided neither with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
 try:
@@ -46,7 +47,8 @@ from stream2segment.download.main import get_events_df, get_datacenters_df, get_
     merge_events_stations, prepare_for_download, download_save_segments, save_inventories
 from stream2segment.io.db.models import Base, Event, Class, WebService, Fdsnws,\
     DataCenter, Segment, Download, Station, Channel, WebService, withdata
-from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf,  _get_max as _get_db_autoinc_col_max
+from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf,  \
+    _get_max as _get_db_autoinc_col_max
 from stream2segment.download.utils import custom_download_codes
 from stream2segment.download.modules.mseedlite import MSeedError, unpack
 from stream2segment.utils.url import read_async, URLError, HTTPError, get_opener, responses
@@ -66,7 +68,6 @@ class Test(object):
         # re-init a sqlite database (no-op if the db is not sqlite):
         db.create(to_file=False)
 
-
         self.logout = StringIO()
         self.handler = StreamHandler(stream=self.logout)
         # THIS IS A HACK:
@@ -75,7 +76,6 @@ class Test(object):
         # otherwise it stays what we set two lines above. Problems might arise if closing
         # sets a different level, but for the moment who cares
         # s2s_download_logger.addHandler(self.handler)
-
 
         # setup a run_id:
         r = Download()
@@ -118,16 +118,16 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 """]
         # self._sta_urlread_sideeffect = cycle([partial_valid, '', invalid, '', '', URLError('wat'), socket.timeout()])
 
-        self._mintraveltime_sideeffect = cycle([1])        
+        self._mintraveltime_sideeffect = cycle([1])
 
         self._seg_data = data.read("GE.FLT1..HH?.mseed")
         self._seg_data_gaps = data.read("IA.BAKI..BHZ.D.2016.004.head")
         self._seg_data_empty = b''
 
-        self._seg_urlread_sideeffect = [self._seg_data, self._seg_data_gaps, 413, 500, self._seg_data[:2],
+        self._seg_urlread_sideeffect = [self._seg_data, self._seg_data_gaps, 413, 500,
+                                        self._seg_data[:2],
                                         self._seg_data_empty,  413, URLError("++urlerror++"),
                                         socket.timeout()]
-
 
         self._inv_data = data.read("inventory_GE.APE.xml")
 
@@ -141,6 +141,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         self.dc_get_data_from_userpass = DcDataselectManager._get_data_from_userpass
         # get data from token accepts a custom urlread side effect:
         _get_data_from_token = DcDataselectManager._get_data_from_token
+
         def dc_get_data_from_token_func(url_read_side_effect=None, *a, **kw):
             if url_read_side_effect is not None:
                 self.setup_urlopen(url_read_side_effect)
@@ -234,7 +235,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                         if not rewind:
                             currpos = b.tell()
                         ret = b.read(*a, **v)
-                        # hacky workaround to support cycle below: if reached the end, go back to start
+                        # hacky workaround to support cycle below: if reached the end, go back
+                        # to start
                         if not rewind:
                             cp = b.tell()
                             rewind = cp == currpos
@@ -265,7 +267,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                            else url_read_side_effect)
         return get_channels_df(*a, **kw)
 
-# # ================================================================================================= 
+    # ============================================================================================
 
     def download_save_segments(self, url_read_side_effect, *a, **kw):
         self.setup_urlopen(self._seg_urlread_sideeffect if url_read_side_effect is None
@@ -335,7 +337,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                         '--start', '2016-05-08T00:00:00',
                                         '--end', '2016-05-08T9:00:00'])
         assert clirunner.ok(result)
-        assert 'restricted_data: disabled, download open data only' in result.output
+        assert 'Downloading 12 segments (open data only)' in result.output
         assert mock_get_data_open.called
         assert not mock_get_data_from_token.called
         assert not mock_get_data_from_userpass.called
@@ -397,7 +399,6 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert ('Invalid token. If you passed a file path, '
                 'check also that the file exists') in result.output
 
-
     # only last 4 patches are actually needed, the other are there
     # simply because this module was copied-pasted from other tests. too lazy to check/remove
     # them, and we might need those patches in the future
@@ -412,7 +413,11 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     @patch('stream2segment.download.main.DcDataselectManager._get_data_open')
     @patch('stream2segment.download.main.DcDataselectManager._get_data_from_userpass')
     @patch('stream2segment.download.main.DcDataselectManager._get_data_from_token')
-    @patch('stream2segment.download.modules.segments.get_opener', side_effect=get_opener)
+    # the following mock is important because: 1 the segments return responses can be set
+    # in mock_download_save_segments and work, and 2: avoid performing a real queryauth to the
+    # datacenter(s)
+    @patch('stream2segment.download.modules.segments.get_opener',
+           side_effect=lambda *a, **v: None)
     def test_restricted(self, mock_get_opener, mock_get_data_from_token,
                         mock_get_data_from_userpass,
                         mock_get_data_open, mock_updatedf, mock_insertdf, mock_mseed_unpack,
@@ -428,7 +433,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
         mock_download_save_segments.side_effect = \
             lambda *a, **v: self.download_save_segments(None, *a, **v)
-        # mseed unpack is mocked by accepting only first arg (so that time bounds are not considered)
+        # mseed unpack is mocked by accepting only first arg
+        # (so that time bounds are not considered)
         mock_mseed_unpack.side_effect = lambda *a, **v: unpack(a[0])
         mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
@@ -460,8 +466,11 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                         '--start', '2016-05-08T00:00:00',
                                         '--end', '2016-05-08T9:00:00'])
         assert clirunner.ok(result)
-        assert 'restricted_data: enabled, with token' in result.output
-        assert 'STEP 6 of 8: Acquiring credentials from token' in result.output
+        assert 'Downloading 12 segments (open data only)' in result.output
+        assert 'STEP 5 of 8: Acquiring credentials from token' in result.output
+        assert ('Downloading open data only from: http://geofon.gfz-potsdam.de, '
+                'http://ws.resif.fr (Unable to acquire credentials for restricted data)') in \
+            result.output
         # assert we print that we are downloading open data only (all errors):
         assert 'STEP 7 of 8: Downloading 12 segments (open data only)' in result.output
         assert not mock_get_data_open.called
@@ -469,7 +478,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert not mock_get_data_from_userpass.called
         assert not mock_get_opener.called
         # some assertions to check data properly written
-        # These are important because they confirmthat data has been downloaded anyway
+        # These are important because they confirm that data has been downloaded anyway
         # (the test does not differentiate between restricted or open data)
         assert len(db.session.query(Download.id).all()) == runs + 1
         runs += 1
@@ -495,7 +504,10 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     @patch('stream2segment.download.main.DcDataselectManager._get_data_open')
     @patch('stream2segment.download.main.DcDataselectManager._get_data_from_userpass')
     @patch('stream2segment.download.main.DcDataselectManager._get_data_from_token')
-    @patch('stream2segment.download.modules.segments.get_opener', side_effect=get_opener)
+    # the following mock is important because: 1 the segments return responses can be set
+    # in mock_download_save_segments and work, and 2: avoid performing a real queryauth to the
+    # datacenter(s)
+    @patch('stream2segment.download.modules.segments.get_opener')
     def test_retry(self, mock_get_opener, mock_get_data_from_token,
                    mock_get_data_from_userpass,
                    mock_get_data_open, mock_updatedf, mock_insertdf, mock_mseed_unpack,
@@ -504,16 +516,29 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                    # fixtures:
                    db, clirunner, pytestdir):
 
-        mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
-        mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
+        mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v)
+        mock_get_datacenters_df.side_effect = \
+            lambda *a, **v: self.get_datacenters_df(None, *a, **v)
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
-        mock_download_save_segments.side_effect = lambda *a, **v: self.download_save_segments(None, *a, **v)
-        # mseed unpack is mocked by accepting only first arg (so that time bounds are not considered)
+        mock_download_save_segments.side_effect = \
+            lambda *a, **v: self.download_save_segments([URLError('abc')], *a, **v)
+        # mseed unpack is mocked by accepting only first arg (so that time bounds are
+        # not considered)
         mock_mseed_unpack.side_effect = lambda *a, **v: unpack(a[0])
         mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
         # prevlen = len(db.session.query(Segment).all())
+
+        # mock our opener
+        m = Mock()
+        mockopen = Mock()
+        mockopen.read = lambda *a, **v: b''
+        mockopen.msg = 'abc'
+        mockopen.code = 204
+        m.open = lambda *a, **v: mockopen
+        # m.read = lambda *a, **v: ''
+        mock_get_opener.side_effect = lambda *a, **v: m
 
         # patching class methods while preserving the original call requires storing once
         # the original methods (as class attributes). Sets the side effect of the mocked method
@@ -555,7 +580,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                             '--end', '2016-05-08T9:00:00'])
             assert clirunner.ok(result)
             assert 'restricted_data: %s' % os.path.abspath(tokenfile) in result.output
-            assert 'STEP 6 of 8: Acquiring credentials from token' in result.output
+            assert 'STEP 5 of 8: Acquiring credentials from token' in result.output
             # assert we print that we are downloading open and restricted data:
             assert re.search(r'STEP 7 of 8\: Downloading \d+ segments and saving to db',
                              result.output)
@@ -569,21 +594,229 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                 "http://geofon.gfz-potsdam.de"
             assert mock_get_opener.call_count == 1
             assert mock_get_opener.call_args_list[0][0][:] == (dc_token_ok, 'uzer', 'pazzword')
-            # assert urlopen has been called only once with query. Note that in the second
-            # eownload run, urlopen might have been called ero times, if all retried segments
-            # belong to the datacenter that did not fail requiring auth:
-            # So first, build a dc_id dict which returns the dc id from its domain:
-            dc_df = mock_get_channels_df.call_args_list[0][0][1]
-            dc_id = {}
-            for index, row in dc_df.iterrows():
-                dc_id[Fdsnws(row['dataselect_url']).site] = row['id']
+
+            dc_id = {Fdsnws(i[1]).site: i[0] for i in
+                            db.session.query(DataCenter.id, DataCenter.dataselect_url)}
+            # assert urlopen has been called only once with query and not queryauth:
             # get the segments dataframe we (re)downloaded:
             segments_df_to_download = mock_download_save_segments.call_args_list[-1][0][1]
             dc2download = pd.unique(segments_df_to_download['datacenter_id']).tolist()
             # set the expected call count based on the datacenters of (re)downloaded segments:
-            expected_call_count = 0 if dc_id[dc_token_failed] not in dc2download else \
-                mock_urlopen_call_count + 1
-            assert self.mock_urlopen.call_count == expected_call_count
-            if expected_call_count > 0:
-                assert self.mock_urlopen.call_args_list[-1][0][0].get_full_url() == \
-                    dc_token_failed + "/fdsnws/station/1/query"
+            if dc_id[dc_token_failed] not in dc2download:
+                assert self.mock_urlopen.call_count == 0
+            else:
+                assert self.mock_urlopen.call_count >= 1
+                for i in range(self.mock_urlopen.call_count):
+                    i+=1
+                    assert self.mock_urlopen.call_args_list[-i][0][0].get_full_url() == \
+                        dc_token_failed + "/fdsnws/dataselect/1/query"
+
+    # only last 4 patches are actually needed, the other are there
+    # simply because this module was copied-pasted from other tests. too lazy to check/remove
+    # them, and we might need those patches in the future
+    @patch('stream2segment.download.main.get_events_df')
+    @patch('stream2segment.download.main.get_datacenters_df')
+    @patch('stream2segment.download.main.get_channels_df')
+    @patch('stream2segment.download.main.save_inventories')
+    @patch('stream2segment.download.main.download_save_segments')
+    @patch('stream2segment.download.modules.segments.mseedunpack')
+    @patch('stream2segment.io.db.pdsql.insertdf')
+    @patch('stream2segment.io.db.pdsql.updatedf')
+    @patch('stream2segment.download.main.DcDataselectManager._get_data_open')
+    @patch('stream2segment.download.main.DcDataselectManager._get_data_from_userpass')
+    @patch('stream2segment.download.main.DcDataselectManager._get_data_from_token')
+    # the following mock is important because: 1 the segments return responses can be set
+    # in mock_download_save_segments and work, and 2: avoid performing a real queryauth to the
+    # datacenter(s)
+    @patch('stream2segment.download.modules.segments.get_opener',
+           side_effect=lambda *a, **v: None)
+    def test_retry2(self, mock_get_opener, mock_get_data_from_token,
+                    mock_get_data_from_userpass,
+                    mock_get_data_open, mock_updatedf, mock_insertdf, mock_mseed_unpack,
+                    mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
+                    mock_get_datacenters_df, mock_get_events_df,
+                    # fixtures:
+                    db, clirunner, pytestdir):
+
+        mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v)
+        mock_get_datacenters_df.side_effect = \
+            lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
+        mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
+        mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
+        RESPONSES = [URLError('abc')]
+        mock_download_save_segments.side_effect = \
+            lambda *a, **v: self.download_save_segments(RESPONSES, *a, **v)
+        # mseed unpack is mocked by accepting only first arg (so that time bounds are not
+        # considered)
+        mock_mseed_unpack.side_effect = lambda *a, **v: unpack(a[0])
+        mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
+        mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
+        # prevlen = len(db.session.query(Segment).all())
+
+        # patching class methods while preserving the original call requires storing once
+        # the original methods (as class attributes). Sets the side effect of the mocked method
+        # to those class attributes as to preserve the original functionality
+        # and be able to assert mock_* functions are called and so on
+        # For info see:
+        # https://stackoverflow.com/a/29563665
+        mock_get_data_open.side_effect = self.dc_get_data_open
+        mock_get_data_from_userpass.side_effect = self.dc_get_data_from_userpass
+        mock_get_data_from_token.side_effect = \
+            lambda *a, **kw: self.dc_get_data_from_token(['a:b', 'c:d'], *a, **kw)
+
+        # TEST 1: provide a file with valid token:
+        tokenfile = pytestdir.newfile(create=True)
+        with open(tokenfile, 'w') as fh:
+            fh.write('BEGIN PGP MESSAGE')
+        # mock yaml_load to override restricted_data:
+
+        # USERPASS good for both  datacenter:
+        mock_get_data_open.reset_mock()
+        mock_get_data_from_token.reset_mock()
+        mock_get_data_from_userpass.reset_mock()
+        mock_get_opener.reset_mock()
+        mock_get_data_from_token.side_effect = \
+            lambda *a, **kw: self.dc_get_data_from_token(['uzer:pazzword', 'uzer:pazzword'],
+                                                         *a, **kw)
+        self.config_overrides = {'restricted_data': os.path.abspath(tokenfile)}
+        result = clirunner.invoke(cli, ['download',
+                                        '-c', pytestdir.yamlfile(self.configfile,
+                                                                 retry_client_err=False),
+                                        '--dburl', db.dburl,
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00'])
+        assert clirunner.ok(result)
+        seg_df = dbquery2df(db.session.query(Segment.id, Segment.download_code,
+                                             Segment.queryauth, Segment.download_id))
+        # seg_df:
+        # id  download_code  queryauth  download_id
+        # 1  -1              True       2
+        # 2  -1              True       2
+        # 3  -1              True       2
+        # 4  -1              True       2
+        # 5  -1              True       2
+        # 6  -1              True       2
+        # 7  -1              True       2
+        # 8  -1              True       2
+        # 9  -1              True       2
+        # 10 -1              True       2
+        # 11 -1              True       2
+        # 12 -1              True       2
+        urlerr, mseederr, _1, _2 = custom_download_codes()
+        # according to our mock, we should have all urlerr codes:
+        assert (seg_df[Segment.download_code.key] == urlerr).all()
+        assert (seg_df[Segment.queryauth.key] == True).all()
+        DOWNLOADID = 2
+        assert (seg_df[Segment.download_id.key] == DOWNLOADID).all()
+        # other assertions:
+        assert 'restricted_data: %s' % os.path.abspath(tokenfile) in result.output
+        assert 'STEP 5 of 8: Acquiring credentials from token' in result.output
+        # assert we print that we are downloading open and restricted data:
+        assert re.search(r'STEP 7 of 8\: Downloading \d+ segments and saving to db',
+                         result.output)
+        assert not mock_get_data_open.called
+        assert mock_get_data_from_token.called
+        assert not mock_get_data_from_userpass.called
+        # no credentials failed:
+        assert "Downloading open data only from: " not in result.output
+
+        # Ok, test retry:
+        new_seg_df = seg_df.copy()
+        # first get run id
+        # we have 12 segments, change the download codes.
+        code_queryauth = [(204, False), (204, True), (404, False), (404, True),
+                          (401, False), (401, True), (403, False), (403, True),
+                          (400, True), (400, False), (None, False), (None, True)]
+        for id_, (dc_, qa_) in zip(seg_df[Segment.id.key], code_queryauth):
+            seg = db.session.query(Segment).filter(Segment.id == id_.item()).first()
+            seg.download_code = dc_
+            seg.queryauth = qa_
+            # set expected values (see also self.config_overrides below)
+            # remember that any segment download will give urlerr as code
+            expected_new_download_code = dc_
+            expected_download_id = DOWNLOADID
+            if dc_ in (204, 404, 401, 403) and qa_ is False:
+                # to retry becaue they failed due to authorization problems
+                # (or most likely they did)
+                expected_new_download_code = urlerr
+                expected_download_id = DOWNLOADID + 1
+            elif dc_ is None or (dc_ < 400 and dc_ >= 500):
+                # to retry because of the flags (see self.config_overrides below)
+                expected_new_download_code = urlerr
+                expected_download_id = DOWNLOADID + 1
+            expected_query_auth = qa_ if dc_ == 400 else True
+
+            new_seg_df.loc[new_seg_df[Segment.id.key] == id_, :] = \
+                (id_, expected_new_download_code, expected_query_auth, expected_download_id)
+            db.session.commit()
+
+        # re-download and check what we have retried:
+        self.config_overrides = {'restricted_data': os.path.abspath(tokenfile),
+                                 'retry_client_err': False,
+                                 'retry_seg_not_found': True}
+        result = clirunner.invoke(cli, ['download',
+                                        '-c', pytestdir.yamlfile(self.configfile,
+                                                                 retry_client_err=False),
+                                        '--dburl', db.dburl,
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00'])
+        DOWNLOADID += 1
+        assert clirunner.ok(result)
+        seg_df2 = dbquery2df(db.session.query(Segment.id, Segment.download_code, Segment.queryauth,
+                                              Segment.download_id))
+        # seg_df2:
+        # id  download_code  queryauth  download_id
+        # 1  -1              True       3
+        # 2   204            True       2
+        # 3  -1              True       3
+        # 4   404            True       2
+        # 5  -1              True       3
+        # 6   401            True       2
+        # 7  -1              True       3
+        # 8   403            True       2
+        # 9   400            True       2
+        # 10  400            False      2
+        # 11 -1              True       3
+        # 12 -1              True       3
+        pd.testing.assert_frame_equal(seg_df2, new_seg_df)
+
+        # Another retry without modifyiung the segments but setting retry_client_err to True
+        # re-download and check what we have retried:
+        self.config_overrides = {'restricted_data': os.path.abspath(tokenfile),
+                                 'retry_client_err': True,
+                                 'retry_seg_not_found': True}
+        result = clirunner.invoke(cli, ['download',
+                                        '-c', pytestdir.yamlfile(self.configfile,
+                                                                 retry_client_err=False),
+                                        '--dburl', db.dburl,
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00'])
+        DOWNLOADID += 1
+        assert clirunner.ok(result)
+        seg_df3 = dbquery2df(db.session.query(Segment.id, Segment.download_code, Segment.queryauth,
+                                              Segment.download_id))
+        expected_df = seg_df2.copy()
+        # modify all 4xx codes as they are updated. Note that old urlerr codes have the old
+        # download id (do not override)
+        old_4xx = expected_df[Segment.download_code.key].between(400, 499.999)
+        expected_df.loc[old_4xx, Segment.download_id.key] = DOWNLOADID
+        expected_df.loc[old_4xx, Segment.queryauth.key] = True
+        expected_df.loc[old_4xx, Segment.download_code.key] = urlerr
+        # seg_df3:
+        # id  download_code  queryauth  download_id
+        # 1  -1              True       3
+        # 2   204            True       2
+        # 3  -1              True       3
+        # 4  -1              True       4
+        # 5  -1              True       3
+        # 6  -1              True       4
+        # 7  -1              True       3
+        # 8  -1              True       4
+        # 9  -1              True       4
+        # 10 -1              True       4
+        # 11 -1              True       3
+        # 12 -1              True       3
+        pd.testing.assert_frame_equal(seg_df3, expected_df)
+        old_urlerr_segids = seg_df2[seg_df2[Segment.download_code.key] == urlerr][Segment.id.key]
+        new_urlerr_df = expected_df[expected_df[Segment.id.key].isin(old_urlerr_segids)]
+        assert (new_urlerr_df[Segment.download_id.key] == 3).all()
