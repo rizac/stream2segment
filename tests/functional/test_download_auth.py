@@ -8,7 +8,6 @@ from __future__ import print_function
 from builtins import str, map
 import os
 import random
-import yaml
 import stream2segment
 import re
 from itertools import cycle, repeat, count, product
@@ -30,7 +29,7 @@ except ImportError:
 from mock import patch
 from mock import Mock
 
-
+import yaml
 import numpy as np
 import pandas as pd
 import pytest
@@ -49,7 +48,7 @@ from stream2segment.io.db.models import Base, Event, Class, WebService, Fdsnws,\
     DataCenter, Segment, Download, Station, Channel, WebService, withdata
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf,  \
     _get_max as _get_db_autoinc_col_max
-from stream2segment.download.utils import custom_download_codes
+from stream2segment.download.utils import s2scodes
 from stream2segment.download.modules.mseedlite import MSeedError, unpack
 from stream2segment.utils.url import read_async, URLError, HTTPError, get_opener, responses
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
@@ -72,9 +71,9 @@ class Test(object):
         self.handler = StreamHandler(stream=self.logout)
         # THIS IS A HACK:
         # s2s_download_logger.setLevel(logging.INFO)  # necessary to forward to handlers
-        # if we called closing (we are testing the whole chain) the level will be reset (to level.INFO)
-        # otherwise it stays what we set two lines above. Problems might arise if closing
-        # sets a different level, but for the moment who cares
+        # if we called closing (we are testing the whole chain) the level will be reset
+        # (to level.INFO) otherwise it stays what we set two lines above. Problems might arise
+        # if closing sets a different level, but for the moment who cares
         # s2s_download_logger.addHandler(self.handler)
 
         # setup a run_id:
@@ -596,7 +595,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             assert mock_get_opener.call_args_list[0][0][:] == (dc_token_ok, 'uzer', 'pazzword')
 
             dc_id = {Fdsnws(i[1]).site: i[0] for i in
-                            db.session.query(DataCenter.id, DataCenter.dataselect_url)}
+                     db.session.query(DataCenter.id, DataCenter.dataselect_url)}
             # assert urlopen has been called only once with query and not queryauth:
             # get the segments dataframe we (re)downloaded:
             segments_df_to_download = mock_download_save_segments.call_args_list[-1][0][1]
@@ -640,7 +639,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v)
         mock_get_datacenters_df.side_effect = \
-            lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
+            lambda *a, **v: self.get_datacenters_df(None, *a, **v)
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
         RESPONSES = [URLError('abc')]
@@ -702,7 +701,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # 10 -1              True       2
         # 11 -1              True       2
         # 12 -1              True       2
-        urlerr, mseederr, _1, _2 = custom_download_codes()
+        urlerr, mseederr = s2scodes.url_err, s2scodes.mseed_err
         # according to our mock, we should have all urlerr codes:
         assert (seg_df[Segment.download_code.key] == urlerr).all()
         assert (seg_df[Segment.queryauth.key] == True).all()

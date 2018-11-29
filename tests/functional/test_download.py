@@ -47,7 +47,7 @@ from stream2segment.io.db.models import DataCenter, Segment, Download, Station, 
     WebService, withdata, Base, Event, Class, WebService
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf,\
     _get_max as _get_db_autoinc_col_max
-from stream2segment.download.utils import custom_download_codes
+from stream2segment.download.utils import s2scodes
 from stream2segment.download.modules.mseedlite import MSeedError, unpack
 from stream2segment.utils.url import read_async, URLError, HTTPError, responses
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
@@ -405,8 +405,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         dfres1.loc[(~pd.isnull(dfres1[Segment.data.key])) & (dfres1[Segment.data.key].str.len()>0),
                   Segment.data.key] = b'data'
         # assert the segments we should have data for are actually out-of-time-bounds
-        _, _, TBOUND_ERRCODE, TBOUND_WARNCODE = custom_download_codes()
-        assert len(dfres1[dfres1[Segment.download_code.key] == TBOUND_ERRCODE]) == 4
+        assert len(dfres1[dfres1[Segment.download_code.key] == s2scodes.timespan_err]) == 4
 
 
     @pytest.mark.skip(reason=("no way of currently testing what we want to test, "
@@ -552,15 +551,13 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert mock_updatedf.called
         assert not mock_insertdf.called
 
-        URLERROR, MSEEDERROR, OUTTIME_ERR, OUTTIME_WARN = custom_download_codes()
-
         assert len(dfres2) == len(dfres1)
         assert len(db.session.query(Download.id).all()) == runs + 1
         runs += 1
         # asssert we changed the download status code for segments which should be retried
         # WARNING: THIS TEST COULD FAIL IF WE CHANGE THE DEFAULTS. CHANGE `mask` here below IN CASE
         mask = dfres1[Segment.download_code.key].between(500, 599.999, inclusive=True) | \
-            (dfres1[Segment.download_code.key] == URLERROR) | \
+            (dfres1[Segment.download_code.key] == s2scodes.url_err) | \
             pd.isnull(dfres1[Segment.download_code.key])
         retried = dfres2.loc[mask, :]
         assert (retried[Segment.download_code.key] == 413).all()
@@ -654,8 +651,9 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         stainvs = db.session.query(Station).filter(Station.has_inventory).all()
         assert len(stainvs) == 0
         # calculate the expected stations:
-        expected_invs_to_download_ids = [x[0] for x in db.session.query(Station.id).filter((~Station.has_inventory) &
-                   (Station.segments.any(Segment.has_data))).all()]
+        expected_invs_to_download_ids = \
+            [x[0] for x in db.session.query(Station.id).filter((~Station.has_inventory) &
+             (Station.segments.any(Segment.has_data))).all()]   # @UndefinedVariable
         # test that we have data, but also errors
         num_expected_inventories_to_download = len(expected_invs_to_download_ids)
         assert num_expected_inventories_to_download == 2  # just in order to set the value below

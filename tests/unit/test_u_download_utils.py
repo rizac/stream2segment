@@ -24,7 +24,7 @@ from stream2segment.io.db.models import DataCenter
 from stream2segment.download.modules.stationsearch import locations2degrees as s2sloc2deg,\
     get_search_radius
 from stream2segment.download.modules.datacenters import EidaValidator
-from stream2segment.download.utils import custom_download_codes, DownloadStats, to_fdsn_arg,\
+from stream2segment.download.utils import s2scodes, DownloadStats, to_fdsn_arg,\
     intkeysdict
 
 @pytest.mark.parametrize('lat1, lon1, lat2, lon2',
@@ -90,7 +90,8 @@ def test_stats_table():
 
     assert all(_ in ikd for _ in ['a', 'b', 1, 2])
 
-    urlerr, mseederr, tbound_err, tbound_warn = custom_download_codes()
+    urlerr, mseederr, tbound_err, tbound_warn = \
+        s2scodes.url_err, s2scodes.mseed_err, s2scodes.timespan_err, s2scodes.timespan_warn
     seg_not_found = None
 
     d = DownloadStats()

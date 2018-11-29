@@ -404,21 +404,9 @@ class s2scodes(object):  # pylint: disable=too-few-public-methods, invalid-name
     mseed_err = -2
     timespan_err = -204
     timespan_warn = -200
-
-
-def custom_download_codes():
-    """returns the tuple (url_err, mseed_err, timespan_err, timespan_warn), i.e. the tuple
-    (-1, -2, -204, -200) where each number represents a custom download code
-    not included in the standard HTTP status codes:
-    * -1 denotes general url exceptions (e.g. no internet conenction)
-    * -2 denotes mseed data errors while reading downloaded data, and
-    * -204 denotes a timespan error: all response is out of time with respect to the
-      reqeuest's time-span
-    * -200 denotes a timespan warning: some response data was out of time with respect to
-      the request's time-span (only the data intersecting with the time span has been
-      saved)
-    """
-    return (-1, -2, -204, -200)
+    seg_not_found = None
+    # codes and codes which might be returned in case of restricted data access:
+    restricted_data = (204, 401, 403, 404)
 
 
 def to_fdsn_arg(iterable):
@@ -456,7 +444,7 @@ def get_s2s_responses():
     <any int>      User-defined        User-defined or float(code)
     =============  =================== ===================================
 
-    See also `custom_download_codes()` and `DownloadStats.sortcodes`
+    See also `s2scodes` and `DownloadStats.sortcodes`
     '''
     resp = {}
     for code, title in viewitems(responses):
@@ -488,18 +476,18 @@ def get_s2s_responses():
         if leg is not None:
             resp[code] = title, leg, float(sortpos)
     # custom codes:
-    customcodes = custom_download_codes()
-    URLERR, MSEEDERR, OUTTIMEERR, OUTTIMEWARN = customcodes
-    resp[OUTTIMEWARN] = ('OK Partially Saved', 'Data saved (download ok, '
-                         'some received data chunks were completely outside '
-                         'the requested time span and discarded)', 0.5)
-    resp[OUTTIMEERR] = ('Time Span Error', 'No data saved (download ok, data completely '
-                        'outside requested time span)', 99.1)
-    resp[MSEEDERR] = ('MSeed Error', 'No data saved (download ok, malformed MiniSeed data)', 99.2)
-    resp[URLERR] = ('Url Error', 'No data saved (download failed, generic url error: '
-                    'timeout, no internet connection, ...)', 99.3)
-    resp[None] = ('Segment Not Found', 'No data saved (download ok, segment data '
-                  'not found, e.g., after a multi-segment request)', 99.4)
+    codes = s2scodes
+    resp[codes.timespan_warn] = ('OK Partially Saved', 'Data saved (download ok, '
+                                 'some received data chunks were completely outside '
+                                 'the requested time span and discarded)', 0.5)
+    resp[codes.timespan_err] = ('Time Span Error', 'No data saved (download ok, data completely '
+                                'outside requested time span)', 99.1)
+    resp[codes.mseed_err] = ('MSeed Error', 'No data saved (download ok, '
+                             'malformed MiniSeed data)', 99.2)
+    resp[codes.url_err] = ('Url Error', 'No data saved (download failed, generic url error: '
+                           'timeout, no internet connection, ...)', 99.3)
+    resp[codes.seg_not_found] = ('Segment Not Found', 'No data saved (download ok, segment data '
+                                 'not found, e.g., after a multi-segment request)', 99.4)
 
     return resp
 

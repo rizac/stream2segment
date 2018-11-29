@@ -19,7 +19,7 @@ import pandas as pd
 
 from stream2segment.io.db.models import DataCenter, Station, Channel, Segment, Fdsnws
 from stream2segment.download.utils import read_async, NothingToDownload,\
-    handledbexc, custom_download_codes, logwarn_dataframe, DownloadStats, formatmsg
+    handledbexc, logwarn_dataframe, DownloadStats, formatmsg, s2scodes
 from stream2segment.download.modules.mseedlite import MSeedError, unpack as mseedunpack
 from stream2segment.utils import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, mergeupdate, DbManager
@@ -57,16 +57,14 @@ def prepare_for_download(session, segments_df, dc_dataselect_manager, timespan,
     SEG_DSC = Segment.download_code.key  # pylint: disable=invalid-name
     SEG_RETRY = "__do.download__"  # pylint: disable=invalid-name
 
-    URLERR_CODE, MSEEDERR_CODE, OUTTIME_ERR_CODE, OUTTIME_WARN_CODE = custom_download_codes()
-
     opendataonly = dc_dataselect_manager.opendataonly
-
+    codes = s2scodes
     # set the list of columns to query. Add a boolean last column representing when retry has to
     # be forced (no queryauth and code indicating - or suggesting - unauthorized access):
     columns2query = [Segment.id, Segment.channel_id, Segment.request_start, Segment.request_end,
                      Segment.download_code, Segment.event_id] + \
                      ([] if opendataonly else [(Segment.download_code.isnot(None) &
-                                                Segment.download_code.in_([204, 404, 401, 403]) &
+                                                Segment.download_code.in_(codes.restricted_data) &
                                                 Segment.queryauth.isnot(True)).label(SEG_RETRY)])
     # Note above: we need isnot(None) because in_([204, ...]) might return Nones for segment
     # with NULL download status code
@@ -86,17 +84,17 @@ def prepare_for_download(session, segments_df, dc_dataselect_manager, timespan,
     if retry_seg_not_found:
         mask |= pd.isnull(db_seg_df[SEG_DSC])
     if retry_url_err:
-        mask |= db_seg_df[SEG_DSC] == URLERR_CODE
+        mask |= db_seg_df[SEG_DSC] == codes.url_err
     if retry_mseed_err:
-        mask |= db_seg_df[SEG_DSC] == MSEEDERR_CODE
+        mask |= db_seg_df[SEG_DSC] == codes.mseed_err
     if retry_client_err:
         mask |= db_seg_df[SEG_DSC].between(400, 499.9999, inclusive=True)
     if retry_server_err:
         mask |= db_seg_df[SEG_DSC].between(500, 599.9999, inclusive=True)
     if retry_timespan_err:
-        mask |= db_seg_df[SEG_DSC] == OUTTIME_ERR_CODE
+        mask |= db_seg_df[SEG_DSC] == codes.timespan_err
     if retry_timespan_warn:
-        mask |= db_seg_df[SEG_DSC] == OUTTIME_WARN_CODE
+        mask |= db_seg_df[SEG_DSC] == codes.timespan_warn
 
     force_retry_ids = None
     if opendataonly:
@@ -243,8 +241,7 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
     # (this is why we used OrderedDict above)
     SEG_COLNAMES = list(segvals.keys())  # pylint: disable=invalid-name
     # define default error codes:
-    URLERR_CODE, MSEEDERR_CODE, OUTTIME_ERR_CODE, OUTTIME_WARN_CODE = custom_download_codes()
-    SEG_NOT_FOUND = None
+    codes = s2scodes
 
     stats = DownloadStats()
     colnames2update = [SEG_DOWNLID, SEG_DATA, SEG_SRATE, SEG_MGAP, SEG_DATAID, SEG_DSCODE,
@@ -320,7 +317,7 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                 groupkeys_tuple, dframe = seg_group
                 dc_id = groupkeys_tuple[0]
                 url = get_host(request)
-                data, code, msg = result if not exc else (None, URLERR_CODE, None)
+                data, code, msg = result if not exc else (None, codes.url_err, None)
                 if code == 413 and not islast and len(dframe) > 1:
                     skipped_dataframes.append(dframe)
                     continue
@@ -373,21 +370,20 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                             oks, errors, outtime_warns, outtime_errs, unknowns = \
                                 _process_downloaded_data(dframe, code, resdict, chaid2mseedid,
                                                          SEG_DATA, SEG_CHAID, SEG_DSCODE,
-                                                         SEG_COLNAMES, MSEEDERR_CODE,
-                                                         OUTTIME_WARN_CODE, OUTTIME_ERR_CODE)
+                                                         SEG_COLNAMES, codes)
 
                             if oks:
                                 stats[url][code] += oks
                             if errors:
-                                stats[url][MSEEDERR_CODE] += errors
+                                stats[url][codes.mseed_err] += errors
                             if outtime_errs:
-                                stats[url][OUTTIME_ERR_CODE] += outtime_errs
+                                stats[url][codes.timespan_err] += outtime_errs
                             if outtime_warns:
-                                stats[url][OUTTIME_WARN_CODE] += outtime_warns
+                                stats[url][codes.timespan_warn] += outtime_warns
                             if unknowns:
-                                stats[url][SEG_NOT_FOUND] += unknowns
+                                stats[url][codes.seg_not_found] += unknowns
                         except MSeedError as mseedexc:
-                            code = MSEEDERR_CODE
+                            code = codes.mseed_err
                             exc = mseedexc
 
                 if exc is not None:
@@ -445,7 +441,7 @@ def _process_downloaded_data(dframe, code, resdict, chaid2mseedid, *args):
     outtime_warns = 0
     outtime_errs = 0
     (SEG_DATA, SEG_CHAID, SEG_DSCODE, SEG_COLNAMES,  # pylint: disable=invalid-name
-     MSEEDERR_CODE, OUTTIME_WARN_CODE, OUTTIME_ERR_CODE) = args  # pylint: disable=invalid-name
+     codes) = args  # pylint: disable=invalid-name
     # iterate over dframe rows and assign the relative data
     # Note that we could use iloc which is SLIGHTLY faster than
     # loc for setting the data, but this would mean using column
@@ -462,17 +458,16 @@ def _process_downloaded_data(dframe, code, resdict, chaid2mseedid, *args):
         err, data, s_rate, max_gap_ratio, stime, etime, outoftime = res
         if err is not None:
             # set only the code field.
-            # Use set_value as it's faster for single elements
-            dframe.set_value(idxval, SEG_DSCODE, MSEEDERR_CODE)
+            dframe.at[idxval, SEG_DSCODE] = codes.mseed_err
             errors += 1
         else:
             _code = code
             if outoftime is True:
                 if data:
-                    _code = OUTTIME_WARN_CODE
+                    _code = codes.timespan_warn
                     outtime_warns += 1
                 else:
-                    _code = OUTTIME_ERR_CODE
+                    _code = codes.timespan_err
                     outtime_errs += 1
             else:
                 oks += 1

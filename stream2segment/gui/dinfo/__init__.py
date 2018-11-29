@@ -21,7 +21,7 @@ from stream2segment.utils.url import urlparse
 from stream2segment.utils import get_session, get_progressbar, StringIO, ascii_decorate
 from stream2segment.io.db.models import Segment, concat, Station, DataCenter, Download, substr, \
     Fdsnws
-from stream2segment.download.utils import custom_download_codes, DownloadStats
+from stream2segment.download.utils import DownloadStats
 
 
 def filterquery(query, download_ids=None):

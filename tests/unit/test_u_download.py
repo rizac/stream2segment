@@ -46,7 +46,7 @@ from stream2segment.download.modules.segments import prepare_for_download, \
     download_save_segments, DcDataselectManager
 from stream2segment.download.utils import NothingToDownload, FailedDownload, Authorizer
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf
-from stream2segment.download.utils import custom_download_codes
+from stream2segment.download.utils import s2scodes
 from stream2segment.download.modules.mseedlite import MSeedError, unpack
 from stream2segment.utils.url import read_async, URLError, HTTPError, responses
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_ttable_fpath
@@ -1332,7 +1332,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
         # mock an already downloaded segment.
         # Set the first 7 to have a particular download status code
-        urlerr, mseederr, outtime_err, outtime_warn = custom_download_codes()
+        urlerr, mseederr, outtime_err, outtime_warn = \
+            s2scodes.url_err, s2scodes.mseed_err, s2scodes.timespan_err, s2scodes.timespan_warn
         downloadstatuscodes = [None, urlerr, mseederr, 413, 505, outtime_err, outtime_warn]
         for i, download_code in enumerate(downloadstatuscodes):
             dic = segments_df.iloc[i].to_dict()
@@ -1784,7 +1785,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert pd.isnull(db_segments_df.iloc[6:][COL]).all()
 
         # assert downdload status code is consistent
-        URLERR_CODE, MSEEDERR_CODE, OUTTIME_ERR, OUTTIME_WARN = custom_download_codes()
+        URLERR_CODE, MSEEDERR_CODE = s2scodes.url_err, s2scodes.mseed_err
 
         # also this asserts that we grouped for dc starttime endtime
         COL = Segment.download_code.key
@@ -2038,7 +2039,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         db_segments_df = dbquery2df(db.session.query(*cols))
         assert Segment.download_id.key in db_segments_df.columns
 
-        URLERR_CODE, MSEEDERR_CODE, OUTTIME_ERR, OUTTIME_WARN = custom_download_codes()
+        OUTTIME_ERR, OUTTIME_WARN = s2scodes.timespan_err, s2scodes.timespan_warn
         # assert no segment has data (time out of bounds):
         assert len(db_segments_df.loc[(~pd.isnull(db_segments_df[Segment.data.key])) &
                                       (db_segments_df[Segment.data.key].str.len() > 0),

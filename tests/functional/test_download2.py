@@ -43,7 +43,7 @@ from stream2segment.io.db.models import Base, Event, Class, WebService, \
     DataCenter, Segment, Download, Station, Channel, WebService, withdata
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf,  \
     _get_max as _get_db_autoinc_col_max
-from stream2segment.download.utils import custom_download_codes
+from stream2segment.download.utils import s2scodes
 from stream2segment.download.modules.mseedlite import MSeedError, unpack
 from stream2segment.utils.url import read_async, URLError, HTTPError, responses
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
@@ -61,17 +61,18 @@ class Test(object):
     def init(self, request, db, data, pytestdir):
         # re-init a sqlite database (no-op if the db is not sqlite):
         db.create(to_file=False)
-        
-        
+
+
         self.logout = StringIO()
         self.handler = StreamHandler(stream=self.logout)
         # THIS IS A HACK:
         # s2s_download_logger.setLevel(logging.INFO)  # necessary to forward to handlers
-        # if we called closing (we are testing the whole chain) the level will be reset (to level.INFO)
+        # if we called closing (we are testing the whole chain) the level will be reset
+        # (to level.INFO)
         # otherwise it stays what we set two lines above. Problems might arise if closing
         # sets a different level, but for the moment who cares
         # s2s_download_logger.addHandler(self.handler)
-        
+
         # setup a run_id:
         r = Download()
         db.session.add(r)
@@ -81,7 +82,7 @@ class Test(object):
         # side effects:
         # THESE ARE COPIED VIA DEBUGGING FROM A CASE WHERE 
         # WE HAD TIME BOUNDS ERRORS
-        
+
         self._evt_urlread_sideeffect =  """#EventID | Time | Latitude | Longitude | Depth/km | Author | Catalog | Contributor | ContributorID |  MagType | Magnitude | MagAuthor | EventLocationName
 20160605_0000085|2016-06-05T21:06:04.7Z|45.51|25.91|49.0|BUC|EMSC-RTS|BUC|510656|ml|3.9|BUC|ROMANIA
 """
@@ -200,7 +201,7 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
         # the segments downloads returns ALWAYS the same miniseed, which is the BS network
         # in a specified
         self._seg_data = data.read("BS.*.*.*.2016-06-05.21:05-09.47.mseed")
-            
+
         self._seg_urlread_sideeffect = [self._seg_data]
 
         self._inv_data = data.read("inventory_GE.APE.xml")
@@ -208,10 +209,10 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
         #add cleanup (in case tearDown is not called due to exceptions):
         # self.addCleanup(Test.cleanup, self)
                         #self.patcher3)
-        
+
         self.configfile = get_templates_fpath("download.yaml")
         # self._logout_cache = ""
-        
+
                 # class-level patchers:
         with patch('stream2segment.utils.url.urlopen') as mock_urlopen:
             self.mock_urlopen = mock_urlopen
@@ -233,26 +234,27 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
                         # mock ThreadPool (tp) to run one instance at a time, so we
                         # get deterministic results:
                         class MockThreadPool(object):
-                            
+
                             def __init__(self, *a, **kw):
                                 pass
-                                
+
                             def imap(self, func, iterable, *args):
                                 # make imap deterministic: same as standard python map:
                                 # everything is executed in a single thread the right input order
                                 return map(func, iterable)
-                            
+
                             def imap_unordered(self, func, iterable, *args):
                                 # make imap_unordered deterministic: same as standard python map:
-                                # everything is executed in a single thread in the right input order
+                                # everything is executed in a single thread in the right input
+                                # order
                                 return map(func, iterable)
-                            
+
                             def close(self, *a, **kw):
                                 pass
                         # assign patches and mocks:
                         with patch('stream2segment.utils.url.ThreadPool',
                                    side_effect=MockThreadPool) as mock_thread_pool:
-                            
+
                             def c4d(logger, logfilebasepath, verbose):
                                 # config logger as usual, but redirects to a temp file
                                 # that will be deleted by pytest, instead of polluting the program
@@ -266,7 +268,7 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
                                 self.mock_config4download = mock_config4download
 
                                 yield
-    
+
     def log_msg(self):
         return self.logout.getvalue()
 #         idx = len(self._logout_cache)
@@ -291,7 +293,7 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
         if not hasattr(urlread_side_effect, "__iter__") or isinstance(urlread_side_effect, (bytes, str)):
             # it's not an iterable (wheere str/bytes/unicode are considered NOT iterable in both py2 and 3)
             urlread_side_effect = [urlread_side_effect]
-            
+
         for k in urlread_side_effect:
             a = Mock()
             if type(k) == int:
@@ -321,19 +323,19 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
 #         
         self.mock_urlopen.side_effect = cycle(retvals)
 #        self.mock_urlopen.side_effect = Cycler(urlread_side_effect)
-        
 
-    
+
+
     def get_events_df(self, url_read_side_effect, *a, **v):
         self.setup_urlopen(self._evt_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
         return get_events_df(*a, **v)
-        
+
 
 
     def get_datacenters_df(self, url_read_side_effect, *a, **v):
         self.setup_urlopen(self._dc_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
         return get_datacenters_df(*a, **v)
-    
+
 
     def get_channels_df(self, url_read_side_effect, *a, **kw):
         self.setup_urlopen(self._sta_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
@@ -344,7 +346,7 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
     def download_save_segments(self, url_read_side_effect, *a, **kw):
         self.setup_urlopen(self._seg_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
         return download_save_segments(*a, **kw)
-    
+
     def save_inventories(self, url_read_side_effect, *a, **v):
         self.setup_urlopen(self._inv_data if url_read_side_effect is None else url_read_side_effect)
         return save_inventories(*a, **v)
@@ -359,52 +361,57 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
     @patch('stream2segment.io.db.pdsql.insertdf')
     @patch('stream2segment.io.db.pdsql.updatedf')
     def test_cmdline_outofbounds(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
-                                 mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
-                                 mock_get_datacenters_df, mock_get_events_df,
+                                 mock_download_save_segments, mock_save_inventories,
+                                 mock_get_channels_df, mock_get_datacenters_df, mock_get_events_df,
                                  # fixtures:
                                  db, clirunner):
-        
-        mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
-        mock_get_datacenters_df.side_effect = lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
+
+        mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v)
+        mock_get_datacenters_df.side_effect = \
+            lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
-        mock_download_save_segments.side_effect = lambda *a, **v: self.download_save_segments(None, *a, **v)
+        mock_download_save_segments.side_effect = \
+            lambda *a, **v: self.download_save_segments(None, *a, **v)
         mock_mseed_unpack.side_effect = lambda *a, **v: unpack(*a, **v)
         mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
         # prevlen = len(db.session.query(Segment).all())
-     
+
         # The run table is populated with a run_id in the constructor of this class
         # for checking run_ids, store here the number of runs we have in the table:
         runs = len(db.session.query(Download.id).all())
 
-        result = clirunner.invoke(cli , ['download',
-                                         '-c', self.configfile,
-                                         '--dburl', db.dburl,
-                                         '--start', '2016-05-08T00:00:00',
-                                         '--end', '2016-05-08T9:00:00'])
+        result = clirunner.invoke(cli, ['download',
+                                        '-c', self.configfile,
+                                        '--dburl', db.dburl,
+                                        '--start', '2016-05-08T00:00:00',
+                                        '--end', '2016-05-08T9:00:00'])
         assert clirunner.ok(result)
-        
+
         assert len(db.session.query(Download.id).all()) == runs + 1
         runs += 1
-        
-        url_err, mseed_err, timespan_err, timespan_warn = custom_download_codes()
-        
+
+        timespan_err, timespan_warn = s2scodes.timespan_err, s2scodes.timespan_warn
+
         # assert when we have a timespan error we do not have data:
-        assert db.session.query(Segment).filter(Segment.has_data & (Segment.download_code==timespan_err)).count() == 0 
-        
+        assert db.session.query(Segment).filter(Segment.has_data &
+                                                (Segment.download_code==timespan_err)).count() == 0
+
         # assert when we have a timespan warn or 200 response we have data:
         seg_with_data = db.session.query(Segment).filter(Segment.has_data).count()
-        assert db.session.query(Segment).filter(Segment.has_data &
-                                                  ((Segment.download_code==200) |
-                                                   (Segment.download_code==timespan_warn))).count() == seg_with_data 
-        
-        # pickup some examples and test them (the examples where found by debugging download_segments):
+        assert db.session.query(Segment).\
+            filter(Segment.has_data &
+                   ((Segment.download_code==200) |
+                    (Segment.download_code==timespan_warn))).count() == seg_with_data
+
+        # pickup some examples and test them (the examples where found by debugging
+        # download_segments):
         data = {timespan_warn: ['BS.BLKB..HHE', 'BS.BLKB..HHN', 'BS.BLKB..HHZ', 'BS.BLKB..HNZ', 'BS.DOBAM..HNE',
                                 'BS.DOBAM..HNN', 'BS.DOBAM..HNZ'],
                 timespan_err: ['BS.KALB..HHE', 'BS.KALB..HHN', 'BS.KALB..HHZ'],
                 200: ['BS.BLKB..HNE', 'BS.BLKB..HNN']}
-    
+
         for downloadcode, mseedids in data.items():
             for mseedid in mseedids:
                 seg = db.session.query(Segment).filter(Segment.seed_id == mseedid).first()

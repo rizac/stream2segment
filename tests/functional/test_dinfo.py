@@ -21,7 +21,7 @@ from click.testing import CliRunner
 from stream2segment.cli import cli
 from stream2segment.io.db.models import Base, Event, Station, WebService, Segment,\
     Channel, Download, DataCenter
-from stream2segment.download.utils import custom_download_codes
+from stream2segment.download.utils import s2scodes
 from future.utils import PY2
 
 
@@ -73,22 +73,21 @@ class Test(object):
         db.session.add_all([s_d1, s_d2, s2_d2])
         db.session.commit()
 
-        url_err, mseed_err, timespan_err, timespan_warn = custom_download_codes()
         # we are about to add 3 stations * 4 channels = 12 channels
         # we add also 1 segment pre channel
         # the segments data is as follows (data, download_code, maxgap)
-        seg_data = ([None, url_err, None],
-                    [None, mseed_err, None],
+        seg_data = ([None, s2scodes.url_err, None],
+                    [None, s2scodes.mseed_err, None],
                     [None, None, None],
-                    [None, timespan_err, None],
+                    [None, s2scodes.timespan_err, None],
                     # station s_d2:
                     [b'x', 200, 0.2],
-                    [b'x', timespan_warn, 3.9],
+                    [b'x', s2scodes.timespan_warn, 3.9],
                     [b'x', 200, 0.6],
                     [b'x', 200, 0.3],
                     # station s_d3:
                     [b'x', 200, 0.1],
-                    [b'x', timespan_warn, 3.9],
+                    [b'x', s2scodes.timespan_warn, 3.9],
                     [b'x', 400, None],
                     [b'x', 500, None],
                     )
