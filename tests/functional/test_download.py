@@ -71,9 +71,9 @@ class Test(object):
         self.handler = StreamHandler(stream=self.logout)
         # THIS IS A HACK:
         # s2s_download_logger.setLevel(logging.INFO)  # necessary to forward to handlers
-        # if we called closing (we are testing the whole chain) the level will be reset (to level.INFO)
-        # otherwise it stays what we set two lines above. Problems might arise if closing
-        # sets a different level, but for the moment who cares
+        # if we called closing (we are testing the whole chain) the level will be reset
+        # (to level.INFO) otherwise it stays what we set two lines above. Problems might arise
+        # if closing sets a different level, but for the moment who cares
         # s2s_download_logger.addHandler(self.handler)
 
         # setup a run_id:

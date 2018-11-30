@@ -1284,8 +1284,10 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert Segment.id.key not in segments_df.columns
         assert Segment.download_id.key not in segments_df.columns
         orig_seg_df = segments_df.copy()
+        # define a dc_dataselect_manager for open data only:
+        dc_dataselect_manager = DcDataselectManager(datacenters_df, Authorizer(None), False)
         segments_df, request_timebounds_need_update = \
-            prepare_for_download(db.session, orig_seg_df, wtimespan,
+            prepare_for_download(db.session, orig_seg_df, dc_dataselect_manager, wtimespan,
                                  retry_seg_not_found=True,
                                  retry_url_err=True,
                                  retry_mseed_err=True,
@@ -1372,7 +1374,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         for c in product([True, False], [True, False], [True, False], [True, False], [True, False],
                          [True, False], [True, False]):
             s_df, request_timebounds_need_update = \
-                prepare_for_download(db.session, orig_seg_df, wtimespan,
+                prepare_for_download(db.session, orig_seg_df, dc_dataselect_manager, wtimespan,
                                      retry_seg_not_found=c[0],
                                      retry_url_err=c[1],
                                      retry_mseed_err=c[2],
@@ -1391,7 +1393,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         for c in product([True, False], [True, False], [True, False], [True, False],
                          [True, False], [True, False], [True, False]):
             s_df, request_timebounds_need_update = \
-                prepare_for_download(db.session, orig_seg_df, wtimespan,
+                prepare_for_download(db.session, orig_seg_df, dc_dataselect_manager, wtimespan,
                                      retry_seg_not_found=c[0],
                                      retry_url_err=c[1],
                                      retry_mseed_err=c[2],
@@ -1446,7 +1448,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         wtimespan[1] -= 5
         with pytest.raises(NothingToDownload):
             segments_df, request_timebounds_need_update = \
-                prepare_for_download(db.session, orig_seg_df, wtimespan,
+                prepare_for_download(db.session, orig_seg_df, dc_dataselect_manager, wtimespan,
                                      retry_seg_not_found=False,
                                      retry_url_err=False,
                                      retry_mseed_err=False,
@@ -1526,10 +1528,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 # 22  11          4           2              n2      s                c2      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT
 # 23  12          4           2              n2      s                c3      0.0                 2         2.0      2016-05-08 01:45:30.300 NaT
 
-        # make a copy of evts_stations_df cause we will modify in place the data frame
-#         segments_df =  self.get_arrivaltimes(urlread_sideeffect, evts_stations_df.copy(),
-#                                                    [1,2], ['P', 'Q'],
-#                                                         'ak135', mp_max_workers=1)
+        # define a dc_dataselect_manager for open data only:
+        dc_dataselect_manager = DcDataselectManager(datacenters_df, Authorizer(None), False)
 
         expected = len(segments_df)  # no segment on db, we should have all segments to download
         wtimespan = [1,2]
@@ -1537,7 +1537,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert Segment.download_id.key not in segments_df.columns
         orig_seg_df = segments_df.copy()
         segments_df, request_timebounds_need_update = \
-            prepare_for_download(db.session, orig_seg_df, wtimespan,
+            prepare_for_download(db.session, orig_seg_df, dc_dataselect_manager, wtimespan,
                                  retry_seg_not_found=True,
                                  retry_url_err=True,
                                  retry_mseed_err=True,
@@ -1647,11 +1647,14 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 # n, s, l, c = network, station, location, channel
 # ed = event_distance_deg
 
+        # define a dc_dataselect_manager for open data only:
+        dc_dataselect_manager = DcDataselectManager(datacenters_df, Authorizer(None), False)
+
         wtimespan = [1,2]
         expected = len(segments_df)  # no segment on db, we should have all segments to download
         orig_segments_df = segments_df.copy()
         segments_df, request_timebounds_need_update = \
-            prepare_for_download(db.session, orig_segments_df, wtimespan,
+            prepare_for_download(db.session, orig_segments_df, dc_dataselect_manager, wtimespan,
                                  retry_seg_not_found=True,
                                  retry_url_err=True,
                                  retry_mseed_err=True,
@@ -1701,8 +1704,6 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         urlread_sideeffect = [self._seg_data, 413, self._seg_data[:2], 413,
                               '', self._seg_data_gaps, self._seg_data_gaps,
                               URLError("++urlerror++"), 500, 413]
-        # define a dc_dataselect_manager for open data only:
-        dc_dataselect_manager = DcDataselectManager(datacenters_df, Authorizer(None), False)
         # Let's go:
         ztatz = self.download_save_segments(urlread_sideeffect, db.session, segments_df,
                                             dc_dataselect_manager,
@@ -1806,7 +1807,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
         # now mock retry:
         segments_df, request_timebounds_need_update = \
-            prepare_for_download(db.session, orig_segments_df, wtimespan,
+            prepare_for_download(db.session, orig_segments_df, dc_dataselect_manager, wtimespan,
                                  retry_seg_not_found=True,
                                  retry_url_err=True,
                                  retry_mseed_err=True,
@@ -1933,14 +1934,15 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                                       Channel.location.key, Channel.channel.key])
         chaid2mseedid = chaid2mseedid_dict(channels_df)
         # check that we removed the columns:
-        assert not any(_ in channels_df.columns for _ in [Station.network.key, Station.station.key,
-                                                      Channel.location.key, Channel.channel.key])
+        assert not any(_ in channels_df.columns for _ in
+                       [Station.network.key, Station.station.key,
+                        Channel.location.key, Channel.channel.key])
 
         # take all segments:
         # use minmag and maxmag
         ttable = tt_ak135_tts
         segments_df = merge_events_stations(events_df, channels_df, minmag=10, maxmag=10,
-                                   minmag_radius=10, maxmag_radius=10, tttable=ttable)
+                                            minmag_radius=10, maxmag_radius=10, tttable=ttable)
 
         assert len(pd.unique(segments_df['arrival_time'])) == 2
 
@@ -1968,11 +1970,14 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 # n, s, l, c = network, station, location, channel
 # ed = event_distance_deg
 
+        # define a dc_dataselect_manager for open data only:
+        dc_dataselect_manager = DcDataselectManager(datacenters_df, Authorizer(None), False)
+
         wtimespan = [1, 2]  # in minutes
         expected = len(segments_df)  # no segment on db, we should have all segments to download
         orig_segments_df = segments_df.copy()
         segments_df, request_timebounds_need_update = \
-            prepare_for_download(db.session, orig_segments_df, wtimespan,
+            prepare_for_download(db.session, orig_segments_df, dc_dataselect_manager, wtimespan,
                                  retry_seg_not_found=True,
                                  retry_url_err=True,
                                  retry_mseed_err=True,
@@ -2022,8 +2027,6 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         urlread_sideeffect = [self._seg_data, 413, self._seg_data[:2], 413,
                               '', self._seg_data_gaps, self._seg_data_gaps,
                               URLError("++urlerror++"), 500, 413]
-        # define a dc_dataselect_manager for open data only:
-        dc_dataselect_manager = DcDataselectManager(datacenters_df, Authorizer(None), False)
         # Let's go:
         ztatz = self.download_save_segments(urlread_sideeffect, db.session, segments_df,
                                             dc_dataselect_manager,
@@ -2094,8 +2097,10 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         segments_df.loc[segments_df[Segment.channel_id.key] == 2,
                         Segment.request_end.key] = tend
 
-        # build a segments_df of the three segments belonging to the same channel:
-        new_segments_df = segments_df.loc[segments_df[Segment.channel_id.key].isin([1, 2, 3]), :]
+        # build a segments_df of the three segments belonging to the same channel
+        # copy at the end to avoid pandas settingwithcopy warning
+        new_segments_df = \
+            segments_df.loc[segments_df[Segment.channel_id.key].isin([1, 2, 3]), :].copy()
         # change urlread_side_effect to provide, for the first three segments, the same
         # sequence of bytes. The sequence actually is OK, but in the first case it will be
         # PARTIALLY saved in the second case TOTALLY, and in the thrid case NOT AT ALL:

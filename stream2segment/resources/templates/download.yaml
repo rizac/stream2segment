@@ -4,9 +4,6 @@
 
 # {{ YAML_WARN }}
 
-# =================
-# POGRAM PARAMETERS
-# =================
 
 # Database url where to save data (currently supported are sqlite and postgresql).
 # If sqlite, just write the path to your local file
@@ -18,59 +15,17 @@
 # (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)
 dburl: 'sqlite:////path/to/my/db.sqlite'
 
-# Try to dowonload again already saved segments with no waveform data because not found
-# in the response. This is NOT the case when the server returns no data with an appropriate
-# 'No Content' message, but when a successful response (usually '200: OK') does not contain
-# the expected segment data. E.g., a multi-segment request returns some but not all requested
-# segments.
-retry_seg_not_found: true
-# Try to dowonload again already saved segments with no waveform data because of a
-# general url error (e.g., no internet connection, timeout, ...)
-retry_url_err: true
-# Try to dowonload again already saved segments with no waveform data because the response was
-# malformed, i.e. not readable as MiniSeed
-retry_mseed_err: false
-# Try to dowonload again already saved segments with no waveform data because of a client error
-# (response code in [400,499])
-retry_client_err: true
-# Try to dowonload again already saved segments with no waveform data because of a server error
-# (response code in [500,599])
-retry_server_err: true
-# Try to download again already saved segments with no waveform data because the response data
-# was completely outside the requested time span (see 'timespan' for details)
-retry_timespan_err: true
 
-# Update segments metadata, i.e. overwrite the data of already saved stations and channels.
-# Metadata include the station inventories (see 'inventory' for details).
-# This parameter does not affect new stations and channels, which will be saved on the db anyway
-update_metadata: false
-
-# Download station inventories (xml format):
-# inventories will be downloaded and saved on the db for all stations that have saved segments
-# with data. If the metadata should not be updated (see 'update_metadata') already saved inventories
-# will not be downloaded again. You can always fetch and save inventories later during processing,
-# if required
-inventory: true
-
-# this parameter sets the credentials in order to download restricted data. It can be:
-# - a single string pointing to a token file for restricted data authorization if "dataws" is "eida") 
-#   (https://geofon.gfz-potsdam.de/waveform/archive/auth/auth-overview.php). Non-absolute
-#   paths will be relative to the config file they are written in.
-# - a list of two strings denoting username and password
-# when this parameter is null, or the empty string, only open (unrestricted) waveform data will
-# be downloaded. When provided, restricted segments previosuly downloaded with no credentials
-# (thus, with no waveform data) will be always re-downloaded regardless of the retry_* parameters set.
-restricted_data: ""
-
-# =====================
-# DATA QUERY PARAMETERS
-# =====================
+# ======
+# Events
+# ======
 
 # Limit to events (and datacenters) on or after the specified start time. Specify a date or
 # date-time in iso-format or an integer >=0 to denote the number of days before today at midnight.
 # Example: start=1 and end=0 => fetch events occurred yesterday.
 # Implementation details: 'starttime' is also a valid name for this parameter
 start: 2006-01-01T00:00:00
+
 # Limit to events (and datacenters) on or before the specified end time. Specify a date or
 # date-time in iso-format or an integer >=0 to denote the number of days before today at midnight.
 # Example: start=1 and end=0 => fetch events occurred yesterday.
@@ -92,18 +47,12 @@ eventws_query_args:
   mindepth: 1
   maxdepth: 50
 
-# data-select web service to use (url). It should be FDSN compliant, so that the relative
-# station web service url can be retrieved automatically. You can also type two special values,
-# "iris" (shortcut for: https://service.iris.edu/fdsnws/dataselect/1/query) or "eida"
-# (which will automatically fetch data from the urls of all EIDA datacenters).
-# Implementation details: If the station web service(s) did not return data
-# (e.g., connection problems), then the requested stations and channales will be fetched from the
-# database. In this case, if the database is empty the download process will stop with an error
-# message.
-dataws: 'eida'
 
-# Limit the search to the specified channels.
-# (if missing, it's value defaults to '*', i.e. accept all channels)
+# ===================
+# Stations / Channels
+# ===================
+
+# Limit the search to the specified channels (if missing, defaults to '*', i.e.: accept all channels)
 # Wildcards '?' and '*' are recognized (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf),
 # as well as the operator '!' placed as first character to indicate logical NOT.
 # Example: "!B*,BBB" accepts all channels NOT starting with "B" OR the channel "BBB"
@@ -120,25 +69,34 @@ channel:
  - 'HN?'
  - 'HL?'
  
-# Limit the search to the specified networks (see 'channel' parameter above for details).
+# Limit the search to the specified networks (see 'channel' parameter for details).
 # Implementation details: 'net' or 'networks' are also valid names for the parameter.
-# By default the line below is commented, meaning that all networks are accepted:
-# network: '*'
+network: '*'
 
-# Limit the search to the specified stations (see 'channel' parameter above for details).
+# Limit the search to the specified stations (see 'channel' parameter for details).
 # Implementation details: 'sta' or 'stations' are also valid names for the parameter.
-# By default the line below is commented, meaning that all stations are accepted:
-# station: '*'
+station: '*'
 
-# Limit the search to the specified locations (see 'channel' parameter above for details).
+# Limit the search to the specified locations (see 'channel' parameter for details).
 # Implementation details: 'loc' or 'locations' are also valid names for the parameter.
-# By default the line below is commented, meaning that all locations are accepted:
-# location: '*'
+location: '*'
 
 # Limit the search to channels with at least the following sample rate (in Hz).
 # The relative segments will *mot likely* (but not always) match the channel sample rate.
 # Set to 0 or negative number to ignore the sampling rate
 min_sample_rate: 60
+
+# Update segments metadata, i.e. overwrite the data of already saved stations and channels.
+# Metadata include the station inventories (see 'inventory' for details).
+# This parameter does not affect new stations and channels, which will be saved on the db anyway
+update_metadata: false
+
+# Download station inventories (xml format):
+# inventories will be downloaded and saved on the db for all stations that have saved segments
+# with data. If the metadata should not be updated (see 'update_metadata') already saved inventories
+# will not be downloaded again. You can always fetch and save inventories later during processing,
+# if required
+inventory: true
 
 # search radius: for each event, stations will be searched within a circular area whose radius
 # is a linear function of the event magnitude:
@@ -164,6 +122,21 @@ search_radius:
  minmag_radius: 3 # search radius for min mag (deg)
  maxmag_radius: 3 # search radius for max mag (deg)
 
+
+# ========================
+# Data (waveform segments)
+# ========================
+
+# data-select web service to use (url). It should be FDSN compliant, so that the relative
+# station web service url can be retrieved automatically. You can also type two special values,
+# "iris" (shortcut for: https://service.iris.edu/fdsnws/dataselect/1/query) or "eida"
+# (which will automatically fetch data from the urls of all EIDA datacenters).
+# Implementation details: If the station web service(s) did not return data
+# (e.g., connection problems), then the requested stations and channales will be fetched from the
+# database. In this case, if the database is empty the download process will stop with an error
+# message.
+dataws: 'eida'
+
 # The model to be used to asses the travel times of a wave from
 # the event location to each station location. Type a string denoting a file name (absolute path)
 # of a custom model created by means of `s2s utils ttcreate` or one of the 4 built-in models
@@ -181,8 +154,8 @@ search_radius:
 # execution speed, with max errors in the order of 0.5 seconds due to interpolation.
 traveltimes_model: 'ak135_ttp+'
 
-# The segment's time span (i.e., the data time window to download): specify two positive floats denoting the 
-# minutes to account for before and after the calculated arrival time. Note that 3.5 means
+# The segment's time span (i.e., the data time window to download): specify two positive floats denoting 
+# the minutes to account for before and after the calculated arrival time. Note that 3.5 means
 # 3 minutes 30 seconds, and that each segment window will be eventually rounded to the nearest
 # second to avoid floating point errors when checking for segments to re-download because of a
 # changed window.
@@ -190,10 +163,47 @@ timespan:
  - 1.0 # start time of the waveform segment to download, in minutes *before* the calculated arrival time.
  - 3.0 # end time of the waveform segment to download, in minutes *after* the calculated arrival time
 
+# this parameter sets the credentials in order to download restricted data. It can be:
+# - a single string pointing to a token file for restricted data authorization if "dataws" is "eida") 
+#   (https://geofon.gfz-potsdam.de/waveform/archive/auth/auth-overview.php). Non-absolute
+#   paths will be relative to the config file they are written in.
+# - a list of two strings denoting username and password
+# when this parameter is null, or the empty string, only open (unrestricted) waveform data will
+# be downloaded. When provided, restricted segments previosuly downloaded with no credentials
+# (thus, with no waveform data) will be always re-downloaded regardless of the retry_* parameters set.
+restricted_data: ""
 
-# ====================================================================================================
-# Advanced settings (in principle, you should not care about these unless you know what you are doing)
-# ====================================================================================================
+# Try to dowonload again already saved segments with no waveform data because not found
+# in the response. This is NOT the case when the server returns no data with an appropriate
+# 'No Content' message, but when a successful response (usually '200: OK') does not contain
+# the expected segment data. E.g., a multi-segment request returns some but not all requested
+# segments.
+retry_seg_not_found: true
+
+# Try to dowonload again already saved segments with no waveform data because of a
+# general url error (e.g., no internet connection, timeout, ...)
+retry_url_err: true
+
+# Try to dowonload again already saved segments with no waveform data because the response was
+# malformed, i.e. not readable as MiniSeed
+retry_mseed_err: false
+
+# Try to dowonload again already saved segments with no waveform data because of a client error
+# (response code in [400,499])
+retry_client_err: true
+
+# Try to dowonload again already saved segments with no waveform data because of a server error
+# (response code in [500,599])
+retry_server_err: true
+
+# Try to download again already saved segments with no waveform data because the response data
+# was completely outside the requested time span (see 'timespan' for details)
+retry_timespan_err: true
+
+
+# =====================================
+# Advanced settings (for experts only) 
+# =====================================
 
 advanced_settings:
  # the routing service used to fetch the eida nodes and relative network/stations

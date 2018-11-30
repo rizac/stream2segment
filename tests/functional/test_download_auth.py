@@ -685,8 +685,10 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                         '--start', '2016-05-08T00:00:00',
                                         '--end', '2016-05-08T9:00:00'])
         assert clirunner.ok(result)
+        # get db data, sort by index and reset index to assure comparison across data frames:
         seg_df = dbquery2df(db.session.query(Segment.id, Segment.download_code,
-                                             Segment.queryauth, Segment.download_id))
+                                             Segment.queryauth, Segment.download_id))\
+            .sort_values(by=[Segment.id.key]).reset_index(drop=True)
         # seg_df:
         # id  download_code  queryauth  download_id
         # 1  -1              True       2
@@ -726,8 +728,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         code_queryauth = [(204, False), (204, True), (404, False), (404, True),
                           (401, False), (401, True), (403, False), (403, True),
                           (400, True), (400, False), (None, False), (None, True)]
-        for id_, (dc_, qa_) in zip(seg_df[Segment.id.key], code_queryauth):
-            seg = db.session.query(Segment).filter(Segment.id == id_.item()).first()
+        for id_, (dc_, qa_) in zip(seg_df[Segment.id.key].tolist(), code_queryauth):
+            seg = db.session.query(Segment).filter(Segment.id == id_).first()
             seg.download_code = dc_
             seg.queryauth = qa_
             # set expected values (see also self.config_overrides below)
@@ -761,8 +763,10 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                         '--end', '2016-05-08T9:00:00'])
         DOWNLOADID += 1
         assert clirunner.ok(result)
+        # get db data, sort by index and reset index to assure comparison across data frames:
         seg_df2 = dbquery2df(db.session.query(Segment.id, Segment.download_code, Segment.queryauth,
-                                              Segment.download_id))
+                                              Segment.download_id))\
+            .sort_values(by=[Segment.id.key]).reset_index(drop=True)
         # seg_df2:
         # id  download_code  queryauth  download_id
         # 1  -1              True       3
@@ -792,8 +796,10 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                         '--end', '2016-05-08T9:00:00'])
         DOWNLOADID += 1
         assert clirunner.ok(result)
+        # get db data, sort by index and reset index to assure comparison across data frames:
         seg_df3 = dbquery2df(db.session.query(Segment.id, Segment.download_code, Segment.queryauth,
-                                              Segment.download_id))
+                                              Segment.download_id))\
+            .sort_values(by=[Segment.id.key]).reset_index(drop=True)
         expected_df = seg_df2.copy()
         # modify all 4xx codes as they are updated. Note that old urlerr codes have the old
         # download id (do not override)

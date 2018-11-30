@@ -227,7 +227,10 @@ class Test(object):
 
     def test_download_bad_values(self, db):
         '''test different scenarios where the value in the dwonload.yaml are not well formatted'''
-        result = self.run_cli_download(networks={'a': 'b'})  # invalid type
+        result = self.run_cli_download(networks={'a': 'b'})  # conflict
+        assert result.exit_code != 0
+        assert 'Error: Conflicting names "networks" / "network"' in result.output
+        result = self.run_cli_download(network={'a': 'b'})
         assert result.exit_code == 0  # WHAT?? because networks needs to be just an iterable
         # thus providing dict is actually fine and will iterate over its keys:
         assert self.mock_run_download.call_args_list[0][1]['networks'] == ['a']
@@ -247,9 +250,9 @@ class Test(object):
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.lastrun_download_count == 1
 
-        result = self.run_cli_download(networks='!*')  # invalid value
+        result = self.run_cli_download(networks='!*')  # conflicting names
         assert result.exit_code != 0
-        assert 'Error: Invalid value for "networks": ' in result.output
+        assert 'Error: Conflicting names "networks" / "network"' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.lastrun_download_count == 0
 
@@ -259,9 +262,9 @@ class Test(object):
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.lastrun_download_count == 0
 
-        result = self.run_cli_download(net='!*')  # invalid value
+        result = self.run_cli_download(net='!*')  # conflicting names
         assert result.exit_code != 0
-        assert 'Error: Invalid value for "net": ' in result.output
+        assert 'Error: Conflicting names "net" / "network"' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.lastrun_download_count == 0
 
@@ -269,7 +272,7 @@ class Test(object):
         # AFTER click
         result = self.run_cli_download('-n', '!*')  # invalid value
         assert result.exit_code != 0
-        assert 'Error: Invalid value for "networks": ' in result.output
+        assert 'Error: Invalid value for "network": ' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.lastrun_download_count == 0
 

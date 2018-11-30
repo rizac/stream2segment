@@ -33,7 +33,7 @@ except ImportError:
     from httplib import HTTPException
     from BaseHTTPServer import BaseHTTPRequestHandler
     # responses values are tuples, map to the response message (1st tuple item, str)
-    # and make this response compatible with the python3 response above:
+    # to make this response compatible with the python3 response above:
     responses = {k: v[0] for k, v in BaseHTTPRequestHandler.responses.iteritems()}
 
 
@@ -75,7 +75,7 @@ def urlread(url, blocksize=-1, decode=None, wrap_exceptions=True,
         will be caught and wrapped into an :class:`url.URLException` object E that will be
         raised (the original exception can always be retrieved via `E.exc`)
     :param raise_http_err: If True (the default) `HTTPError`s will be raised normally as
-        exceptions. Otherwise, they will treated as response object and the
+        exceptions. Otherwise, they will be treated as response object and the
         tuple (None, status, message) will be returned, where `status` (int) is the
         `HTTPError` status code (most likely in the range [400-599]) and `message`
         (string) is the string denoting the status message, respectively
@@ -193,14 +193,12 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, dec
     if executed from the command line. In the following we will simply refer to `urlread`
     to indicate the `urllib2.urlopen.read` function.
 
-    :param iterable: an iterable of objects representing the urls addresses to be read
-        (either strings or `urllib2.Request` objects). If the elements of `iterable` are neither
-        strings nor Request objects, the `urlkey` argument (see below) must be specified to
-        return valid url strings or Request objects
-    :param urlkey: a function of one argument or None (the default) that is used to extract
-        an url (string) or Request object from each `iterable` element. When None, it returns
-        the argument, i.e. assumes that `iterable` is an iterable of valid url addresses or
-        Request objects.
+    :param iterable: an iterable of objects representing the urls addresses to be read: if its
+        elements are neither strings nor `Request` objects, the `urlkey` argument (see below)
+        must be specified to map each element to a valid url string or Request
+    :param urlkey: function or None. When None (the default), all elements of `iterable` must be
+        url strings or Request objects. When function, it will be called with each element of
+        `iterable` as argument, and must return the mapped url address or Request.
     :param max_workers: integer or None (the default) denoting the max workers of the
         `ThreadPoolExecutor`. When None, the theads allocated are relative to the machine cpu
     :param blocksize: integer defaulting to 1024*1024 specifying, when connecting to one of
@@ -219,11 +217,9 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024*1024, dec
         timeout setting will be used). This actually only works for HTTP, HTTPS and FTP
         connections.
     :param unordered: boolean (default False): tells whether the download results are yielded
-        in the same order they are input in `iterable`, i.e. if the i-th download is relative
-        to the i-th element of iterable. Theoretically, False (the default) might execute faster,
-        but results are not guaranteed to be yielded in the same order as `iterable`. Although
-        tests did not show any relevant performance increase with `ThreadPool`s (maybe it's a
-        feature of `ProcessPool`s) this argument is False by default
+        in the same order they are input in `iterable`. Theoretically (tests did not show any
+        remarkable difference), False (the default) might execute faster, but results are not
+        guaranteed to be yielded in the same order as `iterable`.
     :param openers: a function behaving like `urlkey`, should return a specific opener
         for the given item of iterable. When None, the default urllib opener is used
         See :func:`get_opener` for, e.g., creating an opener from a base url, user and passowrd

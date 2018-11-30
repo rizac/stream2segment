@@ -189,10 +189,10 @@ def init(outdir):
               metavar='DATE or DATETIME')
 @click.option('-e', '--end', '--endtime', 'end', type=inputargs.valid_date,
               metavar='DATE or DATETIME',)
-@click.option('-n', '--networks', '--network', '--net', 'networks', help='See channels')
-@click.option('-z', '--stations', '--station', '--sta', 'stations', help='See channels')
-@click.option('-l', '--locations', '--location', '--loc', 'locations', help='See channels')
-@click.option('-k', '--channels', '--channel', '--chan', 'channels')
+@click.option('-n', '--network', '--networks', '--net', 'network')
+@click.option('-z', '--station', '--stations', '--sta', 'station')
+@click.option('-l', '--location', '--locations', '--loc', 'location')
+@click.option('-k', '--channel', '--channels', '--chan', 'channel')
 @click.option('-msr', '--min-sample-rate', type=float)
 @click.option('-ds', '--dataws')
 @click.option('-t', '--traveltimes-model')
@@ -241,8 +241,8 @@ def init(outdir):
 @click.option('-maxmag', '--maxmagnitude', type=float,
               help=(clickutils.EQA + " Limit to events with a magnitude smaller than "
                     "the specified maximum"))
-def download(config, dburl, eventws, start, end, networks,  # pylint: disable=unused-argument
-             stations, locations, channels, min_sample_rate,  # pylint: disable=unused-argument
+def download(config, dburl, eventws, start, end, network,  # pylint: disable=unused-argument
+             station, location, channel, min_sample_rate,  # pylint: disable=unused-argument
              dataws, traveltimes_model, timespan,  # pylint: disable=unused-argument
              update_metadata, retry_url_err, retry_mseed_err,  # pylint: disable=unused-argument
              retry_seg_not_found, retry_client_err,  # pylint: disable=unused-argument

@@ -79,6 +79,7 @@ class BadTypeArg(BadArgument):
 
 
 class ConflictingArgs(BadArgument):
+    '''A BadArgument notifying conflicting argument names'''
 
     def __init__(self, *param_names):
         '''A BadArgument notifying conflicting argument names'''
@@ -105,21 +106,23 @@ class S2SArgument(object):
         '''Creates a new stream2segment argument, which represents an application input
         argument (sort of `click.Option`). An object of this class allows retrieving values from a
         dict (methods `popfrom` and `getfrom`) with validation options via a 'callback' argument.
-        `parse`, `popfrom` and `getfrom` all raise BadArgument
-        exception, which are useful because can print a meaningful message with the
-        parameter name. Moreover, program cli commands like 'download' and 'process'
+        `parse`, `popfrom` and `getfrom` all raise BadArgument exceptions, which are useful
+        because can print a meaningful message with the parameter name.
+        Moreover, program cli commands like 'download' and 'process'
         capture BadArguments in order to print to the console the message without the
         the stack trace.
 
             :param name: the argument name
             :param optional_names: the argument optional names
         '''
-        self._names = set([name] + list(optional_names))
-        self._name = name
+#         self._names = set([name] + list(optional_names))
+#         self._name = name
+        self._names = [name] + list(optional_names)
 
     def _get(self, dic, pop=False, ifmissing=None):
+        # note: use self._names to keep declaration order of this argument name(s)
         try:
-            keys_in = [par for par in self.names if par in dic]
+            keys_in = [par for par in self._names if par in dic]
             if len(keys_in) > 1:
                 raise ConflictingArgs(*keys_in)
             elif not keys_in:
@@ -130,7 +133,7 @@ class S2SArgument(object):
             return name, dic.pop(name) if pop else dic[name]
 
         except KeyError as _:
-            raise MissingArg(ConflictingArgs.formatnames(*self.names))
+            raise MissingArg(ConflictingArgs.formatnames(*self._names))
 
     def getfrom(self, dic, default=None, callback=None, **callback_kwargs):
         '''Gets and returns the value mapped to this argument from `dic`.
@@ -192,13 +195,13 @@ class S2SArgument(object):
     def name(self):
         '''returns the name of this argument (string). `self.names` contains the returned string
         (not necessarily at the first position when iterating over it)'''
-        return self._name
+        return self._names[0]
 
     @property
     def names(self):
         '''returns the names of this argument (set of strings). `self.name` is an element of
         the returned set (not necessarily at the first position when iterating over the set)'''
-        return self._names
+        return set(self._names)
 
 
 def typesmatch(value, *other_values):
@@ -273,7 +276,7 @@ def nslc_param_value_aslist(value):
         # some checks:
         if "!*" in strings:  # discard everything is not valid
             raise ValueError("'!*' (=discard all) invalid")
-        elif "*" in strings:  # accept everything and X: X is redundant
+        elif "*" in strings:  # accept everything or X => X is redundant
             strings = set(_ for _ in strings if _[0:1] == '!')
         else:
             for string in strings:  # accept A end discard A is not valid

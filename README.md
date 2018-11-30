@@ -276,3 +276,24 @@ sudo apt-get install sqlitebrowser
 
 A `matplotlibrc` file is included in the main root package. As said, matplotlib is not used by the program
 but from imported libraries, The included file sets the backend to 'Agg' so that we hide the "Turning interactive mode on" message (for Mac users)
+
+
+## Developer(s) notes:
+
+- The program can be also installed via the usual way:
+  ```
+  pip install -e .
+  ```
+  which means that the latest library dependancies will
+  be downloaded. This however is not as safe as using `requirements.txt` because tests passed with the
+  specific versions implemented therein. For developers whishing to 'upgrade' to new libraries, thus
+  changing requirements.txt (and making pip install most likely work for a relatively medium period of time),
+  the procedure is:
+  ```
+	pip install -e .
+	pip freeze > ./requirements.tmp
+	pip install -e .[dev,test]
+	pip freeze > ./requirements.dev.tmp
+  ```
+  Run tests (see above), if everything is fine you can replace old `requirements.txt` and
+  `requirements.dev.txt` with the `.tmp` file created
