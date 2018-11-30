@@ -781,6 +781,27 @@ class Test(object):
         # (np array) check also that types are the same
         assert d2['time'].dtype == dnew['time'].dtype
 
+    def test_mergeupdate5(self):
+        '''test typical case and check resulting data frame'''
+        d2006 = datetime(2006, 1, 1)
+        d2007 = datetime(2007, 12, 31)
+        d2008 = datetime(2008, 3, 14)
+        d2009 = datetime(2009, 9, 25)
+        d = pd.DataFrame([{'id': 45, 'name': 'a', 'time': None, 'data': 4},
+                          {'id': 45, 'name': 'b', 'time': d2006, 'data': 5}])
+
+        dnew = pd.DataFrame([{'id': 45, 'name': 'a', 'time': d2007, 'count': 5, 'value': np.nan},
+                             {'id': 45, 'name': 'c', 'time': d2009, 'count': 5, 'value': 4.5}])
+
+        d2 = mergeupdate(d, dnew, ['id', 'name'], ['time', 'value'])
+
+        expected_df = pd.DataFrame([{'id': 45, 'name': 'a', 'time': d2007, 'data': 4,
+                                     'value': np.nan},
+                                    {'id': 45, 'name': 'b', 'time': d2006, 'data': 5,
+                                     'value': np.nan}])
+        assert len(d2) == len(d)
+        pd.testing.assert_frame_equal(d2, expected_df)
+
 
 def array_equal(a1, a2):
     """test array equality by assuming nan == nan. Probably already implemented

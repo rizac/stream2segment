@@ -1004,11 +1004,25 @@ def mergeupdate(dataframe, other_df, matching_columns, merge_columns,
     """
         Modifies `dataframe` from `other_df` and returns it.
         Sets `dataframe[merge_columns]` = `other_df[merge_columns]` for those row where
-        `dataframe[matching_columns]` = `other_df[matching_columns]` only.
-        Shared columns will be treated like this: row-wise, if a value is in both dataframes,
-        then take `other_df` value. Otherwise, take `dataframe` value.
-        `other_df` **should** have unique rows under `matching columns` (see argument
-        `drop_other_df_duplicates`)
+        `dataframe[matching_columns]` = `other_df[matching_columns]` only. Example:
+
+        >>> dataframe                       >>> other_df
+            id  name time       data            id name time       count value
+        0   45 'a'   NaT        4           0   45 'a'  2007-12-31 5     NaN
+        1   45 'b'   2006-01-01 5           1   45 'c'  2009-09-25 5     4.5
+
+        mergeupdate(dataframe, other_df, ['id', 'name'], ['time', 'value']) produces:
+
+        >>> dataframe
+            id  name        time data value
+         0  45    'a' 2007-12-31 4    NaN    # <- in both data frames, time and value updated
+         1  45    'b' 2006-01-01 5    NaN    # <- not in `other_df`: time preserved, value NaN
+
+         # Note also:
+         # 1. second row of `other_df` is NOT added to `dataframe` as according to
+         #    `matching_columns` it does not exist on `dataframe`
+         # 2. `other_df` **should** have unique rows under `matching columns` (see argument
+        `#     drop_other_df_duplicates`)
 
         :param dataframe: the pandas DataFrame whose values should be replaced
         :param other_df: the pandas DataFrame which should set the new values to `dataframe`
