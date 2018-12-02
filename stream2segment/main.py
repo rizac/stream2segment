@@ -100,9 +100,6 @@ def download(config, log2file=True, verbose=False, **param_overrides):
         if _pp:
             print(_pp)
 
-    if yaml_dict['inventory'] == 'only':
-        log2file = False
-
     # configure logger and habdlers:
     loghandlers = configlog4download(logger, config if log2file else None, verbose)
 

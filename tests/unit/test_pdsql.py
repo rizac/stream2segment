@@ -141,7 +141,7 @@ class Test(object):
         # note: dtype has changed even if ids are not nans:
         assert d2['id'].dtype == np.float64
 
-    def tst_fetchsetpkeys_dtypes(self, db):
+    def test_fetchsetpkeys_dtypes(self, db):
         '''tests when fetchsetpkeys changes dtype to float for an id of type INTEGER
         Basically: when any row instance has no match on the db (at least one row)
         '''

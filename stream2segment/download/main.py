@@ -45,11 +45,11 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
     """
 
     # RAMAINDER: **Any function here EXPECTS THEIR DATAFRAME INPUT TO BE NON-EMPTY.**
-
-    # remember that any QuitDownload raised by any of these function will prevent inventory
-    # download if quitdownload.iscritical=True. This happens almost in all cases except when
-    # we do not have segments to download according to our config (in prepare_for_download)
-    # In this case, download inventories if needed
+    # Thus, any function returning a dataframe is responsible to return well formed (non empty)
+    # data frames: if it would not be the case, the function should raise either:
+    # 1) a NothingToDownload to stop the routine silently (log to info) and proceed to the
+    # inventories (if set),
+    # 2) a Faileddownload to stop the download immediately and raise the exception
 
     # set blocksize if zero:
     if advanced_settings['download_blocksize'] <= 0:

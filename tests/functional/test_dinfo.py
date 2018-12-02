@@ -242,9 +242,10 @@ download info and statistics written to """)
         assert not mock_open_in_browser.called
         assert not mock_gettempdir.called
 
-        # html output, to file, setting maxgap to 0.2, so that S1a' has all three ok segments with gaps
-        result = runner.invoke(cli, ['utils', 'dinfo', '-g', '0.15', '--html',  '--dburl', db.dburl,
-                                     outfile])
+        # html output, to file, setting maxgap to 0.2, so that S1a' has all three ok segments
+        # with gaps
+        result = runner.invoke(cli, ['utils', 'dinfo', '-g', '0.15', '--html',
+                                     '--dburl', db.dburl, outfile])
 
         assert not result.exception
 
@@ -314,3 +315,45 @@ download info and statistics written to """)
         assert mock_gettempdir.called
         assert os.listdir(mytmpdir) == ['s2s_dinfo.html']
 
+    @patch('stream2segment.main.open_in_browser')
+    @patch('stream2segment.main.gettempdir')
+    def test_dinfo_no_segments(self, mock_gettempdir, mock_open_in_browser, db, pytestdir):
+        '''test a case where save inventory is True, and that we saved inventories'''
+
+        # mock  a download with only inventories, i.e. with no segments downloaded
+        dwnl = Download()
+        dwnl.run_time = datetime(2018, 12, 2, 16, 46, 56, 472330)
+        db.session.add(dwnl)
+        db.session.commit()
+
+        runner = CliRunner()
+
+        # text output, to file
+        outfile = pytestdir.newfile('.txt')
+        result = runner.invoke(cli, ['utils', 'dinfo', '--dburl', db.dburl, outfile])
+
+        assert not result.exception
+        content = open(outfile).read()
+        assert """
+                              OK        OK         Time                 Segment           Internal       
+                              Gaps      Partially  Span   MSeed  Url    Not      Bad      Server         
+                          OK  Overlaps  Saved      Error  Error  Error  Found    Request  Error     TOTAL
+------------------------  --  --------  ---------  -----  -----  -----  -------  -------  --------  -----
+www.dc1/dataselect/query   3         1          2      1      1      1        1        1         1     12
+TOTAL                      3         1          2      1      1      1        1        1         1     12""" in content
+        assert result.output.startswith("""Fetching data, please wait (this might take a while depending on the db size and connection)
+download info and statistics written to """)
+        assert not mock_open_in_browser.called
+        assert not mock_gettempdir.called
+
+        assert """╔════════════════╗
+║ Download id: 2 ║
+╚════════════════╝
+executed: 2018-12-02T16:46:56.472330
+even query (param 'eventws_query_args'):
+
+N/A""" in content
+
+        # run with html, test just that everything works fine
+        result = runner.invoke(cli, ['utils', 'dinfo', '--html', '--dburl', db.dburl, outfile])
+        assert not result.exception

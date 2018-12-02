@@ -223,7 +223,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                         if not rewind:
                             currpos = b.tell()
                         ret = b.read(*a, **v)
-                        # hacky workaround to support cycle below: if reached the end, go back to start
+                        # hacky workaround to support cycle below: if reached the end, go
+                        # back to start
                         if not rewind:
                             cp = b.tell()
                             rewind = cp == currpos
@@ -362,9 +363,9 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                                  # fixtures:
                                  db, clirunner):
 
-        mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
+        mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v)
         mock_get_datacenters_df.side_effect = \
-            lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
+            lambda *a, **v: self.get_datacenters_df(None, *a, **v)
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
         mock_download_save_segments.side_effect = \
@@ -852,10 +853,6 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
         # prevlen = len(db.session.query(Segment).all())
 
-        # The run table is populated with a run_id in the constructor of this class
-        # for checking run_ids, store here the number of runs we have in the table:
-        runs = len(db.session.query(Download.id).all())
-
         result = clirunner.invoke(cli, ['download', '-c', self.configfile,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
@@ -869,6 +866,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
 
         # test with loading station inventories only
 
+        download_id = max(_[0] for _ in db.session.query(Download.id).all())
         # we should not have inventories saved:
         stainvs = db.session.query(Station).filter(Station.has_inventory).all()
         assert len(stainvs) == 0
@@ -894,9 +892,6 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert clirunner.ok(result)
         assert not mock_download_save_segments.called
         assert "STEP 1 of 1: Downloading 2 station inventories" in result.output
-        # assert we called logger config with no log2file:
-        config_logger_args = self.mock_config4download.call_args_list[-1][0]
-        assert config_logger_args[1] is None  # 2nd arg is none
         # But assert the log message does contain the warning
         # (self.log_msg() is from a logger configured additionaly for these tests)
         new_log_msg = self.log_msg()[len(old_log_msg):]
@@ -911,6 +906,8 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         expected_invs_to_download_ids.remove(staid)  # remove the saved inventory
         assert not invdata.startswith(b'<?xml ')  # assert we compressed data
         assert mock_save_inventories.called
+        download_id_ = max(_[0] for _ in db.session.query(Download.id).all())
+        assert download_id_ == download_id + 1
         mock_save_inventories.reset_mock()
 
         # Now write also to the second station inventory (the one
@@ -926,6 +923,8 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         # assert we still have one station (the one we saved before):
         assert len(stainvs) == num_downloaded_inventories_first_try + 1
         assert mock_save_inventories.called
+        download_id_ = max(_[0] for _ in db.session.query(Download.id).all())
+        assert download_id_ == download_id + 2
         mock_save_inventories.reset_mock()
 
         # And now assert we do not have anything to update anymore (update_metadata is false)
@@ -939,6 +938,8 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         assert len(stainvs) == num_downloaded_inventories_first_try + 1
         assert 'No station inventory to download' in result.output
         assert not mock_save_inventories.called
+        download_id_ = max(_[0] for _ in db.session.query(Download.id).all())
+        assert download_id_ == download_id + 3
 
 
     @patch('stream2segment.main.run_download')
