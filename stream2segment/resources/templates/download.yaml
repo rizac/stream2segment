@@ -91,11 +91,11 @@ min_sample_rate: 60
 # This parameter does not affect new stations and channels, which will be saved on the db anyway
 update_metadata: false
 
-# Download station inventories (xml format):
-# inventories will be downloaded and saved on the db for all stations that have saved segments
-# with data. If the metadata should not be updated (see 'update_metadata') already saved inventories
-# will not be downloaded again. You can always fetch and save inventories later during processing,
-# if required
+# Download station inventories (xml format). Inventories will be downloaded and saved on the db
+# for all stations that have saved segments with data. If the metadata should not be updated
+# (see 'update_metadata') already saved inventories will not be downloaded again. You can always
+# download inventories later by providing "only" as value (wihtout quotes), skipping all other
+# download steps (in case, all other parameters will be ignored except 'update_metadata')
 inventory: true
 
 # search radius: for each event, stations will be searched within a circular area whose radius
@@ -214,16 +214,12 @@ advanced_settings:
  download_blocksize: 1048576  # = 1024*1024
  # how many parallel threads to start when downloading (one thread per download)
  # If 0 or negative, is automatically set according to the machine CPU
- # (https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor)
  max_thread_workers: 0
  # max time to wait (in seconds) for a single request while downloading stations+channel metadata
- # (`urllib2.urlopen` timeout argument)
  s_timeout: 120
- # If the flag to download station inventories is on (true), max time to wait (in seconds) for a
- # single request while downloading an inventory in xml format (`urllib2.urlopen` timeout argument)
+ # max time to wait (in seconds) for a single request while downloading an inventory in xml format
  i_timeout: 60
  # max time to wait (in seconds) for a single request while downloading waveform data
- # (`urllib2.urlopen` timeout argument)
  w_timeout: 60
  # the buffer size used when writing items (stations, segments, events, ...) to database.
  # Increasing this number usually sppeds speed up db IO operations, but increases the potentially

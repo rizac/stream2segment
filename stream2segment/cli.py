@@ -204,7 +204,7 @@ def init(outdir):
 @click.option('-r4', '--retry-client-err', is_flag=True, default=None)
 @click.option('-r5', '--retry-server-err', is_flag=True, default=None)
 @click.option('-r6', '--retry-timespan-err', is_flag=True, default=None)
-@click.option('-i', '--inventory', is_flag=True, default=None)
+@click.option('-i', '--inventory', type=click.Choice(['true', 'false', 'only']), default=None)
 @click.option('-minlat', '--minlatitude', type=float,
               help=(clickutils.EQA + " Limit to events with a latitude larger than "
                     "or equal to the specified minimum"))

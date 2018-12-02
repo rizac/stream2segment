@@ -60,7 +60,8 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
 
     process = psutil.Process(os.getpid()) if isterminal else None
     # calculate steps (note that bool math works, e.g: 8 - True == 7):
-    __steps = 6 + inventory + (True if authorizer.token else False)
+    __steps = 1 if inventory == 'only' else \
+        (6 + inventory + (True if authorizer.token else False))
     stepiter = iter(range(1, __steps+1))
 
     # custom function for logging.info different steps:
@@ -71,84 +72,87 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
             percent = process.memory_percent()
             logger.warning("(%.1f%% memory used)", percent)
 
-    startiso = start.isoformat()
-    endiso = end.isoformat()
-
     try:
-        stepinfo("Requesting events")
-        # get events (might raise FailedDownload)
-        events_df = get_events_df(session, eventws, dbbufsize, start=startiso, end=endiso,
-                                  **eventws_query_args)
+        if inventory != 'only':
+            startiso = start.isoformat()
+            endiso = end.isoformat()
+            stepinfo("Requesting events")
+            # get events (might raise FailedDownload)
+            events_df = get_events_df(session, eventws, dbbufsize, start=startiso, end=endiso,
+                                      **eventws_query_args)
 
-        # Get datacenters, store them in the db, returns the dc instances (db rows) correctly added
-        stepinfo("Requesting data-centers")
-        # get dacatanters (might raise FailedDownload):
-        datacenters_df, eidavalidator = \
-            get_datacenters_df(session, dataws, advanced_settings['routing_service_url'],
-                               networks, stations, locations, channels, start, end, dbbufsize)
+            # Get datacenters, store them in the db, returns the dc instances (db rows) correctly
+            # added
+            stepinfo("Requesting data-centers")
+            # get dacatanters (might raise FailedDownload):
+            datacenters_df, eidavalidator = \
+                get_datacenters_df(session, dataws, advanced_settings['routing_service_url'],
+                                   networks, stations, locations, channels, start, end, dbbufsize)
 
-        stepinfo("Requesting stations and channels from %d %s", len(datacenters_df),
-                 "data-center" if len(datacenters_df) == 1 else "data-centers")
-        # get dacatanters (might raise FailedDownload):
-        channels_df = get_channels_df(session, datacenters_df, eidavalidator,
-                                      networks, stations, locations, channels, start, end,
-                                      min_sample_rate, update_metadata,
-                                      advanced_settings['max_thread_workers'],
-                                      advanced_settings['s_timeout'],
-                                      advanced_settings['download_blocksize'], dbbufsize,
-                                      isterminal)
-        # get channel id to mseed id dict and purge channels_df
-        # the dict will be used to download the segments later, but we use it now to drop
-        # unnecessary columns and save space (and time)
-        chaid2mseedid = chaid2mseedid_dict(channels_df, drop_mseedid_columns=True)
+            stepinfo("Requesting stations and channels from %d %s", len(datacenters_df),
+                     "data-center" if len(datacenters_df) == 1 else "data-centers")
+            # get dacatanters (might raise FailedDownload):
+            channels_df = get_channels_df(session, datacenters_df, eidavalidator,
+                                          networks, stations, locations, channels, start, end,
+                                          min_sample_rate, update_metadata,
+                                          advanced_settings['max_thread_workers'],
+                                          advanced_settings['s_timeout'],
+                                          advanced_settings['download_blocksize'], dbbufsize,
+                                          isterminal)
+            # get channel id to mseed id dict and purge channels_df
+            # the dict will be used to download the segments later, but we use it now to drop
+            # unnecessary columns and save space (and time)
+            chaid2mseedid = chaid2mseedid_dict(channels_df, drop_mseedid_columns=True)
 
-        stepinfo("Selecting stations within search area from %d events", len(events_df))
-        # merge vents and stations (might raise FailedDownload):
-        segments_df = merge_events_stations(events_df, channels_df, search_radius['minmag'],
-                                            search_radius['maxmag'], search_radius['minmag_radius'],
-                                            search_radius['maxmag_radius'], tt_table, isterminal)
-        # help gc by deleting the (only) refs to unused dataframes
-        del events_df
-        del channels_df
+            stepinfo("Selecting stations within search area from %d events", len(events_df))
+            # merge vents and stations (might raise FailedDownload):
+            segments_df = merge_events_stations(events_df, channels_df, search_radius['minmag'],
+                                                search_radius['maxmag'],
+                                                search_radius['minmag_radius'],
+                                                search_radius['maxmag_radius'], tt_table,
+                                                isterminal)
+            # help gc by deleting the (only) refs to unused dataframes
+            del events_df
+            del channels_df
 
-        if authorizer.token:
-            stepinfo("Acquiring credentials from token in order to download restricted data")
-        dc_dataselect_manager = DcDataselectManager(datacenters_df, authorizer, isterminal)
+            if authorizer.token:
+                stepinfo("Acquiring credentials from token in order to download restricted data")
+            dc_dataselect_manager = DcDataselectManager(datacenters_df, authorizer, isterminal)
 
-        stepinfo("%d segments found. Checking already downloaded segments", len(segments_df))
-        # raises NothingToDownload
-        segments_df, request_timebounds_need_update = \
-            prepare_for_download(session, segments_df, dc_dataselect_manager,
-                                 timespan, retry_seg_not_found,
-                                 retry_url_err, retry_mseed_err, retry_client_err,
-                                 retry_server_err, retry_timespan_err,
-                                 retry_timespan_warn=False)
+            stepinfo("%d segments found. Checking already downloaded segments", len(segments_df))
+            # raises NothingToDownload
+            segments_df, request_timebounds_need_update = \
+                prepare_for_download(session, segments_df, dc_dataselect_manager,
+                                     timespan, retry_seg_not_found,
+                                     retry_url_err, retry_mseed_err, retry_client_err,
+                                     retry_server_err, retry_timespan_err,
+                                     retry_timespan_warn=False)
 
-        # prepare_for_download raises a NothingToDownload if there is no data, so if we are here
-        # segments_df is not empty
-        stepinfo("Downloading %d segments %sand saving to db", len(segments_df),
-                 '(open data only) ' if dc_dataselect_manager.opendataonly else '')
-        # frees memory. Although maybe unecessary, let's do our best to free stuff cause the
-        # next one is memory consuming:
-        # https://stackoverflow.com/questions/30021923/how-to-delete-a-sqlalchemy-mapped-object-from-memory
-        session.expunge_all()
-        session.close()
+            # prepare_for_download raises a NothingToDownload if there is no data, so if we are
+            # here segments_df is not empty
+            stepinfo("Downloading %d segments %sand saving to db", len(segments_df),
+                     '(open data only) ' if dc_dataselect_manager.opendataonly else '')
+            # frees memory. Although maybe unecessary, let's do our best to free stuff cause the
+            # next one is memory consuming:
+            # https://stackoverflow.com/questions/30021923/how-to-delete-a-sqlalchemy-mapped-object-from-memory
+            session.expunge_all()
+            session.close()
 
-        d_stats = download_save_segments(session, segments_df, dc_dataselect_manager,
-                                         chaid2mseedid, download_id,
-                                         request_timebounds_need_update,
-                                         advanced_settings['max_thread_workers'],
-                                         advanced_settings['w_timeout'],
-                                         advanced_settings['download_blocksize'],
-                                         dbbufsize,
-                                         isterminal)
-        del segments_df  # help gc?
-        session.close()  # frees memory?
-        logger.info("")
-        logger.info(("** Segments download summary **\n"
-                     "Number of segments per data-center (rows) and response "
-                     "status (columns):\n%s") %
-                    str(d_stats) or "Nothing to show")
+            d_stats = download_save_segments(session, segments_df, dc_dataselect_manager,
+                                             chaid2mseedid, download_id,
+                                             request_timebounds_need_update,
+                                             advanced_settings['max_thread_workers'],
+                                             advanced_settings['w_timeout'],
+                                             advanced_settings['download_blocksize'],
+                                             dbbufsize,
+                                             isterminal)
+            del segments_df  # help gc?
+            session.close()  # frees memory?
+            logger.info("")
+            logger.info(("** Segments download summary **\n"
+                         "Number of segments per data-center (rows) and response "
+                         "status (columns):\n%s") %
+                        str(d_stats) or "Nothing to show")
 
     except NothingToDownload as ntdexc:
         # we are here if some function raised a NothingToDownload (e.g., in prepare_for_download

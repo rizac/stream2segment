@@ -100,113 +100,109 @@ class UnknownArg(BadArgument):
         super(UnknownArg, self).__init__(param_name, '', "no such option")
 
 
-class S2SArgument(object):
+def parse_arguments(yaml_dic, *params):
+    '''Parses yaml_dic parameters according to `params`. Modifies in-place `yaml_dic` and
+    returns the set of `yaml_dic` parameters not parsed.
 
-    def __init__(self, name, *optional_names):
-        '''Creates a new stream2segment argument, which represents an application input
-        argument (sort of `click.Option`). An object of this class allows retrieving values from a
-        dict (methods `popfrom` and `getfrom`) with validation options via a 'callback' argument.
-        `parse`, `popfrom` and `getfrom` all raise BadArgument exceptions, which are useful
-        because can print a meaningful message with the parameter name.
-        Moreover, program cli commands like 'download' and 'process'
-        capture BadArguments in order to print to the console the message without the
-        the stack trace.
+    :param params: a list of dicts. Each dict defines how to parse the given parameter and can
+        have the keys and values:
+        'names': (mandatory) list / tuple of the parameter name(s): the first parameter name
+            found in `yaml_dic` will be used, and  a :class:`ConflictingArgs` exception is raised
+            if any of the other names is also found in `yaml_dic` keys. It can be also a string,
+            in which case the function behaves as if `names` was a list with that string as only
+            element
+        'defvalue': (optional) when provided, and no parameter name is found in `yaml_dic`,
+            this is used as value. If not provided and no name in `names` is in
+            in `yaml_dic`, a :class:`MissingArg` exception is raised
+        'newname': (optional) string denoting the new parameter name which will replace the
+            old one. When missing, it defaults to `names[0]`
+        'newvalue': (optional) a callable which accepts the parameter value as argument and
+            returns a new value. The function can safely raise: its exception(s) will be converted
+            to :class:BadTypeArg or :class:BadValueArg depending on the cause
 
-            :param name: the argument name
-            :param optional_names: the argument optional names
-        '''
-#         self._names = set([name] + list(optional_names))
-#         self._name = name
-        self._names = [name] + list(optional_names)
+        For each element of `params`, this function parses the given argument and raises the
+        appropriate `BadArgument` exceptions
+    :raise: BadArgument
 
-    def _get(self, dic, pop=False, ifmissing=None):
-        # note: use self._names to keep declaration order of this argument name(s)
-        try:
-            keys_in = [par for par in self._names if par in dic]
-            if len(keys_in) > 1:
-                raise ConflictingArgs(*keys_in)
-            elif not keys_in:
-                if ifmissing is not None:
-                    return self.name, ifmissing
-                raise KeyError()
-            name = keys_in[0]
-            return name, dic.pop(name) if pop else dic[name]
+    :return: the set of names of `yaml_dic` not parsed
 
-        except KeyError as _:
-            raise MissingArg(ConflictingArgs.formatnames(*self._names))
+    '''
+    remainingkeys = set(yaml_dic)
+    for param in params:
+        names = param['names']
+        if not isinstance(names, (list, tuple)):
+            names = (names,)
+        name, value = get(yaml_dic, names, param.get('defvalue', None))
+        # name is the actual key in yaml_dict:
+        newvalue = parse(name, value, param.get('newvalue', lambda val: val))
+        # names[0] is the key that will be set on yaml_dct, if newname is missing:
+        newname = param.get('newname', names[0])
+        # if the newname is not names[0], remove name (not names[0]) from yanl_dic:
+        if newname != name:
+            yaml_dic.pop(name, None)
+        # set new name and new (parsed) value:
+        yaml_dic[newname] = newvalue
+        # remove the parsed keys from remainingkeys:
+        remainingkeys -= set(names)
+    return remainingkeys
 
-    def getfrom(self, dic, default=None, callback=None, **callback_kwargs):
-        '''Gets and returns the value mapped to this argument from `dic`.
-        Raises BadArgument exceptions (e.g., no key found in `dic` among `self.names`, or more
-        than one key found, or `callback` raising exceptions)
 
-        :param dic: a python dic
-        :param default: what to return if no key of `dic` matches any of `self.names`.
-            If None (default when missing), then a 'MissingArgument' is raised if `dic` does
-            not contain any key among `self.names`
-        :param callback: None or function. If None, does nothing on `dic[name]`,
-            where `name` is the first element of `self.names` which is found as key of `dic`.
-            Otherwise returns
-            `S2SArgument.parse(name, dic[name], callback, **callback_kwargs)`
-        '''
-        name, value = self._get(dic, False, default)
-        return value if callback is None else \
-            S2SArgument.parse(name, value, callback, **callback_kwargs)
+def get(dic, names, default_ifmissing=None):
+    '''Similar to `dic.get`, gets the first `names` element `n` found in `dic`, and returns
+    the tuple `(n, dic[n])`.
 
-    def popfrom(self, dic, default=None, callback=None, **callback_kwargs):
-        '''Pops and returns the value mapped to this argument from `dic`.
-        Raises BadArgument exceptions (e.g., no key found in `dic` among `self.names`, or more
-        than one key found, or `callback` raising exceptions)
+    Raises :class:`MissingArg` if no name is found, and :class:`ConflictingArgs` if more than
+    one key is found
 
-        :param dic: a python dic
-        :param default: what to return if no key of `dic` matches any of `self.names`.
-            If None (default when missing), then a 'MissingArgument' is raised if `dic` does
-            not contain any key among `self.names`
-        :param callback: None or function. If None, does nothing on `dic.pop(name)`,
-            where `name` is the first element of `self.names` which is found as key of `dic`.
-            Otherwise returns
-            `S2SArgument.parse(name, dic[name], callback, **callback_kwargs)`
-        '''
-        name, value = self._get(dic, True, default)
-        return value if callback is None else \
-            S2SArgument.parse(name, value, callback, **callback_kwargs)
+    :param dic: the source dict
+    :param names: list/tuple of `dic` keys to be searched.. It can be also a string,
+        in which case the function behaves as if `names` was a list with that string as only
+        element
+    :param default_if_missing: if provided and not None (the default), then this is the
+        value returned if no name is found. If not provided, and no name is found in
+        `dic`, :class:`MissingArg` is raised
+    '''
+    # note: use self._names to keep declaration order of this argument name(s)
+    try:
+        if not isinstance(names, (list, tuple)):
+            names = (names,)
+        keys_in = [par for par in names if par in dic]
+        if len(keys_in) > 1:
+            raise ConflictingArgs(*keys_in)
+        elif not keys_in:
+            if default_ifmissing is not None:
+                return names[0], default_ifmissing
+            raise KeyError()
+        name = keys_in[0]
+        return name, dic[name]
 
-    @staticmethod
-    def parse(name, value, func, *args, **kwargs):
-        '''Calls `func` on the given value, and returns the result of `func`
-        Raises BadArgument exceptions (e.g., ValueError, TypeErrors) with the given name
-        in the exception str representation.
-        This function can be called from `popfrom` and `getfrom`
+    except KeyError as _:
+        raise MissingArg(ConflictingArgs.formatnames(*names))
 
-        :param value: any python object.
-        :param func: the function to be called with `value` as first argument. If not
-            callable (function) if will return `func` ignoring *args and **kwargs, if any.
-        :param args: optional positional arguments to be passed to `func`
-        :param args: optional keyword arguments to be passed to `func`
-        '''
-        try:
-            return func(value, *args, **kwargs) if hasattr(func, '__call__') else func
-        except TypeError as terr:
-            raise BadTypeArg(name, terr)
-        except Exception as exc:
-            raise BadValueArg(name, exc)
 
-    @property
-    def name(self):
-        '''returns the name of this argument (string). `self.names` contains the returned string
-        (not necessarily at the first position when iterating over it)'''
-        return self._names[0]
+def parse(name, value, parsefunc, *args, **kwargs):
+    '''Calls `parsefunc` on the given value, and returns the result.
+    Raises :class:`BadArgument` exceptions wrapping ValueError and TypeErrors, if raised
 
-    @property
-    def names(self):
-        '''returns the names of this argument (set of strings). `self.name` is an element of
-        the returned set (not necessarily at the first position when iterating over the set)'''
-        return set(self._names)
+    :param name: the name of the mapped to value value (str), e.g., the parameter name
+        whose value needs to be parsed.
+        It is used in the message of the exception raised, if any
+    :param value: any python object.
+    :param parsefunc: the function to be called with `value` as first argument
+    :param args: optional positional arguments to be passed to `parsefunc`
+    :param args: optional keyword arguments to be passed to `parsefunc`
+    '''
+    try:
+        return parsefunc(value, *args, **kwargs)
+    except TypeError as terr:
+        raise BadTypeArg(name, terr)
+    except Exception as exc:
+        raise BadValueArg(name, exc)
 
 
 def typesmatch(value, *other_values):
-    '''checks that value is of the same type (same class, or subclass) of *any* `other_value`.
-    Raises TypeError if that's not the case
+    '''checks that value is of the same type (same class, or subclass) of *any* `other_value`
+    (at least one). Raises TypeError if that's not the case
 
     :param value: a python object
     :param other_values: python objects. This function raises if value is NOT of the same type of
@@ -342,6 +338,22 @@ def create_auth(restricted_data, dataws, configfile=None):
     return ret
 
 
+def parse_inventory(inventory):
+    '''parses inventory returning True, False or 'only'
+    '''
+    inv = inventory
+    if isinstance(inventory, string_types):
+        if inventory.lower() == 'true':
+            inventory = True
+        elif inventory.lower() == 'false':
+            inventory = False
+        else:
+            inventory = inventory.lower()
+    if inventory not in (True, False, 'only'):
+        raise ValueError('value can be true, false or only, %s provided' % str(inv))
+    return inventory
+
+
 def load_tt_table(file_or_name):
     '''Loads the given TTTable object from the given file path or name. If name (string)
     it must match any of the builtin TTTable .npz files defined in this package
@@ -419,46 +431,69 @@ def load_config_for_download(config, parseargs, **param_overrides):
                 break
 
     if parseargs:
-        remainingkeys = set(dic.keys())
-
-        # parse arguments (dic keys):
-
-        # parse token if provided:
-        argument = S2SArgument('restricted_data')
+        # few variables:
         configfile = config if (isinstance(config, string_types) and os.path.isfile(config))\
             else None
-        dic['authorizer'] = argument.popfrom(dic, callback=create_auth, dataws=dic['dataws'],
-                                             configfile=configfile)
-        remainingkeys -= argument.names  # argument.names is simply set(['restricted_data])
 
-        # First, two arguments which have to be replaced (pop=True)
-        # and assigned to new dic key:
-        argument = S2SArgument('dburl')
-        dic['session'] = argument.popfrom(dic, callback=create_session)
-        # now remove the already processed dic keys:
-        remainingkeys -= argument.names  # argument.names is simply set(['dburl]) in this case
+        params = [
+            {
+             'names': ['inventory'],
+             'newvalue': parse_inventory
+             },
+            {
+             'names': ['restricted_data'],
+             'newname': 'authorizer',
+             'newvalue': lambda val: create_auth(val, dic['dataws'], configfile)
+            },
+            {
+             'names': ['dburl'],
+             'newname': 'session',
+             'newvalue': create_session
+            },
+            {
+             'names': ['traveltimes_model'],
+             'newname': 'tt_table',
+             'newvalue': load_tt_table
+            },
+            {
+             'names': ('start', 'starttime'),
+             'newvalue': valid_date
+            },
+            {
+             'names': ('end', 'endtime'),
+             'newvalue': valid_date
+            },
+            {
+             'names': ['eventws'],
+             'newvalue': valid_fdsn
+            },
+            {
+             'names': ['dataws'],
+             'newvalue': valid_fdsn
+            },
+            {
+             'names': ('networks', 'net', 'network'),
+             'defvalue': [],
+             'newvalue': nslc_param_value_aslist
+            },
+            {
+             'names': ('stations', 'sta', 'station'),
+             'defvalue': [],
+             'newvalue': nslc_param_value_aslist
+            },
+            {
+             'names': ('locations', 'loc', 'location'),
+             'defvalue': [],
+             'newvalue': nslc_param_value_aslist
+            },
+            {
+             'names': ('channels', 'cha', 'channel'),
+             'defvalue': [],
+             'newvalue': nslc_param_value_aslist
+            },
+            ]
 
-        argument = S2SArgument('traveltimes_model')
-        dic['tt_table'] = argument.popfrom(dic, callback=load_tt_table)
-        remainingkeys -= argument.names
-
-        # parse "simple" arguments where we must only parse a value and replace it in the dict
-        # (no key replacement / no variable num of arg names):
-        for argument, func in [(S2SArgument('start', 'starttime'), valid_date),
-                               (S2SArgument('end', 'endtime'), valid_date),
-                               (S2SArgument('eventws'), valid_fdsn),
-                               (S2SArgument('dataws'), valid_fdsn)]:
-            dic[argument.name] = argument.getfrom(dic, callback=func)
-            remainingkeys -= argument.names
-
-        # then, network channel ... arguments:
-        for argument in (S2SArgument('networks', 'net', 'network'),
-                         S2SArgument('stations', 'sta', 'station'),
-                         S2SArgument('locations', 'loc', 'location'),
-                         S2SArgument('channels', 'cha', 'channel'),):
-            dic[argument.name] = argument.popfrom(dic, default=[],
-                                                  callback=nslc_param_value_aslist)
-            remainingkeys -= argument.names
+        remainingkeys = parse_arguments(dic, *params)
 
         # For all remaining arguments, just check the type as it should match the
         # default download config shipped with this package:
@@ -468,7 +503,7 @@ def load_config_for_download(config, parseargs, **param_overrides):
                 other_value = orig_config[key]
             except KeyError:
                 raise UnknownArg(key)
-            S2SArgument.parse(key, dic[key], typesmatch, other_value)
+            parse(key, dic[key], typesmatch, other_value)
 
     return dic
 
@@ -477,14 +512,6 @@ def load_pyfunc(pyfile, funcname):
     '''Returns the python module from the given python file'''
     if not isinstance(pyfile, string_types):
         raise TypeError('string required, not %s' % str(type(pyfile)))
-
-#     reg = re.compile("^(.*):([a-zA-Z_][a-zA-Z_0-9]*)$")
-#     m = reg.match(pyfile)
-#     if m and m.groups():
-#         pyfile = m.groups()[0]
-#         funcname = m.groups()[1]
-#     elif funcname is None:
-#         funcname = default_processing_funcname()
 
     if not os.path.isfile(pyfile):
         raise Exception('file does not exist')
@@ -531,8 +558,8 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None, outfile=N
     `config` which must denote a path to a yaml file, or None (config_dict will be empty
     in this latter case)
     '''
-    session = S2SArgument.parse('dburl', dburl, create_session)
-    funcname = S2SArgument.parse('funcname', funcname, get_funcname)
+    session = parse('dburl', dburl, create_session)
+    funcname = parse('funcname', funcname, get_funcname)
     try:
         # yaml_load accepts a file name or a dict
         config = yaml_load({} if config is None else config, **param_overrides)
@@ -542,12 +569,12 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None, outfile=N
     # NOTE: contrarily to the download routine, we cannot check the types of the config because
     # no parameter is mandatory, and thus they might NOT be present in the config.
 
-    pyfunc = S2SArgument.parse('pyfile', pyfile, load_pyfunc, funcname)
+    pyfunc = parse('pyfile', pyfile, load_pyfunc, funcname)
     if outfile is not None:
-        S2SArgument.parse('outfile', outfile, filewritable)
+        parse('outfile', outfile, filewritable)
     # nothing more to process
     return session, pyfunc, funcname, config
 
 
 def load_session_for_dinfo(dburl):
-    return S2SArgument.parse('dburl', dburl, create_session)
+    return parse('dburl', dburl, create_session)

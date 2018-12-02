@@ -35,7 +35,7 @@ from stream2segment.utils.url import urlread
 from stream2segment.utils import urljoin
 from stream2segment.io.db.models import Segment, Channel, Class
 from stream2segment.process.math.traces import cumsumsq, cumtimes
-from stream2segment.utils.inputargs import S2SArgument
+from stream2segment.utils.inputargs import get, parse
 from stream2segment.io.db.sqlevalexpr import exprquery
 
 
@@ -244,10 +244,14 @@ def get_sn_windows(config, a_time, stream):
     :return the tuple (start, end), (start, end) where all arguments are `UTCDateTime`s
     and the first tuple refers to the noisy window, the latter to the signal window
     '''
-    # Use S2SArgument class to raise pre-formatted exception messages from our validation callbacks:
-    name = 'sn_windows'
-    snw_dic = S2SArgument(name).getfrom(config)
-    atime_shift = S2SArgument('arrival_time_shift').getfrom(snw_dic, callback=float)
+    # Use inputargs utilities to raise pre-formatted exception messages from our
+    # validation callbacks:
+    snw_dic = get(config, ['sn_windows'])[1]
+    atime_shift = parse(*get(config, ['arrival_time_shift']), parsefunc=float)
+
+#     name = 'sn_windows'
+#     snw_dic = S2SArgument(name).getfrom(config)
+#     atime_shift = S2SArgument('arrival_time_shift').getfrom(snw_dic, callback=float)
 
     def sw_callback(sn_windows):
         '''callback to parse sn_windows, which should be either a float or a iterable of two
@@ -262,7 +266,7 @@ def get_sn_windows(config, a_time, stream):
             return float(cum0), float(cum1)
         except TypeError:  # not a tuple/list? then it's a scalar:
             return float(sn_windows)
-    s_windows = S2SArgument('signal_window').getfrom(snw_dic, callback=sw_callback)
+    s_windows = parse(*get(snw_dic, ['signal_window']), parsefunc=sw_callback)
 
     if len(stream) != 1:
         raise ValueError(("Unable to get sn-windows: %d traces in stream "

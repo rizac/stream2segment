@@ -259,8 +259,9 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
                                 # config logger as usual, but redirects to a temp file
                                 # that will be deleted by pytest, instead of polluting the program
                                 # package:
-                                ret = configlog4download(logger, pytestdir.newfile('.log'),
-                                                         verbose)
+                                if logfilebasepath is not None:
+                                    logfilebasepath = pytestdir.newfile('.log')
+                                ret = configlog4download(logger, logfilebasepath, verbose)
                                 logger.addHandler(self.handler)
                                 return ret
                             with patch('stream2segment.main.configlog4download',
@@ -290,8 +291,10 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
         # if k is an int, convert to an HTTPError
         retvals = []
         # Check if we have an iterable (where strings are considered not iterables):
-        if not hasattr(urlread_side_effect, "__iter__") or isinstance(urlread_side_effect, (bytes, str)):
-            # it's not an iterable (wheere str/bytes/unicode are considered NOT iterable in both py2 and 3)
+        if not hasattr(urlread_side_effect, "__iter__") or \
+            isinstance(urlread_side_effect, (bytes, str)):
+            # it's not an iterable (wheere str/bytes/unicode are considered NOT
+            # iterable in both py2 and 3)
             urlread_side_effect = [urlread_side_effect]
 
         for k in urlread_side_effect:
@@ -306,7 +309,8 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
                         if not rewind:
                             currpos = b.tell()
                         ret = b.read(*a, **v)
-                        # hacky workaround to support cycle below: if reached the end, go back to start
+                        # hacky workaround to support cycle below: if reached the end,
+                        # go back to start
                         if not rewind:
                             cp = b.tell()
                             rewind = cp == currpos
@@ -320,35 +324,34 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
             else:
                 a.read.side_effect = k
             retvals.append(a)
-#         
+
         self.mock_urlopen.side_effect = cycle(retvals)
-#        self.mock_urlopen.side_effect = Cycler(urlread_side_effect)
-
-
 
     def get_events_df(self, url_read_side_effect, *a, **v):
-        self.setup_urlopen(self._evt_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
+        self.setup_urlopen(self._evt_urlread_sideeffect if url_read_side_effect is None
+                           else url_read_side_effect)
         return get_events_df(*a, **v)
 
-
-
     def get_datacenters_df(self, url_read_side_effect, *a, **v):
-        self.setup_urlopen(self._dc_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
+        self.setup_urlopen(self._dc_urlread_sideeffect if url_read_side_effect is None
+                           else url_read_side_effect)
         return get_datacenters_df(*a, **v)
 
-
     def get_channels_df(self, url_read_side_effect, *a, **kw):
-        self.setup_urlopen(self._sta_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
+        self.setup_urlopen(self._sta_urlread_sideeffect if url_read_side_effect is None
+                           else url_read_side_effect)
         return get_channels_df(*a, **kw)
 
 # # ================================================================================================= 
 
     def download_save_segments(self, url_read_side_effect, *a, **kw):
-        self.setup_urlopen(self._seg_urlread_sideeffect if url_read_side_effect is None else url_read_side_effect)
+        self.setup_urlopen(self._seg_urlread_sideeffect if url_read_side_effect is None
+                           else url_read_side_effect)
         return download_save_segments(*a, **kw)
 
     def save_inventories(self, url_read_side_effect, *a, **v):
-        self.setup_urlopen(self._inv_data if url_read_side_effect is None else url_read_side_effect)
+        self.setup_urlopen(self._inv_data if url_read_side_effect is None
+                           else url_read_side_effect)
         return save_inventories(*a, **v)
 
 
@@ -402,13 +405,13 @@ BS|VETAM||HNZ|43.0805|25.6367|224.0|0.0|0.0|-90.0|200|427475.0|0.02|M/S**2|100.0
         seg_with_data = db.session.query(Segment).filter(Segment.has_data).count()
         assert db.session.query(Segment).\
             filter(Segment.has_data &
-                   ((Segment.download_code==200) |
-                    (Segment.download_code==timespan_warn))).count() == seg_with_data
+                   ((Segment.download_code == 200) |
+                    (Segment.download_code == timespan_warn))).count() == seg_with_data
 
         # pickup some examples and test them (the examples where found by debugging
         # download_segments):
-        data = {timespan_warn: ['BS.BLKB..HHE', 'BS.BLKB..HHN', 'BS.BLKB..HHZ', 'BS.BLKB..HNZ', 'BS.DOBAM..HNE',
-                                'BS.DOBAM..HNN', 'BS.DOBAM..HNZ'],
+        data = {timespan_warn: ['BS.BLKB..HHE', 'BS.BLKB..HHN', 'BS.BLKB..HHZ', 'BS.BLKB..HNZ',
+                                'BS.DOBAM..HNE', 'BS.DOBAM..HNN', 'BS.DOBAM..HNZ'],
                 timespan_err: ['BS.KALB..HHE', 'BS.KALB..HHN', 'BS.KALB..HHZ'],
                 200: ['BS.BLKB..HNE', 'BS.BLKB..HNN']}
 

@@ -68,7 +68,8 @@ def download(config, log2file=True, verbose=False, **param_overrides):
 
         :param config: a valid path to a file in yaml format, or a dict of parameters reflecting
             a download config file
-        :param log2file: if True (the default) configures a logger handler which redirects to
+        :param log2file: boolean (ignored and set to False if config['inventory'] == 'only').
+            if True (the default) configures a logger handler which redirects to
             a file named: `config.<now>.log`, where now is the current date-time in iso format.
             The file will be used to log all warning, error and critical messages and will write
             its content in the Donwload table. If the program
@@ -99,11 +100,16 @@ def download(config, log2file=True, verbose=False, **param_overrides):
         if _pp:
             print(_pp)
 
+    if yaml_dict['inventory'] == 'only':
+        log2file = False
+
+    # configure logger and habdlers:
+    loghandlers = configlog4download(logger, config if log2file else None, verbose)
+
     # create download row with unprocessed config (yaml_load function)
     # Note that we call again load_config with parseargs=False:
     download_id = new_db_download(session,
                                   load_config_for_download(config, False, **param_overrides))
-    loghandlers = configlog4download(logger, config if log2file else None, verbose)
     ret = 0
     noexc_occurred = True
     try:
@@ -117,9 +123,6 @@ def download(config, log2file=True, verbose=False, **param_overrides):
 
         stime = time.time()
         run_download(download_id=download_id, isterminal=verbose, **yaml_dict)
-        # print "completed in ..." only if we do not have a critical quitdownload
-        # as in the latter case the message below might obfuscate more important
-        # messages, and the time completion
         logger.info("Completed in %s", str(totimedelta(stime)))
         if log2file:
             errs, warns = loghandlers[0].errors, loghandlers[0].warnings
