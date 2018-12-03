@@ -29,12 +29,12 @@ from stream2segment.io.db.models import Base, Event, Station, WebService, Segmen
     Channel, Download, DataCenter
 from stream2segment.utils.inputargs import yaml_load as orig_yaml_load
 from stream2segment.utils.resources import get_templates_fpaths
-from stream2segment.process.utils import get_inventory_url, save_inventory as original_saveinv
 from stream2segment.process.main import run as process_main_run, query4process
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
 from stream2segment.process.utils import enhancesegmentclass
 from stream2segment.utils.url import URLError
 from stream2segment.process.writers import BaseWriter
+from stream2segment.io.utils import dumps_inv
 
 
 def yaml_load_side_effect(**overrides):
@@ -169,41 +169,40 @@ class Test(object):
         self.seg_empty = sg3
         self.seg_none = sg4
 
+        # sets up the station inventory data
+        # See self.setup_station_inventories()
+        self._mocked_sta_inv_data = data.read("inventory_GE.APE.xml")
 
-        # mock get inventory:
-        def url_read(*a, **v):
-            '''mock urlread for inventories. Checks in the url (first arg if there is the 'err',
-            'ok' or none' substring and returns appropriated data'''
-            if "=err" in a[0]:
-                raise URLError('error')
-            elif "=none" in a[0]:
-                return None, 500, 'Server error'
-            else:
-                return data.read("inventory_GE.APE.xml"), 200, 'Ok'
+        with patch('stream2segment.utils.inputargs.get_session', return_value=session):
+            with patch('stream2segment.main.closesession',
+                       side_effect=lambda *a, **v: None):
 
-        with patch('stream2segment.process.utils.urlread', side_effect=url_read) as mock1:
-            self.mock_url_read = mock1
-            with patch('stream2segment.utils.inputargs.get_session', return_value=session):
-                with patch('stream2segment.main.closesession',
-                           side_effect=lambda *a, **v: None):
+                with patch('stream2segment.main.configlog4processing') as mock2:
 
-                    with patch('stream2segment.main.configlog4processing') as mock2:
+                    def clogd(logger, logfilebasepath, verbose):
+                        # config logger as usual, but redirects to a temp file
+                        # that will be deleted by pytest, instead of polluting the program
+                        # package:
+                        ret = o_configlog4processing(logger,
+                                                     pytestdir.newfile('.log') \
+                                                     if logfilebasepath else None,
+                                                     verbose)
 
-                        def clogd(logger, logfilebasepath, verbose):
-                            # config logger as usual, but redirects to a temp file
-                            # that will be deleted by pytest, instead of polluting the program
-                            # package:
-                            ret = o_configlog4processing(logger,
-                                                         pytestdir.newfile('.log') \
-                                                         if logfilebasepath else None,
-                                                         verbose)
+                        self._logfilename = ret[0].baseFilename
+                        return ret
 
-                            self._logfilename = ret[0].baseFilename
-                            return ret
+                    mock2.side_effect = clogd
 
-                        mock2.side_effect = clogd
+                    yield
 
-                        yield
+    def setup_station_inventories(self, session):
+        '''writes the data to the station inventories. To be usually run before starting tests
+        which expect inventories to be saved for some segment'''
+        stas = session.query(Station).all()
+        for sta in stas:
+            if sta.network == 'ok':
+                sta.inventory_xml = dumps_inv(self._mocked_sta_inv_data)
+        session.commit()
 
     @property
     def logfilecontent(self):
@@ -229,9 +228,9 @@ class Test(object):
                                             # fixtures:
                                             db, clirunner):
         '''test a case where save inventory is True, and that we saved inventories'''
+        self.setup_station_inventories(db.session)
         # set values which will override the yaml config in templates folder:
-        config_overrides = {'save_inventory': True,
-                            'snr_threshold': 0,
+        config_overrides = {'snr_threshold': 0,
                             'segment_select': {'has_data': 'true'}}
         mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
 
@@ -275,9 +274,9 @@ class Test(object):
                                                   # fixtures:
                                                   pytestdir, db, clirunner):
         '''test a case where we create a temporary file, empty but opened before writing'''
+        self.setup_station_inventories(db.session)
         # set values which will override the yaml config in templates folder:
-        config_overrides = {'save_inventory': True,
-                            'snr_threshold': 0,
+        config_overrides = {'snr_threshold': 0,
                             'segment_select': {'has_data': 'true'}}
         if advanced_settings:
             config_overrides['advanced_settings'] = advanced_settings
@@ -306,12 +305,6 @@ class Test(object):
         # save_downloaded_inventory True, test that we did save any:
         assert len(db.session.query(Station).filter(Station.has_inventory).all()) > 0
 
-        # Or alternatively:
-        # test we did save any inventory:
-        stas = db.session.query(Station).all()
-        assert any(s.inventory_xml for s in stas)
-        assert db.session.query(Station).\
-            filter(Station.id == station_id_whose_inventory_is_saved).first().inventory_xml
 
     # Recall: we have 5 segments:
     # 2 are empty, out of the remaining three:
@@ -334,9 +327,9 @@ class Test(object):
                     # fixtures:
                     pytestdir, db, clirunner):
         '''test a typical case where we supply the append option'''
+        self.setup_station_inventories(db.session)
         # set values which will override the yaml config in templates folder:
-        config_overrides = {'save_inventory': True,
-                            'snr_threshold': 0,
+        config_overrides = {'snr_threshold': 0,
                             'segment_select': {'has_data': 'true'}}
         if advanced_settings:
             config_overrides['advanced_settings'] = advanced_settings

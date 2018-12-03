@@ -23,14 +23,15 @@ from stream2segment.io.db.models import Base, Event, Station, WebService, Segmen
     Channel, Download, DataCenter
 from stream2segment.utils.inputargs import yaml_load as orig_yaml_load
 from stream2segment.utils.resources import get_templates_fpaths
-from stream2segment.process.utils import get_inventory_url, save_inventory as original_saveinv
+from stream2segment.process.utils import get_inventory
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
 from stream2segment.process.main import run as process_main_run, query4process
 from stream2segment.utils.url import URLError
 from stream2segment.process.utils import enhancesegmentclass
 from stream2segment.process.writers import BaseWriter
+from stream2segment.io.utils import dumps_inv
 
-import obspy.io.mseed.core
+
 def yaml_load_side_effect(**overrides):
     """Side effect for the function reading the yaml config which enables the input
     of parameters to be overridden just after reading and before any other operation"""
@@ -74,16 +75,16 @@ class Test(object):
         session.commit()
         self.ws = ws
         # setup an event:
-        e1 = Event(id=1, webservice_id=ws.id, event_id='abc1', latitude=8, longitude=9, magnitude=5,
-                   depth_km=4, time=datetime.utcnow())
-        e2 = Event(id=2, webservice_id=ws.id, event_id='abc2', latitude=8, longitude=9, magnitude=5,
-                   depth_km=4, time=datetime.utcnow())
-        e3 = Event(id=3, webservice_id=ws.id, event_id='abc3', latitude=8, longitude=9, magnitude=5,
-                   depth_km=4, time=datetime.utcnow())
-        e4 = Event(id=4, webservice_id=ws.id, event_id='abc4', latitude=8, longitude=9, magnitude=5,
-                   depth_km=4, time=datetime.utcnow())
-        e5 = Event(id=5, webservice_id=ws.id, event_id='abc5', latitude=8, longitude=9, magnitude=5,
-                   depth_km=4, time=datetime.utcnow())
+        e1 = Event(id=1, webservice_id=ws.id, event_id='abc1', latitude=8, longitude=9,
+                   magnitude=5, depth_km=4, time=datetime.utcnow())
+        e2 = Event(id=2, webservice_id=ws.id, event_id='abc2', latitude=8, longitude=9,
+                   magnitude=5, depth_km=4, time=datetime.utcnow())
+        e3 = Event(id=3, webservice_id=ws.id, event_id='abc3', latitude=8, longitude=9,
+                   magnitude=5, depth_km=4, time=datetime.utcnow())
+        e4 = Event(id=4, webservice_id=ws.id, event_id='abc4', latitude=8, longitude=9,
+                   magnitude=5, depth_km=4, time=datetime.utcnow())
+        e5 = Event(id=5, webservice_id=ws.id, event_id='abc5', latitude=8, longitude=9,
+                   magnitude=5, depth_km=4, time=datetime.utcnow())
         session.add_all([e1, e2, e3, e4, e5])
         session.commit()
         self.evt1, self.evt2, self.evt3, self.evt4, self.evt5 = e1, e2, e3, e4, e5
@@ -100,8 +101,8 @@ class Test(object):
         session.commit()
         self.sta_ok = s_ok
 
-        s_err = Station(datacenter_id=d.id, latitude=-21, longitude=5, network='err', station='err',
-                        start_time=datetime.utcnow())
+        s_err = Station(datacenter_id=d.id, latitude=-21, longitude=5, network='err',
+                        station='err', start_time=datetime.utcnow())
         session.add(s_err)
         session.commit()
         self.sta_err = s_err
@@ -163,50 +164,48 @@ class Test(object):
         self.seg_empty = sg3
         self.seg_none = sg4
 
+        # sets up the station inventory data
+        # See self.setup_station_inventories()
+        self._mocked_sta_inv_data = data.read("inventory_GE.APE.xml")
 
-        # mock get inventory:
-        def url_read(*a, **v):
-            '''mock urlread for inventories. Checks in the url (first arg if there is the 'err',
-            'ok' or none' substring and returns appropriated data'''
-            if "=err" in a[0]:
-                raise URLError('error')
-            elif "=none" in a[0]:
-                return None, 500, 'Server error'
-            else:
-                return data.read("inventory_GE.APE.xml"), 200, 'Ok'
+        with patch('stream2segment.utils.inputargs.get_session', return_value=session):
+            with patch('stream2segment.main.closesession',
+                       side_effect=lambda *a, **v: None):
 
-        with patch('stream2segment.process.utils.urlread', side_effect=url_read) as mock1:
-            self.mock_url_read = mock1
-            with patch('stream2segment.utils.inputargs.get_session', return_value=session):
-                with patch('stream2segment.main.closesession',
-                           side_effect=lambda *a, **v: None):
+                self._logfilename = None
+                with patch('stream2segment.main.configlog4processing') as mock2:
 
-                    self._logfilename = None
-                    with patch('stream2segment.main.configlog4processing') as mock2:
+                    def clogd(logger, logfilebasepath, verbose):
+                        # config logger as usual, but redirects to a temp file
+                        # that will be deleted by pytest, instead of polluting the program
+                        # package:
+                        ret = o_configlog4processing(logger,
+                                                     pytestdir.newfile('.log') \
+                                                     if logfilebasepath else None,
+                                                     verbose)
 
-                        def clogd(logger, logfilebasepath, verbose):
-                            # config logger as usual, but redirects to a temp file
-                            # that will be deleted by pytest, instead of polluting the program
-                            # package:
-                            ret = o_configlog4processing(logger,
-                                                         pytestdir.newfile('.log') \
-                                                         if logfilebasepath else None,
-                                                         verbose)
+                        self._logfilename = ret[0].baseFilename
+                        return ret
 
-                            self._logfilename = ret[0].baseFilename
-                            return ret
+                    mock2.side_effect = clogd
 
-                        mock2.side_effect = clogd
+                    yield
 
-                        yield
+    def setup_station_inventories(self, session):
+        '''writes the data to the station inventories. To be usually run before starting tests
+        which expect inventories to be saved for some segment'''
+        stas = session.query(Station).all()
+        for sta in stas:
+            if sta.network == 'ok':
+                sta.inventory_xml = dumps_inv(self._mocked_sta_inv_data)
+        session.commit()
 
     @property
     def logfilecontent(self):
         assert os.path.isfile(self._logfilename)
         with open(self._logfilename) as opn:
             return opn.read()
-        
-    
+
     def inlogtext(self, string):
         '''Checks that `string` is in log text.
         The assertion `string in self.logfilecontent` fails in py3.5, although the differences
@@ -222,44 +221,55 @@ class Test(object):
 
 # ## ======== ACTUAL TESTS: ================================
 
-    @mock.patch('stream2segment.process.utils.save_inventory', side_effect=original_saveinv)
-    def test_segwrapper(self, mock_saveinv, db, data):
+    @patch('stream2segment.process.utils.get_inventory', side_effect=get_inventory)
+    def test_segwrapper(self, mock_getinv, db, data):
 
         segids = query4process(db.session, {}).all()
         prev_staid = None
 
+        # we set a valid inventory for station whose network is 'ok'. The other two station's
+        # networks a re 'err' and 'none'
+        zta = db.session.query(Station).filter(Station.network =='ok').one()
+        zta.inventory_xml = data.read("inventory_GE.APE.xml")
+        db.session.commit()
+
         assert not hasattr(Segment, "_config")  # assert we are not in enhanced Segment "mode"
         with enhancesegmentclass():
-            for saveinv in [True, False]:
-                prev_staid = None
-                assert hasattr(Segment, "_config")  # assert we are still in the with above
-                # we could avoid the with below but we want to test overwrite:
-                with enhancesegmentclass({'save_inventory': saveinv}, overwrite_config=True):
-                    for (segid, staid) in segids:
-                        # mock_get_inventory.reset_mock()
-                        # staid = db.session.query(Segment).filter(Segment.id == segid).one().station.id
-                        assert prev_staid is None or staid >= prev_staid
-                        staequal = prev_staid is not None and staid == prev_staid
-                        prev_staid = staid
-                        segment = db.session.query(Segment).filter(Segment.id == segid).first()
+            invcache = {}
+            prev_staid = None
+            assert hasattr(Segment, "_config")  # assert we are still in the with above
+            # we could avoid the with below but we want to test overwrite_config:
+            with enhancesegmentclass({}, overwrite_config=True):
+                for (segid, staid) in segids:
+                    assert prev_staid is None or staid >= prev_staid
+                    staequal = prev_staid is not None and staid == prev_staid
+                    prev_staid = staid
+                    segment = db.session.query(Segment).filter(Segment.id == segid).first()
+                    sta = segment.station
+                    segment._inventory = invcache.get(sta.id, None)
 
-                        mock_saveinv.reset_mock()
-                        sta_url = get_inventory_url(segment.station)
-                        if "=err" in sta_url or "=none" in sta_url:
-                            with pytest.raises(Exception):  # all inventories are None
-                                segment.inventory()
-                            assert not mock_saveinv.called
-                        else:
+                    mock_getinv.reset_mock()
+                    # sta_url = get_inventory_url(segment.station)
+                    if sta.network == "err" or sta.network == "none":
+                        with pytest.raises(Exception):  # all inventories are None
                             segment.inventory()
-                            if staequal:
-                                assert not mock_saveinv.called
-                            else:
-                                assert mock_saveinv.called == saveinv
-                            assert len(segment.station.inventory_xml) > 0
-                        segs = segment.siblings().all()
-                        # as channel's channel is either 'ok' or 'err' we should never have
-                        # other components
-                        assert len(segs) == 0
+                        assert mock_getinv.called
+                        # re-call it and assert we raise the previous Exception:
+                        ccc = mock_getinv.call_count
+                        with pytest.raises(Exception):  # all inventories are None
+                            segment.inventory()
+                        assert mock_getinv.call_count == ccc
+                    else:
+                        invcache[sta.id] = segment.inventory()
+                        if staequal:
+                            assert not mock_getinv.called
+                        else:
+                            assert mock_getinv.called
+                        assert len(segment.station.inventory_xml) > 0
+                    segs = segment.siblings().all()
+                    # as channel's channel is either 'ok' or 'err' we should never have
+                    # other components
+                    assert len(segs) == 0
 
         assert not hasattr(Segment, "_config")  # assert we are not in enhanced Segment "mode"
 
@@ -312,15 +322,13 @@ class Test(object):
     def test_simple_run_no_outfile_provided(self, mock_run, mock_yaml_load, db):
         '''test a case where save inventory is True, and that we saved inventories'''
         # set values which will override the yaml config in templates folder:
-        config_overrides = {'save_inventory': True,
-                            'snr_threshold': 0,
+        config_overrides = {'snr_threshold': 0,
                             'segment_select': {'has_data': 'true'}}
         mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
 
         # query data for testing now as the program will expunge all data from the session
         # and thus we want to avoid DetachedInstanceError(s):
         expected_first_row_seg_id = str(self.seg1.id)
-        station_id_whose_inventory_is_saved = self.sta_ok.id
 
         runner = CliRunner()
 
@@ -335,7 +343,8 @@ class Test(object):
         args, kwargs = lst[0][0], lst[0][1]
         # assert third argument (`ondone` callback) is None 'ondone' or is a BaseWriter (no-op)
         # class:
-        assert args[2] is None or type(args[2]) == BaseWriter
+        assert args[2] is None or \
+            type(args[2]) == BaseWriter  # pylint: disable=unidiomatic-typecheck
         # assert "Output file:  n/a" in result output:
         assert re.search('Output file:\\s+n/a', result.output)
 
@@ -346,19 +355,6 @@ class Test(object):
             idx = result.output.find(subs)
             assert idx > -1
 
-        # these assertion are just copied from the test below and left here cause they
-        # should still hold (db behaviour does not change of we provide output file or not):
-
-        # save_downloaded_inventory True, test that we did save any:
-        assert len(db.session.query(Station).filter(Station.has_inventory).all()) > 0
-
-        # Or alternatively:
-        # test we did save any inventory:
-        stas = db.session.query(Station).all()
-        assert any(s.inventory_xml for s in stas)
-        assert db.session.query(Station).\
-            filter(Station.id == station_id_whose_inventory_is_saved).first().inventory_xml
-
     # Recall: we have 5 segments:
     # 2 are empty, out of the remaining three:
     # 1 has errors if its inventory is queried to the db. Out of the other two:
@@ -376,101 +372,20 @@ class Test(object):
                               ({'segments_chunk': 1}, ['--multi-process', '--num-processes', '1']),
                               ({}, ['--multi-process', '--num-processes', '1'])])
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_retDict_saveinv(self, mock_yaml_load, advanced_settings, cmdline_opts,
-                                        pytestdir, db):
-        '''test a case where save inventory is True, and that we saved inventories'''
-        # set values which will override the yaml config in templates folder:
-        config_overrides = {'save_inventory': True,
-                                 'snr_threshold': 0,
-                                 'segment_select': {'has_data': 'true'}}
-        if advanced_settings:
-            config_overrides['advanced_settings'] = advanced_settings
-        mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
-
-        # query data for testing now as the program will expunge all data from the session
-        # and thus we want to avoid DetachedInstanceError(s):
-        expected_first_row_seg_id = self.seg1.id
-        station_id_whose_inventory_is_saved = self.sta_ok.id
-
-        runner = CliRunner()
-        # test with a temporary file, i.e. a file which is created BEFORE, and supply --no-prompt
-        # test then that we print the message "overridden the file..." in log output
-        outfile = pytestdir.newfile('output.csv', create=True)
-        pyfile, conffile = self.pyfile, self.conffile
-        result = runner.invoke(cli, ['process', '--dburl', db.dburl, '--no-prompt',
-                               '-p', pyfile, '-c', conffile, outfile] + cmdline_opts)
-
-        assert not result.exception
-        # check file has been correctly written:
-        csv1 = readcsv(outfile)
-        assert len(csv1) == 1
-        assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
-        assert self.inlogtext("""Overwriting existing output file
-3 segment(s) found to process
-
-segment (id=3): 4 traces (probably gaps/overlaps)
-segment (id=2): Station inventory (xml) error: <urlopen error error>
-
-station inventories saved: 1
-1 of 3 segment(s) successfully processed
-2 of 3 segment(s) skipped with error message (check log or details)""")
-        # assert logfile exists:
-        assert os.path.isfile(self._logfilename)
-
-        # save_downloaded_inventory True, test that we did save any:
-        assert len(db.session.query(Station).filter(Station.has_inventory).all()) > 0
-
-        # Or alternatively:
-        # test we did save any inventory:
-        stas = db.session.query(Station).all()
-        assert any(s.inventory_xml for s in stas)
-        assert db.session.query(Station).\
-            filter(Station.id == station_id_whose_inventory_is_saved).first().inventory_xml
-
-    # Recall: we have 5 segments:
-    # 2 are empty, out of the remaining three:
-    # 1 has errors if its inventory is queried to the db. Out of the other two:
-    # 1 has gaps
-    # 1 has no gaps
-    # Thus we have several levels of selection possible
-    # as by default withdata is True in segment_select, then we process only the last three
-    #
-    # Here a simple test for a processing file returning dict. Save inventory and check it's saved
-    @pytest.mark.parametrize("advanced_settings, cmdline_opts",
-                             [({}, []),
-                              ({'segments_chunk': 1}, []),
-                              ({'segments_chunk': 1}, ['--multi-process']),
-                              ({}, ['--multi-process']),
-                              ({'segments_chunk': 1}, ['--multi-process', '--num-processes', '1']),
-                              ({}, ['--multi-process', '--num-processes', '1'])])
-    @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_retDict_saveinv_complex_select(self, mock_yaml_load,
-                                                       advanced_settings,
-                                                       cmdline_opts,
-                                                       # fixtures:
-                                                       pytestdir,
-                                                       db):
+    def test_simple_run_retDict_complex_select(self, mock_yaml_load,
+                                               advanced_settings,
+                                               cmdline_opts,
+                                               # fixtures:
+                                               pytestdir, db):
         '''test a case where we have a more complex select involving joins'''
-        # When we use our exprequery, we might join already joined tables.
-        # previously, we had a
-        # sqlalchemy warning in the log. But this is NOT ANYMORE THE CASE as now we
-        # join only un-joined tables: it turned out that joining already joined tables
-        # issued warnings in some cases, and errors in some other cases.
-        # TEST HERE THAT WE DO NOT HAVE SUCH ERRORS
-        # FIXME: we should investigate why. One possible explanation is that if the joined
-        # table is in the query sql-alchemy issues a warning:
-        # query(Segment,Station).join(Segment.station).join(Segment.station)
-        # whereas if the joined table is not in the query, sql-alchemy issues an error:
-        # query(Segment,Station).join(Segment.event).join(Segment.event)
-        # an already added join is not added twice. as we realised that
-        # joins added multiple times where OK
 
+        # setup station inventories:
+        self.setup_station_inventories(db.session)
         # select the event times for the segments with data:
-        etimes = sorted(_[1] for _ in db.session.query(Segment.id, Event.time).\
-                            join(Segment.event).filter(Segment.has_data))
+        etimes = sorted(_[1] for _ in db.session.query(Segment.id, Event.time).
+                        join(Segment.event).filter(Segment.has_data))
 
-        config_overrides = {'save_inventory': True,
-                            'snr_threshold': 0,
+        config_overrides = {'snr_threshold': 0,
                             'segment_select': {'has_data': 'true',
                                                'event.time': '<=%s' % (max(etimes).isoformat())}}
         if advanced_settings:
@@ -501,32 +416,26 @@ station inventories saved: 1
         self.inlogtext("""3 segment(s) found to process
 
 segment (id=3): 4 traces (probably gaps/overlaps)
-segment (id=2): Station inventory (xml) error: <urlopen error error>
+segment (id=2): Station inventory (xml) error: no data
 
-station inventories saved: 1
 1 of 3 segment(s) successfully processed
 2 of 3 segment(s) skipped with error message (check log or details)""")
-
-        # save_downloaded_inventory True, test that we did save any:
-        assert len(db.session.query(Station).filter(Station.has_inventory).all()) > 0
-
-        # Or alternatively:
-        # test we did save any inventory:
-        stas = db.session.query(Station).all()
-        assert any(s.inventory_xml for s in stas)
-        assert db.session.query(Station).\
-            filter(Station.id == station_id_whose_inventory_is_saved).first().inventory_xml
+        # assert logfile exists:
+        assert os.path.isfile(self._logfilename)
 
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_retDict_saveinv_high_snr_threshold(self, mock_yaml_load,
-                                                           # fixtures:
-                                                           pytestdir,
-                                                           db):
+    def test_simple_run_retDict_high_snr_threshold(self, mock_yaml_load,
+                                                   # fixtures:
+                                                   pytestdir, db):
         '''same as `test_simple_run_retDict_saveinv` above
         but with a very high snr threshold => no rows processed'''
+        # setup inventories:
+        self.setup_station_inventories(db.session)
+
         # set values which will override the yaml config in templates folder:
-        config_overrides = {'save_inventory': True,
-                            'snr_threshold': 3,  # 3 is high enough to discard the only segment we would process otherwise
+        config_overrides = {  # snr_threshold 3 is high enough to discard the only segment
+                              # we would process otherwise:
+                            'snr_threshold': 3,
                             'segment_select': {'has_data': 'true'}}
         mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
 
@@ -545,82 +454,14 @@ station inventories saved: 1
         # check file has been correctly written:
         with pytest.raises(EmptyDataError):
             csv1 = readcsv(filename)
-        # assert len(csv1) == 0
-        # assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
         assert self.inlogtext("""3 segment(s) found to process
 
 segment (id=1): low snr 1.350154
 segment (id=3): 4 traces (probably gaps/overlaps)
-segment (id=2): Station inventory (xml) error: <urlopen error error>
+segment (id=2): Station inventory (xml) error: no data
 
-station inventories saved: 1
 0 of 3 segment(s) successfully processed
 3 of 3 segment(s) skipped with error message (check log or details)""")
-
-        # save_downloaded_inventory True, test that we did save any:
-        assert len(db.session.query(Station).filter(Station.has_inventory).all()) > 0
-
-        # Or alternatively:
-        # test we did save any inventory:
-        stas = db.session.query(Station).all()
-        assert any(s.inventory_xml for s in stas)
-        assert db.session.query(Station).\
-            filter(Station.id == station_id_whose_inventory_is_saved).first().inventory_xml
-
-    # Recall: we have 5 segments:
-    # 2 are empty, out of the remaining three:
-    # 1 has errors if its inventory is queried to the db. Out of the other two:
-    # 1 has gaps
-    # 1 has no gaps
-    # Thus we have several levels of selection possible
-    # as by default withdata is True in segment_select, then we process only the last three
-    #
-    # Here a simple test for a processing file returning dict. Don't save inventory and check it's
-    # not saved
-    @pytest.mark.parametrize("seg_chunk", [None, 1])
-    @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_retDict_dontsaveinv(self, mock_yaml_load, seg_chunk,
-                                            # fixtures:
-                                            pytestdir,
-                                            db):
-        '''same as `test_simple_run_retDict_saveinv` above
-         but with a 0 snr threshold and do not save inventories'''
-
-        # set values which will override the yaml config in templates folder:
-        config_overrides = {'save_inventory': False,
-                            'snr_threshold': 0,  # don't skip any segment in processing
-                            'segment_select': {'has_data': 'true'}}
-        if seg_chunk is not None:
-            config_overrides['advanced_settings'] = {'segments_chunk': seg_chunk}
-        mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
-
-        # query data for testing now as the program will expunge all data from the session
-        # and thus we want to avoid DetachedInstanceError(s):
-        expected_first_row_seg_id = self.seg1.id
-
-        runner = CliRunner()
-        filename = pytestdir.newfile('.csv')
-        pyfile, conffile = self.pyfile, self.conffile
-        result = runner.invoke(cli, ['process', '--dburl', db.dburl,
-                               '-p', pyfile, '-c', conffile, filename])
-
-        assert not result.exception
-        # check file has been correctly written:
-        csv1 = readcsv(filename)
-        assert len(csv1) == 1
-        assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
-
-        # Note below: no 'station inventories saved' message:
-        assert self.inlogtext("""3 segment(s) found to process
-
-segment (id=3): 4 traces (probably gaps/overlaps)
-segment (id=2): Station inventory (xml) error: <urlopen error error>
-
-1 of 3 segment(s) successfully processed
-2 of 3 segment(s) skipped with error message (check log or details)""")
-
-        # save_downloaded_inventory False, test that we did not save any:
-        assert len(db.session.query(Station).filter(Station.has_inventory).all()) == 0
 
     # Recall: we have 5 segments:
     # 2 are empty, out of the remaining three:
@@ -632,21 +473,24 @@ segment (id=2): Station inventory (xml) error: <urlopen error error>
     #
     # Here a simple test for a processing NO file. We implement a filter that excludes the only
     # processed file using associated stations lat and lon.
-    @pytest.mark.parametrize('select_with_data', [True, False])
+    @pytest.mark.parametrize('select_with_data, seg_chunk',
+                             [(True, None), (True, 1), (False, None), (False, 1)])
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
     def test_simple_run_retDict_seg_select_empty_and_err_segments(self, mock_yaml_load,
-                                                                 select_with_data,
-                                                                 # fixtures:
-                                                                 pytestdir,
-                                                                 db):
+                                                                  select_with_data, seg_chunk,
+                                                                  # fixtures:
+                                                                  pytestdir,
+                                                                  db):
         '''test a segment selection that takes only non-processable segments'''
         # set values which will override the yaml config in templates folder:
-        config_overrides = {'save_inventory': False,
-                            'snr_threshold': 0,  # take all segments
+        config_overrides = {'snr_threshold': 0,  # take all segments
                             'segment_select': {'station.latitude': '<10',
                                                'station.longitude': '<10'}}
         if select_with_data:
             config_overrides['segment_select']['has_data'] = 'true'
+        if seg_chunk is not None:
+            config_overrides['advanced_settings'] = {'segments_chunk': seg_chunk}
+
         # Note on segment_select above:
         # s_ok stations have lat and lon > 11, other stations do not
         # now we want to set a filter which gets us only the segments from stations not ok.
@@ -671,35 +515,25 @@ segment (id=2): Station inventory (xml) error: <urlopen error error>
         # check file has been correctly written:
         with pytest.raises(EmptyDataError):
             csv1 = readcsv(filename)
-#             assert len(csv1) == 1
-#             assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
 
-        # Note below: no 'station inventories saved' message in any log:
         if select_with_data:
             assert self.inlogtext("""1 segment(s) found to process
 
-segment (id=2): Station inventory (xml) error: <urlopen error error>
+segment (id=2): Station inventory (xml) error: no data
 
 0 of 1 segment(s) successfully processed
 1 of 1 segment(s) skipped with error message (check log or details)""")
         else:
             assert self.inlogtext("""3 segment(s) found to process
 
-segment (id=2): Station inventory (xml) error: <urlopen error error>
+segment (id=2): Station inventory (xml) error: no data
 segment (id=4): MiniSeed error: no data
 segment (id=5): MiniSeed error: no data
 
 0 of 3 segment(s) successfully processed
 3 of 3 segment(s) skipped with error message (check log or details)""")
 
-        # ===================================================================
-        # NOW WE CAN CHECK IF THE URLREAD HAS BEEN CALLED ONCE.
-        # Out of the three segments to process, two don't have data thus we do not reach
-        # the inventory() method. It remains only the third one, whcih downloads
-        # the inventory and calls mock_url_read:
-        # ===================================================================
-        assert self.mock_url_read.call_count == 1
-
+    #
     # Recall: we have 5 segments:
     # 2 are empty, out of the remaining three:
     # 1 has errors if its inventory is queried to the db. Out of the other two:
@@ -722,9 +556,10 @@ segment (id=5): MiniSeed error: no data
                                  pytestdir,
                                  db):
         '''test processing returning list, and also when we specify a different main function'''
+
+        self.setup_station_inventories(db.session)
         # set values which will override the yaml config in templates folder:
-        config_overrides = {'save_inventory': False,
-                            'snr_threshold': 0,  # take all segments
+        config_overrides = {'snr_threshold': 0,  # take all segments
                             'segment_select': {'has_data': 'true'}}
         if advanced_settings:
             config_overrides['advanced_settings'] = advanced_settings
@@ -774,15 +609,17 @@ def main(segment, config):""")
         assert self.inlogtext("""3 segment(s) found to process
 
 segment (id=3): 4 traces (probably gaps/overlaps)
-segment (id=2): Station inventory (xml) error: <urlopen error error>
+segment (id=2): Station inventory (xml) error: no data
 
 1 of 3 segment(s) successfully processed
 2 of 3 segment(s) skipped with error message (check log or details)""")
         # assert logfile exists:
         assert os.path.isfile(self._logfilename)
 
+
     @pytest.mark.parametrize("cmdline_opts",
-                             [[], ['--multi-process'], ['--multi-process', '--num-processes', '1']])
+                             [[], ['--multi-process'],
+                              ['--multi-process', '--num-processes', '1']])
     @pytest.mark.parametrize("err_type, expects_log_2_be_configured",
                              [(None, False),
                               (ImportError, False),
@@ -790,11 +627,9 @@ segment (id=2): Station inventory (xml) error: <urlopen error error>
                               (TypeError, True)])
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
     def test_errors_process_not_run(self, mock_yaml_load,
-                                           err_type, expects_log_2_be_configured,
-                                           cmdline_opts,
-                                           # fixtures:
-                                           pytestdir,
-                                           db):
+                                    err_type, expects_log_2_be_configured, cmdline_opts,
+                                    # fixtures:
+                                    pytestdir, db):
         '''test processing in case of severla 'critical' errors (which do not launch the process
           None means simply a bad argument (funcname missing)'''
         pyfile, conffile = self.pyfile, self.conffile
@@ -875,8 +710,7 @@ def main(""")
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
     def test_errors_process_completed(self, mock_yaml_load, err_type,
                                       # fixtures:
-                                      pytestdir,
-                                      db):
+                                      pytestdir, db):
         '''test processing in case of non 'critical' errors i.e., which do not prevent the process
           to be completed. None means we do not override segment_select which, with the current
           templates, causes no segment to be selected'''
@@ -977,3 +811,131 @@ def main(""")
                  r"0 of 3 segment\(s\) successfully processed\n"
                  r"3 of 3 segment\(s\) skipped with error message \(check log or details\)")
             assert re.search(str2check, logfilecontent)
+
+
+
+
+
+
+# ===============================================================================================
+
+    # skipped tests (Redundant or merged into other tests since we do not implement save
+    # inventories anymore during processing):
+
+    @pytest.mark.skip(reason=("This test is basically the same as "
+                              "'test_simple_run_retDict_complex_select' after we removed "
+                              "save inventory  during processing"))
+    # Recall: we have 5 segments:
+    # 2 are empty, out of the remaining three:
+    # 1 has errors if its inventory is queried to the db. Out of the other two:
+    # 1 has gaps
+    # 1 has no gaps
+    # Thus we have several levels of selection possible
+    # as by default withdata is True in segment_select, then we process only the last three
+    #
+    # Here a simple test for a processing file returning dict. Save inventory and check it's saved
+    @pytest.mark.parametrize("advanced_settings, cmdline_opts",
+                             [({}, []),
+                              ({'segments_chunk': 1}, []),
+                              ({'segments_chunk': 1}, ['--multi-process']),
+                              ({}, ['--multi-process']),
+                              ({'segments_chunk': 1}, ['--multi-process', '--num-processes', '1']),
+                              ({}, ['--multi-process', '--num-processes', '1'])])
+    @mock.patch('stream2segment.utils.inputargs.yaml_load')
+    def test_simple_run_retDict(self, mock_yaml_load, advanced_settings, cmdline_opts,
+                                # fixtures:
+                                pytestdir, db):
+        '''test a case where save inventory is True, and that we saved inventories'''
+        # save inventories data:
+        self.setup_station_inventories(db.session)
+
+        # set values which will override the yaml config in templates folder:
+        config_overrides = {'snr_threshold': 0,
+                            'segment_select': {'has_data': 'true'}}
+        if advanced_settings:
+            config_overrides['advanced_settings'] = advanced_settings
+        mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
+
+        # query data for testing now as the program will expunge all data from the session
+        # and thus we want to avoid DetachedInstanceError(s):
+        expected_first_row_seg_id = self.seg1.id
+        station_id_whose_inventory_is_saved = self.sta_ok.id
+
+        runner = CliRunner()
+        # test with a temporary file, i.e. a file which is created BEFORE, and supply --no-prompt
+        # test then that we print the message "overridden the file..." in log output
+        outfile = pytestdir.newfile('output.csv', create=True)
+        pyfile, conffile = self.pyfile, self.conffile
+        result = runner.invoke(cli, ['process', '--dburl', db.dburl, '--no-prompt',
+                               '-p', pyfile, '-c', conffile, outfile] + cmdline_opts)
+
+        assert not result.exception
+        # check file has been correctly written:
+        csv1 = readcsv(outfile)
+        assert len(csv1) == 1
+        assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
+        assert self.inlogtext("""Overwriting existing output file
+3 segment(s) found to process
+
+segment (id=3): 4 traces (probably gaps/overlaps)
+segment (id=2): Station inventory (xml) error: no data
+
+1 of 3 segment(s) successfully processed
+2 of 3 segment(s) skipped with error message (check log or details)""")
+        # assert logfile exists:
+        assert os.path.isfile(self._logfilename)
+
+    @pytest.mark.skip(reason=("This test is basically the same as "
+                              "'test_simple_run_retDict_seg_select_empty_and_err_segments' "
+                              "after we removed save inventory  during processing"))
+    # Recall: we have 5 segments:
+    # 2 are empty, out of the remaining three:
+    # 1 has errors if its inventory is queried to the db. Out of the other two:
+    # 1 has gaps
+    # 1 has no gaps
+    # Thus we have several levels of selection possible
+    # as by default withdata is True in segment_select, then we process only the last three
+    #
+    # Here a simple test for a processing file returning dict. Don't save inventory and check it's
+    # not saved
+    @pytest.mark.parametrize("seg_chunk", [None, 1])
+    @mock.patch('stream2segment.utils.inputargs.yaml_load')
+    def test_simple_run_retDict_noinvsaved(self, mock_yaml_load, seg_chunk,
+                                           # fixtures:
+                                           pytestdir, db):
+        '''same as `test_simple_run_retDict` above
+         but with a 0 snr threshold and no inventories saved on db'''
+
+        # set values which will override the yaml config in templates folder:
+        config_overrides = {'snr_threshold': 0,  # don't skip any segment in processing
+                            'segment_select': {'has_data': 'true'}}
+        if seg_chunk is not None:
+            config_overrides['advanced_settings'] = {'segments_chunk': seg_chunk}
+        mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
+
+        # query data for testing now as the program will expunge all data from the session
+        # and thus we want to avoid DetachedInstanceError(s):
+        expected_first_row_seg_id = self.seg1.id
+
+        runner = CliRunner()
+        filename = pytestdir.newfile('.csv')
+        pyfile, conffile = self.pyfile, self.conffile
+        result = runner.invoke(cli, ['process', '--dburl', db.dburl,
+                               '-p', pyfile, '-c', conffile, filename])
+
+        assert not result.exception
+        # check file has NOT been correctly written:
+        with pytest.raises(EmptyDataError):
+            csv1 = readcsv(filename)
+
+        # Check log: no 'station inventories => no segment processed:
+        assert self.inlogtext("""3 segment(s) found to process
+
+segment (id=1): Station inventory (xml) error: no data
+segment (id=3): 4 traces (probably gaps/overlaps)
+segment (id=2): Station inventory (xml) error: no data
+
+0 of 3 segment(s) successfully processed
+3 of 3 segment(s) skipped with error message (check log or details)""")
+
+

@@ -13,9 +13,6 @@ segment_select:
   # event.latitude: "[24, 70]"
   # event.longitude: "[-11, 24]"
 
-# {{ PROCESS_YAML_SAVEINVENTORY }}
-save_inventory: False
-
 # {{ PROCESS_YAML_SNWINDOWS }}
 sn_windows:
   arrival_time_shift: -2.0  # programmatically shifts the arrival time for every segment (in seconds)

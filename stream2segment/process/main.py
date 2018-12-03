@@ -121,12 +121,6 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
 
     chunksize, multi_process, num_processes = get_advanced_settings(config, seg_len, show_progress)
 
-    def stationssaved():
-        '''returns how many station inventories are saved on the db (int)'''
-        return session.query(func.count(Station.id)).filter(Station.has_inventory).scalar()
-
-    stasaved = stationssaved()
-
     logger.info("%d segment(s) found to process", seg_len)
     logger.info('')
     # set/update classes, if written in the config, so that we can set instance classes in the
@@ -230,10 +224,6 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
 
     logger.info('')
     done, skipped, errors = done_skipped_errors
-    # get stations with data and inform the user if any new has been saved:
-    stasaved2 = stationssaved()
-    if stasaved2 > stasaved:
-        logger.info("station inventories saved: %d", (stasaved2-stasaved))
 
     logger.info("%d of %d segment(s) successfully processed", done, seg_len)
     if skipped:  # this is the case when ondone is provided AND pyfunc returned None

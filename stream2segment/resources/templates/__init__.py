@@ -462,7 +462,8 @@ segment methods:
   For info see https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.copy.html
 
 * segment.inventory(): the `obspy.core.inventory.inventory.Inventory`. This object is useful e.g.,
-  for removing the instrumental response from `segment.stream()`
+  for removing the instrumental response from `segment.stream()`: note that it will be available
+  only if the inventories in xml format were downloaded in the downloaded subroutine
 
 * segment.sn_windows(): returns the signal and noise time windows:
   (s_start, s_end), (n_start, n_end)
@@ -542,9 +543,9 @@ PROCESS_YAML_MAIN = '''
 # This editable template defines the configuration parameters which will
 # be accessible in the associated processing / visualization python file.
 #
-# You are free to implement here anything you need: there are no mandatory parameters, although one
-# ('segment_select') is almost necessary and few ('save_inventory' and 'sn_windows') very useful.
-# Moreover, 'segment_select' and 'sn_windows' add also special features to the GUI.
+# You are free to implement here anything you need: there are no mandatory parameters but we
+# strongly suggest to keep 'segment_select' and 'sn_windows', which add also special features
+# to the GUI.
 '''
 
 # yamelise _SEGMENT_ATTRS (first line not commented, see below)
@@ -594,13 +595,6 @@ The parameter 'segment_select' defines what segments to be processed or
 #
 # ''' + _SEGMENT_ATTRS_YAML + '''
 # '''
-
-
-PROCESS_YAML_SAVEINVENTORY = '''
-Boolean flag indicating whether station inventories (in xml format) should be saved to the database
-# when they need to be downloaded during processing. Defaults to False when not given.
-# From within the GUI, this parameter is not used
-'''
 
 PROCESS_YAML_SNWINDOWS = '''
 Settings for computing the 'signal' and 'noise' time windows on a segment waveform.

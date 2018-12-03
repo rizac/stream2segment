@@ -191,10 +191,8 @@ def enhancesegmentclass(config_dict=None, overwrite_config=False):
             '''returns the inventory from self (a segment class)'''
             inventory = getattr(self, "_inventory", None)
             if inventory is None:
-                save_station_inventory = self._config.get('save_inventory', False)
                 try:
-                    inventory = self._inventory = get_inventory(self.station,
-                                                                save_station_inventory)
+                    inventory = self._inventory = get_inventory(self.station)
                 except Exception as exc:   # pylint: disable=broad-except
                     inventory = self._inventory = \
                         Exception("Station inventory (xml) error: %s" %
@@ -246,27 +244,9 @@ def get_sn_windows(config, a_time, stream):
     '''
     # Use inputargs utilities to raise pre-formatted exception messages from our
     # validation callbacks:
-    snw_dic = get(config, ['sn_windows'])[1]
-    atime_shift = parse(*get(config, ['arrival_time_shift']), parsefunc=float)
-
-#     name = 'sn_windows'
-#     snw_dic = S2SArgument(name).getfrom(config)
-#     atime_shift = S2SArgument('arrival_time_shift').getfrom(snw_dic, callback=float)
-
-    def sw_callback(sn_windows):
-        '''callback to parse sn_windows, which should be either a float or a iterable of two
-        floats. Being called by S2SArgument, any exception will be caught and raised with a
-        BadArgument exception properly formatted with the argument name provided and the
-        exception
-        '''
-        try:
-            cum0, cum1 = sn_windows
-            if cum0 < 0 or cum0 > 1 or cum1 < 0 or cum1 > 1:
-                raise ValueError('elements provided in signal window must be in [0, 1]')
-            return float(cum0), float(cum1)
-        except TypeError:  # not a tuple/list? then it's a scalar:
-            return float(sn_windows)
-    s_windows = parse(*get(snw_dic, ['signal_window']), parsefunc=sw_callback)
+    snw_dic = get(config, 'sn_windows')[1]
+    atime_shift = parse(*get(snw_dic, 'arrival_time_shift'), parsefunc=float)
+    s_windows = parse(*get(snw_dic, 'signal_window'), parsefunc=_parse_sn_windows)
 
     if len(stream) != 1:
         raise ValueError(("Unable to get sn-windows: %d traces in stream "
@@ -285,6 +265,25 @@ def get_sn_windows(config, a_time, stream):
         nsy, sig = (a_time-s_windows, a_time), (a_time, a_time+s_windows)
     # note: returns always tuples as they cannot be modified by the user (safer)
     return sig, nsy
+
+
+def _parse_sn_windows(sn_windows):
+    '''callback to parse sn_windows. Returns the argument parsed to float (or with all
+    its elements parsed to float). Any exception will be caught and raised with a
+    BadArgument exception properly formatted with the argument name provided and the
+    exception
+
+    :param sn_wondows: either a float or a iterable of two
+
+    :raise: :class:`BadArgument`
+    '''
+    try:
+        cum0, cum1 = sn_windows
+        if cum0 < 0 or cum0 > 1 or cum1 < 0 or cum1 > 1:
+            raise ValueError('elements provided in signal window must be in [0, 1]')
+        return float(cum0), float(cum1)
+    except TypeError:  # not a tuple/list? then it's a scalar:
+        return float(sn_windows)
 
 
 def get_stream(segment, format="MSEED", headonly=False, **kwargs):  # @ReservedAssignment
@@ -320,54 +319,15 @@ def get_stream(segment, format="MSEED", headonly=False, **kwargs):  # @ReservedA
         raise ValueError(str(terr))
 
 
-def get_inventory(station, saveinventory=True, **urlread_kwargs):
+def get_inventory(station):
     """Gets the inventory object for the given station, downloading it and saving it
     if not data is empty/None.
-    Raises any utils.url.URLException for any url related errors, ValueError if inventory data
-    is empty
+    Raises ValueError if inventory data is empty
     """
     data = station.inventory_xml
     if not data:
-        data = download_inventory(station, **urlread_kwargs)
-        # saving the inventory must NOT prevent the continuation.
-        # If we are here we have non-empty data:
-        if saveinventory and data:
-            try:
-                save_inventory(station, data)
-            except Exception as _:
-                pass  # FIXME: how to handle it?
-    if not data:
         raise ValueError('no data')
-    return loads_inv(data)  # convert from bytes into obspy object
-
-
-def download_inventory(station, **urlread_kwargs):
-    '''downloads the given inventory. Raises utils.url.URLException on error'''
-    query_url = get_inventory_url(station)
-    return urlread(query_url, **urlread_kwargs)[0]
-
-
-def get_inventory_url(station):
-    '''joins the attributes of `station` to build its inventory url (including the
-    query arguments) and returns the url.
-    :param station: a models.Station object
-    '''
-    return urljoin(station.datacenter.station_url, station=station.station,
-                   network=station.network, level='response')
-
-
-def save_inventory(station, downloaded_bytes_data):
-    """Saves the inventory. Raises SqlAlchemyError if station's session is None,
-    or (most likely IntegrityError) on failure
-    """
-    station.inventory_xml = dumps_inv(downloaded_bytes_data)
-    try:
-        object_session(station).commit()
-    except UnmappedInstanceError:
-        raise
-    except SQLAlchemyError:
-        object_session(station).rollback()
-        raise
+    return loads_inv(data)
 
 
 def set_classes(session, config, commit=True):

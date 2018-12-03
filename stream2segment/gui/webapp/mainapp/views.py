@@ -27,8 +27,7 @@ def main():
     settings = {'segment_select': config.pop('segment_select', {})}
     # pop keys not to be shown in the gui config form (either already processed, or not
     # regarding plot settings:
-    for key in ['class_labels', 'save_inventory']:
-        config.pop(key, None)
+    config.pop('class_labels', None)
     # create a flatten dict by joininf nested dict keys with the dot:
     settings['config'] = core.flatten_dict(config)
     # filterfunc_doc = current_app.config['PLOTMANAGER'].get_filterfunc_doc.replace("\n", "<p>")
