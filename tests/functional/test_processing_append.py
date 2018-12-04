@@ -224,11 +224,11 @@ def main2(segment, config):""")
         assert len(csv1) == 1
         assert csv1.loc[0, csv1.columns[0]] == expected_first_row_seg_id
         logtext1 = self.logfilecontent
-        assert "3 segment(s) found to process" in logtext1
+        assert "4 segment(s) found to process" in logtext1
         assert "Skipping 1 already processed segment(s)" not in logtext1
         assert "Ignoring `append` functionality: output file does not exist or not provided" \
             in logtext1
-        assert "1 of 3 segment(s) successfully processed" in logtext1
+        assert "1 of 4 segment(s) successfully processed" in logtext1
         assert not mock_click_confirm.called
 
         # now test a second call, the same as before:
@@ -236,15 +236,14 @@ def main2(segment, config):""")
         result = clirunner.invoke(cli, ['process', '--dburl', db4process.dburl,
                                         '-p', pyfile, '-c', conffile, filename] + cmdline_opts)
         # check file has been correctly written:
-        # check file has been correctly written:
         csv2 = readcsv(filename, header=not return_list)
         assert len(csv2) == 1
         assert csv2.loc[0, csv1.columns[0]] == expected_first_row_seg_id
         logtext2 = self.logfilecontent
-        assert "2 segment(s) found to process" in logtext2
+        assert "3 segment(s) found to process" in logtext2
         assert "Skipping 1 already processed segment(s)" in logtext2
         assert "Appending results to existing file." in logtext2
-        assert "0 of 2 segment(s) successfully processed" in logtext2
+        assert "0 of 3 segment(s) successfully processed" in logtext2
         assert not mock_click_confirm.called
         # assert two rows are equal:
         assert_frame_equal(csv1, csv2, check_dtype=True)
@@ -266,10 +265,10 @@ def main2(segment, config):""")
         assert csv3.loc[0, csv1.columns[0]] == expected_first_row_seg_id
         assert csv3.loc[1, csv1.columns[0]] == new_seg_id
         logtext3 = self.logfilecontent
-        assert "3 segment(s) found to process" in logtext3
+        assert "4 segment(s) found to process" in logtext3
         assert "Skipping 1 already processed segment(s)" in logtext3
         assert "Appending results to existing file." in logtext3
-        assert "1 of 3 segment(s) successfully processed" in logtext3
+        assert "1 of 4 segment(s) successfully processed" in logtext3
         assert not mock_click_confirm.called
         # assert two rows are equal:
         assert_frame_equal(csv1, csv3[:1], check_dtype=True)
@@ -283,10 +282,10 @@ def main2(segment, config):""")
         assert len(csv4) == 1
         assert csv4.loc[0, csv1.columns[0]] == new_seg_id
         logtext4 = self.logfilecontent
-        assert "3 segment(s) found to process" in logtext4
+        assert "4 segment(s) found to process" in logtext4
         assert "Skipping 1 already processed segment(s)" not in logtext4
         assert "Appending results to existing file." not in logtext4
-        assert "1 of 3 segment(s) successfully processed" in logtext4
+        assert "1 of 4 segment(s) successfully processed" in logtext4
         assert 'Overwriting existing output file' in logtext4
         assert mock_click_confirm.called
 

@@ -394,10 +394,21 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
 
 @pytest.fixture
 def db4process(db, data):
-
+    '''This fixture basically extends the `db` fixture and returns an object with all the
+    method of the `db` object (db.dburl, db.session) plus:
+    db4process.segments(self, with_inventory, with_data, with_gap)
+    '''
     class _ProcessDB(object):
-
+        '''So, no easy way to override easily with pytest from the object returned by the 'db'
+        fixture. The best way is to pass `db` as argument above, which also assures that
+        functions/methods having `db4process` as arguments will behave as those having `db`
+        (i.e., they will be called iteratively for any database url passed in the command line).
+        Drawback: we cannot override the class returned by `db`, so we provide a different class
+        which mimics inheritance by forwarding to db each attribute not found
+        (__getatttr__). Whether there might be a better way to achieve this, it wasn't clear from
+        pytest docs'''
         def __getattr__(self, name):
+            '''Lets the user call db4process.dburl, db4process.session,...'''
             return getattr(db, name)
 
         def segments(self, with_inventory, with_data, with_gap):
@@ -407,14 +418,14 @@ def db4process(db, data):
             return self.session.query(Segment).filter(Segment.data_seed_id == data_seed_id)
 
         def create(self, to_file=False, base=None):
-
+            '''Calls db.create and then populates the database with the data for processing
+            tests'''
             # re-init a sqlite database (no-op if the db is not sqlite):
             db.create(to_file, base)
-
             # init db:
             session = db.session
 
-            # setup a run_id:
+            # Populate the database:
             dwl = Download()
             session.add(dwl)
             session.commit()
