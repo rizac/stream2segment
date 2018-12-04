@@ -1039,7 +1039,8 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                                             # fixtures:
                                             db, clirunner):
         ''' we experienced once a UnicodeDecodeError in mseed_unpack, whcih, has expected
-        raised. Fine, but we got also another error: attempt to write on an apparently already-closed logger,
+        raised. Fine, but we got also another error: attempt to write on an apparently
+        already-closed logger,
         as if threads where trying to access concurrently to the same logger.
         Try to test this case even if unfortunately we did not experience this issue in this test'''
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v)

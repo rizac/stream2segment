@@ -64,9 +64,6 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
         def __init__(self, dburl):
             self.dburl = dburl
             self._base = Base
-            self._reinit_vars()
-
-        def _reinit_vars(self):
             self._session = None
             self.engine = None
 
@@ -114,17 +111,21 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
 
         def delete(self):
             '''Deletes this da tabase, i.e. all tables and the file referring to it, if any'''
+            if self._session is not None:
+                try:
+                    self.session.rollback()
+                    self.session.close()
+                except:  # @IgnorePep8 pylint: disable=bare-except
+                    pass
+                self._session = None
+
             if self.engine:
-                if self._session is not None:
-                    try:
-                        self.session.rollback()
-                        self.session.close()
-                    except:  # @IgnorePep8 pylint: disable=bare-except
-                        pass
                 try:
                     self._base.metadata.drop_all(self.engine)  # @UndefinedVariable
                 except:  # @IgnorePep8 pylint: disable=bare-except
                     pass
+                self.engine.dispose()
+
             # clear file if sqlite:
             sqlite = "sqlite:///"
             if self.dburl.startswith(sqlite):
@@ -134,7 +135,6 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
                         os.remove(filename)
                     except:  # @IgnorePep8 pylint: disable=bare-except
                         pass
-            self._reinit_vars()
 
     ret = DB(request.param)
     request.addfinalizer(ret.delete)

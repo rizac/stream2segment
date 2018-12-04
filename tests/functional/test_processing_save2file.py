@@ -161,26 +161,26 @@ class Test(object):
         # sets up the station inventory data
         # See self.setup_station_inventories()
         self._mocked_sta_inv_data = data.read("inventory_GE.APE.xml")
+        with patch('stream2segment.utils.inputargs.get_session', return_value=session):
+            with patch('stream2segment.main.closesession',
+                       side_effect=lambda *a, **v: None):
+                with patch('stream2segment.main.configlog4processing') as mock2:
 
-        with patch('stream2segment.main.closesession',
-                   side_effect=lambda *a, **v: None):
-            with patch('stream2segment.main.configlog4processing') as mock2:
+                    def clogd(logger, logfilebasepath, verbose):
+                        # config logger as usual, but redirects to a temp file
+                        # that will be deleted by pytest, instead of polluting the program
+                        # package:
+                        ret = o_configlog4processing(logger,
+                                                     pytestdir.newfile('.log') \
+                                                     if logfilebasepath else None,
+                                                     verbose)
 
-                def clogd(logger, logfilebasepath, verbose):
-                    # config logger as usual, but redirects to a temp file
-                    # that will be deleted by pytest, instead of polluting the program
-                    # package:
-                    ret = o_configlog4processing(logger,
-                                                 pytestdir.newfile('.log') \
-                                                 if logfilebasepath else None,
-                                                 verbose)
+                        self._logfilename = ret[0].baseFilename
+                        return ret
 
-                    self._logfilename = ret[0].baseFilename
-                    return ret
+                    mock2.side_effect = clogd
 
-                mock2.side_effect = clogd
-
-                yield
+                    yield
 
     # ## ======== ACTUAL TESTS: ================================
 
