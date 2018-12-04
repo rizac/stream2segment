@@ -104,7 +104,7 @@ class Test(object):
     # those segments in case. For info see db4process in conftest.py
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
     @mock.patch('stream2segment.main.run_process', side_effect=process_main_run)
-    def tst_simple_run_no_outfile_provided(self, mock_run, mock_yaml_load,
+    def test_simple_run_no_outfile_provided(self, mock_run, mock_yaml_load,
                                             # fixtures:
                                             db4process, clirunner):
         '''test a case where save inventory is True, and that we saved inventories'''
@@ -139,7 +139,7 @@ class Test(object):
                              [({}, ['-a']),
                               ])
     @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def tst_simple_run_retDict_saveinv_emptyfile(self, mock_yaml_load, advanced_settings,
+    def test_simple_run_retDict_saveinv_emptyfile(self, mock_yaml_load, advanced_settings,
                                                   cmdline_opts,
                                                   # fixtures:
                                                   pytestdir, db4process, clirunner):
