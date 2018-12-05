@@ -442,7 +442,7 @@ def create_processing_env(length=0, config=None, redirect_stderr=False, warnings
     python filter. E.g. 'ignore'. For info see FIXME: add link
     '''
     with get_progressbar(length > 0, length=length) as pbar:  # no-op if length not > 0
-        with redirect(sys.stderr if redirect_stderr else None):   # no-op if redirect_stderr is None
+        with redirect(sys.stderr if redirect_stderr else None):   # no-op if redirect_stderr=None
             if config is not None and warnings_filter:
                 with warnings.catch_warnings():
                     warnings.simplefilter(warnings_filter)
