@@ -128,22 +128,22 @@ class Test(object):
         seedid_gaps_unmerged = None
         seedid_gaps_merged = read(BytesIO(data_gaps_merged))[0].get_id()
 
-        for ev, c in product([ev1], channels):
-            val = int(c.location[:2])
-            mseed = data_gaps_merged if "gap_merged" in c.location else \
-                data_err if "err" in c.location else \
-                data_gaps_unmerged if 'gap_unmerged' in c.location else data_ok
-            seedid = seedid_gaps_merged if "gap_merged" in c.location else \
-                seedid_err if 'err' in c.location else \
-                seedid_gaps_unmerged if 'gap_unmerged' in c.location else seedid_ok
+        for evt, cha in product([ev1], channels):
+            val = int(cha.location[:2])
+            mseed = data_gaps_merged if "gap_merged" in cha.location else \
+                data_err if "err" in cha.location else \
+                data_gaps_unmerged if 'gap_unmerged' in cha.location else data_ok
+            seedid = seedid_gaps_merged if "gap_merged" in cha.location else \
+                seedid_err if 'err' in cha.location else \
+                seedid_gaps_unmerged if 'gap_unmerged' in cha.location else seedid_ok
 
             # set times. For everything except data_ok, we set a out-of-bounds time:
-            start_time = ev.time - timedelta(seconds=5)
-            arrival_time = ev.time - timedelta(seconds=4)
-            end_time = ev.time - timedelta(seconds=1)
+            start_time = evt.time - timedelta(seconds=5)
+            arrival_time = evt.time - timedelta(seconds=4)
+            end_time = evt.time - timedelta(seconds=1)
 
-            if "gap_merged" not in c.location and 'err' not in c.location and \
-                    'gap_unmerged' not in c.location:
+            if "gap_merged" not in cha.location and 'err' not in cha.location and \
+                    'gap_unmerged' not in cha.location:
                 start_time = obspy_trace.stats.starttime.datetime
                 arrival_time = (obspy_trace.stats.starttime +
                                 (obspy_trace.stats.endtime -
@@ -156,9 +156,9 @@ class Test(object):
                           data=mseed,
                           data_seed_id=seedid,
                           event_distance_deg=val,
-                          event_id=ev.id,
+                          event_id=evt.id,
                           **fixed_args)
-            c.segments.append(seg)
+            cha.segments.append(seg)
 
         session.commit()
 
@@ -219,14 +219,14 @@ class Test(object):
 
         components_count = {}  # group_id -> num expected components
         # where group_id is the tuple (event_id, channel.location)
-        for s in db.session.query(Segment):
-            group_id = (s.event_id, s.channel.location)
+        for sess in db.session.query(Segment):
+            group_id = (sess.event_id, sess.channel.location)
             if group_id not in components_count:
                 # we should have created views also for the other components. To get
                 # other components, use the segment channel and event id
                 other_comps_count = db.session.query(Segment).join(Segment.channel).\
-                    filter(and_(Segment.event_id == s.event_id,
-                                Channel.location == s.channel.location)).count()
+                    filter(and_(Segment.event_id == sess.event_id,
+                                Channel.location == sess.channel.location)).count()
 
                 components_count[group_id] = other_comps_count
 
@@ -311,12 +311,11 @@ class Test(object):
                         else:
                             assert not len("".join(plotlist[1].warnings))
 
+        for sess in db.session.query(Segment):
 
-        for s in db.session.query(Segment):
+            pmg = PlotManager(self.pymodule, self.config)
 
-            m = PlotManager(self.pymodule, self.config)
-
-            expected_components_count = components_count[(s.event_id, s.channel.location)]
+            expected_components_count = components_count[(sess.event_id, sess.channel.location)]
 
             mock_get_stream.reset_mock()
             mock_get_inv.reset_mock()
@@ -325,29 +324,30 @@ class Test(object):
             allcomponents = True
             preprocessed = False
             idxs = [0]
-            # s_id_was_in_views = s.id in m._plots
-            plots = m.get_plots(db.session, s.id, idxs, preprocessed, allcomponents)
+            # s_id_was_in_views = sess.id in pmg._plots
+            plots = pmg.get_plots(db.session, sess.id, idxs, preprocessed, allcomponents)
 #             # assert returned plot has the correct number of time/line-series:
 #             # note that plots[0] might be generated from a stream with gaps
-            assert len(plots[0].data) == self.traceslen(m, s.id, preprocessed, allcomponents)
+            assert len(plots[0].data) == self.traceslen(pmg, sess.id, preprocessed, allcomponents)
             # asssert the returned value match the input:
             assert len(plots) == len(idxs)
-            assert not self.plotslen(m, preprocessed=True)  # assert no filtering calculated
+            assert not self.plotslen(pmg, preprocessed=True)  # assert no filtering calculated
             # assert we did not calculate other components (all_components=False)
-            assert self.computedplotslen(m, s.id, preprocessed, allcomponents=False) == len(idxs)
-            assert self.computedplotslen(m, s.id, preprocessed, allcomponents) == \
+            assert self.computedplotslen(pmg, sess.id, preprocessed, allcomponents=False) == \
+                len(idxs)
+            assert self.computedplotslen(pmg, sess.id, preprocessed, allcomponents) == \
                 expected_components_count
             # assert SegmentWrapper function calls:
             assert not mock_get_inv.called  # preprocess=False
             assert mock_get_stream.call_count == expected_components_count
             # assert we did not calculate any useless stream:
-            assert_(m[s.id][0], s, preprocessed=False)
-            assert m[s.id][1] is None
+            assert_(pmg[sess.id][0], sess, preprocessed=False)
+            assert pmg[sess.id][1] is None
 
             # from here on, try to calculate the plots for 3 types: main plot (index 0)
             # index of cumulative, and index of spectra
-            CUMUL_INDEX, SN_INDEX, DERIVCUM2_INDEX = [None] * 3  #pylint: disable=invalid-name
-            for i, p in enumerate(m.userdefined_plots):
+            CUMUL_INDEX, SN_INDEX, DERIVCUM2_INDEX = [None] * 3  # pylint: disable=invalid-name
+            for i, p in enumerate(pmg.userdefined_plots):
                 if p['name'] == 'cumulative':
                     CUMUL_INDEX = p['index']
                 elif p['name'] == 'sn_spectra':
@@ -365,86 +365,89 @@ class Test(object):
             mock_get_inv.reset_mock()
             allcomponents = True
             preprocessed = False
-            # s_id_was_in_views = s.id in m._plots
-            plots = m.get_plots(db.session, s.id, idxs, preprocessed, allcomponents)
+            # s_id_was_in_views = sess.id in pmg._plots
+            plots = pmg.get_plots(db.session, sess.id, idxs, preprocessed, allcomponents)
 #           # asssert the returned value match the input:
             assert len(plots) == len(idxs)
-            assert not self.plotslen(m, preprocessed=True)  # assert no filtering calculated
+            assert not self.plotslen(pmg, preprocessed=True)  # assert no filtering calculated
             # assert we did not calculate other components (all_components=False)
-            assert self.computedplotslen(m, s.id, preprocessed, allcomponents=False) == len(idxs)
+            assert self.computedplotslen(pmg, sess.id, preprocessed, allcomponents=False) == \
+                len(idxs)
             # if we calculate all components, we should have expected components count PLUS
             # all plots which are not the main plot (index 0):
-            assert self.computedplotslen(m, s.id, preprocessed, allcomponents) == \
+            assert self.computedplotslen(pmg, sess.id, preprocessed, allcomponents) == \
                 expected_components_count + sum(_ != 0 for _ in idxs)
             # assert SegmentWrapper function calls:
             assert not mock_get_inv.called  # preprocess=False
             assert not mock_get_stream.called  # already computed
             # assert we did not calculate any useless stream:
-            assert_(m[s.id][0], s, preprocessed=False)
-            assert m[s.id][1] is None
+            assert_(pmg[sess.id][0], sess, preprocessed=False)
+            assert pmg[sess.id][1] is None
 
             mock_get_stream.reset_mock()
             mock_get_inv.reset_mock()
             allcomponents = False
             preprocessed = True
-            # s_id_was_in_views = s.id in m._plots
-            plots = m.get_plots(db.session, s.id, idxs, preprocessed, allcomponents)
+            # s_id_was_in_views = sess.id in pmg._plots
+            plots = pmg.get_plots(db.session, sess.id, idxs, preprocessed, allcomponents)
 #           # asssert the returned value match the input:
             assert len(plots) == len(idxs)
-            assert self.plotslen(m, preprocessed=True)  # assert no filtering calculated
+            assert self.plotslen(pmg, preprocessed=True)  # assert no filtering calculated
             # assert we did not calculate other components (all_components=False)
-            assert self.computedplotslen(m, s.id, preprocessed, allcomponents=False) == len(idxs)
-            assert self.computedplotslen(m, s.id, preprocessed, allcomponents) == len(idxs)
+            assert self.computedplotslen(pmg, sess.id, preprocessed, allcomponents=False) == \
+                len(idxs)
+            assert self.computedplotslen(pmg, sess.id, preprocessed, allcomponents) == len(idxs)
             # assert SegmentWrapper function calls:
-            if 'err' not in s.channel.location and 'gap' not in s.channel.location:
+            if 'err' not in sess.channel.location and 'gap' not in sess.channel.location:
                 assert mock_get_inv.called  # preprocess=False
             else:
                 assert not mock_get_inv.called
             assert not mock_get_stream.called  # already computed
             # assert we did not calculate any useless stream:
-            assert_(m[s.id][0], s, preprocessed=False)
-            assert_(m[s.id][1], s, preprocessed=True)
+            assert_(pmg[sess.id][0], sess, preprocessed=False)
+            assert_(pmg[sess.id][1], sess, preprocessed=True)
 
             mock_get_stream.reset_mock()
             mock_get_inv.reset_mock()
             allcomponents = True
             preprocessed = True
-            # s_id_was_in_views = s.id in m._plots
-            plots = m.get_plots(db.session, s.id, idxs, preprocessed, allcomponents)
+            # s_id_was_in_views = sess.id in pmg._plots
+            plots = pmg.get_plots(db.session, sess.id, idxs, preprocessed, allcomponents)
             # asssert the returned value match the input:
             assert len(plots) == len(idxs)
-            assert self.plotslen(m, preprocessed=True)  # assert no filtering calculated
+            assert self.plotslen(pmg, preprocessed=True)  # assert no filtering calculated
             # assert we did not calculate other components (all_components=False)
-            assert self.computedplotslen(m, s.id, preprocessed, allcomponents=False) == len(idxs)
+            assert self.computedplotslen(pmg, sess.id, preprocessed, allcomponents=False) == \
+                len(idxs)
             # regardless whether allcomponents is true or false, we compute only the main plot
-            assert self.computedplotslen(m, s.id, preprocessed, allcomponents) == len(idxs)
+            assert self.computedplotslen(pmg, sess.id, preprocessed, allcomponents) == len(idxs)
             # assert SegmentWrapper function calls:
             assert not mock_get_inv.called  # already called
             assert not mock_get_stream.called  # already computed
             # assert all titles are properly set, with the given prefix
-            seedid = s.seed_id
-            assert all(p is None or p.title.startswith(seedid) for p in m[s.id][0])
-            assert all(p is None or p.title.startswith(seedid) for p in m[s.id][1])
+            seedid = sess.seed_id
+            assert all(p is None or p.title.startswith(seedid) for p in pmg[sess.id][0])
+            assert all(p is None or p.title.startswith(seedid) for p in pmg[sess.id][1])
             # check plot titles and warnings:
-            stream = m[s.id][0].data['stream']
-            preprocessed_stream = m[s.id][1].data['stream']
-            if 'err' in s.channel.location:
+            stream = pmg[sess.id][0].data['stream']
+            preprocessed_stream = pmg[sess.id][1].data['stream']
+            if 'err' in sess.channel.location:
                 assert isinstance(stream, Exception) and \
                     isinstance(preprocessed_stream, Exception) and \
                     'MiniSeed error' in str(preprocessed_stream)
                 for i in idxs:
-                    plot, pplot = m[s.id][0][i], m[s.id][1][i]
+                    plot, pplot = pmg[sess.id][0][i], pmg[sess.id][1][i]
                     assert len(plot.data) == 1  # only one (fake) trace
                     assert plot.warnings
                     assert len(pplot.data) == 1  # only one (fake) trace
                     assert pplot.warnings
 
-            elif 'gap' in s.channel.location:
+            elif 'gap' in sess.channel.location:
                 assert isinstance(stream, Stream) and \
                     isinstance(preprocessed_stream, Exception) and \
                     'gaps/overlaps' in str(preprocessed_stream)
                 for i in idxs:
-                    plot, pplot = m[s.id][0][i], m[s.id][1][i]
+                    plot, pplot = pmg[sess.id][0][i], pmg[sess.id][1][i]
                     # if idx=1, plot has 1 series (due to error in gaps/overlaps) otherwise
                     # matches stream traces count:
                     assert len(plot.data) == 1 if i == 1 else len(stream)
@@ -452,7 +455,7 @@ class Test(object):
                         assert "gaps/overlaps" in plot.warnings[0]
                         assert "gaps/overlaps" in pplot.warnings[0]
                     elif i == 0:  # we are iterating over the streams plots
-                        if 'gap_unmerged' in s.channel.location:
+                        if 'gap_unmerged' in sess.channel.location:
                             # assert that we display all traces with their seed_id. To prove that,
                             # assert that we didn't named each trace as "chunk1", "cunk2" etcetera:
                             assert all("chunk" not in d[-1] for d in plot.data)
@@ -467,7 +470,7 @@ class Test(object):
                     isinstance(preprocessed_stream, Exception) and \
                     'Station inventory (xml) error: no data' in str(preprocessed_stream)
                 for i in idxs:
-                    plot, pplot = m[s.id][0][i], m[s.id][1][i]
+                    plot, pplot = pmg[sess.id][0][i], pmg[sess.id][1][i]
                     # if idx=SN_INDEX, plot has 2 series (noie/signal) otherwise matches
                     # vstream traces count:
                     assert len(plot.data) == 2 if i == SN_INDEX else len(stream)
@@ -476,44 +479,44 @@ class Test(object):
                     assert pplot.warnings and 'inventory' in pplot.warnings[0]  # gaps /overlaps
 
             # assert we did not calculate any useless stream:
-            assert_(m[s.id][0], s, preprocessed=False)
-            assert_(m[s.id][1], s, preprocessed=True)
+            assert_(pmg[sess.id][0], sess, preprocessed=False)
+            assert_(pmg[sess.id][1], sess, preprocessed=True)
 
             # so we manually set the inventory on the db, discarding it afterwards:
-            s.station.inventory_xml = self.inventory_bytes
+            sess.station.inventory_xml = self.inventory_bytes
             db.session.commit()
-            assert s.station.inventory_xml
+            assert sess.station.inventory_xml
             # re-initialize a new PlotManager to assure everything is re-calculated
-            # this also sets all cache to None, including m.inv_cache:
-            m = PlotManager(self.pymodule, self.config)
+            # this also sets all cache to None, including pmg.inv_cache:
+            pmg = PlotManager(self.pymodule, self.config)
 
             # calculate plots
-            m.get_plots(db.session, s.id, idxs, preprocessed=False,
-                        all_components_in_segment_plot=True)
-            m.get_plots(db.session, s.id, idxs, preprocessed=True,
-                        all_components_in_segment_plot=True)
+            pmg.get_plots(db.session, sess.id, idxs, preprocessed=False,
+                          all_components_in_segment_plot=True)
+            pmg.get_plots(db.session, sess.id, idxs, preprocessed=True,
+                          all_components_in_segment_plot=True)
             # and store their values for later comparison
-            sn_plot_unprocessed = m[s.id][0][SN_INDEX].data
-            sn_plot_preprocessed = m[s.id][1][SN_INDEX].data
+            sn_plot_unprocessed = pmg[sess.id][0][SN_INDEX].data
+            sn_plot_preprocessed = pmg[sess.id][1][SN_INDEX].data
             # shift back the arrival time. 1 second is still within the stream time bounds for
             # the 'ok' stream:
-            sn_windows = dict(m.config['sn_windows'])
+            sn_windows = dict(pmg.config['sn_windows'])
             sn_windows['arrival_time_shift'] -= 1
-            m.update_config(sn_windows=sn_windows)
+            pmg.update_config(sn_windows=sn_windows)
             # assert we restored streams that have to be invalidated, and we kept those not to
             # invalidate:
-            assert_(m[s.id][0], s, preprocessed=False, is_invalidated=True)
-            assert m[s.id][1] is None
+            assert_(pmg[sess.id][0], sess, preprocessed=False, is_invalidated=True)
+            assert pmg[sess.id][1] is None
             # and run again the get_plots: with preprocess=False
-            plots = m.get_plots(db.session, s.id, idxs, preprocessed=False,
-                                all_components_in_segment_plot=True)
-            assert_(m[s.id][0], s, preprocessed=False)
-            assert m[s.id][1] is None
-            sn_plot_unprocessed_new = m[s.id][0][SN_INDEX].data
+            plots = pmg.get_plots(db.session, sess.id, idxs, preprocessed=False,
+                                  all_components_in_segment_plot=True)
+            assert_(pmg[sess.id][0], sess, preprocessed=False)
+            assert pmg[sess.id][1] is None
+            sn_plot_unprocessed_new = pmg[sess.id][0][SN_INDEX].data
             # we changed the arrival time and both the signal and noise depend on the cumulative,
             # thus changing the arrival time does change them signal window s_stream
             # Conversely, n_stream should change BUT only for the 'ok' stream (no 'gap' or 'err'
-            # in s.channel.location) as for the other we explicitly set a miniseed starttime,
+            # in sess.channel.location) as for the other we explicitly set a miniseed starttime,
             # endtime BEFORE the event time which should result in noise stream all padded with
             # zeros regardless of the arrival time shift
             if len(sn_plot_unprocessed) == 1:
@@ -531,14 +534,14 @@ class Test(object):
                     not np.allclose(noi_array_new, noi_array_old, equal_nan=True)
 
             # now run again with preprocessed=True.
-            plots = m.get_plots(db.session, s.id, idxs, preprocessed=True,
-                                all_components_in_segment_plot=True)
-            sn_plot_preprocessed_new = m[s.id][1][SN_INDEX].data
+            plots = pmg.get_plots(db.session, sess.id, idxs, preprocessed=True,
+                                  all_components_in_segment_plot=True)
+            sn_plot_preprocessed_new = pmg[sess.id][1][SN_INDEX].data
             # assert the s_stream differs from the previous, as we changed the signal/noise
             # arrival time shift this must hold only for the 'ok' stream (no 'gap' or 'err'
-            # in s.channel.location) as for the other we explicitly set a miniseed starttime,
+            # in sess.channel.location) as for the other we explicitly set a miniseed starttime,
             # endtime BEFORE the event time (thus by shifting BACK the arrival time we should
-            # not see changes in the s/n stream windows)
+            # not see changes in the sess/n stream windows)
             if len(sn_plot_preprocessed) == 1:
                 # there was an error in sn ratio (e.g., gaps, overlaps in source stream):
                 assert len(sn_plot_preprocessed_new) == 1
@@ -553,11 +556,11 @@ class Test(object):
                 assert len(noi_array_new) != len(noi_array_old) or \
                     not np.allclose(noi_array_new, noi_array_old, equal_nan=True)
 
-            assert_(m[s.id][1], s, preprocessed=True)
+            assert_(pmg[sess.id][1], sess, preprocessed=True)
             # re-set the inventory_xml to None:
-            s.station.inventory_xml = None
+            sess.station.inventory_xml = None
             db.session.commit()
-            assert not s.station.inventory_xml
+            assert not sess.station.inventory_xml
 
 
 def test_limited_size_dict():
@@ -569,40 +572,40 @@ def test_limited_size_dict():
             yield limited_size_dict_instance, _mock_popitem
 
     # test LimitedSizeDict with no size_limit arg (no size limit):
-    with setup(LimitedSizeDict()) as (l, mock_popitem):
+    with setup(LimitedSizeDict()) as (lsd, mock_popitem):
         for a in range(10000):
-            l[a] = 5
+            lsd[a] = 5
         assert not mock_popitem.called
 
-    with setup(LimitedSizeDict(size_limit=50)) as (l, mock_popitem):
+    with setup(LimitedSizeDict(size_limit=50)) as (lsd, mock_popitem):
         for a in range(50):
-            l[a] = 5
+            lsd[a] = 5
         assert not mock_popitem.called
 
-    with setup(LimitedSizeDict(size_limit=50)) as (l, mock_popitem):
+    with setup(LimitedSizeDict(size_limit=50)) as (lsd, mock_popitem):
         for a in range(51):
-            l[a] = 5
+            lsd[a] = 5
         assert mock_popitem.call_count == 1
 
     # test wrong argument in update:
     with pytest.raises(TypeError):
-        with setup(LimitedSizeDict(size_limit=50)) as (l, mock_popitem):
-            l.update(*[{str(_) : 1} for _ in range(101)])
+        with setup(LimitedSizeDict(size_limit=50)) as (lsd, mock_popitem):
+            lsd.update(*[{str(_): 1} for _ in range(101)])
 
     # test update and setdefault:
-    with setup(LimitedSizeDict(size_limit=50)) as (l, mock_popitem):
-        l.update({str(_) : 1 for _ in range(101)})
+    with setup(LimitedSizeDict(size_limit=50)) as (lsd, mock_popitem):
+        lsd.update({str(_): 1 for _ in range(101)})
         assert mock_popitem.call_count == 101-50
 
-    # l = LimitedSizeDict(size_limit=50)
-    with setup(LimitedSizeDict(size_limit=50)) as (l, mock_popitem):
-        l.update(**{str(_): 1 for _ in range(101)})
+    # lsd = LimitedSizeDict(size_limit=50)
+    with setup(LimitedSizeDict(size_limit=50)) as (lsd, mock_popitem):
+        lsd.update(**{str(_): 1 for _ in range(101)})
         assert mock_popitem.call_count == 101-50
 
-    # l = LimitedSizeDict(size_limit=50)
-    with setup(LimitedSizeDict(size_limit=50)) as (l, mock_popitem):
+    # lsd = LimitedSizeDict(size_limit=50)
+    with setup(LimitedSizeDict(size_limit=50)) as (lsd, mock_popitem):
         for _ in range(101):
-            l.setdefault(str(_), 1)
+            lsd.setdefault(str(_), 1)
         assert mock_popitem.call_count == 101-50
 
 
@@ -610,12 +613,12 @@ def test_inv_cache(data):
 
     class Segment(object):
 
-        def __init__(self, id, staid):
+        def __init__(self, id_, staid):
             if staid is not None:
                 self.station = Segment(staid, None)
             else:
                 self.station = None
-            self.id = id
+            self.id = id_
 
     def_size_limit = _default_size_limits()[1]
 
