@@ -16,7 +16,7 @@ import pandas as pd
 from sqlalchemy.ext.declarative.api import declarative_base
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.orm.scoping import scoped_session
-from sqlalchemy import Column, Integer, String,  create_engine, Binary, DateTime
+from sqlalchemy import Column, Integer, String,  create_engine, LargeBinary, DateTime
 from sqlalchemy.sql.expression import bindparam
 from sqlalchemy.sql import default_comparator
 from sqlalchemy.exc import SQLAlchemyError
@@ -30,7 +30,7 @@ class Customer(Base):
     __tablename__ = "customer"
     id = Column(Integer, primary_key=True)
     name = Column(String(255), nullable=False, default='a')
-    data = Column(Binary)
+    data = Column(LargeBinary)
     time = Column(DateTime)
 
 
