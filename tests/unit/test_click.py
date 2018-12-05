@@ -112,11 +112,20 @@ def test_click_download(mock_download, mock_create_sess, mock_new_db_download,
     (conffile, yamldic) = download_setup("download.yaml", inventory=None)
     mock_download.reset_mock()
     result = runner.invoke(cli, ['download', '-c', conffile])
+    assert result.exit_code != 0
+    assert not mock_download.called
+
+    # test removing an item in the config.yaml this item is not passed to download func
+    (conffile, yamldic) = download_setup("download.yaml", network=None)
+    mock_download.reset_mock()
+    result = runner.invoke(cli, ['download', '-c', conffile])
     dic = mock_download.call_args_list[0][1]
-    assert not 'inventory' in dic
+    assert 'network' not in dic
+    # we provided the default, with the parameter used in our functions:
+    assert dic['networks'] == []
 
     # test with an unknown argument
-    (conffile, yamldic) = download_setup("download.yaml", inventory=None)
+    (conffile, yamldic) = download_setup("download.yaml")
     mock_download.reset_mock()
     result = runner.invoke(cli, ['download', '--wtf_is_this_argument_#$%TGDAGRHNBGAWEtqevt3t', 5])
     assert result.exit_code != 0
