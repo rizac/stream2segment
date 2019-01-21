@@ -16,9 +16,23 @@
 dburl: 'sqlite:////path/to/my/db.sqlite'
 
 
-# ======
-# Events
-# ======
+# =======
+# Events: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=14
+# =======
+
+# The event web service url to use. Supply
+# a *full* url (up to and not including the character '?')
+# or a path to a local file.
+# The events list returned by the url or in the supplied file must be formatted as specified
+# in https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=16
+# You can also type one of the following shortcut strings:
+# 'emsc':  http://www.seismicportal.eu/fdsnws/event/1/query
+# 'iris':  http://service.iris.edu/fdsnws/event/1/query
+# 'ncedc': http://service.ncedc.org/fdsnws/event/1/query
+# 'scedc': http://service.scedc.caltech.edu/fdsnws/event/1/query
+# 'usgs':  http://earthquake.usgs.gov/fdsnws/event/1/query
+eventws: 'http://seismicportal.eu/fdsnws/event/1/query'
+
 
 # Limit to events (and datacenters) on or after the specified start time. Specify a date or
 # date-time in iso-format or an integer >=0 to denote the number of days before today at midnight.
@@ -32,25 +46,55 @@ start: 2006-01-01T00:00:00
 # Implementation details: 'endtime' is also a valid name for this parameter
 end: 2016-12-25T00:00:00
 
-# the event web service to use (url)
-eventws: 'http://seismicportal.eu/fdsnws/event/1/query'
+# Limit to events with a latitude larger than or equal to the specified minimum.
+# Implementation details: 'minlat' is also a valid name for this parameter
+minlatitude: 47.0  # missing or empty / null value: ignore
 
-# a dict of fdns ws arguments for the eventws query. All values are permitted except 'format',
-# 'start' and 'end' (the latter are taken from the values of the relative config parameters
-# specified above)
+# Limit to events with a latitude smaller than or equal to the specified maximum
+# Implementation details: 'maxlat' is also a valid name for this parameter
+maxlatitude: 57.0  # null or empty: ignore
+
+# Limit to events with a longitude larger than or equal to the specified minimum
+# Implementation details: 'minlon' is also a valid name for this parameter
+# Set to null to ignore this parameter
+minlongitude: 4.0  # null or empty: ignore
+
+# Limit to events with a longitude smaller than or equal to the specified maximum
+# Implementation details: 'maxlon' is also a valid name for this parameter
+# Set to null to ignore this parameter
+maxlongitude: 17.0  # null or empty: ignore
+
+# Limit to events with depth more than the specified minimum.
+# Set to null to ignore this parameter
+mindepth: 1  # null or empty: ignore
+
+# Limit to events with depth less than the specified maximum
+# Set to null to ignore this parameter
+maxdepth: 50  # null or empty: ignore
+
+# Limit to events with a magnitude larger than the specified minimum
+# Set to null to ignore this parameter
+# Implementation details: 'minmag' is also a valid name for this parameter
+minmagnitude: 3.0  # null: ignore parameter
+
+# Limit to events with a magnitude smaller than the specified maximum (leaving the value
+# empty ignores this parameter)
+# Implementation details: 'maxmag' is also a valid name for this parameter
+maxmagnitude: null
+
+# Optional event search parameters not elsewhere defined in this file,
+# as long as the event web service supports them (thus stream2segment can not guarantee
+# their functioning). Empty by default (=no additional parameters)
+# Implementation details: this is yaml, please pay attention to indentation
 eventws_query_args:
-  minmag: 3.0
-  minlat: 47.0
-  maxlat: 57.0
-  minlon: 4.0
-  maxlon: 17.0
-  mindepth: 1
-  maxdepth: 50
+  # lat: 47.0
+  # lon: 4.0
+  # minradius: 17.0
+  # maxradius: 21.0
 
-
-# ===================
-# Stations / Channels
-# ===================
+# ====================
+# Stations / Channels: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=10
+# ====================
 
 # Limit the search to the specified channels (if missing, defaults to '*', i.e.: accept all channels)
 # Wildcards '?' and '*' are recognized (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf),
@@ -124,11 +168,14 @@ search_radius:
 
 
 # ========================
-# Data (waveform segments)
+# Data (waveform segments) REF: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=8
 # ========================
 
-# data-select web service to use (url). It should be FDSN compliant, so that the relative
-# station web service url can be retrieved automatically. You can also type two special values,
+# data-select web service to use (url). It *must* be FDSN compliant:
+# <site>/fdsnws/dataselect/<majorversion>/query
+# otherwise the station query can not be retrieved automatically
+# (the site scheme is optional and will default to 'http://' in case).
+# You can also type two special values,
 # "iris" (shortcut for: https://service.iris.edu/fdsnws/dataselect/1/query) or "eida"
 # (which will automatically fetch data from the urls of all EIDA datacenters).
 # Implementation details: If the station web service(s) did not return data
@@ -215,12 +262,18 @@ advanced_settings:
  # how many parallel threads to start when downloading (one thread per download)
  # If 0 or negative, is automatically set according to the machine CPU
  max_thread_workers: 0
+ # Maximum number of sub-request when an event request too large
+ # needs to be split into sub-queries (the number of which will be determined
+ # via an internal algorithm). Be polite and try not to increase too much the server load!
+ e_max_requests: 120
+ # max time to wait (in seconds) for a single request while downloading events
+ e_timeout: 60
  # max time to wait (in seconds) for a single request while downloading stations+channel metadata
  s_timeout: 120
  # max time to wait (in seconds) for a single request while downloading an inventory in xml format
  i_timeout: 60
  # max time to wait (in seconds) for a single request while downloading waveform data
- w_timeout: 60
+ w_timeout: 30
  # the buffer size used when writing items (stations, segments, events, ...) to database.
  # Increasing this number usually sppeds speed up db IO operations, but increases the potentially
  # unsaved rows in case of errors, as if a row item in the buffer cannot be inserted or updated

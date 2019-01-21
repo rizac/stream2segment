@@ -78,8 +78,12 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
             endiso = end.isoformat()
             stepinfo("Requesting events")
             # get events (might raise FailedDownload)
-            events_df = get_events_df(session, eventws, dbbufsize, start=startiso, end=endiso,
-                                      **eventws_query_args)
+            eventws_query_args['starttime'] = startiso
+            eventws_query_args['endtime'] = endiso
+
+            events_df = get_events_df(session, eventws, eventws_query_args,
+                                      dbbufsize, advanced_settings['e_timeout'],
+                                      advanced_settings['e_max_requests'], isterminal)
 
             # Get datacenters, store them in the db, returns the dc instances (db rows) correctly
             # added

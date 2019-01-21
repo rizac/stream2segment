@@ -1,0 +1,53 @@
+DATA_TYPE EVENT IMS1.0
+ISC Bulletin
+Event   15938379 Germany
+   Date       Time        Err   RMS Latitude Longitude  Smaj  Smin  Az Depth   Err Ndef Nsta Gap  mdist  Mdist Qual   Author      OrigID
+2011/01/18 03:54:57.90   0.21 0.430  49.0041    8.2923   3.5   2.2  95   5.0f                268   0.32   2.30     ke LDG       15485443
+
+Magnitude  Err Nsta Author      OrigID
+Md     2.0 0.1    3 LDG       15485443
+Ml     1.9 0.4    7 LDG       15485443
+
+Event   15938049 Germany
+   Date       Time        Err   RMS Latitude Longitude  Smaj  Smin  Az Depth   Err Ndef Nsta Gap  mdist  Mdist Qual   Author      OrigID
+2011/01/19 01:26:50.20   0.03 0.270  48.1615    9.0633   0.7   0.5 133  10.0   0.0            62   0.10   3.92     ke LDG       15420641
+
+Magnitude  Err Nsta Author      OrigID
+Md     2.0 0.2    3 LDG       15420641
+Ml     2.1 0.3   14 LDG       15420641
+
+Event  601241379 Czech and Slovak Republics
+   Date       Time        Err   RMS Latitude Longitude  Smaj  Smin  Az Depth   Err Ndef Nsta Gap  mdist  Mdist Qual   Author      OrigID
+2011/01/19 15:05:06.42   0.23 0.050  49.0557   16.6001   2.0   1.5 127   0.0   0.0    5       12   1.23   1.23     sm VIE       01111198
+
+Magnitude  Err Nsta Author      OrigID
+mb     0.8 0.5    2 VIE       01111198
+ml     2.0 0.3    3 VIE       01111198
+
+Event   15960438 Poland
+   Date       Time        Err   RMS Latitude Longitude  Smaj  Smin  Az Depth   Err Ndef Nsta Gap  mdist  Mdist Qual   Author      OrigID
+2011/01/20 05:00:54.85   0.41 1.307  51.5797   16.2084 3.426 2.472  23   0.0f       232  174  37   0.74  83.72 m i sr ISC       01767565
+
+Magnitude  Err Nsta Author      OrigID
+mb     3.8 0.2   11 ISC       01767565
+
+Event   15960448 Poland
+   Date       Time        Err   RMS Latitude Longitude  Smaj  Smin  Az Depth   Err Ndef Nsta Gap  mdist  Mdist Qual   Author      OrigID
+2011/01/20 18:14:12.10   0.41 0.660  51.5229   16.1293   5.9   3.3  15   1.0f        20   12 259   0.69   2.90     ki CSEM      01644129
+
+Event 600516600 Hokkaido region
+   Date       Time        Err   RMS Latitude Longitude  Smaj  Smin  Az Depth   Err Ndef Nsta Gap  mdist  Mdist Qual   Author      OrigID
+2011/01/08 00:08:41.60   0.10        41.6700  141.0900   1.1   0.8  -1  99.0   1.0                                    JMA       00353625
+
+Magnitude  Err Nsta Author      OrigID
+       2.0          JMA       00353625
+
+Event   16442119 Austria
+   Date       Time        Err   RMS Latitude Longitude  Smaj  Smin  Az Depth   Err Ndef Nsta Gap  mdist  Mdist Qual   Author      OrigID
+2011/01/22 03:36:15.50   0.56 0.890  47.2365   11.5528  12.9   4.3 145   3.2   5.9   17   11 178   0.10   2.16     ke CSEM      01656162
+
+Magnitude  Err Nsta Author      OrigID
+ML     2.1 0.6    4 CSEM      01656162
+
+
+STOP

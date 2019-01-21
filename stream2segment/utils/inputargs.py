@@ -437,6 +437,30 @@ def load_config_for_download(config, parseargs, **param_overrides):
 
         params = [
             {
+             'names': ['minlatitude', 'minlat'],
+             'newvalue': lambda val: return [-90.0 90.0]
+            },
+            {
+             'names': ['maxlatitude', 'maxlat'],
+             'newvalue': lambda val: return [-90.0 90.0]
+            },
+            {
+             'names': ['minlongitude', 'minlon'],
+             'newvalue': lambda val: return [-180.0 180.0]
+            },
+            {
+             'names': ['maxlongitude', 'maxlon'],
+             'newvalue': lambda val: return [-180.0 180.0]
+            },
+            {
+             'names': ['minmagnitude', 'minmag'],
+             'newvalue': lambda val: return [-180.0 180.0]
+            },
+            {
+             'names': ['maxmagnitude', 'maxmag'],
+             'newvalue': lambda val: return [-180.0 180.0]
+            },
+            {
              'names': ['inventory'],
              'newvalue': parse_inventory
              },
