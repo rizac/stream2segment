@@ -228,21 +228,15 @@ selected segment. Useful links for functions, libraries and utilities:
 - `obspy Stream object <https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.html>_`
 - `obspy Trace object <https://docs.obspy.org/packages/autogen/obspy.core.trace.Trace.html>_`
 
-IMPORTANT: Most exceptions raised by this function will continue the execution of the next
-segment(s) after writing the exception messages to a .log file (see documentation of
-`s2s process` for details), prefixing the message with the segment id for later inspection.
-This is a feature that can be trigger programmatically to skip the currently processed segment,
-e.g.:
+IMPORTANT: Because exceptions of type `ValueError` might indicate "false positives"
+for which interrupting the whole subroutine might not always be the right choice,
+those type of exceptions will interrupt the currently processed segment only and continue the
+execution to the next segment: this feature can also be triggered programmatically to skip the
+currently processed segment and log the message for later insopection, e.g.:
 ```
     if snr < 0.4:
-        raise Exception('SNR ratio to low')
+        raise ValueError('SNR ratio to low')
 ```
-Note however, that some exceptions will stop the execution of the **WHOLE** processing subroutine:
-in this case, the exception message and the stack trace will be redirected as well to the log file
-(and the standard output) for debugging.
-These critical exceptions are those preventing the execution of this function and
-those that possibly indicate deeper problems or bugs. They are:
-    `TypeError`, `SyntaxError`, `NameError`, `ImportError`, `AttributeError`
 
 :param: segment (ptyhon object): An object representing a waveform data to be processed,
 reflecting the relative database table row. See above for a detailed list
@@ -390,15 +384,19 @@ processing and visualization must have the same signature:
     def myfunction(segment, config):
 ```
 
-all functions can safely raise Exceptions, as all exceptions will be caught by the caller:
+any Exception raised will be handled this way:
 
-* displaying the error message on the plot if the function is called for visualization,
+* if the function is called for visualization, the exception will be caught and its message
+  displayed on the plot
 
-* printing it to a log file, if the function is called for processing into .csv
-
-Issuing `print` statements for debugging it's thus useless (and a bad practice overall):
-if any information should be given, simply raise a base exception, e.g.:
-`raise Exception("segment sample rate too low")`.
+* if the function is called for processing, the exception will raise as for any Python program
+  with one special case: as `ValueError`s might indicate "false positives"
+  for which interrupting the whole subroutine might not always be the right choice,
+  those type of exceptions will interrupt the currently processed segment only and continue the
+  execution to the next segment: this feature can also be triggered programmatically to skip the
+  currently processed segment and log the message for later insopection, e.g.:
+    `raise ValueError("segment sample rate too low")`
+  (thus, do not issue `print` statements for debugging as it's useless, and a bad practice overall)
 
 Conventions and suggestions
 ---------------------------

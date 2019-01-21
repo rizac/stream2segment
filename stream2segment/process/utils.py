@@ -35,7 +35,7 @@ from stream2segment.utils.url import urlread
 from stream2segment.utils import urljoin
 from stream2segment.io.db.models import Segment, Channel, Class
 from stream2segment.process.math.traces import cumsumsq, cumtimes
-from stream2segment.utils.inputargs import get, parse
+from stream2segment.utils.inputargs import getitem, BadArgument
 from stream2segment.io.db.sqlevalexpr import exprquery
 
 
@@ -245,8 +245,18 @@ def get_sn_windows(config, a_time, stream):
     # Use inputargs utilities to raise pre-formatted exception messages from our
     # validation callbacks:
     snw_dic = get(config, 'sn_windows')[1]
-    atime_shift = parse(*get(snw_dic, 'arrival_time_shift'), parsefunc=float)
-    s_windows = parse(*get(snw_dic, 'signal_window'), parsefunc=_parse_sn_windows)
+
+    atime_shift = get(snw_dic, 'arrival_time_shift')[1]
+    try:
+        atime_shift = float(atime_shift)
+    except Exception as exc:
+        raise BadArgument('arrival_time_shift', exc)
+
+    s_windows = get(snw_dic, 'signal_window')[1]
+    try:
+        s_windows = _parse_sn_windows(s_windows)
+    except Exception as exc:
+        raise BadArgument('signal_window', exc)
 
     if len(stream) != 1:
         raise ValueError(("Unable to get sn-windows: %d traces in stream "

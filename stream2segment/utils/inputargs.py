@@ -23,32 +23,55 @@ from stream2segment.download.utils import Authorizer
 
 class BadArgument(Exception):
     '''An exception whose string method is similar to click formatted output. It
-    supports sub-classes for most common argument errors
+    supports sub-classes for most common argument errors.
+    Typical usage for modules importing it:
+    ```
+        param = 'my_param_name'
+        try:
+            ... do operations
+        except Exception as exc:
+            raise BadArgument(param, exc)
+    ```
     '''
     def __init__(self, param_name, error, msg_preamble=''):
         '''init method
 
         The formatted output, depending on the truthy value of the arguments will be:
 
-        "%(msg_preamble) %(param_name): %(error)"
-        "%(param_name): %(error)"
-        "%(msg_preamble) %(param_name)"
-        "%(param_name)"
+        'Error: %(msg_preamble) "%(param_name)": %(error)'
+        'Error: "%(param_name)": %(error)"
+        'Error: "%(param_name)"'
 
-        :param param_name: the parameter name (string)
-        :param error: the original exception, or a string message
-        :param msg_preamble: the optional message preamble, as string
+        :param param_name: the parameter name (string), or a list of parameter names
+            (if the parameter supports several optional names)
+        :param error: the original exception, or a string message. If exception
+            in (TypeError, KeyError), it will determine the message preamble,
+            if not explicitly passed (see below)
+        :param msg_preamble: the optional message preamble, as string. If not
+            provided (empty string by default), it will default to a string
+            according to `error` type
         '''
         super(BadArgument, self).__init__(str(error))
+        if not msg_preamble:
+            msg_preamble = "Invalid value for"
+            if isinstance(error, KeyError):
+                msg_preamble = "Missing value for"
+                error = ''
+            elif isinstance(error, TypeError):
+                msg_preamble = "Invalid type for"
+
         self.msg_preamble = msg_preamble
-        self.param_name = str(param_name) if param_name else None
+        self.param_name = param_name
 
     @property
     def message(self):
         msg = '%s' if not self.msg_preamble else self.msg_preamble.strip() + " %s"
         err_msg = self.args[0]  # in ValueError, is the error_msg passed in the constructor
-        pname = ('"%s"' % self.param_name) if self.param_name else \
-            'unknown parameter (check input arguments)'
+        pname = '"%s"' % (" / ".join('"%s"' % p for p in self.param_name)[1:-1]
+                          if isinstance(self.param_name, (list, tuple)) else
+                          str(self.param_name))
+#         ('"%s"' % self.param_name) if self.param_name else \
+#             'unknown parameter (check input arguments)'
         ret = (msg % pname) + (": " + err_msg if err_msg else '')
         return ret[0:1].upper() + ret[1:]
 
@@ -59,47 +82,48 @@ class BadArgument(Exception):
 
 # THESE ARE THE EXCEPTIONS THAT SHOULD BE RAISED
 
-class MissingArg(BadArgument):
-
-    def __init__(self, param_name):
-        '''A BadArgument notifying a missing value of some argument'''
-        super(MissingArg, self).__init__(param_name, '', "Missing value for")
-
-
-class BadValueArg(BadArgument):
-
-    def __init__(self, param_name, error):
-        '''A BadArgument notifying a bad value of some argument'''
-        super(BadValueArg, self).__init__(param_name, error, "Invalid value for")
-
-
-class BadTypeArg(BadArgument):
-
-    def __init__(self, param_name, error):
-        '''A BadArgument notifying a bad type of some argument'''
-        super(BadTypeArg, self).__init__(param_name, error, "Invalid type for")
-
-
-class ConflictingArgs(BadArgument):
-    '''A BadArgument notifying conflicting argument names'''
-
-    def __init__(self, *param_names):
-        '''A BadArgument notifying conflicting argument names'''
-        # little hack: build a string wiothout first and last quote (will be added in super-class)
-        param_name = self.formatnames(*param_names)
-        super(ConflictingArgs, self).__init__(param_name, '', "Conflicting names")
-
-    @staticmethod
-    def formatnames(*param_names):
-        # little hack: build a string wiothout first and last quote (will be added in super-class)
-        return " / ".join('"%s"' % p for p in param_names)[1:-1]
+# class MissingArg(BadArgument):
+# 
+#     def __init__(self, param_name):
+#         '''A BadArgument notifying a missing value of some argument'''
+#         super(MissingArg, self).__init__(param_name, '', "Missing value for")
+# 
+# 
+# class BadValueArg(BadArgument):
+# 
+#     def __init__(self, param_name, error):
+#         '''A BadArgument notifying a bad value of some argument'''
+#         super(BadValueArg, self).__init__(param_name, error, "Invalid value for")
+# 
+# 
+# class BadTypeArg(BadArgument):
+# 
+#     def __init__(self, param_name, error):
+#         '''A BadArgument notifying a bad type of some argument'''
+#         super(BadTypeArg, self).__init__(param_name, error, )
 
 
-class UnknownArg(BadArgument):
+# class ConflictingArguments(BadArgument):
+#     '''A BadArgument notifying conflicting argument names'''
+# 
+#     def __init__(self, *param_names):
+#         '''A BadArgument notifying conflicting argument names'''
+#         # little hack: build a string wiothout first and last quote (will be added in super-class)
+#         param_name = self.formatnames(*param_names)
+#         super(ConflictingArguments, self).__init__(param_name, '', "Conflicting names")
+# 
+#     @staticmethod
+#     def formatnames(*param_names):
+#         # little hack: build a string wiothout first and last quote (will be added in super-class)
+#         return " / ".join('"%s"' % p for p in param_names)[1:-1]
 
-    def __init__(self, param_name):
-        '''A BadArgument notifying an unknown argument'''
-        super(UnknownArg, self).__init__(param_name, '', "no such option")
+
+# class UnknownArgument(BadArgument):
+#     '''A BadArgument notifying an unknown argument'''
+# 
+#     def __init__(self, param_name):
+#         '''A BadArgument notifying an unknown argument'''
+#         super(UnknownArgument, self).__init__(param_name, '', "no such option")
 
 
 def parse_arguments(yaml_dic, *params):
@@ -138,10 +162,8 @@ def parse_arguments(yaml_dic, *params):
         parsefunc = param.get('newvalue', lambda val: val)
         try:
             newvalue = parsefunc(value)
-        except TypeError as terr:
-            raise BadTypeArg(name, terr)  # name is the actual key in yaml_dict
         except Exception as exc:
-            raise BadValueArg(name, exc)  # see comment above
+            raise BadArgument(name, exc)  # see comment above
         # names[0] is the key that will be set on yaml_dct, if newname is missing:
         newname = param.get('newname', names[0])
         # if the newname is not names[0], remove name (not names[0]) from yanl_dic:
@@ -157,10 +179,7 @@ def parse_arguments(yaml_dic, *params):
 def get(dic, names, default_ifmissing=None):
     '''Similar to `dic.get` with optinal (multi) keys. I.e., it calls iteratively
     `dic.get(key)` for each key in `names` and stops at the first key found `n`.
-    Returns the tuple `(n, dic[n])`. Raises KeyError if no key was found
-
-    Raises :class:`MissingArg` if no name is found, and :class:`ConflictingArgs` if more than
-    one key is found
+    Returns the tuple `(n, dic[n])` and raises :class:`BadArgument` in case
 
     :param dic: the source dict
     :param names: list/tuple of `dic` keys to be searched.. It can be also a string,
@@ -170,22 +189,24 @@ def get(dic, names, default_ifmissing=None):
         value returned if no name is found. If not provided, and no name is found in
         `dic`, :class:`MissingArg` is raised
     '''
-    # note: use self._names to keep declaration order of this argument name(s)
+    if not isinstance(names, (list, tuple)):
+        names = (names,)
+
     try:
-        if not isinstance(names, (list, tuple)):
-            names = (names,)
         keys_in = [par for par in names if par in dic]
         if len(keys_in) > 1:
-            raise ConflictingArgs(*keys_in)
+            raise BadArgument(keys_in, '', "Conflicting names")
         elif not keys_in:
             if default_ifmissing is not None:
                 return names[0], default_ifmissing
-            raise KeyError()
+            raise BadArgument(names, '', "Conflicting names")
         name = keys_in[0]
         return name, dic[name]
 
-    except KeyError as _:
-        raise MissingArg(ConflictingArgs.formatnames(*names))
+    except BadArgument:
+        raise
+    except Exception as _:  # for safety
+        raise BadArgument(names, _)
 
 
 def typesmatch(value, *other_values):
@@ -417,7 +438,7 @@ def load_config_for_download(config, parseargs, **param_overrides):
     try:
         config_dict = yaml_load(config, **param_overrides)
     except Exception as exc:
-        raise BadValueArg('config', exc)
+        raise BadArgument('config', exc)
 
     # normalize eventws_query_args: the sub-dict is correctly updated. The function
     # yaml_load updates nested sub-dict values, so that if both dic['eventws_query_args']
@@ -555,7 +576,7 @@ def load_config_for_download(config, parseargs, **param_overrides):
                     'minmagnitude', 'mingmag', 'maxmagnitude', 'maxmag',
                     'mindepth', 'maxdepth']:
             if par is eventsearchparams:  # conflict:
-                raise BadValueArg('eventws_params',
+                raise BadArgument('eventws_params',
                                   'invalid conflicting parameter "%s"' % par)
             value = config_dict.pop(par, None)
             if value is not None:
@@ -568,11 +589,11 @@ def load_config_for_download(config, parseargs, **param_overrides):
             try:
                 other_value = orig_config[key]
             except KeyError:
-                raise UnknownArg(key)
+                raise BadArgument(key, '', 'No such option')
             try:
                 typesmatch(config_dict[key], other_value)
-            except TypeError as terr:
-                raise BadTypeArg(key, terr)
+            except Exception as exc:
+                raise BadArgument(key, exc)
 
     return config_dict
 
@@ -630,18 +651,18 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None, outfile=N
     try:
         session = create_session(dburl)
     except Exception as exc:
-        raise BadValueArg('dburl', exc)
+        raise BadArgument('dburl', exc)
 
     try:
         funcname = get_funcname(funcname)
     except Exception as exc:
-        raise BadValueArg('funcname', exc)
+        raise BadArgument('funcname', exc)
 
     try:
         # yaml_load accepts a file name or a dict
         config = yaml_load({} if config is None else config, **param_overrides)
     except Exception as exc:
-        raise BadValueArg('config', exc)
+        raise BadArgument('config', exc)
 
     # NOTE: contrarily to the download routine, we cannot check the types of the config because
     # no parameter is mandatory, and thus they might NOT be present in the config.
@@ -649,13 +670,13 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None, outfile=N
     try:
         pyfunc = load_pyfunc(pyfile, funcname)
     except Exception as exc:
-        raise BadValueArg('pyfile', exc)
+        raise BadArgument('pyfile', exc)
 
     if outfile is not None:
         try:
             filewritable(outfile)
         except Exception as exc:
-            raise BadValueArg('outfile', exc)
+            raise BadArgument('outfile', exc)
 
     # nothing more to process
     return session, pyfunc, funcname, config
@@ -665,4 +686,4 @@ def load_session_for_dinfo(dburl):
     try:
         return create_session(dburl)
     except Exception as exc:
-        raise BadValueArg('dburl', exc)
+        raise BadArgument('dburl', exc)

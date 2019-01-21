@@ -339,21 +339,18 @@ def process_segment(segment, config, pyfunc):
     '''processes a signle segment and return the output of
     `pyfunc(segment, config)
 
-    :return: the tuple (output, is_ok), where output is either an iterable or an Exception,
-    and is_ok is a boolean telling if output is NOT an exception (the variable might speedup
-    the check as isinstance(output, Exception) might be time consuming
+    :return: the tuple (output, is_ok), where output is either an iterable or a `ValueError`.
+        in the former case, `is_ok` is True, otherwise False (the variable is returned
+        as a faster alias of `isinstance(output, Exception)`)
 
-    Note that output is an exception if it's of type:
-    (ImportError, NameError, AttributeError, SyntaxError, TypeError).
-    Any other exception will raise
+    Note that any exception other than `ValueError` will raise and thus interrupt the program
     `'''
     try:
         return pyfunc(segment, config), True
-    except (ImportError, NameError, AttributeError, SyntaxError,
-            TypeError) as _:
+    except ValueError as valueerr:
+        return valueerr, False
+    except Exception:
         raise
-    except Exception as generr:  # pylint: disable=broad-except
-        return generr, False
 
 
 def process_output(output, is_ok, segment_id, writer, done_skipped_errors):
