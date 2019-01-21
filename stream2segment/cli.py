@@ -185,14 +185,14 @@ def init(outdir):
               type=clickutils.ExistingPath, required=True)
 @click.option('-d', '--dburl', is_eager=True, callback=clickutils.set_help_from_yaml)
 @click.option('-es', '--eventws')
-@click.option('-s', '--start', '--starttime', "start", type=inputargs.valid_date,
+@click.option('-s', '--start', '--starttime', "starttime", type=inputargs.valid_date,
               metavar='DATE or DATETIME')
-@click.option('-e', '--end', '--endtime', 'end', type=inputargs.valid_date,
+@click.option('-e', '--end', '--endtime', 'endtime', type=inputargs.valid_date,
               metavar='DATE or DATETIME',)
 @click.option('-n', '--network', '--networks', '--net', 'network')
 @click.option('-z', '--station', '--stations', '--sta', 'station')
 @click.option('-l', '--location', '--locations', '--loc', 'location')
-@click.option('-k', '--channel', '--channels', '--chan', 'channel')
+@click.option('-k', '--channel', '--channels', '--cha', 'channel')
 @click.option('-msr', '--min-sample-rate', type=float)
 @click.option('-ds', '--dataws')
 @click.option('-t', '--traveltimes-model')
@@ -217,18 +217,18 @@ def init(outdir):
 @click.option('-maxlon', '--maxlongitude', type=float,
               help=(clickutils.EQA + " Limit to events with a longitude smaller than "
                     "or equal to the specified maximum"))
-@click.option('-lat', '--latitude', type=float,
-              help=(clickutils.EQA + " Specify the latitude to be used for a radius search."))
-@click.option('-lon', '--longitude', type=float,
-              help=(clickutils.EQA + " Specify the longitude to be used for a radius search"))
-@click.option('--minradius', type=float,
-              help=(clickutils.EQA + " Limit to events within the specified minimum "
-                    "number of degrees from the geographic point defined by the latitude and "
-                    "longitude parameters"))
-@click.option('--maxradius', type=float,
-              help=(clickutils.EQA + " Limit to events within the specified maximum "
-                    "number of degrees from the geographic point defined by the latitude and "
-                    "longitude parameters"))
+# @click.option('-lat', '--latitude', type=float,
+#               help=(clickutils.EQA + " Specify the latitude to be used for a radius search."))
+# @click.option('-lon', '--longitude', type=float,
+#               help=(clickutils.EQA + " Specify the longitude to be used for a radius search"))
+# @click.option('--minradius', type=float,
+#               help=(clickutils.EQA + " Limit to events within the specified minimum "
+#                     "number of degrees from the geographic point defined by the latitude and "
+#                     "longitude parameters"))
+# @click.option('--maxradius', type=float,
+#               help=(clickutils.EQA + " Limit to events within the specified maximum "
+#                     "number of degrees from the geographic point defined by the latitude and "
+#                     "longitude parameters"))
 @click.option('--mindepth', type=float,
               help=(clickutils.EQA + " Limit to events with depth more than the "
                     "specified minimum"))
@@ -241,15 +241,14 @@ def init(outdir):
 @click.option('-maxmag', '--maxmagnitude', type=float,
               help=(clickutils.EQA + " Limit to events with a magnitude smaller than "
                     "the specified maximum"))
-def download(config, dburl, eventws, start, end, network,  # pylint: disable=unused-argument
+def download(config, dburl, eventws, starttime, endtime, network,  # pylint: disable=unused-argument
              station, location, channel, min_sample_rate,  # pylint: disable=unused-argument
              dataws, traveltimes_model, timespan,  # pylint: disable=unused-argument
              update_metadata, retry_url_err, retry_mseed_err,  # pylint: disable=unused-argument
              retry_seg_not_found, retry_client_err,  # pylint: disable=unused-argument
              retry_server_err, retry_timespan_err, inventory,  # pylint: disable=unused-argument
              minlatitude, maxlatitude, minlongitude,  # pylint: disable=unused-argument
-             maxlongitude, latitude, longitude, minradius,  # pylint: disable=unused-argument
-             maxradius, mindepth, maxdepth, minmagnitude,  # pylint: disable=unused-argument
+             maxlongitude, mindepth, maxdepth, minmagnitude,  # pylint: disable=unused-argument
              maxmagnitude):  # pylint: disable=unused-argument
     """Downloads waveform data segments with metadata in a specified database.
     The -c option (required) sets the defaults for all other options below, **which are optional**
@@ -259,14 +258,14 @@ def download(config, dburl, eventws, start, end, network,  # pylint: disable=unu
         overrides = {k: v for k, v in locals().items()
                      if v not in ((), {}, None) and k != 'config'}
         # pre-process all event ws query arguments:
-        eventws_dict = {par: overrides.pop(par) for par in ("minlatitude", "maxlatitude",
-                                                            "minlongitude", "maxlongitude",
-                                                            "latitude", "longitude", "minradius",
-                                                            "maxradius", "mindepth", "maxdepth",
-                                                            "minmagnitude", "maxmagnitude")
-                        if par in overrides}
-        if eventws_dict:
-            overrides['eventws_query_args'] = eventws_dict
+#         eventws_dict = {par: overrides.pop(par) for par in ("minlatitude", "maxlatitude",
+#                                                             "minlongitude", "maxlongitude",
+#                                                             "latitude", "longitude", "minradius",
+#                                                             "maxradius", "mindepth", "maxdepth",
+#                                                             "minmagnitude", "maxmagnitude")
+#                         if par in overrides}
+#         if eventws_dict:
+#             overrides['eventws_query_args'] = eventws_dict
 
         ret = main.download(config, log2file=True, verbose=True, **overrides)
     except inputargs.BadArgument as aerr:

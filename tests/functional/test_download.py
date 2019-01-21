@@ -991,7 +991,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
             args = args[0]
             assert not args[0]  # no *args supplied (all kwargs)
             args = args[1]
-            for name, val in zip(['networks', 'stations', 'locations', 'channels'],
+            for name, val in zip(['network', 'station', 'location', 'channel'],
                                  [net, sta, loc, cha]):
                 if val is None or val == ['*']:
                     assert args[name] == []

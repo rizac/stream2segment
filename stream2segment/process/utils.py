@@ -35,7 +35,7 @@ from stream2segment.utils.url import urlread
 from stream2segment.utils import urljoin
 from stream2segment.io.db.models import Segment, Channel, Class
 from stream2segment.process.math.traces import cumsumsq, cumtimes
-from stream2segment.utils.inputargs import getitem, BadArgument
+from stream2segment.utils.inputargs import get, BadArgument
 from stream2segment.io.db.sqlevalexpr import exprquery
 
 
@@ -181,8 +181,9 @@ def enhancesegmentclass(config_dict=None, overwrite_config=False):
                 try:
                     stream = self._stream = get_stream(self)
                 except Exception as exc:  # pylint: disable=broad-except
-                    stream = self._stream = Exception("MiniSeed error: %s" %
-                                                      (str(exc) or str(exc.__class__.__name__)))
+                    stream = self._stream = \
+                        ValueError("MiniSeed error: %s" %
+                                   (str(exc) or str(exc.__class__.__name__)))
 
             return stream
 
@@ -195,8 +196,8 @@ def enhancesegmentclass(config_dict=None, overwrite_config=False):
                     inventory = self._inventory = get_inventory(self.station)
                 except Exception as exc:   # pylint: disable=broad-except
                     inventory = self._inventory = \
-                        Exception("Station inventory (xml) error: %s" %
-                                  (str(exc) or str(exc.__class__.__name__)))
+                        ValueError("Station inventory (xml) error: %s" %
+                                   (str(exc) or str(exc.__class__.__name__)))
             return inventory
 
         def sn_windows(self):

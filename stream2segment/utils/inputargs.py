@@ -464,6 +464,12 @@ def load_config_for_download(config, parseargs, **param_overrides):
         configfile = config if (isinstance(config, string_types) and os.path.isfile(config))\
             else None
 
+        # define first default event params in order to avoid typos
+        def_evt_params = ['minlatitude', 'minlat', 'maxlatitude', 'maxlat',
+                          'minlongitude', 'minlon', 'maxlongitude', 'maxlon',
+                          'minmagnitude', 'mingmag', 'maxmagnitude', 'maxmag',
+                          'mindepth', 'maxdepth']
+
         # now, what we want to do here is basically convert config_dict keys
         # into suitable arguments for stream2segment functions: this includes
         # renaming params, parsing/converting their values, raising the
@@ -483,26 +489,40 @@ def load_config_for_download(config, parseargs, **param_overrides):
         #           needed if the parameter is invalid, and returning the correct parameter value
         params = [
             {
-             'names': ['minlatitude', 'minlat'],
+             'names': def_evt_params[:2],  # ['minlatitude', 'minlat'],
+             'defvalue': None,
              'newvalue': between(-90.0, 90.0)
             },
             {
-             'names': ['maxlatitude', 'maxlat'],
+             'names': def_evt_params[2:4],  # ['maxlatitude', 'maxlat'],
+             'defvalue': None,
              'newvalue': between(-90.0, 90.0)
             },
             {
-             'names': ['minlongitude', 'minlon'],
+             'names': def_evt_params[4:6],  # ['minlongitude', 'minlon'],
+             'defvalue': None,
              'newvalue': between(-180.0, 180.0)
             },
             {
-             'names': ['maxlongitude', 'maxlon'],
+             'names': def_evt_params[6:8],  # ['maxlongitude', 'maxlon'],
+             'defvalue': None,
              'newvalue': between(-180.0, 180.0)
             },
             {
-             'names': ['minmagnitude', 'minmag'],
+             'names': def_evt_params[8:10],  # ['minmagnitude', 'minmag'],
+             'defvalue': None
             },
             {
-             'names': ['maxmagnitude', 'maxmag'],
+             'names': def_evt_params[10:12],  # ['maxmagnitude', 'maxmag'],
+             'defvalue': None
+            },
+            {
+             'names': def_evt_params[12:13],  # ['mindepth'],
+             'defvalue': None
+            },
+            {
+             'names': def_evt_params[13:14],  # ['maxdepth'],
+             'defvalue': None
             },
             {
              'names': ['inventory'],
@@ -571,11 +591,11 @@ def load_config_for_download(config, parseargs, **param_overrides):
         # and put them in the eventws_params dict:
         # pop all stuff from 'eventws_params' and put it into 'event_query_params':
         eventsearchparams = config_dict['eventws_params']
-        for par in ['minlatitude', 'minlat', 'maxlatitude', 'maxlat',
-                    'minlongitude', 'minlon', 'maxlongitude', 'maxlon',
-                    'minmagnitude', 'mingmag', 'maxmagnitude', 'maxmag',
-                    'mindepth', 'maxdepth']:
-            if par is eventsearchparams:  # conflict:
+        # eventsearchparams might be none
+        if not eventsearchparams:
+            config_dict['eventws_params'] = eventsearchparams = {}
+        for par in def_evt_params:
+            if par in eventsearchparams:  # conflict:
                 raise BadArgument('eventws_params',
                                   'invalid conflicting parameter "%s"' % par)
             value = config_dict.pop(par, None)

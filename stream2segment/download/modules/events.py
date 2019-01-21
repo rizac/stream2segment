@@ -9,7 +9,7 @@ Download module forevents download
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import map, next, zip, range, object
 
-import logging, os
+import logging, os, sys
 from datetime import timedelta, datetime
 from collections import OrderedDict
 from io import open  # py2-3 compatible
@@ -46,19 +46,19 @@ def get_events_df(session, url, evt_query_args, start, end,
 
     isfile = url not in _MAPPINGS and os.path.isfile(url)
     if isfile:
-        ret = get_events_df_from_file(url)
+        evens_titer = events_iter_from_file(url)
         url = 'file:///' + os.path.abspath(os.path.normpath(url))
     else:
-        ret = get_events_df_from_url(_MAPPINGS.get(url, url),
-                                     evt_query_args,
-                                     start, end,
-                                     max_downloads,
-                                     timeout, show_progress)
+        evens_titer = events_iter_from_url(_MAPPINGS.get(url, url),
+                                           evt_query_args,
+                                           start, end,
+                                           max_downloads,
+                                           timeout, show_progress)
 
     eventws_id = configure_ws_id(url, session, db_bufsize)
 
     pd_df_list = []
-    for url_, data in ret.items():
+    for url_, data in evens_titer:
         try:
             events_df = response2normalizeddf(url_, data, "event")
             pd_df_list.append(events_df)
@@ -83,32 +83,29 @@ def get_events_df(session, url, evt_query_args, start, end,
                       Event.depth_km.key, Event.time.key]].copy()
 
 
-def get_events_df_from_file(file_path):
-    """
-        Returns the events from a file
-    """
+def events_iter_from_file(file_path):
+    """Yields the tuple (filepath, events_data) from a file"""
     try:
         with open(file_path, encoding='utf-8') as opn:
-            return OrderedDict([file_path, opn.read()])
+            yield file_path, opn.read()
     except Exception as exc:
         raise FailedDownload(formatmsg("Unable to open events file", exc,
                                        file_path))
 
 
-def get_events_df_from_url(url, evt_query_args, start, end, max_downloads, timeout,
-                           show_progress=False):
+def events_iter_from_url(url, evt_query_args, start, end, max_downloads, timeout,
+                         show_progress=False):
     """
-    Returns the events from an event ws query. Splits the results into smaller chunks
-    (according to 'start' and 'end' parameters (both datetime)
-    In case of errors just raise, the caller is responsible of displaying messages to the
-    logger, which is used in this function only for all those messages which should not stop
-    the program
+    Yields an iterator of tuples (url, data), where bith are strings denoting the
+    url and the corresponding response body. The returned iterator has length > 1
+    if the request was too large and had to be splitted
     """
 
     url_, raw_data, urls = compute_urls_chunks(url, evt_query_args, start, end,
                                                timeout, max_downloads)
-    ret = OrderedDict([url_, raw_data])
+    yield url_, raw_data
 
+    oks = 0
     if urls:
         logger.info(formatmsg("Request split into %d sub-requests" % len(urls)+1,
                               "", url))
@@ -125,13 +122,12 @@ def get_events_df_from_url(url, evt_query_args, start, end, max_downloads, timeo
                     if not data:
                         logger.warning(formatmsg("Discarding request", msg, request))
                     else:
-                        ret[request] = data
+                        oks += 1
+                        yield request, data
 
-    if len(ret) < len(urls) + 1:
+    if oks < len(urls):
         logger.info('Some sub-request failed, '
-                    'working with a sub-set of possible available events')
-
-    return ret
+                    'some available events might not have been fetched')
 
 
 def configure_ws_id(eventws_url, session, db_bufsize):

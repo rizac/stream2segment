@@ -47,7 +47,7 @@ def assert1trace(stream):
     most likely due to gaps / overlaps'''
     # stream.get_gaps() is slower as it does more than checking the stream length
     if len(stream) != 1:
-        raise Exception("%d traces (probably gaps/overlaps)" % len(stream))
+        raise ValueError("%d traces (probably gaps/overlaps)" % len(stream))
 
 
 def main(segment, config):
