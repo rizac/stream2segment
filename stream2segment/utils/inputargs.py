@@ -57,6 +57,8 @@ class BadArgument(Exception):
         return "Error: %s" % self.message
 
 
+# THESE ARE THE EXCEPTIONS THAT SHOULD BE RAISED
+
 class MissingArg(BadArgument):
 
     def __init__(self, param_name):
@@ -133,8 +135,13 @@ def parse_arguments(yaml_dic, *params):
         if not isinstance(names, (list, tuple)):
             names = (names,)
         name, value = get(yaml_dic, names, param.get('defvalue', None))
-        # name is the actual key in yaml_dict:
-        newvalue = parse(name, value, param.get('newvalue', lambda val: val))
+        parsefunc = param.get('newvalue', lambda val: val)
+        try:
+            newvalue = parsefunc(value)
+        except TypeError as terr:
+            raise BadTypeArg(name, terr)  # name is the actual key in yaml_dict
+        except Exception as exc:
+            raise BadValueArg(name, exc)  # see comment above
         # names[0] is the key that will be set on yaml_dct, if newname is missing:
         newname = param.get('newname', names[0])
         # if the newname is not names[0], remove name (not names[0]) from yanl_dic:
@@ -148,8 +155,9 @@ def parse_arguments(yaml_dic, *params):
 
 
 def get(dic, names, default_ifmissing=None):
-    '''Similar to `dic.get`, gets the first `names` element `n` found in `dic`, and returns
-    the tuple `(n, dic[n])`.
+    '''Similar to `dic.get` with optinal (multi) keys. I.e., it calls iteratively
+    `dic.get(key)` for each key in `names` and stops at the first key found `n`.
+    Returns the tuple `(n, dic[n])`. Raises KeyError if no key was found
 
     Raises :class:`MissingArg` if no name is found, and :class:`ConflictingArgs` if more than
     one key is found
@@ -178,26 +186,6 @@ def get(dic, names, default_ifmissing=None):
 
     except KeyError as _:
         raise MissingArg(ConflictingArgs.formatnames(*names))
-
-
-def parse(name, value, parsefunc, *args, **kwargs):
-    '''Calls `parsefunc` on the given value, and returns the result.
-    Raises :class:`BadArgument` exceptions wrapping ValueError and TypeErrors, if raised
-
-    :param name: the name of the mapped to value value (str), e.g., the parameter name
-        whose value needs to be parsed.
-        It is used in the message of the exception raised, if any
-    :param value: any python object.
-    :param parsefunc: the function to be called with `value` as first argument
-    :param args: optional positional arguments to be passed to `parsefunc`
-    :param args: optional keyword arguments to be passed to `parsefunc`
-    '''
-    try:
-        return parsefunc(value, *args, **kwargs)
-    except TypeError as terr:
-        raise BadTypeArg(name, terr)
-    except Exception as exc:
-        raise BadValueArg(name, exc)
 
 
 def typesmatch(value, *other_values):
@@ -398,6 +386,26 @@ def valid_fdsn(url):
     return Fdsnws(url).url()
 
 
+def between(min, max, include_start=True, include_end=True, pass_if_none=True):
+    def func(val):
+        if val is None:
+            if pass_if_none:
+                return True
+            else:
+                raise ValueError('value is None/null')
+        is_ok = min is None or val > min or (include_start and val >= min)
+        if not is_ok:
+            raise ValueError('%s must be %s %s' %
+                             (str(val), '>=' if include_start else '>', str(min)))
+        is_ok = max is None or val < max or (include_start and val <= max)
+        if not is_ok:
+            raise ValueError('%s must be %s %s' %
+                             (str(val), '<=' if include_end else '<', str(max)))
+        return val
+
+    return func
+
+
 def load_config_for_download(config, parseargs, **param_overrides):
     '''loads download arguments from the given config (yaml file or dict) after parsing and
     checking some of the dict keys.
@@ -407,7 +415,7 @@ def load_config_for_download(config, parseargs, **param_overrides):
     Raises BadArgument in case of parsing errors, missisng arguments, conflicts etcetera
     '''
     try:
-        dic = yaml_load(config, **param_overrides)
+        config_dict = yaml_load(config, **param_overrides)
     except Exception as exc:
         raise BadValueArg('config', exc)
 
@@ -418,47 +426,62 @@ def load_config_for_download(config, parseargs, **param_overrides):
     # param_overrides['eventws_query_args'] might contain 'minlatitude' instead of 'minlat'
     # which should override 'minlat' in dic['eventws_query_args'] as well.
     # Check these cases of double names:
-    overrides_eventdic = param_overrides.get('eventws_query_args', {})
-    yaml_eventdic = dic['eventws_query_args']
-    for par in overrides_eventdic:
-        for find, rep in (('latitude', 'lat'), ('longitude', 'lon'), ('magnitude', 'mag')):
-            twinpar = par.replace(find, rep)
-            if twinpar == par:
-                twinpar.replace(rep, find)
-            if twinpar != par and twinpar in yaml_eventdic:
-                # rename the overridden par with the previously set config par:
-                yaml_eventdic[twinpar] = yaml_eventdic.pop(par)
-                break
+#     overrides_eventdic = param_overrides.get('eventws_query_args', {})
+#     yaml_eventdic = dic['eventws_query_args']
+#     for par in overrides_eventdic:
+#         for find, rep in (('latitude', 'lat'), ('longitude', 'lon'), ('magnitude', 'mag')):
+#             twinpar = par.replace(find, rep)
+#             if twinpar == par:
+#                 twinpar.replace(rep, find)
+#             if twinpar != par and twinpar in yaml_eventdic:
+#                 # rename the overridden par with the previously set config par:
+#                 yaml_eventdic[twinpar] = yaml_eventdic.pop(par)
+#                 break
 
     if parseargs:
         # few variables:
         configfile = config if (isinstance(config, string_types) and os.path.isfile(config))\
             else None
 
+        # now, what we want to do here is basically convert config_dict keys
+        # into suitable arguments for stream2segment functions: this includes
+        # renaming params, parsing/converting their values, raising the
+        # more explanatory exceptions
+
+        # Let's configure a list of dicts for automatizing most of the
+        # parameters check: `params` below is a list of dicts, each dict is a 'param checker'
+        # with the following keys (at least one should be provided):
+        # names: list of strings. provide it in order to check for optional names,
+        #        check that only one param is provided, and
+        #        replace whatever is found with the first item in the list
+        # newname: string, provide it if you want to replace names above with this value
+        #          instead first list item
+        # defvalue: if provided, then the parameter can be missing and will be set to this value
+        #           if not provided, then an Exception is raised if the parameter is missing
+        # newvalue: function accepting a value (the parameter value) raising whatever is
+        #           needed if the parameter is invalid, and returning the correct parameter value
         params = [
             {
              'names': ['minlatitude', 'minlat'],
-             'newvalue': lambda val: return [-90.0 90.0]
+             'newvalue': between(-90.0, 90.0)
             },
             {
              'names': ['maxlatitude', 'maxlat'],
-             'newvalue': lambda val: return [-90.0 90.0]
+             'newvalue': between(-90.0, 90.0)
             },
             {
              'names': ['minlongitude', 'minlon'],
-             'newvalue': lambda val: return [-180.0 180.0]
+             'newvalue': between(-180.0, 180.0)
             },
             {
              'names': ['maxlongitude', 'maxlon'],
-             'newvalue': lambda val: return [-180.0 180.0]
+             'newvalue': between(-180.0, 180.0)
             },
             {
              'names': ['minmagnitude', 'minmag'],
-             'newvalue': lambda val: return [-180.0 180.0]
             },
             {
              'names': ['maxmagnitude', 'maxmag'],
-             'newvalue': lambda val: return [-180.0 180.0]
             },
             {
              'names': ['inventory'],
@@ -467,7 +490,7 @@ def load_config_for_download(config, parseargs, **param_overrides):
             {
              'names': ['restricted_data'],
              'newname': 'authorizer',
-             'newvalue': lambda val: create_auth(val, dic['dataws'], configfile)
+             'newvalue': lambda val: create_auth(val, config_dict['dataws'], configfile)
             },
             {
              'names': ['dburl'],
@@ -496,28 +519,47 @@ def load_config_for_download(config, parseargs, **param_overrides):
              'newvalue': valid_fdsn
             },
             {
-             'names': ('networks', 'net', 'network'),
+             'names': ('network', 'net', 'networks'),
              'defvalue': [],
              'newvalue': nslc_param_value_aslist
             },
             {
-             'names': ('stations', 'sta', 'station'),
+             'names': ('station', 'sta', 'stations'),
              'defvalue': [],
              'newvalue': nslc_param_value_aslist
             },
             {
-             'names': ('locations', 'loc', 'location'),
+             'names': ('location', 'loc', 'locations'),
              'defvalue': [],
              'newvalue': nslc_param_value_aslist
             },
             {
-             'names': ('channels', 'cha', 'channel'),
+             'names': ('channel', 'cha', 'channels'),
              'defvalue': [],
              'newvalue': nslc_param_value_aslist
             },
+            {'names': ['eventws_params', 'eventws_query_args']}
             ]
 
-        remainingkeys = parse_arguments(dic, *params)
+        remainingkeys = parse_arguments(config_dict, *params)
+
+        # check that we did not implement any conflicting arg in
+        # eventws_params
+
+        # remove all event-related parameters (except starttime and endtime):
+        # and put them in the eventws_params dict:
+        # pop all stuff from 'eventws_params' and put it into 'event_query_params':
+        eventsearchparams = config_dict['eventws_params']
+        for par in ['minlatitude', 'minlat', 'maxlatitude', 'maxlat',
+                    'minlongitude', 'minlon', 'maxlongitude', 'maxlon',
+                    'minmagnitude', 'mingmag', 'maxmagnitude', 'maxmag',
+                    'mindepth', 'maxdepth']:
+            if par is eventsearchparams:  # conflict:
+                raise BadValueArg('eventws_params',
+                                  'invalid conflicting parameter "%s"' % par)
+            value = config_dict.pop(par, None)
+            if value is not None:
+                eventsearchparams[par] = value
 
         # For all remaining arguments, just check the type as it should match the
         # default download config shipped with this package:
@@ -527,9 +569,12 @@ def load_config_for_download(config, parseargs, **param_overrides):
                 other_value = orig_config[key]
             except KeyError:
                 raise UnknownArg(key)
-            parse(key, dic[key], typesmatch, other_value)
+            try:
+                typesmatch(config_dict[key], other_value)
+            except TypeError as terr:
+                raise BadTypeArg(key, terr)
 
-    return dic
+    return config_dict
 
 
 def load_pyfunc(pyfile, funcname):
@@ -582,8 +627,16 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None, outfile=N
     `config` which must denote a path to a yaml file, or None (config_dict will be empty
     in this latter case)
     '''
-    session = parse('dburl', dburl, create_session)
-    funcname = parse('funcname', funcname, get_funcname)
+    try:
+        session = create_session(dburl)
+    except Exception as exc:
+        raise BadValueArg('dburl', exc)
+
+    try:
+        funcname = get_funcname(funcname)
+    except Exception as exc:
+        raise BadValueArg('funcname', exc)
+
     try:
         # yaml_load accepts a file name or a dict
         config = yaml_load({} if config is None else config, **param_overrides)
@@ -593,12 +646,23 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None, outfile=N
     # NOTE: contrarily to the download routine, we cannot check the types of the config because
     # no parameter is mandatory, and thus they might NOT be present in the config.
 
-    pyfunc = parse('pyfile', pyfile, load_pyfunc, funcname)
+    try:
+        pyfunc = load_pyfunc(pyfile, funcname)
+    except Exception as exc:
+        raise BadValueArg('pyfile', exc)
+
     if outfile is not None:
-        parse('outfile', outfile, filewritable)
+        try:
+            filewritable(outfile)
+        except Exception as exc:
+            raise BadValueArg('outfile', exc)
+
     # nothing more to process
     return session, pyfunc, funcname, config
 
 
 def load_session_for_dinfo(dburl):
-    return parse('dburl', dburl, create_session)
+    try:
+        return create_session(dburl)
+    except Exception as exc:
+        raise BadValueArg('dburl', exc)

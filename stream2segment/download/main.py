@@ -32,7 +32,7 @@ from stream2segment.io.db.models import Download
 logger = logging.getLogger(__name__)
 
 
-def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
+def run(session, download_id, eventws, start, end, dataws, event_query_params,
         networks, stations, locations, channels, min_sample_rate,
         search_radius, update_metadata, inventory, timespan,
         retry_seg_not_found, retry_url_err, retry_mseed_err, retry_client_err, retry_server_err,
@@ -74,14 +74,9 @@ def run(session, download_id, eventws, start, end, dataws, eventws_query_args,
 
     try:
         if inventory != 'only':
-            startiso = start.isoformat()
-            endiso = end.isoformat()
+            
             stepinfo("Requesting events")
-            # get events (might raise FailedDownload)
-            eventws_query_args['starttime'] = startiso
-            eventws_query_args['endtime'] = endiso
-
-            events_df = get_events_df(session, eventws, eventws_query_args,
+            events_df = get_events_df(session, eventws, event_query_params, start, end,
                                       dbbufsize, advanced_settings['e_timeout'],
                                       advanced_settings['e_max_requests'], isterminal)
 

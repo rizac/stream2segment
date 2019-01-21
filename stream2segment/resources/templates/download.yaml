@@ -37,14 +37,14 @@ eventws: 'http://seismicportal.eu/fdsnws/event/1/query'
 # Limit to events (and datacenters) on or after the specified start time. Specify a date or
 # date-time in iso-format or an integer >=0 to denote the number of days before today at midnight.
 # Example: start=1 and end=0 => fetch events occurred yesterday.
-# Implementation details: 'starttime' is also a valid name for this parameter
-start: 2006-01-01T00:00:00
+# Implementation details: 'start' is also a valid name for this parameter
+starttime: 2006-01-01T00:00:00
 
 # Limit to events (and datacenters) on or before the specified end time. Specify a date or
 # date-time in iso-format or an integer >=0 to denote the number of days before today at midnight.
 # Example: start=1 and end=0 => fetch events occurred yesterday.
-# Implementation details: 'endtime' is also a valid name for this parameter
-end: 2016-12-25T00:00:00
+# Implementation details: 'end' is also a valid name for this parameter
+endtime: 2016-12-25T00:00:00
 
 # Limit to events with a latitude larger than or equal to the specified minimum.
 # Implementation details: 'minlat' is also a valid name for this parameter
@@ -82,11 +82,12 @@ minmagnitude: 3.0  # null: ignore parameter
 # Implementation details: 'maxmag' is also a valid name for this parameter
 maxmagnitude: null
 
-# Optional event search parameters not elsewhere defined in this file,
+# Additional event web search (optional) parameters
+# (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=14)
 # as long as the event web service supports them (thus stream2segment can not guarantee
 # their functioning). Empty by default (=no additional parameters)
-# Implementation details: this is yaml, please pay attention to indentation
-eventws_query_args:
+# Implementation details: this is a YAML file, please pay attention to indentation
+eventws_params:
   # lat: 47.0
   # lon: 4.0
   # minradius: 17.0

@@ -39,8 +39,8 @@ _MAPPINGS = {
     }
 
 
-def get_events_df(session, url, evt_query_args,
-                  db_bufsize, max_downloads, timeout=15,
+def get_events_df(session, url, evt_query_args, start, end,
+                  db_bufsize=30, max_downloads=30, timeout=15,
                   show_progress=False):
     '''Returns the event data frame from the given url or local file'''
 
@@ -51,6 +51,7 @@ def get_events_df(session, url, evt_query_args,
     else:
         ret = get_events_df_from_url(_MAPPINGS.get(url, url),
                                      evt_query_args,
+                                     start, end,
                                      max_downloads,
                                      timeout, show_progress)
 
@@ -94,19 +95,18 @@ def get_events_df_from_file(file_path):
                                        file_path))
 
 
-def get_events_df_from_url(url, evt_query_args, max_downloads, timeout,
+def get_events_df_from_url(url, evt_query_args, start, end, max_downloads, timeout,
                            show_progress=False):
     """
     Returns the events from an event ws query. Splits the results into smaller chunks
-    (according to 'start' and 'end' parameters, if they are not supplied in **args they will
-    default to `datetime(1970, 1, 1)` and `datetime.utcnow()`, respectively)
+    (according to 'start' and 'end' parameters (both datetime)
     In case of errors just raise, the caller is responsible of displaying messages to the
     logger, which is used in this function only for all those messages which should not stop
     the program
     """
 
-    url_, raw_data, urls = compute_urls_chunks(url, evt_query_args, timeout,
-                                               max_downloads)
+    url_, raw_data, urls = compute_urls_chunks(url, evt_query_args, start, end,
+                                               timeout, max_downloads)
     ret = OrderedDict([url_, raw_data])
 
     if urls:
@@ -186,17 +186,22 @@ def configure_ws_id(eventws_url, session, db_bufsize):
 #                       Event.depth_km.key, Event.time.key]].copy()
 
 
-def compute_urls_chunks(eventws, evt_query_args, timeout, max_downloads):
+def compute_urls_chunks(eventws, evt_query_args, start, end, timeout, max_downloads):
     """Returns a  the tuple (url (string), raw_data (string), urls (list of strings))
     where url and raw_data are the url read and the response content, and urls
     is a list of remaining urls to be read after auto-shrinking the request time
     window, if necessary. The list might be empty if no shrinkage was needed
+
+    :param eventws: string denoting the event web service url
+    :evt_query_args: dict of event search FDSn params mapped to their values
+    :param start: start time (datetime)
+    :param end: end time (datetime)
     """
     max_downloads = 0 if not max_downloads or max_downloads < 0 else max_downloads
     evt_query_args['format'] = 'text'
-    start_iso = evt_query_args.pop('start', evt_query_args.pop('starttime'))
-    end_iso = evt_query_args.pop('end', evt_query_args.pop('endtime'))
-    time_window = start = None
+    start_iso = start.isoformat()
+    end_iso = end.isoformat()
+    time_window = None
     four_years_in_sec = 4 * 365 * 24 * 60 * 60
     while True:
         exc = None
@@ -207,8 +212,7 @@ def compute_urls_chunks(eventws, evt_query_args, timeout, max_downloads):
             if time_window is None:
                 logger.info("Request likely too large, "
                             "calculating the required sub-requests")
-                start = strptime(start_iso)
-                time_window = strptime(end_iso) - start
+                time_window = end - start
             timeout_ = timeout
             # create a divisor factor which is 4 for time windows >= 4 year, 2 otherwise
             # this should optimize a bit the search of the 'optimum' time window:
