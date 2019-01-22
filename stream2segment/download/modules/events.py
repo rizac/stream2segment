@@ -55,7 +55,7 @@ def get_events_df(session, url, evt_query_args, start, end,
                                            max_downloads,
                                            timeout, show_progress)
 
-    eventws_id = configure_ws_id(url, session, db_bufsize)
+    eventws_id = configure_ws_fk(url, session, db_bufsize)
 
     pd_df_list = []
     for url_, data in evens_titer:
@@ -107,7 +107,7 @@ def events_iter_from_url(url, evt_query_args, start, end, max_downloads, timeout
 
     oks = 0
     if urls:
-        logger.info(formatmsg("Request split into %d sub-requests" % len(urls)+1,
+        logger.info(formatmsg("Request split into %d sub-requests" % (len(urls)+1),
                               "", url))
         with get_progressbar(show_progress, length=len(urls)) as pbar:
 
@@ -130,7 +130,9 @@ def events_iter_from_url(url, evt_query_args, start, end, max_downloads, timeout
                     'some available events might not have been fetched')
 
 
-def configure_ws_id(eventws_url, session, db_bufsize):
+def configure_ws_fk(eventws_url, session, db_bufsize):
+    '''configure the web service foreign key creating such a db row if it does not
+    exist and returning its id'''
     ws_name = ''
     if eventws_url in _MAPPINGS:
         ws_name = eventws_url
@@ -199,15 +201,14 @@ def compute_urls_chunks(eventws, evt_query_args, start, end, timeout, max_downlo
     end_iso = end.isoformat()
     time_window = None
     four_years_in_sec = 4 * 365 * 24 * 60 * 60
+    urls = []
     while True:
-        exc = None
-        if time_window is None:  # first iter
+        if not urls:  # first iteration
             timeout_ = 2 * 60  # 1st attempt: relax timeout conditions, might be long
             urls = [urljoin(eventws, **dict(evt_query_args, start=start_iso, end=end_iso))]
         else:
-            if time_window is None:
-                logger.info("Request likely too large, "
-                            "calculating the required sub-requests")
+            if time_window is None:  # secodn iteration (1st iteration splitting request)
+                logger.info("Calculating the required sub-requests")
                 time_window = end - start
             timeout_ = timeout
             # create a divisor factor which is 4 for time windows >= 4 year, 2 otherwise
@@ -218,6 +219,7 @@ def compute_urls_chunks(eventws, evt_query_args, start, end, timeout, max_downlo
             if max_downloads and iterations > max_downloads:
                 raise FailedDownload('max download (%d) exceeded, restrict your search'
                                      'or change advanced settings' % max_downloads)
+            urls = []
             for i in range(iterations):
                 tstart = (start + i * time_window).strftime('%Y-%m-%dT%H-%M-%S')
                 tend = (start + (i + 1) * time_window).strftime('%Y-%m-%dT%H-%M-%S')
@@ -230,16 +232,13 @@ def compute_urls_chunks(eventws, evt_query_args, start, end, timeout, max_downlo
 
             return urls[0], raw_data, urls[1:]
 
-        except HTTPError as exc:
-            if exc.code in (413, 504):
-                exc = None
-        except socket.timeout:
-            pass
         except Exception as exc:
-            pass
-        if exc is not None:
-            raise FailedDownload(formatmsg("Unable to fetch events", exc,
-                                           urls[0]))
+            # raise only if we do NOT have timeout or http err in (413, 504)
+            if not isinstance(exc, socket.timeout) and not \
+                    (isinstance(exc, HTTPError)
+                     and exc.code in (413, 504)):  # pylint: disable=no-member
+                raise FailedDownload(formatmsg("Unable to fetch events", exc,
+                                               urls[0]))
 
 #     try:
 #         raw_data, code, msg = urlread(url, decode='utf8', raise_http_err=False)
