@@ -44,26 +44,21 @@ def get_events_df(session, url, evt_query_args, start, end,
                   show_progress=False):
     '''Returns the event data frame from the given url or local file'''
 
-    isfile = url not in _MAPPINGS and os.path.isfile(url)
-    if isfile:
-        evens_titer = events_iter_from_file(url)
-        url = tofileuri(url)
-    else:
-        evens_titer = events_iter_from_url(_MAPPINGS.get(url, url),
-                                           evt_query_args,
-                                           start, end,
-                                           max_downloads,
-                                           timeout, show_progress)
+#     if isfile:
+#         evens_titer = events_iter_from_file(url)
+#         url = tofileuri(url)
+#     else:
+#         evens_titer = events_iter_from_url(_MAPPINGS.get(url, url),
+#                                            evt_query_args,
+#                                            start, end,
+#                                            max_downloads,
+#                                            timeout, show_progress)
 
     eventws_id = configure_ws_fk(url, session, db_bufsize)
 
-    pd_df_list = []
-    for url_, data in evens_titer:
-        try:
-            events_df = response2normalizeddf(url_, data, "event")
-            pd_df_list.append(events_df)
-        except ValueError as exc:
-            logger.warning(formatmsg("Discarding response", exc, url_))
+    pd_df_list = [dfr for dfr in dataframe_iter(url, evt_query_args, start, end,
+                                                max_downloads, timeout,
+                                                show_progress)]
 
     events_df = None
     if pd_df_list:  # pd.concat below raise ValueError if ret is empty:
@@ -71,6 +66,7 @@ def get_events_df(session, url, evt_query_args, start, end,
         events_df = pd.concat(pd_df_list, axis=0, ignore_index=True, copy=False)
 
     if events_df is None or events_df.empty:
+        isfile = islocalfile(url)
         raise FailedDownload(formatmsg("No events parsed",
                                        ("Malformed response data. "
                                         "Is the %s FDSN compliant?" %
@@ -86,13 +82,15 @@ def get_events_df(session, url, evt_query_args, start, end,
                       Event.depth_km.key, Event.time.key]].copy()
 
 
-def dataframe_iter(session, url, evt_query_args, start, end,
-                   db_bufsize=30, max_downloads=30, timeout=15,
+def dataframe_iter(url, evt_query_args, start, end,
+                   max_downloads=30, timeout=15,
                    show_progress=False):
-    '''Returns the event data frame from the given url or local file'''
+    '''Yields pandas dataframe(s) from the event url or file
 
-    isfile = url not in _MAPPINGS and os.path.isfile(url)
-    if isfile:
+    :param url: a valid url, a mappings string, or a local file (fdsn 'text' formatted)
+    '''
+
+    if islocalfile(url):
         evens_titer = events_iter_from_file(url)
         url = tofileuri(url)
     else:
@@ -102,32 +100,11 @@ def dataframe_iter(session, url, evt_query_args, start, end,
                                            max_downloads,
                                            timeout, show_progress)
 
-    pd_df_list = []
     for url_, data in evens_titer:
         try:
             yield response2normalizeddf(url_, data, "event")
         except ValueError as exc:
             logger.warning(formatmsg("Discarding response", exc, url_))
-
-    events_df = None
-    if pd_df_list:  # pd.concat below raise ValueError if ret is empty:
-        # build the data frame:
-        events_df = pd.concat(pd_df_list, axis=0, ignore_index=True, copy=False)
-
-    if events_df is None or events_df.empty:
-        raise FailedDownload(formatmsg("No events parsed",
-                                       ("Malformed response data. "
-                                        "Is the %s FDSN compliant?" %
-                                        ('file content' if isfile else 'server')), url))
-
-    events_df[Event.webservice_id.key] = eventws_id
-    events_df = dbsyncdf(events_df, session,
-                         [Event.event_id, Event.webservice_id], Event.id, buf_size=db_bufsize,
-                         cols_to_print_on_err=[Event.event_id.key])
-
-    # try to release memory for unused columns (FIXME: NEEDS TO BE TESTED)
-    return events_df[[Event.id.key, Event.magnitude.key, Event.latitude.key, Event.longitude.key,
-                      Event.depth_km.key, Event.time.key]].copy()
 
 
 def events_iter_from_file(file_path):
@@ -145,6 +122,11 @@ def tofileuri(file_path):
     '''returns a file uri form thegiven file, basically file:///+file_path'''
     # https://en.wikipedia.org/wiki/File_URI_scheme#Format
     return 'file:///' + os.path.abspath(os.path.normpath(file_path))
+
+
+def islocalfile(url):
+    '''Returns whether url denotes a local file path, existing on the computer machine'''
+    return url not in _MAPPINGS and os.path.isfile(url)
 
 
 def events_iter_from_url(url, evt_query_args, start, end, max_downloads, timeout,
