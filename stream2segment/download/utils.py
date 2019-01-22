@@ -248,8 +248,11 @@ def response2normalizeddf(url, raw_data, dbmodel_key):
     """Returns a normalized and harmonized dataframe from raw_data. dbmodel_key can be 'event'
     'station' or 'channel'. Raises ValueError if the resulting dataframe is empty or if
     a ValueError is raised from sub-functions
+
     :param url: url (string) or `Request` object. Used only to log the specified
-    url in case of wranings
+        url in case of wranings
+    :param raw_data: valid FDSN data in text format. For info see:
+        https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=12
     """
 
     dframe = response2df(raw_data)
@@ -257,24 +260,24 @@ def response2normalizeddf(url, raw_data, dbmodel_key):
     # stations_df surely not empty:
     if oldlen > len(dframe):
         logger.warning(formatmsg("%d row(s) discarded",
-                                 "malformed server response data, e.g. NaN's", url),
+                                 "malformed text data", url),
                        oldlen - len(dframe))
     return dframe
 
 
 def response2df(response_data, strip_cells=True):
-    """
-        Returns a pandas dataframe from the given response_data
-        :param: response_data the string sequence of data
-        :raise: ValueError in case of errors (mismatching row lengths), including the case
+    """Returns a pandas dataframe from the given fdsn text format data `response_data`
+
+    :param: response_data the string sequence of data as text. For info see:
+        https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=12
+    :raise: ValueError in case of errors (mismatching row lengths), including the case
         where the resulting dataframe is empty. Note that response_data evaluates to False, then
         `empty()` is returned without raising
     """
     if not response_data:
         raise ValueError("Empty input data")
     data = []
-    columns = None
-    colnum = 0
+    expected_length = None
     # parse text into dataframe. Note that we check the row lengths beforehand cause pandas fills
     # with trailing NaNs which we don't want to handle. E.g.:
     # >>> pd.DataFrame(data=[[1,2], [3,4,5]], columns=['a', 'b', 'g'])
@@ -283,20 +286,21 @@ def response2df(response_data, strip_cells=True):
     # 1  3  4  5.0
     # We use simple list append and not np.append cause np string arrays having fixed lengths
     # sometimes cut strings. np.append(arr1, arr2) seems to handle this, but let's be safe
-    textlines = response_data.splitlines()
-    for i, line in enumerate(textlines):
-        items = line.split('|') if not strip_cells else [_.strip() for _ in line.split("|")]
-        if i == 0:
-            columns = items
-            colnum = len(columns)
-        elif len(items) != colnum:
-            raise ValueError("Column length mismatch")
-        else:
-            data.append(items)
+    for line in response_data.splitlines():
+        if line[:1] == '#':
+            continue
 
-    if not data or not columns:
+        items = line.split('|') if not strip_cells else [_.strip() for _ in line.split("|")]
+        if expected_length is None:
+            expected_length = len(items)
+        elif expected_length != len(items):
+            raise ValueError("Column length mismatch")
+
+        data.append(items)
+
+    if not data:
         raise ValueError("Data empty after parsing")
-    return pd.DataFrame(data=data, columns=columns)
+    return pd.DataFrame(data=data)
 
 
 def normalize_fdsn_dframe(dframe, query_type):

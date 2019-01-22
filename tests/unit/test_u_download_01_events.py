@@ -207,33 +207,33 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             urlread_side_effect = [urlread_side_effect]
 
         for k in urlread_side_effect:
-            a = Mock()
+            mymock = Mock()
             if type(k) == int:
-                a.read.side_effect = HTTPError('url', int(k),  responses[k], None, None)
+                mymock.read.side_effect = HTTPError('url', int(k),  responses[k], None, None)
             elif type(k) in (bytes, str):
                 def func(k):
-                    b = BytesIO(k.encode('utf8') if type(k) == str else k)  # py2to3 compatible
+                    bio = BytesIO(k.encode('utf8') if type(k) == str else k)  # py2to3 compatible
 
-                    def rse(*a, **v):
-                        rewind = not a and not v
+                    def rse(*mymock, **v):
+                        rewind = not mymock and not v
                         if not rewind:
-                            currpos = b.tell()
-                        ret = b.read(*a, **v)
+                            currpos = bio.tell()
+                        ret = bio.read(*mymock, **v)
                         # hacky workaround to support cycle below: if reached the end,
                         # go back to start
                         if not rewind:
-                            cp = b.tell()
+                            cp = bio.tell()
                             rewind = cp == currpos
                         if rewind:
-                            b.seek(0, 0)
+                            bio.seek(0, 0)
                         return ret
                     return rse
-                a.read.side_effect = func(k)
-                a.code = 200
-                a.msg = responses[a.code]
+                mymock.read.side_effect = func(k)
+                mymock.code = 200
+                mymock.msg = responses[mymock.code]
             else:
-                a.read.side_effect = k
-            retvals.append(a)
+                mymock.read.side_effect = k
+            retvals.append(mymock)
 
         self.mock_urlopen.side_effect = cycle(retvals)
 
@@ -248,7 +248,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
     @patch('stream2segment.download.modules.events.urljoin', return_value='a')
     def test_get_events(self, mock_query, db):
-        urlread_sideeffect = ["""1|2|3|4|5|6|7|8|9|10|11|12|13
+        urlread_sideeffect = ["""#1|2|3|4|5|6|7|8|9|10|11|12|13
 20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 01:45:30.300000|44.96|15.35|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|3.6|EMSC|CROATIA
 20160508_0000113|2016-05-08 22:37:20.100000|45.68|26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
@@ -268,7 +268,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert "2 database rows not inserted" in log1
 
         # now download again, with an url error:
-        urlread_sideeffect = [413, """1|2|3|4|5|6|7|8|9|10|11|12|13
+        urlread_sideeffect = [504, """1|2|3|4|5|6|7|8|9|10|11|12|13
 20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 01:45:30.300000|44.96|15.35|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|3.6|EMSC|CROATIA
 20160508_0000113|2016-05-08 22:37:20.100000|45.68|26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
@@ -342,24 +342,54 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # assert "request entity too large" in self.log_msg()
 
     @patch('stream2segment.download.modules.events.urljoin', return_value='a')
-    def test_get_events_eventws_from_file(self, mock_query, db, data):
-        '''test request splitted, but failing due to a http error'''
+    def test_get_events_eventws_from_file(self, mock_query, db, pytestdir):
+        '''test request splitted, but reading from events file'''
         urlread_sideeffect = [socket.timeout, 500]  # this is useless, we test stuff which raises before it
 
+        filepath = pytestdir.newfile('.txt', create=True)
+        with open(filepath, 'w') as _fpn:
+            _fpn.write("""1|2|3|4|5|6|7|8|9|10|11|12|13
+20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
+20160508_0000004|2016-05-08 01:45:30.300000|44.96|15.35|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|3.6|EMSC|CROATIA
+20160508_0000113|2016-05-08 22:37:20.100000|45.68|26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
+20160508_0000113|2016-05-08 22:37:20.100000|45.68|26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
+--- ERRROR --- THIS IS MALFORMED 20160508_abc0113|2016-05-08 22:37:20.100000| --- ERROR --- |26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
+""")
+        log1 = self.log_msg()
+
+        data = self.get_events_df(urlread_sideeffect, db.session, filepath, {},
+                                  start=datetime(2010, 1, 1),
+                                  end=datetime(2011, 1, 1),
+                                  db_bufsize=self.db_buf_size)
+        # assert we got the same result as above:
+        assert len(db.session.query(Event).all()) == len(pd.unique(data['id'])) == 2
+        assert len(data) == 2
+        log2 = self.log_msg()
+        # since one row is discarded, the message is something like:
+        # 1 row(s) discarded (malformed server response data, e.g. NaN's). url: file:////private/var/folders/l9/zpp7wn1n4r7bt4vs39gylk4w0000gn/T/pytest-of-riccardo/pytest-442/test_get_events_eventws_from_f0/368e6e99-171c-40e1-ad8e-3afc40ebeeab.txt
+        # however, we test the bare minimum:
+        assert 'url: file:///' in log2
+        assert not self.mock_urlopen.called
+
+    @patch('stream2segment.download.modules.events.urljoin', return_value='a')
+    def test_get_events_eventws_from_file_err(self, mock_query, db, pytestdir):
+        '''test request splitted, but reading from BAD events file'''
+        urlread_sideeffect = [socket.timeout, 500]  # this is useless, we test stuff which raises before it
+
+        filepath = pytestdir.newfile('.txt', create=True)
+        with open(filepath, 'w') as _fpn:
+            _fpn.write("""000|45.68|26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
+--- ERRROR --- THIS IS MALFORMED 20160508_abc0113|2016-05-08 22:37:20.100000| --- ERROR --- |26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
+""")
+
         # we want to return all times 413, and see that we raise a ValueError:
-        with pytest.raises(FailedDownload) as fldl:
+
+        with pytest.raises(FailedDownload) as fdl:
             # now it should raise because of a 413:
-            data = self.get_events_df(urlread_sideeffect, db.session, "abcd", {},
+            data = self.get_events_df(urlread_sideeffect, db.session, filepath, {},
                                       start=datetime(2010, 1, 1),
                                       end=datetime(2011, 1, 1),
                                       db_bufsize=self.db_buf_size)
-        # test that we raised the proper message:
-        assert 'Unable to fetch events' in str(fldl)
-        # assert we wrote the url
-        assert len(db.session.query(WebService.url).filter(WebService.url == 'abcd').all()) == 1
-        # assert only three events were successfully saved to db (two have same id)
-        assert not db.session.query(Event).all()
-        # we cannot assert anything has been written to logger cause the exception are caucht
-        # if we raun from main. This should be checked in functional tests where we test the whole
-        # chain
-        # assert "request entity too large" in self.log_msg()
+
+        assert 'Is the file content FDSN compliant?' in str(fdl)
+        assert not self.mock_urlopen.called

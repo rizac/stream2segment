@@ -85,7 +85,10 @@ maxmagnitude: null
 # Additional event web search (optional) parameters
 # (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=14)
 # as long as the event web service supports them (thus stream2segment can not guarantee
-# their functioning). Empty by default (=no additional parameters)
+# their functioning). Empty by default (=no additional parameters). Note that
+# the format argument should be omitted as it is automatically inferred by the program.
+# Neverthless, if you want to force a particular format, for performance reasons xml is not
+# supported and only 'text' or 'isf' should be supplied.
 # Implementation details: this is a YAML file, please pay attention to indentation
 eventws_params:
   # lat: 47.0
