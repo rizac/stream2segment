@@ -38,13 +38,14 @@ from obspy.taup.helper_classes import TauModelError
 
 from stream2segment.io.db.models import Base, Event, Class, Fdsnws, DataCenter, Segment, \
     Download, Station, Channel, WebService
-from stream2segment.download.modules.events import get_events_df
+from stream2segment.download.modules.events import get_events_df, isf2text
 from stream2segment.download.modules.datacenters import get_datacenters_df
 from stream2segment.download.modules.channels import get_channels_df, chaid2mseedid_dict
 from stream2segment.download.modules.stationsearch import merge_events_stations
 from stream2segment.download.modules.segments import prepare_for_download, \
     download_save_segments, DcDataselectManager
-from stream2segment.download.utils import NothingToDownload, FailedDownload, Authorizer
+from stream2segment.download.utils import NothingToDownload, FailedDownload, Authorizer,\
+    response2normalizeddf
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf
 from stream2segment.download.utils import s2scodes
 from stream2segment.download.modules.mseedlite import MSeedError, unpack
@@ -247,7 +248,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                              show_progress)
 
     @patch('stream2segment.download.modules.events.urljoin', return_value='a')
-    def test_get_events(self, mock_query, db):
+    def tst_get_events(self, mock_query, db):
         urlread_sideeffect = ["""#1|2|3|4|5|6|7|8|9|10|11|12|13
 20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 01:45:30.300000|44.96|15.35|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|3.6|EMSC|CROATIA
@@ -294,7 +295,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert "Db table 'events': no new row to insert, no row to update" in log2
 
     @patch('stream2segment.download.modules.events.urljoin', return_value='a')
-    def test_get_events_toomany_requests_raises(self, mock_query, db): # FIXME: implement it!
+    def tst_get_events_toomany_requests_raises(self, mock_query, db):
         '''test request splitted, but failing due to max recursion'''
         urlread_sideeffect = [413]
         # as urlread returns alternatively a 413 and a good string, also sub-queries
@@ -319,9 +320,9 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert "Calculating the required sub-requests" in log
 
     @patch('stream2segment.download.modules.events.urljoin', return_value='a')
-    def test_get_events_eventws_not_saved(self, mock_query, db):
+    def tst_get_events_eventws_not_saved(self, mock_query, db):
         '''test request splitted, but failing due to a http error'''
-        urlread_sideeffect = [socket.timeout, 500]  # this is useless, we test stuff which raises before it
+        urlread_sideeffect = [socket.timeout, 500]
 
         # we want to return all times 413, and see that we raise a ValueError:
         with pytest.raises(FailedDownload) as fldl:
@@ -342,9 +343,9 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # assert "request entity too large" in self.log_msg()
 
     @patch('stream2segment.download.modules.events.urljoin', return_value='a')
-    def test_get_events_eventws_from_file(self, mock_query, db, pytestdir):
+    def tst_get_events_eventws_from_file(self, mock_query, db, pytestdir):
         '''test request splitted, but reading from events file'''
-        urlread_sideeffect = [socket.timeout, 500]  # this is useless, we test stuff which raises before it
+        urlread_sideeffect = [socket.timeout, 500]
 
         filepath = pytestdir.newfile('.txt', create=True)
         with open(filepath, 'w') as _fpn:
@@ -374,7 +375,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     @patch('stream2segment.download.modules.events.urljoin', return_value='a')
     def test_get_events_eventws_from_file_err(self, mock_query, db, pytestdir):
         '''test request splitted, but reading from BAD events file'''
-        urlread_sideeffect = [socket.timeout, 500]  # this is useless, we test stuff which raises before it
+        urlread_sideeffect = [socket.timeout, 500]
 
         filepath = pytestdir.newfile('.txt', create=True)
         with open(filepath, 'w') as _fpn:
@@ -393,3 +394,65 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
         assert 'Is the file content FDSN compliant?' in str(fdl)
         assert not self.mock_urlopen.called
+
+    def test_isf2text(self, data):
+        '''test isc format=isf with iris equivalent'''
+        # this file is stored in test data  dir and represents the iris request:
+        # https://service.iris.edu/fdsnws/event/1/query?starttime=2011-01-08T00:00:00&endtime=2011-01-08T00:05:00&format=text
+        iris_req_file = 'event_request_sample_iris.txt'
+
+        # this file is stored in test data dir and represents the same request
+        # on isc:
+        # http://www.isc.ac.uk/fdsnws/event/1/query?starttime=2011-01-08T00:00:00&endtime=2011-01-08T00:05:00&format=isf
+        isc_req_file = 'event_request_sample_isc.isf'
+
+        iris_df = response2normalizeddf('',
+                                        data.read(iris_req_file).decode('utf8'),
+                                        'event')
+        ret = []
+        with open(data.path(isc_req_file)) as opn:
+            for lst in isf2text(opn, 'ISC', 'ISC'):
+                ret.append('|'.join(lst))
+
+        isc_df = response2normalizeddf('', '\n'.join(ret), 'event')
+
+        # sort values
+        iris_df.sort_values(by=[Event.contributor_id.key], inplace=True)
+        isc_df.sort_values(by=[Event.event_id.key], inplace=True)
+        # Now, Event with event_location_name 'POLAND' has no magnitude
+        # in isc_df, so first:
+        iris_df = iris_df[iris_df[Event.event_location_name.key].str.lower() != 'poland']
+
+        iris_df.reset_index(inplace=True, drop=True)
+        isc_df.reset_index(inplace=True, drop=True)
+
+        # 1. assert a value has correctly been parsed (by looking at the file content):
+        assert isc_df[isc_df[Event.event_id.key] == '16868827'].loc[0, Event.magnitude.key] == 2.1
+        # and set the value to the corresponding iris value, which IN THIS CASE
+        # differs (maybe due to the 'Err' field =0.2 reported in the isc file?):
+        isc_df.at[isc_df.loc[isc_df[Event.event_id.key] == '16868827'].index,
+                  Event.magnitude.key] = 2.0
+        # test we set the value:
+        assert isc_df[isc_df[Event.event_id.key] == '16868827'].loc[0, Event.magnitude.key] == 2.0
+
+        # 2. assert a value has correctly been parsed (by looking at the file content):
+        assert isc_df[isc_df[Event.event_id.key] == '16868827'].loc[0, Event.mag_author.key] \
+            == 'THE'
+        # and set the value to the corresponding iris value, which IN THIS CASE
+        # differs (why?):
+        isc_df.at[isc_df.loc[isc_df[Event.event_id.key] == '16868827'].index,
+                  Event.mag_author.key] = 'ATH'
+        # test we set the value:
+        assert isc_df[isc_df[Event.event_id.key] == '16868827'].loc[0, Event.mag_author.key] \
+            == 'ATH'
+
+        assert (isc_df[Event.event_id.key].values == iris_df[Event.contributor_id.key].values).all()
+        assert (isc_df[Event.event_id.key].values == isc_df[Event.contributor_id.key].values).all()
+
+        # assert the following columns are equal:. We omit columns where the values
+        # differ by spaces/upper cases / other minor stuff, like Event.event_location_name.key
+        # or because they MUST differ (Event.event_id):
+        for col in iris_df.columns:
+            if col not in (Event.event_id.key, # Event.time.key,
+                           Event.event_location_name.key,):
+                assert (iris_df[col].values == isc_df[col].values).all()

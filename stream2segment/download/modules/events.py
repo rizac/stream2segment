@@ -9,13 +9,14 @@ Download module forevents download
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import map, next, zip, range, object
 
-import logging, os, sys
+import logging, os, sys, re
 from datetime import timedelta, datetime
 from collections import OrderedDict
 from io import open  # py2-3 compatible
 
 import pandas as pd
 
+from stream2segment.utils import StringIO
 from stream2segment.download.utils import dbsyncdf, FailedDownload, response2normalizeddf, \
     formatmsg, read_async
 from stream2segment.io.db.models import WebService, Event
@@ -27,11 +28,12 @@ from stream2segment.utils import urljoin, strptime, get_progressbar
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial) when calling logging
 # functions of stream2segment.download.utils:
 from stream2segment.download import logger  # @IgnorePep8
+from stream2segment.io.db.pdsql import colnames
 
 
 _MAPPINGS = {
     'emsc':  'http://www.seismicportal.eu/fdsnws/event/1/query',
-     # 'isc':   'http://www.isc.ac.uk/fdsnws/event/1/query',
+    'isc':   'http://www.isc.ac.uk/fdsnws/event/1/query',
     'iris':  'http://service.iris.edu/fdsnws/event/1/query',
     'ncedc': 'http://service.ncedc.org/fdsnws/event/1/query',
     'scedc': 'http://service.scedc.caltech.edu/fdsnws/event/1/query',
@@ -136,10 +138,12 @@ def events_iter_from_url(url, evt_query_args, start, end, max_downloads, timeout
     url and the corresponding response body. The returned iterator has length > 1
     if the request was too large and had to be splitted
     """
+    evt_query_args.setdefault('format', 'isf' if url == _MAPPINGS['isc'] else 'text')
+    is_isf = evt_query_args['format'] == 'isf'
 
     url_, raw_data, urls = compute_urls_chunks(url, evt_query_args, start, end,
                                                timeout, max_downloads)
-    yield url_, raw_data
+    yield url_, isfresponse2txt(raw_data) if is_isf and raw_data else raw_data
 
     oks = 0
     if urls:
@@ -159,11 +163,20 @@ def events_iter_from_url(url, evt_query_args, start, end, max_downloads, timeout
                         logger.warning(formatmsg("Discarding request", msg, request))
                     else:
                         oks += 1
-                        yield request, data
+                        yield request, isfresponse2txt(data) if is_isf else data
 
     if oks < len(urls):
         logger.info('Some sub-request failed, '
                     'some available events might not have been fetched')
+
+
+def isfresponse2txt(nonempty_text, catalog='ISC', contributor='ISC'):
+    sio = StringIO(nonempty_text)
+    sio.seek(0)
+    try:
+        return '\n'.join('|'.join(_) for _ in isf2text(sio, catalog, contributor))
+    except Exception:  # pylint: disable=broad-except
+        return ''
 
 
 def configure_ws_fk(eventws_url, session, db_bufsize):
@@ -232,7 +245,6 @@ def compute_urls_chunks(eventws, evt_query_args, start, end, timeout, max_downlo
     :param end: end time (datetime)
     """
     max_downloads = 0 if not max_downloads or max_downloads < 0 else max_downloads
-    evt_query_args['format'] = 'text'
     start_iso = start.isoformat()
     end_iso = end.isoformat()
     time_window = None
@@ -274,6 +286,103 @@ def compute_urls_chunks(eventws, evt_query_args, start, end, timeout, max_downlo
                      and exc.code in (413, 504)):  # pylint: disable=no-member
                 raise FailedDownload(formatmsg("Unable to fetch events", exc,
                                                urls[0]))
+
+
+def isf2text(isf_filep, catalog='', contributor=''):
+    '''Yields lists of strings representing an event. The yielded list L
+    can be passed to a DataFrame: pd.DataFrame[L]) and then converted with
+    response2normalizeddf('file:///' + filepath, data, "event")
+    '''
+
+    # To have an idea of the text format parsed  See e.g.:
+    # http://www.isc.ac.uk/fdsnws/event/1/query?starttime=2011-01-08T00:00:00&endtime=2011-01-08T01:00:00&format=isf
+
+    buf = []
+    event_line = 0
+    reg2 = re.compile(' +')
+    event_col_groups = eventmag_col_groups = None
+    while True:
+        line = isf_filep.readline()
+        if not line or line in ('STOP', 'STOP\n'):  # last line
+            if buf:  # remaining unparsed event
+                yield buf
+            break
+        try:
+            if line.startswith('Event '):
+                if buf:  # remaining unparsed event
+                    yield buf
+                buf = [''] * 13
+                event_line = 0
+                elements = reg2.split(line)
+                buf[0] = elements[1] if len(elements) > 1 else ''  # event_id
+                buf[6] = catalog  # catalog
+                buf[7] = contributor  # contributor
+                buf[8] = buf[0]  # contributor id
+                buf[12] = ' '.join(elements[2:]).strip()  # event location name
+            elif event_line == 1 and buf and not event_col_groups:
+                event_col_groups = _findgroups(line)
+            elif event_line == 2 and buf and event_col_groups:
+                elements = _findgroups(line, event_col_groups)
+                # elements = reg2.split(line)
+                dat, tme = elements[0], elements[1]
+                if '/' in dat:
+                    dat = dat.replace('/', '-')
+                dtime = ''
+                try:
+                    dtime = strptime(dat + 'T' + tme).strftime('%Y-%m-%dT%H:%M:%S')
+                except (TypeError, ValueError):
+                    pass
+                buf[1] = dtime  # time
+                buf[2] = elements[4]  # latitude
+                buf[3] = elements[5]  # longitude
+                depth = elements[9]
+                if depth and depth[-1] == 'f':
+                    depth = depth[:-1]
+                buf[4] = depth
+                buf[5] = elements[17]  # author
+            elif event_line == 4 and buf and not eventmag_col_groups:
+                eventmag_col_groups = _findgroups(line)
+            elif event_line == 5 and buf and eventmag_col_groups:
+                elements = _findgroups(line, eventmag_col_groups)
+                # we might have '[magtype]   [mag]' or simply '[mag]'
+                # to be sure, try cast to float:
+                mag, magtype = elements[0], ''
+                try:
+                    float(elements[0])
+                except ValueError:
+                    magtype, mag = re.split('\\s+', elements[0].strip())
+                buf[9] = magtype  # magnitude type
+                buf[10] = mag  # magnitude
+                buf[11] = elements[3]  # mag author
+                yield buf
+                buf = []
+            event_line += 1
+        except IndexError:
+            buf = []
+
+
+def _findgroups(line, groups=None):
+    ret = []
+    if groups is None:
+        ret = [[_.start(), _.end()] for _ in re.finditer(r'\b\w+\b', line)]
+        return ret
+
+    spaces = set([' ', '\t', '\n', '\r', '\f', '\v'])  # spaces chars in python re '\s'
+    lastpos = len(line) - 1
+    for grp in groups:
+        stindex = grp[0]
+        while stindex > 0 and line[stindex-1] not in spaces:
+            stindex -= 1
+        eindex = grp[1]
+        while eindex < lastpos and line[eindex] not in spaces:
+            eindex += 1
+        ret.append(line[stindex:eindex].strip())
+    return ret
+
+
+# def _get(list_, index):
+#     '''gets the index-th element from list_ or None instead of raising IndexError'''
+#     return list_[index].strip() if -len(list_) <= index < len(list_) else ''
 
 #     try:
 #         raw_data, code, msg = urlread(url, decode='utf8', raise_http_err=False)
