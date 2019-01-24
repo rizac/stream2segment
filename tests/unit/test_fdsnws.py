@@ -79,19 +79,18 @@ class Fdsnws(object):
     # application wadl method:
     APPLWADL = 'application.wadl'
 
-    def __init__(self, url, default_service=None, default_majorversion=1):
+    def __init__(self, url):
         '''initializes a Fdsnws object from a fdsn url
 
         If url does not contain the <service> and <majorversion> tokens in the
         url path, then they will default to the defaults provided (see below)
 
         :param url: string denoting the Fdsn web service url
-        :param default_service: None or string as one of the possible class static attributes:
-            `DATASEL` (default when None), `STATION`, `EVENT`. Used only `url`
-            has no path to set this class default service
-        :param default_majorversion: integer denoting the majorversion of the web service,
-            defaults to 1. Used only if `url` has no path to set this object
-            default majorversion
+            Example of valid values ('dataselect' can also be 'station', the
+            scheme 'http[s]://' might be omitted and will default to 'http://'):
+                https://www.mysite.org/fdsnws/dataselect/1
+                https://www.mysite.org/fdsnws/dataselect/1/
+                https://www.mysite.org/fdsnws/dataselect/1/query
         '''
         # do not use urlparse as we should import from stream2segment.url for py2 compatibility
         # but this will cause circular imports:
@@ -101,28 +100,29 @@ class Fdsnws(object):
             obj = urlparse('http://' + url)
         if not obj.netloc:
             raise ValueError('no domain specified, e.g. http://<domain>')
-        if obj.path in ('', '/'):
-            raise ValueError("Invalid path (/fdsnws/<service>/</majorversion>) in '%s'" % url)
+
+#         if obj.path in ('', '/'):
+#             raise ValueError("Invalid path (/fdsnws/<service>/</majorversion>) in '%s'" % url)
 
         self.site = "%s://%s" % (obj.scheme, obj.netloc)
 
         pth = obj.path
-        reg = re.match("^/(?:fdsnws)/(?P<service>.*?)/(?P<majorversion>\\d+)(:?/query/*|/*)$",
+        reg = re.match("^/(?:fdsnws)/(?P<service>.*?)/(?P<majorversion>.*?)(:?/query/*|/*)$",
                        pth)
         try:
             self.service, self.majorversion = reg.group('service'), reg.group('majorversion')
             if self.service not in [self.STATION, self.DATASEL, self.EVENT]:
                 raise ValueError("Invalid <service> '%s' in '%s'" % (self.service, pth))
             try:
-                int(self.majorversion)
+                float(self.majorversion)
             except ValueError:
                 raise ValueError("Invalid <majorversion> '%s' in '%s'" % (self.majorversion, pth))
         except ValueError:
             raise
         except Exception:
-            raise ValueError("Invalid FDSN path '%s' should be "
-                             "'/fdsnws/<service>/<majorversion>', "
-                             "check potential typos" % str(obj.path))
+            raise ValueError("Invalid FDSN path in '%s': it should be "
+                             "'[site]/fdsnws/<service>/<majorversion>', "
+                             "check potential typos" % str(url))
 
     def url(self, service=None, majorversion=None, method=None):
         '''builds a new url from this object url. Arguments which are 'None' will default
@@ -132,64 +132,62 @@ class Fdsnws(object):
 
         :param service: None or one of this class static attributes:
             `STATION`, `DATASEL`, `EVENT`
-        :param majorversion: None or a numeric integer (or string parsable to int)
+        :param majorversion: None or numeric value or string parsable to number
             denoting the service major version. Defaults to 1 when None
             `STATION`, `DATASEL`, `EVENT`
         :param method: None or one of the class static attributes
             `QUERY` (the default when None), `QUERYAUTH`,
             `VERSION`, `AUTH` or `APPLWADL`
         '''
-        return "%s/fdsnws/%s/%d/%s" % (self.site, service or self.service,
-                                       majorversion or self.majorversion,
+        return "%s/fdsnws/%s/%s/%s" % (self.site, service or self.service,
+                                       str(majorversion or self.majorversion),
                                        method or self.QUERY)
 
 
-@pytest.mark.parametrize(['url'],[
-                        ('abc.org/fdsnws/station/1/query',),
-                        ('abc.org/fdsnws/station/1/query/',),
-                        ('abc.org/fdsnws/station/1',),
-                        ('abc.org/fdsnws/station/1/',),
-                        ])
-def test_models_fdsn_url(url):
-    fdsn = Fdsnws(url)
-    assert fdsn.site == 'https://mock'
-    assert fdsn.service == Fdsnws.STATION
-    assert fdsn.majorversion == 1
+@pytest.mark.parametrize(['url_'],
+                         [
+                          ('abc.org/fdsnws/station/1/query/',),
+                          ('abc.org/fdsnws/station/1/query',),
+                          ('abc.org/fdsnws/station/1',),
+                          ('abc.org/fdsnws/station/1/',),])
+def test_models_fdsn_url(url_):
+    for url in [url_, 'http://' + url_, 'https://'+url_]:
+        fdsn = Fdsnws(url)
+        if url.startswith('https'):
+            assert fdsn.site == 'https://abc.org'
+        else:
+            assert fdsn.site == 'http://abc.org'
+        assert fdsn.service == Fdsnws.STATION
+        assert fdsn.majorversion == '1'
 
-    normalizedurl = fdsn.url()
-    for service in [Fdsnws.STATION, Fdsnws.DATASEL, Fdsnws.EVENT, 'abc']:
-        assert fdsn.url(service) == normalizedurl.replace('station', service)
+        normalizedurl = fdsn.url()
+        for service in [Fdsnws.STATION, Fdsnws.DATASEL, Fdsnws.EVENT, 'abc']:
+            assert fdsn.url(service) == normalizedurl.replace('station', service)
 
-    assert fdsn.url(majorversion=55) == normalizedurl.replace('1', '55')
+        assert fdsn.url(majorversion=55) == normalizedurl.replace('1', '55')
 
-    for method in [Fdsnws.QUERY, Fdsnws.QUERYAUTH, Fdsnws.APPLWADL, Fdsnws.VERSION,
-                   'abcdefg']:
-        assert fdsn.url(method=method) == normalizedurl.replace('query', method)
-
-
-#     for url in ["fdsnws/station/1/query",
-#                 "/fdsnws/station/1/query",
-#                 "http://www.google.com",
-#                 "https://mock/fdsnws/station/abc/1/whatever/abcde?h=8&b=76",
-#                 "https://mock/fdsnws/station/", "https://mock/fdsnws/station"]:
-#         with pytest.raises(ValueError):
-#             Fdsnws(url)
+        for method in [Fdsnws.QUERY, Fdsnws.QUERYAUTH, Fdsnws.APPLWADL, Fdsnws.VERSION,
+                       'abcdefg']:
+            assert fdsn.url(method=method) == normalizedurl.replace('query', method)
 
 
-def tst_fdsn_real_url():
-    baseurl = 'earthquake.usgs.gov'
-    def_scheme = 'http'
-    for url in [baseurl, baseurl + '/']:
-        for def_service, def_mv in product([Fdsnws.EVENT, Fdsnws.STATION, Fdsnws.DATASEL],
-                                           [1, 2]):
-            assert Fdsnws(url, def_service, def_mv).url() == \
-                '%s://%s/fdsnws/%s/%s/%s' % (def_scheme, url, def_service, def_mv, Fdsnws.QUERY)
-
-    baseurl = 'http://earthquake.usgs.gov'
-    for url in [baseurl, baseurl + '/']:
-        for def_service, def_mv in product([Fdsnws.EVENT, Fdsnws.STATION, Fdsnws.DATASEL],
-                                           [1, 2]):
-            assert Fdsnws(url, def_service, def_mv).url() == \
-                'http://%s/fdsnws/%s/%s/%s' % (url, def_service, def_mv, Fdsnws.QUERY)
-    
-    url = 'http://earthquake.usgs.gov/'
+@pytest.mark.parametrize(['url_'],
+                         [
+                          ('',),
+                          ('/fdsnws/station/1',),
+                          ('fdsnws/station/1/',),
+                          ('fdsnws/station/1/query',),
+                          ('fdsnws/station/1/query/',),
+                          ('abc.org',),
+                          ('abc.org/',),
+                          ('abc.org/fdsnws',),
+                          ('abc.org/fdsnws/',),
+                          ('abc.org/fdsnws/bla',),
+                          ('abc.org/fdsnws/bla/',),
+                          ('abc.org/fdsnws/station/a',),
+                          ('abc.org/fdsnws/station/b/',),
+                          ('abc.org//fdsnws/station/1.1/',),])
+def test_models_bad_fdsn_url(url_):
+    for url in [url_, 'http://' + url_, 'https://'+url_]:
+        with pytest.raises(ValueError):
+            fdsn = Fdsnws(url)
