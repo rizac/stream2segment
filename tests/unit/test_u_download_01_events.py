@@ -248,7 +248,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                              show_progress)
 
     @patch('stream2segment.download.modules.events.urljoin', return_value='a')
-    def tst_get_events(self, mock_query, db):
+    def test_get_events(self, mock_query, db):
         urlread_sideeffect = ["""#1|2|3|4|5|6|7|8|9|10|11|12|13
 20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 01:45:30.300000|44.96|15.35|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|3.6|EMSC|CROATIA
@@ -295,7 +295,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert "Db table 'events': no new row to insert, no row to update" in log2
 
     @patch('stream2segment.download.modules.events.urljoin', return_value='a')
-    def tst_get_events_toomany_requests_raises(self, mock_query, db):
+    def test_get_events_toomany_requests_raises(self, mock_query, db):
         '''test request splitted, but failing due to max recursion'''
         urlread_sideeffect = [413]
         # as urlread returns alternatively a 413 and a good string, also sub-queries
@@ -320,7 +320,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert "Calculating the required sub-requests" in log
 
     @patch('stream2segment.download.modules.events.urljoin', return_value='a')
-    def tst_get_events_eventws_not_saved(self, mock_query, db):
+    def test_get_events_eventws_not_saved(self, mock_query, db):
         '''test request splitted, but failing due to a http error'''
         urlread_sideeffect = [socket.timeout, 500]
 
@@ -343,7 +343,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # assert "request entity too large" in self.log_msg()
 
     @patch('stream2segment.download.modules.events.urljoin', return_value='a')
-    def tst_get_events_eventws_from_file(self, mock_query, db, pytestdir):
+    def test_get_events_eventws_from_file(self, mock_query, db, pytestdir):
         '''test request splitted, but reading from events file'''
         urlread_sideeffect = [socket.timeout, 500]
 
@@ -394,6 +394,39 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
         assert 'Is the file content FDSN compliant?' in str(fdl)
         assert not self.mock_urlopen.called
+
+    @patch('stream2segment.download.modules.events.urljoin', return_value='a')
+    @patch('stream2segment.download.modules.events.isf2text', side_effect=isf2text)
+    def test_get_events_eventws_from_isc(self, mock_isf_to_text,
+                                         mock_query, db, data):
+        '''test request splitted, but reading from BAD events file'''
+
+        # now it should raise because of a 413:
+        _ = self.get_events_df(None, db.session, 'emsc', {},
+                               start=datetime(2010, 1, 1),
+                               end=datetime(2011, 1, 1),
+                               db_bufsize=self.db_buf_size)
+        assert not mock_isf_to_text.called
+
+        with pytest.raises(FailedDownload) as fld:
+            # now it should raise because of a 413:
+            _ = self.get_events_df(None, db.session, 'isc', {},
+                                   start=datetime(2010, 1, 1),
+                                   end=datetime(2011, 1, 1),
+                                   db_bufsize=self.db_buf_size)
+        assert "Malformed response data" in str(fld)
+        assert mock_isf_to_text.called
+        mock_isf_to_text.reset_mock()
+        assert not mock_isf_to_text.called
+
+        # now supply a valid isf file:
+        _ = self.get_events_df([data.read('event_request_sample_isc.isf').decode('utf8')],
+                               db.session, 'isc', {},
+                               start=datetime(2010, 1, 1),
+                               end=datetime(2011, 1, 1),
+                               db_bufsize=self.db_buf_size)
+        assert mock_isf_to_text.called
+
 
     def test_isf2text(self, data):
         '''test isc format=isf with iris equivalent'''

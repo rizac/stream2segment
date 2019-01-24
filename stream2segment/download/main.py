@@ -32,7 +32,7 @@ from stream2segment.io.db.models import Download
 logger = logging.getLogger(__name__)
 
 
-def run(session, download_id, eventws, start, end, dataws, eventws_params,
+def run(session, download_id, eventws, starttime, endtime, dataws, eventws_params,
         network, station, location, channel, min_sample_rate,
         search_radius, update_metadata, inventory, timespan,
         retry_seg_not_found, retry_url_err, retry_mseed_err, retry_client_err, retry_server_err,
@@ -76,7 +76,7 @@ def run(session, download_id, eventws, start, end, dataws, eventws_params,
         if inventory != 'only':
 
             stepinfo("Requesting events")
-            events_df = get_events_df(session, eventws, eventws_params, start, end,
+            events_df = get_events_df(session, eventws, eventws_params, starttime, endtime,
                                       dbbufsize, advanced_settings['e_timeout'],
                                       advanced_settings['e_max_requests'], isterminal)
 
@@ -86,13 +86,13 @@ def run(session, download_id, eventws, start, end, dataws, eventws_params,
             # get dacatanters (might raise FailedDownload):
             datacenters_df, eidavalidator = \
                 get_datacenters_df(session, dataws, advanced_settings['routing_service_url'],
-                                   network, station, location, channel, start, end, dbbufsize)
+                                   network, station, location, channel, starttime, endtime, dbbufsize)
 
             stepinfo("Requesting stations and channels from %d %s", len(datacenters_df),
                      "data-center" if len(datacenters_df) == 1 else "data-centers")
             # get dacatanters (might raise FailedDownload):
             channels_df = get_channels_df(session, datacenters_df, eidavalidator,
-                                          network, station, location, channel, start, end,
+                                          network, station, location, channel, starttime, endtime,
                                           min_sample_rate, update_metadata,
                                           advanced_settings['max_thread_workers'],
                                           advanced_settings['s_timeout'],

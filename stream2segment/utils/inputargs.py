@@ -544,11 +544,11 @@ def load_config_for_download(config, parseargs, **param_overrides):
              'newvalue': load_tt_table
             },
             {
-             'names': ('start', 'starttime'),
+             'names': ('starttime', 'start'),
              'newvalue': valid_date
             },
             {
-             'names': ('end', 'endtime'),
+             'names': ('endtime', 'end'),
              'newvalue': valid_date
             },
             {

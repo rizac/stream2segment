@@ -16,6 +16,8 @@ except ImportError:
 
 import re
 
+
+
 '''
 RATIONAE
 
@@ -23,38 +25,8 @@ in the eventws, the user can supply:
 - a string 'iris' 'isc' 'emsc' OR
 - an url which represents the url of a webservice query url without the trailing '?' and query parameters,
     e.g. 'https://service.iris.edu/fdsnws/event/1/query'
-    or 'service.iris.edu/fdsnws/event/1/query' (will be converted to 'service.iris.edu/fdsnws/event/1/query')
 
-
-In the dataws, the user can supply:
-- a string 'iris' or 'eida', OR
-- an url which represents the full portion of the webservice url that will be concatenated with
-    the query parameters. It must the in the form
-    scheme://host/fdsnws/<service or dataselect>/<majorversion>/
-    scheme://host/  (will default to scheme://host/fdsnws/dataselect/1/)
-    host/  (will default to http://host/fdsnws/dataselect/1/)
-    The last slash is optional. Also, 'dataselect' can be replaced by 'station'
-    as the program will use 
-    be fdsnws compliant:
-    <site>/fdsnws/<service>/<majorversion>/
-    where [service] must be either 'station' or 'dataselect'
-    Valid examples:
-    'https://service.iris.edu/fdsnws/station/1/'
-    'https://service.iris.edu/fdsnws/station/1'
-    'https://service.iris.edu/'  (will set major
-    'https://service.iris.edu/fdsnws/station/1/'
-    
-    
-    'https://service.iris.edu/fdsnws/station/1/'
-    'https://service.iris.edu/fdsnws/station/1'
-    'https://service.iris.edu' (will default [majorversion] to 1)
-    The examples above can be provided also without the schema ('https://') but in that
-    case 'http://' will be used.
-    Example:
-    'service.iris.edu' will use:
-    'http://service.iris.edu/fdsnws/dataselect/1/query' for the station search
-    'http://service.iris.edu/fdsnws/dataselect/1/query' for the waveform download
-
+    we want to make http:// (scheme) and the '/query' part optional
 '''
 
 def split_url(url):
@@ -129,29 +101,28 @@ class Fdsnws(object):
             obj = urlparse('http://' + url)
         if not obj.netloc:
             raise ValueError('no domain specified, e.g. http://<domain>')
+        if obj.path in ('', '/'):
+            raise ValueError("Invalid path (/fdsnws/<service>/</majorversion>) in '%s'" % url)
+
         self.site = "%s://%s" % (obj.scheme, obj.netloc)
-        self.service = default_service or self.DATASEL
-        self.majorversion = str(default_majorversion)
-        if obj.path and not obj.path == '/':   # ignore cases where obj.path is empty or '/'
-            pth = obj.path
-            reg = re.match("^/(?:fdsnws)/(?P<service>.*?)/(?P<majorversion>\\d+)(:?/query/*|/*)$",
-                           pth)
+
+        pth = obj.path
+        reg = re.match("^/(?:fdsnws)/(?P<service>.*?)/(?P<majorversion>\\d+)(:?/query/*|/*)$",
+                       pth)
+        try:
+            self.service, self.majorversion = reg.group('service'), reg.group('majorversion')
+            if self.service not in [self.STATION, self.DATASEL, self.EVENT]:
+                raise ValueError("Invalid <service> '%s' in '%s'" % (self.service, pth))
             try:
-                service, majorversion = reg.group('service'), reg.group('majorversion')
-                if service not in [self.STATION, self.DATASEL, self.EVENT]:
-                    raise ValueError("Invalid <service> in '%s'" % pth)
-                try:
-                    majorversion = int(majorversion)
-                except ValueError:
-                    raise ValueError("Invalid <majorversion> in '%s'" % pth)
-                self.service = service
-                self.majorversion = str(majorversion)
+                int(self.majorversion)
             except ValueError:
-                raise
-            except Exception:
-                raise ValueError("Invalid FDSN path '%s' should be "
-                                 "'/fdsnws/<service>/<majorversion>', "
-                                 "check potential typos" % str(obj.path))
+                raise ValueError("Invalid <majorversion> '%s' in '%s'" % (self.majorversion, pth))
+        except ValueError:
+            raise
+        except Exception:
+            raise ValueError("Invalid FDSN path '%s' should be "
+                             "'/fdsnws/<service>/<majorversion>', "
+                             "check potential typos" % str(obj.path))
 
     def url(self, service=None, majorversion=None, method=None):
         '''builds a new url from this object url. Arguments which are 'None' will default
@@ -168,39 +139,41 @@ class Fdsnws(object):
             `QUERY` (the default when None), `QUERYAUTH`,
             `VERSION`, `AUTH` or `APPLWADL`
         '''
-        return "%s/fdsnws/%s/%d/%s" % (self.site, service or self._service,
-                                       majorversion or self._majorversion,
+        return "%s/fdsnws/%s/%d/%s" % (self.site, service or self.service,
+                                       majorversion or self.majorversion,
                                        method or self.QUERY)
 
 
-def tst_models_fdsn_url():
-    for url in ["https://mock/fdsnws/station/1/query",
-                "https://mock/fdsnws/station/1/query?",
-                "https://mock/fdsnws/station/1/", "https://mock/fdsnws/station/1",
-                "https://mock/fdsnws/station/1/abcde?h=8&b=76",
-                "https://mock/fdsnws/station/1/whatever/abcde?h=8&b=76"]:
-        fdsn = Fdsnws(url)
-        assert fdsn.site == 'https://mock'
-        assert fdsn.service == Fdsnws.STATION
-        assert fdsn.majorversion == 1
-        normalizedurl = fdsn.url()
-        assert normalizedurl == 'https://mock/fdsnws/station/1/query'
-        for service in [Fdsnws.STATION, Fdsnws.DATASEL, Fdsnws.EVENT, 'abc']:
-            assert fdsn.url(service) == normalizedurl.replace('station', service)
+@pytest.mark.parametrize(['url'],[
+                        ('abc.org/fdsnws/station/1/query',),
+                        ('abc.org/fdsnws/station/1/query/',),
+                        ('abc.org/fdsnws/station/1',),
+                        ('abc.org/fdsnws/station/1/',),
+                        ])
+def test_models_fdsn_url(url):
+    fdsn = Fdsnws(url)
+    assert fdsn.site == 'https://mock'
+    assert fdsn.service == Fdsnws.STATION
+    assert fdsn.majorversion == 1
 
-        assert fdsn.url(majorversion=55) == normalizedurl.replace('1', '55')
+    normalizedurl = fdsn.url()
+    for service in [Fdsnws.STATION, Fdsnws.DATASEL, Fdsnws.EVENT, 'abc']:
+        assert fdsn.url(service) == normalizedurl.replace('station', service)
 
-        for method in [Fdsnws.QUERY, Fdsnws.QUERYAUTH, Fdsnws.APPLWADL, Fdsnws.VERSION,
-                       'abcdefg']:
-            assert fdsn.url(method=method) == normalizedurl.replace('query', method)
+    assert fdsn.url(majorversion=55) == normalizedurl.replace('1', '55')
 
-    for url in ["fdsnws/station/1/query",
-                "/fdsnws/station/1/query",
-                "http://www.google.com",
-                "https://mock/fdsnws/station/abc/1/whatever/abcde?h=8&b=76",
-                "https://mock/fdsnws/station/", "https://mock/fdsnws/station"]:
-        with pytest.raises(ValueError):
-            Fdsnws(url)
+    for method in [Fdsnws.QUERY, Fdsnws.QUERYAUTH, Fdsnws.APPLWADL, Fdsnws.VERSION,
+                   'abcdefg']:
+        assert fdsn.url(method=method) == normalizedurl.replace('query', method)
+
+
+#     for url in ["fdsnws/station/1/query",
+#                 "/fdsnws/station/1/query",
+#                 "http://www.google.com",
+#                 "https://mock/fdsnws/station/abc/1/whatever/abcde?h=8&b=76",
+#                 "https://mock/fdsnws/station/", "https://mock/fdsnws/station"]:
+#         with pytest.raises(ValueError):
+#             Fdsnws(url)
 
 
 def tst_fdsn_real_url():
@@ -220,62 +193,3 @@ def tst_fdsn_real_url():
                 'http://%s/fdsnws/%s/%s/%s' % (url, def_service, def_mv, Fdsnws.QUERY)
     
     url = 'http://earthquake.usgs.gov/'
-    
-
-def _get(list_, index):
-    return list_[index].strip() if -len(list_) <= index < len(list_) else None
-
-
-def response2df_isc(response_data):
-    buf = []
-    expects_event_header = expects_event_data = False
-    reg = re.compile(r'(.*)\n')
-    reg2 = re.compile(' +')
-    data = []
-    row = {}
-    columns = list(colnames(Event, pkey=False, fkey=False))
-    for match in reg.finditer(response_data):
-        line = match.group(1)
-        if line.startwith('Event'):
-            row = {_: None for _ in columns}
-            row[Event.catalog.key] = row[Event.contributor.key] = 'ISC'
-            expects_event_header = expects_event_data = False
-            elements = reg2.split(line)
-            if not _get(elements, 1):
-                continue
-            row[Event.event_id.key] = row[Event.contributor_id.key] = _get(elements, 1)
-            row[Event.event_location_name.key] = _get(elements, 2)
-            expects_event_header = True
-            continue
-        elif expects_event_header:
-            expects_event_header = False
-            elements = reg2.split(line)
-            if _get(elements, 0) == 'Date':
-                expects_event_data = True
-            continue
-        elif expects_event_data:
-            expects_event_header = False
-            elements = reg2.split(line)
-            dat, tme = _get(elements, 0), _get(elements, 1)
-            try:
-                dtime = strptime(dat + 'T' + tme)
-                row[Event.time.key] = dtime.strftime('%Y-%m-%dT%H-%M-%S')
-            except (TypeError, ValueError):
-                pass
-            row[Event.latitude.key] = _get(elements, 4)
-            row[Event.longitude.key] = _get(elements, 5)
-            depth = _get(elements, 9)
-            if depth is not None and depth[-1] == 'f':
-                depth = depth[:-1]
-            row[Event.depth_km.key] = depth
-            row[Event.author.key] = _get(elements, 17)
-            
-            
-            
-            
-            
-            
-def text_isp_reader(data):
-    data.read('isc_response.txt')
-    
-    

@@ -49,19 +49,19 @@ def test_click_download(mock_download, mock_create_sess, mock_new_db_download,
     (conffile, yamldic) = download_setup("download.yaml")
     result = runner.invoke(cli, ['download', '-c', conffile])
     dic = mock_download.call_args_list[0][1]
-    assert dic['start'] == yamldic['start']
-    assert dic['end'] == yamldic['end']
+    assert dic['starttime'] == yamldic['starttime']
+    assert dic['endtime'] == yamldic['endtime']
     mock_create_sess.assert_called_once_with(yamldic['dburl'])
     assert result.exit_code == 0
 
     # test by supplying an argument it is overridden
     mock_download.reset_mock()
     mock_create_sess.reset_mock()
-    newdate = yamldic['start'] + timedelta(seconds=1)
+    newdate = yamldic['starttime'] + timedelta(seconds=1)
     result = runner.invoke(cli, ['download', '-c', conffile, '--start', newdate])
     dic = mock_download.call_args_list[0][1]
-    assert dic['start'] == newdate
-    assert dic['end'] == yamldic['end']
+    assert dic['starttime'] == newdate
+    assert dic['endtime'] == yamldic['endtime']
     mock_create_sess.assert_called_once_with(yamldic['dburl'])
     # assert dic['dburl'] == yamldic['dburl']
     assert result.exit_code == 0
@@ -72,14 +72,16 @@ def test_click_download(mock_download, mock_create_sess, mock_new_db_download,
     mock_create_sess.reset_mock()
     result = runner.invoke(cli, ['download', '-c', conffile, '--end', newdate.isoformat()])
     dic = mock_download.call_args_list[0][1]
-    assert dic['end'] == newdate
-    assert dic['start'] == yamldic['start']
+    assert dic['endtime'] == newdate
+    assert dic['starttime'] == yamldic['starttime']
     mock_create_sess.assert_called_once_with(yamldic['dburl'])
     # assert dic['dburl'] == yamldic['dburl']
     assert result.exit_code == 0
 
     # test start and end given as integers
-    (conffile, yamldic) = download_setup("download.yaml", start=1, end=0)
+    # provide values IN THE YAML. Which means we need to write 'starttime' and 'endtime'
+    # as those are the values stored in-there:
+    (conffile, yamldic) = download_setup("download.yaml", starttime=1, endtime=0)
     mock_download.reset_mock()
     mock_create_sess.reset_mock()
     result = runner.invoke(cli, ['download', '-c', conffile])
@@ -87,8 +89,8 @@ def test_click_download(mock_download, mock_create_sess, mock_new_db_download,
     d = datetime.utcnow()
     startd = datetime(d.year, d.month, d.day) - timedelta(days=1)
     endd = datetime(d.year, d.month, d.day)
-    assert dic['start'] == startd
-    assert dic['end'] == endd
+    assert dic['starttime'] == startd
+    assert dic['endtime'] == endd
     mock_create_sess.assert_called_once_with(yamldic['dburl'])
     # assert dic['dburl'] == yamldic['dburl']
     assert result.exit_code == 0
@@ -102,8 +104,8 @@ def test_click_download(mock_download, mock_create_sess, mock_new_db_download,
     d = datetime.utcnow()
     startd = datetime(d.year, d.month, d.day) - timedelta(days=30)
     endd = datetime(d.year, d.month, d.day)
-    assert dic['start'] == startd
-    assert dic['end'] == endd
+    assert dic['starttime'] == startd
+    assert dic['endtime'] == endd
     mock_create_sess.assert_called_once_with(yamldic['dburl'])
     # assert dic['dburl'] == yamldic['dburl']
     assert result.exit_code == 0
@@ -120,9 +122,10 @@ def test_click_download(mock_download, mock_create_sess, mock_new_db_download,
     mock_download.reset_mock()
     result = runner.invoke(cli, ['download', '-c', conffile])
     dic = mock_download.call_args_list[0][1]
-    assert 'network' not in dic
+    assert 'networks' not in dic
+    assert 'net' not in dic
     # we provided the default, with the parameter used in our functions:
-    assert dic['networks'] == []
+    assert dic['network'] == []
 
     # test with an unknown argument
     (conffile, yamldic) = download_setup("download.yaml")

@@ -21,7 +21,7 @@ dburl: 'sqlite:////path/to/my/db.sqlite'
 # =======
 
 # The event web service url to use. Supply
-# a *full* url (up to and not including the character '?')
+# a *full* url (up to and not including the first query character '?')
 # or a path to a local file.
 # The events list returned by the url or in the supplied file must be formatted as specified
 # in https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=16
@@ -82,14 +82,13 @@ minmagnitude: 3.0  # null: ignore parameter
 # Implementation details: 'maxmag' is also a valid name for this parameter
 maxmagnitude: null
 
-# Additional event web search (optional) parameters
-# (https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=14)
-# as long as the event web service supports them (thus stream2segment can not guarantee
-# their functioning). Empty by default (=no additional parameters). Note that
-# the format argument should be omitted as it is automatically inferred by the program.
-# Neverthless, if you want to force a particular format, for performance reasons xml is not
-# supported and only 'text' or 'isf' should be supplied.
-# Implementation details: this is a YAML file, please pay attention to indentation
+# Additional event web search parameters. For info, see
+# https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=14)
+# Parameters with support 'Optional' are not guaranteed to work. Note that the 'format' parameter
+# cannot be 'xml' (for performance reasons) and in general needs not to be specified:
+# if missing, it default to 'text' ('isf' only in case 'eventws'="ISC")
+# Implementation details: The parameter is empty by default, uncomment the lines below
+# or insert new ones. Remember that this is a YAML file, pay attention to indentation. 
 eventws_params:
   # lat: 47.0
   # lon: 4.0
@@ -172,7 +171,7 @@ search_radius:
 
 
 # ========================
-# Data (waveform segments) REF: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=8
+# Data (waveform segments) https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=8
 # ========================
 
 # data-select web service to use (url). It *must* be FDSN compliant:
@@ -266,12 +265,13 @@ advanced_settings:
  # how many parallel threads to start when downloading (one thread per download)
  # If 0 or negative, is automatically set according to the machine CPU
  max_thread_workers: 0
- # Maximum number of sub-request when an event request too large
- # needs to be split into sub-queries (the number of which will be determined
- # via an internal algorithm). Be polite and try not to increase too much the server load!
+ # Maximum number of sub-requests of the event search, when the latter
+ # needs to be subdivided into smaller chunks. The download will stop if this
+ # number is exceeded. Before increasing this value, please consider
+ # not to cause trouble to the server traffic load
  e_max_requests: 120
  # max time to wait (in seconds) for a single request while downloading events
- e_timeout: 60
+ e_timeout: 15
  # max time to wait (in seconds) for a single request while downloading stations+channel metadata
  s_timeout: 120
  # max time to wait (in seconds) for a single request while downloading an inventory in xml format
@@ -279,7 +279,7 @@ advanced_settings:
  # max time to wait (in seconds) for a single request while downloading waveform data
  w_timeout: 30
  # the buffer size used when writing items (stations, segments, events, ...) to database.
- # Increasing this number usually sppeds speed up db IO operations, but increases the potentially
- # unsaved rows in case of errors, as if a row item in the buffer cannot be inserted or updated
- # (e.g., integrity errors), all subsequent buffer items will be also discarded
+ # Increasing this number usually speeds speed up database IO operations, but note that
+ # if a single item in the buffer cannot be inserted or updated
+ # (e.g., integrity errors), all subsequent buffer items will also be discarded
  db_buf_size: 20
