@@ -263,11 +263,6 @@ advanced_settings:
  # how many parallel threads to start when downloading (one thread per download)
  # If 0 or negative, is automatically set according to the machine CPU
  max_thread_workers: 0
- # Maximum number of sub-requests of the event search, when the latter
- # needs to be subdivided into smaller chunks. The download will stop if this
- # number is exceeded. Before increasing this value, please consider
- # not to cause trouble to the server traffic load
- e_max_requests: 120
  # max time to wait (in seconds) for a single request while downloading events
  e_timeout: 15
  # max time to wait (in seconds) for a single request while downloading stations+channel metadata

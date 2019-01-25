@@ -77,8 +77,7 @@ def run(session, download_id, eventws, starttime, endtime, dataws, eventws_param
 
             stepinfo("Requesting events")
             events_df = get_events_df(session, eventws, eventws_params, starttime, endtime,
-                                      dbbufsize, advanced_settings['e_timeout'],
-                                      advanced_settings['e_max_requests'], isterminal)
+                                      dbbufsize, advanced_settings['e_timeout'], isterminal)
 
             # Get datacenters, store them in the db, returns the dc instances (db rows) correctly
             # added
@@ -86,7 +85,8 @@ def run(session, download_id, eventws, starttime, endtime, dataws, eventws_param
             # get dacatanters (might raise FailedDownload):
             datacenters_df, eidavalidator = \
                 get_datacenters_df(session, dataws, advanced_settings['routing_service_url'],
-                                   network, station, location, channel, starttime, endtime, dbbufsize)
+                                   network, station, location, channel, starttime, endtime,
+                                   dbbufsize)
 
             stepinfo("Requesting stations and channels from %d %s", len(datacenters_df),
                      "data-center" if len(datacenters_df) == 1 else "data-centers")

@@ -42,7 +42,7 @@ _MAPPINGS = {
 
 
 def get_events_df(session, url, evt_query_args, start, end,
-                  db_bufsize=30, max_downloads=30, timeout=15,
+                  db_bufsize=30, timeout=15,
                   show_progress=False):
     '''Returns the event data frame from the given url or local file'''
 
@@ -59,7 +59,7 @@ def get_events_df(session, url, evt_query_args, start, end,
     eventws_id = configure_ws_fk(url, session, db_bufsize)
 
     pd_df_list = [dfr for dfr in dataframe_iter(url, evt_query_args, start, end,
-                                                max_downloads, timeout,
+                                                timeout,
                                                 show_progress)]
 
     events_df = None
@@ -84,8 +84,26 @@ def get_events_df(session, url, evt_query_args, start, end,
                       Event.depth_km.key, Event.time.key]].copy()
 
 
+def configure_ws_fk(eventws_url, session, db_bufsize):
+    '''configure the web service foreign key creating such a db row if it does not
+    exist and returning its id'''
+    ws_name = ''
+    if eventws_url in _MAPPINGS:
+        ws_name = eventws_url
+        eventws_url = _MAPPINGS[eventws_url]
+    eventws_id = session.query(WebService.id).filter(WebService.url == eventws_url).scalar()
+    if eventws_id is None:  # write url to table
+        data = [("event", ws_name, eventws_url)]
+        dfr = pd.DataFrame(data, columns=[WebService.type.key, WebService.name.key,
+                                          WebService.url.key])
+        dfr = dbsyncdf(dfr, session, [WebService.url], WebService.id, buf_size=db_bufsize)
+        eventws_id = dfr.iloc[0][WebService.id.key]
+
+    return eventws_id
+
+
 def dataframe_iter(url, evt_query_args, start, end,
-                   max_downloads=30, timeout=15,
+                   timeout=15,
                    show_progress=False):
     '''Yields pandas dataframe(s) from the event url or file
 
@@ -99,7 +117,6 @@ def dataframe_iter(url, evt_query_args, start, end,
         evens_titer = events_iter_from_url(_MAPPINGS.get(url, url),
                                            evt_query_args,
                                            start, end,
-                                           max_downloads,
                                            timeout, show_progress)
 
     for url_, data in evens_titer:
@@ -131,164 +148,202 @@ def islocalfile(url):
     return url not in _MAPPINGS and os.path.isfile(url)
 
 
-def events_iter_from_url(url, evt_query_args, start, end, max_downloads, timeout,
-                         show_progress=False):
+# def events_iter_from_url(url, evt_query_args, start, end, max_downloads, timeout,
+#                          show_progress=False):
+#     """
+#     Yields an iterator of tuples (url, data), where bith are strings denoting the
+#     url and the corresponding response body. The returned iterator has length > 1
+#     if the request was too large and had to be splitted
+#     """
+#     evt_query_args.setdefault('format', 'isf' if url == _MAPPINGS['isc'] else 'text')
+#     is_isf = evt_query_args['format'] == 'isf'
+# 
+#     url_, raw_data, urls = compute_urls_chunks(url, evt_query_args, start, end,
+#                                                timeout, max_downloads)
+#     yield url_, isfresponse2txt(raw_data) if is_isf and raw_data else raw_data
+# 
+#     oks = 0
+#     if urls:
+#         logger.info(formatmsg("Request split into %d sub-requests" % (len(urls)+1),
+#                               "", url))
+#         with get_progressbar(show_progress, length=len(urls)) as pbar:
+# 
+#             for obj, result, exc, request in read_async(urls,
+#                                                         timeout=timeout,
+#                                                         raise_http_err=True):
+#                 pbar.update(1)
+#                 if exc:
+#                     logger.warning(formatmsg("Error fetching events", str(exc), request))
+#                 else:
+#                     data, code, msg = result  # @UnusedVariable
+#                     if not data:
+#                         logger.warning(formatmsg("Discarding request", msg, request))
+#                     else:
+#                         oks += 1
+#                         yield request, isfresponse2txt(data) if is_isf else data
+# 
+#     if oks < len(urls):
+#         logger.info('Some sub-request failed, '
+#                     'some available events might not have been fetched')
+
+
+def events_iter_from_url(base_url, evt_query_args, start, end, timeout, show_progress=False):
     """
     Yields an iterator of tuples (url, data), where bith are strings denoting the
     url and the corresponding response body. The returned iterator has length > 1
     if the request was too large and had to be splitted
     """
-    evt_query_args.setdefault('format', 'isf' if url == _MAPPINGS['isc'] else 'text')
+    evt_query_args.setdefault('format', 'isf' if base_url == _MAPPINGS['isc'] else 'text')
     is_isf = evt_query_args['format'] == 'isf'
 
-    url_, raw_data, urls = compute_urls_chunks(url, evt_query_args, start, end,
-                                               timeout, max_downloads)
-    yield url_, isfresponse2txt(raw_data) if is_isf and raw_data else raw_data
+    start_iso = start.isoformat()
+    end_iso = end.isoformat()
+    # This should never happen but let's be safe: override start and end
+    if 'start' in evt_query_args:
+        evt_query_args.pop('start')
+    evt_query_args['starttime'] = start_iso
+    if 'end' in evt_query_args:
+        evt_query_args.pop('end')
+    evt_query_args['endtime'] = end_iso
+    # assure that we have 'minmagnitude' and 'maxmagnitude' as mag parameters, if any:
+    if 'minmag' in evt_query_args:
+        minmag = evt_query_args.pop('minmag')
+        if 'minmagnitude' not in evt_query_args:
+            evt_query_args['minmagnitude'] = minmag
+    if 'maxmag' in evt_query_args:
+        maxmag = evt_query_args.pop('maxmag')
+        if 'maxmagnitude' not in evt_query_args:
+            evt_query_args['maxmagnitude'] = maxmag
 
-    oks = 0
-    if urls:
-        logger.info(formatmsg("Request split into %d sub-requests" % (len(urls)+1),
-                              "", url))
-        with get_progressbar(show_progress, length=len(urls)) as pbar:
+    evt_q_args = [evt_query_args]
 
-            for obj, result, exc, request in read_async(urls,
-                                                        timeout=timeout,
-                                                        raise_http_err=True):
-                pbar.update(1)
-                if exc:
-                    logger.warning(formatmsg("Error fetching events", str(exc), request))
+    with get_progressbar(show_progress, length=_get_steps(evt_query_args)) as pbar:
+        while evt_q_args:
+            evt_q_arg = evt_q_args.pop(0)
+            url = urljoin(base_url, **evt_q_arg)
+            try:
+                raw_data, code, msg = urlread(url, decode='utf8',
+                                              timeout=timeout,
+                                              raise_http_err=True, wrap_exceptions=False)
+
+                pbar.update(_get_steps(evt_q_arg))
+                if raw_data:
+                    yield url, isfresponse2txt(raw_data) if is_isf else raw_data
                 else:
-                    data, code, msg = result  # @UnusedVariable
-                    if not data:
-                        logger.warning(formatmsg("Discarding request", msg, request))
-                    else:
-                        oks += 1
-                        yield request, isfresponse2txt(data) if is_isf else data
+                    logger.warning(formatmsg("Discarding request", msg, url))
 
-    if oks < len(urls):
-        logger.info('Some sub-request failed, '
-                    'some available events might not have been fetched')
+            except Exception as exc:  # pylint: disable=broad-except
+                # raise only if we do NOT have timeout or http err in (413, 504)
+                if isinstance(exc, socket.timeout) or \
+                        (isinstance(exc, HTTPError)
+                         and exc.code in (413, 504)):  # pylint: disable=no-member
+                    try:
+                        evt_q_args = _split_url(evt_q_arg) + evt_q_args
+                    except ValueError as verr:
+                        raise FailedDownload(formatmsg("Unable to fetch events", verr,
+                                                       url))
+                else:
+                    raise FailedDownload(formatmsg("Unable to fetch events", exc,
+                                                   url))
+
+
+def _split_url(evt_query_args):
+    minmag, maxmag = get_mags(evt_query_args)
+    _ = get_mags(evt_query_args, 0, 10)
+    minmag_f, maxmag_f = float(_[0]), float(_[1])
+    part = (maxmag_f - minmag_f) / 10.0
+    part = int((10 * part) + 0.5) / 10.0
+    if part < 0.1:
+        raise ValueError('maximum recursion reached, '
+                         'decrease spatial-temporal bounds or magnitude range')
+
+    evt_query_args1 = dict(evt_query_args)
+    evt_query_args2 = dict(evt_query_args)
+    if minmag is not None:
+        evt_query_args1['minmagnitude'] = minmag
+    evt_query_args1['maxmagnitude'] = str(round(minmag_f + part - 0.01, 3))
+    evt_query_args2['minmagnitude'] = str(round(minmag_f + part, 3))
+    if maxmag is not None:
+        evt_query_args2['maxmagnitude'] = maxmag
+    return [evt_query_args1, evt_query_args2]
+
+
+def _get_steps(evt_query_args):
+    minmag, maxmag = get_mags(evt_query_args, 0, 10)
+    return int(0.5 + (float(maxmag) - float(minmag)) * 10)
+
+
+def get_mags(evt_query_args, default_min=None, default_max=None):
+    minmag = evt_query_args.get('minmagnitude', default_min)
+    maxmag = evt_query_args.get('maxmagnitude', default_max)
+    return minmag, maxmag
 
 
 def isfresponse2txt(nonempty_text, catalog='ISC', contributor='ISC'):
     sio = StringIO(nonempty_text)
     sio.seek(0)
     try:
-        return '\n'.join('|'.join(_) for _ in isf2text(sio, catalog, contributor))
+        return '\n'.join('|'.join(_) for _ in isf2text_iter(sio, catalog, contributor))
     except Exception:  # pylint: disable=broad-except
         return ''
 
 
-def configure_ws_fk(eventws_url, session, db_bufsize):
-    '''configure the web service foreign key creating such a db row if it does not
-    exist and returning its id'''
-    ws_name = ''
-    if eventws_url in _MAPPINGS:
-        ws_name = eventws_url
-        eventws_url = _MAPPINGS[eventws_url]
-    eventws_id = session.query(WebService.id).filter(WebService.url == eventws_url).scalar()
-    if eventws_id is None:  # write url to table
-        data = [("event", ws_name, eventws_url)]
-        dfr = pd.DataFrame(data, columns=[WebService.type.key, WebService.name.key,
-                                          WebService.url.key])
-        dfr = dbsyncdf(dfr, session, [WebService.url], WebService.id, buf_size=db_bufsize)
-        eventws_id = dfr.iloc[0][WebService.id.key]
-
-    return eventws_id
-#     urls = build_urls(eventws_url, **args)
-#     url = urljoin(eventws_url, format='text', **args)
-#     ret = []
-#     try:
-#         datalist = get_events_list(eventws_url, **args)
-#     except ValueError as exc:
-#         raise FailedDownload(exc)
+# def compute_urls_chunks(eventws, evt_query_args, start, end, timeout, max_downloads):
+#     """Returns a  the tuple (url (string), raw_data (string), urls (list of strings))
+#     where url and raw_data are the url read and the response content, and urls
+#     is a list of remaining urls to be read after auto-shrinking the request time
+#     window, if necessary. The list might be empty if no shrinkage was needed
 # 
-#     if len(datalist) > 1:
-#         logger.info(formatmsg("Request was split into sub-queries, aggregating the results",
-#                               "Original request entity too large", url))
+#     :param eventws: string denoting the event web service url
+#     :evt_query_args: dict of event search FDSn params mapped to their values
+#     :param start: start time (datetime)
+#     :param end: end time (datetime)
+#     """
+#     max_downloads = 0 if not max_downloads or max_downloads < 0 else max_downloads
+#     start_iso = start.isoformat()
+#     end_iso = end.isoformat()
+#     time_window = None
+#     four_years_in_sec = 4 * 365 * 24 * 60 * 60
+#     urls = []
+#     while True:
+#         if not urls:  # first iteration
+#             timeout_ = 2 * 60  # 1st attempt: relax timeout conditions, might be long
+#             urls = [urljoin(eventws, **dict(evt_query_args, start=start_iso, end=end_iso))]
+#         else:
+#             if time_window is None:  # secodn iteration (1st iteration splitting request)
+#                 logger.info("Calculating the required sub-requests")
+#                 time_window = end - start
+#             timeout_ = timeout
+#             # create a divisor factor which is 4 for time windows >= 4 year, 2 otherwise
+#             # this should optimize a bit the search of the 'optimum' time window:
+#             factor = 4 if time_window.total_seconds() > four_years_in_sec else 2
+#             time_window /= factor
+#             iterations = len(urls) * factor
+#             if max_downloads and iterations > max_downloads:
+#                 raise FailedDownload('max download (%d) exceeded, restrict your search'
+#                                      'or change advanced settings' % max_downloads)
+#             urls = []
+#             for i in range(iterations):
+#                 tstart = (start + i * time_window).strftime('%Y-%m-%dT%H-%M-%S')
+#                 tend = (start + (i + 1) * time_window).strftime('%Y-%m-%dT%H-%M-%S')
+#                 urls.append(urljoin(eventws, **dict(evt_query_args, start=tstart, end=tend)))
 # 
-#     for data, msg, url in datalist:
-#         if not data and msg:
-#             logger.warning(formatmsg("Discarding request", msg, url))
-#         elif data:
-#             try:
-#                 events_df = response2normalizeddf(url, data, "event")
-#                 ret.append(events_df)
-#             except ValueError as exc:
-#                 logger.warning(formatmsg("Discarding response", exc, url))
+#         try:
+#             raw_data, code, msg = urlread(urls[0], decode='utf8', timeout=timeout_,
+#                                           raise_http_err=True, wrap_exceptions=False)
 # 
-#     if not ret:  # pd.concat below raise ValueError if ret is empty:
-#         raise FailedDownload(formatmsg("",
-#                                        ("No events found. Check input config. "
-#                                         "or log for details"), url))
+#             return urls[0], raw_data, urls[1:]
 # 
-#     events_df = pd.concat(ret, axis=0, ignore_index=True, copy=False)
-#     events_df[Event.webservice_id.key] = eventws_id
-#     events_df = dbsyncdf(events_df, session,
-#                          [Event.event_id, Event.webservice_id], Event.id, buf_size=db_bufsize,
-#                          cols_to_print_on_err=[Event.event_id.key])
-# 
-#     # try to release memory for unused columns (FIXME: NEEDS TO BE TESTED)
-#     return events_df[[Event.id.key, Event.magnitude.key, Event.latitude.key, Event.longitude.key,
-#                       Event.depth_km.key, Event.time.key]].copy()
+#         except Exception as exc:  # pylint: disable=broad-except
+#             # raise only if we do NOT have timeout or http err in (413, 504)
+#             if not isinstance(exc, socket.timeout) and not \
+#                     (isinstance(exc, HTTPError)
+#                      and exc.code in (413, 504)):  # pylint: disable=no-member
+#                 raise FailedDownload(formatmsg("Unable to fetch events", exc,
+#                                                urls[0]))
 
 
-def compute_urls_chunks(eventws, evt_query_args, start, end, timeout, max_downloads):
-    """Returns a  the tuple (url (string), raw_data (string), urls (list of strings))
-    where url and raw_data are the url read and the response content, and urls
-    is a list of remaining urls to be read after auto-shrinking the request time
-    window, if necessary. The list might be empty if no shrinkage was needed
-
-    :param eventws: string denoting the event web service url
-    :evt_query_args: dict of event search FDSn params mapped to their values
-    :param start: start time (datetime)
-    :param end: end time (datetime)
-    """
-    max_downloads = 0 if not max_downloads or max_downloads < 0 else max_downloads
-    start_iso = start.isoformat()
-    end_iso = end.isoformat()
-    time_window = None
-    four_years_in_sec = 4 * 365 * 24 * 60 * 60
-    urls = []
-    while True:
-        if not urls:  # first iteration
-            timeout_ = 2 * 60  # 1st attempt: relax timeout conditions, might be long
-            urls = [urljoin(eventws, **dict(evt_query_args, start=start_iso, end=end_iso))]
-        else:
-            if time_window is None:  # secodn iteration (1st iteration splitting request)
-                logger.info("Calculating the required sub-requests")
-                time_window = end - start
-            timeout_ = timeout
-            # create a divisor factor which is 4 for time windows >= 4 year, 2 otherwise
-            # this should optimize a bit the search of the 'optimum' time window:
-            factor = 4 if time_window.total_seconds() > four_years_in_sec else 2
-            time_window /= factor
-            iterations = len(urls) * factor
-            if max_downloads and iterations > max_downloads:
-                raise FailedDownload('max download (%d) exceeded, restrict your search'
-                                     'or change advanced settings' % max_downloads)
-            urls = []
-            for i in range(iterations):
-                tstart = (start + i * time_window).strftime('%Y-%m-%dT%H-%M-%S')
-                tend = (start + (i + 1) * time_window).strftime('%Y-%m-%dT%H-%M-%S')
-                urls.append(urljoin(eventws, **dict(evt_query_args, start=tstart, end=tend)))
-
-        try:
-            raw_data, code, msg = urlread(urls[0], decode='utf8', timeout=timeout_,
-                                          raise_http_err=True, wrap_exceptions=False)
-
-            return urls[0], raw_data, urls[1:]
-
-        except Exception as exc:  # pylint: disable=broad-except
-            # raise only if we do NOT have timeout or http err in (413, 504)
-            if not isinstance(exc, socket.timeout) and not \
-                    (isinstance(exc, HTTPError)
-                     and exc.code in (413, 504)):  # pylint: disable=no-member
-                raise FailedDownload(formatmsg("Unable to fetch events", exc,
-                                               urls[0]))
-
-
-def isf2text(isf_filep, catalog='', contributor=''):
+def isf2text_iter(isf_filep, catalog='', contributor=''):
     '''Yields lists of strings representing an event. The yielded list L
     can be passed to a DataFrame: pd.DataFrame[L]) and then converted with
     response2normalizeddf('file:///' + filepath, data, "event")
@@ -378,88 +433,3 @@ def _findgroups(line, groups=None):
             eindex += 1
         ret.append(line[stindex:eindex].strip())
     return ret
-
-
-# def _get(list_, index):
-#     '''gets the index-th element from list_ or None instead of raising IndexError'''
-#     return list_[index].strip() if -len(list_) <= index < len(list_) else ''
-
-#     try:
-#         raw_data, code, msg = urlread(url, decode='utf8', raise_http_err=False)
-#         if code == 413:  # payload too large (formerly: request entity too large)
-#             start = strptime(args.get('start', datetime(1970, 1, 1)))
-#             end = strptime(args.get('end', datetime.utcnow()))
-#             total_seconds_diff = (end-start).total_seconds() / 2
-#             if total_seconds_diff < 1:
-#                 raise ValueError("%d: %s (maximum recursion reached: time window < 1 sec)" %
-#                                  (code, msg))
-#                 # arr.append((None, "Cannot futher split start and end time", url))
-#             else:
-#                 dtime = timedelta(seconds=int(total_seconds_diff))
-#                 bounds = [start.isoformat(), (start+dtime).isoformat(), end.isoformat()]
-#                 arr.extend(get_events_list(eventws, **dict(args, start=bounds[0], end=bounds[1])))
-#                 arr.extend(get_events_list(eventws, **dict(args, start=bounds[1], end=bounds[2])))
-#         else:
-#             arr = [(raw_data, msg, url)]
-#     except URLException as exc:
-#         arr = [(None, str(exc.exc), url)]
-#     except:
-#         raise
-#     return arr
-
-
-# def get_events_list(eventws, **args):
-#     """Returns a list of tuples (raw_data, status, url_string) elements from an eventws query
-#     The list is due to the fact that entities too large are split into subqueries
-#     rasw_data's can be None in case of URLExceptions (the message tells what happened in case)
-#     :raise: ValueError if the query cannot be firhter splitted (max difference between start and
-#     end time : 1 second)
-#     """
-#     url = urljoin(eventws, format='text', **args)
-#     arr = []
-#     try:
-#         raw_data, code, msg = urlread(url, decode='utf8', raise_http_err=False)
-#         if code == 413:  # payload too large (formerly: request entity too large)
-#             start = strptime(args.get('start', datetime(1970, 1, 1)))
-#             end = strptime(args.get('end', datetime.utcnow()))
-#             total_seconds_diff = (end-start).total_seconds() / 2
-#             if total_seconds_diff < 1:
-#                 raise ValueError("%d: %s (maximum recursion reached: time window < 1 sec)" %
-#                                  (code, msg))
-#                 # arr.append((None, "Cannot futher split start and end time", url))
-#             else:
-#                 dtime = timedelta(seconds=int(total_seconds_diff))
-#                 bounds = [start.isoformat(), (start+dtime).isoformat(), end.isoformat()]
-#                 arr.extend(get_events_list(eventws, **dict(args, start=bounds[0], end=bounds[1])))
-#                 arr.extend(get_events_list(eventws, **dict(args, start=bounds[1], end=bounds[2])))
-#         else:
-#             arr = [(raw_data, msg, url)]
-#     except URLException as exc:
-#         arr = [(None, str(exc.exc), url)]
-#     except:
-#         raise
-#     return arr
-# 
-# 
-# def build_urls(eventws_url, **args):
-#     urls = []
-#     start = strptime(args.get('start', datetime(1970, 1, 1)))
-#     end = strptime(args.get('end', datetime.utcnow()))
-# 
-#     tdelta = timedelta(days=92)  # approximately 3 Months
-#     breakloop = False
-# 
-#     while True:
-#         args['starttime'] = start.isoformat()
-#         etime = start + tdelta
-#         if etime >= end:
-#             breakloop = True
-#             etime = end
-#         args['endtime'] = etime.isoformat()
-#         urls.append(urljoin(eventws_url, **args))
-#         start = etime
-#         if breakloop:
-#             break
-# 
-#     return urls
-

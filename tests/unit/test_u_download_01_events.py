@@ -38,7 +38,7 @@ from obspy.taup.helper_classes import TauModelError
 
 from stream2segment.io.db.models import Base, Event, Class, Fdsnws, DataCenter, Segment, \
     Download, Station, Channel, WebService
-from stream2segment.download.modules.events import get_events_df, isf2text
+from stream2segment.download.modules.events import get_events_df, isf2text_iter
 from stream2segment.download.modules.datacenters import get_datacenters_df
 from stream2segment.download.modules.channels import get_channels_df, chaid2mseedid_dict
 from stream2segment.download.modules.stationsearch import merge_events_stations
@@ -53,7 +53,7 @@ from stream2segment.utils.url import read_async, URLError, HTTPError, responses
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_ttable_fpath
 from stream2segment.traveltimes.ttloader import TTTable
 from stream2segment.download.utils import dblog
-from stream2segment.utils import urljoin as original_urljoin
+from stream2segment.utils import urljoin as original_urljoin, urljoin
 
 query_logger = logger = logging.getLogger("stream2segment")
 
@@ -239,16 +239,16 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         self.mock_urlopen.side_effect = cycle(retvals)
 
     def get_events_df(self, url_read_side_effect, session, url, evt_query_args, start, end,
-                      db_bufsize=30, max_downloads=30, timeout=15,
+                      db_bufsize=30, timeout=15,
                       show_progress=False):
         self.setup_urlopen(self._evt_urlread_sideeffect if url_read_side_effect is None else
                            url_read_side_effect)
         return get_events_df(session, url, evt_query_args, start, end,
-                             db_bufsize, max_downloads, timeout,
+                             db_bufsize, timeout,
                              show_progress)
 
-    @patch('stream2segment.download.modules.events.urljoin', return_value='a')
-    def test_get_events(self, mock_query, db):
+    @patch('stream2segment.download.modules.events.urljoin', side_effect=urljoin)
+    def test_get_events(self, mock_urljoin, db):
         urlread_sideeffect = ["""#1|2|3|4|5|6|7|8|9|10|11|12|13
 20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 01:45:30.300000|44.96|15.35|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|3.6|EMSC|CROATIA
@@ -267,6 +267,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         log1 = self.log_msg()
         assert "20160508_0000113" in log1
         assert "2 database rows not inserted" in log1
+        assert mock_urljoin.call_count == 1
+        mock_urljoin.reset_mock()
 
         # now download again, with an url error:
         urlread_sideeffect = [504, """1|2|3|4|5|6|7|8|9|10|11|12|13
@@ -276,26 +278,48 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 20160508_0000113|2016-05-08 22:37:20.100000|45.68|26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
 --- ERRROR --- THIS IS MALFORMED 20160508_abc0113|2016-05-08 22:37:20.100000| --- ERROR --- |26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
 """, URLError('blabla23___')]
-        data = self.get_events_df(urlread_sideeffect, db.session, "http://eventws", {},
-                                  datetime.utcnow() - timedelta(seconds=1), datetime.utcnow(),
-                                  db_bufsize=self.db_buf_size)
+        with pytest.raises(FailedDownload) as fld:
+            data = self.get_events_df(urlread_sideeffect, db.session, "http://eventws", {},
+                                      datetime.utcnow() - timedelta(seconds=1), datetime.utcnow(),
+                                      db_bufsize=self.db_buf_size)
         # assert we got the same result as above:
         assert len(db.session.query(Event).all()) == len(pd.unique(data['id'])) == 2
         assert len(data) == 2
         log2 = self.log_msg()
 
-        # and since first response is 413, that having split the request into two, the
-        # second response is our URLError (we could test it better, anyway):
-        assert "blabla23___" in log2
-        # assert also that we splitted the request:
-        assert "Request split into 2 sub-requests" in log2
-        # also second request failed, see message:
-        assert "Some sub-request failed, some available events might not have been fetched" in log2
-        # aslso we did not inserted anything new:
-        assert "Db table 'events': no new row to insert, no row to update" in log2
+        # log text has the message about the second (successful) dwnload, with the
+        # two rows discarded:
+        assert "2 row(s) discarded" in log2
+        # test that the exception has expected mesage:
+        assert "Unable to fetch events" in str(fld)
+        # check that we splitted once, thus we called 2 times mock_urljoin
+        # (plus the first call):
+        assert mock_urljoin.call_count == 3
+        mock_urljoin.reset_mock()
+
+
+        # now download again, with a recursion error (max iterations reached):
+        urlread_sideeffect = [413]
+        with pytest.raises(FailedDownload) as fld:
+            data = self.get_events_df(urlread_sideeffect, db.session, "http://eventws", {},
+                                      datetime.utcnow() - timedelta(seconds=1), datetime.utcnow(),
+                                      db_bufsize=self.db_buf_size)
+        # assert we got the same result as above:
+        assert len(db.session.query(Event).all()) == len(pd.unique(data['id'])) == 2
+        assert len(data) == 2
+        log2 = self.log_msg()
+
+        # log text has the message about the second (successful) dwnload, with the
+        # two rows discarded:
+        assert "2 row(s) discarded" in log2
+        # test that the exception has expected mesage:
+        assert "Unable to fetch events" in str(fld)
+        # check that we splitted once, thus we called 2 times mock_urljoin
+        # (plus the first call):
+        assert mock_urljoin.call_count == 1
 
     @patch('stream2segment.download.modules.events.urljoin', return_value='a')
-    def test_get_events_toomany_requests_raises(self, mock_query, db):
+    def tst_get_events_toomany_requests_raises(self, mock_query, db):
         '''test request splitted, but failing due to max recursion'''
         urlread_sideeffect = [413]
         # as urlread returns alternatively a 413 and a good string, also sub-queries
@@ -396,7 +420,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert not self.mock_urlopen.called
 
     @patch('stream2segment.download.modules.events.urljoin', return_value='a')
-    @patch('stream2segment.download.modules.events.isf2text', side_effect=isf2text)
+    @patch('stream2segment.download.modules.events.isf2text_iter', side_effect=isf2text_iter)
     def test_get_events_eventws_from_isc(self, mock_isf_to_text,
                                          mock_query, db, data):
         '''test request splitted, but reading from BAD events file'''
@@ -444,7 +468,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                         'event')
         ret = []
         with open(data.path(isc_req_file)) as opn:
-            for lst in isf2text(opn, 'ISC', 'ISC'):
+            for lst in isf2text_iter(opn, 'ISC', 'ISC'):
                 ret.append('|'.join(lst))
 
         isc_df = response2normalizeddf('', '\n'.join(ret), 'event')
