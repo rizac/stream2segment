@@ -177,10 +177,11 @@ search_radius:
 # data-select web service to use (url). It *must* be FDSN compliant:
 # <site>/fdsnws/dataselect/<majorversion>/query
 # otherwise the station query can not be retrieved automatically
-# (the site scheme is optional and will default to 'http://' in case).
-# You can also type two special values,
-# "iris" (shortcut for: https://service.iris.edu/fdsnws/dataselect/1/query) or "eida"
-# (which will automatically fetch data from the urls of all EIDA datacenters).
+# (the site scheme is optional and will default to 'http://' in case.
+# An ending '/' or '?' will be removed from the url, if present).
+# You can also type two special values:
+# "iris" (shortcut for: https://service.iris.edu/fdsnws/dataselect/1/query) or
+# "eida" (which will automatically fetch data from the urls of all EIDA datacenters).
 # Implementation details: If the station web service(s) did not return data
 # (e.g., connection problems), then the requested stations and channales will be fetched from the
 # database. In this case, if the database is empty the download process will stop with an error
@@ -195,13 +196,10 @@ dataws: 'eida'
 # ak135_tts+: ak135 model pre-computed for all tts+ phases (S wave arrivals)
 # iasp91_ttp+: iasp91 model pre-computed for all ttp+ phases (P wave arrivals)
 # iasp91_tts+: iasp91 model pre-computed for all tts+ phases (S wave arrivals)
-# For each segment, the arrival time (travel
-# time + event time) will be the pivot whereby the user sets up the download time window
-# (see also 'timespan').
-# Implementation details: a model is internally a 2- or 3-dimensional grid
-# of pre-computed travel time points coupled with an highly efficient
-# algoritm which returns interpolated travel time values. This results in a relevant increase in
-# execution speed, with max errors in the order of 0.5 seconds due to interpolation.
+# For each segment, the arrival time (travel time + event time) will be the pivot
+# whereby the user sets up the download time window (see also 'timespan').
+# Implementation details: the *max* error on the arrival times (assessed on a random set of points)
+# using one of the pre-computed models is in the order of 0.5 seconds.
 traveltimes_model: 'ak135_ttp+'
 
 # The segment's time span (i.e., the data time window to download): specify two positive floats denoting 

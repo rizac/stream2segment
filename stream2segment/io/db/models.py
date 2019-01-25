@@ -10,6 +10,12 @@ import re
 import os
 from datetime import datetime
 import sqlite3
+# we could simply import urlparse from stream2segment.utils, but we want this module
+# to be standalone. thus:
+try:  # py3:
+    from urllib.parse import urlparse
+except ImportError:  # py2
+    from urlparse import urlparse
 
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, backref, deferred
@@ -385,19 +391,23 @@ def receive_before_update(mapper, connection, target):
 
 
 class Fdsnws(object):
-    '''simple class parsing an fdsn url and allowing to build any new well-formed url
-    associated to services and methods
-    of the site url. Raises ValueError if the url is not a valid fdsn url of the form
-    '<site>/fdsnws/<service>/<majorversion>'
-    Examples:
-    ```
-        fdsn = Fdsnws('...')
-        normalized_station_query_url = fdsn.url(Fdsnws.STATION)
-        normalized_dataselect_query_url = fdsn.url(Fdsnws.DATASEL)
-        site_url = fdsn.site  # the portion of text before '/fdsnws/....', must start with
-            http: or https:
-        majorversion = fdsn.majorversion  # int
-    ```
+    '''simple class parsing a FDSN url and allowing to build any endpoint url
+    from a given service / method / majorversion
+
+    Example: given an url in any of these formats:
+                https://www.mysite.org/fdsnws/<station>/<majorversion>
+                http://www.mysite.org/fdsnws/<station>/<majorversion>/<method>
+
+        (the scheme 'https://' might be omitted and will default to 'http://'.
+        An ending '/' or '?' will be ignored if present)
+
+        then:
+        ```
+        fdsn = Fdsnws(url)
+        station_query_url = fdsn.url(Fdsnws.STATION)
+        dataselect_query_url = fdsn.url(Fdsnws.DATASEL)
+        dataselect_queryauth_url = fdsn.url(Fdsnws.DATASEL, method=Fdsnws.QUERYAUTH)
+        ```
     '''
     # equals to the string 'station', used in urls for identifying the fdsn station service:
     STATION = 'station'
@@ -421,35 +431,77 @@ class Fdsnws(object):
     APPLWADL = 'application.wadl'
 
     def __init__(self, url):
-        '''initializes a Fdsnws object from a fdsn url'''
+        '''initializes a Fdsnws object from a fdsn url
+
+        If url does not contain the <service> and <majorversion> tokens in the
+        url path, then they will default to the defaults provided (see below)
+
+        :param url: string denoting the Fdsn web service url
+            Example of valid urls (the scheme 'https://' might be omitted
+            and will default to 'http://'. An ending '/' or '?' will be ignored
+            if present):
+                https://www.mysite.org/fdsnws/<station>/<majorversion>
+                http://www.mysite.org/fdsnws/<station>/<majorversion>/<method>
+        '''
         # do not use urlparse as we should import from stream2segment.url for py2 compatibility
         # but this will cause circular imports:
-        reg = re.match("^(.+?)/(?:fdsnws)/(?P<service>.*?)/(?P<majorversion>\\d+)(?:|/.*)$", url)
-        try:
-            assert reg.group('service') in [self.STATION, self.DATASEL, self.EVENT]
-            self.majorversion = int(reg.group('majorversion'))
-            self.service = reg.group('service')
-            self._site = reg.group(1)
-        except Exception:
-            raise ValueError("Invalid FDSN url '%s'" % str(url))
 
-    @property
-    def site(self):
-        '''returns the site portion of the url (in the typical case where
-        the original url had only single slashes, the `site` string has no trailing slashes)'''
-        return self._site
+        obj = urlparse(url)
+        if not obj.scheme:
+            obj = urlparse('http://' + url)
+        if not obj.netloc:
+            raise ValueError('no domain specified, e.g. http://<domain>')
+
+        self.site = "%s://%s" % (obj.scheme, obj.netloc)
+
+        pth = obj.path
+        #  urlparse has already removed query char '?' and params and fragment
+        # from the path. Now check the latter:
+        reg = re.match("^/(?:fdsnws)/(?P<service>[^/]+)/(?P<majorversion>[^/]+)(?P<method>.*)$",
+                       pth)
+        try:
+            self.service, self.majorversion, method = \
+                reg.group('service'), reg.group('majorversion'), reg.group('method')
+            if self.service not in [self.STATION, self.DATASEL, self.EVENT]:
+                raise ValueError("Invalid <service> '%s' in '%s'" % (self.service, pth))
+            try:
+                float(self.majorversion)
+            except ValueError:
+                raise ValueError("Invalid <majorversion> '%s' in '%s'" % (self.majorversion, pth))
+            if method not in ('', '/'):
+                method = method[1:] if method[0] == '/' else method
+                method = method[:-1] if len(method) > 1 and method[-1] == '/' else method
+                if method not in ['', self.QUERY, self.QUERYAUTH, self.AUTH, self.VERSION,
+                                  self.APPLWADL, ]:
+                    raise ValueError("Invalid method '%s' in '%s'" % (method, pth))
+        except ValueError:
+            raise
+        except Exception:
+            raise ValueError("Invalid FDSN path in '%s': it should be "
+                             "'[site]/fdsnws/<service>/<majorversion>', "
+                             "check potential typos" % str(url))
 
     def url(self, service=None, majorversion=None, method=None):
-        '''builds anew url from this object url. Arguments which are 'None' will default
-        to this object's url
+        '''builds a new url from this object url. Arguments which are 'None' will default
+        to this object's url passed in the constructor. The returned url
+        denotes the base url (with no query parameter and no trailing '?' or '/') in
+        order to build queries to a fdsn web service
 
-        :param method: The method, ususally one of `self.QUERY` (the default), `self.QUERYAUTH`,
-            `self.VERSION`, `self.AUTH` or `self.APPLWADL`
+        :param service: None or one of this class static attributes:
+            `STATION`, `DATASEL`, `EVENT`
+        :param majorversion: None or numeric value or string parsable to number
+            denoting the service major version. Defaults to 1 when None
+            `STATION`, `DATASEL`, `EVENT`
+        :param method: None or one of the class static attributes
+            `QUERY` (the default when None), `QUERYAUTH`,
+            `VERSION`, `AUTH` or `APPLWADL`
         '''
-        if method is None:
-            method = self.QUERY
-        return "%s/fdsnws/%s/%d/%s" % (self.site, service or self.service,
-                                       majorversion or self.majorversion, method)
+        return "%s/fdsnws/%s/%s/%s" % (self.site, service or self.service,
+                                       str(majorversion or self.majorversion),
+                                       method or self.QUERY)
+
+    def __str__(self):
+        return self.url('<service>', None, '<method>')
 
 
 class Station(Base):

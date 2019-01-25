@@ -17,46 +17,24 @@ except ImportError:
 import re
 
 
-
-'''
-RATIONAE
-
-in the eventws, the user can supply:
-- a string 'iris' 'isc' 'emsc' OR
-- an url which represents the url of a webservice query url without the trailing '?' and query parameters,
-    e.g. 'https://service.iris.edu/fdsnws/event/1/query'
-
-    we want to make http:// (scheme) and the '/query' part optional
-'''
-
-def split_url(url):
-    obj = urlparse(url)
-    if not obj.scheme:
-        obj = urlparse('http://' + url)
-    if not obj.netloc:
-        raise ValueError('no domain specified, e.g. http://<domain>')
-    return obj.scheme + "://", obj.netloc, '' if obj.path == '/' else obj.path
-
-
 class Fdsnws(object):
-    '''simple class parsing an fdsn url and allowing to build any new well-formed url
-    associated to services and methods
-    of the site url. Raises ValueError if the url is not a valid fdsn url of the form
-    '<site>'
-    '<site>/fdsnws/<service>/<majorversion>'
-    '<site>/fdsnws/<service>/<majorversion>/query'
-    All three forms will ignore the trailing (ending) slash, if present
-    (if site has no scheme, it will default to "http")
+    '''simple class parsing a FDSN url and allowing to build any endpoint url
+    from a given service / method / majorversion
 
-    Examples:
-    ```
-        fdsn = Fdsnws('...')
-        normalized_station_query_url = fdsn.url(Fdsnws.STATION)
-        normalized_dataselect_query_url = fdsn.url(Fdsnws.DATASEL)
-        site_url = fdsn.site  # the portion of text before '/fdsnws/....', must start with
-            http: or https:
-        majorversion = fdsn.majorversion  # int
-    ```
+    Example: given an url in any of these formats:
+                https://www.mysite.org/fdsnws/<station>/<majorversion>
+                https://www.mysite.org/fdsnws/<station>/<majorversion>/<method>
+
+        (the scheme 'http[s]://' might be omitted and will default to 'http://'.
+        A tralining '/' or '?' will be removed if present)
+
+        then:
+        ```
+        fdsn = Fdsnws(url)
+        station_query_url = fdsn.url(Fdsnws.STATION)
+        dataselect_query_url = fdsn.url(Fdsnws.DATASEL)
+        dataselect_queryauth_url = fdsn.url(Fdsnws.DATASEL, method=Fdsnws.QUERYAUTH)
+        ```
     '''
     # equals to the string 'station', used in urls for identifying the fdsn station service:
     STATION = 'station'
@@ -86,11 +64,11 @@ class Fdsnws(object):
         url path, then they will default to the defaults provided (see below)
 
         :param url: string denoting the Fdsn web service url
-            Example of valid values ('dataselect' can also be 'station', the
-            scheme 'http[s]://' might be omitted and will default to 'http://'):
-                https://www.mysite.org/fdsnws/dataselect/1
-                https://www.mysite.org/fdsnws/dataselect/1/
-                https://www.mysite.org/fdsnws/dataselect/1/query
+            Example of valid urls (the scheme 'http[s]://' might be omitted
+            and will default to 'http://'. A tralining '/' or '?' will be removed
+            if present):
+                https://www.mysite.org/fdsnws/<station>/<majorversion>
+                https://www.mysite.org/fdsnws/<station>/<majorversion>/<method>
         '''
         # do not use urlparse as we should import from stream2segment.url for py2 compatibility
         # but this will cause circular imports:
@@ -101,22 +79,28 @@ class Fdsnws(object):
         if not obj.netloc:
             raise ValueError('no domain specified, e.g. http://<domain>')
 
-#         if obj.path in ('', '/'):
-#             raise ValueError("Invalid path (/fdsnws/<service>/</majorversion>) in '%s'" % url)
-
         self.site = "%s://%s" % (obj.scheme, obj.netloc)
 
         pth = obj.path
-        reg = re.match("^/(?:fdsnws)/(?P<service>.*?)/(?P<majorversion>.*?)(:?/query/*|/*)$",
+        #  urlparse has already removed query char '?' and params and fragment
+        # from the path. Now check the latter:
+        reg = re.match("^/(?:fdsnws)/(?P<service>[^/]+)/(?P<majorversion>[^/]+)(?P<method>.*)$",
                        pth)
         try:
-            self.service, self.majorversion = reg.group('service'), reg.group('majorversion')
+            self.service, self.majorversion, method = \
+                reg.group('service'), reg.group('majorversion'), reg.group('method')
             if self.service not in [self.STATION, self.DATASEL, self.EVENT]:
                 raise ValueError("Invalid <service> '%s' in '%s'" % (self.service, pth))
             try:
                 float(self.majorversion)
             except ValueError:
                 raise ValueError("Invalid <majorversion> '%s' in '%s'" % (self.majorversion, pth))
+            if method not in ('', '/'):
+                method = method[1:] if method[0] == '/' else method
+                method = method[:-1] if len(method) > 1 and method[-1] == '/' else method
+                if method not in ['', self.QUERY, self.QUERYAUTH, self.AUTH, self.VERSION,
+                                  self.APPLWADL, ]:
+                    raise ValueError("Invalid method '%s' in '%s'" % (method, pth))
         except ValueError:
             raise
         except Exception:
@@ -144,50 +128,3 @@ class Fdsnws(object):
                                        method or self.QUERY)
 
 
-@pytest.mark.parametrize(['url_'],
-                         [
-                          ('abc.org/fdsnws/station/1/query/',),
-                          ('abc.org/fdsnws/station/1/query',),
-                          ('abc.org/fdsnws/station/1',),
-                          ('abc.org/fdsnws/station/1/',),])
-def test_models_fdsn_url(url_):
-    for url in [url_, 'http://' + url_, 'https://'+url_]:
-        fdsn = Fdsnws(url)
-        if url.startswith('https'):
-            assert fdsn.site == 'https://abc.org'
-        else:
-            assert fdsn.site == 'http://abc.org'
-        assert fdsn.service == Fdsnws.STATION
-        assert fdsn.majorversion == '1'
-
-        normalizedurl = fdsn.url()
-        for service in [Fdsnws.STATION, Fdsnws.DATASEL, Fdsnws.EVENT, 'abc']:
-            assert fdsn.url(service) == normalizedurl.replace('station', service)
-
-        assert fdsn.url(majorversion=55) == normalizedurl.replace('1', '55')
-
-        for method in [Fdsnws.QUERY, Fdsnws.QUERYAUTH, Fdsnws.APPLWADL, Fdsnws.VERSION,
-                       'abcdefg']:
-            assert fdsn.url(method=method) == normalizedurl.replace('query', method)
-
-
-@pytest.mark.parametrize(['url_'],
-                         [
-                          ('',),
-                          ('/fdsnws/station/1',),
-                          ('fdsnws/station/1/',),
-                          ('fdsnws/station/1/query',),
-                          ('fdsnws/station/1/query/',),
-                          ('abc.org',),
-                          ('abc.org/',),
-                          ('abc.org/fdsnws',),
-                          ('abc.org/fdsnws/',),
-                          ('abc.org/fdsnws/bla',),
-                          ('abc.org/fdsnws/bla/',),
-                          ('abc.org/fdsnws/station/a',),
-                          ('abc.org/fdsnws/station/b/',),
-                          ('abc.org//fdsnws/station/1.1/',),])
-def test_models_bad_fdsn_url(url_):
-    for url in [url_, 'http://' + url_, 'https://'+url_]:
-        with pytest.raises(ValueError):
-            fdsn = Fdsnws(url)
