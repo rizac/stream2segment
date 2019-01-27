@@ -121,15 +121,14 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             ['advanced_settings']['routing_service_url']
 
         # NON db stuff (logging, patchers, pandas...):
-        self.logout = StringIO()
-        handler = StreamHandler(stream=self.logout)
-        self._logout_cache = ""
+        self.loghandler = StreamHandler(stream=StringIO())
+
         # THIS IS A HACK:
         query_logger.setLevel(logging.INFO)  # necessary to forward to handlers
         # if we called closing (we are testing the whole chain) the level will be reset
         # (to level.INFO) otherwise it stays what we set two lines above. Problems might arise
         # if closing sets a different level, but for the moment who cares
-        query_logger.addHandler(handler)
+        query_logger.addHandler(self.loghandler)
 
         # when debugging, I want the full dataframe with to_string(), not truncated
         # NOTE: this messes up right alignment of numbers in DownloadStats (see utils.py)
@@ -175,18 +174,17 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                 patcher.stop()
 
             hndls = query_logger.handlers[:]
-            handler.close()
             for h in hndls:
-                if h is handler:
+                if h is self.loghandler:
+                    self.loghandler.close()
                     query_logger.removeHandler(h)
         request.addfinalizer(delete)
 
     def log_msg(self):
-        idx = len(self._logout_cache)
-        self._logout_cache = self.logout.getvalue()
-        if len(self._logout_cache) == idx:
-            idx = None  # do not slice
-        return self._logout_cache[idx:]
+        ret = self.loghandler.stream.getvalue()
+        self.loghandler.stream.seek(0)
+        self.loghandler.stream.truncate(0)
+        return ret
 
     def setup_urlopen(self, urlread_side_effect):
         """setup urlopen return value.
@@ -248,7 +246,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                              show_progress)
 
     @patch('stream2segment.download.modules.events.urljoin', side_effect=urljoin)
-    def test_get_events(self, mock_urljoin, db):
+    def tst_get_events(self, mock_urljoin, db):
         urlread_sideeffect = ["""#1|2|3|4|5|6|7|8|9|10|11|12|13
 20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 01:45:30.300000|44.96|15.35|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|3.6|EMSC|CROATIA
@@ -309,42 +307,14 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert len(data) == 2
         log2 = self.log_msg()
 
-        # log text has the message about the second (successful) dwnload, with the
-        # two rows discarded:
-        assert "2 row(s) discarded" in log2
-        # test that the exception has expected mesage:
+        # nothing written to log:
+        assert not log2
+        # assertion on exception:
         assert "Unable to fetch events" in str(fld)
-        # check that we splitted once, thus we called 2 times mock_urljoin
-        # (plus the first call):
-        assert mock_urljoin.call_count == 1
+        assert "maximum recursion depth reached"  in str(fld)
 
-    @patch('stream2segment.download.modules.events.urljoin', return_value='a')
-    def tst_get_events_toomany_requests_raises(self, mock_query, db):
-        '''test request splitted, but failing due to max recursion'''
-        urlread_sideeffect = [413]
-        # as urlread returns alternatively a 413 and a good string, also sub-queries
-        # will return that, so that we will end up having a 413 when the string is not
-        # further splittable:
-        with pytest.raises(FailedDownload) as fldwl:
-            data = self.get_events_df(urlread_sideeffect, db.session, "http://eventws",
-                                      {},
-                                      start=datetime(2010, 1, 1),
-                                      end=datetime(2011, 1, 1),
-                                      db_bufsize=self.db_buf_size,
-                                      max_downloads=30)
-        assert 'max download' in str(fldwl)
-        # assert only three events were successfully saved to db (two have same id)
-        assert not db.session.query(Event).all()
-        # AND data to save has length 3: (we skipped last or next-to-last cause they are dupes)
-        with pytest.raises(NameError):
-            assert len(data) == 3
-        # assert only three events were successfully saved to db (two have same id)
-        assert not db.session.query(Event).all()
-        log = self.log_msg()
-        assert "Calculating the required sub-requests" in log
-
-    @patch('stream2segment.download.modules.events.urljoin', return_value='a')
-    def test_get_events_eventws_not_saved(self, mock_query, db):
+    @patch('stream2segment.download.modules.events.urljoin', side_effect=urljoin)
+    def tst_get_events_eventws_not_saved(self, mock_urljoin, db):
         '''test request splitted, but failing due to a http error'''
         urlread_sideeffect = [socket.timeout, 500]
 
@@ -366,8 +336,159 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # chain
         # assert "request entity too large" in self.log_msg()
 
-    @patch('stream2segment.download.modules.events.urljoin', return_value='a')
-    def test_get_events_eventws_from_file(self, mock_query, db, pytestdir):
+    @patch('stream2segment.download.modules.events.get_progressbar')
+    @patch('stream2segment.download.modules.events.urljoin', side_effect=urljoin)
+    def test_pbar(self, mock_urljoin, mock_pbar, db):
+        '''test request splitted, but failing due to a http error'''
+
+        class Pbar(object):
+
+            def __init__(self, *a, **kw):
+                self.updates = []
+
+            def __enter__(self, *a, **kw):
+                return self
+
+            def __exit__(self, *a, **kw):
+                pass
+
+            def update(self, increment):
+                self.updates.append(increment)
+
+        mock_pbar.return_value = Pbar()
+
+        urlread_sideeffect = [socket.timeout, 500]
+        mock_pbar.reset_mock()
+        mock_pbar.return_value.updates = []
+        with pytest.raises(FailedDownload) as fldl:
+            # now it should raise because of a 413:
+            _ = self.get_events_df(urlread_sideeffect, db.session, "abcd", {},
+                                   start=datetime(2010, 1, 1),
+                                   end=datetime(2011, 1, 1),
+                                   db_bufsize=self.db_buf_size)
+        # test that we did not increment the pbar (exceptions)
+        assert mock_pbar.call_args[1]['length'] == 100
+        assert mock_pbar.return_value.updates == []
+
+        # Now let's supply a bad response response but which updates the pbar
+        urlread_sideeffect = ['']
+        mock_pbar.reset_mock()
+        mock_pbar.return_value.updates = []
+        with pytest.raises(FailedDownload) as fldl:
+            # now it should raise because of a 413:
+            _ = self.get_events_df(urlread_sideeffect, db.session, "abcd", {},
+                                   start=datetime(2010, 1, 1),
+                                   end=datetime(2011, 1, 1),
+                                   db_bufsize=self.db_buf_size)
+        # test that we did not increment the pbar (exceptions)
+        assert mock_pbar.call_args[1]['length'] == 100
+        assert mock_pbar.return_value.updates == [100]
+
+        # Now let's supply a successful response:
+        urlread_sideeffect = ['''20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN''']
+        mock_pbar.reset_mock()
+        mock_pbar.return_value.updates = []
+        _ = self.get_events_df(urlread_sideeffect, db.session, "abcd", {},
+                               start=datetime(2010, 1, 1),
+                               end=datetime(2011, 1, 1),
+                               db_bufsize=self.db_buf_size)
+        # test that we did not increment the pbar (exceptions happened)
+        assert mock_pbar.call_args[1]['length'] == 100
+        assert mock_pbar.return_value.updates == [100]
+
+        # Now let's supply a successful response:
+        urlread_sideeffect = [413,
+                              '''20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN''',
+                              413,
+                              '''20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN''',
+                              '''20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN''',
+                              ]
+        mock_pbar.reset_mock()
+        mock_pbar.return_value.updates = []
+        data = self.get_events_df(urlread_sideeffect, db.session, "abcd", {},
+                                  start=datetime(2010, 1, 1),
+                                  end=datetime(2011, 1, 1),
+                                  db_bufsize=self.db_buf_size)
+        assert 'Duplicated instances' in self.log_msg()
+        # test that we did not increment the pbar (exceptions)
+        assert mock_pbar.call_args[1]['length'] == 100
+        # the first 413 produces a magnitude split 1part vs 9parts,
+        # the second 413 produces a split 1vs9 on the 9 parts, thus 1*9 and 9*9:
+        assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[1]['length']
+        assert mock_pbar.return_value.updates == [10, 9, 81]
+
+        # =================================================================
+        # The test below check th same for different magnitude bound values
+        # =================================================================
+        mock_pbar.reset_mock()
+        mock_urljoin.reset_mock()
+        mock_pbar.return_value.updates = []
+        data = self.get_events_df(urlread_sideeffect, db.session, "abcd", {'minmag': 2},
+                                  start=datetime(2010, 1, 1),
+                                  end=datetime(2011, 1, 1),
+                                  db_bufsize=self.db_buf_size)
+        assert 'Duplicated instances' in self.log_msg()
+        # test that we did not increment the pbar (exceptions)
+        assert mock_pbar.call_args[1]['length'] == 80
+        assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[1]['length']
+        # assert that we do not have maxmagnitude in the first request,
+        # but in the first sub-request (index 1) (do not test other sub requests)
+        req_kwargs = [_[1] for _ in mock_urljoin.call_args_list]
+        assert not any(['maxmagnitude' in req_kwargs[0],
+                        'maxmag' in req_kwargs[0]])
+        assert any(['maxmagnitude' in req_kwargs[1],
+                    'maxmag' in req_kwargs[1]])
+
+
+        mock_pbar.reset_mock()
+        mock_urljoin.reset_mock()
+        mock_pbar.return_value.updates = []
+        data = self.get_events_df(urlread_sideeffect, db.session, "abcd", {'maxmag': 5},
+                                  start=datetime(2010, 1, 1),
+                                  end=datetime(2011, 1, 1),
+                                  db_bufsize=self.db_buf_size)
+        assert 'Duplicated instances' in self.log_msg()
+        # test that we did not increment the pbar (exceptions)
+        assert mock_pbar.call_args[1]['length'] == 50
+        assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[1]['length']
+        # assert that we do not have minmagnitude in the first two sub-request (from index 1),
+        # but in the third (do not test other sub requests)
+        req_kwargs = [_[1] for _ in mock_urljoin.call_args_list]
+        assert not any(['minmagnitude' in req_kwargs[0],
+                        'minmag' in req_kwargs[0]])
+        assert not any(['minmagnitude' in req_kwargs[1],
+                        'minmag' in req_kwargs[1]])
+        assert any(['minmagnitude' in req_kwargs[2],
+                    'minmag' in req_kwargs[2]])
+
+
+        mock_pbar.reset_mock()
+        mock_pbar.return_value.updates = []
+        data = self.get_events_df(urlread_sideeffect, db.session, "abcd", {'minmag': 2.1},
+                                  start=datetime(2010, 1, 1),
+                                  end=datetime(2011, 1, 1),
+                                  db_bufsize=self.db_buf_size)
+        assert 'Duplicated instances' in self.log_msg()
+        # test that we did not increment the pbar (exceptions)
+        assert mock_pbar.call_args[1]['length'] == 79
+        assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[1]['length']
+
+
+        mock_pbar.reset_mock()
+        mock_pbar.return_value.updates = []
+        data = self.get_events_df(urlread_sideeffect, db.session, "abcd", {'minmag': 2.11},
+                                  start=datetime(2010, 1, 1),
+                                  end=datetime(2011, 1, 1),
+                                  db_bufsize=self.db_buf_size)
+        assert 'Duplicated instances' in self.log_msg()
+        # test that we did not increment the pbar (exceptions)
+        assert mock_pbar.call_args[1]['length'] == 79
+        assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[1]['length']
+
+
+
+    @patch('stream2segment.download.modules.events.urljoin', side_effect=urljoin)
+    def tst_get_events_eventws_from_file(self, mock_urljoin, db, pytestdir):
         '''test request splitted, but reading from events file'''
         urlread_sideeffect = [socket.timeout, 500]
 

@@ -161,7 +161,7 @@ def read_async(iterable, urlkey=None, max_workers=None, blocksize=1024 * 1024,
 
 
 def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=False,
-             buf_size=10, drop_duplicates=True, return_df=True, cols_to_print_on_err=None):
+             buf_size=10, keep_duplicates=False, return_df=True, cols_to_print_on_err=None):
     """Calls `syncdf` and writes to the logger before returning the new dataframe.
     Raises a :class:`FailedDownload` if the returned dataframe is empty (no row saved)"""
 
@@ -171,7 +171,7 @@ def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, updat
 
     inserted, not_inserted, updated, not_updated, df = \
         syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update,
-               buf_size, drop_duplicates,
+               buf_size, keep_duplicates,
                onduplicates_callback, oninsert_err_callback, onupdate_err_callback)
 
     table = autoincrement_pkey_col.class_

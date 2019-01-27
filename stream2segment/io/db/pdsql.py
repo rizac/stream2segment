@@ -401,7 +401,7 @@ def dbquery2df(query):
 
 
 def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=False,
-           buf_size=10, drop_duplicates=True, onduplicates_callback=None,
+           buf_size=10, keep_duplicates=False, onduplicates_callback=None,
            oninsert_err_callback=None, onupdate_err_callback=None):
     """Efficiently synchronizes `dataframe` with the corresponding database table T.
 
@@ -458,9 +458,10 @@ def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=
         number for better performances (speed) at the cost of some "false negative" (committing a
         series of operations where one raise an integrity error discards all subsequent
         operations regardless if they would raise as well or not)
-    :param drop_duplicates: boolean, True. Whether or not to drop duplicates of `dataframe` under
-        `matching_columns`, before synchronizing it. If True, all duplicates will be removed, as
-        there is no way to guess whether the first or last duplicate should be kept
+    :param keep_duplicates: boolean or string in 'first', 'last': if True, duplicates of `dataframe`
+        under `matching_columns` are not checked, if False, they are dropped, if 'first' ('last'),
+        only first (last) row of each duplicate group are kept, and the rest is dropped
+        (when not True, this is the `keep` argument passed to :meth:`DataFrame.drop_duplicates`)
     :param onduplicates_callback: function, or None. A function executed when removing duplicates,
         if `drop_duplicates` is True. It is called with two arguments:
         - `dataframe` with duplicated rows only
@@ -494,8 +495,9 @@ def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=
     following items are not added to the db, even if they where well formed
     """
 
-    if drop_duplicates:
-        dupes_mask = dataframe.duplicated(subset=[k.key for k in matching_columns], keep=False)
+    if keep_duplicates is not True:
+        dupes_mask = dataframe.duplicated(subset=[k.key for k in matching_columns],
+                                          keep=keep_duplicates)
         if dupes_mask.any():
             if onduplicates_callback:
                 onduplicates_callback(dataframe[dupes_mask],
@@ -585,6 +587,15 @@ class DbManager(object):
         :param dframe: the dataframe. It MUST have `self.id_col.key` as column, either NA or
             non-NA
         '''
+        if dframe.empty:
+            # if the dataframe is empty do nothing nd return
+            # But append a copy to self.dfs if self.return_df is True.
+            # This way if self.dataframe should return an empty dataframe
+            # it will have at least the proper (expected) columns
+            if self.return_df and not self.dfs:
+                self.dfs.append(dframe.copy())
+            return
+
         bufsize = self.buf_size
         dfinsert, dfupdate = None, None
 
@@ -1048,7 +1059,7 @@ def mergeupdate(dataframe, other_df, matching_columns, merge_columns,
         mergedf = dataframe.merge(otherdf, how='left', on=list(matching_columns), indicator=True)
     except ValueError:
         # Apparently, pandas 0.23+ raises if the the dtypes of a column does
-        # not matchacross the two dataframes (in previous pandas versions, the dtypes where
+        # not match across the two dataframes (in previous pandas versions, the dtypes where
         # upcasted if needed, e.g.: dataframe[C] = datetime, other_df[C] = object,
         # mergedf[C] = object). We handle here the only "false positive" of this new beahviour:
         # i.e. when either column has all Nones

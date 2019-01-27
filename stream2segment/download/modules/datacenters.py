@@ -76,7 +76,8 @@ def get_datacenters_df(session, service, routing_service_url,
     # attempt saving to db only if we might have something to save:
     if service != 'eida' or eidars_responsetext:  # not eida, or eida succesfully queried: Sync db
         dc_df = dbsyncdf(dc_df, session, [DataCenter.station_url], DataCenter.id,
-                         buf_size=len(dc_df) if db_bufsize is None else db_bufsize)
+                         buf_size=len(dc_df) if db_bufsize is None else db_bufsize,
+                         keep_duplicates='first')
         if eidars_responsetext:
             eidavalidator = EidaValidator(dc_df, eidars_responsetext)
 

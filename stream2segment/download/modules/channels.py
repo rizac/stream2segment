@@ -397,7 +397,7 @@ def save_stations_and_channels(session, channels_df, eidavalidator, update, db_b
         _update_stations = [_ for _ in shared_colnames(Station, sta_df, pkey=False)
                             if _ != Station.inventory_xml.key]
     sta_df = dbsyncdf(sta_df, session, [Station.network, Station.station, Station.start_time],
-                      Station.id, _update_stations, buf_size=db_bufsize, drop_duplicates=False,
+                      Station.id, _update_stations, buf_size=db_bufsize, keep_duplicates=True,
                       cols_to_print_on_err=STA_ERRCOLS)
     # sta_df will have the STA_ID columns, channels_df not: set it from the former to the latter:
     channels_df = mergeupdate(channels_df, sta_df, [STA_NET, STA_STA, STA_STIME, STA_DCID],
@@ -416,7 +416,7 @@ def save_stations_and_channels(session, channels_df, eidavalidator, update, db_b
     # add channels to db:
     channels_df = dbsyncdf(channels_df, session,
                            [Channel.station_id, Channel.location, Channel.channel],
-                           Channel.id, update, buf_size=db_bufsize, drop_duplicates=False,
+                           Channel.id, update, buf_size=db_bufsize, keep_duplicates=True,
                            cols_to_print_on_err=CHA_ERRCOLS)
     return channels_df
 
