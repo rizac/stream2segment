@@ -14,6 +14,7 @@ from datetime import timedelta, datetime
 from collections import OrderedDict
 from io import open  # py2-3 compatible
 
+import numpy as np
 import pandas as pd
 
 from stream2segment.utils import StringIO
@@ -199,10 +200,12 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout, show_pro
 
 
 def _split_url(evt_query_args):
-    minmag, maxmag = get_mags(evt_query_args)
-    _ = get_mags(evt_query_args, 0, 10)
+    minmag, maxmag = _get_mags(evt_query_args)
+    _ = _get_mags(evt_query_args, 0, 9)
     minmag_f, maxmag_f = float(_[0]), float(_[1])
-    part = (maxmag_f - minmag_f) / 10.0
+    # 3/10 is aproximately the value where the sum of events left and right
+    # are the same, according to 10 ** (9- mag) function (see _get_steps)
+    part = (5 if maxmag_f <= 1 else 1) * (maxmag_f - minmag_f) / 10.0
     part = int((10 * part) + 0.5) / 10.0
     if part < 0.1:
         raise ValueError('maximum recursion depth reached, '
@@ -212,7 +215,7 @@ def _split_url(evt_query_args):
     evt_query_args2 = dict(evt_query_args)
     if minmag is not None:
         evt_query_args1['minmagnitude'] = minmag
-    evt_query_args1['maxmagnitude'] = str(round(minmag_f + part - 0.01, 3))
+    evt_query_args1['maxmagnitude'] = str(round(minmag_f + part, 3))
     evt_query_args2['minmagnitude'] = str(round(minmag_f + part, 3))
     if maxmag is not None:
         evt_query_args2['maxmagnitude'] = maxmag
@@ -220,14 +223,30 @@ def _split_url(evt_query_args):
 
 
 def _get_steps(evt_query_args):
-    minmag, maxmag = get_mags(evt_query_args, 0, 10)
-    return int(0.5 + (float(maxmag) - float(minmag)) * 10)
+    minmag, maxmag = _get_mags(evt_query_args, 0, 9)
+    ret = ((10 ** (9-np.arange(0, 9.01, 0.1))) + 0.5).astype(int)
+    ret[0:10] = ret[10]
+    idx0 = int(float(minmag) / 0.1)
+    idx1 = int(float(maxmag) / 0.1)
+    return ret[idx0: idx1].sum()
 
 
-def get_mags(evt_query_args, default_min=None, default_max=None):
+def _get_evtfreq_freq_mag_dist(evt_query_args):
+    minmag, maxmag = _get_mags(evt_query_args, 0, 9)
+    ret = ((10 ** (9-np.arange(float(minmag), float(maxmag)+ .01, 0.1))) + 0.5).astype(int)
+    ret[0:10] = ret[10]
+    idx0 = int(float(minmag) / 0.1)
+    idx1 = int(float(maxmag) / 0.1)
+    return ret[idx0: idx1].sum()
+
+
+def _get_mags(evt_query_args, default_min=None, default_max=None):
     minmag = evt_query_args.get('minmagnitude', default_min)
     maxmag = evt_query_args.get('maxmagnitude', default_max)
     return minmag, maxmag
+
+
+
 
 
 def isfresponse2txt(nonempty_text, catalog='ISC', contributor='ISC'):

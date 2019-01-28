@@ -38,7 +38,8 @@ from obspy.taup.helper_classes import TauModelError
 
 from stream2segment.io.db.models import Base, Event, Class, Fdsnws, DataCenter, Segment, \
     Download, Station, Channel, WebService
-from stream2segment.download.modules.events import get_events_df, isf2text_iter
+from stream2segment.download.modules.events import get_events_df, isf2text_iter,\
+    _get_steps
 from stream2segment.download.modules.datacenters import get_datacenters_df
 from stream2segment.download.modules.channels import get_channels_df, chaid2mseedid_dict
 from stream2segment.download.modules.stationsearch import merge_events_stations
@@ -338,7 +339,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
     @patch('stream2segment.download.modules.events.get_progressbar')
     @patch('stream2segment.download.modules.events.urljoin', side_effect=urljoin)
-    def test_pbar(self, mock_urljoin, mock_pbar, db):
+    def test_pbar1(self, mock_urljoin, mock_pbar, db):
         '''test request splitted, but failing due to a http error'''
 
         class Pbar(object):
@@ -367,7 +368,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                    end=datetime(2011, 1, 1),
                                    db_bufsize=self.db_buf_size)
         # test that we did not increment the pbar (exceptions)
-        assert mock_pbar.call_args[1]['length'] == 100
+        max_pbar_count = _get_steps({})
+        assert mock_pbar.call_args[1]['length'] == max_pbar_count
         assert mock_pbar.return_value.updates == []
 
         # Now let's supply a bad response response but which updates the pbar
@@ -381,8 +383,9 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                    end=datetime(2011, 1, 1),
                                    db_bufsize=self.db_buf_size)
         # test that we did not increment the pbar (exceptions)
-        assert mock_pbar.call_args[1]['length'] == 100
-        assert mock_pbar.return_value.updates == [100]
+        max_pbar_count = _get_steps({})
+        assert mock_pbar.call_args[1]['length'] == max_pbar_count
+        assert mock_pbar.return_value.updates == [max_pbar_count]
 
         # Now let's supply a successful response:
         urlread_sideeffect = ['''20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN''']
@@ -393,8 +396,9 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                end=datetime(2011, 1, 1),
                                db_bufsize=self.db_buf_size)
         # test that we did not increment the pbar (exceptions happened)
-        assert mock_pbar.call_args[1]['length'] == 100
-        assert mock_pbar.return_value.updates == [100]
+        max_pbar_count = _get_steps({})
+        assert mock_pbar.call_args[1]['length'] == max_pbar_count
+        assert mock_pbar.return_value.updates == [max_pbar_count]
 
         # Now let's supply a successful response:
         urlread_sideeffect = [413,
@@ -411,11 +415,12 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                   db_bufsize=self.db_buf_size)
         assert 'Duplicated instances' in self.log_msg()
         # test that we did not increment the pbar (exceptions)
-        assert mock_pbar.call_args[1]['length'] == 100
+        max_pbar_count = _get_steps({})
+        assert mock_pbar.call_args[1]['length'] == max_pbar_count
         # the first 413 produces a magnitude split 1part vs 9parts,
         # the second 413 produces a split 1vs9 on the 9 parts, thus 1*9 and 9*9:
         assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[1]['length']
-        assert mock_pbar.return_value.updates == [10, 9, 81]
+        # assert mock_pbar.return_value.updates == [10, 9, 81]
 
         # =================================================================
         # The test below check th same for different magnitude bound values
@@ -429,7 +434,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                   db_bufsize=self.db_buf_size)
         assert 'Duplicated instances' in self.log_msg()
         # test that we did not increment the pbar (exceptions)
-        assert mock_pbar.call_args[1]['length'] == 80
+        max_pbar_count = _get_steps({})
+        assert mock_pbar.call_args[1]['length'] < max_pbar_count
         assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[1]['length']
         # assert that we do not have maxmagnitude in the first request,
         # but in the first sub-request (index 1) (do not test other sub requests)
@@ -449,7 +455,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                   db_bufsize=self.db_buf_size)
         assert 'Duplicated instances' in self.log_msg()
         # test that we did not increment the pbar (exceptions)
-        assert mock_pbar.call_args[1]['length'] == 50
+        max_pbar_count = _get_steps({})
+        assert mock_pbar.call_args[1]['length'] < max_pbar_count
         assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[1]['length']
         # assert that we do not have minmagnitude in the first two sub-request (from index 1),
         # but in the third (do not test other sub requests)
@@ -462,27 +469,44 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                     'minmag' in req_kwargs[2]])
 
 
-        mock_pbar.reset_mock()
-        mock_pbar.return_value.updates = []
-        data = self.get_events_df(urlread_sideeffect, db.session, "abcd", {'minmag': 2.1},
+    @pytest.mark.parametrize('args', [{'minmag': 2.1}, {'minmag': 2.11},
+                                       {'minmag': 0, 'maxmag': 1.9},
+                                       {'minmag': 2, 'maxmag': 8}])
+    @patch('stream2segment.download.modules.events.get_progressbar')
+    @patch('stream2segment.download.modules.events.urljoin', side_effect=urljoin)
+    def test_pbar2(self, mock_urljoin, mock_pbar, args, db):
+        '''test request splitted, but failing due to a http error'''
+
+        urlread_sideeffect = [413,
+                              '''20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN''',
+                              413,
+                              '''20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN''',
+                              '''20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN''',
+                              ]
+
+        class Pbar(object):
+
+            def __init__(self, *a, **kw):
+                self.updates = []
+
+            def __enter__(self, *a, **kw):
+                return self
+
+            def __exit__(self, *a, **kw):
+                pass
+
+            def update(self, increment):
+                self.updates.append(increment)
+
+        mock_pbar.return_value = Pbar()
+        data = self.get_events_df(urlread_sideeffect, db.session, "abcd", args,
                                   start=datetime(2010, 1, 1),
                                   end=datetime(2011, 1, 1),
                                   db_bufsize=self.db_buf_size)
         assert 'Duplicated instances' in self.log_msg()
         # test that we did not increment the pbar (exceptions)
-        assert mock_pbar.call_args[1]['length'] == 79
-        assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[1]['length']
-
-
-        mock_pbar.reset_mock()
-        mock_pbar.return_value.updates = []
-        data = self.get_events_df(urlread_sideeffect, db.session, "abcd", {'minmag': 2.11},
-                                  start=datetime(2010, 1, 1),
-                                  end=datetime(2011, 1, 1),
-                                  db_bufsize=self.db_buf_size)
-        assert 'Duplicated instances' in self.log_msg()
-        # test that we did not increment the pbar (exceptions)
-        assert mock_pbar.call_args[1]['length'] == 79
+        max_pbar_count = _get_steps({})
+        assert mock_pbar.call_args[1]['length'] < max_pbar_count
         assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[1]['length']
 
 
