@@ -9,20 +9,18 @@ Download module forevents download
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import map, next, zip, range, object
 
-import logging, os, sys, re
-from datetime import timedelta, datetime
-from collections import OrderedDict
+import os
+import re
 from io import open  # py2-3 compatible
-import math
 
 import numpy as np
 import pandas as pd
 
 from stream2segment.utils import StringIO
 from stream2segment.download.utils import dbsyncdf, FailedDownload, response2normalizeddf, \
-    formatmsg, read_async
+    formatmsg
 from stream2segment.io.db.models import WebService, Event
-from stream2segment.utils.url import urlread, URLException, socket, HTTPError
+from stream2segment.utils.url import urlread, socket, HTTPError
 from stream2segment.utils import urljoin, strptime, get_progressbar
 
 # logger: do not use logging.getLogger(__name__) but point to stream2segment.download.logger:
@@ -30,8 +28,6 @@ from stream2segment.utils import urljoin, strptime, get_progressbar
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial) when calling logging
 # functions of stream2segment.download.utils:
 from stream2segment.download import logger  # @IgnorePep8
-from stream2segment.io.db.pdsql import colnames
-
 
 
 _MAPPINGS = {
