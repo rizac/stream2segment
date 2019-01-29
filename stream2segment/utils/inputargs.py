@@ -66,7 +66,8 @@ class BadArgument(Exception):
     @property
     def message(self):
         msg = '%s' if not self.msg_preamble else self.msg_preamble.strip() + " %s"
-        err_msg = self.args[0]  # in ValueError, is the error_msg passed in the constructor
+        # Access the parent message (works in py2 and 3):
+        err_msg = self.args[0]  # pylint: disable=unsubscriptable-object
         pname = '"%s"' % (" / ".join('"%s"' % p for p in self.param_name)[1:-1]
                           if isinstance(self.param_name, (list, tuple)) else
                           str(self.param_name))
@@ -78,52 +79,6 @@ class BadArgument(Exception):
     def __str__(self):
         ''''''
         return "Error: %s" % self.message
-
-
-# THESE ARE THE EXCEPTIONS THAT SHOULD BE RAISED
-
-# class MissingArg(BadArgument):
-# 
-#     def __init__(self, param_name):
-#         '''A BadArgument notifying a missing value of some argument'''
-#         super(MissingArg, self).__init__(param_name, '', "Missing value for")
-# 
-# 
-# class BadValueArg(BadArgument):
-# 
-#     def __init__(self, param_name, error):
-#         '''A BadArgument notifying a bad value of some argument'''
-#         super(BadValueArg, self).__init__(param_name, error, "Invalid value for")
-# 
-# 
-# class BadTypeArg(BadArgument):
-# 
-#     def __init__(self, param_name, error):
-#         '''A BadArgument notifying a bad type of some argument'''
-#         super(BadTypeArg, self).__init__(param_name, error, )
-
-
-# class ConflictingArguments(BadArgument):
-#     '''A BadArgument notifying conflicting argument names'''
-# 
-#     def __init__(self, *param_names):
-#         '''A BadArgument notifying conflicting argument names'''
-#         # little hack: build a string wiothout first and last quote (will be added in super-class)
-#         param_name = self.formatnames(*param_names)
-#         super(ConflictingArguments, self).__init__(param_name, '', "Conflicting names")
-# 
-#     @staticmethod
-#     def formatnames(*param_names):
-#         # little hack: build a string wiothout first and last quote (will be added in super-class)
-#         return " / ".join('"%s"' % p for p in param_names)[1:-1]
-
-
-# class UnknownArgument(BadArgument):
-#     '''A BadArgument notifying an unknown argument'''
-# 
-#     def __init__(self, param_name):
-#         '''A BadArgument notifying an unknown argument'''
-#         super(UnknownArgument, self).__init__(param_name, '', "no such option")
 
 
 def parse_arguments(yaml_dic, *params):
@@ -412,8 +367,7 @@ def between(min, max, include_start=True, include_end=True, pass_if_none=True):
         if val is None:
             if pass_if_none:
                 return True
-            else:
-                raise ValueError('value is None/null')
+            raise ValueError('value is None/null')
         is_ok = min is None or val > min or (include_start and val >= min)
         if not is_ok:
             raise ValueError('%s must be %s %s' %
@@ -472,19 +426,18 @@ def load_config_for_download(config, parseargs, **param_overrides):
 
         # now, what we want to do here is basically convert config_dict keys
         # into suitable arguments for stream2segment functions: this includes
-        # renaming params, parsing/converting their values, raising the
-        # more explanatory exceptions
+        # renaming params, parsing/converting their values, raising
+        # BadArgument exceptions and so on
 
-        # Let's configure a list of dicts for automatizing most of the
-        # parameters check: `params` below is a list of dicts, each dict is a 'param checker'
+        # Let's configure a 'params' list, a list of dicts where each dict is a 'param checker'
         # with the following keys (at least one should be provided):
         # names: list of strings. provide it in order to check for optional names,
         #        check that only one param is provided, and
         #        replace whatever is found with the first item in the list
         # newname: string, provide it if you want to replace names above with this value
-        #          instead first list item
-        # defvalue: if provided, then the parameter can be missing and will be set to this value
-        #           if not provided, then an Exception is raised if the parameter is missing
+        #          instead first item in 'names'
+        # defvalue: if provided, then the parameter is optional and will be set to this value
+        #           if not provided, then the parameter is mandatory (BadArgument is raised in case)
         # newvalue: function accepting a value (the parameter value) raising whatever is
         #           needed if the parameter is invalid, and returning the correct parameter value
         params = [

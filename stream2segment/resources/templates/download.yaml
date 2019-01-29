@@ -48,39 +48,39 @@ endtime: 2016-12-25T00:00:00
 
 # Limit to events with a latitude larger than or equal to the specified minimum.
 # Implementation details: 'minlat' is also a valid name for this parameter
-minlatitude: 47.0  # missing or empty / null value: ignore
+minlatitude: 47.0  # missing or null: ignore
 
 # Limit to events with a latitude smaller than or equal to the specified maximum
 # Implementation details: 'maxlat' is also a valid name for this parameter
-maxlatitude: 57.0  # null or empty: ignore
+maxlatitude: 57.0  # missing or null: ignore
 
 # Limit to events with a longitude larger than or equal to the specified minimum
 # Implementation details: 'minlon' is also a valid name for this parameter
 # Set to null to ignore this parameter
-minlongitude: 4.0  # null or empty: ignore
+minlongitude: 4.0  # missing or null: ignore
 
 # Limit to events with a longitude smaller than or equal to the specified maximum
 # Implementation details: 'maxlon' is also a valid name for this parameter
 # Set to null to ignore this parameter
-maxlongitude: 17.0  # null or empty: ignore
+maxlongitude: 17.0  # missing or null: ignore
 
 # Limit to events with depth more than the specified minimum.
 # Set to null to ignore this parameter
-mindepth: 1  # null or empty: ignore
+mindepth: 1  # missing or null: ignore
 
 # Limit to events with depth less than the specified maximum
 # Set to null to ignore this parameter
-maxdepth: 50  # null or empty: ignore
+maxdepth: 50  # missing or null: ignore
 
 # Limit to events with a magnitude larger than the specified minimum
 # Set to null to ignore this parameter
 # Implementation details: 'minmag' is also a valid name for this parameter
-minmagnitude: 3.0  # null: ignore parameter
+minmagnitude: 4.0  # missing or null: ignore
 
 # Limit to events with a magnitude smaller than the specified maximum (leaving the value
 # empty ignores this parameter)
 # Implementation details: 'maxmag' is also a valid name for this parameter
-maxmagnitude: null
+maxmagnitude: null  # missing or null: ignore
 
 # Additional event web search parameters. For info, see
 # https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=14)
@@ -141,8 +141,8 @@ update_metadata: false
 # Download station inventories (xml format). Inventories will be downloaded and saved on the db
 # for all stations that have saved segments with data. If the metadata should not be updated
 # (see 'update_metadata') already saved inventories will not be downloaded again. You can always
-# download inventories later by providing "only" as value (wihtout quotes), skipping all other
-# download steps (in case, all other parameters will be ignored except 'update_metadata')
+# download inventories later by providing "only" as value (wihtout quotes): this will skip all other
+# download steps (and ignore all other parameters values except 'update_metadata')
 inventory: true
 
 # search radius: for each event, stations will be searched within a circular area whose radius
@@ -218,7 +218,7 @@ timespan:
 # - a list of two strings denoting username and password
 # when this parameter is null, or the empty string, only open (unrestricted) waveform data will
 # be downloaded. When provided, restricted segments previosuly downloaded with no credentials
-# (thus, with no waveform data) will be always re-downloaded regardless of the retry_* parameters set.
+# (thus, with no waveform data) will be always re-downloaded regardless of the retry_* parameters.
 restricted_data: ""
 
 # Try to dowonload again already saved segments with no waveform data because not found
@@ -264,7 +264,7 @@ advanced_settings:
  # If 0 or negative, is automatically set according to the machine CPU
  max_thread_workers: 0
  # max time to wait (in seconds) for a single request while downloading events
- e_timeout: 15
+ e_timeout: 120
  # max time to wait (in seconds) for a single request while downloading stations+channel metadata
  s_timeout: 120
  # max time to wait (in seconds) for a single request while downloading an inventory in xml format
