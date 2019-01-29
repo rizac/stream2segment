@@ -402,19 +402,14 @@ Conventions and suggestions
 ---------------------------
 
 1) This module is designed to encourage the decoupling of code and configuration, so that you can
-easily and safely experiment different configurations on the same code, if needed. We strongly
-discuourage to implement a python file and copy/paste it by changing some parameters only,
-as it is very unmantainable and bug-prone. That said, it's up to you (e.g. a script-like
-processing file for saving once some selected segments to a file might not need a separate
-configuration file and have the output directory hard-coded here)
+easily and safely experiment different configurations on the same code, if needed: this is more
+mantainable than having several Python files with the same code but different
+hard-coded parameters (e.g., fixing a code bug can be done once)
 
 2) This module is designed to force the DRY (don't repeat yourself) principle. This is particularly
 important when using the GUI to visually debug / inspect some code for processing
 implemented in `main`: we strongly encourage to *move* the portion of code into a separate
-function F and call F from 'main' AND decorate it with '@gui.plot'. That said, it's up to you
-also in this case (e.g. a file becoming too large might need to be separated into processing and
-visualization, paying attention that modification of the code in one file might need
-synchronization with the other file)
+function F and call F from 'main' AND decorate it with '@gui.plot'
 
 
 Functions arguments
