@@ -758,12 +758,12 @@ class Authorizer(object):
                 if not self._validate_eida_token(token.decode() if isinstance(token, bytes)
                                                  else token):
                     raise ValueError("Invalid token. If you passed a file path, "
-                                     "check also that the file exists")
+                                     "check that the file is a valid token")
 
     @staticmethod
     def _validate_eida_token(token):
         """Along the lines of obspy: basic check to test that a token is ok"""
-        if re.search(pattern='BEGIN PGP MESSAGE', string=token,
+        if re.search(pattern=r'\bBEGIN PGP\b', string=token,
                      flags=re.IGNORECASE):  # @UndefinedVariable
             return True
         return False

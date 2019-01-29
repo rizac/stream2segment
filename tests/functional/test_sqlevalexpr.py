@@ -76,9 +76,9 @@ class Test(object):
         sess.commit()
 
         sta1 = Station(id=1, network='n1', station='s1', datacenter_id = dcen.id,
-                       latitude=66, longitude=67, start_time= datetime.utcnow())
+                       latitude=66, longitude=67, start_time=datetime.utcnow())
         sta2 = Station(id=2, network='n2', station='s1', datacenter_id = dcen.id,
-                       latitude=66, longitude=67, start_time= datetime.utcnow())
+                       latitude=66, longitude=67, start_time=datetime.utcnow())
         sess.add_all([sta1, sta2])
         sess.commit()
 
@@ -172,7 +172,6 @@ class Test(object):
         # this fails:
         with pytest.raises(AttributeError):
             sess.query(Segment.id).order_by(Segment.station.id).all()
-        sdgf = 9
 
         # this works:
         k1 = sess.query(Segment.id).join(Segment.station).order_by(Station.id).all()
