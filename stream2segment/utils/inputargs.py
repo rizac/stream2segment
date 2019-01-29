@@ -467,7 +467,7 @@ def load_config_for_download(config, parseargs, **param_overrides):
         # define first default event params in order to avoid typos
         def_evt_params = ['minlatitude', 'minlat', 'maxlatitude', 'maxlat',
                           'minlongitude', 'minlon', 'maxlongitude', 'maxlon',
-                          'minmagnitude', 'mingmag', 'maxmagnitude', 'maxmag',
+                          'minmagnitude', 'minmag', 'maxmagnitude', 'maxmag',
                           'mindepth', 'maxdepth']
 
         # now, what we want to do here is basically convert config_dict keys
@@ -597,7 +597,7 @@ def load_config_for_download(config, parseargs, **param_overrides):
         for par in def_evt_params:
             if par in eventsearchparams:  # conflict:
                 raise BadArgument('eventws_params',
-                                  'invalid conflicting parameter "%s"' % par)
+                                  'conflicting parameter "%s"' % par)
             value = config_dict.pop(par, None)
             if value is not None:
                 eventsearchparams[par] = value

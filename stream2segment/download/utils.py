@@ -199,7 +199,7 @@ def handledbexc(cols_to_print_on_err, update=False):
                 # just use the string representation of exception
                 errmsg = str(exception)
             len_df = len(dataframe)
-            msg = formatmsg("%d database rows not %s" %
+            msg = formatmsg("%d database row(s) not %s" %
                             (len_df, "updated" if update else "inserted"), errmsg)
             logwarn_dataframe(dataframe, msg, cols_to_print_on_err)
 

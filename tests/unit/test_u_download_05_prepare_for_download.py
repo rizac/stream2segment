@@ -237,42 +237,10 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
         self.mock_urlopen.side_effect = cycle(retvals)
 
-    def test_dblog(self):
-        dblog(Station, 0, 0, 0, 0)
-        s = self.log_msg()
-        assert "Db table 'stations': no new row to insert, no row to update" in s
-        dblog(Station, 0, 0, 0, 1)
-        s = self.log_msg()
-        assert "Db table 'stations': 0 rows updated, 1 discarded (sql errors)" in s
-        dblog(Station, 0, 1, 0, 1)
-        s = self.log_msg()
-        assert """Db table 'stations': 0 new rows inserted, 1 discarded (sql errors)
-Db table 'stations': 0 rows updated, 1 discarded (sql errors)""" in s
-        dblog(Station, 0, 1, 0, 0)
-        s = self.log_msg()
-        assert "Db table 'stations': 0 new rows inserted, 1 discarded (sql errors)" in s
-        dblog(Station, 1, 5, 4, 1)
-        s = self.log_msg()
-        assert """Db table 'stations': 1 new row inserted, 5 discarded (sql errors)
-Db table 'stations': 4 rows updated, 1 discarded (sql errors)""" in s
-        dblog(Station, 3, 0, 4, 1)
-        s = self.log_msg()
-        assert """Db table 'stations': 3 new rows inserted (no sql error)
-Db table 'stations': 4 rows updated, 1 discarded (sql errors)""" in s
-        dblog(Station, 3, 5, 1, 0)
-        s = self.log_msg()
-        assert """Db table 'stations': 3 new rows inserted, 5 discarded (sql errors)
-Db table 'stations': 1 row updated (no sql error)""" in s
-        dblog(Station, 3, 0, 4, 0)
-        s = self.log_msg()
-        assert """Db table 'stations': 3 new rows inserted (no sql error)
-Db table 'stations': 4 rows updated (no sql error)""" in s
-        h = 9
-
-    def get_events_df(self, url_read_side_effect, *a, **v):
+    def get_events_df(self, url_read_side_effect, session):
         self.setup_urlopen(self._evt_urlread_sideeffect if url_read_side_effect is None else
                            url_read_side_effect)
-        return get_events_df(*a, **v)
+        return get_events_df(session, "http://eventws", {}, datetime.utcnow(), datetime.utcnow())
 
     def get_datacenters_df(self, url_read_side_effect, *a, **v):
         self.setup_urlopen(self._dc_urlread_sideeffect if url_read_side_effect is None else
@@ -292,8 +260,7 @@ Db table 'stations': 4 rows updated (no sql error)""" in s
     def test_prepare_for_download(self, db, tt_ak135_tts):
         # prepare:
         urlread_sideeffect = None  # use defaults from class
-        events_df = self.get_events_df(urlread_sideeffect, db.session, "http://eventws",
-                                       db_bufsize=self.db_buf_size)
+        events_df = self.get_events_df(urlread_sideeffect, db.session)
         net, sta, loc, cha = [], [], [], []
         datacenters_df, eidavalidator = \
             self.get_datacenters_df(urlread_sideeffect, db.session, None, self.routing_service,
@@ -545,8 +512,7 @@ Db table 'stations': 4 rows updated (no sql error)""" in s
 20160508_0000129|2016-05-08 05:17:11.500000|1|1|2.01|AZER|EMSC-RTS|AZER|505483|ml|3|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 05:17:12.300000|1.001|1.001|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|4|EMSC|CROATIA
 """
-        events_df = self.get_events_df(urlread_sideeffect, db.session, "http://eventws",
-                                       db_bufsize=self.db_buf_size)
+        events_df = self.get_events_df(urlread_sideeffect, db.session)
         net, sta, loc, cha = [], [], [], []
         urlread_sideeffect = None
         datacenters_df, eidavalidator = \

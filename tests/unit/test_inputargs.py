@@ -8,6 +8,7 @@ import os
 from datetime import datetime, timedelta
 import shutil
 from mock.mock import patch
+from itertools import product
 # this can not apparently be fixed with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
 try:
@@ -82,7 +83,6 @@ class Test(object):
                             # the following members are re-initialized in run_cli_download:
                             self.lastrun_download_count = len(dwnlds)
                             if self.lastrun_download_count:
-                                self.lastrun_lastdownload_config = dwnlds[-1].config
                                 self.lastrun_lastdownload_log = dwnlds[-1].log
                                 self.lastrun_lastdownload_id = \
                                     self._lastrun_lastdownload_id = dwnlds[-1].id
@@ -136,7 +136,6 @@ class Test(object):
         # reset database stuff:
         self.lastrun_lastdownload_id = None
         self.lastrun_lastdownload_log = None
-        self.lastrun_lastdownload_config = None
         self.lastrun_download_count = 0
         # process inputs:
         args = list(args)
@@ -165,78 +164,69 @@ class Test(object):
 
     def test_download_eventws_query_args(self, db):
         '''test different scenarios where we provide eventws query args from the command line'''
-        # FIRST SCENARIO: PROVIDE A PARAMETER P in the cli ALREADY PRESENT IN THE CONFIG
-        # eventws_query_args
-        # Test that the name stays the same provided in the coinfig, regardless of the cli name
-        def_yaml_dict = yaml_load(self.d_yaml_file)['eventws_query_args']
-        param = 'minmag'
-        other_param = 'minmagnitude'
-        assert other_param not in def_yaml_dict
-        oldval = def_yaml_dict[param]  # which also asserts we do have the value
-        newval = oldval + 1.1
-        result = self.run_cli_download('-%s' % param, newval)  # invalid type
-        assert result.exit_code == 0  # WHAT?? because networks needs to be just an iterable
-        # assert new yaml (as saved on the db) has the correct value:
-        new_yaml_dict = \
-            yaml_load(StringIO(self.lastrun_lastdownload_config))['eventws_query_args']
-        assert new_yaml_dict[param] == newval
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 1
-        assert other_param not in new_yaml_dict
 
-        newval += 1.1
-        result = self.run_cli_download('--%s' % other_param, newval)  # invalid type
+        # FIRST SCENARIO: no  eventws_params porovided
+        self.mock_run_download.reset_mock()
+        def_yaml_dict = yaml_load(self.d_yaml_file)['eventws_params']
+        assert not def_yaml_dict  # None or empty dict
+        result = self.run_cli_download()  # invalid type
         assert result.exit_code == 0
-        new_yaml_dict = \
-            yaml_load(StringIO(self.lastrun_lastdownload_config))['eventws_query_args']
-        assert new_yaml_dict[param] == newval
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 1
-        assert other_param not in new_yaml_dict
+        # assert the yaml (as passed to the download function) has the correct value:
+        real_eventws_params = self.mock_run_download.call_args_list[0][1]['eventws_params']
+        # just assert it has keys merged from the global event-related yaml keys
+        assert 'maxmagnitude' not in real_eventws_params
+        assert real_eventws_params
 
-        # SECOND SCENARIO: PROVIDE A PARAMETER P in the cli NOT PRESENT IN THE CONFIG
-        # eventws_query_args. Test that the name is the one provided from the cli (long name)
-        # regardless of the cli name (short or long)
-        param = 'lat'
-        other_param = 'latitude'
-        assert param not in def_yaml_dict  # if it fails, change param/other_param name above
-        assert other_param not in def_yaml_dict  # if it fails, change/other_param param name above
-        newval = 1.1
-        expected_param = other_param  # because it is the default cli param name
-        nonexpected_param = param  # see above
-        result = self.run_cli_download('-%s' % param, newval)  # invalid type
-        assert result.exit_code == 0  # WHAT?? because networks needs to be just an iterable
-        # assert new yaml (as saved on the db) has the correct value:
-        new_yaml_dict = \
-            yaml_load(StringIO(self.lastrun_lastdownload_config))['eventws_query_args']
-        assert new_yaml_dict[expected_param] == newval
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 1
-        assert nonexpected_param not in new_yaml_dict
+        # test by providing an eventsws param which is not optional:
+        self.mock_run_download.reset_mock()
+        def_yaml_dict = yaml_load(self.d_yaml_file)['eventws_params']
+        assert not def_yaml_dict  # None or empty dict
+        result = self.run_cli_download('--minmagnitude', '15.5')
+        assert result.exit_code == 0
+        # assert the yaml (as passed to the download function) has the correct value:
+        real_eventws_params = self.mock_run_download.call_args_list[0][1]['eventws_params']
+        # just assert it has keys merged from the global event-related yaml keys
+        assert real_eventws_params['minmagnitude'] == 15.5
 
-        newval += 1.1
-        result = self.run_cli_download('--%s' % other_param, newval)  # invalid type
-        assert result.exit_code == 0  # WHAT?? because networks needs to be just an iterable
-        # assert new yaml (as saved on the db) has the correct value:
-        new_yaml_dict = \
-            yaml_load(StringIO(self.lastrun_lastdownload_config))['eventws_query_args']
-        assert new_yaml_dict[expected_param] == newval
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 1
-        assert nonexpected_param not in new_yaml_dict
+        # test by providing a eventsws param which is optional:
+        self.mock_run_download.reset_mock()
+        def_yaml_dict = yaml_load(self.d_yaml_file)['eventws_params']
+        assert not def_yaml_dict  # None or empty dict
+        result = self.run_cli_download('--minmagnitude', '15.5',
+                                       eventws_params={'format': 'abc'})
+        assert result.exit_code == 0
+        # assert the yaml (as passed to the download function) has the correct value:
+        real_eventws_params = self.mock_run_download.call_args_list[0][1]['eventws_params']
+        # just assert it has keys merged from the global event-related yaml keys
+        assert real_eventws_params['minmagnitude'] == 15.5
+        assert real_eventws_params['format'] == 'abc'
+
+        # conflicting args (supplying a global non-optional param in eventws's config):
+        for pars in [['--minlatitude', '-minlat'], ['--maxlatitude', '-maxlat'],
+                     ['--minlongitude', '-minlon'], ['--maxlongitude', '-maxlon'],
+                     ['--minmagnitude', '-minmag'], ['--maxmagnitude', '-maxmag'],
+                     ['--mindepth'], ['--maxdepth']]:
+            for par1, par2 in product(pars, pars):
+                self.mock_run_download.reset_mock()
+                result = self.run_cli_download(par1, '15.5',
+                                               eventws_params={par2.replace('-', ''): 15.5})
+                assert result.exit_code != 1
+                assert 'conflict' in result.output
+                assert 'Invalid value for "eventws_params"' in result.output
+
 
     def test_download_bad_values(self, db):
         '''test different scenarios where the value in the dwonload.yaml are not well formatted'''
         result = self.run_cli_download(networks={'a': 'b'})  # conflict
         assert result.exit_code != 0
-        assert 'Error: Conflicting names "networks" / "network"' in result.output
+        assert 'Error: Conflicting names "network" / "networks"' in result.output
         result = self.run_cli_download(network={'a': 'b'})
-        assert result.exit_code == 0  # WHAT?? because networks needs to be just an iterable
+        assert result.exit_code == 0
         # thus providing dict is actually fine and will iterate over its keys:
-        assert self.mock_run_download.call_args_list[0][1]['networks'] == ['a']
+        assert self.mock_run_download.call_args_list[0][1]['network'] == ['a']
         # do some asserts only for this case to test how we print the arguments to string:
         # assert "tt_table: <TTTable object, " in result.output
-        assert "start: 2006-01-01 00:00:00" in result.output
+        assert "starttime: 2006-01-01 00:00:00" in result.output
         assert "traveltimes_model:" in result.output
         _dburl = db.dburl
         if not db.is_sqlite:
@@ -252,7 +242,7 @@ class Test(object):
 
         result = self.run_cli_download(networks='!*')  # conflicting names
         assert result.exit_code != 0
-        assert 'Error: Conflicting names "networks" / "network"' in result.output
+        assert 'Error: Conflicting names "network" / "networks"' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.lastrun_download_count == 0
 
@@ -264,7 +254,7 @@ class Test(object):
 
         result = self.run_cli_download(net='!*')  # conflicting names
         assert result.exit_code != 0
-        assert 'Error: Conflicting names "net" / "network"' in result.output
+        assert 'Error: Conflicting names "network" / "net"' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.lastrun_download_count == 0
 
@@ -293,22 +283,21 @@ class Test(object):
         # what about conflicting arguments?
         result = self.run_cli_download(networks='!*', net='opu')  # invalid value
         assert result.exit_code != 0
-        assert 'Conflicting names "net" / "networks"' in result.output or \
-            'Conflicting names "networks" / "net"' in result.output
+        assert 'Conflicting names "network" / "net" / "networks"' in result.output or \
+            'Conflicting names "network" / "networks" / "net"' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.lastrun_download_count == 0
 
-        result = self.run_cli_download(start=[])  # invalid type
+        result = self.run_cli_download(starttime=[])  # invalid type
         assert result.exit_code != 0
-        assert 'Error: Invalid type for "start":' in result.output
+        assert 'Error: Invalid type for "starttime":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.lastrun_download_count == 0
 
         # mock implementing conflicting names in the yaml file:
-        result = self.run_cli_download(starttime='wat')  # invalid value
+        result = self.run_cli_download(start='wat')  # invalid value
         assert result.exit_code != 0
-        assert 'Error: Conflicting names "starttime" / "start"' in result.output or \
-            'Error: Conflicting names "start" / "starttime"' in result.output
+        assert 'Error: Conflicting names "starttime" / "start"' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.lastrun_download_count == 0
 
@@ -323,10 +312,10 @@ class Test(object):
         assert self.lastrun_download_count == 0
 
         # This should work:
-        result = self.run_cli_download('--starttime', '2006-03-14')  # invalid value
+        result = self.run_cli_download('--start', '2006-03-14')  # invalid value
         assert result.exit_code == 0
         run_download_kwargs = self.mock_run_download.call_args_list[-1][1]
-        assert run_download_kwargs['start'] == datetime(2006, 3, 14)
+        assert run_download_kwargs['starttime'] == datetime(2006, 3, 14)
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.lastrun_download_count == 1
 
@@ -337,9 +326,15 @@ class Test(object):
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.lastrun_download_count == 0
 
-        result = self.run_cli_download(end='wat') # try with end
+        result = self.run_cli_download(endtime='wat')  # try with end
         assert result.exit_code != 0
-        assert 'Error: Invalid value for "end":' in result.output
+        assert 'Error: Invalid value for "endtime":' in result.output
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert self.lastrun_download_count == 0
+
+        result = self.run_cli_download(end='wat')  # try with end
+        assert result.exit_code != 0
+        assert 'Error: Conflicting names "endtime" / "end"' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
         assert self.lastrun_download_count == 0
 

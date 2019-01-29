@@ -39,7 +39,7 @@ from obspy.taup.helper_classes import TauModelError
 from stream2segment.io.db.models import Base, Event, Class, Fdsnws, DataCenter, Segment, \
     Download, Station, Channel, WebService
 from stream2segment.download.modules.events import get_events_df, isf2text_iter,\
-    _get_steps
+    _get_evtfreq_freq_mag_dist
 from stream2segment.download.modules.datacenters import get_datacenters_df
 from stream2segment.download.modules.channels import get_channels_df, chaid2mseedid_dict
 from stream2segment.download.modules.stationsearch import merge_events_stations
@@ -81,34 +81,6 @@ class Test(object):
 20160508_0000129|2016-05-08 05:17:11.500000|1|1|60.0|AZER|EMSC-RTS|AZER|505483|ml|3|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 01:45:30.300000|90|90|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|4|EMSC|CROATIA
 """
-        self._dc_urlread_sideeffect = """http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query
-ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
-UP ARJ * * 2013-08-01T00:00:00 2017-04-25
-
-http://ws.resif.fr/fdsnws/dataselect/1/query
-ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
-
-"""
-
-# Note: by default we set sta_urlsideeffect to return such a channels which result in 12
-# segments (see lat and lon of channels vs lat and lon of events above)
-        self._sta_urlread_sideeffect = ["""#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
-GE|FLT1||HHE|1|1|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2003-01-01T00:00:00|
-GE|FLT1||HHN|1|1|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2003-01-01T00:00:00|
-GE|FLT1||HHZ|1|1|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2003-01-01T00:00:00|
-n1|s||c1|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
-n1|s||c2|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
-n1|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
-""",
-"""#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
-IA|BAKI||BHE|1|1|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2003-01-01T00:00:00|
-IA|BAKI||BHN|1|1|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2003-01-01T00:00:00|
-IA|BAKI||BHZ|1|1|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2003-01-01T00:00:00|
-n2|s||c1|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
-n2|s||c2|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
-n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
-"""]
-
         self._mintraveltime_sideeffect = cycle([1])
         self._seg_data = data.read("GE.FLT1..HH?.mseed")
         self._seg_data_gaps = data.read("IA.BAKI..BHZ.D.2016.004.head")
@@ -247,7 +219,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                              show_progress)
 
     @patch('stream2segment.download.modules.events.urljoin', side_effect=urljoin)
-    def tst_get_events(self, mock_urljoin, db):
+    def test_get_events(self, mock_urljoin, db):
         urlread_sideeffect = ["""#1|2|3|4|5|6|7|8|9|10|11|12|13
 20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 01:45:30.300000|44.96|15.35|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|3.6|EMSC|CROATIA
@@ -259,13 +231,12 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                   datetime.utcnow() - timedelta(seconds=1), datetime.utcnow(),
                                   db_bufsize=self.db_buf_size)
         # assert only first two events events were successfully saved
-        assert len(db.session.query(Event).all()) == len(pd.unique(data['id'])) == 2
-        # AND data to save has length 2:
-        assert len(data) == 2
+        assert len(db.session.query(Event).all()) == len(pd.unique(data['id'])) == \
+            len(data) == 3
         # check that log has notified:
         log1 = self.log_msg()
         assert "20160508_0000113" in log1
-        assert "2 database rows not inserted" in log1
+        assert "1 database row(s) not inserted" in log1
         assert mock_urljoin.call_count == 1
         mock_urljoin.reset_mock()
 
@@ -282,8 +253,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                       datetime.utcnow() - timedelta(seconds=1), datetime.utcnow(),
                                       db_bufsize=self.db_buf_size)
         # assert we got the same result as above:
-        assert len(db.session.query(Event).all()) == len(pd.unique(data['id'])) == 2
-        assert len(data) == 2
+        assert len(db.session.query(Event).all()) == len(pd.unique(data['id'])) == \
+            len(data) == 3
         log2 = self.log_msg()
 
         # log text has the message about the second (successful) dwnload, with the
@@ -304,8 +275,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                       datetime.utcnow() - timedelta(seconds=1), datetime.utcnow(),
                                       db_bufsize=self.db_buf_size)
         # assert we got the same result as above:
-        assert len(db.session.query(Event).all()) == len(pd.unique(data['id'])) == 2
-        assert len(data) == 2
+        assert len(db.session.query(Event).all()) == len(pd.unique(data['id'])) == \
+            len(data) == 3
         log2 = self.log_msg()
 
         # nothing written to log:
@@ -315,7 +286,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert "maximum recursion depth reached"  in str(fld)
 
     @patch('stream2segment.download.modules.events.urljoin', side_effect=urljoin)
-    def tst_get_events_eventws_not_saved(self, mock_urljoin, db):
+    def test_get_events_eventws_not_saved(self, mock_urljoin, db):
         '''test request splitted, but failing due to a http error'''
         urlread_sideeffect = [socket.timeout, 500]
 
@@ -336,6 +307,9 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # if we raun from main. This should be checked in functional tests where we test the whole
         # chain
         # assert "request entity too large" in self.log_msg()
+
+    def get_pbar_total_steps(self):
+        return _get_evtfreq_freq_mag_dist({})[2].sum()
 
     @patch('stream2segment.download.modules.events.get_progressbar')
     @patch('stream2segment.download.modules.events.urljoin', side_effect=urljoin)
@@ -368,8 +342,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                    end=datetime(2011, 1, 1),
                                    db_bufsize=self.db_buf_size)
         # test that we did not increment the pbar (exceptions)
-        max_pbar_count = _get_steps({})
-        assert mock_pbar.call_args[1]['length'] == max_pbar_count
+        assert mock_pbar.call_args[1]['length'] == self.get_pbar_total_steps()
         assert mock_pbar.return_value.updates == []
 
         # Now let's supply a bad response response but which updates the pbar
@@ -383,9 +356,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                    end=datetime(2011, 1, 1),
                                    db_bufsize=self.db_buf_size)
         # test that we did not increment the pbar (exceptions)
-        max_pbar_count = _get_steps({})
-        assert mock_pbar.call_args[1]['length'] == max_pbar_count
-        assert mock_pbar.return_value.updates == [max_pbar_count]
+        assert mock_pbar.call_args[1]['length'] == self.get_pbar_total_steps()
+        assert mock_pbar.return_value.updates == [self.get_pbar_total_steps()]
 
         # Now let's supply a successful response:
         urlread_sideeffect = ['''20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN''']
@@ -396,9 +368,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                end=datetime(2011, 1, 1),
                                db_bufsize=self.db_buf_size)
         # test that we did not increment the pbar (exceptions happened)
-        max_pbar_count = _get_steps({})
-        assert mock_pbar.call_args[1]['length'] == max_pbar_count
-        assert mock_pbar.return_value.updates == [max_pbar_count]
+        assert mock_pbar.call_args[1]['length'] == self.get_pbar_total_steps()
+        assert mock_pbar.return_value.updates == [self.get_pbar_total_steps()]
 
         # Now let's supply a successful response:
         urlread_sideeffect = [413,
@@ -415,8 +386,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                   db_bufsize=self.db_buf_size)
         assert 'Duplicated instances' in self.log_msg()
         # test that we did not increment the pbar (exceptions)
-        max_pbar_count = _get_steps({})
-        assert mock_pbar.call_args[1]['length'] == max_pbar_count
+        assert mock_pbar.call_args[1]['length'] == self.get_pbar_total_steps()
         # the first 413 produces a magnitude split 1part vs 9parts,
         # the second 413 produces a split 1vs9 on the 9 parts, thus 1*9 and 9*9:
         assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[1]['length']
@@ -434,8 +404,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                   db_bufsize=self.db_buf_size)
         assert 'Duplicated instances' in self.log_msg()
         # test that we did not increment the pbar (exceptions)
-        max_pbar_count = _get_steps({})
-        assert mock_pbar.call_args[1]['length'] < max_pbar_count
+        assert mock_pbar.call_args[1]['length'] < self.get_pbar_total_steps()
         assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[1]['length']
         # assert that we do not have maxmagnitude in the first request,
         # but in the first sub-request (index 1) (do not test other sub requests)
@@ -455,8 +424,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                   db_bufsize=self.db_buf_size)
         assert 'Duplicated instances' in self.log_msg()
         # test that we did not increment the pbar (exceptions)
-        max_pbar_count = _get_steps({})
-        assert mock_pbar.call_args[1]['length'] < max_pbar_count
+        assert mock_pbar.call_args[1]['length'] < self.get_pbar_total_steps()
         assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[1]['length']
         # assert that we do not have minmagnitude in the first two sub-request (from index 1),
         # but in the third (do not test other sub requests)
@@ -505,14 +473,13 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                   db_bufsize=self.db_buf_size)
         assert 'Duplicated instances' in self.log_msg()
         # test that we did not increment the pbar (exceptions)
-        max_pbar_count = _get_steps({})
-        assert mock_pbar.call_args[1]['length'] < max_pbar_count
+        assert mock_pbar.call_args[1]['length'] < self.get_pbar_total_steps()
         assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[1]['length']
 
 
 
     @patch('stream2segment.download.modules.events.urljoin', side_effect=urljoin)
-    def tst_get_events_eventws_from_file(self, mock_urljoin, db, pytestdir):
+    def test_get_events_eventws_from_file(self, mock_urljoin, db, pytestdir):
         '''test request splitted, but reading from events file'''
         urlread_sideeffect = [socket.timeout, 500]
 
@@ -532,8 +499,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                   end=datetime(2011, 1, 1),
                                   db_bufsize=self.db_buf_size)
         # assert we got the same result as above:
-        assert len(db.session.query(Event).all()) == len(pd.unique(data['id'])) == 2
-        assert len(data) == 2
+        assert len(db.session.query(Event).all()) == len(pd.unique(data['id'])) == \
+            len(data) == 3
         log2 = self.log_msg()
         # since one row is discarded, the message is something like:
         # 1 row(s) discarded (malformed server response data, e.g. NaN's). url: file:////private/var/folders/l9/zpp7wn1n4r7bt4vs39gylk4w0000gn/T/pytest-of-riccardo/pytest-442/test_get_events_eventws_from_f0/368e6e99-171c-40e1-ad8e-3afc40ebeeab.txt

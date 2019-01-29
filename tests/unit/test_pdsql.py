@@ -403,7 +403,7 @@ class Test(object):
                               {'name': 'b', 'time': dt}]),
             ]
 
-        for drop_dup in [True, False]:
+        for keep_dup in [False, True]:
             for update in [True, False]:
                 for i, d in enumerate(dfs):
                     # re-initialize db every time:
@@ -413,7 +413,7 @@ class Test(object):
 
                     inserted, not_inserted, updated, not_updated, d2 = \
                         syncdf(d.copy(), db.session, [Customer.name, Customer.time], Customer.id,
-                               drop_duplicates=drop_dup, update=update)
+                               keep_duplicates=keep_dup, update=update)
 
                     # SYNC 1 ROW WHICH EXISTS ON THE DB
                     if i == 0:
@@ -440,7 +440,7 @@ class Test(object):
                     # SYNC 3 ROWS: TWO EXISTS AND ARE THE SAME (DUPLICATED),
                     # THE OTHER DOES NOT EXIST ON THE DB
                     elif i == 3:
-                        if drop_dup is True:
+                        if not keep_dup:  # drop duplicates (all)
                             # rows duplicates  will be dropped,
                             # it remains only the already existing row, thus this is the
                             # same as no row existing (i==1)
@@ -465,7 +465,7 @@ class Test(object):
 
                     # SYNC 3 ROWS: ONE EXIST ON THE DB, TWO DO NOT EXISTS AND ARE THE SAME (DUPLICATED)
                     elif i == 4:
-                        if drop_dup is True:
+                        if not keep_dup:  # drop duplicates (all)
                             if update:
                                 # rows duplicates will be dropped,  it remains only the already
                                 # existing row, thus this is the same as all row existing (i==0)
@@ -568,7 +568,7 @@ class Test(object):
         d.loc[:, ['name']] = 'w'
         inserted, not_inserted, updated, not_updated, d2 = \
             syncdf(d, db.session, [Customer.name, Customer.time], Customer.id, update=['name'],
-                   drop_duplicates=False)
+                   keep_duplicates=True)
         # we should have the same result of the database, as we updated ALL instances:
         # BUT: fetchsetpkeys changed to float the dtype of id, so:
         assert not d.equals(d2)
@@ -629,7 +629,7 @@ class Test(object):
         # {'name': 'a', 'time': d2006} will have the 'id' 1 (see above):
         inserted, not_inserted, updated, not_updated, d2 = \
             syncdf(d, db.session, [Customer.name, Customer.time], Customer.id,
-                   drop_duplicates=False)
+                   keep_duplicates=True)
         # the returned dataframe, as it does NOT update, has the instances with already set id
         # first (these instances are those who should be updated) and then the rest, so it's
         # like this: 

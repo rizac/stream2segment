@@ -13,6 +13,7 @@ import logging, os, sys, re
 from datetime import timedelta, datetime
 from collections import OrderedDict
 from io import open  # py2-3 compatible
+import math
 
 import numpy as np
 import pandas as pd
@@ -30,6 +31,7 @@ from stream2segment.utils import urljoin, strptime, get_progressbar
 # functions of stream2segment.download.utils:
 from stream2segment.download import logger  # @IgnorePep8
 from stream2segment.io.db.pdsql import colnames
+
 
 
 _MAPPINGS = {
@@ -167,18 +169,18 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout, show_pro
         if 'maxmagnitude' not in evt_query_args:
             evt_query_args['maxmagnitude'] = maxmag
 
-    evt_q_args = [evt_query_args]
+    total_pbar_steps = _get_evtfreq_freq_mag_dist(evt_query_args)[2].sum()
+    downloads = [(evt_query_args, total_pbar_steps)]
 
-    with get_progressbar(show_progress, length=_get_steps(evt_query_args)) as pbar:
-        while evt_q_args:
-            evt_q_arg = evt_q_args.pop(0)
+    with get_progressbar(show_progress, length=total_pbar_steps) as pbar:
+        while downloads:
+            evt_q_arg, steps = downloads.pop(0)
             url = urljoin(base_url, **evt_q_arg)
             try:
-                raw_data, code, msg = urlread(url, decode='utf8',
-                                              timeout=timeout,
+                raw_data, code, msg = urlread(url, decode='utf8', timeout=timeout,
                                               raise_http_err=True, wrap_exceptions=False)
 
-                pbar.update(_get_steps(evt_q_arg))
+                pbar.update(steps)
                 if raw_data:
                     yield url, isfresponse2txt(raw_data) if is_isf else raw_data
                 else:
@@ -190,7 +192,7 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout, show_pro
                         (isinstance(exc, HTTPError)
                          and exc.code in (413, 504)):  # pylint: disable=no-member
                     try:
-                        evt_q_args = _split_url(evt_q_arg) + evt_q_args
+                        downloads = _split_url(evt_q_arg) + downloads
                     except ValueError as verr:
                         raise FailedDownload(formatmsg("Unable to fetch events", verr,
                                                        url))
@@ -200,53 +202,68 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout, show_pro
 
 
 def _split_url(evt_query_args):
-    minmag, maxmag = _get_mags(evt_query_args)
-    _ = _get_mags(evt_query_args, 0, 9)
-    minmag_f, maxmag_f = float(_[0]), float(_[1])
-    # 3/10 is aproximately the value where the sum of events left and right
-    # are the same, according to 10 ** (9- mag) function (see _get_steps)
-    part = (5 if maxmag_f <= 1 else 1) * (maxmag_f - minmag_f) / 10.0
-    part = int((10 * part) + 0.5) / 10.0
-    if part < 0.1:
-        raise ValueError('maximum recursion depth reached, '
-                         'decrease spatial-temporal bounds or magnitude range')
-
+    '''Splits the event query issued with the given `event_query_args` (dict)
+    and returns a two-element list where each element is the tuple:
+    (event_query_args, progressbar_incrementer)
+    where the first item is a dict of an event query parameter, and the second
+    is an integer representing how much a progress bar should be incremented
+    if the query is successful (the number takes into account the theoretical
+    frequency of events in the given query)
+    '''
+    minmag, deltamag, evtfreq_freq_mag_dist = _get_evtfreq_freq_mag_dist(evt_query_args)
+    if len(evtfreq_freq_mag_dist) < 2:
+        raise ValueError('maximum recursion depth reached, decrease '
+                         'spatial-temporal bounds or magnitude range')
+    half = evtfreq_freq_mag_dist.sum() / 2.0
+    idx = 0
+    while evtfreq_freq_mag_dist[:idx+1].sum() < half:
+        idx += 1
+    mag_half = minmag + idx * deltamag
     evt_query_args1 = dict(evt_query_args)
     evt_query_args2 = dict(evt_query_args)
-    if minmag is not None:
-        evt_query_args1['minmagnitude'] = minmag
-    evt_query_args1['maxmagnitude'] = str(round(minmag_f + part, 3))
-    evt_query_args2['minmagnitude'] = str(round(minmag_f + part, 3))
-    if maxmag is not None:
-        evt_query_args2['maxmagnitude'] = maxmag
-    return [evt_query_args1, evt_query_args2]
 
+    evt_query_args1['maxmagnitude'] = str(round(mag_half, 1))
+    evt_query_args2['minmagnitude'] = str(round(mag_half, 1))
 
-def _get_steps(evt_query_args):
-    minmag, maxmag = _get_mags(evt_query_args, 0, 9)
-    ret = ((10 ** (9-np.arange(0, 9.01, 0.1))) + 0.5).astype(int)
-    ret[0:10] = ret[10]
-    idx0 = int(float(minmag) / 0.1)
-    idx1 = int(float(maxmag) / 0.1)
-    return ret[idx0: idx1].sum()
+    return [(evt_query_args1, evtfreq_freq_mag_dist[:idx].sum()),
+            (evt_query_args2, evtfreq_freq_mag_dist[idx:].sum())]
 
 
 def _get_evtfreq_freq_mag_dist(evt_query_args):
-    minmag, maxmag = _get_mags(evt_query_args, 0, 9)
-    ret = ((10 ** (9-np.arange(float(minmag), float(maxmag)+ .01, 0.1))) + 0.5).astype(int)
-    ret[0:10] = ret[10]
-    idx0 = int(float(minmag) / 0.1)
-    idx1 = int(float(maxmag) / 0.1)
-    return ret[idx0: idx1].sum()
+    '''Returns the tuple minmag, step, func, where minmag is a float
+    representing `func` first point (magnitude), step is the magnitude
+    distance two adjacent points of `func`, and `func` is a a numpy array
+    representing the theoretical events count from a given magnitude `mag`:
+    ```
+    f(mag) = 10 ** (9-mag)
+    ```
+    '''
+    default_min, step, default_max = 0, .1, 9
 
+    # create the function:
+    ret = ((10 ** (default_max - np.arange(default_min, default_max, step))) + 0.5).astype(int)
+    # set all points of magnitude <1 equal to the frequency at magnitude 1
+    # (no frequency increase after that threshold)
+    index_of_mag_1 = int(0.5 + ((1.0 - default_min) / step))
+    if index_of_mag_1 > 0:
+        ret[:index_of_mag_1] = ret[index_of_mag_1]
 
-def _get_mags(evt_query_args, default_min=None, default_max=None):
-    minmag = evt_query_args.get('minmagnitude', default_min)
-    maxmag = evt_query_args.get('maxmagnitude', default_max)
-    return minmag, maxmag
+    # trim ret if maxmagnitude is given:
+    if 'maxmagnitude' in evt_query_args:
+        maxmag = float(evt_query_args['maxmagnitude'])
+        index_of_maxmag = int(0.5 + ((maxmag - default_min) / step))
+        if index_of_maxmag < len(ret):
+            ret = ret[:index_of_maxmag]
 
+    minmag = default_min
+    # trim ret if minmagnitude is given:
+    if 'minmagnitude' in evt_query_args:
+        minmag = float(evt_query_args['minmagnitude'])
+        index_of_minmag = int(0.5 + ((minmag - default_min) / step))
+        if index_of_minmag > 0:
+            ret = ret[index_of_minmag:]
 
-
+    return minmag, step, ret
 
 
 def isfresponse2txt(nonempty_text, catalog='ISC', contributor='ISC'):

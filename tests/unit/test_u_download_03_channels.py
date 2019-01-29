@@ -237,10 +237,10 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
         self.mock_urlopen.side_effect = cycle(retvals)
 
-    def get_events_df(self, url_read_side_effect, *a, **v):
+    def get_events_df(self, url_read_side_effect, session):
         self.setup_urlopen(self._evt_urlread_sideeffect if url_read_side_effect is None else
                            url_read_side_effect)
-        return get_events_df(*a, **v)
+        return get_events_df(session, "http://eventws", {}, datetime.utcnow(), datetime.utcnow())
 
     def get_datacenters_df(self, url_read_side_effect, *a, **v):
         self.setup_urlopen(self._dc_urlread_sideeffect if url_read_side_effect is None else
@@ -265,8 +265,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 20160508_0000113|2016-05-08 22:37:20.100000|45.68|26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
 --- ERRROR --- THIS IS MALFORMED 20160508_abc0113|2016-05-08 22:37:20.100000| --- ERROR --- |26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
 """
-        events_df = self.get_events_df(urlread_sideeffect, db.session, "http://eventws",
-                                       db_bufsize=self.db_buf_size)
+        events_df = self.get_events_df(urlread_sideeffect, db.session)
 
         urlread_sideeffect = """http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query
 ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
@@ -595,8 +594,7 @@ E|F|11|HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|8388
 20160508_0000113|2016-05-08 22:37:20.100000|45.68|26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
 --- ERRROR --- THIS IS MALFORMED 20160508_abc0113|2016-05-08 22:37:20.100000| --- ERROR --- |26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
 """
-        events_df = self.get_events_df(urlread_sideeffect, db.session, "http://eventws",
-                                       db_bufsize=self.db_buf_size)
+        events_df = self.get_events_df(urlread_sideeffect, db.session)
 
         # urlread for datacenters: will be called only if we have eida (the case here)
         urlread_sideeffect = """http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query

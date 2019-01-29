@@ -237,10 +237,10 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
         self.mock_urlopen.side_effect = cycle(retvals)
 
-    def get_events_df(self, url_read_side_effect, *a, **v):
+    def get_events_df(self, url_read_side_effect, session):
         self.setup_urlopen(self._evt_urlread_sideeffect if url_read_side_effect is None else
                            url_read_side_effect)
-        return get_events_df(*a, **v)
+        return get_events_df(session, "http://eventws", {}, datetime.utcnow(), datetime.utcnow())
 
     def get_datacenters_df(self, url_read_side_effect, *a, **v):
         self.setup_urlopen(self._dc_urlread_sideeffect if url_read_side_effect is None else
@@ -263,8 +263,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 20160508_0000129|2016-05-08 05:17:11.500000|1|1|60.0|AZER|EMSC-RTS|AZER|505483|ml|3|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|2016-05-08 01:45:30.300000|2|2|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|4|EMSC|CROATIA
 """
-        events_df = self.get_events_df(urlread_sideeffect, db.session, "http://eventws",
-                                       db_bufsize=self.db_buf_size)
+        events_df = self.get_events_df(urlread_sideeffect, db.session)
 
         net, sta, loc, cha = [], [], [], []
         datacenters_df, eidavalidator = \

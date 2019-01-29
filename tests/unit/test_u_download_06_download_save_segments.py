@@ -237,10 +237,11 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
         self.mock_urlopen.side_effect = cycle(retvals)
 
-    def get_events_df(self, url_read_side_effect, *a, **v):
+    def get_events_df(self, url_read_side_effect, session):
         self.setup_urlopen(self._evt_urlread_sideeffect if url_read_side_effect is None else
                            url_read_side_effect)
-        return get_events_df(*a, **v)
+        return get_events_df(session, "http://eventws", {}, datetime.utcnow(), datetime.utcnow())
+
     def get_datacenters_df(self, url_read_side_effect, *a, **v):
         self.setup_urlopen(self._dc_urlread_sideeffect if url_read_side_effect is None else
                            url_read_side_effect)
@@ -274,8 +275,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
 
         urlread_sideeffect = None  # use defaults from class
-        events_df = self.get_events_df(urlread_sideeffect, db.session, "http://eventws",
-                                       db_bufsize=self.db_buf_size)
+        events_df = self.get_events_df(urlread_sideeffect, db.session)
         net, sta, loc, cha = [], [], [], []
         datacenters_df, eidavalidator = \
             self.get_datacenters_df(urlread_sideeffect, db.session, self.service,
@@ -593,8 +593,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 20160508_0000129|%s|1|1|60.0|AZER|EMSC-RTS|AZER|505483|ml|3|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
 20160508_0000004|%s|90|90|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|4|EMSC|CROATIA
 """ % (utcnow_iso, utcnow_iso)
-        events_df = self.get_events_df(urlread_sideeffect, db.session, "http://eventws",
-                                       db_bufsize=self.db_buf_size)
+        events_df = self.get_events_df(urlread_sideeffect, db.session)
         # restore urlread_side_effect:
         urlread_sideeffect = None
         net, sta, loc, cha = [], [], [], []
@@ -603,11 +602,10 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                     self.routing_service, net, sta, loc, cha,
                                     db_bufsize=self.db_buf_size)
         channels_df = self.get_channels_df(urlread_sideeffect, db.session,
-                                                       datacenters_df,
-                                                       eidavalidator,
-                                                       net, sta, loc, cha, None, None, 10,
-                                                       False, None, None, -1, self.db_buf_size
-                                               )
+                                           datacenters_df,
+                                           eidavalidator,
+                                           net, sta, loc, cha, None, None, 10,
+                                           False, None, None, -1, self.db_buf_size)
         # just to be sure. If failing, we might have changed the class default:
         assert len(channels_df) == 12
     # events_df
