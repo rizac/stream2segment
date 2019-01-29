@@ -272,16 +272,19 @@ Db table 'stations': 4 rows updated (no sql error)""" in s
 
 def test_models_fdsn_url_1():
     for url in ["https://mock/fdsnws/station/1/query",
-                "https://mock/fdsnws/station/1/query?",
-                "https://mock/fdsnws/station/1/", "https://mock/fdsnws/station/1",
-                "https://mock/fdsnws/station/1/query?h=8&b=76",
-                "https://mock/fdsnws/station/1/auth?h=8&b=76"]:
+                "http://mock/fdsnws/station/1/query?",
+                "https://mock/fdsnws/station/1/",
+                "https://mock/fdsnws/station/1",
+                "http://mock/fdsnws/station/1/query?h=8&b=76",
+                "https://mock/fdsnws/station/1/auth?h=8&b=76",
+                "mock/station/fdsnws/station/1/"]:  # this is not fdsn but we relax conditions
         fdsn = Fdsnws(url)
-        assert fdsn.site == 'https://mock'
+        expected_scheme = 'https' if url.startswith('https://') else 'http'
+        assert fdsn.site == '%s://mock' % expected_scheme
         assert fdsn.service == Fdsnws.STATION
         assert str(fdsn.majorversion) == str(1)
         normalizedurl = fdsn.url()
-        assert normalizedurl == 'https://mock/fdsnws/station/1/query'
+        assert normalizedurl == '%s://mock/fdsnws/station/1/query' % expected_scheme
         for service in [Fdsnws.STATION, Fdsnws.DATASEL, Fdsnws.EVENT, 'abc']:
             assert fdsn.url(service) == normalizedurl.replace('station', service)
 
@@ -294,6 +297,8 @@ def test_models_fdsn_url_1():
 
     for url in ["fdsnws/station/1/query",
                 "/fdsnws/station/1/query",
+                "http:mysite.org/fdsnws/dataselect/1",  # Note: this has invalid scheme
+                "http:mysite.org/and/another/path/fdsnws/dataselect/1",
                 "http://www.google.com",
                 "https://mock/fdsnws/station/abc/1/whatever/abcde?h=8&b=76",
                 "https://mock/fdsnws/station/", "https://mock/fdsnws/station",

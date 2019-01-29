@@ -450,14 +450,14 @@ class Fdsnws(object):
         if not obj.scheme:
             obj = urlparse('http://' + url)
         if not obj.netloc:
-            raise ValueError('no domain specified, e.g. http://<domain>')
+            raise ValueError('no domain specified or invalid scheme, check typos')
 
         self.site = "%s://%s" % (obj.scheme, obj.netloc)
 
         pth = obj.path
         #  urlparse has already removed query char '?' and params and fragment
         # from the path. Now check the latter:
-        reg = re.match("^/(?:fdsnws)/(?P<service>[^/]+)/(?P<majorversion>[^/]+)(?P<method>.*)$",
+        reg = re.match("^(?:/.+)*/fdsnws/(?P<service>[^/]+)/(?P<majorversion>[^/]+)(?P<method>.*)$",
                        pth)
         try:
             self.service, self.majorversion, method = \

@@ -59,7 +59,8 @@ class Test(object):
         sess.add(dcen)
         sess.commit()
 
-        dcen = DataCenter(station_url="x/station/abc", dataselect_url="x/station/abc")  # this is safe (both provided):
+        # this is safe (both provided):
+        dcen = DataCenter(station_url="x/station/abc", dataselect_url="x/station/abc")
         sess.add(dcen)
         sess.commit()
 
