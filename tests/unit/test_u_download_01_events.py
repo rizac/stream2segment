@@ -543,6 +543,7 @@ class Test(object):
                                end=datetime(2011, 1, 1),
                                db_bufsize=self.db_buf_size)
         assert not mock_isf_to_text.called
+        assert db.session.query(Event.id).count() == 2
 
         with pytest.raises(FailedDownload) as fld:
             # now it should raise because of a 413:
@@ -562,7 +563,13 @@ class Test(object):
                                end=datetime(2011, 1, 1),
                                db_bufsize=self.db_buf_size)
         assert mock_isf_to_text.called
-
+        assert db.session.query(Event.id).count() == 5
+        # looking at the file, these three events should be written
+        assert db.session.query(Event.id).\
+            filter(Event.event_id.in_([16868827, 600516599, 600516598])).count() == 3
+        # and this not:
+        assert db.session.query(Event.id).\
+            filter(Event.event_id.in_([15916121])).count() == 0
 
     def test_isf2text(self, data):
         '''test isc format=isf with iris equivalent'''
