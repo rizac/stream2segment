@@ -13,6 +13,7 @@ as it is usually input in the template file, e.g.:
 
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
+from stream2segment.download.utils import EVENTWS_MAPPING
 
 
 _SEGMENT_ATTRS = '''
@@ -630,7 +631,7 @@ If you want to use the GUI as hand labelling tool (for e.g. supervised classific
 
 PROCESS_YAML_ADVANCEDSETTINGS = '''
 If you want to setup advanced settings, uncomment
-# (i.e., remove the leading '#' from each line) and edit the text block below
+# (i.e., remove the first '#' from each line) and edit the text block below
 #advanced_settings:
 #  # Although each segment is processed one at a time, loading segments in chunks from the
 #  # database is faster: the number below defines the chunk size.
@@ -645,6 +646,9 @@ If you want to setup advanced settings, uncomment
 #  # This option is ignored if multi_process is not given or false
 #  num_processes: 4
 '''
+
+DOWNLOAD_EVENTWS_LIST = '\n'.join('%s"%s": %s' % ('# ' if i > 0 else '', str(k), str(v))
+                                  for i, (k, v) in enumerate(EVENTWS_MAPPING.items()))
 
 # setting up DOCVARS:
 DOCVARS = {k: v.strip() for k, v in globals().items()

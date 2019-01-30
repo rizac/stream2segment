@@ -27,12 +27,7 @@ dburl: 'sqlite:////path/to/my/db.sqlite'
 # The events list returned by the url or in the supplied file must be formatted as specified
 # in https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=16
 # You can also type one of the following shortcut strings:
-# 'emsc':  http://www.seismicportal.eu/fdsnws/event/1/query
-# 'iris':  http://service.iris.edu/fdsnws/event/1/query
-# 'isc':   http://www.isc.ac.uk/fdsnws/event/1/query
-# 'ncedc': http://service.ncedc.org/fdsnws/event/1/query
-# 'scedc': http://service.scedc.caltech.edu/fdsnws/event/1/query
-# 'usgs':  http://earthquake.usgs.gov/fdsnws/event/1/query
+# {{ DOWNLOAD_EVENTWS_LIST }}
 eventws: 'http://seismicportal.eu/fdsnws/event/1/query'
 
 
@@ -85,11 +80,9 @@ minmagnitude: 4.0  # missing or null: ignore
 maxmagnitude: null  # missing or null: ignore
 
 # Additional event web search parameters. For info, see
-# https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=14)
-# Parameters with support 'Optional' are not guaranteed to work. Note that the 'format' parameter
-# cannot be 'xml' (for performance reasons) and needs to be specified only if the event list
-# is provided via a local file in 'isf' format: in general,
-# it default to 'text' ('isf' only if 'eventws'="ISC")
+# https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=14
+# (parameters with support 'Optional' are not guaranteed to work). Note that the 'format' parameter
+# will be inferred (in most cases it defaults to 'text') and needs not be specified.
 # Implementation details: The parameter is empty by default, uncomment the lines below
 # or insert new ones. Remember that this is a YAML file, pay attention to indentation. 
 eventws_params:

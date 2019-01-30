@@ -93,15 +93,15 @@ def dataframe_iter(url, evt_query_args, start, end,
     '''
 
     if islocalfile(url):
-        evens_titer = events_iter_from_file(url, evt_query_args.get('format', 'text'))
+        events_iter = events_iter_from_file(url, evt_query_args.get('format', 'text'))
         url = tofileuri(url)
     else:
-        evens_titer = events_iter_from_url(EVENTWS_MAPPING.get(url, url),
+        events_iter = events_iter_from_url(EVENTWS_MAPPING.get(url, url),
                                            evt_query_args,
                                            start, end,
                                            timeout, show_progress)
 
-    for url_, data in evens_titer:
+    for url_, data in events_iter:
         try:
             yield response2normalizeddf(url_, data, "event")
         except ValueError as exc:
@@ -341,97 +341,3 @@ def isf2text_iter(isf_filep, catalog='', contributor=''):
                 expects += 1
         except IndexError:
             buf = []
-
-
-def isf2text_iter_old(isf_filep, catalog='', contributor=''):
-    '''Yields lists of strings representing an event. The yielded list L
-    can be passed to a DataFrame: pd.DataFrame[L]) and then converted with
-    response2normalizeddf('file:///' + filepath, data, "event")
-    '''
-
-    # To have an idea of the text format parsed  See e.g.:
-    # http://www.isc.ac.uk/fdsnws/event/1/query?starttime=2011-01-08T00:00:00&endtime=2011-01-08T01:00:00&format=isf
-
-    buf = []
-    event_line = 0
-    reg2 = re.compile(' +')
-    event_col_groups = eventmag_col_groups = None
-    while True:
-        line = isf_filep.readline()
-        if not line or line in ('STOP', 'STOP\n'):  # last line
-            if buf:  # remaining unparsed event
-                yield buf
-            break
-        try:
-            if line.startswith('Event '):
-                if buf:  # remaining unparsed event
-                    yield buf
-                buf = [''] * 13
-                event_line = 0
-                elements = reg2.split(line)
-                buf[0] = elements[1] if len(elements) > 1 else ''  # event_id
-                buf[6] = catalog  # catalog
-                buf[7] = contributor  # contributor
-                buf[8] = buf[0]  # contributor id
-                buf[12] = ' '.join(elements[2:]).strip()  # event location name
-            elif event_line == 1 and buf and not event_col_groups:
-                event_col_groups = _findgroups(line)
-            elif event_line == 2 and buf and event_col_groups:
-                elements = _findgroups(line, event_col_groups)
-                # elements = reg2.split(line)
-                dat, tme = elements[0], elements[1]
-                if '/' in dat:
-                    dat = dat.replace('/', '-')
-                dtime = ''
-                try:
-                    dtime = strptime(dat + 'T' + tme).strftime('%Y-%m-%dT%H:%M:%S')
-                except (TypeError, ValueError):
-                    pass
-                buf[1] = dtime  # time
-                buf[2] = elements[4]  # latitude
-                buf[3] = elements[5]  # longitude
-                depth = elements[9]
-                if depth and depth[-1] == 'f':
-                    depth = depth[:-1]
-                buf[4] = depth
-                buf[5] = elements[17]  # author
-            elif event_line == 4 and buf and not eventmag_col_groups:
-                eventmag_col_groups = _findgroups(line)
-            elif event_line == 5 and buf and eventmag_col_groups:
-                elements = _findgroups(line, eventmag_col_groups)
-                # we might have '[magtype]   [mag]' or simply '[mag]'
-                # to be sure, try cast to float:
-                mag, magtype = elements[0], ''
-                try:
-                    float(elements[0])
-                except ValueError:
-                    magtype, mag = re.split('\\s+', elements[0].strip())
-                buf[9] = magtype  # magnitude type
-                buf[10] = mag  # magnitude
-                buf[11] = elements[3]  # mag author
-                yield buf
-                buf = []
-            event_line += 1
-        except IndexError:
-            buf = []
-        except ValueError as exc:
-            asd = 9
-
-
-def _findgroups_old(line, groups=None):
-    ret = []
-    if groups is None:
-        ret = [[_.start(), _.end()] for _ in re.finditer(r'\b\w+\b', line)]
-        return ret
-
-    spaces = set([' ', '\t', '\n', '\r', '\f', '\v'])  # spaces chars in python re '\s'
-    lastpos = len(line) - 1
-    for grp in groups:
-        stindex = grp[0]
-        while stindex > 0 and line[stindex-1] not in spaces:
-            stindex -= 1
-        eindex = grp[1]
-        while eindex < lastpos and line[eindex] not in spaces:
-            eindex += 1
-        ret.append(line[stindex:eindex].strip())
-    return ret

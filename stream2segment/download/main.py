@@ -75,20 +75,20 @@ def run(session, download_id, eventws, starttime, endtime, dataws, eventws_param
     try:
         if inventory != 'only':
 
-            stepinfo("Requesting events")
+            stepinfo("Fetching events (might take a while)")
             events_df = get_events_df(session, eventws, eventws_params, starttime, endtime,
                                       dbbufsize, advanced_settings['e_timeout'], isterminal)
 
             # Get datacenters, store them in the db, returns the dc instances (db rows) correctly
             # added
-            stepinfo("Requesting data-centers")
+            stepinfo("Fetching data-centers")
             # get dacatanters (might raise FailedDownload):
             datacenters_df, eidavalidator = \
                 get_datacenters_df(session, dataws, advanced_settings['routing_service_url'],
                                    network, station, location, channel, starttime, endtime,
                                    dbbufsize)
 
-            stepinfo("Requesting stations and channels from %d %s", len(datacenters_df),
+            stepinfo("Fetching stations and channels from %d %s", len(datacenters_df),
                      "data-center" if len(datacenters_df) == 1 else "data-centers")
             # get dacatanters (might raise FailedDownload):
             channels_df = get_channels_df(session, datacenters_df, eidavalidator,
