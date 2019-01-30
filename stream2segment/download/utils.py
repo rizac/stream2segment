@@ -368,7 +368,7 @@ def rename_columns(query_df, query_type):
     if len(oldcolumns) != len(columns):
         raise ValueError(("Mismatching number of columns in '%s' query."
                           "\nExpected:\n%s\nFound:\n%s") %
-                         (query_type.lower(), str(oldcolumns), str(columns)))
+                         (query_type.lower(), str(columns), str(oldcolumns)))
 
     return query_df.rename(columns={cold: cnew for cold, cnew in zip(oldcolumns, columns)})
 

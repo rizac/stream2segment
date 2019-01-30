@@ -352,13 +352,19 @@ def valid_date(obj):
             raise _
 
 
-def valid_fdsn(url, is_eventws):
+def valid_fdsn(url, is_eventws, configfile=None):
     '''Returns url if it matches a FDSN service (valid strings are 'eida' and 'iris'),
     raises ValueError or TypeError otherwise'''
     if not isinstance(url, string_types):
         raise TypeError('string required')
     if (is_eventws and url.lower() in EVENTWS_MAPPING) or \
             (not is_eventws and url.lower() in ('eida', 'iris')):
+        return url
+    if is_eventws:
+        if not os.path.isfile(url) and configfile is not None:
+            url = normalizedpath(url, os.path.dirname(configfile))
+        if not os.path.isfile(url):
+            raise ValueError('Invalid url or file path, check typos')
         return url
     return Fdsnws(url).url()
 
@@ -507,7 +513,7 @@ def load_config_for_download(config, parseargs, **param_overrides):
             },
             {
              'names': ['eventws'],
-             'newvalue': lambda url: valid_fdsn(url, is_eventws=True)
+             'newvalue': lambda url: valid_fdsn(url, is_eventws=True, configfile=configfile)
             },
             {
              'names': ['dataws'],

@@ -10,6 +10,7 @@ Download module forevents download
 from builtins import map, next, zip, range, object
 
 import os
+import sys
 import re
 from io import open  # py2-3 compatible
 
@@ -70,6 +71,8 @@ def configure_ws_fk(eventws_url, session, db_bufsize):
     if eventws_url in EVENTWS_MAPPING:
         ws_name = eventws_url
         eventws_url = EVENTWS_MAPPING[eventws_url]
+    elif islocalfile(eventws_url):
+        eventws_url = tofileuri(eventws_url)
     eventws_id = session.query(WebService.id).filter(WebService.url == eventws_url).scalar()
     if eventws_id is None:  # write url to table
         data = [("event", ws_name, eventws_url)]
@@ -90,7 +93,7 @@ def dataframe_iter(url, evt_query_args, start, end,
     '''
 
     if islocalfile(url):
-        evens_titer = events_iter_from_file(url)
+        evens_titer = events_iter_from_file(url, evt_query_args.get('format', 'text'))
         url = tofileuri(url)
     else:
         evens_titer = events_iter_from_url(EVENTWS_MAPPING.get(url, url),
@@ -105,12 +108,15 @@ def dataframe_iter(url, evt_query_args, start, end,
             logger.warning(formatmsg("Discarding response", exc, url_))
 
 
-def events_iter_from_file(file_path):
+def events_iter_from_file(file_path, format_='txt'):
     """Yields the tuple (filepath, events_data) from a file, which must exist on
     the local computer"""
     try:
         with open(file_path, encoding='utf-8') as opn:
-            yield tofileuri(file_path), opn.read()
+            data = opn.read()
+            if data and format_ == 'isf':
+                data = isfresponse2txt(data, catalog='', contributor='')
+            yield tofileuri(file_path), data
     except Exception as exc:
         raise FailedDownload(formatmsg("Unable to open events file", exc,
                                        file_path))
@@ -257,11 +263,87 @@ def isfresponse2txt(nonempty_text, catalog='ISC', contributor='ISC'):
     sio.seek(0)
     try:
         return '\n'.join('|'.join(_) for _ in isf2text_iter(sio, catalog, contributor))
-    except Exception:  # pylint: disable=broad-except
-        return ''
+    except Exception as exc:  # pylint: disable=broad-except
+        raise ValueError('Error reading .isf data: %s' % str(exc))
 
 
 def isf2text_iter(isf_filep, catalog='', contributor=''):
+    '''Yields lists of strings representing an event. The yielded list L
+    can be passed to a DataFrame: pd.DataFrame[L]) and then converted with
+    response2normalizeddf('file:///' + filepath, data, "event")
+    For info see:
+    http://www.isc.ac.uk/standards/isf/#ET
+
+    :param isf_filep: a file-like object which returns string (unicode) data
+    '''
+
+    # To have an idea of the text format parsed  See e.g.:
+    # http://www.isc.ac.uk/fdsnws/event/1/query?starttime=2011-01-08T00:00:00&endtime=2011-01-08T01:00:00&format=isf
+
+    buf = []
+    origin_subblock_header = ("Date       Time        Err   RMS Latitude Longitude  "
+                              "Smaj  Smin  Az Depth   Err Ndef Nsta Gap  mdist  Mdist "
+                              "Qual   Author      OrigID")
+    mag_subblock_header = "Magnitude  Err Nsta Author      OrigID"
+
+    expects = 0
+    eof = False
+    while True:
+        line = isf_filep.readline()
+        eof = not line or line in ('STOP', 'STOP\n')
+        if not eof and not line.strip():
+            continue
+        try:
+            if eof or line.startswith('Event '):
+                if buf:  # remaining unparsed event
+                    yield buf
+                if eof:
+                    break
+                buf = [''] * 13
+                buf[0] = line[6:16].strip()  # event id
+                buf[12] = line[16:].strip()  # event location name
+                buf[6] = catalog  # catalog
+                buf[7] = contributor  # contributor
+                buf[8] = buf[0]  # contributor id
+                expects = 1
+            elif expects == 1 and buf:
+                # use line.strip to ignore trailing newlines:
+                if line.strip() == origin_subblock_header:
+                    expects += 1
+                else:
+                    buf = []
+            elif expects == 2 and buf:
+                # elements = reg2.split(line)
+                dat, tme = line[:10].strip(), line[11:22].strip()
+                if '/' in dat:
+                    dat = dat.replace('/', '-')
+                dtime = ''
+                try:
+                    dtime = strptime(dat + 'T' + tme).strftime('%Y-%m-%dT%H:%M:%S')
+                except (TypeError, ValueError):
+                    pass
+                buf[1] = dtime  # time
+                buf[2] = line[36:44].strip()  # latitude
+                buf[3] = line[45: 54].strip()  # longitude
+                buf[4] = line[71:76].strip()  # depth
+                buf[5] = line[118:127].strip()  # author
+                expects += 1
+            elif expects == 3 and buf:
+                # use line.strip to ignore trailing newlines:
+                if line.strip() == mag_subblock_header:
+                    expects += 1
+                else:
+                    buf = []
+            elif expects == 4 and buf:
+                buf[9] = line[:5].strip()  # magnitude type
+                buf[10] = line[6:10].strip()  # magnitude
+                buf[11] = line[20:29].strip()  # mag author
+                expects += 1
+        except IndexError:
+            buf = []
+
+
+def isf2text_iter_old(isf_filep, catalog='', contributor=''):
     '''Yields lists of strings representing an event. The yielded list L
     can be passed to a DataFrame: pd.DataFrame[L]) and then converted with
     response2normalizeddf('file:///' + filepath, data, "event")
@@ -332,9 +414,11 @@ def isf2text_iter(isf_filep, catalog='', contributor=''):
             event_line += 1
         except IndexError:
             buf = []
+        except ValueError as exc:
+            asd = 9
 
 
-def _findgroups(line, groups=None):
+def _findgroups_old(line, groups=None):
     ret = []
     if groups is None:
         ret = [[_.start(), _.end()] for _ in re.finditer(r'\b\w+\b', line)]
