@@ -465,10 +465,13 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         assert clirunner.ok(result)
         assert 'Downloading 12 segments (open data only)' in result.output
         assert 'STEP 5 of 8: Acquiring credentials from token' in result.output
-        subs = result.output[1980:2210]
-        assert ('Downloading open data only from: http://geofon.gfz-potsdam.de, '
+        # note that due to (probably) dict order in py2-3 we need to test both of these:
+        if not ('Downloading open data only from: http://geofon.gfz-potsdam.de, '
                 'http://ws.resif.fr (Unable to acquire credentials for restricted data)') in \
-            subs
+                result.output:
+            assert ('Downloading open data only from: http://ws.resif.fr, '
+                    'http://geofon.gfz-potsdam.de (Unable to acquire credentials for restricted data)') in \
+                    result.output
         # assert we print that we are downloading open data only (all errors):
         assert 'STEP 7 of 8: Downloading 12 segments (open data only)' in result.output
         assert not mock_get_data_open.called
