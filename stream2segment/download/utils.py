@@ -730,6 +730,16 @@ class DownloadStats(OrderedDict):
         return ret
 
 
+EVENTWS_MAPPING = {
+    'emsc':  'http://www.seismicportal.eu/fdsnws/event/1/query',
+    'isc':   'http://www.isc.ac.uk/fdsnws/event/1/query',
+    'iris':  'http://service.iris.edu/fdsnws/event/1/query',
+    'ncedc': 'http://service.ncedc.org/fdsnws/event/1/query',
+    'scedc': 'http://service.scedc.caltech.edu/fdsnws/event/1/query',
+    'usgs':  'http://earthquake.usgs.gov/fdsnws/event/1/query',
+    }
+
+
 class Authorizer(object):
     '''Class handling authorization/authentication'''
 

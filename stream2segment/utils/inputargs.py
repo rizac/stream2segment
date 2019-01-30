@@ -18,7 +18,7 @@ from stream2segment.utils.resources import yaml_load, get_ttable_fpath, \
 from stream2segment.utils import get_session, strptime, load_source
 from stream2segment.traveltimes.ttloader import TTTable
 from stream2segment.io.db.models import Fdsnws
-from stream2segment.download.utils import Authorizer
+from stream2segment.download.utils import Authorizer, EVENTWS_MAPPING
 
 
 class BadArgument(Exception):
@@ -352,12 +352,13 @@ def valid_date(obj):
             raise _
 
 
-def valid_fdsn(url):
+def valid_fdsn(url, is_eventws):
     '''Returns url if it matches a FDSN service (valid strings are 'eida' and 'iris'),
     raises ValueError or TypeError otherwise'''
     if not isinstance(url, string_types):
         raise TypeError('string required')
-    if url.lower() in ('eida', 'iris'):
+    if (is_eventws and url.lower() in EVENTWS_MAPPING) or \
+            (not is_eventws and url.lower() in ('eida', 'iris')):
         return url
     return Fdsnws(url).url()
 
@@ -506,11 +507,11 @@ def load_config_for_download(config, parseargs, **param_overrides):
             },
             {
              'names': ['eventws'],
-             'newvalue': valid_fdsn
+             'newvalue': lambda url: valid_fdsn(url, is_eventws=True)
             },
             {
              'names': ['dataws'],
-             'newvalue': valid_fdsn
+             'newvalue': lambda url: valid_fdsn(url, is_eventws=False)
             },
             {
              'names': ('network', 'net', 'networks'),

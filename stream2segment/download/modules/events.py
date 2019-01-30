@@ -18,7 +18,7 @@ import pandas as pd
 
 from stream2segment.utils import StringIO
 from stream2segment.download.utils import dbsyncdf, FailedDownload, response2normalizeddf, \
-    formatmsg
+    formatmsg, EVENTWS_MAPPING
 from stream2segment.io.db.models import WebService, Event
 from stream2segment.utils.url import urlread, socket, HTTPError
 from stream2segment.utils import urljoin, strptime, get_progressbar
@@ -28,16 +28,6 @@ from stream2segment.utils import urljoin, strptime, get_progressbar
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial) when calling logging
 # functions of stream2segment.download.utils:
 from stream2segment.download import logger  # @IgnorePep8
-
-
-_MAPPINGS = {
-    'emsc':  'http://www.seismicportal.eu/fdsnws/event/1/query',
-    'isc':   'http://www.isc.ac.uk/fdsnws/event/1/query',
-    'iris':  'http://service.iris.edu/fdsnws/event/1/query',
-    'ncedc': 'http://service.ncedc.org/fdsnws/event/1/query',
-    'scedc': 'http://service.scedc.caltech.edu/fdsnws/event/1/query',
-    'usgs':  'http://earthquake.usgs.gov/fdsnws/event/1/query',
-    }
 
 
 def get_events_df(session, url, evt_query_args, start, end,
@@ -77,9 +67,9 @@ def configure_ws_fk(eventws_url, session, db_bufsize):
     '''configure the web service foreign key creating such a db row if it does not
     exist and returning its id'''
     ws_name = ''
-    if eventws_url in _MAPPINGS:
+    if eventws_url in EVENTWS_MAPPING:
         ws_name = eventws_url
-        eventws_url = _MAPPINGS[eventws_url]
+        eventws_url = EVENTWS_MAPPING[eventws_url]
     eventws_id = session.query(WebService.id).filter(WebService.url == eventws_url).scalar()
     if eventws_id is None:  # write url to table
         data = [("event", ws_name, eventws_url)]
@@ -103,7 +93,7 @@ def dataframe_iter(url, evt_query_args, start, end,
         evens_titer = events_iter_from_file(url)
         url = tofileuri(url)
     else:
-        evens_titer = events_iter_from_url(_MAPPINGS.get(url, url),
+        evens_titer = events_iter_from_url(EVENTWS_MAPPING.get(url, url),
                                            evt_query_args,
                                            start, end,
                                            timeout, show_progress)
@@ -134,7 +124,7 @@ def tofileuri(file_path):
 
 def islocalfile(url):
     '''Returns whether url denotes a local file path, existing on the computer machine'''
-    return url not in _MAPPINGS and os.path.isfile(url)
+    return url not in EVENTWS_MAPPING and os.path.isfile(url)
 
 
 def events_iter_from_url(base_url, evt_query_args, start, end, timeout, show_progress=False):
@@ -143,7 +133,7 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout, show_pro
     url and the corresponding response body. The returned iterator has length > 1
     if the request was too large and had to be splitted
     """
-    evt_query_args.setdefault('format', 'isf' if base_url == _MAPPINGS['isc'] else 'text')
+    evt_query_args.setdefault('format', 'isf' if base_url == EVENTWS_MAPPING['isc'] else 'text')
     is_isf = evt_query_args['format'] == 'isf'
 
     start_iso = start.isoformat()
