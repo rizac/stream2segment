@@ -566,10 +566,14 @@ class Test(object):
         assert db.session.query(Event.id).count() == 5
         # looking at the file, these three events should be written
         assert db.session.query(Event.id).\
-            filter(Event.event_id.in_([16868827, 600516599, 600516598])).count() == 3
+            filter(Event.event_id.in_(['16868827', '600516599', '600516598'])).count() == 3
+        assert db.session.query(Event.contributor_id).\
+            filter(Event.event_id.in_(['16868827', '600516599', '600516598'])).count() == 3
         # and this not:
         assert db.session.query(Event.id).\
-            filter(Event.event_id.in_([15916121])).count() == 0
+            filter(Event.event_id.in_(['15916121'])).count() == 0
+        assert db.session.query(Event.contributor_id).\
+            filter(Event.event_id.in_(['15916121'])).count() == 0
 
     def test_isf2text(self, data):
         '''test isc format=isf with iris equivalent'''
