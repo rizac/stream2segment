@@ -379,8 +379,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                         '--start', '2016-05-08T00:00:00',
                                         '--end', '2016-05-08T9:00:00'])
         assert not clirunner.ok(result)
-        assert ('Invalid token. If you passed a file path, '
-                'check also that the file exists') in result.output
+        assert ('Invalid token. If you passed a file path') in result.output
 
         # TEST 2: TOKEN FILE EXISTS, INVALID (e.g. empty)
         filepath = pytestdir.newfile(create=True)
@@ -395,8 +394,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                         '--start', '2016-05-08T00:00:00',
                                         '--end', '2016-05-08T9:00:00'])
         assert not clirunner.ok(result)
-        assert ('Invalid token. If you passed a file path, '
-                'check also that the file exists') in result.output
+        assert ('Invalid token. If you passed a file path') in result.output
 
     # only last 4 patches are actually needed, the other are there
     # simply because this module was copied-pasted from other tests. too lazy to check/remove
