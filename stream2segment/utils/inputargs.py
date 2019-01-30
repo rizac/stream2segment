@@ -291,7 +291,7 @@ def create_auth(restricted_data, dataws, configfile=None):
     if restricted_data in ('', None, b''):
         restricted_data = None
     elif isinstance(restricted_data, string_types) and configfile is not None:
-        restricted_data = normalizedpath(restricted_data, configfile)
+        restricted_data = normalizedpath(restricted_data, os.path.dirname(configfile))
     ret = Authorizer(restricted_data)
     # here we have 4 cases: two ok ('eida' + token, any other fdsn + username & password)
     # Bad cases: eida + username & password: raise
