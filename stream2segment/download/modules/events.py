@@ -161,53 +161,66 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout, show_pro
         if 'maxmagnitude' not in evt_query_args:
             evt_query_args['maxmagnitude'] = maxmag
 
-    total_pbar_steps = _get_evtfreq_freq_mag_dist(evt_query_args)[2].sum()
-    downloads = [(evt_query_args, total_pbar_steps)]
+    try:
+        url = urljoin(base_url, **evt_query_args)
+        result = _urlread(url, timeout, is_isf)
+        if result is not None:
+            yield url, result  # then result is the tuple (url, raw_data)
+        else:
+            logger.info("Request seems to be too large, splitting into "
+                        "(magnitude-related) sub-requests")
 
-    with get_progressbar(show_progress, length=total_pbar_steps) as pbar:
-        while downloads:
-            evt_q_arg, steps = downloads.pop(0)
-            url = urljoin(base_url, **evt_q_arg)
-            try:
-                raw_data, code, msg = urlread(url, decode='utf8', timeout=timeout,
-                                              raise_http_err=True, wrap_exceptions=False)
+            total_pbar_steps = _get_freq_mag_distrib(evt_query_args)[2].sum()
+            with get_progressbar(show_progress, length=total_pbar_steps) as pbar:
+                downloads = [evt_query_args]
 
-                pbar.update(steps)
-                if raw_data:
-                    yield url, isfresponse2txt(raw_data) if is_isf else raw_data
-                else:
-                    logger.warning(formatmsg("Discarding request", msg, url))
-
-            except Exception as exc:  # pylint: disable=broad-except
-                # raise only if we do NOT have timeout or http err in (413, 504)
-                if isinstance(exc, socket.timeout) or \
-                        (isinstance(exc, HTTPError)
-                         and exc.code in (413, 504)):  # pylint: disable=no-member
-                    try:
-                        downloads = _split_url(evt_q_arg) + downloads
-                    except ValueError as verr:
-                        raise FailedDownload(formatmsg("Unable to fetch events", verr,
-                                                       url))
-                else:
-                    raise FailedDownload(formatmsg("Unable to fetch events", exc,
-                                                   url))
+                while downloads:
+                    evt_q_args = _split_request(downloads.pop(0))
+                    for i, evt_q_arg in enumerate(evt_q_args):
+                        url = urljoin(base_url, **evt_q_arg)
+                        result = _urlread(url, timeout, is_isf)
+                        if result is not None:
+                            steps = _get_freq_mag_distrib(evt_q_arg)[2].sum()
+                            pbar.update(steps)
+                            yield url, result  # then result is the tuple (url, raw_data)
+                        else:
+                            downloads.insert(i, evt_q_arg)
+    except Exception as exc:
+        raise FailedDownload(formatmsg("Unable to fetch events", exc, url))
 
 
-def _split_url(evt_query_args):
+def _urlread(url, timeout=None, is_isf=False):
+    '''Wrapper around urlread but returns None if the url should be splitted
+    becasue of a too long request'''
+    try:
+        raw_data, code, msg = urlread(url, decode='utf8', timeout=timeout,
+                                      raise_http_err=True, wrap_exceptions=False)
+
+        if raw_data is None:  # for safety (None has a special meaning)
+            raw_data = ''
+
+        return isfresponse2txt(raw_data) if raw_data and is_isf else raw_data
+
+    except Exception as exc:  # pylint: disable=broad-except
+        # raise only if we do NOT have timeout or http err in (413, 504)
+        if isinstance(exc, socket.timeout) or \
+                (isinstance(exc, HTTPError)
+                 and exc.code in (413, 504)):  # pylint: disable=no-member
+            return None
+        raise
+
+
+def _split_request(evt_query_args):
     '''Splits the event query issued with the given `event_query_args` (dict)
-    and returns a two-element list where each element is the tuple:
-    (event_query_args, progressbar_incrementer)
-    where the first item is a dict of an event query parameter, and the second
-    is an integer representing how much a progress bar should be incremented
-    if the query is successful (the number takes into account the theoretical
-    frequency of events in the given query)
+    and returns a two-element list:
+    (event_query_args1, event_query_args2)
+    of event query parameters (dicts) resulting from splitting `evt_query_args`
     '''
-    minmag, deltamag, evtfreq_freq_mag_dist = _get_evtfreq_freq_mag_dist(evt_query_args)
+    minmag, deltamag, evtfreq_freq_mag_dist = _get_freq_mag_distrib(evt_query_args)
     if len(evtfreq_freq_mag_dist) < 2:
-        raise ValueError('maximum recursion depth reached, decrease '
-                         'spatial-temporal bounds or magnitude range')
+        raise ValueError('maximum recursion depth reached')
     half = evtfreq_freq_mag_dist.sum() / 2.0
-    idx = 0
+    idx = 1
     while evtfreq_freq_mag_dist[:idx+1].sum() < half:
         idx += 1
     mag_half = minmag + idx * deltamag
@@ -217,15 +230,15 @@ def _split_url(evt_query_args):
     evt_query_args1['maxmagnitude'] = str(round(mag_half, 1))
     evt_query_args2['minmagnitude'] = str(round(mag_half, 1))
 
-    return [(evt_query_args1, evtfreq_freq_mag_dist[:idx].sum()),
-            (evt_query_args2, evtfreq_freq_mag_dist[idx:].sum())]
+    return evt_query_args1, evt_query_args2
 
 
-def _get_evtfreq_freq_mag_dist(evt_query_args):
-    '''Returns the tuple minmag, step, func, where minmag is a float
+def _get_freq_mag_distrib(evt_query_args):
+    '''Returns the tuple minmag, step, distrib, where minmag is a float
     representing `func` first point (magnitude), step is the magnitude
-    distance two adjacent points of `func`, and `func` is a a numpy array
-    representing the theoretical events count from a given magnitude `mag`:
+    distance two adjacent points of `distrib`, and `distrib` is a a numpy array
+    (dtype=int) representing the theoretical events distribution from a given
+    magnitude `mag`:
     ```
     f(mag) = 10 ** (9-mag)
     ```
@@ -259,6 +272,7 @@ def _get_evtfreq_freq_mag_dist(evt_query_args):
 
 
 def isfresponse2txt(nonempty_text, catalog='ISC', contributor='ISC'):
+    '''Converts an isf formatted string into an FDSN text formatted string'''
     sio = StringIO(nonempty_text)
     sio.seek(0)
     try:
@@ -273,6 +287,8 @@ def isf2text_iter(isf_filep, catalog='', contributor=''):
     response2normalizeddf('file:///' + filepath, data, "event")
     For info see:
     http://www.isc.ac.uk/standards/isf/#ET
+
+    Note that comments are not supported: events with comments will be discarded
 
     :param isf_filep: a file-like object which returns string (unicode) data
     '''

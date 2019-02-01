@@ -39,7 +39,7 @@ from obspy.taup.helper_classes import TauModelError
 from stream2segment.io.db.models import Base, Event, Class, Fdsnws, DataCenter, Segment, \
     Download, Station, Channel, WebService
 from stream2segment.download.modules.events import get_events_df, isf2text_iter,\
-    _get_evtfreq_freq_mag_dist
+    _get_freq_mag_distrib
 from stream2segment.download.modules.datacenters import get_datacenters_df
 from stream2segment.download.modules.channels import get_channels_df, chaid2mseedid_dict
 from stream2segment.download.modules.stationsearch import merge_events_stations
@@ -280,7 +280,7 @@ class Test(object):
         log2 = self.log_msg()
 
         # nothing written to log:
-        assert not log2
+        assert "Request seems to be too large" in log2
         # assertion on exception:
         assert "Unable to fetch events" in str(fld)
         assert "maximum recursion depth reached"  in str(fld)
@@ -309,7 +309,7 @@ class Test(object):
         # assert "request entity too large" in self.log_msg()
 
     def get_pbar_total_steps(self):
-        return _get_evtfreq_freq_mag_dist({})[2].sum()
+        return _get_freq_mag_distrib({})[2].sum()
 
     @patch('stream2segment.download.modules.events.get_progressbar')
     @patch('stream2segment.download.modules.events.urljoin', side_effect=urljoin)
@@ -345,7 +345,8 @@ class Test(object):
         assert mock_pbar.call_args[1]['length'] == self.get_pbar_total_steps()
         assert mock_pbar.return_value.updates == []
 
-        # Now let's supply a bad response response but which updates the pbar
+        # Now let's supply a bad response response, the
+        # progressabr should not be called
         urlread_sideeffect = ['']
         mock_pbar.reset_mock()
         mock_pbar.return_value.updates = []
@@ -356,8 +357,8 @@ class Test(object):
                                    end=datetime(2011, 1, 1),
                                    db_bufsize=self.db_buf_size)
         # test that we did not increment the pbar (exceptions)
-        assert mock_pbar.call_args[1]['length'] == self.get_pbar_total_steps()
-        assert mock_pbar.return_value.updates == [self.get_pbar_total_steps()]
+        assert "Discarding response (Empty input data)" in self.log_msg()
+        assert not mock_pbar.called
 
         # Now let's supply a successful response:
         urlread_sideeffect = ['''20160508_0000129|2016-05-08 05:17:11.500000|40.57|52.23|60.0|AZER|EMSC-RTS|AZER|505483|ml|3.1|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN''']
@@ -367,9 +368,9 @@ class Test(object):
                                start=datetime(2010, 1, 1),
                                end=datetime(2011, 1, 1),
                                db_bufsize=self.db_buf_size)
-        # test that we did not increment the pbar (exceptions happened)
-        assert mock_pbar.call_args[1]['length'] == self.get_pbar_total_steps()
-        assert mock_pbar.return_value.updates == [self.get_pbar_total_steps()]
+        assert not mock_pbar.called
+        assert "Discarding response (Empty input data)" not in self.log_msg()
+        assert "Request seems to be too large, splitting into" not in self.log_msg()
 
         # Now let's supply a successful response:
         urlread_sideeffect = [413,
@@ -384,13 +385,14 @@ class Test(object):
                                   start=datetime(2010, 1, 1),
                                   end=datetime(2011, 1, 1),
                                   db_bufsize=self.db_buf_size)
-        assert 'Duplicated instances' in self.log_msg()
+        logmsg = self.log_msg()
+        assert 'Duplicated instances' in logmsg
         # test that we did not increment the pbar (exceptions)
         assert mock_pbar.call_args[1]['length'] == self.get_pbar_total_steps()
         # the first 413 produces a magnitude split 1part vs 9parts,
         # the second 413 produces a split 1vs9 on the 9 parts, thus 1*9 and 9*9:
         assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[1]['length']
-        # assert mock_pbar.return_value.updates == [10, 9, 81]
+        assert "Request seems to be too large, splitting into" in logmsg
 
         # =================================================================
         # The test below check th same for different magnitude bound values

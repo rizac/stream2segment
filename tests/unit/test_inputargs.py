@@ -214,6 +214,11 @@ class Test(object):
                 assert 'conflict' in result.output
                 assert 'Invalid value for "eventws_params"' in result.output
 
+        result = self.run_cli_download('eventws', 'myfile')
+        asd = 9
+        # test eventws with file
+        # test eventws with relative path
+        
 
     def test_download_bad_values(self, db):
         '''test different scenarios where the value in the dwonload.yaml are not well formatted'''

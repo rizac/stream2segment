@@ -75,7 +75,7 @@ def run(session, download_id, eventws, starttime, endtime, dataws, eventws_param
     try:
         if inventory != 'only':
 
-            stepinfo("Fetching events (might take a while)")
+            stepinfo("Fetching events")
             events_df = get_events_df(session, eventws, eventws_params, starttime, endtime,
                                       dbbufsize, advanced_settings['e_timeout'], isterminal)
 
