@@ -18,7 +18,8 @@ from stream2segment.utils.resources import yaml_load, get_ttable_fpath, \
 from stream2segment.utils import get_session, strptime, load_source
 from stream2segment.traveltimes.ttloader import TTTable
 from stream2segment.io.db.models import Fdsnws
-from stream2segment.download.utils import Authorizer, EVENTWS_MAPPING
+from stream2segment.download.utils import Authorizer, EVENTWS_MAPPING,\
+    EVENTWS_SAFE_PARAMS
 
 
 class BadArgument(Exception):
@@ -431,10 +432,7 @@ def load_config_for_download(config, parseargs, **param_overrides):
             else None
 
         # define first default event params in order to avoid typos
-        def_evt_params = ['minlatitude', 'minlat', 'maxlatitude', 'maxlat',
-                          'minlongitude', 'minlon', 'maxlongitude', 'maxlon',
-                          'minmagnitude', 'minmag', 'maxmagnitude', 'maxmag',
-                          'mindepth', 'maxdepth']
+        def_evt_params = EVENTWS_SAFE_PARAMS
 
         # now, what we want to do here is basically convert config_dict keys
         # into suitable arguments for stream2segment functions: this includes

@@ -21,7 +21,7 @@ from stream2segment.utils.url import urlparse
 from stream2segment.utils import get_session, get_progressbar, StringIO, ascii_decorate
 from stream2segment.io.db.models import Segment, concat, Station, DataCenter, Download, substr, \
     Fdsnws
-from stream2segment.download.utils import DownloadStats
+from stream2segment.download.utils import DownloadStats, EVENTWS_SAFE_PARAMS
 
 
 def filterquery(query, download_ids=None):
@@ -33,11 +33,17 @@ def filterquery(query, download_ids=None):
 
 
 def yaml_get(yaml_content):
-    '''Returns the eventws_query_args portion of the yaml identified by the given yaml_content,
-    or an empty dict in case of errors'''
+    '''Returns the arguments used for the eventws query stored in the yaml,
+    or an empty dict in case of errors
+
+    :param yaml_content: yaml formatted string representing a download config'''
     try:
-        return yaml_load(StringIO(yaml_content))['eventws_query_args']
-    except Exception as exc:
+        dic = yaml_load(StringIO(yaml_content))
+        ret = {k: dic[k] for k in EVENTWS_SAFE_PARAMS if k in dic}
+        additional_eventws_params = dic.get('eventws_query_args', None) or {}
+        ret.update(additional_eventws_params)
+        return ret
+    except Exception as _:  # pylint: disable=broad-except
         return {}
 
 
