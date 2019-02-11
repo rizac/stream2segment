@@ -146,7 +146,8 @@ def yaml_load(filepath, **updates):
 
 
 def normalizedpath(path, basedir):
-    '''normalizes `path` is it's not absolute, making it relative to `basedir`
+    '''normalizes `path` is it's not absolute, making it relative to `basedir`.
+    If path is already absolute, returns it as it is
 
     :param path: the path
     :param basedir: the base directory path

@@ -357,15 +357,20 @@ def valid_fdsn(url, is_eventws, configfile=None):
     raises ValueError or TypeError otherwise'''
     if not isinstance(url, string_types):
         raise TypeError('string required')
+
     if (is_eventws and url.lower() in EVENTWS_MAPPING) or \
             (not is_eventws and url.lower() in ('eida', 'iris')):
-        return url
+        return url.lower()
+
     if is_eventws:
-        if not os.path.isfile(url) and configfile is not None:
-            url = normalizedpath(url, os.path.dirname(configfile))
-        if not os.path.isfile(url):
-            raise ValueError('Invalid url or file path, check typos')
-        return url
+        fpath = url if configfile is None else normalizedpath(url, os.path.dirname(configfile))
+        if os.path.isfile(fpath):
+            return fpath
+        try:
+            return Fdsnws(url).url()
+        except Exception:
+            raise ValueError('Invalid FDSN url or file path, check typos')
+
     return Fdsnws(url).url()
 
 

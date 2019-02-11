@@ -4,11 +4,14 @@ Created on May 23, 2017
 @author: riccardo
 '''
 from contextlib import contextmanager
-import os
+# as we patch os.path.isfile, this seems to be the correct way to store beforehand
+# the original functions (also in other packages, e.g. pytestdir in conftest does not break):
+from os.path import isfile, basename, join, abspath, dirname
 from datetime import datetime, timedelta
 import shutil
 from mock.mock import patch
 from itertools import product
+import uuid
 # this can not apparently be fixed with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
 try:
@@ -108,7 +111,7 @@ class Test(object):
                                         def yload(filepath, **updates):
                                             dic = yaml_load(filepath, **updates)
                                             if isinstance(filepath, string_types) and\
-                                                os.path.isfile(filepath):
+                                                isfile(filepath):
                                                 # if we passed a file name then override
                                                 # the template dburl with our one
                                                 # If it's not the case, leave as it is:
@@ -162,7 +165,8 @@ class Test(object):
         result = runner.invoke(cli, ['process'] + args)
         return result
 
-    def test_download_eventws_query_args(self, db):
+    @patch('stream2segment.utils.inputargs.os.path.isfile', side_effect=isfile)
+    def test_download_eventws_query_args(self, mock_isfile, db):
         '''test different scenarios where we provide eventws query args from the command line'''
 
         # FIRST SCENARIO: no  eventws_params porovided
@@ -214,11 +218,33 @@ class Test(object):
                 assert 'conflict' in result.output
                 assert 'Invalid value for "eventws_params"' in result.output
 
-        result = self.run_cli_download('eventws', 'myfile')
-        asd = 9
-        # test eventws with file
-        # test eventws with relative path
-        
+        # test a eventws supplied as non existing file and not valid fdsnws:
+        mock_isfile.reset_mock()
+        assert not mock_isfile.called
+        result = self.run_cli_download('--eventws', 'myfile')
+        assert result.exit_code != 0
+        assert 'eventws' in result.output
+        assert mock_isfile.called
+
+        # test a eventws supplied as non existing file:
+        mock_isfile.reset_mock()
+        assert not mock_isfile.called
+        self.mock_run_download.reset_mock()
+        assert not self.mock_run_download.called
+        # mocking os.path.isfile needs to return the default side_effect
+        # otherwise conftest's pytestdir fixture gets confused (why? don't know). So:
+        eventwsfname = str(uuid.uuid4())
+        def mock_isfile_se(fpath):
+            if basename(fpath) == eventwsfname:
+                return True
+            return isfile(fpath)
+        mock_isfile.side_effect = mock_isfile_se
+        result = self.run_cli_download(eventws=eventwsfname)
+        assert result.exit_code == 0
+        run_download_args = self.mock_run_download.call_args_list[-1][1]
+        eventws_used = run_download_args['eventws']
+        assert eventws_used == abspath(join(dirname(self.d_yaml_file), eventwsfname))
+
 
     def test_download_bad_values(self, db):
         '''test different scenarios where the value in the dwonload.yaml are not well formatted'''
@@ -515,8 +541,8 @@ def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, moc
     assert expected_out == out
     assert vars['numloggers'] == 2
 
-    # run verbosity = False, with no output file. This configures a logger stderr but no logger stdout
-    # with no file
+    # run verbosity = False, with no output file. This configures a logger stderr but no logger
+    # stdout with no file
     mock_run_process.side_effect = lambda *a, **v: None
     ret = o_process(dburl, pyfile, funcname=None, config=conffile, outfile=None,
                     log2file=False, verbose=False)
