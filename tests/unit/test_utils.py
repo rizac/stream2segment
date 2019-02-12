@@ -18,25 +18,26 @@ from io import BytesIO
 import pytest
 from click.termui import progressbar
 
-from stream2segment.utils.url import urlread, URLException, URLError, HTTPError
+from stream2segment.utils.url import urlread, URLException, URLError, HTTPError, Request
 from stream2segment.utils import secure_dburl, get_progressbar, Nop, strconvert, strptime
+from stream2segment.download.utils import formatmsg
 
 DEFAULT_TIMEOUT = socket._GLOBAL_DEFAULT_TIMEOUT
 
 
 def test_strconvert():
-    strings =       ["%", "_", "*", "?", ".*", "."]
-    
+    strings = ["%", "_", "*", "?", ".*", "."]
+
     # sql 2 wildcard
-    expected =  ["*", "?", "*", "?", ".*", "."] 
+    expected = ["*", "?", "*", "?", ".*", "."]
     for a, exp in zip(strings, expected):
         assert strconvert.sql2wild(a) == exp
         assert strconvert.sql2wild(a+a) == exp+exp
         assert strconvert.sql2wild("a"+a) == "a"+exp
         assert strconvert.sql2wild(a+"a") == exp+"a"
-        
+
     # wildcard 2 sql
-    expected =  ["%", "_", "%", "_", ".%", "."] 
+    expected = ["%", "_", "%", "_", ".%", "."]
     for a, exp in zip(strings, expected):
         assert strconvert.wild2sql(a) == exp
         assert strconvert.wild2sql(a+a) == exp+exp
@@ -44,30 +45,28 @@ def test_strconvert():
         assert strconvert.wild2sql(a+"a") == exp+"a"
 
     # sql 2 regex
-    expected =  [".*", ".", "\\*", "\\?", "\\.\\*", "\\."]
+    expected = [".*", ".", "\\*", "\\?", "\\.\\*", "\\."]
     for a, exp in zip(strings, expected):
         assert strconvert.sql2re(a) == exp
         assert strconvert.sql2re(a+a) == exp+exp
         assert strconvert.sql2re("a"+a) == "a"+exp
         assert strconvert.sql2re(a+"a") == exp+"a"
-        
-    # wild 2 regex    
-    expected =  ["\\%", "_", ".*", ".", "\\..*", "\\."]
+
+    # wild 2 regex
+    expected = ["\\%", "_", ".*", ".", "\\..*", "\\."]
     for a, exp in zip(strings, expected):
         assert strconvert.wild2re(a) == exp
         assert strconvert.wild2re(a+a) == exp+exp
         assert strconvert.wild2re("a"+a) == "a"+exp
         assert strconvert.wild2re(a+"a") == exp+"a"
-    
 
 
 @patch('stream2segment.utils.url.urlopen')
-def test_utils_url_read(mock_urlopen):  # mock_ul_urlopen, mock_ul_request, mock_ul):
-    
+def test_utils_url_read(mock_urlopen):
 
     def side_effect(argss):
         return StringIO(argss)
-    
+
     mockread = mock.Mock()
     class mybytesio(object):
 
@@ -82,7 +81,7 @@ def test_utils_url_read(mock_urlopen):  # mock_ul_urlopen, mock_ul_request, mock
 
         def read(self, *a, **kw):
             if isinstance(self.a, Exception):
-                raise self.a
+                raise self.a  # pylint: disable=raising-non-exception
             mockread(*a, **kw)
             return self.a.read(*a, **kw)
 
@@ -95,16 +94,16 @@ def test_utils_url_read(mock_urlopen):  # mock_ul_urlopen, mock_ul_request, mock
         urlread('', "name")
 
     val = b'url'
-    blockSize = 1024*1024
+    blockSize = 1024 * 1024
     assert urlread(val, blockSize)[0] == val
     mock_urlopen.assert_called_with(val)  # , timeout=DEFAULT_TIMEOUT)
     assert mockread.call_count == 2
     mockread.assert_called_with(blockSize)
 
     mock_urlopen.side_effect = lambda url, **kw: mybytesio(url, **kw)
-    defBlockSize = -1
+
     assert urlread(val, arg_to_read=56)[0] == val
-    mock_urlopen.assert_called_with(val, arg_to_read=56)  #, timeout=DEFAULT_TIMEOUT)
+    mock_urlopen.assert_called_with(val, arg_to_read=56)
     assert mockread.call_count == 1  # because blocksize is -1
 
     mock_urlopen.side_effect = lambda url, **kw: mybytesio(URLError('wat?'))
@@ -120,35 +119,42 @@ def test_utils_url_read(mock_urlopen):  # mock_ul_urlopen, mock_ul_request, mock
     mock_urlopen.side_effect = lambda url, **kw: mybytesio(socket.timeout())
     with pytest.raises(URLException):
         urlread(val)  # note urlexc
-    
+
     mock_urlopen.side_effect = lambda url, **kw: mybytesio(HTTPError('url', 500, '?', None, None))
     with pytest.raises(URLException):
         urlread(val)  # note urlexc
-        
+
     mock_urlopen.side_effect = lambda url, **kw: mybytesio(HTTPError('url', 500, '?', None, None))
     assert urlread(val, raise_http_err=False) == (None, 500, '?')  # note urlexc
-    
+
 
 @pytest.mark.parametrize('input, expected_result, ',
-                          [
-                           ("postgresql://scott:@localhost/mydatabase", "postgresql://scott:***@localhost/mydatabase"),
-                           ("postgresql://scott:tiger@localhost/mydatabase", "postgresql://scott:***@localhost/mydatabase"),
-                           ('postgresql+psycopg2://scott:tiger@localhost/mydatabase', 'postgresql+psycopg2://scott:***@localhost/mydatabase'),
-                           ('postgresql+pg8000://scott:tiger@localhost/mydatabase', 'postgresql+pg8000://scott:***@localhost/mydatabase'),
-                           ('mysql://scott:tiger@localhost/foo', 'mysql://scott:***@localhost/foo'),
-                           ('mysql+mysqldb://scott:tiger@localhost/foo', 'mysql+mysqldb://scott:***@localhost/foo'),
-                           ('sqlite:////absolute/path/to/foo.db', 'sqlite:////absolute/path/to/foo.db')
-                           ],
+                         [
+                          ("postgresql://scott:@localhost/mydatabase",
+                           "postgresql://scott:***@localhost/mydatabase"),
+                          ("postgresql://scott:tiger@localhost/mydatabase",
+                           "postgresql://scott:***@localhost/mydatabase"),
+                          ('postgresql+psycopg2://scott:tiger@localhost/mydatabase',
+                           'postgresql+psycopg2://scott:***@localhost/mydatabase'),
+                          ('postgresql+pg8000://scott:tiger@localhost/mydatabase',
+                           'postgresql+pg8000://scott:***@localhost/mydatabase'),
+                          ('mysql://scott:tiger@localhost/foo',
+                           'mysql://scott:***@localhost/foo'),
+                          ('mysql+mysqldb://scott:tiger@localhost/foo',
+                           'mysql+mysqldb://scott:***@localhost/foo'),
+                          ('sqlite:////absolute/path/to/foo.db',
+                           'sqlite:////absolute/path/to/foo.db')
+                          ],
                         )
 def test_secure_dburl(input, expected_result):
     assert secure_dburl(input) == expected_result
 
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-### IMPORTANT=======================================================================================
-### THE FOLLOWING TESTS INVOLVING PROGRESSBARS PRINTOUT    
-### WILL FAIL IN PYDEV 5.2.0 and PYTHON 3.6.2 (typical bytes vs string error)
-### RUN FROM TERMINAL
-### IMPORTANT=======================================================================================
+# IMPORTANT=======================================================================================
+# THE FOLLOWING TESTS INVOLVING PROGRESSBARS PRINTOUT    
+# WILL FAIL IN PYDEV 5.2.0 and PYTHON 3.6.2 (typical bytes vs string error)
+# RUN FROM TERMINAL
+# IMPORTANT=======================================================================================
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 @pytest.mark.skip(reason="fails if run from within n eclipse because of cryptic bytes vs string propblem")
@@ -162,26 +168,26 @@ def test_progressbar(mock_pbar, mock_nop):
             bar.update(i)
     assert mock_nop.call_count == 1
     assert mock_pbar.call_count == 0
-    
-    with get_progressbar(False, length=0) as bar: # no-op
+
+    with get_progressbar(False, length=0) as bar:  # no-op
         for i in range(N):
             bar.update(i)
     assert mock_nop.call_count == 2
     assert mock_pbar.call_count == 0
-    
-    with get_progressbar(False, length=10) as bar: # normal progressbar
+
+    with get_progressbar(False, length=10) as bar:  # normal progressbar
         for i in range(N):
             bar.update(i)
     assert mock_nop.call_count == 3
     assert mock_pbar.call_count == 0
-    
-    with get_progressbar(True, length=0) as bar: # normal progressbar
+
+    with get_progressbar(True, length=0) as bar:  # normal progressbar
         for i in range(N):
             bar.update(i)
     assert mock_nop.call_count == 4
     assert mock_pbar.call_count == 0
-    
-    with get_progressbar(True, length=10) as bar: # normal progressbar
+
+    with get_progressbar(True, length=10) as bar:  # normal progressbar
         for i in range(N):
             bar.update(i)
     assert mock_nop.call_count == 4
@@ -193,23 +199,23 @@ def test_progressbar(mock_pbar, mock_nop):
 def test_progressbar_functional():
     '''this test has problems with eclipse'''
     N = 5
-    with get_progressbar(False) as bar:  # no-op
+    with get_progressbar(False) as bar: # no-op
         for i in range(N):
             bar.update(i)
-    
-    with get_progressbar(False, length=0) as bar: # no-op
+
+    with get_progressbar(False, length=0) as bar:  # no-op
         for i in range(N):
             bar.update(i)
-    
-    with get_progressbar(False, length=10) as bar: # normal progressbar
+
+    with get_progressbar(False, length=10) as bar:  # normal progressbar
         for i in range(N):
             bar.update(i)
-    
-    with get_progressbar(True, length=0) as bar: # normal progressbar
+
+    with get_progressbar(True, length=0) as bar:  # normal progressbar
         for i in range(N):
             bar.update(i)
-    
-    with get_progressbar(True, length=10) as bar: # normal progressbar
+
+    with get_progressbar(True, length=10) as bar:  # normal progressbar
         for i in range(N):
             bar.update(i)
 
@@ -229,13 +235,13 @@ def test_progressbar_functional():
                            ],
                         )
 def test_strptime(str_input, expected_diff):
-    
+
     if ":" in str_input:
         arr = [str_input, str_input + 'UTC', str_input+'Z', str_input+'CET']
     else:
         arr = [str_input]
     for ds1, ds2 in product(arr, arr):
-        
+
         d1 = strptime(ds1)
         d2 = strptime(ds2)
 
@@ -250,14 +256,34 @@ def test_strptime(str_input, expected_diff):
         assert d1.tzinfo is None and d2.tzinfo is None
         assert strptime(d1) == d1
         assert strptime(d2) == d2
-        
-    
+
     # test a valueerror:
     if ":" not in str_input:
         for dtimestr in [str_input+'Z', str_input+'CET']:
             with pytest.raises(ValueError):
                 strptime(dtimestr)
-                
+
     # test type error:
     with pytest.raises(TypeError):
         strptime(5)
+
+
+def test_formatmsg():
+    req = Request('http://mysite/query', data='a'*1000)
+    msg = formatmsg("action", "errmsg", req)
+    expected = ("action (errmsg). url: http://mysite/query, POST data:\n%s\n"
+                "...(showing first 200 characters only)") % ('a' * 200)
+    assert msg == expected
+
+    req = Request('http://mysite/query', data='a\n'*5)
+    msg = formatmsg("action", "errmsg", req)
+    expected = ("action (errmsg). url: http://mysite/query, POST data:\n%s") % ('a\n' * 5)
+    assert msg == expected.strip()
+
+    req = Request('http://mysite/query', data=b'a\n'*5)
+    msg = formatmsg("action", "errmsg", req)
+    expected = ("action (errmsg). url: http://mysite/query, POST data:\n"
+                "b'a\\na\\na\\na\\na\\n'")
+    assert msg == expected.strip()
+
+    

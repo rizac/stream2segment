@@ -17,19 +17,19 @@ from future.utils import PY2
 # Python 2 and 3: Futures (http://python-future.org/imports.html#aliased-imports) backports
 # to python2 are buggy when used with ThreadPools (like here). As there seem to be no particular
 # difference in function signature but only import placement, we do the old way
-# ALSO, ALL IMPORTS REQUIRING ANY OF THE MODULES/CLASSES BELOW SHOULD IMPORT FROM HERE
+# **IMPORTANT**: ALL IMPORTS REQUIRING ANY OF THE MODULES/CLASSES BELOW SHOULD IMPORT FROM HERE
 # TO GUARANTEE PY2+3 COMPATIBILITY
 try:  # py3:
     from urllib.parse import urlparse, urlencode  # pylint: disable=unused-import
     from urllib.request import urlopen, Request, \
-        build_opener, HTTPPasswordMgrWithDefaultRealm, HTTPDigestAuthHandler  # pylint: disable=unused-import
+        build_opener, HTTPPasswordMgrWithDefaultRealm, HTTPDigestAuthHandler
     from urllib.error import HTTPError, URLError
     from http.client import HTTPException, responses  # pylint: disable=ungrouped-imports
-except ImportError:
+except ImportError:  # py2:
     from urlparse import urlparse  # @UnusedImport pylint: disable=bad-option-value
     from urllib import urlencode  # @UnusedImport pylint: disable=ungrouped-imports
     from urllib2 import urlopen, Request, HTTPError, URLError, \
-        build_opener, HTTPPasswordMgrWithDefaultRealm, HTTPDigestAuthHandler  # @UnusedImport
+        build_opener, HTTPPasswordMgrWithDefaultRealm, HTTPDigestAuthHandler
     from httplib import HTTPException
     from BaseHTTPServer import BaseHTTPRequestHandler
     # responses values are tuples, map to the response message (1st tuple item, str)
