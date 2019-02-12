@@ -20,14 +20,20 @@ from future.utils import PY2
 # **IMPORTANT**: ALL IMPORTS REQUIRING ANY OF THE MODULES/CLASSES BELOW SHOULD IMPORT FROM HERE
 # TO GUARANTEE PY2+3 COMPATIBILITY
 try:  # py3:
-    from urllib.parse import urlparse, urlencode  # pylint: disable=unused-import
+    from urllib.parse import urlparse, urlencode
     from urllib.request import urlopen, Request, \
         build_opener, HTTPPasswordMgrWithDefaultRealm, HTTPDigestAuthHandler
     from urllib.error import HTTPError, URLError
-    from http.client import HTTPException, responses  # pylint: disable=ungrouped-imports
+    from http.client import HTTPException, responses
+
+    # https://docs.python.org/3/library/urllib.request.html#request-objects
+    def get_host(request):
+        '''Returns the host (string) from a Request object'''
+        return request.host
+
 except ImportError:  # py2:
-    from urlparse import urlparse  # @UnusedImport pylint: disable=bad-option-value
-    from urllib import urlencode  # @UnusedImport pylint: disable=ungrouped-imports
+    from urlparse import urlparse
+    from urllib import urlencode
     from urllib2 import urlopen, Request, HTTPError, URLError, \
         build_opener, HTTPPasswordMgrWithDefaultRealm, HTTPDigestAuthHandler
     from httplib import HTTPException
@@ -35,6 +41,11 @@ except ImportError:  # py2:
     # responses values are tuples, map to the response message (1st tuple item, str)
     # to make this response compatible with the python3 response above:
     responses = {k: v[0] for k, v in BaseHTTPRequestHandler.responses.iteritems()}
+
+    # https://docs.python.org/2/library/urllib2.html#request-objects
+    def get_host(request):
+        '''Returns the host (string) from a Request object'''
+        return request.get_host()
 
 
 def get_opener(url, user, password):

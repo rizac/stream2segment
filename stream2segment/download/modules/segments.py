@@ -24,7 +24,7 @@ from stream2segment.download.modules.mseedlite import MSeedError, unpack as msee
 from stream2segment.utils import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, mergeupdate, DbManager
 
-from stream2segment.utils.url import Request  # this handles py2and3 compatibility
+from stream2segment.utils.url import Request, get_host  # handle py2+3 compatibility
 
 # logger: do not use logging.getLogger(__name__) but point to stream2segment.download.logger:
 # this way we preserve the logging namespace hierarchy
@@ -281,13 +281,6 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
     requestend_index = 2
     groupsby = [[SEG_DCID, SEG_START, SEG_END],
                 [SEG_DCID, SEG_START, SEG_END, SEG_CHAID]]
-
-    if sys.version_info[0] < 3:
-        def get_host(r):
-            return r.get_host()
-    else:
-        def get_host(r):
-            return r.host
 
     def req(obj):
         '''calls get_seg_request from an item of Pandas groupby. Used in read_async below'''
@@ -616,7 +609,7 @@ class SegmentLogger(set):
         '''issues a logger.warn if the given error is not already reported
 
         :param request: the Request object
-        :param url: string, the request's url host
+        :param url: string, usually the request's url host, to identify same data centers
         :param code: the error code
         :pram exc: the reported Exception
         '''
