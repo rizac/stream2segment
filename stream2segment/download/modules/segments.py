@@ -19,7 +19,7 @@ import pandas as pd
 
 from stream2segment.io.db.models import DataCenter, Station, Channel, Segment, Fdsnws
 from stream2segment.download.utils import read_async, NothingToDownload,\
-    handledbexc, logwarn_dataframe, DownloadStats, formatmsg, s2scodes
+    handledbexc, logwarn_dataframe, DownloadStats, formatmsg, s2scodes, url2str
 from stream2segment.download.modules.mseedlite import MSeedError, unpack as mseedunpack
 from stream2segment.utils import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, mergeupdate, DbManager
@@ -291,12 +291,11 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
         '''calls get_seg_request from an item of Pandas groupby. Used in read_async below'''
         return dc_dataselect_manager.opener(obj[0][0])  # obj[0][0] = dc_id
 
-    # check first if there is somethign to update, set a boolean outside the loop below
-    # for performance:
+    # some variables to be used in the loop below:
     toupdate = SEG_DSCODE in segments_df.columns
-    skipped_same_code = 0  # to log info segments with no report
-    # we assume it's the terminal, thus allocate the current process to track
-    # memory overflows
+    skipped_same_code = 0
+    seg_logger = SegmentLogger()  # report seg. errors only once per error type and data center
+
     with get_progressbar(show_progress, length=len(segments_df)) as bar:
 
         skipped_dataframes = []  # store dataframes with a 413 error and retry later
@@ -389,8 +388,9 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                 if exc is not None:
                     dframe.loc[:, SEG_DSCODE] = code
                     stats[url][code] += len(dframe)
-                    logger.warning(formatmsg("Segment download error, code %s" % str(code),
-                                             exc, request))
+                    # log segment errors only once per error type and data center,
+                    # otherwise the log is hundreds of Mb and it's unreadable:
+                    seg_logger.warn(request, url, code, exc)
 
                 segmanager.add(dframe)
 
@@ -599,3 +599,25 @@ class DcDataselectManager(object):
                                   None]  # No opener, download open data only
                     errors[dcid] = exc
         return data, errors
+
+
+class SegmentLogger(set):
+    '''A class handling segment errors and logging only once per error type
+    and datacenter to avoid polluting the log file/stream with hundreds of megabytes'''
+
+    def warn(self, request, url, code, exc):
+        '''issues a logger.warn if the given error is not already reported
+
+        :param request: the Request object
+        :param url: string, the request's url host
+        :param code: the error code
+        :pram exc: the reported Exception
+        '''
+        item = (url, code, str(exc.__class__.__name__))
+        if item not in self:
+            self.add(item)
+            request_str = url2str(request) + \
+                ("\n(from now on, errors of this type "
+                 "from the same data center will not be shown)")
+            logger.warning(formatmsg("Segment download error, code %s" % str(code),
+                           exc, request_str))

@@ -108,12 +108,12 @@ def formatmsg(action=None, errmsg=None, url=None):
         strerr = (str(errmsg) or str(errmsg.__class__.__name__)).strip()
         msg = "{} ({})".format(msg, strerr) if msg else strerr
     if url:
-        urlmsg = url2str(url).strip()
+        urlmsg = url2str(url, maxlen=200).strip()
         msg = "{}. url: {}".format(msg, urlmsg) if msg else urlmsg
     return msg
 
 
-def url2str(obj):
+def url2str(obj, maxlen=None):
     """converts an url or `urllib2.Request` object to string. In the latter case, the format is:
     "{obj.get_full_url()}" if `obj.data` is falsy
     "{obj.get_full_url()}, data: '{obj.get_data()}'" if `obj.data` has no newlines, or
@@ -123,9 +123,8 @@ def url2str(obj):
         url = obj.get_full_url()
         data = obj.data
         if data is not None:
-            maxnum = 200
-            str_data = ("%s\n...(showing first %d characters only)" % (data[:maxnum], maxnum)) \
-                if len(data) > maxnum else data
+            str_data = ("%s\n...(showing first %d characters only)" % (data[:maxlen], maxlen)) \
+                if maxlen is not None and len(data) > maxlen else data
         url = "%s, POST data:\n%s" % (url, str_data)
     except AttributeError:
         url = obj
