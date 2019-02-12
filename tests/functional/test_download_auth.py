@@ -726,7 +726,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # Ok, test retry:
         new_seg_df = seg_df.copy()
         # first get run id
-        # we have 12 segments, change the download codes.
+        # we have 12 segments, change the download codes. The second boolean
+        # value denotes queryauth (True or False):
         code_queryauth = [(204, False), (204, True), (404, False), (404, True),
                           (401, False), (401, True), (403, False), (403, True),
                           (400, True), (400, False), (None, False), (None, True)]

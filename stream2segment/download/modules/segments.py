@@ -59,15 +59,22 @@ def prepare_for_download(session, segments_df, dc_dataselect_manager, timespan,
 
     opendataonly = dc_dataselect_manager.opendataonly
     codes = s2scodes
-    # set the list of columns to query. Add a boolean last column representing when retry has to
-    # be forced (no queryauth and code indicating - or suggesting - unauthorized access):
+    # set the list of columns to query
     columns2query = [Segment.id, Segment.channel_id, Segment.request_start, Segment.request_end,
-                     Segment.download_code, Segment.event_id] + \
-                     ([] if opendataonly else [(Segment.download_code.isnot(None) &
-                                                Segment.download_code.in_(codes.restricted_data) &
-                                                Segment.queryauth.isnot(True)).label(SEG_RETRY)])
-    # Note above: we need isnot(None) because in_([204, ...]) might return Nones for segment
-    # with NULL download status code
+                     Segment.download_code, Segment.event_id]
+    # if downloading with authorization, add a boolean last column representing when retry has to
+    # be forced. This happens when all the following two conditions are met:
+    # 1. segment was downloaded with no credentials
+    # 2. segment download code suggests unauthorized access
+    #    (codes.restricted_data = 404, 204, 401, 403)
+    # (segments already downloaded with credentials and with code 404, 401, 403 will be retried
+    # if the flag 'retry_client_err' is True, as usual)
+    if not opendataonly:
+        columns2query += [(Segment.download_code.isnot(None) &
+                           Segment.download_code.in_(codes.restricted_data) &
+                           Segment.queryauth.isnot(True)).label(SEG_RETRY)]
+    # Note above: we need isnot(None) because in_(codes.restricted_data) might return None
+    # for segment with NULL download status code (we want either True or False, not None)
 
     # query relevant data into data frame (speeds up calculations:
     chids, evids = \
