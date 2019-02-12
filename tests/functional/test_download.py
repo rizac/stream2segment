@@ -567,8 +567,6 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         str_err = "No channel matches user defined filters"
         assert str_err not in self.log_msg()
 
-        # assert str_err not in self.log_msg()
-
         def mgdf(*a, **v):
             aa = list(a)
             aa[9] = 100000  # change min sample rate to a huge number
@@ -1022,8 +1020,6 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                 assert result.exit_code != 0
                 assert 'Conflicting' in result.output
 
-    @pytest.mark.skip(reason=("no way of currently testing what we want to test, "
-                              "error not reproducible. See comments below"))
     @patch('stream2segment.download.main.get_events_df')
     @patch('stream2segment.download.main.get_datacenters_df')
     @patch('stream2segment.download.main.get_channels_df')
@@ -1032,12 +1028,12 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
     @patch('stream2segment.download.modules.segments.mseedunpack')
     @patch('stream2segment.io.db.pdsql.insertdf')
     @patch('stream2segment.io.db.pdsql.updatedf')
-    def test_SKIPPED_cmdline_unexpected_err(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
-                                            mock_download_save_segments, mock_save_inventories,
-                                            mock_get_channels_df, mock_get_datacenters_df,
-                                            mock_get_events_df,
-                                            # fixtures:
-                                            db, clirunner):
+    def test_segerrors_reported_only_once(self, mock_updatedf, mock_insertdf, mock_mseed_unpack,
+                                          mock_download_save_segments, mock_save_inventories,
+                                          mock_get_channels_df, mock_get_datacenters_df,
+                                          mock_get_events_df,
+                                          # fixtures:
+                                          db, clirunner):
         ''' we experienced once a UnicodeDecodeError in mseed_unpack, whcih, has expected
         raised. Fine, but we got also another error: attempt to write on an apparently
         already-closed logger,
@@ -1048,17 +1044,16 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
             lambda *a, **v: self.get_datacenters_df(None, *a, **v)
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
-        mock_download_save_segments.side_effect = \
-            lambda *a, **v: self.download_save_segments(None, *a, **v)
+
         # =========================
         # HERE IS THE IMPORTANT PART
-        # mseed unpack is mocked by accepting only first arg
-        # (so that time bounds are not considered)
+        # Return code -1 for all downloaded segments
         # =========================
-        def mockunpack(*a, **v):
-            # https://gehrcke.de/2015/12/how-to-raise-unicodedecodeerror-in-python-3/
-            raise UnicodeDecodeError('funnycodec', b'\x00\x00', 1, 2, 'This is just a fake reason!')
-        mock_mseed_unpack.side_effect = mockunpack
+        RESPONSES = [URLError('abc')]
+        mock_download_save_segments.side_effect = \
+            lambda *a, **v: self.download_save_segments(RESPONSES, *a, **v)
+
+        mock_mseed_unpack.side_effect = lambda *a, **v: unpack(a[0])
         # now is cought, and a MiniSeed Error is raised, but let's see
         mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
         mock_updatedf.side_effect = lambda *a, **v: updatedf(*a, **v)
@@ -1071,3 +1066,33 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                                         '--start', '2016-05-08T00:00:00',
                                         '--end', '2016-05-08T9:00:00'])
 
+        assert clirunner.ok(result)
+        # the currently written dataframe seg_df is:
+        seg_df = dbquery2df(db.session.query(Segment.id, Segment.download_code,
+                                             Segment.queryauth, Segment.download_id))\
+            .sort_values(by=[Segment.id.key]).reset_index(drop=True)
+        # seg_df:
+        # id  download_code  queryauth  download_id
+        # 1  -1              False      2
+        # 2  -1              False      2
+        # 3  -1              False      2
+        # 4  -1              False      2
+        # 5  -1              False      2
+        # 6  -1              False      2
+        # 7  -1              False      2
+        # 8  -1              False      2
+        # 9  -1              False      2
+        # 10 -1              False      2
+        # 11 -1              False      2
+        # 12 -1              False      2
+
+        logmsg = self.log_msg()
+        # assert that we logged errors only once per data center and error
+        # type. Error types are all the same (error code -1) and data centers are two
+        # (resif and geofon). Thus:
+        idx = logmsg.find('Segment download error, code -1')
+        assert idx > -1
+        idx2 = logmsg.find('Segment download error, code -1', idx+1)
+        assert idx2 > idx
+        idx3 = logmsg.find('Segment download error, code -1', idx2+1)
+        assert idx3 == -1
