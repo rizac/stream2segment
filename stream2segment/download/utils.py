@@ -103,14 +103,29 @@ def formatmsg(action=None, errmsg=None, url=None):
     """
     msg = action.strip()
     if errmsg:
-        # sometimes exceptions have no message, append their name
-        # (e.g. socket.timeout would now print at least 'timeout')
-        strerr = (str(errmsg) or str(errmsg.__class__.__name__)).strip()
+        strerr = err2str(errmsg)
         msg = "{} ({})".format(msg, strerr) if msg else strerr
     if url:
         urlmsg = url2str(url, maxlen=200).strip()
         msg = "{}. url: {}".format(msg, urlmsg) if msg else urlmsg
     return msg
+
+
+def err2str(err):
+    '''Returns the string representation of `err`
+
+    :param err: string or Exception denoting the error
+    '''
+    # This class basically does two things: convert KeyErrors into "KeyError: 'a'"
+    # and not simply "a",
+    # and in case of exceptions which produce the empty string, return their
+    # class name instead (e.g. socket.timeout returns 'timeout' instead of '')
+    errclass = err.__class__
+    if errclass == KeyError:
+        return "%s: %s" % (str(errclass), str(err))
+    if errclass == str:  # if we passed a string, just return it
+        return err
+    return (str(err) or str(errclass.__name__)).strip()
 
 
 def url2str(obj, maxlen=None):

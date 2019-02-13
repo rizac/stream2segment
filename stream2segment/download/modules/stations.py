@@ -15,7 +15,8 @@ from datetime import datetime
 import pandas as pd
 
 from stream2segment.io.db.models import DataCenter, Station, Segment
-from stream2segment.download.utils import read_async, handledbexc, formatmsg
+from stream2segment.download.utils import read_async, handledbexc, formatmsg, url2str,\
+    err2str
 from stream2segment.utils import get_progressbar
 from stream2segment.io.db.pdsql import DbManager
 from stream2segment.io.utils import dumps_inv
@@ -27,6 +28,7 @@ from stream2segment.utils.url import Request  # this handles py2and3 compatibili
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial) when calling logging
 # functions of stream2segment.download.utils:
 from stream2segment.download import logger  # @IgnorePep8
+from stream2segment.utils.url import get_host
 
 
 def _get_sta_request(datacenter_url, network, station, start_time, end_time):
@@ -44,7 +46,7 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
                      download_blocksize, db_bufsize, show_progress=False):
     """Save inventories. Stations_df must not be empty (this is not checked for)"""
 
-    _msg = "Unable to save inventory (station id=%d)"
+    inv_logger = InventoryLogger()
 
     downloaded, errors, empty = 0, 0, 0
     cols_to_log_on_err = [Station.id.key, Station.network.key, Station.station.key,
@@ -55,7 +57,7 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
                           oninsert_err_callback=handledbexc(cols_to_log_on_err, update=False),
                           onupdate_err_callback=handledbexc(cols_to_log_on_err, update=True))
 
-    with get_progressbar(show_progress, length=len(stations_df)) as bar:
+    with get_progressbar(show_progress, length=len(stations_df)) as pbar:
         iterable = zip(stations_df[Station.id.key],
                        stations_df[DataCenter.station_url.key],
                        stations_df[Station.network.key],
@@ -67,22 +69,23 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
                                                     max_workers=max_thread_workers,
                                                     blocksize=download_blocksize, timeout=timeout,
                                                     raise_http_err=True):
-            bar.update(1)
+            pbar.update(1)
             sta_id = obj[0]
             if exc:
-                logger.warning(formatmsg(_msg, exc, request), sta_id)
+                inv_logger.warn(request, exc)
                 errors += 1
             else:
                 data, code, msg = result  # @UnusedVariable
                 if not data:
+                    inv_logger.warn(request, "empty response")
                     empty += 1
-                    logger.warning(formatmsg(_msg, "empty response", request), sta_id)
                 else:
                     downloaded += 1
                     dbmanager.add(pd.DataFrame({Station.id.key: [sta_id],
                                                 Station.inventory_xml.key: [dumps_inv(data)]}))
 
     dbmanager.close()
+
     return downloaded, empty, errors
 
 
@@ -109,3 +112,24 @@ def query4inventorydownload(session, force_update):
                          (Station.segments.any(Segment.has_data)))  # @UndefinedVariable
 
     return qry
+
+
+class InventoryLogger(set):
+    '''A class handling inventory errors and logging only once per error type
+    and datacenter to avoid polluting the log file/stream with hundreds of megabytes'''
+
+    def warn(self, request, exc):
+        '''issues a logger.warn if the given error is not already reported
+
+        :param request: the Request object
+        :pram exc: the reported Exception or string message
+        '''
+        url = get_host(request)
+        item = (url, err2str(exc))  # use err2str to uniquely identify exc
+        if item not in self:
+            if not self:
+                logger.warning('Detailed inventory download errors '
+                               '(showing only first of each type per data center):')
+            self.add(item)
+            request_str = url2str(request)
+            logger.warning(formatmsg("Inventory download error", exc, request_str))

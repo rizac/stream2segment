@@ -615,9 +615,10 @@ class SegmentLogger(set):
         '''
         item = (url, code, str(exc.__class__.__name__))
         if item not in self:
+            if not self:
+                logger.warning('Detailed segment download errors '
+                               '(showing only first of each type per data center):')
             self.add(item)
-            request_str = url2str(request) + \
-                ("\n(from now on, errors of this type "
-                 "from the same data center will not be shown)")
+            request_str = url2str(request)
             logger.warning(formatmsg("Segment download error, code %s" % str(code),
                            exc, request_str))

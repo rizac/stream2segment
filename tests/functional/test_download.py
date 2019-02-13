@@ -635,7 +635,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
 
         stainvs = db.session.query(Station).filter(Station.has_inventory).all()
         assert len(stainvs) == 1
-        assert "Unable to save inventory" in self.log_msg()
+        assert "Inventory download error" in self.log_msg()
         ix = db.session.query(Station.id, Station.inventory_xml).filter(Station.has_inventory).all()
         num_downloaded_inventories_first_try = len(ix)
         assert len(ix) == num_downloaded_inventories_first_try
@@ -893,7 +893,7 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         # But assert the log message does contain the warning
         # (self.log_msg() is from a logger configured additionaly for these tests)
         new_log_msg = self.log_msg()[len(old_log_msg):]
-        assert "Unable to save inventory" in new_log_msg
+        assert "Inventory download error" in new_log_msg
         stainvs = db.session.query(Station).filter(Station.has_inventory).all()
         assert len(stainvs) == 1
         ix = \

@@ -360,7 +360,8 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
             args = call_[0]
             kwargs = call_[1]
             assert len(args) == 1
-            assert args[0] == 'http://rz-vm258.gfz-potsdam.de/eidaws/routing/1/query'
+            # assert args[0] == 'http://rz-vm258.gfz-potsdam.de/eidaws/routing/1/query'
+            assert args[0] == "http://www.orfeus-eu.org/eidaws/routing/1/query"
             assert kwargs['service'] == 'dataselect'
             assert kwargs['format'] == 'post'
             if net:
