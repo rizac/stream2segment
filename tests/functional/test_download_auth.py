@@ -58,6 +58,15 @@ from stream2segment.utils.log import configlog4download
 pd.set_option('display.max_colwidth', -1)
 
 
+@pytest.fixture
+def yamlfile(pytestdir):
+    '''global fixture wrapping pytestdir.newfile'''
+    def func(**overridden_pars):
+        return pytestdir.yamlfile(get_templates_fpath('download.yaml'), **overridden_pars)
+
+    return func
+
+
 class Test(object):
 
     # execute this fixture always even if not provided as argument:
@@ -132,9 +141,6 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
         self.service = ''  # so get_datacenters_df accepts any row by default
 
-        self.configfile = get_templates_fpath("download.yaml")
-        self.config_overrides = {}
-
         # store DcDataselectManager method here:
         self.dc_get_data_open = DcDataselectManager._get_data_open
         self.dc_get_data_from_userpass = DcDataselectManager._get_data_from_userpass
@@ -154,51 +160,42 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                 # this mocks yaml_load and sets inventory to False, as tests rely on that
                 with patch('stream2segment.main.closesession'):  # no-op (do not close session)
 
-                    def yload(*a, **v):
-                        dic = yaml_load(*a, **v)
-                        dic.update(self.config_overrides)
-                        return dic
+                    # mock ThreadPool (tp) to run one instance at a time, so we
+                    # get deterministic results:
+                    class MockThreadPool(object):
 
-                    with patch('stream2segment.utils.inputargs.yaml_load',
-                               side_effect=yload) as mock_yaml_load:
-                        self.mock_yaml_load = mock_yaml_load
+                        def __init__(self, *a, **kw):
+                            pass
 
-                        # mock ThreadPool (tp) to run one instance at a time, so we
-                        # get deterministic results:
-                        class MockThreadPool(object):
+                        def imap(self, func, iterable, *args):
+                            # make imap deterministic: same as standard python map:
+                            # everything is executed in a single thread the right input order
+                            return map(func, iterable)
 
-                            def __init__(self, *a, **kw):
-                                pass
+                        def imap_unordered(self, func, iterable, *args):
+                            # make imap_unordered deterministic: same as standard python map:
+                            # everything is executed in a single thread in the right input order
+                            return map(func, iterable)
 
-                            def imap(self, func, iterable, *args):
-                                # make imap deterministic: same as standard python map:
-                                # everything is executed in a single thread the right input order
-                                return map(func, iterable)
+                        def close(self, *a, **kw):
+                            pass
+                    # assign patches and mocks:
+                    with patch('stream2segment.utils.url.ThreadPool',
+                               side_effect=MockThreadPool) as mock_thread_pool:
 
-                            def imap_unordered(self, func, iterable, *args):
-                                # make imap_unordered deterministic: same as standard python map:
-                                # everything is executed in a single thread in the right input order
-                                return map(func, iterable)
+                        def c4d(logger, logfilebasepath, verbose):
+                            # config logger as usual, but redirects to a temp file
+                            # that will be deleted by pytest, instead of polluting the program
+                            # package:
+                            ret = configlog4download(logger, pytestdir.newfile('.log'),
+                                                     verbose)
+                            logger.addHandler(self.handler)
+                            return ret
+                        with patch('stream2segment.main.configlog4download',
+                                   side_effect=c4d) as mock_config4download:
+                            self.mock_config4download = mock_config4download
 
-                            def close(self, *a, **kw):
-                                pass
-                        # assign patches and mocks:
-                        with patch('stream2segment.utils.url.ThreadPool',
-                                   side_effect=MockThreadPool) as mock_thread_pool:
-
-                            def c4d(logger, logfilebasepath, verbose):
-                                # config logger as usual, but redirects to a temp file
-                                # that will be deleted by pytest, instead of polluting the program
-                                # package:
-                                ret = configlog4download(logger, pytestdir.newfile('.log'),
-                                                         verbose)
-                                logger.addHandler(self.handler)
-                                return ret
-                            with patch('stream2segment.main.configlog4download',
-                                       side_effect=c4d) as mock_config4download:
-                                self.mock_config4download = mock_config4download
-
-                                yield
+                            yield
 
     def log_msg(self):
         return self.logout.getvalue()
@@ -298,7 +295,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                                  mock_save_inventories, mock_get_channels_df,
                                  mock_get_datacenters_df, mock_get_events_df,
                                  # fixtures:
-                                 db, clirunner, pytestdir):
+                                 db, clirunner, pytestdir, yamlfile):
 
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
         mock_get_datacenters_df.side_effect = \
@@ -326,12 +323,12 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
         # TEST 1: NORMAL CASE (NO AUTH):
         # mock yaml_load to override restricted_data:
-        self.config_overrides = {'restricted_data': ''}
+        yaml_file = yamlfile(restricted_data='')
         # The run table is populated with a run_id in the constructor of this class
         # for checking run_ids, store here the number of runs we have in the table:
         runs = len(db.session.query(Download.id).all())
         result = clirunner.invoke(cli, ['download',
-                                        '-c', self.configfile,
+                                        '-c', yaml_file,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
                                         '--end', '2016-05-08T9:00:00'])
@@ -357,9 +354,9 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_get_data_open.reset_mock()
         mock_get_data_from_token.reset_mock()
         mock_get_data_from_userpass.reset_mock()
-        self.config_overrides = {'restricted_data': ['user', 'password'], 'dataws': 'eida'}
+        yaml_file = yamlfile(restricted_data=['user', 'password'], dataws='eida')
         result = clirunner.invoke(cli, ['download',
-                                        '-c', self.configfile,
+                                        '-c', yaml_file,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
                                         '--end', '2016-05-08T9:00:00'])
@@ -371,10 +368,10 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_get_data_open.reset_mock()
         mock_get_data_from_token.reset_mock()
         mock_get_data_from_userpass.reset_mock()
-        self.config_overrides = {'restricted_data': 'abcdg465du97_Sdr4fvssgflero',
-                                 'dataws': 'eida'}
+        yaml_file = yamlfile(restricted_data='abcdg465du97_Sdr4fvssgflero',
+                             dataws='eida')
         result = clirunner.invoke(cli, ['download',
-                                        '-c', self.configfile,
+                                        '-c', yaml_file,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
                                         '--end', '2016-05-08T9:00:00'])
@@ -386,10 +383,10 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_get_data_open.reset_mock()
         mock_get_data_from_token.reset_mock()
         mock_get_data_from_userpass.reset_mock()
-        self.config_overrides = {'restricted_data': os.path.abspath(filepath),
-                                 'dataws': 'eida'}
+        yaml_file = yamlfile(restricted_data=os.path.abspath(filepath),
+                             dataws='eida')
         result = clirunner.invoke(cli, ['download',
-                                        '-c', self.configfile,
+                                        '-c', yaml_file,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
                                         '--end', '2016-05-08T9:00:00'])
@@ -421,7 +418,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                         mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
                         mock_get_datacenters_df, mock_get_events_df,
                         # fixtures:
-                        db, clirunner, pytestdir):
+                        db, clirunner, pytestdir, yamlfile):
 
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v)
         mock_get_datacenters_df.side_effect = \
@@ -453,12 +450,12 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         with open(tokenfile, 'w') as fh:
             fh.write('BEGIN PGP MESSAGE')
         # mock yaml_load to override restricted_data:
-        self.config_overrides = {'restricted_data': os.path.abspath(tokenfile)}
+        yaml_file = yamlfile(restricted_data=os.path.abspath(tokenfile))
         # The run table is populated with a run_id in the constructor of this class
         # for checking run_ids, store here the number of runs we have in the table:
         runs = len(db.session.query(Download.id).all())
         result = clirunner.invoke(cli, ['download',
-                                        '-c', self.configfile,
+                                        '-c', yaml_file,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
                                         '--end', '2016-05-08T9:00:00'])
@@ -515,7 +512,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                    mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
                    mock_get_datacenters_df, mock_get_events_df,
                    # fixtures:
-                   db, clirunner, pytestdir):
+                   db, clirunner, pytestdir, yamlfile):
 
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v)
         mock_get_datacenters_df.side_effect = \
@@ -572,10 +569,10 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             mock_get_data_from_token.side_effect = \
                 lambda *a, **kw: self.dc_get_data_from_token(tokenquery_mocked_return_values,
                                                              *a, **kw)
-            self.config_overrides = {'restricted_data': os.path.abspath(tokenfile)}
+            yaml_file = yamlfile(restricted_data=os.path.abspath(tokenfile),
+                                 retry_client_err=False)
             result = clirunner.invoke(cli, ['download',
-                                            '-c', pytestdir.yamlfile(self.configfile,
-                                                                     retry_client_err=False),
+                                            '-c', yaml_file,
                                             '--dburl', db.dburl,
                                             '--start', '2016-05-08T00:00:00',
                                             '--end', '2016-05-08T9:00:00'])
@@ -637,7 +634,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                     mock_download_save_segments, mock_save_inventories, mock_get_channels_df,
                     mock_get_datacenters_df, mock_get_events_df,
                     # fixtures:
-                    db, clirunner, pytestdir):
+                    db, clirunner, pytestdir, yamlfile):
 
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v)
         mock_get_datacenters_df.side_effect = \
@@ -679,10 +676,10 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         mock_get_data_from_token.side_effect = \
             lambda *a, **kw: self.dc_get_data_from_token(['uzer:pazzword', 'uzer:pazzword'],
                                                          *a, **kw)
-        self.config_overrides = {'restricted_data': os.path.abspath(tokenfile)}
+        yaml_file = yamlfile(restricted_data=os.path.abspath(tokenfile),
+                             retry_client_err=False)
         result = clirunner.invoke(cli, ['download',
-                                        '-c', pytestdir.yamlfile(self.configfile,
-                                                                 retry_client_err=False),
+                                        '-c', yaml_file,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
                                         '--end', '2016-05-08T9:00:00'])
@@ -735,7 +732,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             seg = db.session.query(Segment).filter(Segment.id == id_).first()
             seg.download_code = dc_
             seg.queryauth = qa_
-            # set expected values (see also self.config_overrides below)
+            # set expected values (see also yamlfile below)
             # remember that any segment download will give urlerr as code
             expected_new_download_code = dc_
             expected_download_id = DOWNLOADID
@@ -745,7 +742,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
                 expected_new_download_code = urlerr
                 expected_download_id = DOWNLOADID + 1
             elif dc_ is None or (dc_ < 400 and dc_ >= 500):
-                # to retry because of the flags (see self.config_overrides below)
+                # to retry because of the flags (see yamlfile below)
                 expected_new_download_code = urlerr
                 expected_download_id = DOWNLOADID + 1
             expected_query_auth = qa_ if dc_ == 400 else True
@@ -755,12 +752,11 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             db.session.commit()
 
         # re-download and check what we have retried:
-        self.config_overrides = {'restricted_data': os.path.abspath(tokenfile),
-                                 'retry_client_err': False,
-                                 'retry_seg_not_found': True}
+        yaml_file = yamlfile(restricted_data=os.path.abspath(tokenfile),
+                             retry_seg_not_found=True,
+                             retry_client_err=False)
         result = clirunner.invoke(cli, ['download',
-                                        '-c', pytestdir.yamlfile(self.configfile,
-                                                                 retry_client_err=False),
+                                        '-c', yaml_file,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
                                         '--end', '2016-05-08T9:00:00'])
@@ -788,12 +784,11 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
         # Another retry without modifyiung the segments but setting retry_client_err to True
         # re-download and check what we have retried:
-        self.config_overrides = {'restricted_data': os.path.abspath(tokenfile),
-                                 'retry_client_err': True,
-                                 'retry_seg_not_found': True}
+        yaml_file = yamlfile(restricted_data=os.path.abspath(tokenfile),
+                             retry_seg_not_found=True,
+                             retry_client_err=True)
         result = clirunner.invoke(cli, ['download',
-                                        '-c', pytestdir.yamlfile(self.configfile,
-                                                                 retry_client_err=False),
+                                        '-c', yaml_file,
                                         '--dburl', db.dburl,
                                         '--start', '2016-05-08T00:00:00',
                                         '--end', '2016-05-08T9:00:00'])
