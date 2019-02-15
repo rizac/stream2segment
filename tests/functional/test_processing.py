@@ -22,7 +22,7 @@ from stream2segment.cli import cli
 from stream2segment.io.db.models import Base, Event, Station, WebService, Segment,\
     Channel, Download, DataCenter
 from stream2segment.utils.inputargs import yaml_load as orig_yaml_load
-from stream2segment.utils.resources import get_templates_fpaths
+from stream2segment.utils.resources import get_templates_fpaths, get_templates_fpath
 from stream2segment.process.utils import get_inventory
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
 from stream2segment.process.main import run as process_main_run, query4process
@@ -32,18 +32,13 @@ from stream2segment.process.writers import BaseWriter
 from stream2segment.io.utils import dumps_inv
 
 
-def yaml_load_side_effect(**overrides):
-    """Side effect for the function reading the yaml config which enables the input
-    of parameters to be overridden just after reading and before any other operation"""
-    if overrides:
-        def func(*a, **v):
-            ret = orig_yaml_load(*a, **v)
-            ret.update(overrides)  # note: this OVERRIDES nested dicts
-            # whereas passing coverrides as second argument of orig_yaml_load MERGES their keys
-            # with existing one
-            return ret
-        return func
-    return orig_yaml_load
+@pytest.fixture
+def yamlfile(pytestdir):
+    '''global fixture wrapping pytestdir.yamlfile'''
+    def func(**overridden_pars):
+        return pytestdir.yamlfile(get_templates_fpath('paramtable.yaml'), **overridden_pars)
+
+    return func
 
 
 def readcsv(filename, header=True):
@@ -52,7 +47,7 @@ def readcsv(filename, header=True):
 
 class Test(object):
 
-    pyfile, conffile = get_templates_fpaths("paramtable.py", "paramtable.yaml")
+    pyfile = get_templates_fpath("paramtable.py")
 
     @property
     def logfilecontent(self):
@@ -197,22 +192,20 @@ class Test(object):
     # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
     # use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
     # those segments in case. For info see db4process in conftest.py
-    @mock.patch('stream2segment.utils.inputargs.yaml_load')
     @mock.patch('stream2segment.main.run_process', side_effect=process_main_run)
-    def test_simple_run_no_outfile_provided(self, mock_run, mock_yaml_load,
+    def test_simple_run_no_outfile_provided(self, mock_run,
                                             # fixtures:
-                                            db4process):
+                                            db4process, yamlfile):
         '''test a case where save inventory is True, and that we saved inventories'''
         # set values which will override the yaml config in templates folder:
         config_overrides = {'snr_threshold': 0,
                             'segment_select': {'has_data': 'true'}}
-        mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
+        yaml_file = yamlfile(**config_overrides)
 
         runner = CliRunner()
 
-        pyfile, conffile = self.pyfile, self.conffile
         result = runner.invoke(cli, ['process', '--dburl', db4process.dburl,
-                               '-p', pyfile, '-c', conffile])
+                               '-p', self.pyfile, '-c', yaml_file])
 
         assert not result.exception
 
@@ -244,12 +237,11 @@ class Test(object):
                               ({}, ['--multi-process']),
                               ({'segments_chunk': 1}, ['--multi-process', '--num-processes', '1']),
                               ({}, ['--multi-process', '--num-processes', '1'])])
-    @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_retDict_complex_select(self, mock_yaml_load,
+    def test_simple_run_retDict_complex_select(self,
                                                advanced_settings,
                                                cmdline_opts,
                                                # fixtures:
-                                               pytestdir, db4process):
+                                               pytestdir, db4process, yamlfile):
         '''test a case where we have a more complex select involving joins'''
         session = db4process.session
         # select the event times for the segments with data:
@@ -265,7 +257,7 @@ class Test(object):
         # test_simple_run_retDict_saveinv,
         # as segment_select[event.time] includes all segments in segment_select['has_data'],
         # thus the code is left as it was in the method above
-        mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
+        yaml_file = yamlfile(**config_overrides)
 
         _seg = db4process.segments(with_inventory=True, with_data=True, with_gap=False).one()
         expected_first_row_seg_id = _seg.id
@@ -273,9 +265,8 @@ class Test(object):
 
         runner = CliRunner()
         filename = pytestdir.newfile('.csv')
-        pyfile, conffile = self.pyfile, self.conffile
         result = runner.invoke(cli, ['process', '--dburl', db4process.dburl,
-                               '-p', pyfile, '-c', conffile, filename] + cmdline_opts)
+                               '-p', self.pyfile, '-c', yaml_file, filename] + cmdline_opts)
 
         assert not result.exception
         # check file has been correctly written:
@@ -297,10 +288,9 @@ segment (id=2): Station inventory (xml) error: no data
     # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
     # use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
     # those segments in case. For info see db4process in conftest.py
-    @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_retDict_high_snr_threshold(self, mock_yaml_load,
+    def test_simple_run_retDict_high_snr_threshold(self,
                                                    # fixtures:
-                                                   pytestdir, db4process):
+                                                   pytestdir, db4process, yamlfile):
         '''same as `test_simple_run_retDict_saveinv` above
         but with a very high snr threshold => no rows processed'''
         # setup inventories:
@@ -310,13 +300,12 @@ segment (id=2): Station inventory (xml) error: no data
                               # we would process otherwise:
                             'snr_threshold': 3,
                             'segment_select': {'has_data': 'true'}}
-        mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
+        yaml_file = yamlfile(**config_overrides)
 
         runner = CliRunner()
         filename = pytestdir.newfile('.csv')
-        pyfile, conffile = self.pyfile, self.conffile
         result = runner.invoke(cli, ['process', '--dburl', db4process.dburl,
-                               '-p', pyfile, '-c', conffile, filename])
+                               '-p', self.pyfile, '-c', yaml_file, filename])
 
         assert not result.exception
         # no file written (see next comment for details). Check outfile is empty:
@@ -343,12 +332,11 @@ segment (id=5): 4 traces (probably gaps/overlaps)
     # those segments in case. For info see db4process in conftest.py
     @pytest.mark.parametrize('select_with_data, seg_chunk',
                              [(True, None), (True, 1), (False, None), (False, 1)])
-    @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_retDict_seg_select_empty_and_err_segments(self, mock_yaml_load,
+    def test_simple_run_retDict_seg_select_empty_and_err_segments(self,
                                                                   select_with_data, seg_chunk,
                                                                   # fixtures:
                                                                   pytestdir,
-                                                                  db4process):
+                                                                  db4process, yamlfile):
         '''test a segment selection that takes only non-processable segments'''
         # set values which will override the yaml config in templates folder:
         config_overrides = {'snr_threshold': 0,  # take all segments
@@ -363,15 +351,13 @@ segment (id=5): 4 traces (probably gaps/overlaps)
         if seg_chunk is not None:
             config_overrides['advanced_settings'] = {'segments_chunk': seg_chunk}
 
-        mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
+        yaml_file = yamlfile(**config_overrides)
 
         runner = CliRunner()
         filename = pytestdir.newfile('.csv')
-        pyfile, conffile = self.pyfile, self.conffile
-
         result = runner.invoke(cli, ['process', '--dburl', db4process.dburl,
-                                     '-p', pyfile,
-                                     '-c', conffile,
+                                     '-p', self.pyfile,
+                                     '-c', yaml_file,
                                      filename])
         assert not result.exception
         # check file has not been written (no data):
@@ -410,11 +396,10 @@ segment (id=6): MiniSeed error: no data
                               ({}, ['--multi-process']),
                               ({'segments_chunk': 1}, ['--multi-process', '--num-processes', '1']),
                               ({}, ['--multi-process', '--num-processes', '1'])])
-    @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_ret_list(self, mock_yaml_load, advanced_settings, cmdline_opts,
+    def test_simple_run_ret_list(self, advanced_settings, cmdline_opts,
                                  # fixtures:
                                  pytestdir,
-                                 db4process):
+                                 db4process, yamlfile):
         '''test processing returning list, and also when we specify a different main function'''
 
         # set values which will override the yaml config in templates folder:
@@ -423,13 +408,13 @@ segment (id=6): MiniSeed error: no data
         if advanced_settings:
             config_overrides['advanced_settings'] = advanced_settings
 
-        mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
+        yaml_file = yamlfile(**config_overrides)
 
         _seg = db4process.segments(with_inventory=True, with_data=True, with_gap=False).one()
         expected_first_row_seg_id = _seg.id
         station_id_whose_inventory_is_saved = _seg.station.id
 
-        pyfile, conffile = self.pyfile, self.conffile
+        pyfile = self.pyfile
 
         # Now wrtite pyfile into a named temp file, with the method:
         # def main_retlist(segment, config):
@@ -452,7 +437,7 @@ def main(segment, config):""")
         runner = CliRunner()
         result = runner.invoke(cli, ['process', '--dburl', db4process.dburl,
                                      '-p', pyfile2, '-f', "main_retlist",
-                                     '-c', conffile,
+                                     '-c', yaml_file,
                                      filename] + cmdline_opts)
 
         assert not result.exception
@@ -490,19 +475,18 @@ segment (id=5): 4 traces (probably gaps/overlaps)
                               (ImportError, False),
                               (AttributeError, True),
                               (TypeError, True)])
-    @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_errors_process_not_run(self, mock_yaml_load,
+    def test_errors_process_not_run(self,
                                     err_type, expects_log_2_be_configured, cmdline_opts,
                                     # fixtures:
-                                    pytestdir, db4process):
+                                    pytestdir, db4process, yamlfile):
         '''test processing in case of severla 'critical' errors (which do not launch the process
           None means simply a bad argument (funcname missing)'''
-        pyfile, conffile = self.pyfile, self.conffile
+        pyfile = self.pyfile
 
         # REMEMBER THAT BY DEFAULT LEAVING THE segment_select IMPLEMENTED in conffile
         # WE WOULD HAVE NO SEGMENTS, as maxgap_numsamples is None for all segments of this test
         # Thus provide config overrides:
-        mock_yaml_load.side_effect = yaml_load_side_effect(segment_select={'has_data': 'true'})
+        yaml_file = yamlfile(segment_select={'has_data': 'true'})
 
         runner = CliRunner()
         # Now wrtite pyfile into a named temp file, BUT DO NOT SUPPLY EXTENSION
@@ -540,7 +524,7 @@ def main(""")
 
         result = runner.invoke(cli, ['process', '--dburl', db4process.dburl, '--no-prompt',
                                      '-p', pyfile2, '-f', "main2",
-                                     '-c', conffile,
+                                     '-c', yaml_file,
                                      filename] + cmdline_opts)
 
         assert result.exception
@@ -578,22 +562,21 @@ def main(""")
     # use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
     # those segments in case. For info see db4process in conftest.py
     @pytest.mark.parametrize("err_type", [None, ValueError])
-    @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_errors_process_completed(self, mock_yaml_load, err_type,
+    def test_errors_process_completed(self, err_type,
                                       # fixtures:
-                                      pytestdir, db4process):
+                                      pytestdir, db4process, yamlfile):
         '''test processing in case of non 'critical' errors i.e., which do not prevent the process
           to be completed. None means we do not override segment_select which, with the current
           templates, causes no segment to be selected'''
-        pyfile, conffile = self.pyfile, self.conffile
+        pyfile = self.pyfile
 
         # REMEMBER THAT BY DEFAULT LEAVING THE segment_select IMPLEMENTED in conffile
         # WE WOULD HAVE NO SEGMENTS, as maxgap_numsamples is None for all segments of this test
         # Thus provide config overrides:
         if err_type is not None:
-            mock_yaml_load.side_effect = yaml_load_side_effect(segment_select={'has_data': 'true'})
+            yaml_file = yamlfile(segment_select={'has_data': 'true'})
         else:
-            mock_yaml_load.side_effect = yaml_load_side_effect()
+            yaml_file = yamlfile()
 
         runner = CliRunner()
         # Now wrtite pyfile into a named temp file, BUT DO NOT SUPPLY EXTENSION
@@ -613,7 +596,7 @@ def main(""")
         else:
             # rename main to main2, as we will call 'main2' as funcname in 'runner.invoke' below
             # REMEMBER THAT THIS CASE HAS ACTUALLY NO SEGMENTS TO BE PROCESSED, see
-            # 'mock_yaml_load.side_effect' above
+            # 'yamlfile' fixture above
             content = content.replace("def main(", """def main2(""")
 
         with open(pyfile2, 'wb') as _opn:
@@ -621,7 +604,7 @@ def main(""")
 
         result = runner.invoke(cli, ['process', '--dburl', db4process.dburl, '--no-prompt',
                                      '-p', pyfile2, '-f', "main2",
-                                     '-c', conffile,
+                                     '-c', yaml_file,
                                      filename])
 
         assert not result.exception

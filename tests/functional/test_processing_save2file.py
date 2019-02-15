@@ -27,22 +27,17 @@ from stream2segment.process.main import run as process_main_run, \
     _get_chunksize_defaults as _o_get_chunksize_defaults, query4process
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
 from stream2segment.utils.url import URLError
-from stream2segment.utils.resources import get_templates_fpaths
+from stream2segment.utils.resources import get_templates_fpaths, get_templates_fpath
 from stream2segment.process.writers import BaseWriter
 
 
-def yaml_load_side_effect(**overrides):
-    """Side effect for the function reading the yaml config which enables the input
-    of parameters to be overridden just after reading and before any other operation"""
-    if overrides:
-        def func(*a, **v):
-            ret = orig_yaml_load(*a, **v)
-            ret.update(overrides)  # note: this OVERRIDES nested dicts
-            # whereas passing coverrides as second argument of orig_yaml_load MERGES their keys
-            # with existing one
-            return ret
-        return func
-    return orig_yaml_load
+@pytest.fixture
+def yamlfile(pytestdir):
+    '''global fixture wrapping pytestdir.yamlfile'''
+    def func(**overridden_pars):
+        return pytestdir.yamlfile(get_templates_fpath('save2fs.yaml'), **overridden_pars)
+
+    return func
 
 
 class Test(object):
@@ -97,12 +92,11 @@ class Test(object):
                               ({}, ['--multi-process']),
                               ({'segments_chunk': 1}, ['--multi-process', '--num-processes', '1']),
                               ({}, ['--multi-process', '--num-processes', '1'])])
-    @mock.patch('stream2segment.utils.inputargs.yaml_load')
     @mock.patch('stream2segment.main.run_process', side_effect=process_main_run)
-    def test_simple_run_no_outfile_provided(self, mock_run, mock_yaml_load, advanced_settings,
+    def test_simple_run_no_outfile_provided(self, mock_run, advanced_settings,
                                             cmdline_opts,
                                             # fixtures:
-                                            pytestdir, db4process, clirunner):
+                                            pytestdir, db4process, clirunner, yamlfile):
         '''test a case where save inventory is True, and that we saved inventories
         db is a fixture implemented in conftest.py and setup here in self.transact fixture
         '''
@@ -114,7 +108,7 @@ class Test(object):
         if advanced_settings:
             config_overrides['advanced_settings'] = advanced_settings
 
-        mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
+        yaml_file = yamlfile(**config_overrides)
         # query data for testing now as the program will expunge all data from the session
         # and thus we want to avoid DetachedInstanceError(s):
         expected_only_written_segment = \
@@ -122,10 +116,10 @@ class Test(object):
         # get seiscomp path of OK segment before the session is closed:
         path = os.path.join(dir_, expected_only_written_segment.sds_path())
 
-        pyfile, conffile = get_templates_fpaths("save2fs.py", "save2fs.yaml")
+        pyfile = get_templates_fpath("save2fs.py")
 
         result = clirunner.invoke(cli, ['process', '--dburl', db4process.dburl,
-                                        '-p', pyfile, '-c', conffile] + cmdline_opts)
+                                        '-p', pyfile, '-c', yaml_file] + cmdline_opts)
         assert clirunner.ok(result)
 
         filez = os.listdir(os.path.dirname(path))
@@ -167,7 +161,6 @@ class Test(object):
                               ({}, ['--multi-process']),
                               ({'segments_chunk': 1}, ['--multi-process', '--num-processes', '1']),
                               ({}, ['--multi-process', '--num-processes', '1'])])
-    @mock.patch('stream2segment.utils.inputargs.yaml_load')
     @mock.patch('stream2segment.process.main.Pool')
     @mock.patch('stream2segment.process.main.get_advanced_settings',
                 side_effect=o_get_advanced_settings)
@@ -179,11 +172,12 @@ class Test(object):
                                                            mock_process_segments_mp,
                                                            mock_process_segments,
                                                            mock_get_advanced_settings,
-                                                           mock_mp_Pool, mock_yaml_load,
+                                                           mock_mp_Pool,
                                                            advanced_settings,
                                                            cmdline_opts, def_chunksize,
                                                            # fixtures:
-                                                           pytestdir, db4process, clirunner):
+                                                           pytestdir, db4process, clirunner,
+                                                           yamlfile):
         '''test arguments and calls are ok. Mock Pool imap_unordered as we do not
         want to confuse pytest in case
         '''
@@ -217,15 +211,15 @@ class Test(object):
         if advanced_settings:
             config_overrides['advanced_settings'] = advanced_settings
 
-        mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
+        yaml_file = yamlfile(**config_overrides)
 
         # need to reset this global variable: FIXME: better handling?
         # process.main._inventories = {}
 
-        pyfile, conffile = get_templates_fpaths("save2fs.py", "save2fs.yaml")
+        pyfile = get_templates_fpath("save2fs.py")
 
         result = clirunner.invoke(cli, ['process', '--dburl', db4process.dburl,
-                                        '-p', pyfile, '-c', conffile] + cmdline_opts)
+                                        '-p', pyfile, '-c', yaml_file] + cmdline_opts)
         assert clirunner.ok(result)
 
         # test some stuff and get configarg, the the REAL config passed in the processing
@@ -263,16 +257,16 @@ class Test(object):
             # process_segments_mp calls process_segments:
             assert mock_process_segments_mp.call_count == mock_process_segments.call_count
         else:
-            assert not mock_process_segments_mp.called
+            assert mock_process_segments_mp.called == ('--multi-process' in cmdline_opts)
             assert mock_process_segments.called
             assert mock_process_segments.call_count == expected_callcount
         # test that advanced settings where correctly written:
         real_advanced_settings = configarg.get('advanced_settings', {})
         assert ('segments_chunk' in real_advanced_settings) == \
             ('segments_chunk' in advanced_settings)
-        # 'advanced_settings', if present HERE, will REPLACE 'advanced_settings' in config
-        #  See module function 'yaml_load_side_effect'. THus:
-        if advanced_settings:
+
+        # 'advanced_settings', if present HERE, will REPLACE 'advanced_settings' in config. Thus:
+        if advanced_settings and '--multi-process' not in cmdline_opts:
             assert sorted(real_advanced_settings.keys()) == sorted(advanced_settings.keys())
             for k in advanced_settings.keys():
                 assert advanced_settings[k] == real_advanced_settings[k]

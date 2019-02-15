@@ -60,7 +60,7 @@ pd.set_option('display.max_colwidth', -1)
 
 @pytest.fixture
 def yamlfile(pytestdir):
-    '''global fixture wrapping pytestdir.newfile'''
+    '''global fixture wrapping pytestdir.yamlfile'''
     def func(**overridden_pars):
         return pytestdir.yamlfile(get_templates_fpath('download.yaml'), **overridden_pars)
 

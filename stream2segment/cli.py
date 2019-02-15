@@ -217,18 +217,6 @@ def init(outdir):
 @click.option('-maxlon', '--maxlongitude', type=float,
               help=(clickutils.EQA + " Limit to events with a longitude smaller than "
                     "or equal to the specified maximum"))
-# @click.option('-lat', '--latitude', type=float,
-#               help=(clickutils.EQA + " Specify the latitude to be used for a radius search."))
-# @click.option('-lon', '--longitude', type=float,
-#               help=(clickutils.EQA + " Specify the longitude to be used for a radius search"))
-# @click.option('--minradius', type=float,
-#               help=(clickutils.EQA + " Limit to events within the specified minimum "
-#                     "number of degrees from the geographic point defined by the latitude and "
-#                     "longitude parameters"))
-# @click.option('--maxradius', type=float,
-#               help=(clickutils.EQA + " Limit to events within the specified maximum "
-#                     "number of degrees from the geographic point defined by the latitude and "
-#                     "longitude parameters"))
 @click.option('--mindepth', type=float,
               help=(clickutils.EQA + " Limit to events with depth more than the "
                     "specified minimum"))

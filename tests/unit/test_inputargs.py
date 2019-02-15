@@ -6,12 +6,13 @@ Created on May 23, 2017
 from contextlib import contextmanager
 # as we patch os.path.isfile, this seems to be the correct way to store beforehand
 # the original functions (also in other packages, e.g. pytestdir in conftest does not break):
-from os.path import isfile, basename, join, abspath, dirname
+from os.path import isfile, basename, join, abspath, dirname, relpath
 from datetime import datetime, timedelta
 import shutil
 from mock.mock import patch
 from itertools import product
 import uuid
+
 # this can not apparently be fixed with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
 try:
@@ -38,10 +39,28 @@ from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_t
 from stream2segment.main import init as orig_init, helpmathiter as main_helpmathiter, download
 
 
-class Test(object):
+@pytest.fixture
+def run_cli_download(pytestdir, db):
+    '''returns a function(*arg, **kw) where each arg is the command line parameters
+    to be overridden, and **kw the yaml config to be overrridden'''
+    def func(*args, **yaml_overrides):
+        args = list(args)
+        # override the db path with our currently tested one:
+        if '-d' not in args and '--dburl' not in args and'dburl' not in yaml_overrides:
+            yaml_overrides['dburl'] = db.dburl
+        # if -c or configfile is not specified, add it:
+        if "-c" not in args and "--configfile" not in args:
+            args.extend(['-c', pytestdir.yamlfile(get_templates_fpath("download.yaml"),
+                                                  **yaml_overrides)])
+        # process inputs:
+        runner = CliRunner()
+        result = runner.invoke(cli, ['download'] + args)
+        return result
 
-    d_yaml_file, p_yaml_file, p_py_file = \
-        get_templates_fpaths("download.yaml", "paramtable.yaml", "paramtable.py")
+    return func
+
+
+class Test(object):
 
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
@@ -76,22 +95,6 @@ class Test(object):
 
                     with patch('stream2segment.main.closesession') as _:
                         self.mock_close_session = _
-                        self._lastrun_lastdownload_id = None
-
-                        def clsess(*a, **v):  #pylint: disable=unused-argument
-                            qry = db.session.query(Download)
-                            if self._lastrun_lastdownload_id is not None:
-                                qry = qry.filter(Download.id > self._lastrun_lastdownload_id)
-                            dwnlds = qry.order_by(Download.id).all()
-                            # the following members are re-initialized in run_cli_download:
-                            self.lastrun_download_count = len(dwnlds)
-                            if self.lastrun_download_count:
-                                self.lastrun_lastdownload_log = dwnlds[-1].log
-                                self.lastrun_lastdownload_id = \
-                                    self._lastrun_lastdownload_id = dwnlds[-1].id
-#                             do not close the session:
-#                             db.session.close()
-                        self.mock_close_session.side_effect = clsess
 
                         with patch('stream2segment.main.run_download',
                                    side_effect = lambda *a, **v: None) as _:  # no-op
@@ -105,153 +108,16 @@ class Test(object):
                                            side_effect=lambda *a, **v: None) as _:
                                     self.mock_run_process = _
 
-                                    with patch('stream2segment.utils.inputargs.yaml_load') as _:
-                                        self.mock_yaml_load = _
-                                        self.yaml_overrides = {}
-                                        def yload(filepath, **updates):
-                                            dic = yaml_load(filepath, **updates)
-                                            if isinstance(filepath, string_types) and\
-                                                isfile(filepath):
-                                                # if we passed a file name then override
-                                                # the template dburl with our one
-                                                # If it's not the case, leave as it is:
-                                                # in download.yaml, it is a fake address
-                                                dic['dburl'] = db.dburl
-                                            # provide a valid one so that we explicitly inject
-                                            # a bad one in self.yaml_overrides,
-                                            # if needed
-                                            dic.update(self.yaml_overrides or {})
-                                            # IMPORTANT: reset NOW yaml overrides.
-                                            # In download, yaml_load is called
-                                            # twice, the second time reading from the builtin
-                                            # download.yaml to check unknown
-                                            # parameters. In this case, the yaml must return
-                                            # EXACTLY the file ignoring our
-                                            # overrides. NOTE THAT THIS IS A HACK AND FAILS
-                                            # IF WE READ FROM THE BUILTIN CONFIG FIRST
-                                            self.yaml_overrides = {}
-                                            return dic
-                                        self.mock_yaml_load.side_effect = yload  # no-op
+                                    yield
 
-                                        yield
-
-    def run_cli_download(self, *args, **yaml_overrides):
-        # reset database stuff:
-        self.lastrun_lastdownload_id = None
-        self.lastrun_lastdownload_log = None
-        self.lastrun_download_count = 0
-        # process inputs:
-        args = list(args)
-        if all(a not in ("-c", "--configfile") for a in args):
-            args += ['-c', self.d_yaml_file]
-        self.yaml_overrides = yaml_overrides
-        runner = CliRunner()
-        result = runner.invoke(cli, ['download'] + args)
-        return result
-
-    def run_cli_process(self, *args, **kwargs):
-        '''kwargs has a single arg: dburl_in_yaml (None by default)'''
-        dburl_in_yaml = kwargs.get('dburl_in_yaml', None)
-        args = list(args)
-        if all(a not in ("-d", "--dburl") for a in args):
-            args += ['-d', self.d_yaml_file]
-        if all(a not in ("-p", "--pyfile") for a in args):
-            args += ['-p', self.p_py_file]
-        if all(a not in ("-c", "--config") for a in args):
-            args += ['-c', self.p_yaml_file]
-        if dburl_in_yaml is not None:
-            self.yaml_overrides = {'dburl': dburl_in_yaml}
-        runner = CliRunner()
-        result = runner.invoke(cli, ['process'] + args)
-        return result
-
-    @patch('stream2segment.utils.inputargs.os.path.isfile', side_effect=isfile)
-    def test_download_eventws_query_args(self, mock_isfile, db):
-        '''test different scenarios where we provide eventws query args from the command line'''
-
-        # FIRST SCENARIO: no  eventws_params porovided
-        self.mock_run_download.reset_mock()
-        def_yaml_dict = yaml_load(self.d_yaml_file)['eventws_params']
-        assert not def_yaml_dict  # None or empty dict
-        result = self.run_cli_download()  # invalid type
-        assert result.exit_code == 0
-        # assert the yaml (as passed to the download function) has the correct value:
-        real_eventws_params = self.mock_run_download.call_args_list[0][1]['eventws_params']
-        # just assert it has keys merged from the global event-related yaml keys
-        assert 'maxmagnitude' not in real_eventws_params
-        assert real_eventws_params
-
-        # test by providing an eventsws param which is not optional:
-        self.mock_run_download.reset_mock()
-        def_yaml_dict = yaml_load(self.d_yaml_file)['eventws_params']
-        assert not def_yaml_dict  # None or empty dict
-        result = self.run_cli_download('--minmagnitude', '15.5')
-        assert result.exit_code == 0
-        # assert the yaml (as passed to the download function) has the correct value:
-        real_eventws_params = self.mock_run_download.call_args_list[0][1]['eventws_params']
-        # just assert it has keys merged from the global event-related yaml keys
-        assert real_eventws_params['minmagnitude'] == 15.5
-
-        # test by providing a eventsws param which is optional:
-        self.mock_run_download.reset_mock()
-        def_yaml_dict = yaml_load(self.d_yaml_file)['eventws_params']
-        assert not def_yaml_dict  # None or empty dict
-        result = self.run_cli_download('--minmagnitude', '15.5',
-                                       eventws_params={'format': 'abc'})
-        assert result.exit_code == 0
-        # assert the yaml (as passed to the download function) has the correct value:
-        real_eventws_params = self.mock_run_download.call_args_list[0][1]['eventws_params']
-        # just assert it has keys merged from the global event-related yaml keys
-        assert real_eventws_params['minmagnitude'] == 15.5
-        assert real_eventws_params['format'] == 'abc'
-
-        # conflicting args (supplying a global non-optional param in eventws's config):
-        for pars in [['--minlatitude', '-minlat'], ['--maxlatitude', '-maxlat'],
-                     ['--minlongitude', '-minlon'], ['--maxlongitude', '-maxlon'],
-                     ['--minmagnitude', '-minmag'], ['--maxmagnitude', '-maxmag'],
-                     ['--mindepth'], ['--maxdepth']]:
-            for par1, par2 in product(pars, pars):
-                self.mock_run_download.reset_mock()
-                result = self.run_cli_download(par1, '15.5',
-                                               eventws_params={par2.replace('-', ''): 15.5})
-                assert result.exit_code != 1
-                assert 'conflict' in result.output
-                assert 'Invalid value for "eventws_params"' in result.output
-
-        # test a eventws supplied as non existing file and not valid fdsnws:
-        mock_isfile.reset_mock()
-        assert not mock_isfile.called
-        result = self.run_cli_download('--eventws', 'myfile')
-        assert result.exit_code != 0
-        assert 'eventws' in result.output
-        assert mock_isfile.called
-
-        # test a eventws supplied as non existing file:
-        mock_isfile.reset_mock()
-        assert not mock_isfile.called
-        self.mock_run_download.reset_mock()
-        assert not self.mock_run_download.called
-        # mocking os.path.isfile needs to return the default side_effect
-        # otherwise conftest's pytestdir fixture gets confused (why? don't know). So:
-        eventwsfname = str(uuid.uuid4())
-        def mock_isfile_se(fpath):
-            if basename(fpath) == eventwsfname:
-                return True
-            return isfile(fpath)
-        mock_isfile.side_effect = mock_isfile_se
-        result = self.run_cli_download(eventws=eventwsfname)
-        assert result.exit_code == 0
-        run_download_args = self.mock_run_download.call_args_list[-1][1]
-        eventws_used = run_download_args['eventws']
-        assert eventws_used == abspath(join(dirname(self.d_yaml_file), eventwsfname))
-
-
-    def test_download_bad_values(self, db):
+    def test_download_bad_values(self,
+                                 # fixtures:
+                                 db, run_cli_download):
         '''test different scenarios where the value in the dwonload.yaml are not well formatted'''
-        result = self.run_cli_download(networks={'a': 'b'})  # conflict
+        result = run_cli_download(networks={'a': 'b'})  # conflict
         assert result.exit_code != 0
         assert 'Error: Conflicting names "network" / "networks"' in result.output
-        result = self.run_cli_download(network={'a': 'b'})
+        result = run_cli_download(network={'a': 'b'})
         assert result.exit_code == 0
         # thus providing dict is actually fine and will iterate over its keys:
         assert self.mock_run_download.call_args_list[0][1]['network'] == ['a']
@@ -267,195 +133,344 @@ class Test(object):
         assert "dburl: '%s'" % _dburl in result.output or "dburl: %s" % _dburl in result.output
 
         # check the session:
-        assert self.lastrun_lastdownload_log  # assert we have something written
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 1
+        # assert we did write to the db:
+        assert db.session.query(Download).count() == 1
 
-        result = self.run_cli_download(networks='!*')  # conflicting names
+        result = run_cli_download(networks='!*')  # conflicting names
         assert result.exit_code != 0
         assert 'Error: Conflicting names "network" / "networks"' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 0
+        assert db.session.query(Download).count() == 1
 
-        result = self.run_cli_download(network='!*')  # invalid value
+        result = run_cli_download(network='!*')  # invalid value
         assert result.exit_code != 0
         assert 'Error: Invalid value for "network": ' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 0
+        assert db.session.query(Download).count() == 1
 
-        result = self.run_cli_download(net='!*')  # conflicting names
+        result = run_cli_download(net='!*')  # conflicting names
         assert result.exit_code != 0
         assert 'Error: Conflicting names "network" / "net"' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 0
+        assert db.session.query(Download).count() == 1
 
         # test error from the command line. Result is the same as above as the check is made
         # AFTER click
-        result = self.run_cli_download('-n', '!*')  # invalid value
+        result = run_cli_download('-n', '!*')  # invalid value
         assert result.exit_code != 0
         assert 'Error: Invalid value for "network": ' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 0
+        assert db.session.query(Download).count() == 1
 
         # no such option:
-        result = self.run_cli_download('--zrt', '!*')
+        result = run_cli_download('--zrt', '!*')
         assert result.exit_code != 0
         assert 'Error: no such option: --zrt' in result.output  # why -z and not -zz? whatever...
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 0
+        assert db.session.query(Download).count() == 1
 
         # no such option from within the yaml:
-        result = self.run_cli_download(zz='!*')
+        result = run_cli_download(zz='!*')
         assert result.exit_code != 0
         assert 'Error: No such option "zz"' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 0
+        assert db.session.query(Download).count() == 1
 
         # what about conflicting arguments?
-        result = self.run_cli_download(networks='!*', net='opu')  # invalid value
+        result = run_cli_download(networks='!*', net='opu')  # invalid value
         assert result.exit_code != 0
         assert 'Conflicting names "network" / "net" / "networks"' in result.output or \
             'Conflicting names "network" / "networks" / "net"' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 0
+        assert db.session.query(Download).count() == 1
 
-        result = self.run_cli_download(starttime=[])  # invalid type
+        result = run_cli_download(starttime=[])  # invalid type
         assert result.exit_code != 0
         assert 'Error: Invalid type for "starttime":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 0
+        assert db.session.query(Download).count() == 1
 
         # mock implementing conflicting names in the yaml file:
-        result = self.run_cli_download(start='wat')  # invalid value
+        result = run_cli_download(start='wat')  # invalid value
         assert result.exit_code != 0
         assert 'Error: Conflicting names "starttime" / "start"' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 0
+        assert db.session.query(Download).count() == 1
 
         # mock implementing bad value in the cli: (cf with the previous test):
         # THE MESSAGE BELOW IS DIFFERENT BECAUSE WE PROVIDE A CLI VALIDATION FUNCTION
         # See the case of travetimes model below where, without a cli validation function,
         # the message is the same when we provide a bad argument in the yaml or from the cli
-        result = self.run_cli_download('--starttime', 'wat')  # invalid value
+        result = run_cli_download('--starttime', 'wat')  # invalid value
         assert result.exit_code != 0
         assert 'Error: Invalid value for "-s" / "--start" / "--starttime": wat' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 0
+        assert db.session.query(Download).count() == 1
 
         # This should work:
-        result = self.run_cli_download('--start', '2006-03-14')  # invalid value
+        result = run_cli_download('--start', '2006-03-14')  # invalid value
         assert result.exit_code == 0
         run_download_kwargs = self.mock_run_download.call_args_list[-1][1]
         assert run_download_kwargs['starttime'] == datetime(2006, 3, 14)
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 1
+        assert db.session.query(Download).count() == 2
 
         # now test the same as above BUT with a cli-only argument (-t0):
-        result = self.run_cli_download('-s', 'wat')  # invalid value typed from the command line
+        result = run_cli_download('-s', 'wat')  # invalid value typed from the command line
         assert result.exit_code != 0
         assert 'Error: Invalid value for "-s" / "--start" / "--starttime":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 0
+        assert db.session.query(Download).count() == 2
 
-        result = self.run_cli_download(endtime='wat')  # try with end
+        result = run_cli_download(endtime='wat')  # try with end
         assert result.exit_code != 0
         assert 'Error: Invalid value for "endtime":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 0
+        assert db.session.query(Download).count() == 2
 
-        result = self.run_cli_download(end='wat')  # try with end
+        result = run_cli_download(end='wat')  # try with end
         assert result.exit_code != 0
         assert 'Error: Conflicting names "endtime" / "end"' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 0
+        assert db.session.query(Download).count() == 2
 
         # now test the same as above BUT with the wrong value from the command line:
-        result = self.run_cli_download('-e', 'wat')  # invalid value typed from the command line
+        result = run_cli_download('-e', 'wat')  # invalid value typed from the command line
         assert result.exit_code != 0
         assert 'Error: Invalid value for "-e" / "--end" / "--endtime":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 0
+        assert db.session.query(Download).count() == 2
 
-        result = self.run_cli_download(traveltimes_model=[])  # invalid type
+        result = run_cli_download(traveltimes_model=[])  # invalid type
         assert result.exit_code != 0
         assert 'Error: Invalid type for "traveltimes_model":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 0
+        assert db.session.query(Download).count() == 2
 
-        result = self.run_cli_download(traveltimes_model='wat')  # invalid value
+        result = run_cli_download(traveltimes_model='wat')  # invalid value
         assert result.exit_code != 0
         assert 'Error: Invalid value for "traveltimes_model":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 0
+        assert db.session.query(Download).count() == 2
 
         # same as above but with error from the cli, not from within the config yaml:
-        result = self.run_cli_download('--traveltimes-model', 'wat')  # invalid value
+        result = run_cli_download('--traveltimes-model', 'wat')  # invalid value
         assert result.exit_code != 0
         assert 'Error: Invalid value for "traveltimes_model":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 0
+        assert db.session.query(Download).count() == 2
 
-        result = self.run_cli_download(dburl=self.d_yaml_file)  # existing file, invalid db url
+        d_yaml_file = get_templates_fpath("download.yaml")
+
+        result = run_cli_download(dburl=d_yaml_file)  # existing file, invalid db url
         assert result.exit_code != 0
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 0
+        assert db.session.query(Download).count() == 2
 
-        result = self.run_cli_download(dburl="sqlite:/whatever")  # invalid db url
-        assert result.exit_code != 0
-        assert 'Error: Invalid value for "dburl":' in result.output
-        # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 0
-
-        result = self.run_cli_download(dburl="sqlite://whatever")  # invalid db url
+        result = run_cli_download(dburl="sqlite:/whatever")  # invalid db url
         assert result.exit_code != 0
         assert 'Error: Invalid value for "dburl":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 0
+        assert db.session.query(Download).count() == 2
 
-        result = self.run_cli_download(dburl=[])  # invalid type
+        result = run_cli_download(dburl="sqlite://whatever")  # invalid db url
+        assert result.exit_code != 0
+        assert 'Error: Invalid value for "dburl":' in result.output
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert db.session.query(Download).count() == 2
+
+        result = run_cli_download(dburl=[])  # invalid type
         assert result.exit_code != 0
         assert 'Error: Invalid type for "dburl":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 0
+        assert db.session.query(Download).count() == 2
 
         # Test an invalif configfile. This can be done only via command line
-        result = self.run_cli_download('-c', 'frjkwlag5vtyhrbdd_nleu3kvshg w')
+        result = run_cli_download('-c', 'frjkwlag5vtyhrbdd_nleu3kvshg w')
         assert result.exit_code != 0
         assert 'Error: Invalid value for "-c" / "--config":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
-        assert self.lastrun_download_count == 0
+        assert db.session.query(Download).count() == 2
 
-    def test_process_bad_types(self):
-        '''bad types must be passed directly to download as click does a preliminary check'''
 
-        result = self.run_cli_process('--pyfile', 'nrvnkenrgdvf')  # invalid value from cli
-        # Note the resulting message is SIMILAR to the following, not exactly the same
-        # as this is issued by click, the other by our functions in inputargs module
-        assert result.exit_code != 0
-        assert 'Error: Invalid value for "-p" / "--pyfile":' in result.output
+@patch('stream2segment.main.run_download', side_effect=lambda *a, **v: None)
+@patch('stream2segment.utils.inputargs.os.path.isfile', side_effect=isfile)
+def test_download_eventws_query_args(mock_isfile, mock_run_download,
+                                     # fixtures:
+                                     run_cli_download):  # pylint: disable=redefined-outer-name
+    '''test different scenarios where we provide eventws query args from the command line'''
 
-        result = self.run_cli_process('--dburl', 'nrvnkenrgdvf')
-        assert result.exit_code != 0
-        assert 'Error: Invalid value for "dburl":' in result.output
+    d_yaml_file = get_templates_fpath("download.yaml")
+    # FIRST SCENARIO: no  eventws_params porovided
+    mock_run_download.reset_mock()
+    def_yaml_dict = yaml_load(d_yaml_file)['eventws_params']
+    assert not def_yaml_dict  # None or empty dict
+    result = run_cli_download()  # invalid type
+    assert result.exit_code == 0
+    # assert the yaml (as passed to the download function) has the correct value:
+    real_eventws_params = mock_run_download.call_args_list[0][1]['eventws_params']
+    # just assert it has keys merged from the global event-related yaml keys
+    assert 'maxmagnitude' not in real_eventws_params
+    assert real_eventws_params
 
-        result = self.run_cli_process(dburl_in_yaml='abcde')
-        assert result.exit_code != 0
-        assert 'Error: Invalid value for "dburl":' in result.output
-        assert "abcde" in result.output
+    # test by providing an eventsws param which is not optional:
+    mock_run_download.reset_mock()
+    def_yaml_dict = yaml_load(d_yaml_file)['eventws_params']
+    assert not def_yaml_dict  # None or empty dict
+    result = run_cli_download('--minmagnitude', '15.5')
+    assert result.exit_code == 0
+    # assert the yaml (as passed to the download function) has the correct value:
+    real_eventws_params = mock_run_download.call_args_list[0][1]['eventws_params']
+    # just assert it has keys merged from the global event-related yaml keys
+    assert real_eventws_params['minmagnitude'] == 15.5
 
-        result = self.run_cli_process('--funcname', 'nrvnkenrgdvf')
-        assert result.exit_code != 0
-        assert 'Error: Invalid value for "pyfile": function "nrvnkenrgdvf" not found in' \
-            in result.output
+    # test by providing a eventsws param which is optional:
+    mock_run_download.reset_mock()
+    def_yaml_dict = yaml_load(d_yaml_file)['eventws_params']
+    assert not def_yaml_dict  # None or empty dict
+    result = run_cli_download('--minmagnitude', '15.5',
+                              eventws_params={'format': 'abc'})
+    assert result.exit_code == 0
+    # assert the yaml (as passed to the download function) has the correct value:
+    real_eventws_params = mock_run_download.call_args_list[0][1]['eventws_params']
+    # just assert it has keys merged from the global event-related yaml keys
+    assert real_eventws_params['minmagnitude'] == 15.5
+    assert real_eventws_params['format'] == 'abc'
 
-        result = self.run_cli_process('-c', 'nrvnkenrgdvf')
-        assert result.exit_code != 0
-        # this is issued by click (see comment above)
-        assert 'Invalid value for "-c" / "--config"' in result.output
+    # conflicting args (supplying a global non-optional param in eventws's config):
+    for pars in [['--minlatitude', '-minlat'], ['--maxlatitude', '-maxlat'],
+                 ['--minlongitude', '-minlon'], ['--maxlongitude', '-maxlon'],
+                 ['--minmagnitude', '-minmag'], ['--maxmagnitude', '-maxmag'],
+                 ['--mindepth'], ['--maxdepth']]:
+        for par1, par2 in product(pars, pars):
+            mock_run_download.reset_mock()
+            result = run_cli_download(par1, '15.5',
+                                      eventws_params={par2.replace('-', ''): 15.5})
+            assert result.exit_code != 1
+            assert 'conflict' in result.output
+            assert 'Invalid value for "eventws_params"' in result.output
 
-        result = self.run_cli_process('-c', self.p_py_file)
-        assert result.exit_code != 0
-        assert 'Error: Invalid value for "config"' in result.output
+    # test a eventws supplied as non existing file and not valid fdsnws:
+    mock_isfile.reset_mock()
+    assert not mock_isfile.called
+    result = run_cli_download('--eventws', 'myfile')
+    assert result.exit_code != 0
+    assert 'eventws' in result.output
+    assert mock_isfile.called
+
+
+@pytest.mark.parametrize('filepath_is_abs',
+                         [True, False])
+@pytest.mark.parametrize('yamlarg',
+                         ['eventws', 'restricted_data', 'dburl'])
+@patch('stream2segment.main.run_download', side_effect=lambda *a, **v: None)
+def test_argument_which_accept_files_relative_and_abs_paths(mock_run_download,
+                                                            yamlarg, filepath_is_abs,
+                                                            # fixtures:
+                                                            pytestdir):
+    '''test that arguments accepting files are properly processed and the relative paths
+    are resolved relative to the yaml config file'''
+    # setup files and relative paths depending on whether we passed relative path or absolute
+    # int he config
+    if filepath_is_abs:
+        yamlarg_file = pytestdir.newfile()
+        overrides = {yamlarg: ('sqlite:///' if yamlarg == 'dburl' else '') + yamlarg_file}
+        # provide a sqlite memory if we are not testing dburl, otherwise run would fail:
+        if yamlarg != 'dburl':
+            overrides['dburl'] = 'sqlite:///:memory:'
+        yamlfile = pytestdir.yamlfile(get_templates_fpath('download.yaml'),
+                                      **overrides)
+    else:
+        overrides = {yamlarg: ('sqlite:///' if yamlarg == 'dburl' else '') + 'abc'}
+        # provide a sqlite memory if we are not testing dburl, otherwise run would fail:
+        if yamlarg != 'dburl':
+            overrides['dburl'] = 'sqlite:///:memory:'
+        yamlfile = pytestdir.yamlfile(get_templates_fpath('download.yaml'),
+                                      **overrides)
+        # and now create the file:
+        yamlarg_file = join(dirname(yamlfile), 'abc')
+
+    # create relative path:
+    with open(yamlarg_file, 'w') as opn:
+        if yamlarg == 'restricted_data':  # avoid errors if we are testing token file
+            opn.write('BEGIN PGP MESSAGE ABC')
+
+    # if we are not testing dburl
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ['download',
+                                 '-c',
+                                 yamlfile])
+    assert result.exit_code == 0
+    run_download_args = mock_run_download.call_args_list[-1][1]
+
+    if yamlarg == 'restricted_data':
+        # assert we read the correct file:
+        assert run_download_args['authorizer'].token == b'BEGIN PGP MESSAGE ABC'
+    elif yamlarg == 'dburl':
+        # assert we have the right db url:
+        assert str(run_download_args['session'].bind.engine.url) == 'sqlite:///' + yamlarg_file
+    else:
+        assert run_download_args[yamlarg] == yamlarg_file
+
+
+def test_process_bad_types(pytestdir):
+    '''bad types must be passed directly to download as click does a preliminary check'''
+
+    p_yaml_file, p_py_file = \
+        get_templates_fpaths("paramtable.yaml", "paramtable.py")
+
+    # Note that our functions in inputargs module return SIMILART messages as click
+    # not exactly the same one
+
+    result = CliRunner().invoke(cli, ['process', '--pyfile', 'nrvnkenrgdvf'])
+    assert result.exit_code != 0
+    assert 'Error: Invalid value for "-p" / "--pyfile":' in result.output
+
+    result = CliRunner().invoke(cli, ['process', '--dburl', 'nrvnkenrgdvf', '-c', p_yaml_file,
+                                      '-p', p_py_file])
+    assert result.exit_code != 0
+    assert 'Error: Invalid value for "dburl":' in result.output
+
+    # if we do not provide click default values, they have invalid values and they take priority
+    # (the --dburl arg is skipped):
+    result = CliRunner().invoke(cli, ['process', '--dburl', 'nrvnkenrgdvf', '-c', p_yaml_file])
+    assert result.exit_code != 0
+    assert 'Missing option "-p" / "--pyfile"' in result.output
+
+    result = CliRunner().invoke(cli, ['process', '--dburl', 'nrvnkenrgdvf'])
+    assert result.exit_code != 0
+    assert 'Missing option "-c" / "--config"' in result.output
+
+    result = CliRunner().invoke(cli, ['process', '--dburl', 'nrvnkenrgdvf', '-c', p_yaml_file,
+                                      '-p', p_py_file])
+    assert result.exit_code != 0
+    assert 'Error: Invalid value for "dburl":' in result.output
+    assert "nrvnkenrgdvf" in result.output
+
+    d_yaml_file = get_templates_fpath('download.yaml')
+    result = CliRunner().invoke(cli, ['process', '--dburl', d_yaml_file, '-c', p_yaml_file,
+                                      '-p', p_py_file])
+    assert result.exit_code != 0
+    assert 'Error: Invalid value for "dburl":' in result.output
+
+    d_yaml_file = pytestdir.yamlfile(d_yaml_file, dburl='sqlite:///:memory:')
+    result = CliRunner().invoke(cli, ['process', '--funcname', 'nrvnkenrgdvf', '-c', p_yaml_file,
+                                      '-p', p_py_file, '-d', d_yaml_file])
+    assert result.exit_code != 0
+    assert 'Error: Invalid value for "pyfile": function "nrvnkenrgdvf" not found in' \
+        in result.output
+
+    result = CliRunner().invoke(cli, ['process', '-c', 'nrvnkenrgdvf', '-p', p_py_file,
+                                      '-d', d_yaml_file])
+    assert result.exit_code != 0
+    # this is issued by click (see comment above)
+    assert 'Invalid value for "-c" / "--config"' in result.output
+
+    result = CliRunner().invoke(cli, ['process', '-c', p_py_file, '-p', p_py_file,
+                                      '-d', d_yaml_file])
+    assert result.exit_code != 0
+    assert 'Error: Invalid value for "config"' in result.output
 
 
 @patch('stream2segment.utils.inputargs.get_session')

@@ -17,9 +17,9 @@ from mock import patch
 import csv
 
 import pytest
+import numpy as np
 import pandas as pd
 from pandas.util.testing import assert_frame_equal
-import numpy as np
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm.session import sessionmaker
 from obspy.core.stream import read
@@ -27,8 +27,8 @@ from obspy.core.stream import read
 from stream2segment.cli import cli
 from stream2segment.io.db.models import Base, Event, Station, WebService, Segment,\
     Channel, Download, DataCenter
-from stream2segment.utils.inputargs import yaml_load as orig_yaml_load
-from stream2segment.utils.resources import get_templates_fpaths
+# from stream2segment.utils.inputargs import yaml_load as orig_yaml_load
+from stream2segment.utils.resources import get_templates_fpaths, get_templates_fpath
 from stream2segment.process.main import run as process_main_run, query4process
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
 from stream2segment.process.utils import enhancesegmentclass
@@ -37,18 +37,13 @@ from stream2segment.process.writers import BaseWriter
 from stream2segment.io.utils import dumps_inv
 
 
-def yaml_load_side_effect(**overrides):
-    """Side effect for the function reading the yaml config which enables the input
-    of parameters to be overridden just after reading and before any other operation"""
-    if overrides:
-        def func(*a, **v):
-            ret = orig_yaml_load(*a, **v)
-            ret.update(overrides)  # note: this OVERRIDES nested dicts
-            # whereas passing coverrides as second argument of orig_yaml_load MERGES their keys
-            # with existing one
-            return ret
-        return func
-    return orig_yaml_load
+@pytest.fixture
+def yamlfile(pytestdir):
+    '''global fixture wrapping pytestdir.yamlfile'''
+    def func(**overridden_pars):
+        return pytestdir.yamlfile(get_templates_fpath('paramtable.yaml'), **overridden_pars)
+
+    return func
 
 
 def readcsv(filename, header=True):
@@ -57,7 +52,7 @@ def readcsv(filename, header=True):
 
 class Test(object):
 
-    pyfile, conffile = get_templates_fpaths("paramtable.py", "paramtable.yaml")
+    pyfile = get_templates_fpath("paramtable.py")
 
     @property
     def logfilecontent(self):
@@ -102,20 +97,17 @@ class Test(object):
     # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
     # use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
     # those segments in case. For info see db4process in conftest.py
-    @mock.patch('stream2segment.utils.inputargs.yaml_load')
     @mock.patch('stream2segment.main.run_process', side_effect=process_main_run)
-    def test_simple_run_no_outfile_provided(self, mock_run, mock_yaml_load,
+    def test_simple_run_no_outfile_provided(self, mock_run,
                                             # fixtures:
-                                            db4process, clirunner):
+                                            db4process, clirunner, yamlfile):
         '''test a case where save inventory is True, and that we saved inventories'''
         # set values which will override the yaml config in templates folder:
         config_overrides = {'snr_threshold': 0,
                             'segment_select': {'has_data': 'true'}}
-        mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
-
-        pyfile, conffile = self.pyfile, self.conffile
         result = clirunner.invoke(cli, ['process', '--dburl', db4process.dburl,
-                                        '-p', pyfile, '-c', conffile, '-a'])
+                                        '-p', self.pyfile, '-c', yamlfile(**config_overrides),
+                                        '-a'])
         assert clirunner.ok(result)
 
         lst = mock_run.call_args_list
@@ -138,27 +130,25 @@ class Test(object):
     @pytest.mark.parametrize("advanced_settings, cmdline_opts",
                              [({}, ['-a']),
                               ])
-    @mock.patch('stream2segment.utils.inputargs.yaml_load')
-    def test_simple_run_retDict_saveinv_emptyfile(self, mock_yaml_load, advanced_settings,
+    def test_simple_run_retDict_saveinv_emptyfile(self, advanced_settings,
                                                   cmdline_opts,
                                                   # fixtures:
-                                                  pytestdir, db4process, clirunner):
+                                                  pytestdir, db4process, clirunner, yamlfile):
         '''test a case where we create a temporary file, empty but opened before writing'''
         # set values which will override the yaml config in templates folder:
         config_overrides = {'snr_threshold': 0,
                             'segment_select': {'has_data': 'true'}}
         if advanced_settings:
             config_overrides['advanced_settings'] = advanced_settings
-        mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
 
         _seg = db4process.segments(with_inventory=True, with_data=True, with_gap=False).one()
         expected_first_row_seg_id = _seg.id
         station_id_whose_inventory_is_saved = _seg.station.id
 
         filename = pytestdir.newfile('output.csv', create=True)
-        pyfile, conffile = self.pyfile, self.conffile
         result = clirunner.invoke(cli, ['process', '--dburl', db4process.dburl,
-                                  '-p', pyfile, '-c', conffile, filename] + cmdline_opts)
+                                  '-p', self.pyfile, '-c', yamlfile(**config_overrides),
+                                  filename] + cmdline_opts)
         assert clirunner.ok(result)
 
         # check file has been correctly written:
@@ -178,19 +168,18 @@ class Test(object):
                              [({}, ['-a']),
                               ({}, ['-a', '--multi-process']),
                               ])
-    @mock.patch('stream2segment.utils.inputargs.yaml_load')
     @mock.patch('stream2segment.cli.click.confirm', return_value=True)
-    def test_append(self, mock_click_confirm, mock_yaml_load, advanced_settings, cmdline_opts,
+    def test_append(self, mock_click_confirm, advanced_settings, cmdline_opts,
                     return_list,
                     # fixtures:
-                    pytestdir, db4process, clirunner):
+                    pytestdir, db4process, clirunner, yamlfile):
         '''test a typical case where we supply the append option'''
         # set values which will override the yaml config in templates folder:
         config_overrides = {'snr_threshold': 0,
                             'segment_select': {'has_data': 'true'}}
         if advanced_settings:
             config_overrides['advanced_settings'] = advanced_settings
-        mock_yaml_load.side_effect = yaml_load_side_effect(**config_overrides)
+        yaml_file = yamlfile(**config_overrides)
 
         _seg = db4process.segments(with_inventory=True, with_data=True, with_gap=False).one()
         expected_first_row_seg_id = _seg.id
@@ -199,12 +188,12 @@ class Test(object):
         session = db4process.session
 
         filename = pytestdir.newfile('.csv')
-        pyfile, conffile = self.pyfile, self.conffile
 
+        pyfile = self.pyfile
         if return_list:
             # modify python so taht 'main' returns a list by calling the default 'main'
             # and returning its keys:
-            with open(pyfile, 'r') as opn:
+            with open(self.pyfile, 'r') as opn:
                 content = opn.read()
 
             pyfile = pytestdir.newfile('.py')
@@ -216,7 +205,8 @@ def main2(segment, config):""")
 
         mock_click_confirm.reset_mock()
         result = clirunner.invoke(cli, ['process', '--dburl', db4process.dburl,
-                                        '-p', pyfile, '-c', conffile, filename] + cmdline_opts)
+                                        '-p', pyfile, '-c', yaml_file, filename]
+                                  + cmdline_opts)
         assert clirunner.ok(result)
 
         # check file has been correctly written:
@@ -234,7 +224,8 @@ def main2(segment, config):""")
         # now test a second call, the same as before:
         mock_click_confirm.reset_mock()
         result = clirunner.invoke(cli, ['process', '--dburl', db4process.dburl,
-                                        '-p', pyfile, '-c', conffile, filename] + cmdline_opts)
+                                        '-p', pyfile, '-c', yaml_file, filename]
+                                  + cmdline_opts)
         # check file has been correctly written:
         csv2 = readcsv(filename, header=not return_list)
         assert len(csv2) == 1
@@ -258,7 +249,7 @@ def main2(segment, config):""")
         # now test a second call, the same as before:
         mock_click_confirm.reset_mock()
         result = clirunner.invoke(cli, ['process', '--dburl', db4process.dburl, '-p', pyfile,
-                                        '-c', conffile, filename] + cmdline_opts)
+                                        '-c', yaml_file, filename] + cmdline_opts)
         # check file has been correctly written:
         csv3 = readcsv(filename, header=not return_list)
         assert len(csv3) == 2
@@ -276,7 +267,7 @@ def main2(segment, config):""")
         # last try: no append (also set no-prompt to test that we did not prompt the user)
         mock_click_confirm.reset_mock()
         result = clirunner.invoke(cli, ['process', '--dburl', db4process.dburl, '-p', pyfile,
-                                        '-c', conffile, filename] + cmdline_opts[1:])
+                                        '-c', yaml_file, filename] + cmdline_opts[1:])
         # check file has been correctly written:
         csv4 = readcsv(filename, header=not return_list)
         assert len(csv4) == 1
@@ -293,7 +284,7 @@ def main2(segment, config):""")
         mock_click_confirm.reset_mock()
         mock_click_confirm.return_value = False
         result = clirunner.invoke(cli, ['process',  '--dburl', db4process.dburl, '-p', pyfile,
-                                        '-c', conffile, filename] + cmdline_opts[1:])
+                                        '-c', yaml_file, filename] + cmdline_opts[1:])
         assert result.exception
         assert type(result.exception) == SystemExit
         assert result.exception.code == 1
