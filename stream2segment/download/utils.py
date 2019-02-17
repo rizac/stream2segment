@@ -179,14 +179,14 @@ def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, updat
     """Calls `syncdf` and writes to the logger before returning the new dataframe.
     Raises a :class:`FailedDownload` if the returned dataframe is empty (no row saved)"""
 
-    oninsert_err_callback = handledbexc(cols_to_print_on_err, update=False)
-    onupdate_err_callback = handledbexc(cols_to_print_on_err, update=True)
-    onduplicates_callback = oninsert_err_callback
+    db_exc_logger = DbExcLogger(cols_to_print_on_err)
 
     inserted, not_inserted, updated, not_updated, dfr = \
         syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update,
                buf_size, keep_duplicates,
-               onduplicates_callback, oninsert_err_callback, onupdate_err_callback)
+               db_exc_logger.failed_insert,  # on duplicates callback
+               db_exc_logger.failed_insert,   # on insert err callback
+               db_exc_logger.failed_update)   # on update err callback
 
     table = autoincrement_pkey_col.class_
     if dfr.empty:
@@ -196,13 +196,39 @@ def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, updat
     return dfr
 
 
-def handledbexc(cols_to_print_on_err, update=False):
-    """Returns a **function** to be passed to pdsql functions when inserting/ updating
-    the db. Basically, it prints to log"""
-    if not cols_to_print_on_err:
-        return None
+class DbExcLogger(object):
+    '''class handling db I/O error and logging the rows not
+        inserted (:meth:`DbExcLogger.failed_insert`) or
+        updated (:meth:`DbExcLogger.failed_update`). The rows
+        have to be passed to those methods in form of pandas DataFrame'''
 
-    def hde(dataframe, exception):
+    def __init__(self, cols_to_print_on_err, max_row_count=30):
+        '''initializes a db logger
+
+        :param cols_to_print_on_err: list of strings denoting the dataframe
+            columns to be printed in the log'. None will print all columns'''
+        self.cols_to_print_on_err = cols_to_print_on_err
+        self.max_row_count = max_row_count
+
+    def failed_insert(self, dataframe, exception):
+        '''logs a failed db insertion
+
+        :param dataframe: the pandas DataFrame with rows not inserted.
+        :param exception: the original exception preventing insertion
+        '''
+        self._handledbexc(dataframe, exception, update=False)
+
+    def failed_update(self, dataframe, exception):
+        '''logs a failed db update
+
+        :param dataframe: the pandas DataFrame with rows not updated.
+        :param exception: the original exception preventing update
+        '''
+        self._handledbexc(dataframe, exception, update=True)
+
+    def _handledbexc(self, dataframe, exception, update=False):
+        """Function to be passed to pdsql functions on error when inserting/ updating
+        the db. Basically, it prints to log"""
         if not dataframe.empty:
             try:
                 # if sql-alchemy exception, try to guess the orig atrribute which represents
@@ -215,9 +241,7 @@ def handledbexc(cols_to_print_on_err, update=False):
             len_df = len(dataframe)
             msg = formatmsg("%d database row(s) not %s" %
                             (len_df, "updated" if update else "inserted"), errmsg)
-            logwarn_dataframe(dataframe, msg, cols_to_print_on_err)
-
-    return hde
+            logwarn_dataframe(dataframe, msg, self.cols_to_print_on_err, self.max_row_count)
 
 
 def logwarn_dataframe(dataframe, msg, cols_to_print_on_err, max_row_count=30):

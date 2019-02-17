@@ -19,7 +19,7 @@ import pandas as pd
 
 from stream2segment.io.db.models import DataCenter, Station, Channel, Segment, Fdsnws
 from stream2segment.download.utils import read_async, NothingToDownload,\
-    handledbexc, logwarn_dataframe, DownloadStats, formatmsg, s2scodes, url2str
+    DbExcLogger, logwarn_dataframe, DownloadStats, formatmsg, s2scodes, url2str
 from stream2segment.download.modules.mseedlite import MSeedError, unpack as mseedunpack
 from stream2segment.utils import get_progressbar
 from stream2segment.io.db.pdsql import dbquery2df, mergeupdate, DbManager
@@ -256,11 +256,12 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
     if update_request_timebounds:
         colnames2update += [SEG_START, SEG_ATIME, SEG_END]
 
-    cols_to_log_on_err = [SEG_ID, SEG_CHAID, SEG_START, SEG_END, SEG_DCID]
+    db_exc_logger = DbExcLogger([SEG_ID, SEG_CHAID, SEG_START, SEG_END, SEG_DCID])
+
     segmanager = DbManager(session, Segment.id, colnames2update,
                            db_bufsize, return_df=False,
-                           oninsert_err_callback=handledbexc(cols_to_log_on_err, update=False),
-                           onupdate_err_callback=handledbexc(cols_to_log_on_err, update=True))
+                           oninsert_err_callback=db_exc_logger.failed_insert,
+                           onupdate_err_callback=db_exc_logger.failed_update)
 
     # define the groupsby columns
     # remember that segments_df has columns:

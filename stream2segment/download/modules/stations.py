@@ -15,7 +15,7 @@ from datetime import datetime
 import pandas as pd
 
 from stream2segment.io.db.models import DataCenter, Station, Segment
-from stream2segment.download.utils import read_async, handledbexc, formatmsg, url2str,\
+from stream2segment.download.utils import read_async, DbExcLogger, formatmsg, url2str,\
     err2str
 from stream2segment.utils import get_progressbar
 from stream2segment.io.db.pdsql import DbManager
@@ -49,13 +49,15 @@ def save_inventories(session, stations_df, max_thread_workers, timeout,
     inv_logger = InventoryLogger()
 
     downloaded, errors, empty = 0, 0, 0
-    cols_to_log_on_err = [Station.id.key, Station.network.key, Station.station.key,
-                          Station.start_time.key]
+
+    db_exc_logger = DbExcLogger([Station.id.key, Station.network.key,
+                                 Station.station.key, Station.start_time.key])
+
     dbmanager = DbManager(session, Station.id,
                           update=[Station.inventory_xml.key],
                           buf_size=db_bufsize,
-                          oninsert_err_callback=handledbexc(cols_to_log_on_err, update=False),
-                          onupdate_err_callback=handledbexc(cols_to_log_on_err, update=True))
+                          oninsert_err_callback=db_exc_logger.failed_insert,
+                          onupdate_err_callback=db_exc_logger.failed_update)
 
     with get_progressbar(show_progress, length=len(stations_df)) as pbar:
         iterable = zip(stations_df[Station.id.key],

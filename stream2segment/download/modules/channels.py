@@ -19,7 +19,7 @@ from sqlalchemy import or_, and_
 
 from stream2segment.io.db.models import DataCenter, Station, Channel
 from stream2segment.download.utils import read_async, response2normalizeddf, FailedDownload,\
-    handledbexc, dbsyncdf, to_fdsn_arg, formatmsg
+    DbExcLogger, dbsyncdf, to_fdsn_arg, formatmsg
 from stream2segment.utils import get_progressbar, strconvert
 from stream2segment.io.db.pdsql import dbquery2df, shared_colnames, mergeupdate
 
@@ -354,7 +354,7 @@ def save_stations_and_channels(session, channels_df, eidavalidator, update, db_b
         logger.info(exc_msg)
         # If you want to print the duplicated channels, see `drop_station_dupliactes`
         # (don't do it as it's redundant info), and type e.g.:
-        # handledbexc(CHA_ERRCOLS)(channels_df_dupes, Exception(exc_msg))
+        # DbExcLogger(columns_to_print).failed_insert(channels_df_dupes, Exception(exc_msg))
         channels_df.dropna(axis=0, subset=[CHA_STAID], inplace=True)
 
     # add channels to db:
@@ -380,8 +380,6 @@ def drop_station_dupliactes(session, sta_df, eidavalidator):
     STA_DCID2 = 'invalid_' + STA_DCID  # pylint: disable=invalid-name
     CHA_LOC = Channel.location.key  # pylint: disable=invalid-name
     CHA_CHA = Channel.channel.key  # pylint: disable=invalid-name
-
-    STA_ERRCOLS = [STA_NET, STA_STA, STA_STIME, STA_DCID2]
 
     # then check dupes. Same network, station, starttime but different datacenter:
     duplicated = sta_df.duplicated(subset=[STA_NET, STA_STA, STA_STIME],
@@ -412,9 +410,11 @@ def drop_station_dupliactes(session, sta_df, eidavalidator):
                 (len(sta_df_dupes),
                  ("already saved stations" if eidavalidator is None else "eida routing service"))
             logger.info(exc_msg)
-            # print the removed dataframe to log.warning (showing STA_ERRCOLS only):
-            handledbexc(STA_ERRCOLS)(sta_df_dupes.sort_values(by=[STA_NET, STA_STA, STA_STIME]),
-                                     '')
+            # print the removed dataframe to log.warning (showing
+            # [STA_NET, STA_STA, STA_STIME, STA_DCID2] columns only):
+            db_exc_logger = DbExcLogger([STA_NET, STA_STA, STA_STIME, STA_DCID2])
+            db_exc_logger.failed_insert(sta_df_dupes.sort_values(by=[STA_NET, STA_STA, STA_STIME]),
+                                        '', )
             # https://stackoverflow.com/questions/28901683/pandas-get-rows-which-are-not-in-other-dataframe:
             sta_df = sta_df.loc[~sta_df.index.isin(sta_df_dupes.index)]
 
