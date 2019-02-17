@@ -358,8 +358,8 @@ def get_progressbar(show, **kw):
             kw['empty_char'] = '○'
         if 'bar_template' not in kw:
             kw['bar_template'] = '%(label)s %(bar)s %(info)s'
-        with click_progressbar(**kw) as bar:
-            yield bar
+        with click_progressbar(**kw) as pbar:
+            yield pbar
 
 
 def urljoin(*urlpath, **query_args):

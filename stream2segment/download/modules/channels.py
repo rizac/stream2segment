@@ -62,12 +62,12 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
                                                    datacenters_df[DataCenter.id.key],
                                                    cycle([postdata])))
 
-    with get_progressbar(show_progress, length=len(datacenters_df)) as bar:
+    with get_progressbar(show_progress, length=len(datacenters_df)) as pbar:
         for obj, result, exc, url in read_async(iterable, urlkey=lambda obj: obj[-1],
                                                 blocksize=blocksize,
                                                 max_workers=max_thread_workers,
                                                 decode='utf8', timeout=timeout):
-            bar.update(1)
+            pbar.update(1)
             dcen_id = obj[0]
             if exc:
                 url_failed_dc_ids.append(dcen_id)
@@ -97,19 +97,6 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
         try:
             web_cha_df = filter_channels_df(pd.concat(ret, axis=0, ignore_index=True, copy=False),
                                             net, sta, loc, cha, min_sample_rate)
-
-#             _ = pd.concat(ret, axis=0, ignore_index=True, copy=False)
-#             oldlen = len(_)
-#             web_cha_df = filter_channels_df(_, net, sta, loc, cha, min_sample_rate)
-#
-#             discarded_sr = oldlen - len(web_cha_df)
-#             if discarded_sr:
-#                 logger.warning(formatmsg("%d channel(s) discarded according to the config. filters ",
-#                                          "(network channel, sample rate, ...)"), discarded_sr)
-#             if web_cha_df.empty and db_cha_df.empty:
-#                 raise FailedDownload("No channel found matching config. filters "
-#                                      "(network, channel, sample rate, ...)")
-
 
             # this raises FailedDownload if we cannot save any element:
             web_cha_df = save_stations_and_channels(session, web_cha_df, eidavalidator, update,
@@ -238,16 +225,6 @@ def filter_channels_df(channels_df, net, sta, loc, cha, min_sample_rate):
                         "(network, channel, sample rate, ...)"), discarded_sr)
 
     return ret
-#     flt = None
-#     for colname, reg in pd_re.items():
-#         colflt = dataframe[colname].str.match(reg)
-#         if flt is None:
-#             flt = ~colflt
-#         else:
-#             flt |= ~colflt
-#     return dataframe if flt is None else dataframe[flt].copy() if copy else dataframe[flt]
-# 
-#     return func
 
 
 def get_channels_df_from_db(session, datacenters_df, net, sta, loc, cha, starttime, endtime,
@@ -350,45 +327,10 @@ def save_stations_and_channels(session, channels_df, eidavalidator, update, db_b
     # set columns to show in the log on error (no row written):
     STA_ERRCOLS = [STA_NET, STA_STA, STA_STIME, STA_DCID]
     CHA_ERRCOLS = [STA_NET, STA_STA, CHA_LOC, CHA_CHA, STA_STIME, STA_DCID]
-    # define a pre-formatteed string to log.info to in case od duplicates:
-    infomsg = "Found {:d} {} to be discarded (checked against %s)" % \
-        ("already saved stations: eida routing service n/a" if eidavalidator is None else
-         "eida routing service response")
+
     # first drop channels of same station:
     sta_df = channels_df.drop_duplicates(subset=[STA_NET, STA_STA, STA_STIME, STA_DCID]).copy()
-    # then check dupes. Same network, station, starttime but different datacenter:
-    duplicated = sta_df.duplicated(subset=[STA_NET, STA_STA, STA_STIME], keep=False)
-    if duplicated.any():
-        sta_df_dupes = sta_df[duplicated]
-        if eidavalidator is not None:
-            keep_indices = []
-            for _, group_df in sta_df_dupes.groupby(by=[STA_NET, STA_STA, STA_STIME],
-                                                    sort=False):
-                gdf = group_df.sort_values([STA_DCID])  # so we take first dc returning True
-                for i, d, n, s, l, c in zip(gdf.index, gdf[STA_DCID], gdf[STA_NET], gdf[STA_STA],
-                                            gdf[CHA_LOC], gdf[CHA_CHA]):
-                    if eidavalidator.isin(d, n, s, l, c):
-                        keep_indices.append(i)
-                        break
-            sta_df_dupes = sta_df_dupes.loc[~sta_df_dupes.index.isin(keep_indices)]
-        else:
-            sta_df_dupes = sta_df_dupes.copy()
-            sta_df_dupes.rename(columns={STA_DCID: STA_DCID + "_tmp"}, inplace=True)
-            # sta_df_dupes[STA_DCID + "_tmp"] = sta_df_dupes[STA_DCID].copy()
-            sta_df_dupes[STA_DCID] = np.nan
-            sta_db = dbquery2df(session.query(Station.network, Station.station, Station.start_time,
-                                              Station.datacenter_id))
-            mergeupdate(sta_df_dupes, sta_db, [STA_NET, STA_STA, STA_STIME], [STA_DCID])
-            sta_df_dupes = sta_df_dupes[sta_df_dupes[STA_DCID] != sta_df_dupes[STA_DCID + "_tmp"]]
-
-        if not sta_df_dupes.empty:
-            exc_msg = "duplicated station(s)"
-            logger.info(infomsg.format(len(sta_df_dupes), exc_msg))
-            # print the removed dataframe to log.warning (showing STA_ERRCOLS only):
-            handledbexc(STA_ERRCOLS)(sta_df_dupes.sort_values(by=[STA_NET, STA_STA, STA_STIME]),
-                                     Exception(exc_msg))
-            # https://stackoverflow.com/questions/28901683/pandas-get-rows-which-are-not-in-other-dataframe:
-            sta_df = sta_df.loc[~sta_df.index.isin(sta_df_dupes.index)]
+    sta_df = drop_station_dupliactes(session, sta_df, eidavalidator)
 
     # remember: dbsyncdf raises a FailedDownload, so no need to check for empty(dataframe). Also,
     # if update is True, for stations only it must NOT update inventories HERE (handled later)
@@ -407,12 +349,14 @@ def save_stations_and_channels(session, channels_df, eidavalidator, update, db_b
     # check dupes and warn:
     channels_df_dupes = channels_df[channels_df[CHA_STAID].isnull()]
     if not channels_df_dupes.empty:
-        exc_msg = "duplicated channel(s)"
-        logger.info(infomsg.format(len(channels_df_dupes), exc_msg))
-        # do not print the removed dataframe to log.warning (showing CHA_ERRCOLS only)
-        # the info is redundant given the already removed stations. Left commented in any case:
+        exc_msg = ("Found %d duplicated channel(s) to be discarded "
+                   "as a result of duplicated stations") % len(channels_df_dupes)
+        logger.info(exc_msg)
+        # If you want to print the duplicated channels, see `drop_station_dupliactes`
+        # (don't do it as it's redundant info), and type e.g.:
         # handledbexc(CHA_ERRCOLS)(channels_df_dupes, Exception(exc_msg))
         channels_df.dropna(axis=0, subset=[CHA_STAID], inplace=True)
+
     # add channels to db:
     channels_df = dbsyncdf(channels_df, session,
                            [Channel.station_id, Channel.location, Channel.channel],
@@ -421,29 +365,90 @@ def save_stations_and_channels(session, channels_df, eidavalidator, update, db_b
     return channels_df
 
 
+def drop_station_dupliactes(session, sta_df, eidavalidator):
+    '''Drops station duplicates from the Station Data frame `sta_df`
+    using eidavalidator or the database accessible via
+    the session object, if eidavalidator is None.
+    If no duplicates are found, returns `sta_df`
+    '''
+
+    STA_NET = Station.network.key  # pylint: disable=invalid-name
+    STA_STA = Station.station.key  # pylint: disable=invalid-name
+    STA_STIME = Station.start_time.key  # pylint: disable=invalid-name
+    STA_ETIME = Station.end_time.key  # pylint: disable=invalid-name
+    STA_DCID = Station.datacenter_id.key  # pylint: disable=invalid-name
+    STA_DCID2 = 'invalid_' + STA_DCID  # pylint: disable=invalid-name
+    CHA_LOC = Channel.location.key  # pylint: disable=invalid-name
+    CHA_CHA = Channel.channel.key  # pylint: disable=invalid-name
+
+    STA_ERRCOLS = [STA_NET, STA_STA, STA_STIME, STA_DCID2]
+
+    # then check dupes. Same network, station, starttime but different datacenter:
+    duplicated = sta_df.duplicated(subset=[STA_NET, STA_STA, STA_STIME],
+                                   keep=False)  # keep=False => Mark all duplicates as True
+    if duplicated.any():
+        sta_df_dupes = sta_df[duplicated].copy()
+        sta_df_dupes.rename(columns={STA_DCID: STA_DCID2}, inplace=True)
+        sta_df_dupes[STA_DCID] = np.nan
+
+        if eidavalidator is not None:
+            for i, net, sta, loc, cha, stime, etime in \
+                zip(sta_df_dupes.index, sta_df_dupes[STA_NET], sta_df_dupes[STA_STA],
+                    sta_df_dupes[CHA_LOC], sta_df_dupes[CHA_CHA],
+                    sta_df_dupes[STA_STIME], sta_df_dupes[STA_ETIME]):
+                sta_df_dupes.at[i, STA_DCID] = \
+                    eidavalidator.get_dc_id(net, sta, loc, cha,
+                                            None if pd.isnull(stime) else stime,
+                                            None if pd.isnull(etime) else etime)
+        else:
+            sta_db = dbquery2df(session.query(Station.network, Station.station, Station.start_time,
+                                              Station.datacenter_id))
+            mergeupdate(sta_df_dupes, sta_db, [STA_NET, STA_STA, STA_STIME], [STA_DCID])
+
+        sta_df_dupes = sta_df_dupes[sta_df_dupes[STA_DCID] != sta_df_dupes[STA_DCID2]]
+
+        if not sta_df_dupes.empty:
+            exc_msg = "Found %d duplicated station(s) to be discarded (checked against %s)" % \
+                (len(sta_df_dupes),
+                 ("already saved stations" if eidavalidator is None else "eida routing service"))
+            logger.info(exc_msg)
+            # print the removed dataframe to log.warning (showing STA_ERRCOLS only):
+            handledbexc(STA_ERRCOLS)(sta_df_dupes.sort_values(by=[STA_NET, STA_STA, STA_STIME]),
+                                     '')
+            # https://stackoverflow.com/questions/28901683/pandas-get-rows-which-are-not-in-other-dataframe:
+            sta_df = sta_df.loc[~sta_df.index.isin(sta_df_dupes.index)]
+
+    return sta_df
+
+
 def chaid2mseedid_dict(channels_df, drop_mseedid_columns=True):
     '''returns a dict of the form {channel_id: mseed_id} from channels_df, where mseed_id is
-    a string of the form ```[network].[station].[location].[channel]```
+    a string of the form
+
+    ```[network].[station].[location].[channel]```
+
     :param channels_df: the result of `get_channels_df`
+
     :param drop_mseedid_columns: boolean (default: True), removes all columns related to the mseed
-    id from `channels_df`. This might save up a lor of memory when cimputing the
-    segments resulting from each event -> stations binding (according to the search radius)
-    Remember that pandas strings are not optimized for memory as they are python objects
-    (https://www.dataquest.io/blog/pandas-big-data/)
+        id from `channels_df`. This might save up a lor of memory when cimputing the
+        segments resulting from each event -> stations binding (according to the search radius)
+        Remember that pandas strings are not optimized for memory as they are python objects
+        (https://www.dataquest.io/blog/pandas-big-data/)
     '''
     # For convenience and readability, define once the mapped column names representing the
     # dataframe columns that we need:
-    CHA_ID = Channel.id.key
-    STA_NET = Station.network.key
-    STA_STA = Station.station.key
-    CHA_LOC = Channel.location.key
-    CHA_CHA = Channel.channel.key
+    CHA_ID = Channel.id.key  # pylint: disable=invalid-name
+    STA_NET = Station.network.key  # pylint: disable=invalid-name
+    STA_STA = Station.station.key  # pylint: disable=invalid-name
+    CHA_LOC = Channel.location.key  # pylint: disable=invalid-name
+    CHA_CHA = Channel.channel.key  # pylint: disable=invalid-name
 
-    n = channels_df[STA_NET].str.cat
-    s = channels_df[STA_STA].str.cat
-    l = channels_df[CHA_LOC].str.cat
-    c = channels_df[CHA_CHA]
-    _mseedids = n(s(l(c, sep='.', na_rep=''), sep='.', na_rep=''), sep='.', na_rep='')
+    net = channels_df[STA_NET].str.cat
+    sta = channels_df[STA_STA].str.cat
+    loc = channels_df[CHA_LOC].str.cat
+    cha = channels_df[CHA_CHA]
+    _mseedids = net(sta(loc(cha, sep='.', na_rep=''), sep='.', na_rep=''), sep='.', na_rep='')
+
     if drop_mseedid_columns:
         # remove string columns, we do not need it anymore and
         # will save a lot of memory for subsequent operations

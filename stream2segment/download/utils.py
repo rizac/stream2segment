@@ -183,17 +183,17 @@ def dbsyncdf(dataframe, session, matching_columns, autoincrement_pkey_col, updat
     onupdate_err_callback = handledbexc(cols_to_print_on_err, update=True)
     onduplicates_callback = oninsert_err_callback
 
-    inserted, not_inserted, updated, not_updated, df = \
+    inserted, not_inserted, updated, not_updated, dfr = \
         syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update,
                buf_size, keep_duplicates,
                onduplicates_callback, oninsert_err_callback, onupdate_err_callback)
 
     table = autoincrement_pkey_col.class_
-    if df.empty:
+    if dfr.empty:
         raise FailedDownload(formatmsg("No row saved to table '%s'" % table.__tablename__,
                                        "unknown error, check log for details and db connection"))
     dblog(table, inserted, not_inserted, updated, not_updated)
-    return df
+    return dfr
 
 
 def handledbexc(cols_to_print_on_err, update=False):

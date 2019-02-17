@@ -510,11 +510,13 @@ def eq(str1, str2):
 
 def test_eidavalidator():
     responsetext = """http://ws.resif.fr/fdsnws/station/1/query
-Z3 A001A * HL? 2017-09-27T00:00:00 2017-10-01T00:00:00
-YF * * H?? 2017-09-27T00:00:00 2017-10-01T00:00:00
+Z3 A001A * HL? 2000-01-01T00:00:00 2001-01-01T00:00:00
+YF * * H?? * *
+ZE ABC * * 2000-01-01T00:00:00 2001-01-01T00:00:00
 
 http://eida.ethz.ch/fdsnws/station/1/query
-Z3 A291A * HH? 2017-09-27T00:00:00 2017-10-01T00:00:00
+Z3 A291A * HH? 2000-01-01T00:00:00 2001-01-01T00:00:00
+ZE ABC * * 2001-01-01T00:00:00 2002-01-01T00:00:00
 
 http:wrong
 """
@@ -527,27 +529,33 @@ http:wrong
     eidavalidator = EidaValidator(dc_df, responsetext)
 
     tests = {
-        (1, 'Z3', 'A001A', '01', 'HLLL'): False,
-        (1, 'Z3', 'A001A', '01', 'HLL'): True,
-        (2, '', '', '', ''): False,
-        (3, '', '', '', ''): False,
-        (1, 'Z3', 'A002a', '01', 'HLL'): False,
-        (1, 'Z3', 'A001A', '01', 'HLO'): True,
-        (1, 'Z3', 'A001A', '', 'HLL'): True,
-        (1, 'Z3', 'A291A', '01', 'HHL'): False,
-        (1, 'Z3', 'A291A', '01', 'HH'): False,
-        (2, 'Z3', 'A291A', '01', 'HH?'): True,
-        (1, 'YF', '*', '01', 'HH?'): True,
-        (1, 'YF', '*', '01', 'abc'): False,
-        (1, 'YF', '*', '01', 'HLW'): True,
-        (1, 'YF', '*fwe', 'bla', 'HL?'): True,
-        (1, 'YF', 'aewf*', '', 'HDF'): True,
-        (1, 'YFA', 'aewf*', '', 'HHH'): False,
-        (1, 'YFA', 'aewf*', '', 'HHH'): False,
+        ('Z3', 'A001A', '01', 'HLLL', None, None): None,
+        ('Z3', 'A001A', '01', 'HLL', None, None): 1,
+        ('', '', '', '', None, None): None,
+        ('', '', '', '', None, None): None,
+        ('Z3', 'A002a', '01', 'HLL', None, None): None,
+        ('Z3', 'A001A', '01', 'HLO', None, None): 1,
+        ('Z3', 'A001A', '', 'HLL', None, None): 1,
+        ('Z3', 'A291A', '01', 'HHL', None, None): 2,
+        ('Z3', 'A291A', '01', 'HH', None, None): None,
+        ('Z3', 'A291A', '01', 'HH?', None, None): 2,
+        ('YF', '*', '01', 'HH?', None, None): 1,
+        ('YF', '*', '01', 'abc', None, None): None,
+        ('YF', '*', '01', 'HLW', None, None): 1,
+        ('YF', '*fwe', 'bla', 'HL?', None, None): 1,
+        ('YF', 'aewf*', '', 'HDF', None, None): 1,
+        ('YFA', 'aewf*', '', 'HHH', None, None): None,
+        ('YFA', 'aewf*', '', 'HHH', None, None): None,
+        # time bounds:
+        ('ZE', 'ABC', '01', 'HLL', datetime(2020, 1, 1), None): None,
+        ('ZE', 'ABC', '02', 'ABC', datetime(1990, 1, 1), None): 1,
+        ('ZE', 'ABC', '02', 'ABC', None, datetime(1990, 1, 1)): None,
+        ('ZE', 'ABC', '03', 'XYZ', datetime(2000, 6, 1), None): 1,
+        ('ZE', 'ABC', '04', 'ELE', datetime(2001, 4, 1), None): 2,
         }
 
     for k, expected in tests.items():
-        assert eidavalidator.isin(*k) == expected
+        assert eidavalidator.get_dc_id(*k) == expected
 
 # (any, ['A','D','C','B'])   ['A', 'B', 'C', 'D']  # note result is sorted
 #     (any, 'B,C,D,A')          ['A', 'B', 'C', 'D']  # same as above

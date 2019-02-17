@@ -298,28 +298,6 @@ ZU * * HHZ 2015-01-01T00:00:00 2016-12-31T23:59:59.999999
                 "no data to fetch from the database. "
                 "Check config and log for details") in str(qd.value)
 
-# BLOCK BELOW COMMENTED OUT: IT SEEMS THAT WE TEST A QUITDOWNLOAD (ALREADY DONE ABOVE)
-# FOR 1000 ITERATIONS. THIS DOES NOT ACTUALLY ADDS ANY VALUABLE TEST RATHER THAN WASTING TIME:
-#         # now use filters on hannels start-time and end-time arguments, by assuring post data
-#         # is well formed. Include negations (!) to check that they are not included in the request
-#         # post data
-#         st = [datetime(2001, 1, 1), None]
-#         et = [datetime(2001, 3, 1), None]
-#         nslc = [[], ['HH?'], ['HHL', 'HH?'], ['!A'], ['!AZ', 'BH?']]
-#         # now we might want to use
-#         # for net, sta, loc, cha, s, e in product(nslc, nslc, nslc, nslc, [None, st], [None, et]):
-#         # which runs 2500 iterations. Way too much. We pick 1000 tests by randomly choicing
-#         # in those elements
-#         for i in range(1000):
-#             _net, _sta, _loc, _cha = random.choice(nslc), random.choice(nslc),\
-#                 random.choice(nslc), random.choice(nslc)
-#             s, e = random.choice(st), random.choice(et)
-#             with pytest.raises(QuitDownload) as qd:
-#                 _ = self.get_channels_df(URLError('urlerror_wat'), db.session,
-#                                          datacenters_df, eidavalidator,
-#                                          _net, _sta, _loc, _cha, s, e, 100,
-#                                          False, None, None, -1, self.db_buf_size)
-
         # now get channels with a mocked custom urlread_sideeffect below:
         # IMPORTANT: url read for channels: Note: first response data raises, second has an
         # error and that error is skipped (the other channels are added)
@@ -598,7 +576,7 @@ E|F|11|HHZ|38.7889|20.6578|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|8388
 
         # urlread for datacenters: will be called only if we have eida (the case here)
         urlread_sideeffect = """http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query
-A1 * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
+A1 * * * 2002-09-01T00:00:00 2015-10-20T00:00:00
 A2 a2 * * 2013-08-01T00:00:00 2017-04-25
 XX xx * * 2013-08-01T00:00:00 2017-04-25
 YY yy * HH? 2013-08-01T00:00:00 2017-04-25
@@ -614,19 +592,8 @@ YY yy * DE? 2013-08-01T00:00:00 2017-04-25
                                     net, sta, loc, cha, db_bufsize=self.db_buf_size)
 
         # MOCK THE CASE OF DUPLICATED STATIONS (I.E., RETURNED BY MORE THAN ONE DATACENTER)
-        # The behaviour we want to test is the following: Given a downloaded station,
-        # 1) if the station if it's unique (only one datacenter returned it), just fetch
-        # the station ID from the db
-        # (note that this does not touch the station datacenter so we might end up
-        # downloading station's segment from a different datacenter than the station's
-        # datacenter saved on the database, which is what we want).
-        # 2) if the station is NOT unique, then query the eida routing service
-        # (or the database if the eda-rs is down):
-        # the FIRST station among our duplicates (sorted by datacenter id) which has a match
-        # on the eida routing service or db is taken, the other(s) discarded.
-        # If no station match (the station is not supposed to be
-        # returned by ANY datacenter in the eida-rs, or we do not have that station on the db)
-        # the station, and all its channels, are discarded
+        # TLDR: look at the Sensor description (starting with "OK: " or "NO: " 
+        # to know if the given channel should be taken or not
         #
         # To test what we just said, we write here the datacenters station query responses.
         # LEGEND. In the channel:
@@ -634,9 +601,7 @@ YY yy * DE? 2013-08-01T00:00:00 2017-04-25
         # Second letter: E=expected (is in the eida routing service of this datacenter),
         #      N: not expected
         # Third letter: No meaning, (left free to be able play with regexps)
-        # Note that in Sensor description we writeif the channel should be saved
-        # ("OK: [explanation, if any]") or not ("NO: [explanation, if any]"). Channels starting
-        # with 'N', has said, do not need explanation as they have no dupes => written
+        # 
         urlread_sideeffect  = ["""#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
 A1|aa||DEZ|3|4|6|0|0|0|OK:                                                |8|0.1|M/S|50.0|2008-02-12T00:00:00|
 A1|aa||DEL|3|4|6|0|0|0|OK:                                                |8|0.1|M/S|50.0|2008-02-12T00:00:00|
@@ -646,7 +611,7 @@ XX|xx||DEL|3|4|6|0|0|0|OK: it's the first                                 |8|0.1
 YY|yy||DEL|3|4|6|0|0|0|NO: channel check done cause it's dupe: no match   |8|0.1|M/S|50.0|2008-02-12T00:00:00|
 """,
 """#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
-B1|bb||NEZ|3|4|6|0|0|0|OK: channel check not doneo taken                  |8|0.1|M/S|50.0|2008-02-12T00:00:00|
+B1|bb||NEZ|3|4|6|0|0|0|OK: channel check not done: taken                  |8|0.1|M/S|50.0|2008-02-12T00:00:00|
 A1|aa||DNZ|3|4|6|0|0|0|NO:                                                |8|0.1|M/S|50.0|2008-02-12T00:00:00|
 A1|aa||NNZ|3|4|6|0|0|0|OK: starttime changed -> new station               |8|0.1|M/S|50.0|2018-02-12T00:00:00|
 A2|xx||DNL|3|4|6|0|0|0|NO: we cannot guess                                |8|0.1|M/S|50.0|2008-02-12T00:00:00|
@@ -665,6 +630,8 @@ YY|yy||DEL|3|4|6|0|0|0|OK: channel check done cause it's dupe: matches    |8|0.1
         # Channel.channel, Channel.station_id, Station.datacenter_id).join(Station)))
         csd = dbquery2df(db.session.query(Channel.sensor_description))
         assert len(csd) == 8
+        logmsg = self.log_msg()
+        assert "5 database row(s) not inserted" in logmsg
         # assert that the OK string is in the sensor description
         assert all(c[:3] == "OK:" for c in csd[Channel.sensor_description.key])
 
@@ -688,7 +655,7 @@ YY|yy||DEL|3|4|6|0|0|0|OK: channel check done cause it's dupe: matches    |8|0.1
                                        eidavalidator,
                                        net, sta, loc, cha, None, None, 10,
                                        False, None, None, -1, self.db_buf_size)
-        # we tested visually that everything is ok visually by issuing a
+        # we tested visually that everything is ok by issuing a
         # str(dbquery2df(db.session.query(Channel.id, Station.network, Station.station,
         # Channel.channel, Channel.station_id, Station.datacenter_id).join(Station)))
         # we might add some more specific assert here

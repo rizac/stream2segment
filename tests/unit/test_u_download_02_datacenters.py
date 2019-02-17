@@ -5,6 +5,12 @@ Created on Feb 4, 2016
 @author: riccardo
 '''
 from builtins import str
+
+try:
+    from __builtin__ import open as oopen  # @UnresolvedImport
+except:
+    from builtins import open as oopen
+
 import os
 from datetime import datetime, timedelta
 import random
@@ -364,32 +370,43 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
             assert args[0] == "http://www.orfeus-eu.org/eidaws/routing/1/query"
             assert kwargs['service'] == 'dataselect'
             assert kwargs['format'] == 'post'
-            if net:
-                assert kwargs['net'] == ','.join(net)
-            else:
-                assert 'net' not in kwargs
-            if sta:
-                assert kwargs['sta'] == ','.join(sta)
-            else:
-                assert 'sta' not in kwargs
-            if loc:
-                assert kwargs['loc'] == ','.join(loc)
-            else:
-                assert 'loc' not in kwargs
-            if cha:
-                assert kwargs['cha'] == ','.join(cha)
-            else:
-                assert 'cha' not in kwargs
-            if starttime:
-                assert kwargs['start'] == starttime.isoformat()
-            else:
-                assert 'start' not in kwargs
-            if endtime:
-                assert kwargs['end'] == endtime.isoformat()
-            else:
-                assert 'end' not in kwargs
 
-    def test_get_dcs_routingerror(self, db):  # , mock_urljoin):
+            # urljoin is not called with any other argument. Thus:
+            assert len(kwargs) == 2
+
+            # previously, we passed FDSN arguments (uncomment code below
+            # in case the support for fdsn parameters will be restored:
+
+#             if net:
+#                 assert kwargs['net'] == ','.join(net)
+#             else:
+#                 assert 'net' not in kwargs
+#             if sta:
+#                 assert kwargs['sta'] == ','.join(sta)
+#             else:
+#                 assert 'sta' not in kwargs
+#             if loc:
+#                 assert kwargs['loc'] == ','.join(loc)
+#             else:
+#                 assert 'loc' not in kwargs
+#             if cha:
+#                 assert kwargs['cha'] == ','.join(cha)
+#             else:
+#                 assert 'cha' not in kwargs
+#             if starttime:
+#                 assert kwargs['start'] == starttime.isoformat()
+#             else:
+#                 assert 'start' not in kwargs
+#             if endtime:
+#                 assert kwargs['end'] == endtime.isoformat()
+#             else:
+#                 assert 'end' not in kwargs
+
+    @patch('stream2segment.download.modules.datacenters.open',
+           side_effect = lambda *a, **v: oopen(*a, **v))
+    def test_get_dcs_routingerror(self, mock_fileopen,
+                                  # fixtures:
+                                  db):
         '''test fetching datacenters eida, iris, custom url'''
         # this is the output when using eida as service:
         urlread_sideeffect = [URLError('wat?')]
@@ -401,48 +418,95 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
         endtime = starttime + timedelta(minutes=1.1)
 
         # normal fdsn service ("https://mocked_domain/fdsnws/station/1/query")
-        # test that everything is ok because we do not call urlread
-        data, _ = self.get_datacenters_df(urlread_sideeffect, db.session,
-                                          "https://mock/fdsnws/station/1/query",
-                                          self.routing_service,
-                                          net, sta, loc, cha, starttime, endtime,
-                                          db_bufsize=self.db_buf_size)
+        # we should not call self.mock_urlopen and not mock_fileopen (no eida)
+        dcdf, eidavalidator = self.get_datacenters_df(urlread_sideeffect, db.session,
+                                                      "https://mock/fdsnws/station/1/query",
+                                                      self.routing_service,
+                                                      net, sta, loc, cha, starttime, endtime,
+                                                      db_bufsize=self.db_buf_size)
         assert not self.mock_urlopen.called
+        assert not mock_fileopen.called
+        assert eidavalidator is None
+        assert len(dcdf) == 1
+        assert db.session.query(DataCenter).count() == 1
 
         # iris:
-        # test that everything is ok because we do not call urlread
-        data, _ = self.get_datacenters_df(urlread_sideeffect, db.session, "iris",
-                                          self.routing_service,
-                                          net, sta, loc, cha, starttime, endtime,
-                                          db_bufsize=self.db_buf_size)
+        # we should not call self.mock_urlopen and not mock_fileopen (no eida)
+        dcdf, eidavalidator = self.get_datacenters_df(urlread_sideeffect, db.session, "iris",
+                                                      self.routing_service,
+                                                      net, sta, loc, cha, starttime, endtime,
+                                                      db_bufsize=self.db_buf_size)
         assert not self.mock_urlopen.called
+        assert not mock_fileopen.called
+        assert eidavalidator is None
+        assert len(dcdf) == 1
+        assert db.session.query(DataCenter).\
+            filter(DataCenter.organization_name == 'iris').count() == 1
 
         # eida:
-        # test that everything is not ok because urlread raises and we do not have data on the db
-        with pytest.raises(FailedDownload) as qdown:
-            data, _ = self.get_datacenters_df(urlread_sideeffect, db.session, "eida",
-                                              self.routing_service,
-                                              net, sta, loc, cha, starttime, endtime,
-                                              db_bufsize=self.db_buf_size)
+        # we should call self.mock_urlopen and mock_fileopen (eida error => read from file)
+        dcdf, eidavalidator = self.get_datacenters_df(urlread_sideeffect, db.session, "eida",
+                                                      self.routing_service,
+                                                      net, sta, loc, cha, starttime, endtime,
+                                                      db_bufsize=self.db_buf_size)
         assert self.mock_urlopen.called
-        assert "Eida routing service error, no eida data-center saved in database" \
-            in str(qdown.value)
+        assert mock_fileopen.called
+        msg = self.log_msg()
+        assert "Eida routing service error, reading from file (last updated: " in msg
+        assert eidavalidator is not None
+        assert db.session.query(DataCenter).\
+            filter(DataCenter.organization_name == 'eida').count() == 10
+        assert len(dcdf) == 10
 
-        # now let's write something to db
+#         with pytest.raises(FailedDownload) as qdown:
+#             data, _ = self.get_datacenters_df(urlread_sideeffect, db.session, "eida",
+#                                               self.routing_service,
+#                                               net, sta, loc, cha, starttime, endtime,
+#                                               db_bufsize=self.db_buf_size)
+#         assert self.mock_urlopen.called
+#         assert "Eida routing service error, no eida data-center saved in database" \
+#             in str(qdown.value)
+
+        # now let's mock a valid response from the eida routing service
+        self.mock_urlopen.reset_mock()
+        mock_fileopen.reset_mock()
         urlread_sideeffect = ["""http://ws.resif.fr/fdsnws/station/1/query
 http://geofon.gfz-potsdam.de/fdsnws/station/1/query
 
 http://geofon.gfz-potsdam.de/fdsnws/station/1/query
 ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
 UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
-        df, eidavalidator = self.get_datacenters_df(urlread_sideeffect, db.session,
-                                                    "eida",
-                                                    self.routing_service,
-                                                    net, sta, loc, cha, starttime, endtime,
-                                                    db_bufsize=self.db_buf_size)
-        # check that all datacenters are eida
-        dcs = sorted([_[0] for _ in db.session.query(DataCenter.id).
-                      filter(DataCenter.organization_name == 'eida').all()])
+        dcdf, eidavalidator = self.get_datacenters_df(urlread_sideeffect, db.session,
+                                                      "eida",
+                                                      self.routing_service,
+                                                      net, sta, loc, cha, starttime, endtime,
+                                                      db_bufsize=self.db_buf_size)
         assert self.mock_urlopen.called
-        assert len(dcs) == len(df)
-        assert eidavalidator is not None
+        assert not mock_fileopen.called
+        assert db.session.query(DataCenter).\
+            filter(DataCenter.organization_name == 'eida').count() == 10
+        assert len(dcdf) == 2
+        assert "Eida routing service error, reading from file (last updated: " \
+            not in self.log_msg()[len(msg):]
+
+
+        # write two new eida data centers
+        self.mock_urlopen.reset_mock()
+        mock_fileopen.reset_mock()
+        urlread_sideeffect = ["""http://ws.NEWDC1.fr/fdsnws/station/1/query
+http://geofon.gfz-potsdam.de/fdsnws/station/1/query
+
+http://NEWDC2.gfz-potsdam.de/fdsnws/station/1/query
+ZZ * * * 2002-09-01T00:00:00 2005-10-20T00:00:00
+UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
+        dcdf, eidavalidator = self.get_datacenters_df(urlread_sideeffect, db.session,
+                                                      "eida",
+                                                      self.routing_service,
+                                                      net, sta, loc, cha, starttime, endtime,
+                                                      db_bufsize=self.db_buf_size)
+        assert self.mock_urlopen.called
+        assert not mock_fileopen.called
+        assert db.session.query(DataCenter).\
+            filter(DataCenter.organization_name == 'eida').count() == 12
+        assert len(dcdf) == 2
+

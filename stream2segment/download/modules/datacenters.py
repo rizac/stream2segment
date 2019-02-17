@@ -9,6 +9,8 @@ Download module for data-centers download
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import map, next, zip, range, object
 
+import os
+from datetime import datetime, timedelta
 import logging
 import re
 
@@ -17,7 +19,7 @@ import pandas as pd
 
 from stream2segment.io.db.models import DataCenter, Fdsnws
 from stream2segment.download.utils import FailedDownload, dbsyncdf, to_fdsn_arg, formatmsg
-from stream2segment.utils import strconvert, urljoin
+from stream2segment.utils import strconvert, urljoin, strptime
 from stream2segment.utils.url import URLException, urlread, urlparse
 from stream2segment.io.db.pdsql import dbquery2df
 
@@ -27,37 +29,42 @@ from stream2segment.io.db.pdsql import dbquery2df
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial) when calling logging
 # functions of stream2segment.download.utils:
 from stream2segment.download import logger  # @IgnorePep8
+from stream2segment.utils.resources import get_templates_fpath, get_resources_fpath
 
 
 def get_datacenters_df(session, service, routing_service_url,
-                       net, sta, loc, cha, starttime=None, endtime=None,
+                       network, station, location, channel, starttime=None, endtime=None,
                        db_bufsize=None):
     """Returns a 2 elements tuple: the dataframe of the datacenter(s) matching `service`,
     and an EidaValidator (built on the eida routing service response)
     for checking stations/channels duplicates after querying the datacenter(s)
     for stations / channels. If service != 'eida', this argument is None
-    Note that channels, starttime, endtime can be all None and
-    are used only if service = 'eida'
+
+    WARNING: Due to bugs in the eida rs the parameter
+    network, station, location, channel, starttime, endtime
+    are NOT used and are here for legacy code and potential future development once
+    the eida rs will be fixed. In cany case, they would be used only if service = 'eida'
+
     :param service: the string denoting the dataselect *or* station url in fdsn format, or
-    'eida', or 'iris'. In case of 'eida', `routing_service_url` must denote an url for the
-    edia routing service. If falsy (e.g., empty string or None), `service` defaults to 'eida'
+        'eida', or 'iris'. In case of 'eida', `routing_service_url` must denote an url for the
+        edia routing service. If falsy (e.g., empty string or None), `service` defaults to 'eida'
     """
+
     # For convenience and readability, define once the mapped column names representing the
     # dataframe columns that we need:
-    DC_SURL = DataCenter.station_url.key
-    DC_DURL = DataCenter.dataselect_url.key
-    DC_ORG = DataCenter.organization_name.key
+    DC_SURL = DataCenter.station_url.key  # pylint: disable=invalid-name
+    DC_DURL = DataCenter.dataselect_url.key  # pylint: disable=invalid-name
+    DC_ORG = DataCenter.organization_name.key  # pylint: disable=invalid-name
 
-    eidavalidator = None
-    eidars_responsetext = ''
+    eidars_response_text = None
 
     if not service:
         service = 'eida'
 
     if service.lower() == 'iris':
-        IRIS_NETLOC = 'https://service.iris.edu'
-        dc_df = pd.DataFrame(data={DC_DURL: '%s/fdsnws/dataselect/1/query' % IRIS_NETLOC,
-                                   DC_SURL: '%s/fdsnws/station/1/query' % IRIS_NETLOC,
+        iris_netloc = 'https://service.iris.edu'
+        dc_df = pd.DataFrame(data={DC_DURL: '%s/fdsnws/dataselect/1/query' % iris_netloc,
+                                   DC_SURL: '%s/fdsnws/station/1/query' % iris_netloc,
                                    DC_ORG: 'iris'}, index=[0])
     elif service.lower() != 'eida':
         try:
@@ -70,89 +77,94 @@ def get_datacenters_df(session, service, routing_service_url,
                                            "Url does not seem to be a valid fdsn url",
                                            service))
     else:
-        dc_df, eidars_responsetext = get_eida_datacenters_df(session, routing_service_url,
-                                                             net, sta, loc, cha, starttime, endtime)
+        eidars_response_text = get_eidars_response_text(routing_service_url)
+        dc_df = get_eida_datacenters_df(eidars_response_text)
 
     # attempt saving to db only if we might have something to save:
-    if service != 'eida' or eidars_responsetext:  # not eida, or eida succesfully queried: Sync db
-        dc_df = dbsyncdf(dc_df, session, [DataCenter.station_url], DataCenter.id,
-                         buf_size=len(dc_df) if db_bufsize is None else db_bufsize,
-                         keep_duplicates='first')
-        if eidars_responsetext:
-            eidavalidator = EidaValidator(dc_df, eidars_responsetext)
+    dc_df = dbsyncdf(dc_df, session, [DataCenter.station_url], DataCenter.id,
+                     buf_size=len(dc_df) if db_bufsize is None else db_bufsize,
+                     keep_duplicates='first')
 
-    return dc_df, eidavalidator
+    return dc_df, \
+        EidaValidator(dc_df, eidars_response_text) if eidars_response_text is not None else None
 
 
-def get_eida_datacenters_df(session, routing_service_url, net, sta, loc, cha,
-                            starttime=None, endtime=None):
+def get_eidars_response_text(routing_service_url):
+    """Returns the tuple (datacenters_df, eidavalidator) from eidars or from the db (in this
+    latter case eidavalidator is None)
+    """
+    # IMPORTANT NOTE:
+    # We issue a "basic" query to the EIDA rs, with no params other than 'service' and 'format'.
+    # The reason is that as of Jan 2019 the
+    # service is buggy if supplying some arguments
+    # (e.g., with long list of channels)
+    # Also, this way we can save a local file (independent from the custom query)
+    # and read from that file in case of request failure.
+    # The drawback is that we might ask later some data centers for data they do not have:
+    # This is an information the the routing service would provide us
+    # if queried with all parameters (net, sta, start, etcetera) ... too bad
+    query_args = {'service': 'dataselect', 'format': 'post'}
+    url = urljoin(routing_service_url, **query_args)
+
+    try:
+        responsetext, status, msg = urlread(url, decode='utf8', raise_http_err=True)
+        if not responsetext:
+            raise URLException(Exception("Empty data response"))  # fall below
+    except URLException as urlexc:
+        fpath = get_resources_fpath('eidars.txt')
+        lastmod_dtime = datetime(1970, 1, 1) + timedelta(seconds=os.path.getmtime(fpath))
+        msg = formatmsg("Eida routing service error, reading from file "
+                        "(last updated: %s)" % lastmod_dtime.strftime('%Y-%m-%d'),
+                        urlexc.exc, url)
+        logger.warning(msg)
+        # read from file
+        with open(fpath, 'r') as opn_:
+            responsetext = opn_.read()
+
+    return responsetext
+
+
+def get_eida_datacenters_df(responsetext):
     """Returns the tuple (datacenters_df, eidavalidator) from eidars or from the db (in this
     latter case eidavalidator is None)
     """
     # For convenience and readability, define once the mapped column names representing the
     # dataframe columns that we need:
-    DC_SURL = DataCenter.station_url.key
-    DC_DURL = DataCenter.dataselect_url.key
-    DC_ORG = DataCenter.organization_name.key
+    DC_SURL = DataCenter.station_url.key  # pylint: disable=invalid-name
+    DC_DURL = DataCenter.dataselect_url.key  # pylint: disable=invalid-name
+    DC_ORG = DataCenter.organization_name.key  # pylint: disable=invalid-name
 
-    # do not return only new datacenters, return all of them
-    query_args = {'service': 'dataselect', 'format': 'post'}
-    if starttime:
-        query_args['start'] = starttime.isoformat()
-    if endtime:
-        query_args['end'] = endtime.isoformat()
-
-    for param, lst in zip(('net', 'sta', 'loc', 'cha'), (net, sta, loc, cha)):
-        if lst:
-            query_args[param] = to_fdsn_arg(lst)
-
-    url = urljoin(routing_service_url, **query_args)
-
-    dc_df = None
     dclist = []
 
-    try:
-        responsetext, status, msg = urlread(url, decode='utf8', raise_http_err=True)
-        for url, postdata in eidarsiter(responsetext):  # @UnusedVariable
-            try:
-                fdsn = Fdsnws(url)
-                dclist.append({DC_SURL: fdsn.url(Fdsnws.STATION),
-                               DC_DURL: fdsn.url(Fdsnws.DATASEL),
-                               DC_ORG: 'eida'})
-            except ValueError as verr:
-                pass
-        if not dclist:
-            raise URLException(Exception("No datacenters found in response text"))
-        return pd.DataFrame(dclist), responsetext
-
-    except URLException as urlexc:
-        dc_df = dbquery2df(session.query(DataCenter.id, DataCenter.station_url,
-                                         DataCenter.dataselect_url).
-                           filter(DataCenter.organization_name == 'eida')).\
-                                reset_index(drop=True)
-        if dc_df.empty:
-            msg = formatmsg("Eida routing service error, no eida data-center saved in database",
-                            urlexc.exc, url)
-            raise FailedDownload(msg)
-        else:
-            msg = formatmsg("Eida routing service error", urlexc.exc, url)
-            logger.warning(msg)
-            # logger.info(msg)
-            return dc_df, None
+    for url, postdata in eidarsiter(responsetext):  # @UnusedVariable
+        try:
+            fdsn = Fdsnws(url)
+            dclist.append({DC_SURL: fdsn.url(Fdsnws.STATION),
+                           DC_DURL: fdsn.url(Fdsnws.DATASEL),
+                           DC_ORG: 'eida'})
+        except ValueError as verr:
+            logger.warning("Discarding data center (non FDSN url: '%s' "
+                           "as returned from the routing service)", url)
+    if not dclist:
+        raise FailedDownload(Exception("No datacenters found in response text / file"))
+    datacenters_df = pd.DataFrame(dclist)
+    return datacenters_df
 
 
 class EidaValidator(object):
     '''Class for validating stations duplicates according to the eida routing service
     response text'''
+
     def __init__(self, datacenters_df, responsetext):
-        """Initializes a validator. You can then call `isin` to check if a station is valid
+        """Initializes a validator. You can then call `get_dc_id` to get the datacenter
+        id from a channel parmeters
+
         :param datacenters_df: a dataframe representing the datacenters read from the eida
-        routing service
+            routing service
         :param responsetext: the plain response text from the eida routing service
         """
-        self.dic = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(lambda:
-                                                                                           set()))))
-        reg = re.compile("^(\\S+) (\\S+) (\\S+) (\\S+) .*$",
+        self.dic = defaultdict(set)
+        reg = re.compile("^(\\S+) (\\S+) (\\S+) (\\S+) (\\S+) (\\S+)$",
                          re.MULTILINE)  # @UndefinedVariable
         for url, postdata in eidarsiter(responsetext):
             _ = datacenters_df[datacenters_df[DataCenter.dataselect_url.key] == url]
@@ -163,56 +175,56 @@ class EidaValidator(object):
             dc_id = _[DataCenter.id.key].iloc[0]
             for match in reg.finditer(postdata):
                 try:
-                    net, sta, loc, cha = \
-                        match.group(1), match.group(2), match.group(3), match.group(4)
+                    net, sta, loc, cha, stime, etime = \
+                        match.group(1), match.group(2), match.group(3), match.group(4),\
+                        match.group(5), match.group(6)
+                    self.dic[dc_id].add(ItemMatcher(net, sta, loc, cha, stime, etime))
                 except IndexError:
                     continue
-                self.add(dc_id, net, sta, loc, cha)
 
-    @staticmethod
-    def _tore(wild_str):
-        if wild_str == '--':
-            wild_str = ''
-        return re.compile("^%s$" % strconvert.wild2re(wild_str))
+    def get_dc_id(self, net, sta, loc, cha, stime, etime):
+        '''Returns an int denoting the data center id associated to the given
+        channel identified by the function arguments (all strings except stime and etime
+        which must be datetime or None).
+        Returns None if the channel is not associated to any data center.
 
-    def add(self, dc_id, net, sta, loc, cha):
-        """adds the tuple datacenter id, network station location channels to the internal dic
-        :param dc_id: integer
-        :param net: string, the network name
-        :param sta: string, the station name. Special cases: '*' (match all), "--" (empty)
-        :param sta: string, the location name. Special cases: '*' (match all), "--" (empty)
-        :param cha: string, the channel (can contain wildcards like '*' or '?'). Special cases:
-                    '*' (match all)
-        """
-        self.dic[dc_id][net][self._tore(sta)][self._tore(loc)].add(self._tore(cha))
+        NOTE: If the channel is associated to more than one data center, the id of
+        the first matching is returned
+        '''
 
-    @staticmethod
-    def _get(regexiterable, key, return_bool=False):
-        for regex in regexiterable:
-            if regex.match(key):
-                return True if return_bool else regexiterable[regex]
-        return False if return_bool else None
+        # return the first data center that matches. The case where the routing service
+        # might return several data centers should never happen, and even if it does
+        # (and it probably will from our experience) is not up to this program
+        # to discard potentially downloadable data
+        for dcid, itemmacthers in self.dic.items():
+            if any(_.match(net, sta, loc, cha, stime, etime) for _ in itemmacthers):
+                return dcid
+        return None
 
-    def isin(self, dc_id, net, sta, loc, cha):
-        """Returns a boolean (or a list of booleans) telling if the tuple arguments:
-        ```(dc_id, net, sta, loc, cha)```
-        match any of the eida response lines of text.
-        Returns a list of boolean if the arguments are iterable (not including strings)
-        Returns numpy.array if return_np = True
-        """
-        # dc_id - > {net_re -> //}
-        stadic = self.dic.get(dc_id, {}).get(net, None)
-        if stadic is None:
-            return False
-        # sta_re - > {loc_re -> //}
-        locdic = self._get(stadic, sta)
-        if locdic is None:
-            return False
-        # loc_re - > set(cha_re,..)
-        chaset = self._get(locdic, loc)
-        if chaset is None:
-            return False
-        return self._get(chaset, cha, return_bool=True)
+
+class ItemMatcher(object):
+    '''class handling the match between a channel and the eida routing service
+    channel'''
+    def __init__(self, net, sta, loc, cha, stime, etime):
+        '''Initializes this Matcher with the components of the eida routing
+        service channel (which might contain wildcards)'''
+        regex_ = "\\.".join([strconvert.wild2re(net),
+                             strconvert.wild2re(sta),
+                             '' if loc == '--' else strconvert.wild2re(loc),
+                             strconvert.wild2re(cha)])
+        self.reg = re.compile("^%s$" % regex_)
+        self.stime = None if stime == '*' else strptime(stime)
+        self.etime = None if etime == '*' else strptime(etime)
+
+    def match(self, net, sta, loc, cha, stime, etime):
+        '''Returns True if the given Matcher matches the channel
+        identified by the function arguments (all strings except stime and etime
+        which must be datetime or None).'''
+        if stime is not None and self.etime is not None and stime >= self.etime:
+            return None
+        if etime is not None and self.stime is not None and etime <= self.stime:
+            return None
+        return self.reg.match(".".join([net, sta, loc, cha]))
 
 
 def eidarsiter(responsetext):
