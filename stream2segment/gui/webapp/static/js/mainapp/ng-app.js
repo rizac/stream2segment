@@ -378,7 +378,8 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			plotStuff.forEach(function(elm){
 				var uninit = !(elm.div.data);
 				if (uninit){
-					plotly.plot(elm.div, elm.data, elm.layout, {displaylogo: false, showLink: false});
+					plotly.plot(elm.div, elm.data, elm.layout,
+					            {displaylogo: false, showLink: false, modeBarButtonsToRemove: ['sendDataToCloud']});
 					$scope.initPlotEvents(elm.index);
 				}else{
 					elm.div.data = elm.data;
