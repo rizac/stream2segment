@@ -278,8 +278,6 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
     # Unfortunately, for perf reasons we do not have
     # the first 4 columns, but we do have channel_id which basically comprises (net, sta, loc, cha)
     # NOTE: SEG_START and SEG_END MUST BE ALWAYS PRESENT IN THE SECOND AND THORD POSITION!!!!!
-    requeststart_index = 1
-    requestend_index = 2
     groupsby = [[SEG_DCID, SEG_START, SEG_END],
                 [SEG_DCID, SEG_START, SEG_END, SEG_CHAID]]
 
@@ -313,9 +311,7 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                              max_workers=max_thread_workers, timeout=timeout,
                              blocksize=download_blocksize, openers=openerfunc)
 
-            for seg_group, result, exc, request in itr:
-                groupkeys_tuple, dframe = seg_group
-                dc_id = groupkeys_tuple[0]
+            for (group_keys, dframe), result, exc, request in itr:
                 url = get_host(request)
                 data, code, msg = result if not exc else (None, codes.url_err, None)
                 if code == 413 and not islast and len(dframe) > 1:
@@ -363,9 +359,8 @@ def download_save_segments(session, segments_df, dc_dataselect_manager, chaid2ms
                         dframe.loc[:, SEG_DSCODE] = code
                         stats[url][code] += len(dframe)
                     else:
+                        starttime, endtime = group_keys[1], group_keys[2]
                         try:
-                            starttime = groupkeys_tuple[requeststart_index]
-                            endtime = groupkeys_tuple[requestend_index]
                             resdict = mseedunpack(data, starttime, endtime)
                             oks, errors, outtime_warns, outtime_errs, unknowns = \
                                 _process_downloaded_data(dframe, code, resdict, chaid2mseedid,

@@ -38,7 +38,7 @@ def test_loc2deg(lat1, lon1, lat2, lon2):
         assert np.array_equal(s2sloc2deg(lat1, lon1, lat2, lon2),
                               np.asarray(list(obspyloc2deg(l1, l2, l3, l4)
                                               for l1, l2, l3, l4 in zip(lat1, lon1, lat2, lon2))))
-    else:   
+    else:
         assert np.array_equal(s2sloc2deg(lat1, lon1, lat2, lon2),
                               np.asarray(obspyloc2deg(lat1, lon1, lat2, lon2)))
 
@@ -477,7 +477,8 @@ COLUMNS DETAILS:
 
 def eq(str1, str2):
     """too much pain to compare if two dataframes string representations are equal: sometimes
-    alignment are different (the number of spaces) and the result is ok BUT == returns False.
+    alignment are different (the number of spaces) and the result is ok BUT comparison
+    returns False.
     let's implement a custom method which tests what we cares"""
 
     ll1 = str1.split("\n")
@@ -490,17 +491,15 @@ def eq(str1, str2):
     # (different num spaces) this offset is maintained
     offset = None
     for i, l1, l2 in zip(count(), ll1, ll2):
-        # do NOT check for this:
-#         if len(l1) != len(l2):
-#             return False
 
+        # do NOT check for len(l1) == len(l2), BUT:
         c1 = l1.split()
         c2 = l2.split()
 
         if c1 != c2:
             return False
 
-        if i == 1: # skip header (i==0, lengths might not match)
+        if i == 1:  # skip header (i==0, lengths might not match)
             offset = len(l1) - len(l2)
         elif i > 1 and offset != len(l1) - len(l2):
             return False
