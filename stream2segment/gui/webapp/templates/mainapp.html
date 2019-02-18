@@ -52,7 +52,7 @@
 					<input type="checkbox" ng-model="showAllComponents" ng-change="toggleAllComponentView()"> Show all orientations
 				</label>
 				<span class='v-divider'></span>	
-				<button class='btn btn-default' ng-click="config.showForm=true" ng-show="{{ config.data.length }}">
+				<button class='btn btn-default' ng-click="config.showForm=true" ng-show="{{ hasConfig }}">
 					Config
 				</button>
 

@@ -40,8 +40,10 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	};
 	
 	$scope.hasPreprocessFunc = $window.__SETTINGS.hasPreprocessFunc;
+	$scope.hasConfig = !!Object.keys($scope.config.data).length;
 	$scope.showPreProcessed = $scope.hasPreprocessFunc;
 	$scope.showAllComponents = false;
+
 
 	$scope.warnMsg = "Loading...";
 
@@ -495,6 +497,10 @@ function getPlotLayout(title, warningMessage, ...layoutOverrides){
 		margin:{'l':55, 't':36, 'b':45, 'r':15},
 		pad: 0,
 		autosize: true,
+		font: {
+		    family: 'Montserrat',
+		    size: 13
+		},
 		xaxis: {
 			autorange: true,
 			tickangle: 0,

@@ -5,9 +5,6 @@ html, body{
 	margin: 0;
 	padding: 0;
 }
-body{
-	font-family: "Lucida Sans Unicode", Arial, Helvetica, "Trebuchet MS", Verdana, sans-serif;
-}
 *{
 	box-sizing: border-box; /* this is the default if using bootstrap. Otherwise, better having it */
 }
