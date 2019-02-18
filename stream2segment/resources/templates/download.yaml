@@ -26,6 +26,8 @@ dburl: 'sqlite:////path/to/my/db.sqlite'
 # or a path to a local file.
 # The events list returned by the url or in the supplied file must be formatted as specified
 # in https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=16
+# or as isf (http://www.isc.ac.uk/standards/isf/download/isf.pdf), although the latter
+# has limited support in this program (e.g., comments are not allowed. Use at your own risk).
 # You can also type one of the following shortcut strings:
 # {{ DOWNLOAD_EVENTWS_LIST }}
 eventws: 'http://seismicportal.eu/fdsnws/event/1/query'
@@ -81,8 +83,8 @@ maxmagnitude: null  # missing or null: ignore
 
 # Additional event web search parameters. For info, see
 # https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=14
-# (parameters with support 'Optional' are not guaranteed to work). Note that the 'format' parameter
-# will be inferred (in most cases it defaults to 'text') and needs not be specified.
+# (parameters with support 'Optional' are not guaranteed to work). Note that the 'format' parameter,
+# if missing, will be inferred (in most cases it defaults to 'text').
 # Implementation details: The parameter is empty by default, uncomment the lines below
 # or insert new ones. Remember that this is a YAML file, pay attention to indentation. 
 eventws_params:

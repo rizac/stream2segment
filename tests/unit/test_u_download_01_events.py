@@ -18,6 +18,7 @@ from io import BytesIO
 import threading
 from mock import patch
 from mock import Mock
+import shutil
 # this can apparently not be avoided neither with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
 try:
@@ -39,7 +40,7 @@ from obspy.taup.helper_classes import TauModelError
 from stream2segment.io.db.models import Base, Event, Class, Fdsnws, DataCenter, Segment, \
     Download, Station, Channel, WebService
 from stream2segment.download.modules.events import get_events_df, isf2text_iter,\
-    _get_freq_mag_distrib
+    _get_freq_mag_distrib, islocalfile as o_islocalfile
 from stream2segment.download.modules.datacenters import get_datacenters_df
 from stream2segment.download.modules.channels import get_channels_df, chaid2mseedid_dict
 from stream2segment.download.modules.stationsearch import merge_events_stations
@@ -576,6 +577,54 @@ class Test(object):
             filter(Event.event_id.in_(['15916121'])).count() == 0
         assert db.session.query(Event.contributor_id).\
             filter(Event.event_id.in_(['15916121'])).count() == 0
+
+
+    @patch('stream2segment.download.modules.events.islocalfile', 
+           side_effect=o_islocalfile)
+    def test_get_events_eventws_format_param(self, mock_islocalfile,
+                                             # fixtures:
+                                             db, data, pytestdir):
+        '''test that format is inferred, unless explicitly set, and all combination
+            of these cases'''
+
+        isf_file = pytestdir.newfile(create=True)
+        shutil.copy(data.path('event_request_sample_isc.isf'), isf_file)
+
+        txt_file = pytestdir.newfile(create=True)
+        with open(txt_file, 'w') as _opn:
+            _opn.write(self._evt_urlread_sideeffect)
+        shutil.copy(data.path('event_request_sample_isc.isf'), isf_file)
+
+        # valid isf file, no format => infer it
+        for filepath, expected_events, evt_query_args in \
+            [(txt_file, 2, ({}, {'format': 'txt'})),
+             (isf_file, 3, ({}, {'format': 'isf'}))]:
+            for evt_query_arg in evt_query_args:
+                db.session.query(Event).delete()
+                _ = self.get_events_df([None],
+                                       db.session, filepath, evt_query_arg,
+                                       start=datetime(2010, 1, 1),
+                                       end=datetime(2011, 1, 1),
+                                       db_bufsize=self.db_buf_size)
+                assert mock_islocalfile.call_args_list[-1][0][0] == \
+                    filepath
+                assert db.session.query(Event.id).count() == expected_events
+
+        for filepath, expected_events, evt_query_arg in \
+            [(txt_file, 0, {'format': 'isf'}),
+             (isf_file, 0, {'format': 'txt'})]:
+            db.session.query(Event).delete()
+            with pytest.raises(FailedDownload) as fdwl:
+                _ = self.get_events_df([None],
+                                       db.session, filepath, evt_query_arg,
+                                       start=datetime(2010, 1, 1),
+                                       end=datetime(2011, 1, 1),
+                                       db_bufsize=self.db_buf_size)
+            assert "Is the file content FDSN compliant?" in str(fdwl)
+            assert mock_islocalfile.call_args_list[-1][0][0] == \
+                    filepath
+            assert db.session.query(Event.id).count() == expected_events
+
 
     def test_isf2text(self, data):
         '''test isc format=isf with iris equivalent'''

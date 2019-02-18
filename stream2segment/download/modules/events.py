@@ -93,7 +93,7 @@ def dataframe_iter(url, evt_query_args, start, end,
     '''
 
     if islocalfile(url):
-        events_iter = events_iter_from_file(url, evt_query_args.get('format', 'text'))
+        events_iter = events_iter_from_file(url, evt_query_args.get('format'))
         url = tofileuri(url)
     else:
         events_iter = events_iter_from_url(EVENTWS_MAPPING.get(url, url),
@@ -108,10 +108,17 @@ def dataframe_iter(url, evt_query_args, start, end,
             logger.warning(formatmsg("Discarding response", exc, url_))
 
 
-def events_iter_from_file(file_path, format_='txt'):
+def events_iter_from_file(file_path, format_=None):
     """Yields the tuple (filepath, events_data) from a file, which must exist on
-    the local computer"""
+    the local computer.
+
+    :param foramt_: string: None will infer the format (isf or txt), otherwise
+        it must be isf or txt. Note that support for isf is not fully complete
+        (e.g., no comments allowed)
+    """
     try:
+        if format_ is None:
+            format_ = 'isf' if is_isf(file_path) else 'txt'
         with open(file_path, encoding='utf-8') as opn:
             data = opn.read()
             if data and format_ == 'isf':
@@ -120,6 +127,11 @@ def events_iter_from_file(file_path, format_='txt'):
     except Exception as exc:
         raise FailedDownload(formatmsg("Unable to open events file", exc,
                                        file_path))
+
+
+def is_isf(filepath):
+    with open(filepath, 'r') as opn:
+        return opn.readline().startswith('DATA_TYPE ')
 
 
 def tofileuri(file_path):
