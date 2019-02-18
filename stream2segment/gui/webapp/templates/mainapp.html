@@ -34,16 +34,25 @@
 			<div class="flex-direction-row toolbar">
 				<!-- use checkbox class for all same level divs (bootstraps controls margins top and bottom intelligently -->
 				<h4>Segment {{ segIdx + 1 }} of {{ segIds.length }}</h4>
-				<button class='btn btn-default center' ng-click="setPreviousSegment()"><span class='arrow-left'></span></button>
-				<button class='btn btn-default center' ng-click="setNextSegment()" ><span class='arrow-right'></span></button>
-				<button class='btn btn-default' ng-click="selection.showForm=true">Select</button>
+				<button class='btn btn-default center' ng-click="setPreviousSegment()">
+					<span class='arrow-left'></span>
+				</button>
+				<button class='btn btn-default center' ng-click="setNextSegment()">
+					<span class='arrow-right'></span>
+				</button>
+				<button class='btn btn-default' ng-click="selection.showForm=true">
+					Select
+				</button>
 				<span class='v-divider'></span>	
 				<h4>Plots</h4>		
 				<label title="{% endraw %}{{ preprocessfunc_doc }}{% raw %}"><input type="checkbox"
-					ng-model="showPreProcessed" ng-change="togglePreProcess()"> Pre-process</label>
+					ng-model="showPreProcessed" ng-change="togglePreProcess()"
+					ng-show="{{ hasPreprocessFunc }}"> Pre-process</label>
 				<label><input type="checkbox" ng-model="showAllComponents" ng-change="toggleAllComponentView()"> Show all orientations</label>
 				<span class='v-divider'></span>	
-				<button class='btn btn-default' ng-click="config.showForm=true">Config</button>
+				<button class='btn btn-default' ng-click="config.showForm=true" ng-show="{{ config.data.length }}">
+					Config
+				</button>
 
 				<div class="flexible" ng-show='warnMsg'>{{ warnMsg }} <div class='loader'></div></div>
 			</div>

@@ -47,7 +47,7 @@ from stream2segment.process.writers import get_writer
 
 if PY2:
     # https://stackoverflow.com/questions/45946051/signature-method-in-inspect-module-for-python-2
-    import funcsigs
+    import funcsigs  # @UnresolvedImport pylint: disable=import-error
     SIGNATURE = funcsigs.signature
 else:
     SIGNATURE = inspect.signature  # @UndefinedVariable # pylint: disable=no-member

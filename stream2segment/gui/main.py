@@ -19,13 +19,13 @@ from stream2segment.gui.webapp import create_app
 from stream2segment.gui.webapp.mainapp.plots.core import PlotManager
 
 
-def create_main_app(dbpath, pyfile, configfile):
+def create_main_app(dbpath, pyfile=None, configfile=None):
     """
         Creates a new app for processing. Note that config_py_file is the stream2segment gui
         config, not the config passed to Flask `app.config.from_pyfile`.
     """
-    pymodule = load_source(pyfile)
-    configdict = yaml_load(configfile)
+    pymodule = None if pyfile is None else load_source(pyfile)
+    configdict = {} if configfile is None else yaml_load(configfile)
     with create_app(dbpath) as app:
         app.config['PLOTMANAGER'] = PlotManager(pymodule, configdict)
         app.config['CONFIG.YAML'] = configdict

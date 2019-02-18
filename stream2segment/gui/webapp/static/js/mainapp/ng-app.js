@@ -39,9 +39,9 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			           // window is in turn a 2 element array of integers representing timestamps: [t1, t2]
 	};
 	
-	$scope.showPreProcessed = true;
+	$scope.hasPreprocessFunc = $window.__SETTINGS.hasPreprocessFunc;
+	$scope.showPreProcessed = $scope.hasPreprocessFunc;
 	$scope.showAllComponents = false;
-	
 
 	$scope.warnMsg = "Loading...";
 

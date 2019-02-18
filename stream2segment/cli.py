@@ -346,12 +346,12 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
              context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option("-c", "--configfile",
-              help="The path to the configuration file in yaml format "
+              help="Optional: The path to the configuration file in yaml format "
                    "(https://learn.getgrav.org/advanced/yaml).", type=clickutils.ExistingPath,
-              required=True)
+              required=False)
 @click.option("-p", "--pyfile",
-              help="The path to the python file with the plot functions implemented",
-              type=clickutils.ExistingPath, required=True)
+              help="Optional: The path to the python file with the plot functions implemented",
+              type=clickutils.ExistingPath, required=False)
 def show(dburl, configfile, pyfile):
     """Shows raw and processed downloaded waveform\'s plots in a browser"""
     main.show(dburl, pyfile, configfile)

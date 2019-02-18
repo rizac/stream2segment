@@ -40,86 +40,86 @@ from stream2segment.gui.main import create_main_app
 from stream2segment.gui.webapp.mainapp.core import flatten_dict
 
 class Test(object):
-    
+
     pyfile, configfile = get_templates_fpaths("paramtable.py", "paramtable.yaml")
-    
+
      # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
     @pytest.fixture(autouse=True)
     def init(self, request, db, data):
         # re-init a sqlite database (no-op if the db is not sqlite):
         db.create(to_file=True)
-        
+
         with patch('stream2segment.gui.webapp.mainapp.plots.core._default_size_limits',
                    return_value=(1,1)) as mock1:
 
             self.app = create_main_app(db.dburl, self.pyfile, self.configfile)
-    
+
             with self.app.app_context():
                 # create a configured "Session" class
                 # Session = sessionmaker(bind=self.engine)
                 # create a Session
                 # session = Session()
-                
+
                 session = self.session
-                
+
                 dc = DataCenter(station_url="345fbgfnyhtgrefs", dataselect_url='edfawrefdc')
                 session.add(dc)
-        
+
                 utcnow = datetime.utcnow()
-        
+
                 run = Download(run_time=utcnow)
                 session.add(run)
-                
+
                 ws = WebService(url='webserviceurl')
                 session.add(ws)
                 session.commit()
-                    
+
                 id = 'firstevent'
                 e1 = Event(event_id='event1', webservice_id=ws.id, time=utcnow, latitude=89.5, longitude=6,
                                  depth_km=7.1, magnitude=56)
                 e2 = Event(event_id='event2', webservice_id=ws.id, time=utcnow + timedelta(seconds=5),
                           latitude=89.5, longitude=6, depth_km=7.1, magnitude=56)
-                
+
                 session.add_all([e1, e2])
-                
+
                 session.commit()  # refresh datacenter id (alo flush works)
-        
+
                 d = datetime.utcnow()
-                
+
                 s = Station(network='network', station='station', datacenter_id=dc.id, latitude=90,
                             longitude=-45,
                             start_time=d)
                 session.add(s)
-                
+
                 channels = [
                     Channel(location='01', channel='HHE', sample_rate=6),
                     Channel(location='01', channel='HHN', sample_rate=6),
                     Channel(location='01', channel='HHZ', sample_rate=6),
                     Channel(location='01', channel='HHW', sample_rate=6),
-                    
+
                     Channel(location='02', channel='HHE', sample_rate=6),
                     Channel(location='02', channel='HHN', sample_rate=6),
                     Channel(location='02', channel='HHZ', sample_rate=6),
-                    
+
                     Channel(location='03', channel='HHE', sample_rate=6),
                     Channel(location='03', channel='HHN', sample_rate=6),
-                    
+
                     Channel(location='04', channel='HHZ', sample_rate=6),
-                    
+
                     Channel(location='05', channel='HHE', sample_rate=6),
                     Channel(location='05gap_merged', channel='HHN', sample_rate=6),
                     Channel(location='05err', channel='HHZ', sample_rate=6),
                     Channel(location='05gap_unmerged', channel='HHZ', sample_rate=6)
                     ]
-                
+
                 s.channels.extend(channels)
                 session.commit()
-                
+
                 fixed_args = dict(datacenter_id=dc.id,
                              download_id=run.id,
                              )
-                    
+
                 data_gaps_unmerged = data.to_segment_dict("GE.FLT1..HH?.mseed")
                 data_gaps_merged = data.to_segment_dict("IA.BAKI..BHZ.D.2016.004.head")
                 obspy_trace = read(BytesIO(data_gaps_unmerged['data']))[0]
@@ -134,7 +134,7 @@ class Test(object):
                                end_time=end,
                                arrival_time=start + (end-start)/3)
                 data_err = dict(data_ok, data=data_ok['data'][:5])
-                     
+
                 for ev, c in product([e1, e2], channels):
                     val = int(c.location[:2])
                     data_atts = data_gaps_merged if "gap_merged" in c.location else \
@@ -147,18 +147,18 @@ class Test(object):
                                   **data_atts
                                   )
                     c.segments.append(seg)
-                
+
                 session.commit()
-                
+
                 session.close()
-                
+
                 # set inventory
     #             with open(os.path.join(folder, "GE.FLT1.xml"), 'rb') as opn:
     #                 self.inventory = loads_inv(opn.read())
-    
+
                 # set inventory
                 self.inventory = data.read_inv("GE.FLT1.xml")
-       
+
             yield
 
     @property
@@ -170,7 +170,7 @@ class Test(object):
     def jsonloads(self, _data, encoding='utf8'):  
         # do not use data as argument as it might conflict with the data fixture
         # defined in conftest.py
-        
+
         # IMPORTANT: python 3.5 and 3.6 behave differently, seems that the latter accepts bytes
         # and decodes them automatically, whereas in 3.5 (and below?) it doesn't
         # This method decodes bytes data and then returns json.loads
@@ -179,8 +179,44 @@ class Test(object):
         if isinstance(_data, bytes):
             _data = _data.decode('utf8')
         return json.loads(_data)
-    
-    def test_root(self, db):  # db is a fixture (see conftest.py). Even if not used, it will
+
+
+    def test_root_no_config_and_pyfile(self,
+                                       # fixtures:
+                                       db):
+        # assure this function is run once for each given dburl
+        with self.app.test_request_context():
+            app = self.app.test_client()
+            # test first with classes:
+            # WHY THIS DOES NOT WORK??!!!
+            # the config set on the aopp IS NOT self.config!! why??!!
+            # self.config['class_labels'] = {'wtf': 'wtfd'}
+            # this on the other hand works:
+            self.app.config['CONFIG.YAML']['class_labels'] = {'wtf': 'wtfd'}
+            clz = self.session.query(Class).count()
+            assert clz == 0
+
+            rv = app.get('/')
+            clz = self.session.query(Class).all()
+
+            # https://github.com/pallets/flask/issues/716 is bytes in python3. Fix for both 2 and 3:
+            response_data = rv.data.decode('utf-8')
+            assert '"hasPreprocessFunc": true' in response_data \
+                or "'hasPreprocessFunc': true" in response_data
+            assert '"config": {}' not in response_data and "'config': {}" not in response_data
+
+            self.app.config['PLOTMANAGER'] = PlotManager(None, {})
+            self.app.config['CONFIG.YAML'] = {}
+            rv = app.get('/')
+            response_data = rv.data.decode('utf-8')
+            assert '"hasPreprocessFunc": false' in response_data \
+                or "'hasPreprocessFunc': false" in response_data
+            assert '"config": {}' in response_data or "'config': {}" in response_data
+
+
+    def test_root(self,
+                  # fixtures:
+                  db):
         # assure this function is run once for each given dburl
         with self.app.test_request_context():
             app = self.app.test_client()
@@ -209,7 +245,7 @@ class Test(object):
             for plotindex in range(6):
                 assert "<div id='plot-{0:d}' class='plot'".format(plotindex) in response_data
             assert len(clz) == 1 and clz[0].label == 'wtf' and clz[0].description == 'wtfd'
-            
+
             # change description:
             self.app.config['CONFIG.YAML']['class_labels'] = {'wtf': 'abc'}
             rv = app.get('/')
@@ -220,12 +256,12 @@ class Test(object):
 #                         <div ng-show='plots[3].visible' data-plotindex=3 class='plot'></div>"""
             clz = self.session.query(Class).all()
             assert len(clz) == 1 and clz[0].label == 'wtf' and clz[0].description == 'abc'
-            
+
             self.session.query(Class).delete()
             self.session.commit()
             clz = self.session.query(Class).count()
             assert clz == 0
-            
+
             # delete entry 'class_labels' and test when not provided
             del self.app.config['CONFIG.YAML']['class_labels'] 
             rv = app.get('/')
@@ -252,7 +288,9 @@ class Test(object):
             assert any(x[0] == 'has_data' for x in data['metadata'])
             assert not data['classes']
 
-    def test_toggle_class_id(self, db):  # db is a fixture (see conftest.py). Even if not used, it will
+    def test_toggle_class_id(self,
+                             # fixtures:
+                             db):
         # assure this function is run once for each given dburl
         with self.app.test_request_context():
             app = self.app.test_client()
@@ -267,36 +305,38 @@ class Test(object):
                                                                'value':True}),
                                    headers={'Content-Type': 'application/json'})
             data = self.jsonloads(rv.data)
-            
+
             assert len(segment.classes) == 1
             assert segment.classes[0].id == cid
-            
+
             # toggle value (now False):
             rv = app.post("/set_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid,
                                                                'value':False}),
                                    headers={'Content-Type': 'application/json'})
             assert len(segment.classes) == 0
-            
+
             # toggle again and run test_get_seg with a class set
             rv = app.post("/set_class_id", data=json.dumps({'segment_id':segid, 'class_id':cid,
                                                                'value': True}),
                                    headers={'Content-Type': 'application/json'})
             assert len(segment.classes) == 1
             self._tst_get_seg(app)
-    
-    def test_get_seg(self, db):  # db is a fixture (see conftest.py). Even if not used, it will
+
+    def test_get_seg(self,
+                     # fixtures:
+                     db):
         # assure this function is run once for each given dburl
         with self.app.test_request_context():
             app = self.app.test_client()
             self._tst_get_seg(app)
-    
+
     def _tst_get_seg(self, app):
         # does pytest.mark.parametrize work with unittest?
         # seems not. So:
         has_labellings = self.session.query(ClassLabelling).count() > 0
         for _ in product([[0, 1, 2], [], [0]], [True, False], [True, False], [True, False], [True, False]):
             plot_indices, preprocessed, metadata, classes, all_components = _
-        
+
             d = dict(seg_id=1,
                      pre_processed=preprocessed,
                      # zooms = data['zooms']
@@ -308,7 +348,7 @@ class Test(object):
                      # plotmanager = current_app.config['PLOTMANAGER']
     #         if conf:
     #             current_app.config['CONFIG.YAML'].update(conf)
-                
+
             rv = app.post("/get_segment", data=json.dumps(d),
                                headers={'Content-Type': 'application/json'})
             # https: 
@@ -323,14 +363,14 @@ class Test(object):
             # we should add a a test for the pre_processed case also, but we should inspect the plotmanager defined as app['PLOTMANAGER'] 
             # we should add a test for the zooms, too
 
-    def test_segment_sa_station_inv_errors_in_preprocessed_traces(self, db):
-        # db is a fixture (see conftest.py). Even if not used, it will
-        # assure this function is run once for each given dburl
+    def test_segment_sa_station_inv_errors_in_preprocessed_traces(self,
+                                                                  # fixtures:
+                                                                  db):
         ''''''
         plot_indices = [0]
         metadata = False
         classes = False
-        
+
         with self.app.test_request_context():
             app = self.app.test_client()
             d = dict(seg_id=1,
@@ -342,8 +382,7 @@ class Test(object):
                      all_components=True)
             rv = app.post("/get_segment", data=json.dumps(d),
                                headers={'Content-Type': 'application/json'})
-            
-            
+
         # Now we exited the session, we try with pre_processed=True
         with self.app.test_request_context():
             app = self.app.test_client()
@@ -356,7 +395,7 @@ class Test(object):
                      all_components=True)
             rv = app.post("/get_segment", data=json.dumps(d),
                                headers={'Content-Type': 'application/json'})
-        
+
         # assert we have exceptions:
         pm = self.app.config['PLOTMANAGER']
         for plotlists in pm.values():
@@ -365,11 +404,11 @@ class Test(object):
                 continue
             for i in plot_indices:
                 assert "Station inventory (xml) error" in plots[i].warnings[0]
-                
+
     @pytest.mark.parametrize('calculate_sn_spectra', [True, False])
-    def test_change_config(self, calculate_sn_spectra, db):
-        # db is a fixture (see conftest.py). Even if not used, it will
-        # assure this function is run once for each given dburl
+    def test_change_config(self, calculate_sn_spectra,
+                           # fixtures:
+                           db):
         '''test a change in the config from within the GUI'''
         plot_indices = [0]
         index_of_sn_spectra = None
@@ -382,7 +421,7 @@ class Test(object):
                     break
         metadata = False
         classes = False
-        
+
         with self.app.test_request_context():
             app = self.app.test_client()
             d = dict(seg_id=1,
@@ -394,7 +433,7 @@ class Test(object):
                      all_components=True)
             rv1 = app.post("/get_segment", data=json.dumps(d),
                            headers={'Content-Type': 'application/json'})
-            
+
             # now change the config:
             config = dict(self.app.config['CONFIG.YAML'])
             config['sn_windows']['arrival_time_shift'] += .2  # shift by .2 second
@@ -413,7 +452,7 @@ class Test(object):
                 # in py 3.5:
                 data1 = json.loads(rv1.data.decode('utf8'))
                 data2 = json.loads(rv2.data.decode('utf8'))
-                
+
             assert len(data1['sn_windows']) == 2
             assert len(data2['sn_windows']) == 2
             for wdw1, wdw2 in zip(data1['sn_windows'], data2['sn_windows']):
@@ -437,7 +476,8 @@ class Test(object):
                 expected_lineseries_num = 1 if plotindex != index_of_sn_spectra else 2
                 assert len(plot1data) == len(plot2data) == expected_lineseries_num
                 for lineseriesindex in range(len(plot1data)):
-                    # plots are returned as a list of lineseries: [name, [startime, step, data, ...]]
+                    # plots are returned as a list of lineseries:
+                    # [name, [startime, step, data, ...]]
                     # ... is other stuff we do not test here (lineseries name)
                     x0a, dxa, ya, labela = plot1data[lineseriesindex]
                     x0b, dxb, yb, labelb = plot2data[lineseriesindex]
@@ -454,15 +494,16 @@ class Test(object):
                         # too hard to test, skip this:
                         # assert dxa == dxb
                         assert not np.allclose(ya, yb)
-    
-    def test_limited_size_plotmanager(self, db):
+
+    def test_limited_size_plotmanager(self,
+                                      # fixtures:
+                                      db):
         '''test that the PlotManager stores at most one value at a time.
         The size_limit of 1 is set as patch in the init method of this class'''
         pm = self.app.config['PLOTMANAGER']
         plot_indices = [0]
         metadata = False
         classes = False
-
 
         assert len(pm) == 0
 
@@ -481,7 +522,7 @@ class Test(object):
                          all_components=False)
                 rv1 = app.post("/get_segment", data=json.dumps(d),
                                headers={'Content-Type': 'application/json'})
-            
+
             assert list(pm.keys()) == [seg_id]
             # inventory is updated only if read, i.e. if the segment does not have gaps/overlaps:
             try:
@@ -493,30 +534,3 @@ class Test(object):
                 assert list(pm.inv_cache.keys()) == [seg_id]
             except ValueError:
                 pass
-#         with self.app.test_request_context():
-#             app = self.app.test_client()
-#             d = dict(seg_id=2,
-#                      pre_processed=False,
-#                      # zooms = data['zooms']
-#                      plot_indices=plot_indices,  # data['plotIndices']
-#                      metadata=metadata,
-#                      classes=classes,
-#                      all_components=True)
-#             rv1 = app.post("/get_segment", data=json.dumps(d),
-#                            headers={'Content-Type': 'application/json'})
-#         
-#         assert list(pm.keys()) == [2]
-#         
-#         with self.app.test_request_context():
-#             app = self.app.test_client()
-#             d = dict(seg_id=2,
-#                      pre_processed=False,
-#                      # zooms = data['zooms']
-#                      plot_indices=plot_indices,  # data['plotIndices']
-#                      metadata=metadata,
-#                      classes=classes,
-#                      all_components=True)
-#             rv1 = app.post("/get_segment", data=json.dumps(d),
-#                            headers={'Content-Type': 'application/json'})
-#         
-#         assert list(pm.keys()) == [2]

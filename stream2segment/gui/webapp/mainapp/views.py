@@ -24,7 +24,8 @@ def main():
     set_classes(get_session(current_app), config)
     plotmanager = current_app.config['PLOTMANAGER']
     ud_plots = plotmanager.userdefined_plots
-    settings = {'segment_select': config.pop('segment_select', {})}
+    settings = {'segment_select': config.pop('segment_select', {}),
+                'hasPreprocessFunc': plotmanager.has_preprocessfunc}
     # pop keys not to be shown in the gui config form (either already processed, or not
     # regarding plot settings:
     config.pop('class_labels', None)

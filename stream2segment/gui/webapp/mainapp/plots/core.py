@@ -302,37 +302,50 @@ class PlotManager(LimitedSizeDict):
     wraps a dict of segment ids mapped to ChannelComponentsPlotHandlers and returns the required
     plots to be displayed
     """
-    def __init__(self, pymodule, config, size_limit=None):
+    def __init__(self, pymodule=None, config=None, size_limit=None):
         super(PlotManager, self).__init__(size_limit=size_limit or _default_size_limits()[0])
-        self.config = config
+        self.config = config or {}
         self.functions = []
         self._functions_atts = []
         self.inv_cache = InventoryCache()
 
         # define default functions if not found:
-
-        def preprocess_func(segment, config):
-            raise Exception("No function decorated with '@gui.preprocess'")
-
         def main_function(segment, config):
             '''Returns the segment stream'''
             return Plot.fromstream(segment.stream())
 
-        self.preprocessfunc = preprocess_func
+        self._preprocessfunc = None
 
-        index = 1
-        for func in iterfuncs(pymodule):
-            att, pos, xaxis, yaxis = gui.get_func_attrs(func)
-            if att == 'gui.preprocess':
-                self.preprocessfunc = func
-            elif att == 'gui.plot':
-                self.functions.append(func)
-                self._functions_atts.append({'name': func.__name__, 'index': index,
-                                             'position': pos, 'xaxis': xaxis, 'yaxis': yaxis,
-                                             'doc': func.__doc__})
-                index += 1
+        if pymodule is not None:
+            index = 1
+            for func in iterfuncs(pymodule):
+                att, pos, xaxis, yaxis = gui.get_func_attrs(func)
+                if att == 'gui.preprocess':
+                    self._preprocessfunc = func
+                elif att == 'gui.plot':
+                    self.functions.append(func)
+                    self._functions_atts.append({'name': func.__name__, 'index': index,
+                                                 'position': pos, 'xaxis': xaxis, 'yaxis': yaxis,
+                                                 'doc': func.__doc__})
+                    index += 1
 
         self.functions = [main_function] + self.functions
+
+    @property
+    def preprocessfunc(self):
+        '''Returns the preprocess function (returns a function raising if no
+        preprocessing function is defined)'''
+        if not self.has_preprocessfunc:
+            return PlotManager._default_preprocess_func
+        return self._preprocessfunc
+
+    @staticmethod
+    def _default_preprocess_func(*args, **kwargs):
+        raise Exception("No function decorated with '@gui.preprocess'")
+
+    @property
+    def has_preprocessfunc(self):
+        return self._preprocessfunc is not None
 
     @property
     def userdefined_plots(self):
