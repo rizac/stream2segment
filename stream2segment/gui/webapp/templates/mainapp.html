@@ -45,10 +45,12 @@
 				</button>
 				<span class='v-divider'></span>	
 				<h4>Plots</h4>		
-				<label title="{% endraw %}{{ preprocessfunc_doc }}{% raw %}"><input type="checkbox"
-					ng-model="showPreProcessed" ng-change="togglePreProcess()"
-					ng-show="{{ hasPreprocessFunc }}"> Pre-process</label>
-				<label><input type="checkbox" ng-model="showAllComponents" ng-change="toggleAllComponentView()"> Show all orientations</label>
+				<label ng-show="{{ hasPreprocessFunc }}" title="{% endraw %}{{ preprocessfunc_doc }}{% raw %}">
+					<input type="checkbox" ng-model="showPreProcessed" ng-change="togglePreProcess()"> Pre-process
+				</label>
+				<label>
+					<input type="checkbox" ng-model="showAllComponents" ng-change="toggleAllComponentView()"> Show all orientations
+				</label>
 				<span class='v-divider'></span>	
 				<button class='btn btn-default' ng-click="config.showForm=true" ng-show="{{ config.data.length }}">
 					Config
@@ -110,7 +112,7 @@
 				{% raw %}
 				<div class="flexible-half flex-direction-col">
 					<div class="metadata panel panel-default flexible flex-direction-col">
-						<div class="panel-heading">Segment Metadata</div>
+						<div class="panel-heading" style='background-color:transparent !important'>Segment Metadata</div>
 						<div class='flexible'>
 							<div class="panel-body">
 								<div ng-show="classes.length">
@@ -133,8 +135,8 @@
 									</div>
 								</div>
 								<div ng-repeat="(key, vals) in segData.metadata">
-									<div class="divider"></div>
-									<div ng-click="toggleDivVisibility(key)">
+									<!-- <div class="divider"></div> -->
+									<div ng-click="toggleDivVisibility(key)" style="cursor:pointer">
 										{{ key }} <div ng-class="isDivVisible(key) ? 'arrow-up' : 'arrow-down'"
 											style='float:right'></div>
 									</div>
