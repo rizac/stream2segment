@@ -113,10 +113,10 @@ def get_eidars_response_text(routing_service_url):
     except URLException as urlexc:
         fpath = get_resources_fpath('eidars.txt')
         lastmod_dtime = datetime(1970, 1, 1) + timedelta(seconds=os.path.getmtime(fpath))
-        msg = formatmsg("Eida routing service error, reading from file "
-                        "(last updated: %s)" % lastmod_dtime.strftime('%Y-%m-%d'),
-                        urlexc.exc, url)
-        logger.warning(msg)
+        msg = ("Eida routing service error, reading routes from file "
+               "(last updated: %s)" % lastmod_dtime.strftime('%Y-%m-%d'))
+        logger.info(formatmsg(msg, "eida routing service error"))
+        logger.warning(formatmsg("Eida routing service error", urlexc.exc, url))
         # read from file
         with open(fpath, 'r') as opn_:
             responsetext = opn_.read()
