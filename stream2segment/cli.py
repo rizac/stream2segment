@@ -370,11 +370,11 @@ def utils():  # pylint: disable=missing-docstring
                    "when missing, all downloads are shown. this option can be given multiple "
                    "times: .. -did 1 --download_id 2 ...")
 @click.option('-g', '--maxgap-threshold', type=float, default=0.5,
-              help="Set the threshold (in number of samples relative to each segment) "
-                   "to set which segments in the download statistics "
-                   "have gaps/overlaps. "
-                   "Defaults to 0.5, meaning that segments whose maximum gap is >0.5 will be "
-                   "identified has having gaps, and segments whose maximum gap is <-0.5 will "
+              help="Optional: set the threshold (in number of samples) "
+                   "to identify segments with gaps/overlaps. "
+                   "Defaults to 0.5, meaning that segments whose maximum gap is greater "
+                   "than half a sample will be identified has having gaps, and segments "
+                   "whose maximum gap is lower than minus half a sample will "
                    "be identified has having overlaps")
 @click.option('-htm', '--html', is_flag=True, help="Generate an interactive "
               "dynamic web page where the download infos are visualized on a map, with statistics "
