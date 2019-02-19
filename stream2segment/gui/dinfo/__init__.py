@@ -64,12 +64,12 @@ def get_datacenters(sess, dc_ids=None):
     if dc_ids is not None:
         query = query.filter(DataCenter.id.in_(dc_ids))
     ret = {}
-    for (did, ds) in query:
+    for (datacenter_id, dataselect_url) in query:
         try:
-            url = Fdsnws(ds).site
+            url = Fdsnws(dataselect_url).site
         except:  # @IgnorePep8
-            url = ds
-        ret[did] = url
+            url = dataselect_url
+        ret[datacenter_id] = url
     return ret
 
 
@@ -135,14 +135,24 @@ def get_dstats_str_iter(session, download_ids=None, maxgap_threshold=0.5):
         if show_aggregate_stats:
             agg_statz[dcurl[dc_id]][dwn_code] += segcount
 
+    evparamlen = None
     for did, dwl in viewitems(dwlids):
-        yield ascii_decorate('Download id: %d' % did)
-        yield 'executed: %s' % str(dwl[0])
-        yield "even query (param 'eventws_query_args'):"
-        for param in sorted(dwl[1]):
-            yield " %s = %s" % (param, str(dwl[1][param]))
         yield ''
-        yield str(stas.get(did, 'N/A'))
+        yield ascii_decorate('Download id: %d' % did)
+        yield 'Executed: %s' % str(dwl[0])
+        yield "Even query parameters:"
+        if evparamlen is None and dwl[1]:
+            evparamlen = max(len(_) for _ in dwl[1])
+        for param in sorted(dwl[1]):
+            yield ("  %-{:d}s = %s".format(evparamlen)) % (param, str(dwl[1][param]))
+        yield ''
+        statz = stas.get(did)
+        if statz is None:
+            yield "No segments downloaded"
+        else:
+            yield "Downlaoaded segments per data center url (row) and response type (column):"
+            yield ""
+            yield str(statz)
         yield ''
 
     if show_aggregate_stats:

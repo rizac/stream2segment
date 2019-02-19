@@ -149,8 +149,8 @@ def run(session, download_id, eventws, starttime, endtime, dataws, eventws_param
             session.close()  # frees memory?
             logger.info("")
             logger.info(("** Segments download summary **\n"
-                         "Number of segments per data-center (rows) and response "
-                         "status (columns):\n%s") %
+                         "Number of segments per data center url (row) and response "
+                         "type (column):\n%s") %
                         str(d_stats) or "Nothing to show")
 
     except NothingToDownload as ntdexc:
