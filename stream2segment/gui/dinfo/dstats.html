@@ -23,8 +23,8 @@
 {% block head_stylesheets %}
     {{ super() }}
     <style>
-    		{% include 'base.css' %}
-		{% include 'dinfo.css' %}
+    	{% include 'base.css' %}
+		{% include 'dstats.css' %}
 	</style>
 {% endblock %}
 
@@ -92,7 +92,7 @@
 					</td>
 					<td>{{code[1]}}</td>
 				</tr>
-					{% endfor %}
+				{% endfor %}
 				</table>
 
 			<h3 class='underline'>Data-centers</h3>

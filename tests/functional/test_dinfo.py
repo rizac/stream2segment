@@ -21,8 +21,10 @@ from click.testing import CliRunner
 from stream2segment.cli import cli
 from stream2segment.io.db.models import Base, Event, Station, WebService, Segment,\
     Channel, Download, DataCenter
+from stream2segment.utils import ascii_decorate
 from stream2segment.download.utils import s2scodes
 from future.utils import PY2
+
 
 
 class Test(object):
@@ -126,7 +128,7 @@ class Test(object):
 
         # text output, to file
         outfile = pytestdir.newfile('.txt')
-        result = runner.invoke(cli, ['utils', 'dinfo', '--dburl', db.dburl, outfile])
+        result = runner.invoke(cli, ['utils', 'dstats', '--dburl', db.dburl, outfile])
 
         assert not result.exception
         content = open(outfile).read()
@@ -138,12 +140,12 @@ class Test(object):
 www.dc1/dataselect/query   3         1          2      1      1      1        1        1         1     12
 TOTAL                      3         1          2      1      1      1        1        1         1     12""" in content
         assert result.output.startswith("""Fetching data, please wait (this might take a while depending on the db size and connection)
-download info and statistics written to """)
+download statistics written to """)
         assert not mock_open_in_browser.called
         assert not mock_gettempdir.called
 
         # text output, to stdout
-        result = runner.invoke(cli, ['utils', 'dinfo', '--dburl', db.dburl])
+        result = runner.invoke(cli, ['utils', 'dstats', '--dburl', db.dburl])
         assert not result.exception
         assert """
                               OK        OK         Time                 Segment           Internal       
@@ -154,9 +156,7 @@ www.dc1/dataselect/query   3         1          2      1      1      1        1 
 TOTAL                      3         1          2      1      1      1        1        1         1     12""" in result.output
 
         assert not mock_open_in_browser.called
-        expected_string = '\n'.join(('╔════════════════╗',
-                                     '║ Download id: 1 ║',
-                                     '╚════════════════╝'))
+        expected_string = ascii_decorate("Download id: 1")
         # result.output below is uncicode in PY2, whereas expected_string is str
         # Thus
         if PY2:
@@ -183,7 +183,7 @@ TOTAL                      3         1          2      1      1      1        1 
 
         # html output, to file
         outfile = pytestdir.newfile('.html')
-        result = runner.invoke(cli, ['utils', 'dinfo', '--html',  '--dburl', db.dburl, outfile])
+        result = runner.invoke(cli, ['utils', 'dstats', '--html',  '--dburl', db.dburl, outfile])
 
         assert not result.exception
         content = open(outfile).read()
@@ -238,13 +238,13 @@ TOTAL                      3         1          2      1      1      1        1 
                 raise Exception('station should not be there: %s' % staname)
 
         assert result.output.startswith("""Fetching data, please wait (this might take a while depending on the db size and connection)
-download info and statistics written to """)
+download statistics written to """)
         assert not mock_open_in_browser.called
         assert not mock_gettempdir.called
 
         # html output, to file, setting maxgap to 0.2, so that S1a' has all three ok segments
         # with gaps
-        result = runner.invoke(cli, ['utils', 'dinfo', '-g', '0.15', '--html',
+        result = runner.invoke(cli, ['utils', 'dstats', '-g', '0.15', '--html',
                                      '--dburl', db.dburl, outfile])
 
         assert not result.exception
@@ -301,7 +301,7 @@ download info and statistics written to """)
                 raise Exception('station should not be there: %s' % staname)
 
         assert result.output.startswith("""Fetching data, please wait (this might take a while depending on the db size and connection)
-download info and statistics written to """)
+download statistics written to """)
         assert not mock_open_in_browser.called
         assert not mock_gettempdir.called
 
@@ -309,11 +309,11 @@ download info and statistics written to """)
         mytmpdir = pytestdir.makedir()
         assert not os.listdir(mytmpdir)
         mock_gettempdir.side_effect = lambda *a, **v: mytmpdir
-        result = runner.invoke(cli, ['utils', 'dinfo', '--html', '--dburl',  db.dburl])
+        result = runner.invoke(cli, ['utils', 'dstats', '--html', '--dburl',  db.dburl])
         assert not result.exception
         assert mock_open_in_browser.called
         assert mock_gettempdir.called
-        assert os.listdir(mytmpdir) == ['s2s_dinfo.html']
+        assert os.listdir(mytmpdir) == ['s2s_dstats.html']
 
     @patch('stream2segment.main.open_in_browser')
     @patch('stream2segment.main.gettempdir')
@@ -330,7 +330,7 @@ download info and statistics written to """)
 
         # text output, to file
         outfile = pytestdir.newfile('.txt')
-        result = runner.invoke(cli, ['utils', 'dinfo', '--dburl', db.dburl, outfile])
+        result = runner.invoke(cli, ['utils', 'dstats', '--dburl', db.dburl, outfile])
 
         assert not result.exception
         content = open(outfile).read()
@@ -342,17 +342,21 @@ download info and statistics written to """)
 www.dc1/dataselect/query   3         1          2      1      1      1        1        1         1     12
 TOTAL                      3         1          2      1      1      1        1        1         1     12""" in content
         assert result.output.startswith("""Fetching data, please wait (this might take a while depending on the db size and connection)
-download info and statistics written to """)
+download statistics written to """)
         assert not mock_open_in_browser.called
         assert not mock_gettempdir.called
 
-        assert """╔════════════════╗
-║ Download id: 2 ║
-╚════════════════╝
+        expected_string = ascii_decorate("Download id: 2")
+        # result.output below is uncicode in PY2, whereas expected_string is str
+        # Thus
+        if PY2:
+            expected_string = expected_string.decode('utf8')
+        assert expected_string in content
+        assert """
 executed: 2018-12-02T16:46:56.472330
 even query (param 'eventws_query_args'):
 
-N/A""" in content
+N/A""" in content[content.index(expected_string):]
 
         # run with html, test just that everything works fine
         result = runner.invoke(cli, ['utils', 'dinfo', '--html', '--dburl', db.dburl, outfile])

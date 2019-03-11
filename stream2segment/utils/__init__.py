@@ -314,13 +314,24 @@ def ascii_decorate(string):
     '''
     if not string:
         return ''
+
+    # defined the frame characters:
+    # (topleft, top, topright, left, right, bottomleft, bottom, bottomright):
+    # note that top and bottom must be 1-length strings, and topleft+left=bottomleft must
+    # have the same length, as well as topright+right+bottomright
+
+    # frame = "╔", "═", "╗", "║", "║", "╚" , "═", "╝"
+    frame = "#", "~", "#", "#", "#", "#", "~", "#"
+
     linez = string.splitlines()
     maxlen = max(len(l) for l in linez)
-    frmt = "{:<%d}" % maxlen
-    hline = "═" * (maxlen + 2)
-    return "\n".join(chain(["╔" + hline + "╗"],
-                           ("║ " + frmt.format(l) + " ║" for l in linez),
-                           ["╚" + hline + "╝"]))
+    frmt = "%s {:<%d} %s" % (frame[3], maxlen, frame[4])
+    hline_top = frame[0] + frame[1] * (maxlen + 2) + frame[2]
+    hline_bottom = frame[-3] + frame[-2] * (maxlen + 2) + frame[-1]
+
+    return "\n".join(chain([hline_top],
+                           (frmt.format(l) for l in linez),
+                           [hline_bottom]))
 
 
 # https://stackoverflow.com/questions/24946321/how-do-i-write-a-no-op-or-dummy-class-in-python

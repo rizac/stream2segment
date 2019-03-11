@@ -56,7 +56,7 @@ def run(session, download_id, eventws, starttime, endtime, dataws, eventws_param
         advanced_settings['download_blocksize'] = -1
     if advanced_settings['max_thread_workers'] <= 0:
         advanced_settings['max_thread_workers'] = None
-    dbbufsize = min(advanced_settings['db_buf_size'], 1)
+    dbbufsize = max(advanced_settings['db_buf_size'], 1)
 
     process = psutil.Process(os.getpid()) if isterminal else None
     # calculate steps (note that bool math works, e.g: 8 - True == 7):

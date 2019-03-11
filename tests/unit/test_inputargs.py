@@ -260,6 +260,12 @@ class Test(object):
         # assert we did not write to the db, cause the error threw before setting up db:
         assert db.session.query(Download).count() == 2
 
+        result = run_cli_download(removals=['inventory'])  # invalid value
+        assert result.exit_code != 0
+        assert 'Error: Missing value for "inventory"' in result.output
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert db.session.query(Download).count() == 2
+
         d_yaml_file = get_templates_fpath("download.yaml")
 
         result = run_cli_download(dburl=d_yaml_file)  # existing file, invalid db url
@@ -291,6 +297,14 @@ class Test(object):
         assert 'Error: Invalid value for "-c" / "--config":' in result.output
         # assert we did not write to the db, cause the error threw before setting up db:
         assert db.session.query(Download).count() == 2
+
+        result = run_cli_download(removals=['maxmagnitude'])  # remove an opt. param.
+        assert result.exit_code == 0
+        # check maxmagnitude is NOT in the eventws params:
+        eventws_params = self.mock_run_download.call_args_list[-1][1]['eventws_params']
+        assert 'maxmagnitude' not in eventws_params
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert db.session.query(Download).count() == 3
 
 
 @patch('stream2segment.main.run_download', side_effect=lambda *a, **v: None)

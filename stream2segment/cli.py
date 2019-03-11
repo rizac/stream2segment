@@ -362,7 +362,7 @@ def utils():  # pylint: disable=missing-docstring
     pass
 
 
-@utils.command(short_help='Produces download information either in plain text or html format',
+@utils.command(short_help='Produces download summary statistics in either plain text or html format',
                context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
@@ -383,8 +383,8 @@ def utils():  # pylint: disable=missing-docstring
 @click.argument("outfile", required=False, type=click.Path(file_okay=True,
                                                            dir_okay=False, writable=True,
                                                            readable=True))
-def dinfo(dburl, download_id, maxgap_threshold, html, outfile):
-    """Produces download information either in plain text or html format.
+def dstats(dburl, download_id, maxgap_threshold, html, outfile):
+    """Produces download summary statistics either in plain text or html format.
 
     [OUTFILE] (optional): the output file where the information will be saved to.
     If missing, results will be printed to screen or opened in a web browser
@@ -392,9 +392,53 @@ def dinfo(dburl, download_id, maxgap_threshold, html, outfile):
     print('Fetching data, please wait (this might take a while depending on the '
           'db size and connection)')
     try:
-        main.dinfo(dburl, download_id or None, maxgap_threshold, html, outfile)
+        main.dstats(dburl, download_id or None, maxgap_threshold,
+                    html, outfile)
         if outfile is not None:
-            print("download info and statistics written to '%s'" % outfile)
+            print("download statistics written to '%s'" % outfile)
+        sys.exit(0)
+    except inputargs.BadArgument as aerr:
+        print(aerr)
+        sys.exit(1)  # exit with 1 as normal python exceptions
+
+
+@utils.command(short_help="Returns download information for inspection in either "
+                          "plain text or html format",
+               context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
+@click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
+@click.option('-did', '--download-id', multiple=True, type=int,
+              help="Limit the download statistics to a specified set of download ids (integers) "
+                   "when missing, all downloads are shown. this option can be given multiple "
+                   "times: .. -did 1 --download_id 2 ...")
+@click.option('-c', '--config', is_flag=True, default=None,
+              help="Returns only the config used (in YAML syntax) of the chosen download(s)")
+@click.option('-l', '--log', is_flag=True, default=None,
+              help="Returns only the log messages of the chosen download(s)")
+# @click.option('-htm', '--html', is_flag=True, help="Generate an interactive "
+#               "dynamic web page where the download infos are visualized on a map, with statistics "
+#               "on a per-station and data-center basis. A working internet connection is needed to"
+#               "properly view the page")
+@click.argument("outfile", required=False, type=click.Path(file_okay=True,
+                                                           dir_okay=False, writable=True,
+                                                           readable=True))
+def dreport(dburl, download_id, config, log, outfile):
+    """Returns download information in either  plain text or html format.
+
+    [OUTFILE] (optional): the output file where the information will be saved to.
+    If missing, results will be printed to screen or opened in a web browser
+    (depending on the option '--html')"""
+    print('Fetching data, please wait (this might take a while depending on the '
+          'db size and connection)')
+    try:
+        if (config, log) == (None, None):
+            config, log = True, True
+        # this is hacky but in case we want to restore the html
+        # argument ...
+        html = False
+        main.dreport(dburl, download_id or None, 
+                     bool(config), bool(log), html, outfile)
+        if outfile is not None:
+            print("download report written to '%s'" % outfile)
         sys.exit(0)
     except inputargs.BadArgument as aerr:
         print(aerr)

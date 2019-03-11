@@ -216,12 +216,14 @@ def pytestdir(tmpdir):
         '''Pytestdir object'''
 
         @classmethod
-        def yamlfile(cls, src, **overrides):
+        def yamlfile(cls, src, removals=None, **overrides):
             '''creates a yaml file from src (a dict or path to yaml file) and optional
             overrides. Returns the newly created yaml file path'''
             newyamlfile = cls.newfile('.yaml', create=False)
             data_ = yaml_load(src)
             data_.update(**overrides)
+            for rem in [] if not removals else removals:
+                data_.pop(rem, None)
             with open(newyamlfile, 'w') as outfile:
                 yaml.dump(data_, outfile, default_flow_style=False)
             return newyamlfile

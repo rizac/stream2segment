@@ -40,7 +40,7 @@ from stream2segment.utils.resources import get_templates_dirpath
 from stream2segment.gui.main import create_main_app, run_in_browser
 from stream2segment.process import math as s2s_math
 from stream2segment.download.utils import FailedDownload
-from stream2segment.gui.dinfo import get_dstats_html, get_dstats_str_iter
+from stream2segment.gui.dinfo import DReport, DStats
 from stream2segment.resources.templates import DOCVARS
 from stream2segment.process.writers import get_writer
 
@@ -393,25 +393,44 @@ def helpmathiter(type, filter):  # @ReservedAssignment pylint: disable=redefined
                 yield "\n"
 
 
-def dinfo(dburl, download_ids=None, maxgap_threshold=0.5, html=False, outfile=None):
+def dreport(dburl, download_ids=None, config=True, log=True, html=False, outfile=None):
+    '''Creates a diagnostic html page (or text string) showing the status of the download.
+    Note that html is not supported (for the moment) and will raise an Exception.
+    (leaving the same signatire as dstats for compatibility and easing future implementations
+    of the html page)
+
+    :param config: boolean (True by default)
+    :param log: boolean (True by default)
+    '''
+    _get_download_info(DReport(config, log), dburl, download_ids, html, outfile)
+
+
+def dstats(dburl, download_ids=None, maxgap_threshold=0.5, html=False, outfile=None):
     '''Creates a diagnostic html page (or text string) showing the status of the download
-    Note that due to current implementation, segments re-downloaded have the download id of the
-    last download attempt, even if the download code is the same as previous run'''
+
+    :param maxgap_threshold: the max gap threshold (float)
+    '''
+    _get_download_info(DStats(maxgap_threshold), dburl, download_ids, html, outfile)
+
+
+def _get_download_info(info_generator, dburl, download_ids=None, html=False, outfile=None):
+    '''processes dinfo ro dstats'''
     session = load_session_for_dinfo(dburl)
     if html:
         openbrowser = False
         if not outfile:
             openbrowser = True
-            outfile = os.path.join(gettempdir(), "s2s_dinfo.html")
+            outfile = os.path.join(gettempdir(),
+                                   "s2s_%s.html" % info_generator.__class__.__name__.lower())
         # get_dstats_html returns unicode characters in py2, str in py3,
         # so it is safe to use open like this (cf below):
         with open(outfile, 'w', encoding='utf8', errors='replace') as opn:
-            opn.write(get_dstats_html(session, download_ids, maxgap_threshold))
+            opn.write(info_generator.html(session, download_ids))
         if openbrowser:
             open_in_browser('file://' + outfile)
         threading.Timer(1, lambda: sys.exit(0)).start()
     else:
-        itr = get_dstats_str_iter(session, download_ids, maxgap_threshold)
+        itr = info_generator.str_iter(session, download_ids)
         if outfile is not None:
             # itr is an iterator of strings in py2, and str in py3, so open must be input
             # differently (see utils module):

@@ -114,7 +114,8 @@ def parse_arguments(yaml_dic, *params):
         names = param['names']
         if not isinstance(names, (list, tuple)):
             names = (names,)
-        name, value = get(yaml_dic, names, param.get('defvalue', None))
+        name, value = get(yaml_dic, names, param['defvalue']) \
+            if 'defvalue' in param else get(yaml_dic, names)
         parsefunc = param.get('newvalue', lambda val: val)
         try:
             newvalue = parsefunc(value)
@@ -132,7 +133,12 @@ def parse_arguments(yaml_dic, *params):
     return remainingkeys
 
 
-def get(dic, names, default_ifmissing=None):
+# to make None a passable argument to the next function
+# (See https://stackoverflow.com/a/14749388/3526777):
+_DEF_GET_MISSING_ARG_ = object()
+
+
+def get(dic, names, default_ifmissing=_DEF_GET_MISSING_ARG_):
     '''Similar to `dic.get` with optinal (multi) keys. I.e., it calls iteratively
     `dic.get(key)` for each key in `names` and stops at the first key found `n`.
     Returns the tuple `(n, dic[n])` and raises :class:`BadArgument` in case
@@ -153,9 +159,10 @@ def get(dic, names, default_ifmissing=None):
         if len(keys_in) > 1:
             raise BadArgument(keys_in, '', "Conflicting names")
         elif not keys_in:
-            if default_ifmissing is not None:
+            if default_ifmissing is not _DEF_GET_MISSING_ARG_:
                 return names[0], default_ifmissing
-            raise BadArgument(names, '', "Conflicting names")
+            raise KeyError()  # handled in the except below. Note that a KeyError
+                              # will prprend the 'Missing value' in BadArgument
         name = keys_in[0]
         return name, dic[name]
 

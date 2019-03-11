@@ -388,40 +388,88 @@ def test_click_funchelp(mock_helpmathiter):
     assert len(result4.output) == 0
 
 
-# THIS HAS TO BE IMPLEMENTED (if we set the datareport html in place)
-@patch("stream2segment.main.dinfo", return_value=0)
-def test_click_dataaval(mock_da):
+@patch("stream2segment.main.dstats", return_value=0)
+def test_click_dstats(mock_da):
 
+    prefix = ['utils', 'dstats']
     runner = CliRunner()
     # assert help works:
     mock_da.reset_mock()
-    result = runner.invoke(cli, ['utils', 'dinfo', '--help'])
+    result = runner.invoke(cli, prefix + ['--help'])
     assert not mock_da.called
     assert result.exit_code == 0
 
     # do a little test with variable length download ids
 
-    result = runner.invoke(cli, ['utils', 'dinfo', '-d', 'dburl', '-did', 1, '-did', 2])
+    result = runner.invoke(cli, prefix + ['-d', 'dburl', '-did', 1, '-did', 2])
     lst = list(mock_da.call_args_list[-1][0])
     assert lst == ['dburl', (1, 2), 0.5, False, None]
     assert result.exit_code == 0
 
-    result = runner.invoke(cli, ['utils', 'dinfo', '-d', 'dburl'])
+    result = runner.invoke(cli, prefix + ['-d', 'dburl'])
     lst = list(mock_da.call_args_list[-1][0])
     assert lst == ['dburl', None, 0.5, False, None]
     assert result.exit_code == 0
 
-    result = runner.invoke(cli, ['utils', 'dinfo', '-d', 'dburl', '-g', 0.77, '--html', 'abc'])
+    result = runner.invoke(cli, prefix + ['-d', 'dburl', '-g', 0.77, '--html', 'abc'])
     lst = list(mock_da.call_args_list[-1][0])
     assert lst == ['dburl', None, 0.77, True, 'abc']
     assert result.exit_code == 0
 
     mock_da.reset_mock()
-    result = runner.invoke(cli, ['utils', 'dinfo', '-d', 'dburl', '-g', 'a'])
+    result = runner.invoke(cli, prefix + ['-d', 'dburl', '-g', 'a'])
     assert not mock_da.called
     assert result.exit_code != 0
 
     mock_da.reset_mock()
-    result = runner.invoke(cli, ['utils', 'dinfo', '-d', 'dburl', '-did', 'a'])
+    result = runner.invoke(cli, prefix + ['-d', 'dburl', '-did', 'a'])
+    assert not mock_da.called
+    assert result.exit_code != 0
+
+
+@patch("stream2segment.main.dreport", return_value=0)
+def test_click_dreport(mock_da):
+
+    prefix = ['utils', 'dreport']
+    runner = CliRunner()
+    # assert help works:
+    mock_da.reset_mock()
+    result = runner.invoke(cli, prefix + ['--help'])
+    assert not mock_da.called
+    assert result.exit_code == 0
+
+    # do a little test with variable length download ids
+    result = runner.invoke(cli, prefix + ['-d', 'dburl', '-did', 1, '-did', 2])
+    lst = list(mock_da.call_args_list[-1][0])
+    assert lst == ['dburl', (1, 2), True, True, False, None]
+    assert result.exit_code == 0
+
+    result = runner.invoke(cli, prefix + ['-d', 'dburl'])
+    lst = list(mock_da.call_args_list[-1][0])
+    assert lst == ['dburl', None, True, True, False, None]
+    assert result.exit_code == 0
+
+    result = runner.invoke(cli, prefix + ['-d', 'dburl', '--log'])
+    lst = list(mock_da.call_args_list[-1][0])
+    assert lst == ['dburl', None, False, True, False, None]
+    assert result.exit_code == 0
+
+    result = runner.invoke(cli, prefix + ['-d', 'dburl', '--config'])
+    lst = list(mock_da.call_args_list[-1][0])
+    assert lst == ['dburl', None, True, False, False, None]
+    assert result.exit_code == 0
+
+    result = runner.invoke(cli, prefix + ['-d', 'dburl', '-c', '-l', '--html', 'abc'])
+    lst = list(mock_da.call_args_list[-1][0])
+    assert lst == ['dburl', None, True, True, True, 'abc']
+    assert result.exit_code == 0
+
+    mock_da.reset_mock()
+    result = runner.invoke(cli, prefix + ['-d', 'dburl', '-g'])
+    assert not mock_da.called
+    assert result.exit_code != 0
+
+    mock_da.reset_mock()
+    result = runner.invoke(cli, prefix + ['-d', 'dburl', '-did', 'a'])
     assert not mock_da.called
     assert result.exit_code != 0

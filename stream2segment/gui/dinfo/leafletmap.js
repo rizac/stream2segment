@@ -125,8 +125,9 @@ function updateMap(){
 function _updateMap(){
 	/**
 	 * Updates the map with the given data and the given selected labels
-	 * This function is called on pan and zoom to minimize the markers, as we use svgicons which are quite heavy,
-	 * we need to load only visible one...
+	 * This function is called on zoom to resize the markers, as they are of type Leaflet.ploygon,
+	 * which are much more lightweight than svgicons but with sizes relative to the map coordinates,
+	 * thus zoom dependent, whereas we want them zoom independent
 	 */
 	var {datacenters, seldatacenters, networks, codes, selcodes, downloads, seldownloads} = GLOBALS;
 
@@ -145,8 +146,9 @@ function _updateMap(){
 	var dcStats = {}; //stores datacenter id mapped to markers, selected and total segments
 	var minVal = 1.0;
 	var maxVal = 0.0;
-	// we use svg icons for the triangles, they have poor perfs, so remove those that are hidden
-	// use the object below for that:
+	// Although we do not use svg icons anymore (which have poor perfs) we should not
+	// need visibleMarkers to display only visible markers, probably the Object below
+	// was kept anyway to make map lighter:
 	var visibleMarkers = {};
 	var outb =0;
 	var below = 0;

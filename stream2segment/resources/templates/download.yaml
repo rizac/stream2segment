@@ -209,7 +209,11 @@ timespan:
  - 1.0 # start time of the waveform segment to download, in minutes *before* the calculated arrival time.
  - 3.0 # end time of the waveform segment to download, in minutes *after* the calculated arrival time
 
-# this parameter sets the credentials in order to download restricted data. It can be:
+# Set the credentials in order to download restricted data.
+# IMPORTANT: You SHOULD NOT perform massive, time-consuming downloads when fetching restricted data,
+# as the credentials validity might expire during the download execution (this is the case with EDIA tokens).
+# Try narrowing the search in case (e.g. provide the network(s) or station(s) of interest only).
+# This parameter can be:
 # - a single string pointing to a token file for restricted data authorization if "dataws" is "eida") 
 #   (https://geofon.gfz-potsdam.de/waveform/archive/auth/auth-overview.php). Non-absolute
 #   paths will be relative to the config file they are written in.
