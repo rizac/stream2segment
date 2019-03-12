@@ -321,7 +321,7 @@ def ascii_decorate(string):
     # have the same length, as well as topright+right+bottomright
 
     # frame = "╔", "═", "╗", "║", "║", "╚" , "═", "╝"
-    frame = "#", "~", "#", "#", "#", "#", "~", "#"
+    frame = "###", "#", "###", "###", "###", "###", "#", "###"
 
     linez = string.splitlines()
     maxlen = max(len(l) for l in linez)

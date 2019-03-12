@@ -99,17 +99,12 @@ class DStats(_InfoGenerator):
 
 
 def get_dreport_str_iter(session, download_ids=None, config=True, log=True):
-    '''Returns an iterator yielding the download statistics and information matching the
-    given parameters.
-    The returned string can be joined and printed to screen or file and is made of tables
-    showing the segment data on the db per data-center and download run, plus some download
-    information.
+    '''Returns an iterator yielding the download report (log and config) for the given
+    download_ids
 
     :param session: an sql-alchemy session denoting a db session to a database
     :param download_ids: (list of ints or None) if None, collect statistics from all downloads run.
-        Otherwise limit the output to the downloads whose ids are in the list. In any case, in
-        case of more download runs to be considered, this function will
-        yield also the statistics aggregating all downloads in a table at the end
+        Otherwise limit the output to the downloads whose ids are in the list
     :param config: boolean (default: True). Whether to show the download config
     :param log: boolean (default: True). Whether to show the download log messages
     '''
@@ -119,14 +114,16 @@ def get_dreport_str_iter(session, download_ids=None, config=True, log=True):
         yield ascii_decorate('Download id: %d (%s)' % (dwnl_id, str(dwnl_time)))
         if config and log:
             yield ''
-            yield 'Configuration:'
-        yield ''
-        yield configtext
+            yield 'Configuration:%s' % (' N/A' if not configtext else '')
+        if configtext:
+            yield ''
+            yield configtext
         if config and log:
             yield ''
-            yield 'Log messages:'
-        yield ''
-        yield logtext
+            yield 'Log messages:%s' % (' N/A' if not configtext else '')
+        if logtext:
+            yield ''
+            yield logtext
 
 # there is no much added value in providing a html page for the moment. However, the
 # function was implemented (NOT TESTED) and we leave it below for the moment
@@ -245,16 +242,18 @@ def get_dstats_str_iter(session, download_ids=None, maxgap_threshold=0.5):
         if show_aggregate_stats:
             agg_statz[dcurl[dc_id]][dwn_code] += segcount
 
-    evparamlen = None
-    for did, dwl in viewitems(dwlids):
+    evparamlen = None  # used for alignement of strings (calculated lazily in loop below)
+    for did, (druntime, evtparams) in viewitems(dwlids):
+        yield ''
         yield ''
         yield ascii_decorate('Download id: %d' % did)
-        yield 'Executed: %s' % str(dwl[0])
-        yield "Even query parameters:"
-        if evparamlen is None and dwl[1]:
-            evparamlen = max(len(_) for _ in dwl[1])
-        for param in sorted(dwl[1]):
-            yield ("  %-{:d}s = %s".format(evparamlen)) % (param, str(dwl[1][param]))
+        yield ''
+        yield 'Executed: %s' % str(druntime)
+        yield "Even query parameters:%s" % (' N/A' if not evtparams else '')
+        if evparamlen is None and evtparams:  # calculate eventparamlen for string alignement
+            evparamlen = max(len(_) for _ in evtparams)
+        for param in sorted(evtparams):
+            yield ("  %-{:d}s = %s".format(evparamlen)) % (param, str(evtparams[param]))
         yield ''
         statz = stas.get(did)
         if statz is None:
@@ -263,9 +262,10 @@ def get_dstats_str_iter(session, download_ids=None, maxgap_threshold=0.5):
             yield "Downlaoaded segments per data center url (row) and response type (column):"
             yield ""
             yield str(statz)
-        yield ''
 
     if show_aggregate_stats:
+        yield ''
+        yield ''
         yield ascii_decorate('Aggregated stats (all downloads)')
         yield ''
         yield str(agg_statz)

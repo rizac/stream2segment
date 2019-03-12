@@ -29,6 +29,9 @@ from future.utils import PY2
 
 class Test(object):
 
+    # define ONCE HERE THE command name, so if we change it in the cli it will be easier to fix here
+    CMD_NAME = 'dstats'
+
     # execute this fixture always even if not provided as argument:
     # https://docs.pytest.org/en/documentation-restructure/how-to/fixture.html#autouse-fixtures-xunit-setup-on-steroids
     @pytest.fixture(autouse=True)
@@ -121,14 +124,14 @@ class Test(object):
 
     @patch('stream2segment.main.open_in_browser')
     @patch('stream2segment.main.gettempdir')
-    def test_simple_dinfo(self, mock_gettempdir, mock_open_in_browser, db, pytestdir):
+    def test_simple_dstats(self, mock_gettempdir, mock_open_in_browser, db, pytestdir):
         '''test a case where save inventory is True, and that we saved inventories'''
 
         runner = CliRunner()
 
         # text output, to file
         outfile = pytestdir.newfile('.txt')
-        result = runner.invoke(cli, ['utils', 'dstats', '--dburl', db.dburl, outfile])
+        result = runner.invoke(cli, ['utils', self.CMD_NAME, '--dburl', db.dburl, outfile])
 
         assert not result.exception
         content = open(outfile).read()
@@ -145,7 +148,7 @@ download statistics written to """)
         assert not mock_gettempdir.called
 
         # text output, to stdout
-        result = runner.invoke(cli, ['utils', 'dstats', '--dburl', db.dburl])
+        result = runner.invoke(cli, ['utils', self.CMD_NAME, '--dburl', db.dburl])
         assert not result.exception
         assert """
                               OK        OK         Time                 Segment           Internal       
@@ -183,7 +186,7 @@ TOTAL                      3         1          2      1      1      1        1 
 
         # html output, to file
         outfile = pytestdir.newfile('.html')
-        result = runner.invoke(cli, ['utils', 'dstats', '--html',  '--dburl', db.dburl, outfile])
+        result = runner.invoke(cli, ['utils', self.CMD_NAME, '--html',  '--dburl', db.dburl, outfile])
 
         assert not result.exception
         content = open(outfile).read()
@@ -244,7 +247,7 @@ download statistics written to """)
 
         # html output, to file, setting maxgap to 0.2, so that S1a' has all three ok segments
         # with gaps
-        result = runner.invoke(cli, ['utils', 'dstats', '-g', '0.15', '--html',
+        result = runner.invoke(cli, ['utils', self.CMD_NAME, '-g', '0.15', '--html',
                                      '--dburl', db.dburl, outfile])
 
         assert not result.exception
@@ -309,7 +312,7 @@ download statistics written to """)
         mytmpdir = pytestdir.makedir()
         assert not os.listdir(mytmpdir)
         mock_gettempdir.side_effect = lambda *a, **v: mytmpdir
-        result = runner.invoke(cli, ['utils', 'dstats', '--html', '--dburl',  db.dburl])
+        result = runner.invoke(cli, ['utils', self.CMD_NAME, '--html', '--dburl',  db.dburl])
         assert not result.exception
         assert mock_open_in_browser.called
         assert mock_gettempdir.called
@@ -317,7 +320,7 @@ download statistics written to """)
 
     @patch('stream2segment.main.open_in_browser')
     @patch('stream2segment.main.gettempdir')
-    def test_dinfo_no_segments(self, mock_gettempdir, mock_open_in_browser, db, pytestdir):
+    def test_dstats_no_segments(self, mock_gettempdir, mock_open_in_browser, db, pytestdir):
         '''test a case where save inventory is True, and that we saved inventories'''
 
         # mock  a download with only inventories, i.e. with no segments downloaded
@@ -330,7 +333,7 @@ download statistics written to """)
 
         # text output, to file
         outfile = pytestdir.newfile('.txt')
-        result = runner.invoke(cli, ['utils', 'dstats', '--dburl', db.dburl, outfile])
+        result = runner.invoke(cli, ['utils', self.CMD_NAME, '--dburl', db.dburl, outfile])
 
         assert not result.exception
         content = open(outfile).read()
@@ -353,11 +356,12 @@ download statistics written to """)
             expected_string = expected_string.decode('utf8')
         assert expected_string in content
         assert """
-executed: 2018-12-02T16:46:56.472330
-even query (param 'eventws_query_args'):
+Executed: 2018-12-02T16:46:56.472330
+Even query parameters: NA
 
-N/A""" in content[content.index(expected_string):]
+No segments downloaded
+""" in content[content.index(expected_string):]
 
         # run with html, test just that everything works fine
-        result = runner.invoke(cli, ['utils', 'dinfo', '--html', '--dburl', db.dburl, outfile])
+        result = runner.invoke(cli, ['utils', self.CMD_NAME, '--html', '--dburl', db.dburl, outfile])
         assert not result.exception
