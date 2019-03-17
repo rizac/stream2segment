@@ -30,56 +30,61 @@ dburl: 'sqlite:////path/to/my/db.sqlite'
 # has limited support in this program (e.g., comments are not allowed. Use at your own risk).
 # You can also type one of the following shortcut strings:
 # {{ DOWNLOAD_EVENTWS_LIST }}
+# Implementation details: if providing an event list file, its name (not the path) will be used
+# as catalog identifier: if the same file with two different names is used to save data
+# on a database, the events (and consequently the segments) will not be recognized as being the same
 eventws: 'http://seismicportal.eu/fdsnws/event/1/query'
 
 
-# Limit to events (and datacenters) on or after the specified start time. Specify a date or
+# Limit to events / datacenters / station / channels on or after the specified start time. Specify a date or
 # date-time in iso-format or an integer >=0 to denote the number of days before today at midnight.
 # Example: start=1 and end=0 => fetch events occurred yesterday.
 # Implementation details: 'start' is also a valid name for this parameter
 starttime: 2006-01-01T00:00:00
 
-# Limit to events (and datacenters) on or before the specified end time. Specify a date or
+# Limit to events / datacenters / station / channels on or before the specified end time. Specify a date or
 # date-time in iso-format or an integer >=0 to denote the number of days before today at midnight.
 # Example: start=1 and end=0 => fetch events occurred yesterday.
 # Implementation details: 'end' is also a valid name for this parameter
 endtime: 2016-12-25T00:00:00
 
 # Limit to events with a latitude larger than or equal to the specified minimum.
+# This parameter is ignored if missing, set to null, or 'eventws' is given as file path
 # Implementation details: 'minlat' is also a valid name for this parameter
-minlatitude: 47.0  # missing or null: ignore
+minlatitude: 47.0
 
 # Limit to events with a latitude smaller than or equal to the specified maximum
+# This parameter is ignored if missing, set to null, or 'eventws' is given as file path
 # Implementation details: 'maxlat' is also a valid name for this parameter
-maxlatitude: 57.0  # missing or null: ignore
+maxlatitude: 57.0
 
 # Limit to events with a longitude larger than or equal to the specified minimum
+# This parameter is ignored if missing, set to null, or 'eventws' is given as file path
 # Implementation details: 'minlon' is also a valid name for this parameter
-# Set to null to ignore this parameter
-minlongitude: 4.0  # missing or null: ignore
+minlongitude: 4.0
 
 # Limit to events with a longitude smaller than or equal to the specified maximum
+# This parameter is ignored if missing, set to null, or 'eventws' is given as file path
 # Implementation details: 'maxlon' is also a valid name for this parameter
-# Set to null to ignore this parameter
-maxlongitude: 17.0  # missing or null: ignore
+maxlongitude: 17.0
 
 # Limit to events with depth more than the specified minimum.
-# Set to null to ignore this parameter
-mindepth: 1  # missing or null: ignore
+# This parameter is ignored if missing, set to null, or 'eventws' is given as file path
+mindepth: 1
 
 # Limit to events with depth less than the specified maximum
-# Set to null to ignore this parameter
-maxdepth: 50  # missing or null: ignore
+# This parameter is ignored if missing, set to null, or 'eventws' is given as file path
+maxdepth: 50
 
 # Limit to events with a magnitude larger than the specified minimum
-# Set to null to ignore this parameter
+# This parameter is ignored if missing, set to null, or 'eventws' is given as file path
 # Implementation details: 'minmag' is also a valid name for this parameter
-minmagnitude: 4.0  # missing or null: ignore
+minmagnitude: 4.0
 
-# Limit to events with a magnitude smaller than the specified maximum (leaving the value
-# empty ignores this parameter)
+# Limit to events with a magnitude smaller than the specified maximum
+# This parameter is ignored if missing, set to null, or 'eventws' is given as file path
 # Implementation details: 'maxmag' is also a valid name for this parameter
-maxmagnitude: null  # missing or null: ignore
+maxmagnitude: null
 
 # Additional event web search parameters. For info, see
 # https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=14
@@ -92,6 +97,7 @@ eventws_params:
   # lon: 4.0
   # minradius: 17.0
   # maxradius: 21.0
+
 
 # ====================
 # Stations / Channels: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=10
@@ -172,32 +178,33 @@ search_radius:
 # Data (waveform segments) https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=8
 # ========================
 
-# data-select web service to use (url). It *must* be FDSN compliant:
-# <site>/fdsnws/dataselect/<majorversion>/query
-# otherwise the station query can not be retrieved automatically
-# (the site scheme is optional and will default to 'http://' in case.
-# An ending '/' or '?' will be removed from the url, if present).
+# Dataselect web service to use (url). It *must* be FDSN compliant
+# otherwise the station query can not be retrieved automatically:
+#   <site>/fdsnws/dataselect/<majorversion>/query. Examples:
+#   https://service.iris.edu/fdsnws/dataselect/1/query
+#   service.iris.edu/fdsnws/dataselect/1/query  (scheme will default to 'http://')
+#   (an ending '/' or '?' will be removed from the url, if present).
 # You can also type two special values:
 # "iris" (shortcut for: https://service.iris.edu/fdsnws/dataselect/1/query) or
 # "eida" (which will automatically fetch data from the urls of all EIDA datacenters).
 # Implementation details: If the station web service(s) did not return data
-# (e.g., connection problems), then the requested stations and channales will be fetched from the
+# (e.g., connection problems), then the requested stations and channels will be fetched from the
 # database. In this case, if the database is empty the download process will stop with an error
 # message.
 dataws: 'eida'
 
 # The model to be used to asses the travel times of a wave from
 # the event location to each station location. Type a string denoting a file name (absolute path)
-# of a custom model created by means of `s2s utils ttcreate` or one of the 4 built-in models
-# (all assuming receiver depth=0 for simplicity):
-# ak135_ttp+: ak135 model pre-computed for all ttp+ phases (P wave arrivals)
-# ak135_tts+: ak135 model pre-computed for all tts+ phases (S wave arrivals)
-# iasp91_ttp+: iasp91 model pre-computed for all ttp+ phases (P wave arrivals)
-# iasp91_tts+: iasp91 model pre-computed for all tts+ phases (S wave arrivals)
+# of a custom model created by means of `s2s utils ttcreate` or one of the 4 built-in models:
+#   ak135_ttp+: ak135 model precomputed for all ttp+ phases (P wave arrivals)
+#   ak135_tts+: ak135 model precomputed for all tts+ phases (S wave arrivals)
+#   iasp91_ttp+: iasp91 model precomputed for all ttp+ phases (P wave arrivals)
+#   iasp91_tts+: iasp91 model precomputed for all tts+ phases (S wave arrivals)
 # For each segment, the arrival time (travel time + event time) will be the pivot
 # whereby the user sets up the download time window (see also 'timespan').
 # Implementation details: the *max* error on the arrival times (assessed on a random set of points)
-# using one of the pre-computed models is in the order of 0.5 seconds.
+# using one of the precomputed models is in the order of 0.5 seconds. All builtin models
+# assume receiver depth=0 for simplicity
 traveltimes_model: 'ak135_ttp+'
 
 # The segment's time span (i.e., the data time window to download): specify two positive floats denoting 
@@ -219,30 +226,30 @@ timespan:
 #   paths will be relative to the config file they are written in.
 # - a list of two strings denoting username and password
 # when this parameter is null, or the empty string, only open (unrestricted) waveform data will
-# be downloaded. When provided, restricted segments previosuly downloaded with no credentials
+# be downloaded. When provided, restricted segments previously downloaded with no credentials
 # (thus, with no waveform data) will be always re-downloaded regardless of the retry_* parameters.
 restricted_data: ""
 
-# Try to dowonload again already saved segments with no waveform data because not found
+# Try to download again already saved segments with no waveform data because not found
 # in the response. This is NOT the case when the server returns no data with an appropriate
 # 'No Content' message, but when a successful response (usually '200: OK') does not contain
 # the expected segment data. E.g., a multi-segment request returns some but not all requested
 # segments.
 retry_seg_not_found: true
 
-# Try to dowonload again already saved segments with no waveform data because of a
+# Try to download again already saved segments with no waveform data because of a
 # general url error (e.g., no internet connection, timeout, ...)
 retry_url_err: true
 
-# Try to dowonload again already saved segments with no waveform data because the response was
+# Try to download again already saved segments with no waveform data because the response was
 # malformed, i.e. not readable as MiniSeed
 retry_mseed_err: false
 
-# Try to dowonload again already saved segments with no waveform data because of a client error
+# Try to download again already saved segments with no waveform data because of a client error
 # (response code in [400,499])
 retry_client_err: true
 
-# Try to dowonload again already saved segments with no waveform data because of a server error
+# Try to download again already saved segments with no waveform data because of a server error
 # (response code in [500,599])
 retry_server_err: true
 
@@ -274,7 +281,8 @@ advanced_settings:
  # max time to wait (in seconds) for a single request while downloading waveform data
  w_timeout: 30
  # the buffer size used when writing items (stations, segments, events, ...) to database.
- # Increasing this number usually speeds speed up database IO operations, but note that
- # if a single item in the buffer cannot be inserted or updated
+ # Increasing this number usually speeds speed up database IO operations (also, we experienced
+ # performance degradations when this number is below the range [30, 50]) but increases the memory
+ # consumption. Note also that if a single item in the buffer cannot be inserted or updated
  # (e.g., integrity errors), all subsequent buffer items will also be discarded
- db_buf_size: 20
+ db_buf_size: 200

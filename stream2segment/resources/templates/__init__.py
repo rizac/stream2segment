@@ -549,7 +549,8 @@ _SEGMENT_ATTRS_YAML = "\n# ".join(s[8:] for s in _SEGMENT_ATTRS.splitlines())
 PROCESS_YAML_SEGMENTSELECT = '''
 The parameter 'segment_select' defines what segments to be processed or
 # visualized. If this argument is missing, all segments will be processed or
-# (from within the GUI) visualized. The selection is made via the list-like argument:
+# (from within the GUI) visualized **INCLUDING SEGMENTS WITH NO WAVEFORM DATA**
+# (which might not be desired). The selection is made via the list-like argument:
 #
 # segment_select:
 #   <att>: "<expression>"
