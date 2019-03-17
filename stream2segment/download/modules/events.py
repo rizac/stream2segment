@@ -13,6 +13,7 @@ import os
 import sys
 import re
 from io import open  # py2-3 compatible
+from datetime import timedelta
 
 import numpy as np
 import pandas as pd
@@ -137,7 +138,8 @@ def is_isf(filepath):
 def tofileuri(file_path):
     '''returns a file uri form thegiven file, basically file:///+file_path'''
     # https://en.wikipedia.org/wiki/File_URI_scheme#Format
-    return 'file:///' + os.path.abspath(os.path.normpath(file_path))
+    # return 'file:///' + os.path.abspath(os.path.normpath(file_path))
+    return 'file:///' + os.path.basename(file_path)
 
 
 def islocalfile(url):
@@ -180,8 +182,14 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout, show_pro
             yield url, result  # then result is the tuple (url, raw_data)
         else:
             logger.info("Request seems to be too large, splitting into "
-                        "(magnitude-related) sub-requests")
+                        "sub-requests")
 
+            # the tricky part below is actually the progressbar part. It must:
+            # 1 not be linear, thus advance "more" at lower magnitudes (where events are more
+            #   dense)
+            # 2 consider that, when the maximum magnitude depth is reached, we split
+            #   by time and in this case only the last sub-request should advance the
+            #   progress bar
             total_pbar_steps = _get_freq_mag_distrib(evt_query_args)[2].sum()
             with get_progressbar(show_progress, length=total_pbar_steps) as pbar:
                 downloads = [evt_query_args]
@@ -192,8 +200,12 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout, show_pro
                         url = urljoin(base_url, **evt_q_arg)
                         result = _urlread(url, timeout, is_isf)
                         if result is not None:
-                            steps = _get_freq_mag_distrib(evt_q_arg)[2].sum()
-                            pbar.update(steps)
+                            # update pbar only if the end of the request equals
+                            # the global end_iso (when recursion is done on time, it
+                            # updates only on the first time chunk):
+                            if evt_q_arg['endtime'] == end_iso:
+                                steps = _get_freq_mag_distrib(evt_q_arg)[2].sum()
+                                pbar.update(steps)
                             yield url, result  # then result is the tuple (url, raw_data)
                         else:
                             downloads.insert(i, evt_q_arg)
@@ -230,17 +242,26 @@ def _split_request(evt_query_args):
     '''
     minmag, deltamag, evtfreq_freq_mag_dist = _get_freq_mag_distrib(evt_query_args)
     if len(evtfreq_freq_mag_dist) < 2:
-        raise ValueError('maximum recursion depth reached')
-    half = evtfreq_freq_mag_dist.sum() / 2.0
-    idx = 1
-    while evtfreq_freq_mag_dist[:idx+1].sum() < half:
-        idx += 1
-    mag_half = minmag + idx * deltamag
-    evt_query_args1 = dict(evt_query_args)
-    evt_query_args2 = dict(evt_query_args)
-
-    evt_query_args1['maxmagnitude'] = str(round(mag_half, 1))
-    evt_query_args2['minmagnitude'] = str(round(mag_half, 1))
+        start = strptime(evt_query_args['starttime'])
+        end = strptime(evt_query_args['endtime'])
+        days_diff = int((end-start).days / 2.0)
+        if days_diff < 1:
+            raise ValueError('maximum recursion depth reached')
+        half_dtime_str = (start + timedelta(days=days_diff)).isoformat()
+        evt_query_args1 = dict(evt_query_args)
+        evt_query_args2 = dict(evt_query_args)
+        evt_query_args1['endtime'] = half_dtime_str
+        evt_query_args2['starttime'] = half_dtime_str
+    else:
+        half = evtfreq_freq_mag_dist.sum() / 2.0
+        idx = 1
+        while evtfreq_freq_mag_dist[:idx+1].sum() < half:
+            idx += 1
+        mag_half = minmag + idx * deltamag
+        evt_query_args1 = dict(evt_query_args)
+        evt_query_args2 = dict(evt_query_args)
+        evt_query_args1['maxmagnitude'] = str(round(mag_half, 1))
+        evt_query_args2['minmagnitude'] = str(round(mag_half, 1))
 
     return evt_query_args1, evt_query_args2
 
