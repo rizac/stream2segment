@@ -35,7 +35,6 @@ dburl: 'sqlite:////path/to/my/db.sqlite'
 # on a database, the events (and consequently the segments) will not be recognized as being the same
 eventws: 'http://seismicportal.eu/fdsnws/event/1/query'
 
-
 # Limit to events / datacenters / station / channels on or after the specified start time. Specify a date or
 # date-time in iso-format or an integer >=0 to denote the number of days before today at midnight.
 # Example: start=1 and end=0 => fetch events occurred yesterday.
@@ -285,4 +284,4 @@ advanced_settings:
  # performance degradations when this number is below the range [30, 50]) but increases the memory
  # consumption. Note also that if a single item in the buffer cannot be inserted or updated
  # (e.g., integrity errors), all subsequent buffer items will also be discarded
- db_buf_size: 200
+ db_buf_size: 100
