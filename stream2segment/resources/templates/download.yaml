@@ -30,9 +30,9 @@ dburl: 'sqlite:////path/to/my/db.sqlite'
 # has limited support in this program (e.g., comments are not allowed. Use at your own risk).
 # You can also type one of the following shortcut strings:
 # {{ DOWNLOAD_EVENTWS_LIST }}
-# Implementation details: if providing an event list file, its name (not the path) will be used
-# as catalog identifier: if the same file with two different names is used to save data
-# on a database, the events (and consequently the segments) will not be recognized as being the same
+# Implementation details: IMPORTANT: if providing an event list file, its name (not the path) will be used
+# as catalog identifier: renaming the file and downloading again on the same database
+# will result in the events and their segments being saved twice
 eventws: 'http://seismicportal.eu/fdsnws/event/1/query'
 
 # Limit to events / datacenters / station / channels on or after the specified start time. Specify a date or

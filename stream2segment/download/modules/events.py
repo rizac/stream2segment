@@ -241,7 +241,7 @@ def _split_request(evt_query_args):
     of event query parameters (dicts) resulting from splitting `evt_query_args`
     '''
     minmag, deltamag, evtfreq_freq_mag_dist = _get_freq_mag_distrib(evt_query_args)
-    if len(evtfreq_freq_mag_dist) < 2:
+    if len(evtfreq_freq_mag_dist) < 2:  # max recusrion on magnitudes, split by time:
         start = strptime(evt_query_args['starttime'])
         end = strptime(evt_query_args['endtime'])
         days_diff = int((end-start).days / 2.0)
