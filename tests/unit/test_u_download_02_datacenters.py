@@ -452,7 +452,7 @@ UP ARJ * BHW 2013-08-01T00:00:00 2017-04-25"""]
         assert self.mock_urlopen.called
         assert mock_fileopen.called
         msg = self.log_msg()
-        assert "Eida routing service error, reading from file (last updated: " in msg
+        assert "Eida routing service error, reading routes from file (last updated: " in msg
         assert eidavalidator is not None
         assert db.session.query(DataCenter).\
             filter(DataCenter.organization_name == 'eida').count() == 10

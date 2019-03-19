@@ -355,12 +355,13 @@ download statistics written to """)
         if PY2:
             expected_string = expected_string.decode('utf8')
         assert expected_string in content
-        assert """
+        expected_string2 = """
 Executed: 2018-12-02T16:46:56.472330
-Even query parameters: NA
+Event query parameters: N/A
 
 No segments downloaded
-""" in content[content.index(expected_string):]
+"""
+        assert expected_string2 in content[content.index(expected_string):]
 
         # run with html, test just that everything works fine
         result = runner.invoke(cli, ['utils', self.CMD_NAME, '--html', '--dburl', db.dburl, outfile])

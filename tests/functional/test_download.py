@@ -289,8 +289,17 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
             lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
-        mock_download_save_segments.side_effect = \
-            lambda *a, **v: self.download_save_segments(None, *a, **v)
+
+        def dss(*a, **v):
+            '''calls self.download_save_segments after setting dbbufsize (a[9]) to 1'''
+            # to make this test work, dbbufsize (a[9]) must be=1
+            # First do a check in order to catch if we changed dbbufsize position
+            # of the default value in download.yaml:
+            assert a[9] == 100
+            a2 = list(a)
+            a2[9] = 1
+            self.download_save_segments(None, *a2, **v)
+        mock_download_save_segments.side_effect = dss
         mock_mseed_unpack.side_effect = lambda *a, **v: unpack(*a, **v)
         # mock_insertdf.side_effect = lambda *a, **v: insertdf(*a, **v)
         mock_autoinc_db.side_effect = lambda *a, **v: _get_db_autoinc_col_max(*a, **v)

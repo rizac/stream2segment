@@ -249,7 +249,7 @@ def get_dstats_str_iter(session, download_ids=None, maxgap_threshold=0.5):
         yield ascii_decorate('Download id: %d' % did)
         yield ''
         yield 'Executed: %s' % str(druntime)
-        yield "Even query parameters:%s" % (' N/A' if not evtparams else '')
+        yield "Event query parameters:%s" % (' N/A' if not evtparams else '')
         if evparamlen is None and evtparams:  # calculate eventparamlen for string alignement
             evparamlen = max(len(_) for _ in evtparams)
         for param in sorted(evtparams):
