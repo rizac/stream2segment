@@ -441,12 +441,19 @@ def test_click_dreport(mock_da):
     # do a little test with variable length download ids
     result = runner.invoke(cli, prefix + ['-d', 'dburl', '-did', 1, '-did', 2])
     lst = list(mock_da.call_args_list[-1][0])
+    assert lst == ['dburl', (1, 2), False, False, False, None]
+    assert result.exit_code == 0
+
+    # do a little test with variable length download ids
+    result = runner.invoke(cli, prefix + ['-d', 'dburl', '-did', 1, '-did', 2,
+                                          '--log', '--config'])
+    lst = list(mock_da.call_args_list[-1][0])
     assert lst == ['dburl', (1, 2), True, True, False, None]
     assert result.exit_code == 0
 
     result = runner.invoke(cli, prefix + ['-d', 'dburl'])
     lst = list(mock_da.call_args_list[-1][0])
-    assert lst == ['dburl', None, True, True, False, None]
+    assert lst == ['dburl', None, False, False, False, None]
     assert result.exit_code == 0
 
     result = runner.invoke(cli, prefix + ['-d', 'dburl', '--log'])

@@ -402,8 +402,7 @@ def dstats(dburl, download_id, maxgap_threshold, html, outfile):
         sys.exit(1)  # exit with 1 as normal python exceptions
 
 
-@utils.command(short_help="Returns download information for inspection in either "
-                          "plain text or html format",
+@utils.command(short_help="Returns download information for inspection",
                context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
 @click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
 @click.option('-did', '--download-id', multiple=True, type=int,
@@ -422,7 +421,7 @@ def dstats(dburl, download_id, maxgap_threshold, html, outfile):
                                                            dir_okay=False, writable=True,
                                                            readable=True))
 def dreport(dburl, download_id, config, log, outfile):
-    """Returns download information in either  plain text or html format.
+    """Returns download information.
 
     [OUTFILE] (optional): the output file where the information will be saved to.
     If missing, results will be printed to screen or opened in a web browser
@@ -430,12 +429,10 @@ def dreport(dburl, download_id, config, log, outfile):
     print('Fetching data, please wait (this might take a while depending on the '
           'db size and connection)')
     try:
-        if (config, log) == (None, None):
-            config, log = True, True
         # this is hacky but in case we want to restore the html
         # argument ...
         html = False
-        main.dreport(dburl, download_id or None, 
+        main.dreport(dburl, download_id or None,
                      bool(config), bool(log), html, outfile)
         if outfile is not None:
             print("download report written to '%s'" % outfile)

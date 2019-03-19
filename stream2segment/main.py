@@ -395,9 +395,9 @@ def helpmathiter(type, filter):  # @ReservedAssignment pylint: disable=redefined
 
 def dreport(dburl, download_ids=None, config=True, log=True, html=False, outfile=None):
     '''Creates a diagnostic html page (or text string) showing the status of the download.
-    Note that html is not supported (for the moment) and will raise an Exception.
+    Note that html is not supported for the moment and will raise an Exception.
     (leaving the same signatire as dstats for compatibility and easing future implementations
-    of the html page)
+    of the html page if needed)
 
     :param config: boolean (True by default)
     :param log: boolean (True by default)

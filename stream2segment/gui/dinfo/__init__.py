@@ -131,9 +131,9 @@ def get_dreport_str_iter(session, download_ids=None, config=True, log=True):
 # def get_dreport_html_template_arguments(session, download_ids=None, config=True, log=True):
 #     '''Returns an html page (string) yielding the download statistics and information matching the
 #     given parameters.
-# 
+#
 #     :param session: an sql-alchemy session denoting a db session to a database
-#     :param download_ids: (list of ints or None) if None, collect statistics from all downloads run.
+#     :param download_ids: (list of ints or None) if None, collect stats from all downloads run.
 #         Otherwise limit the output to the downloads whose ids are in the list. In any case, in
 #         case of more download runs to be considered, this function will
 #         yield also the statistics aggregating all downloads in a table at the end

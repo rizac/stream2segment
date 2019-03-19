@@ -126,12 +126,29 @@ class Test(object):
     def test_simple_dreport(self, mock_gettempdir, mock_open_in_browser, db, pytestdir):
         '''test a case where save inventory is True, and that we saved inventories'''
 
+        # test "no flags" case:
         runner = CliRunner()
-
         # text output, to file
         outfile = pytestdir.newfile('.txt')
-        result = runner.invoke(cli, ['utils', self.CMD_NAME, '--dburl', db.dburl, outfile])
+        result = runner.invoke(cli, ['utils', self.CMD_NAME,
+                                     '--dburl', db.dburl, outfile])
+        assert not result.exception
+        expected_string = ascii_decorate("Download id: 1 (%s)" %
+                                         str(db.session.query(Download.run_time).first()[0]))
+        # result.output below is uncicode in PY2, whereas expected_string is str
+        # Thus
+        if PY2:
+            expected_string = expected_string.decode('utf8')
 
+        content = open(outfile).read()
+        assert expected_string.strip() == content.strip()
+
+        # test "normal" case:
+        runner = CliRunner()
+        # text output, to file
+        outfile = pytestdir.newfile('.txt')
+        result = runner.invoke(cli, ['utils', self.CMD_NAME, '--config', '--log',
+                                     '--dburl', db.dburl, outfile])
         assert not result.exception
         expected_string = ascii_decorate("Download id: 1 (%s)" %
                                          str(db.session.query(Download.run_time).first()[0]))
@@ -147,18 +164,17 @@ Log messages: N/A"""
 
         content = open(outfile).read()
         assert expected_string in content
-
         assert result.output.startswith("""Fetching data, please wait (this might take a while depending on the db size and connection)
 download report written to """)
         assert not mock_open_in_browser.called
         assert not mock_gettempdir.called
 
         # calling with no ouptut file (print to screen, i.e. result.output):
-        result = runner.invoke(cli, ['utils', self.CMD_NAME, '--dburl', db.dburl])
+        result = runner.invoke(cli, ['utils', self.CMD_NAME, '--log',
+                                     '--config', '--dburl', db.dburl])
         assert not result.exception
         content = result.output
         assert expected_string in content
-
         assert result.output.startswith("""Fetching data, please wait (this might take a while depending on the db size and connection)
 """)
         assert not mock_open_in_browser.called
@@ -170,6 +186,7 @@ download report written to """)
         result = runner.invoke(cli, ['utils', self.CMD_NAME, '--dburl', '--log', db.dburl])
         assert expected in result.output
         assert not result.output[result.output.index(expected)+len(expected):]
+
         # try with flags:
         result = runner.invoke(cli, ['utils', self.CMD_NAME, '--dburl', '--config', db.dburl])
         assert expected in result.output
