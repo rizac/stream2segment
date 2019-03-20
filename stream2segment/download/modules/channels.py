@@ -86,7 +86,7 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
         dc_df_fromdb = \
             datacenters_df.loc[datacenters_df[DataCenter.id.key].isin(url_failed_dc_ids)]
         logger.info(formatmsg("Fetching stations from database for %d (of %d) data-center(s)",
-                              "download errors occurred:"), len(dc_df_fromdb), len(datacenters_df))
+                              "download errors occurred"), len(dc_df_fromdb), len(datacenters_df))
         logger.info(dc_df_fromdb[DataCenter.dataselect_url.key].to_string(index=False))
         db_cha_df = get_channels_df_from_db(session, dc_df_fromdb, net, sta, loc, cha,
                                             starttime, endtime, min_sample_rate)
