@@ -251,10 +251,9 @@ def test_click_show(mock_create_main_app, mock_open_in_browser, mock_show):
     assert not mock_open_in_browser.called
 
 
-
-@patch("stream2segment.cli.click.prompt")
+@patch("stream2segment.main.input")
 @patch("stream2segment.main.init", side_effect=orig_init)
-def test_click_template(mock_main_init, mock_click_prompt, pytestdir):
+def test_click_template(mock_main_init, mock_input, pytestdir):
     runner = CliRunner()
     # assert help works:
     result = runner.invoke(cli, ['init', '--help'])
@@ -265,7 +264,6 @@ def test_click_template(mock_main_init, mock_click_prompt, pytestdir):
                       'save2fs.py', 'save2fs.yaml']
 
     dir_ = pytestdir.makedir()
-    # FIXME: how to check click prompt?? is there a way?
     path = os.path.join(dir_, 'abc')
 
     def max_mod_time():
@@ -278,7 +276,7 @@ def test_click_template(mock_main_init, mock_click_prompt, pytestdir):
     assert mock_main_init.called
     files = os.listdir(path)
     assert sorted(files) == expected_files
-    assert not mock_click_prompt.called
+    assert not mock_input.called
 
     # assert we correctly wrote the files
     for fle in files:
@@ -308,14 +306,14 @@ def test_click_template(mock_main_init, mock_click_prompt, pytestdir):
                              get_templates_dirpath())
 
     # try to write to the same dir (1)
-    mock_click_prompt.reset_mock()
-    mock_click_prompt.side_effect = lambda arg: '1'  # overwrite all files
+    mock_input.reset_mock()
+    mock_input.side_effect = lambda arg: '1'  # overwrite all files
     maxmodtime = max_mod_time()
     # we'll test that files are modified, but on mac timestamps are rounded to seconds
     # so wait 1 second to be safe
     time.sleep(1)
     result = runner.invoke(cli, ['init', path])
-    assert mock_click_prompt.called
+    assert mock_input.called
     assert max_mod_time() > maxmodtime
     assert '%d file(s) copied in' % len(expected_files) in result.output
 
@@ -324,23 +322,23 @@ def test_click_template(mock_main_init, mock_click_prompt, pytestdir):
         # '' => skip overwrite
         # '2' => overwrite only non existing
         # in thus case, both the above returned values produce the same result
-        mock_click_prompt.reset_mock()
-        mock_click_prompt.side_effect = lambda arg: click_prompt_ret_val
+        mock_input.reset_mock()
+        mock_input.side_effect = lambda arg: click_prompt_ret_val
         maxmodtime = max_mod_time()
         time.sleep(1)  # see comment above
         result = runner.invoke(cli, ['init', path])
-        assert mock_click_prompt.called
+        assert mock_input.called
         assert max_mod_time() == maxmodtime
         assert 'No file copied' in result.output
 
     os.remove(os.path.join(path, expected_files[0]))
     # try to write to the same dir (2)
-    mock_click_prompt.reset_mock()
-    mock_click_prompt.side_effect = lambda arg: '2'   # overwrite non-existing (1) file
+    mock_input.reset_mock()
+    mock_input.side_effect = lambda arg: '2'   # overwrite non-existing (1) file
     maxmodtime = max_mod_time()
     time.sleep(1)  # see comment above
     result = runner.invoke(cli, ['init', path])
-    assert mock_click_prompt.called
+    assert mock_input.called
     assert max_mod_time() > maxmodtime
     assert '1 file(s) copied in' in result.output
 
