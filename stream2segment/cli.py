@@ -136,7 +136,7 @@ def init(outdir):
         ])
 
     try:
-        copied_files = main.init(outdir, click.prompt, *helpdict)  # pass only helpdict keys
+        copied_files = main.init(outdir, True, *helpdict)  # pass only helpdict keys
         if not copied_files:
             print("No file copied")
         else:
@@ -436,6 +436,39 @@ def dreport(dburl, download_id, config, log, outfile):
                      bool(config), bool(log), html, outfile)
         if outfile is not None:
             print("download report written to '%s'" % outfile)
+        sys.exit(0)
+    except inputargs.BadArgument as aerr:
+        print(aerr)
+        sys.exit(1)  # exit with 1 as normal python exceptions
+
+
+@utils.command(short_help="Drops (deletes) download executions and all associated segments",
+               context_settings=dict(max_content_width=clickutils.TERMINAL_HELP_WIDTH))
+@click.option('-d', '--dburl', **clickutils.DBURL_OR_YAML_ATTRS)
+@click.option('-did', '--download-id', multiple=True, type=int, required=True,
+              help="Limit the download statistics to a specified set of download ids (integers) "
+                   "when missing, all downloads are shown. this option can be given multiple "
+                   "times: .. -did 1 --download_id 2 ...")
+def ddrop(dburl, download_id):
+    """Drops (deletes) download executions. WARNING: this command deletes also
+       all segments, stations and channels downloaded with the given download execution"""
+    print('Fetching data, please wait (this might take a while depending on the '
+          'db size and connection)')
+    try:
+        # this is hacky but in case we want to restore the html
+        # argument ...
+        ret = main.ddrop(dburl, download_id, True)
+        if ret is None:
+            sys.exit(1)
+        elif not ret:
+            print('Nothing to delete')
+        for key, val in ret.items():
+            msg = 'Download id=%d: ' % key
+            if isinstance(val, Exception):
+                msg += "FAILED (%s)" % str(val)
+            else:
+                msg += "DELETED (%d associated segments deleted)" % val
+            print(msg)
         sys.exit(0)
     except inputargs.BadArgument as aerr:
         print(aerr)

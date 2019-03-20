@@ -29,10 +29,12 @@ from future.utils import PY2
 import yaml
 import jinja2
 
+from sqlalchemy.sql.expression import func
+
 from stream2segment.utils.inputargs import load_config_for_process, load_config_for_download,\
     load_session_for_dinfo
 from stream2segment.utils.log import configlog4download, configlog4processing
-from stream2segment.io.db.models import Download
+from stream2segment.io.db.models import Download, Segment
 from stream2segment.process.main import run as run_process
 from stream2segment.download.main import run as run_download, new_db_download
 from stream2segment.utils import secure_dburl, strconvert, iterfuncs, open2writetext, ascii_decorate
@@ -287,28 +289,20 @@ def show(dburl, pyfile, configfile):
     return 0
 
 
-def init(outpath, promptfunc=True, *filenames):
+def init(outpath, prompt=True, *filenames):
     '''initilizes an output directory writing therein the given template files
 
-    :param promptfunc: True or function. This argument is used only
-    in case some files are already present in `outpath` to decide the action to be taken.
-    If function, it must accept a single string argument
-    (the prompt message) and must return a string or integer where '1' means 'overwrite all files',
-    '2' means 'overwrite only non-existing', and any other value will return without copying.
-    If this argument is True (the default), the builtin `input` function is used to interactively
-    to prompt the user. If this argument is nor True neither a function, all files will be
-    overridden without prompting.
+    :param prompt: boolean telling if a prompt message (python `input` function)
+        should be issued to warn the user when overwriting files. Default: True.
+        The user should return a string or integer where '1' means 'overwrite all files',
+        '2' means 'overwrite only non-existing', and any other value will return without copying.
     '''
     if not os.path.isdir(outpath):
         os.makedirs(outpath)
         if not os.path.isdir(outpath):
             raise Exception("Unable to create '%s'" % outpath)
     templates_dir = get_templates_dirpath()
-    if promptfunc is True:
-        promptfunc = input
-    if not hasattr(promptfunc, '__call__'):
-        promptfunc = None
-    if promptfunc is not None:
+    if prompt:
         existing_files = [f for f in filenames
                           if os.path.isfile(os.path.join(outpath, f))]
         non_existing_files = [f for f in filenames if f not in existing_files]
@@ -318,7 +312,7 @@ def init(outpath, promptfunc=True, *filenames):
             msg = ("The following file(s) "
                    "already exist on '%s':\n%s"
                    "\n\n%s") % (outpath, "\n".join([_ for _ in existing_files]), suffix)
-            val = promptfunc(msg)
+            val = input(msg)
             try:
                 val = int(val)
                 if val == 2:
@@ -441,3 +435,38 @@ def _get_download_info(info_generator, dburl, download_ids=None, html=False, out
         else:
             for line in itr:
                 print(line)
+
+
+def ddrop(dburl, download_ids, prompt=True):
+    '''Drops data from the database by download id(s). Drops also all segments
+
+    :return: None if prompt is True and the user decided not to drop via user input,
+        otherwise a dict of deleted download ids mapped to either:
+        -  an int (the number of segments deleted)
+        - an exception (if the download id could not be deleted)
+    '''
+    ret = {}
+    session = load_session_for_dinfo(dburl)
+    ids = [_[0] for _ in session.query(Download.id).filter(Download.id.in_(download_ids))]
+    if not ids:
+        return ret
+    if prompt:
+        segs = session.query(func.count(Segment.id)).filter(Segment.download_id.in_(ids)).scalar()
+        val = input('Do you want to delete %d download execution(s) (id=%s) and the associated '
+                    '%d segment(s) from the database [y|n]?' % (len(ids), str(ids), segs))
+        if val.lower().strip() != 'y':
+            return None
+
+    for did in ids:
+        ret[did] = session.query(func.count(Segment.id)).\
+            filter(Segment.download_id == did).scalar()
+        try:
+            session.query(Download).filter(Download.id == did).delete()
+            session.commit()
+            # be sure about how many segments we deleted:
+            ret[did] -= session.query(func.count(Segment.id)).\
+                filter(Segment.download_id == did).scalar()
+        except Exception as exc:
+            session.rollback()
+            ret[did] = exc
+    return ret
