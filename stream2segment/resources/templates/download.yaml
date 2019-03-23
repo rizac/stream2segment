@@ -16,6 +16,18 @@
 # (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)
 dburl: 'sqlite:////path/to/my/db.sqlite'
 
+# Limit to events / datacenters / station / channels on or after the specified start time. Specify a date or
+# date-time in iso-format or an integer >=0 to denote the number of days before today at midnight.
+# Example: start=1 and end=0 => fetch events occurred yesterday.
+# Implementation details: 'start' is also a valid name for this parameter
+starttime: 2006-01-01T00:00:00
+
+# Limit to events / datacenters / station / channels on or before the specified end time. Specify a date or
+# date-time in iso-format or an integer >=0 to denote the number of days before today at midnight.
+# Example: start=1 and end=0 => fetch events occurred yesterday.
+# Implementation details: 'end' is also a valid name for this parameter
+endtime: 2016-12-25T00:00:00
+
 
 # =======
 # Events: https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=14
@@ -34,18 +46,6 @@ dburl: 'sqlite:////path/to/my/db.sqlite'
 # as catalog identifier: renaming the file and downloading again on the same database
 # will result in the events and their segments being saved twice
 eventws: 'http://seismicportal.eu/fdsnws/event/1/query'
-
-# Limit to events / datacenters / station / channels on or after the specified start time. Specify a date or
-# date-time in iso-format or an integer >=0 to denote the number of days before today at midnight.
-# Example: start=1 and end=0 => fetch events occurred yesterday.
-# Implementation details: 'start' is also a valid name for this parameter
-starttime: 2006-01-01T00:00:00
-
-# Limit to events / datacenters / station / channels on or before the specified end time. Specify a date or
-# date-time in iso-format or an integer >=0 to denote the number of days before today at midnight.
-# Example: start=1 and end=0 => fetch events occurred yesterday.
-# Implementation details: 'end' is also a valid name for this parameter
-endtime: 2016-12-25T00:00:00
 
 # Limit to events with a latitude larger than or equal to the specified minimum.
 # This parameter is ignored if missing, set to null, or 'eventws' is given as file path

@@ -98,9 +98,8 @@ def download(config, log2file=True, verbose=False, **param_overrides):
     # params needs to be shown as expanded/converted so the user can check their correctness
     # Do no use loggers yet:
     if verbose:
-        _pp = _to_pretty_str(load_config_for_download(config, False, **param_overrides))
-        if _pp:
-            print(_pp)
+        print(_to_pretty_str(yaml_dict,
+                             load_config_for_download(config, False, **param_overrides)))
 
     # configure logger and habdlers:
     loghandlers = configlog4download(logger, config if log2file else None, verbose)
@@ -154,42 +153,37 @@ def download(config, log2file=True, verbose=False, **param_overrides):
     return ret
 
 
-def _to_pretty_str(yaml_dict):
-    '''returns a pretty printed string from yaml_dict'''
-    # Define a yaml preferred order. Use an OrderedDict which outlines the
-    # grouping, although its keys are currently not used
-    # also see we account for optional nams (start+starttime, cha+channel+channels, etcetera)
-    pref_order = OrderedDict([['global', ['dburl', 'start', 'starttime', 'end', 'endtime']],
-                              ['event', ['eventws', 'eventws_query_args']],
-                              ['stations+channels', ['networks', 'network', 'net',
-                                                     'stations', 'station', 'sta',
-                                                     'locations', 'location', 'loc',
-                                                     'channels', 'channel', 'cha',
-                                                     'update_metadata', 'inventory',
-                                                     'min_sample_rate', 'search_radius']],
-                              ['segments', ['dataws', 'timespan', 'tt_table', 'restricted_data',
-                                            'retry_client_err', 'retry_mseed_err',
-                                            'retry_seg_not_found', 'retry_server_err',
-                                            'retry_timespan_err', 'retry_url_err']]])
-    yaml_dict['dburl'] = secure_dburl(yaml_dict['dburl'])  # don't show passowrd, if any
+def _to_pretty_str(yaml_dict, unparsed_yaml_dict):
+    '''returns a pretty printed string from yaml_dict
+
+    :param yaml_dict: the PARSED yaml as dict. It might contain variables, such as
+        `session`, not in the original yaml file (these variables are not returned
+        in this function)
+    :param unparsed_yaml_dict: the UNPARSED yaml dict.
+    '''
+
+    # the idea is: get the param value from yaml_dict, if not present get it from
+    # unparsed_yaml_dict. Use this list of params (so we can control order):
+    params = ['dburl', 'starttime', 'endtime', 'eventws',
+              # These variables are merged into eventws_params in yaml_dict,
+              # so do not show them:
+              # 'minlatitude', 'maxlatitude', 'minlongitude', 'maxlongitude',
+              # 'mindepth', 'maxdepth', 'minmagnitude', 'maxmagnitude',
+              'eventws_params', 'channel', 'network', 'station', 'location',
+              'min_sample_rate', 'update_metadata', 'inventory', 'search_radius',
+              'dataws', 'traveltimes_model', 'timespan', 'restricted_data',
+              'retry_seg_not_found', 'retry_url_err', 'retry_mseed_err',
+              'retry_client_err', 'retry_server_err', 'retry_timespan_err',
+              'advanced_settings']
+
+    newdic = OrderedDict([(k, yaml_dict.get(k, unparsed_yaml_dict[k])) for k in params])
+    newdic['dburl'] = secure_dburl(newdic['dburl'])  # don't show passowrd, if present
     ret = []
-    for group, fields in pref_order.items():
-        first_of_group = True
-        for field in fields:
-            if field in yaml_dict:
-                if first_of_group:
-                    # removed: do not display the group (this "if" branch is currently no-nop):
-                    # ret.append("%s:" % group)
-                    first_of_group = False
-                ret.append(yaml.safe_dump({field: yaml_dict.pop(field)},
-                           default_flow_style=False).strip())
-    for field in yaml_dict:  # remaining params
-        ret.append(yaml.safe_dump({field: yaml_dict[field]},
+    for key, val in newdic.items():
+        ret.append(yaml.safe_dump({key: val},
                                   default_flow_style=False).strip())
-    if not ret:
-        return ''
     # create a yaml string from the yaml_safe and print/log the string:
-    ret.insert(0, "Input parameters")
+    ret.insert(0, "Parsed input parameters")
     ret.insert(1, '-' * len(ret[0]))
     return "%s\n" % ('\n'.join(ret))
 

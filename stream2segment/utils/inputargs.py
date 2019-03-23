@@ -431,25 +431,6 @@ def load_config_for_download(config, parseargs, **param_overrides):
     except Exception as exc:
         raise BadArgument('config', exc)
 
-    # normalize eventws_query_args: the sub-dict is correctly updated. The function
-    # yaml_load updates nested sub-dict values, so that if both dic['eventws_query_args']
-    # and param_overrides['eventws_query_args'] contain, e.g. the key 'minlat', the key
-    # is overridden in dic['eventws_query_args']. But
-    # param_overrides['eventws_query_args'] might contain 'minlatitude' instead of 'minlat'
-    # which should override 'minlat' in dic['eventws_query_args'] as well.
-    # Check these cases of double names:
-#     overrides_eventdic = param_overrides.get('eventws_query_args', {})
-#     yaml_eventdic = dic['eventws_query_args']
-#     for par in overrides_eventdic:
-#         for find, rep in (('latitude', 'lat'), ('longitude', 'lon'), ('magnitude', 'mag')):
-#             twinpar = par.replace(find, rep)
-#             if twinpar == par:
-#                 twinpar.replace(rep, find)
-#             if twinpar != par and twinpar in yaml_eventdic:
-#                 # rename the overridden par with the previously set config par:
-#                 yaml_eventdic[twinpar] = yaml_eventdic.pop(par)
-#                 break
-
     if parseargs:
         # few variables:
         configfile = config if (isinstance(config, string_types) and os.path.isfile(config))\
