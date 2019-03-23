@@ -269,7 +269,7 @@ advanced_settings:
  # If 0 or negative, all data will be read in a single call (if 0, it will be converted to -1).
  download_blocksize: 1048576  # = 1024*1024
  # how many parallel threads to start when downloading (one thread per download)
- # If 0 or negative, is automatically set according to the machine CPU
+ # If null, 0 or negative, it is automatically set according to the machine CPU
  max_thread_workers: 0
  # max time to wait (in seconds) for a single request while downloading events
  e_timeout: 120

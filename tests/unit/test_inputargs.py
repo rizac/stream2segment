@@ -306,6 +306,31 @@ class Test(object):
         # assert we did not write to the db, cause the error threw before setting up db:
         assert db.session.query(Download).count() == 3
 
+        result = run_cli_download(removals=['advanced_settings'])  # remove an opt. param.
+        assert result.exit_code == 0
+        # check maxmagnitude is NOT in the eventws params:
+        eventws_params = self.mock_run_download.call_args_list[-1][1]['eventws_params']
+        assert 'maxmagnitude' not in eventws_params
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert db.session.query(Download).count() == 3
+
+        result = run_cli_download(advanced_settings={})  # remove an opt. param.
+        assert result.exit_code == 0
+        # check maxmagnitude is NOT in the eventws params:
+        eventws_params = self.mock_run_download.call_args_list[-1][1]['eventws_params']
+        assert 'maxmagnitude' not in eventws_params
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert db.session.query(Download).count() == 3
+        
+        result = run_cli_download(advanced_settings={})  # remove an opt. param.
+        assert result.exit_code == 0
+        # check maxmagnitude is NOT in the eventws params:
+        eventws_params = self.mock_run_download.call_args_list[-1][1]['eventws_params']
+        assert 'maxmagnitude' not in eventws_params
+        # assert we did not write to the db, cause the error threw before setting up db:
+        assert db.session.query(Download).count() == 3
+
+
 
 @patch('stream2segment.main.run_download', side_effect=lambda *a, **v: None)
 @patch('stream2segment.utils.inputargs.os.path.isfile', side_effect=isfile)

@@ -51,12 +51,7 @@ def run(session, download_id, eventws, starttime, endtime, dataws, eventws_param
     # inventories (if set),
     # 2) a Faileddownload to stop the download immediately and raise the exception
 
-    # set blocksize if zero:
-    if advanced_settings['download_blocksize'] <= 0:
-        advanced_settings['download_blocksize'] = -1
-    if advanced_settings['max_thread_workers'] <= 0:
-        advanced_settings['max_thread_workers'] = None
-    dbbufsize = max(advanced_settings['db_buf_size'], 1)
+    dbbufsize = advanced_settings['db_buf_size']
 
     process = psutil.Process(os.getpid()) if isterminal else None
     # calculate steps (note that bool math works, e.g: 8 - True == 7):

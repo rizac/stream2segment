@@ -35,7 +35,7 @@ class BadArgument(Exception):
     ```
     '''
     def __init__(self, param_name, error, msg_preamble=''):
-        '''init method
+        '''init method. Formats the message according to the given parameters
 
         The formatted output, depending on the truthy value of the arguments will be:
 
@@ -120,7 +120,7 @@ def parse_arguments(yaml_dic, *params):
         try:
             newvalue = parsefunc(value)
         except Exception as exc:
-            raise BadArgument(name, exc)  # see comment above
+            raise BadArgument(name, exc)
         # names[0] is the key that will be set on yaml_dct, if newname is missing:
         newname = param.get('newname', names[0])
         # if the newname is not names[0], remove name (not names[0]) from yanl_dic:
@@ -401,6 +401,21 @@ def between(min, max, include_start=True, include_end=True, pass_if_none=True):
     return func
 
 
+def parse_download_advanced_settings(advanced_settings):
+    paramname = 'download_blocksize'
+    try:
+        if advanced_settings[paramname] <= 0:
+            advanced_settings[paramname] = -1
+        paramname = 'max_thread_workers'
+        if advanced_settings[paramname] <= 0:
+            advanced_settings[paramname] = None
+        paramname = 'db_buf_size'
+        advanced_settings[paramname] = max(advanced_settings[paramname], 1)
+    except Exception as exc:
+        raise BadArgument("advanced_settings.%s" % paramname, exc)
+    return advanced_settings
+
+
 def load_config_for_download(config, parseargs, **param_overrides):
     '''loads download arguments from the given config (yaml file or dict) after parsing and
     checking some of the dict keys.
@@ -549,7 +564,11 @@ def load_config_for_download(config, parseargs, **param_overrides):
              'defvalue': [],
              'newvalue': nslc_param_value_aslist
             },
-            {'names': ['eventws_params', 'eventws_query_args']}
+            {'names': ['eventws_params', 'eventws_query_args']},
+            {
+             'names': ['advanced_settings'],
+             'newvalue': parse_download_advanced_settings
+            }
             ]
 
         remainingkeys = parse_arguments(config_dict, *params)
@@ -677,3 +696,5 @@ def load_session_for_dinfo(dburl):
         return create_session(dburl)
     except Exception as exc:
         raise BadArgument('dburl', exc)
+
+
