@@ -52,7 +52,6 @@ class BadArgument(Exception):
             provided (empty string by default), it will default to a string
             according to `error` type
         '''
-        super(BadArgument, self).__init__(str(error))
         if not msg_preamble:
             msg_preamble = "Invalid value for"
             if isinstance(error, KeyError):
@@ -61,6 +60,9 @@ class BadArgument(Exception):
             elif isinstance(error, TypeError):
                 msg_preamble = "Invalid type for"
 
+        super(BadArgument, self).__init__(error.message
+                                          if isinstance(error, BadArgument)
+                                          else str(error))
         self.msg_preamble = msg_preamble
         self.param_name = param_name
 
@@ -412,7 +414,7 @@ def parse_download_advanced_settings(advanced_settings):
         paramname = 'db_buf_size'
         advanced_settings[paramname] = max(advanced_settings[paramname], 1)
     except Exception as exc:
-        raise BadArgument("advanced_settings.%s" % paramname, exc)
+        raise BadArgument(paramname, exc)
     return advanced_settings
 
 
