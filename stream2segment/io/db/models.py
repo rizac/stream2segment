@@ -294,7 +294,7 @@ class Download(Base):  # pylint: disable=too-few-public-methods
 
     __tablename__ = "downloads"
 
-    id = Column(Integer, primary_key=True)  # pylint:disable=invalid-name
+    id = Column(Integer, primary_key=True, autoincrement=True)  # pylint:disable=invalid-name
     # run_time below has server_default as `func.now()`. This issues a CURRENT TIMESTAMP
     # on the SQL side. That's ok, BUT the column CANNOT BE UNIQUE!!
     # the CURRENT TIMESTAMP is evaluated once at the beginning of an SQL Statement,
@@ -320,7 +320,7 @@ class Event(Base):  # pylint: disable=too-few-public-methods
 
     __tablename__ = "events"
 
-    id = Column(Integer, primary_key=True)  # pylint:disable=invalid-name
+    id = Column(Integer, primary_key=True, autoincrement=True)  # pylint:disable=invalid-name
     webservice_id = Column(Integer, ForeignKey("web_services.id"), nullable=False)
     event_id = Column(String, nullable=False)
     time = Column(DateTime, nullable=False)
@@ -611,7 +611,7 @@ class Segment(Base):
 
     __tablename__ = "segments"
 
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     event_id = Column(Integer, ForeignKey("events.id"), nullable=False)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
     datacenter_id = Column(Integer, ForeignKey("data_centers.id"), nullable=False)
@@ -898,7 +898,7 @@ class Class(Base):
     """A class label"""
     __tablename__ = 'classes'
 
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     label = Column(String)
     description = Column(String)
 
@@ -909,7 +909,7 @@ class ClassLabelling(Base):
 
     __tablename__ = "class_labellings"
 
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     segment_id = Column(Integer, ForeignKey("segments.id"), nullable=False)
     class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
     is_hand_labelled = Column(Boolean, server_default="1")  # Note: "TRUE" fails in sqlite!
