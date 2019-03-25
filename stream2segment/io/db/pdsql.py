@@ -400,7 +400,7 @@ def dbquery2df(query):
     return pd.DataFrame(columns=columns, data=query.all())
 
 
-def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=False,
+def syncdf(dataframe, session, matching_columns, numeric_pkey_col, update=False,
            buf_size=10, keep_duplicates=False, onduplicates_callback=None,
            oninsert_err_callback=None, onupdate_err_callback=None):
     """Efficiently synchronizes `dataframe` with the corresponding database table T.
@@ -419,8 +419,8 @@ def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=
     * synced_dataframe: The pandas Data frame subset of `dataframe` with rows SURELY mapped with
       an existing row on the table T. This includes rows of `dataframe` which already had a
       mapped row on T, or were successfully inserted or updated.
-      `autoincrement_pkey_col` should be a Numeric Unique SQLAlchemy Column (e.g., INTEGER
-      primary key); `dataframe[autoincrement_pkey_col]` is assured to exist and will NOT have
+      `numeric_pkey_col` should be a Numeric Unique SQLAlchemy Column (e.g., INTEGER
+      primary key); `dataframe[numeric_pkey_col]` is assured to exist and will NOT have
       NA (nan's, None's), and its dtype will be casted to the python type corresponding to the
       SQL type of its matching column on T.
       NOTE: **The order of rows of `synced_dataframe` might not match the order of `dataframe`,
@@ -430,9 +430,9 @@ def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=
       if `update` is True or non empty list (see below)
 
     This function first fetches the primary keys
-    from the database table into `dataframe[autoincrement_pkey_col.key]`, matching columns with
+    from the database table into `dataframe[numeric_pkey_col.key]`, matching columns with
     `matching_columns`, then uses a `DbManager` which internally splits `dataframe` into
-    rows to insert (`autoincrement_pkey_col` NA) and rows to update, and inserts/update them
+    rows to insert (`numeric_pkey_col` NA) and rows to update, and inserts/update them
     committing chunks of `buf_size` rows.
     If you need to insert/update a lot of items
     and/or you do not care about the returned Data frame, you can use a `DbManager` which has a
@@ -442,8 +442,8 @@ def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=
     :param session: an sql-alchemy session
     :param matching_columns: a list of ORM columns for comparing `dataframe` rows and T rows:
         when two rows are found that are equal (according to all `matching_columns` values),
-        then the data frame row `autoincrement_pkey_col` value is set = T row value
-    :param autoincrement_pkey_col: the ORM column denoting a NUMERIC and UNIQUE Column of T
+        then the data frame row `numeric_pkey_col` value is set = T row value
+    :param numeric_pkey_col: the ORM column denoting a NUMERIC and UNIQUE Column of T
         (e.g., INTEGER primary key): unexpected results if the column does not match those criteria.
         The column needs not to be a column of `dataframe`. The returned `dataframe` will have in
         any case this column set with non-NA values and the proper python type (corresponding to
@@ -484,7 +484,7 @@ def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=
 
     1. T is obtained as the `class_` attribute of the first passed
     `Column <http://docs.sqlalchemy.org/en/latest/core/metadata.html#sqlalchemy.schema.Column>`_,
-    therefore `autoincrement_pkey_col` and each element of `matching_columns` must refer to the
+    therefore `numeric_pkey_col` and each element of `matching_columns` must refer to the
     same db table T.
     2. The mapping between an sql-alchemy Column C and a pandas dataframe *string*
     column K is based on the sql-alchemy `key` attribute: `C.key == K`
@@ -505,18 +505,19 @@ def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=
                                       Exception("Duplicated instances violate db constraint"))
             dataframe = dataframe[~dupes_mask].copy()
 
-    dframe_with_pkeys = fetchsetpkeys(dataframe, session, matching_columns, autoincrement_pkey_col)
-    dbm = DbManager(session, autoincrement_pkey_col,
+    dframe_with_pkeys = fetchsetpkeys(dataframe, session, matching_columns, numeric_pkey_col)
+    dbm = DbManager(session, numeric_pkey_col,
                     update, buf_size, return_df=True,
                     oninsert_err_callback=oninsert_err_callback,
                     onupdate_err_callback=onupdate_err_callback)
     dbm.add(dframe_with_pkeys)
     table, inserted, not_inserted, updated, not_updated = dbm.close()
-    # d.dataframe's `autoincrement_pkey_col` is castable to the SQL integer type (<=> no NaNs)
-    # dframe_with_pkeys's `autoincrement_pkey_col` is not castable because it might have had NaNs
-    # Note that *in most cases* d.dataframe has the autoincrement_pkey_col casted,
-    # but not always. Thus for safety:
-    dataframe = _cast_column(dbm.dataframe, autoincrement_pkey_col)
+    # dframe_with_pkeys's `numeric_pkey_col` might not be castable to `numeric_pkey_col`
+    # SQL type: think about SQL type = INTEGER, and dframe_with_pkeys has
+    # Nones: then dframe_with_pkeys[numeric_pkey_col].dtype = float, not int.
+    # d.dataframe's `numeric_pkey_col` is surely castable to the SQL type, and
+    # *in general* DbManager already casted it. But not always. Thus for safety:
+    dataframe = _cast_column(dbm.dataframe, numeric_pkey_col)
 
     return inserted, not_inserted, updated, not_updated, dataframe
 
@@ -615,7 +616,7 @@ class DbManager(object):
             non-NA
         '''
         if dframe.empty:
-            # if the dataframe is empty do nothing nd return
+            # if the dataframe is empty do nothing and return
             # But append a copy to self.dfs if self.return_df is True.
             # This way if self.dataframe should return an empty dataframe
             # it will have at least the proper (expected) columns
