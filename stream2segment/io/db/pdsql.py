@@ -407,7 +407,7 @@ def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=
 
     Returns the tuple:
 
-    inserted, not_inserted, updated, not_updated, synced_dataframes
+    inserted, not_inserted, updated, not_updated, synced_dataframe
 
     where:
 
@@ -416,16 +416,17 @@ def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=
     * updated: 0 if `update` is False, otherwise the number of rows of `dataframe` updated
     * not_updated: 0 if `update` is False, otherwise the number of rows of `dataframe` NOT updated
         (sql constraint error)
-    * synced_dataframes: The pandas Data frame subset of `dataframe` with rows SURELY mapped with
+    * synced_dataframe: The pandas Data frame subset of `dataframe` with rows SURELY mapped with
       an existing row on the table T. This includes rows of `dataframe` which already had a
       mapped row on T, or were successfully inserted or updated.
-      `dataframe[autoincrement_pkey_col]` is assured to exist and will NOT have NA (nan's, None's),
-      and its dtype will be casted to the python type corresponding to the SQL type of its
-      matching column on T.
-      NOTE: **The order of rows of `synced_dataframes` might not match the order of `dataframe`,
+      `autoincrement_pkey_col` should be a Numeric Unique SQLAlchemy Column (e.g., INTEGER
+      primary key); `dataframe[autoincrement_pkey_col]` is assured to exist and will NOT have
+      NA (nan's, None's), and its dtype will be casted to the python type corresponding to the
+      SQL type of its matching column on T.
+      NOTE: **The order of rows of `synced_dataframe` might not match the order of `dataframe`,
       nor its index (pd.Index), so do not rely on them to match a row of `dataframe` with a row of
-      `synced_dataframes`.**
-      The length of `synced_dataframes` will be `>= inserted`, or equal to `inserted+updated`
+      `synced_dataframe`.**
+      The length of `synced_dataframe` will be `>= inserted`, or equal to `inserted+updated`
       if `update` is True or non empty list (see below)
 
     This function first fetches the primary keys
@@ -511,9 +512,10 @@ def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=
                     onupdate_err_callback=onupdate_err_callback)
     dbm.add(dframe_with_pkeys)
     table, inserted, not_inserted, updated, not_updated = dbm.close()
-    # since we called fetchsetpkeys, we might have integer values casted to float
-    # we could not cast previously because dframe_with_pkeys might have had NaN's, now
-    # we are sure that d.dataframe does not have NaN's anymore
+    # d.dataframe's `autoincrement_pkey_col` is castable to the SQL integer type (<=> no NaNs)
+    # dframe_with_pkeys's `autoincrement_pkey_col` is not castable because it might have had NaNs
+    # Note that *in most cases* d.dataframe has the autoincrement_pkey_col casted,
+    # but not always. Thus for safety:
     dataframe = _cast_column(dbm.dataframe, autoincrement_pkey_col)
 
     return inserted, not_inserted, updated, not_updated, dataframe
@@ -553,6 +555,9 @@ class DbManager(object):
     The database SHOULD NOT BE MODIFIED in within each `add` call, as the
     "next value" of `id_col` is retrieved once at the beginning and stored internally
     for performance reasons
+
+    Do not rely on the index of `d.dataframe` to be the same of whatever DataFrame
+    passed in `d.add`
 
     The `add` method takes care to split between rows to update and rows to insert, eventually
     writing to the database when the amount of rows exceeds `buf_size`: this should avoid memory
@@ -681,7 +686,10 @@ class DbManager(object):
         inserts = self.inserts
         # pd.concat *must* copy the data exceot for trivial cases, e.g. the data frame to be concat
         # is 1: in this case we set the arg. copy=True to avoid SettingsWithCopy warning
-        dfr = pd.concat(inserts, axis=0, ignore_index=True, copy=True, verify_integrity=False)
+        # Also `ignore index` only if we have to concat more dataframes: we should simply set
+        # ignore_index=True but we have legacy code tests failing (false positives) if we don't
+        dfr = pd.concat(inserts, axis=0, ignore_index=len(inserts) > 1, copy=True,
+                        verify_integrity=False)
         session = self.session
         id_col = self.id_col
         # Set the dfr[id_col.key] with primary key values for all rows
@@ -719,7 +727,10 @@ class DbManager(object):
         updates = self.updates
         # pd.concat *must* copy the data exceot for trivial cases, e.g. the data frame to be
         # concat'ed is 1: in this case we set the arg. copy=True to avoid SettingsWithCopy warning
-        dfr = pd.concat(updates, axis=0, ignore_index=True, copy=True, verify_integrity=False)
+        # Also `ignore index` only if we have to concat more dataframes: we should simply set
+        # ignore_index=True but we have legacy code tests failing (false positives) if we don't
+        dfr = pd.concat(updates, axis=0, ignore_index=len(updates) > 1, copy=True,
+                        verify_integrity=False)
         if buf_size is None:
             buf_size = min(self.buf_size, self._toupdate_count)
         id_col = self.id_col
@@ -776,56 +787,60 @@ def _get_shared_colnames(table_model, dataframe, where_col=None):
     return list(shared_colnames_gen)
 
 
-def set_pkeys(dataframe, session, autoincrement_pkey_col, overwrite=False, pkeycol_maxval=None):
-    '''Sets the primary key as column of `dataframe`.
-    If 'overwrite', it overwrites the values of dataframe[autoincrement_pkey_col], otherwise
-    writes only NA values
-    If `pkeycol_maxval` is not None, sets the value as auto-incrementing numbers strating
-    from `pkeycol_maxval + 1`. If None, `pkeycol_maxval` default to the Database Table's
+def set_pkeys(dataframe, session, numeric_pkey_col, overwrite=False, pkeycol_maxval=None):
+    '''
+    Sets the primary key values of `dataframe` under the column identified by `numeric_pkey_col`.
+
+    If 'overwrite', it overwrites the values of dataframe[numeric_pkey_col], otherwise
+    writes only NA values. This argument is ignored if `numeric_pkey_col` is not a column
+    of `dataframe` (the column will be added in case).
+    If `pkeycol_maxval` is not None, sets the `numeric_pkey_col` values from
+    `pkeycol_maxval + 1`. If None, `pkeycol_maxval` default to the Database Table's
     maximum.
 
-     with increasing numbers, starting from the
-    maximum found on the database Table, plus 1, or `pkeycol_maxval` + 1, if `pkeycol_maxval` is
-    not None (providing a pkeycol_maxval is faster as it does not query the db).
-    The database Table is retrieved as the table mapped by the model of `autoincrement_pkey_col`
+    The database Table is retrieved as the table mapped by the model of `numeric_pkey_col`
     Regardless of whether dataframe has the column or not,
-    `dataframe` will have the column with name `autoincrement_pkey_col.key` (of type int) after
-    this call.
+    After this call, `dataframe` will have the column with name `numeric_pkey_col.key` casted
+    to the pandas type corresponding to `numeric_pkey_col` type.
 
     :param session: an sql-alchemy session object
-    :param autoincrement_pkey_col: an ORM column of some model mapped to an sql table. The
-        column, as the name says, must be a primary key with auto-increment.
-        **The column MUST be of sql type INTEGER, otherwise this method should not be used**
-        dataframe[A] will have dtype int64, which is fine as we replace (or add) **all** the row
-        values. Note that if we replaced only partially some values, then dataframe[A] might still
-        hold the old dtype (e.g., float) which **would be bad** as some db (e.g., postgres) are
-        strict and will issue an `sqlalchemy.exc.DataError` if inserting/updating a
-        non-nan/non-int value (e.g., 6.0 instead of 6)
+    :param numeric_pkey_col: an SQLAlchemy Column, i.e. an attribute of some ORM class representing
+        a db Table.
+        The column must be unique and, as the name says, of SQL type numeric
+        (e.g. integer primary key), otherwise this method should not be used.
     :param dataframe: the dataframe with values to be inserted/updated/deleted from the table
-        mapped by `autoincrement_pkey_col`
+        mapped by `numeric_pkey_col`
     '''
     if pkeycol_maxval is None:
-        pkeycol_maxval = _get_max(session, autoincrement_pkey_col)
+        pkeycol_maxval = _get_max(session, numeric_pkey_col)
     pkeycol_maxval += 1
-    pkeyname = autoincrement_pkey_col.key
+    pkeyname = numeric_pkey_col.key
     if not overwrite and pkeyname in dataframe:
+        # Treat here the case where we have to set 0 to len(dataframe)-1 values
+        # If we have all NaNs values, treat the case as if we did not
+        # have the column (goto case below)
         mask = pd.isnull(dataframe[pkeyname])
         nacount = mask.sum()
         if nacount != len(dataframe):
             if nacount > 0:
                 dataframe.loc[mask, pkeyname] = \
-                    np.arange(pkeycol_maxval, pkeycol_maxval+nacount, dtype=int)
+                    np.arange(pkeycol_maxval, pkeycol_maxval+nacount,
+                              dtype=_get_dtype(numeric_pkey_col.type))
             # cast values if we modified only SOME row values of dataframe[pkeyname]
-            # This is why we might have had floats (because we had na) and now we still have
-            # floats (postgres complains if we add 6.0 instead of 6!)
-            return _cast_column(dataframe, autoincrement_pkey_col)
+            # E.g., if dataframe[numeric_pkey_col.key] was of type float
+            # because it has NaNs, and numeric_pkey_col is of type integer,
+            # we must cast (E.g., postgres raises or is extremely slow if we pass
+            # 6.0 instead of 6 in an insert/update!)
+            return _cast_column(dataframe, numeric_pkey_col)
 
     # if we are here
     # either we want to set all values of dataframe[pkeyname] (overwrite=True),
     # or pkeyname is not a column of dataframe,
     # or all dataframe[pkeyname] are na
-    # In ALL these cases pandas changes the dtype, so the cast is not needed
-    new_pkeys = np.arange(pkeycol_maxval, pkeycol_maxval+len(dataframe), dtype=int)
+    # In ALL these cases we do not need `_cast_column`, but simply set the dtype
+    # in np. arange:
+    new_pkeys = np.arange(pkeycol_maxval, pkeycol_maxval+len(dataframe),
+                          dtype=_get_dtype(numeric_pkey_col.type))
     dataframe[pkeyname] = new_pkeys
     return dataframe
 
@@ -845,7 +860,7 @@ def _cast_column(dataframe, sql_column):
     return dataframe
 
 
-def insertdf(dataframe, session, autoincrement_pkey_col, colnames2insert=None,
+def insertdf(dataframe, session, pkey_col, colnames2insert=None,
              buf_size=10, check_pkeycol=True, return_df=True,
              onerr=None):
     """
@@ -864,6 +879,10 @@ def insertdf(dataframe, session, autoincrement_pkey_col, colnames2insert=None,
 
     :param dataframe: a pandas dataframe
     :param session: the sql-alchemy session
+    :param pkey_col: an SQLAlchemy Column representing a column of the ORM class
+        representing the db table where dta has to be inserted. The column is used to retrieve T.
+        IMPORTANT: If `check_pkey_col=True`, the column must be of SQL type numeric and unique
+        (e.g. integer primary key).
     :param colnames2insert: a list of columns to be inserted. None will default to all
         `dataframe` columns. This latter case might be more time consuming if
         this method is called several times
@@ -871,7 +890,7 @@ def insertdf(dataframe, session, autoincrement_pkey_col, colnames2insert=None,
         argument is False no skip is done, i.e. for all rows of `dataframe` the function will
         attempt to add them to T. **Set to False to speed up the function as long as you are sure
         no row of `dataframe` violates any T constraint**
-    :param check_pkeycol: True will check intelligently pkeycol, adding only NA values from
+    :param check_pkeycol: True will check intelligently `pkey_col`, adding only NA values from
         the database (assuming the column is an auto-incrementing integer primary key). False
         will skip the check (faster, but pkeys must have already been correctly set)
 
@@ -884,9 +903,9 @@ def insertdf(dataframe, session, autoincrement_pkey_col, colnames2insert=None,
     buf = {}
 
     if check_pkeycol:
-        set_pkeys(dataframe, session, autoincrement_pkey_col, overwrite=False, pkeycol_maxval=None)
+        set_pkeys(dataframe, session, pkey_col, overwrite=False, pkeycol_maxval=None)
 
-    table_model = autoincrement_pkey_col.class_
+    table_model = pkey_col.class_
     if colnames2insert is None:
         colnames2insert = _get_shared_colnames(table_model, dataframe)
 

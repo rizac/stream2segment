@@ -176,7 +176,12 @@ def _to_pretty_str(yaml_dict, unparsed_yaml_dict):
               'retry_client_err', 'retry_server_err', 'retry_timespan_err',
               'advanced_settings']
 
-    newdic = OrderedDict([(k, yaml_dict.get(k, unparsed_yaml_dict[k])) for k in params])
+    newdic = OrderedDict()
+    for k in params:  # add yaml_dic[k] or unparsed_yaml_dict[k]:
+        if k in yaml_dict:
+            newdic[k] = yaml_dict[k]
+        elif k in unparsed_yaml_dict:
+            newdic[k] = unparsed_yaml_dict[k]
     newdic['dburl'] = secure_dburl(newdic['dburl'])  # don't show passowrd, if present
     ret = []
     for key, val in newdic.items():

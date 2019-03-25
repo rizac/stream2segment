@@ -23,7 +23,7 @@ from sqlalchemy.sql import default_comparator
 from sqlalchemy.exc import SQLAlchemyError
 
 from stream2segment.io.db.pdsql import fetchsetpkeys, insertdf, _get_max, syncdf,\
-    mergeupdate, updatedf, dbquery2df, DbManager, set_pkeys, harmonize_columns
+    mergeupdate, updatedf, dbquery2df, DbManager, harmonize_columns
 
 Base = declarative_base()
 

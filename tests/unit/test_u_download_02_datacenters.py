@@ -11,17 +11,12 @@ try:
 except:
     from builtins import open as oopen
 
-import os
 from datetime import datetime, timedelta
-import random
-import math
-import sys
 import socket
-from itertools import cycle, repeat, count, product
+from itertools import cycle, product
 import logging
 from logging import StreamHandler
 from io import BytesIO
-import threading
 from mock import patch
 from mock import Mock
 # this can apparently not be avoided neither with the future package:
@@ -31,33 +26,15 @@ try:
 except ImportError:
     from io import StringIO
 
-import numpy as np
 import pandas as pd
 import pytest
-from sqlalchemy.engine import create_engine
-from sqlalchemy.orm.session import sessionmaker
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.sql.expression import func
-from click.testing import CliRunner
-from obspy.core.stream import Stream, read
-from obspy.taup.helper_classes import TauModelError
 
 from stream2segment.io.db.models import Base, Event, Class, Fdsnws, DataCenter, Segment, \
     Download, Station, Channel, WebService
-from stream2segment.download.modules.events import get_events_df
 from stream2segment.download.modules.datacenters import get_datacenters_df
-from stream2segment.download.modules.channels import get_channels_df, chaid2mseedid_dict
-from stream2segment.download.modules.stationsearch import merge_events_stations
-from stream2segment.download.modules.segments import prepare_for_download, \
-    download_save_segments, DcDataselectManager
-from stream2segment.download.utils import NothingToDownload, FailedDownload, Authorizer
-from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf
-from stream2segment.download.utils import s2scodes
-from stream2segment.download.modules.mseedlite import MSeedError, unpack
-from stream2segment.utils.url import read_async, URLError, HTTPError, responses
-from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_ttable_fpath
-from stream2segment.traveltimes.ttloader import TTTable
-from stream2segment.download.utils import dblog
+from stream2segment.download.utils import FailedDownload
+from stream2segment.utils.url import URLError, HTTPError, responses
+from stream2segment.utils.resources import get_templates_fpath, yaml_load
 from stream2segment.utils import urljoin as original_urljoin
 
 query_logger = logger = logging.getLogger("stream2segment")

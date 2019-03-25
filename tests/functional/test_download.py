@@ -986,7 +986,6 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                 yaml.dump(yaml_dict, outfile, default_flow_style=False)
 
             mock_run.reset_mock()
-
             result = clirunner.invoke(cli, ['download',
                                             '-c', configfilename,
                                             # '--dburl', db.dburl,

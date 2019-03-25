@@ -72,7 +72,7 @@ class Test(object):
                     new_ids = (1 + maxid + np.arange(numnan))
                     expected_ids = new_ids.tolist() + alreadyset_ids.tolist()
 
-                df = set_pkeys(d, db.session, autoincrement_pkey_col=Customer.id, overwrite=ov,
+                df = set_pkeys(d, db.session, Customer.id, overwrite=ov,
                                pkeycol_maxval=max_)
                 ids = df['id'].values.tolist()
                 # assert stuff:
@@ -86,7 +86,7 @@ class Test(object):
             max_ = 200
             expected_ids = np.array(d['id'].values, copy=True) if not ov else \
                 np.arange(max_ + 1, max_ + 1 + len(d), dtype=int)
-            df = set_pkeys(d, db.session, autoincrement_pkey_col=Customer.id, overwrite=ov,
+            df = set_pkeys(d, db.session, Customer.id, overwrite=ov,
                            pkeycol_maxval=max_)
             assert (df['id'] == expected_ids).all()
 
@@ -96,7 +96,7 @@ class Test(object):
             max_ = 200
             expected_ids = np.array([201, 1, 34, 4]) if not ov else \
                 np.arange(max_ + 1, max_ + 1 + len(d), dtype=int)
-            df = set_pkeys(d, db.session, autoincrement_pkey_col=Customer.id, overwrite=ov,
+            df = set_pkeys(d, db.session, Customer.id, overwrite=ov,
                            pkeycol_maxval=max_)
             assert (df['id'] == expected_ids).all()
 
@@ -105,7 +105,7 @@ class Test(object):
                               {'name': 'a', 'id': np.nan}, {'name': 'x', 'id': np.nan}])
             max_ = 200
             expected_ids = np.arange(max_ + 1, max_ + 1 + len(d), dtype=int)
-            df = set_pkeys(d, db.session, autoincrement_pkey_col=Customer.id, overwrite=ov,
+            df = set_pkeys(d, db.session, Customer.id, overwrite=ov,
                            pkeycol_maxval=max_)
             assert (df['id'] == expected_ids).all()
 
@@ -576,8 +576,6 @@ class Test(object):
         inserted, not_inserted, updated, not_updated, d2 = \
             syncdf(d, db.session, [Customer.name, Customer.time], Customer.id, update=['name'])
         # assert we returned all excpected instances
-        assert_frame_equal(d2, d.drop_duplicates(subset=['name', 'time'], keep=False),
-                           check_dtype=False, check_index_type=False)
         assert d.drop_duplicates(subset=['name', 'time'], keep=False).equals(d2)
         # assert returned values
         assert (inserted, not_inserted, updated, not_updated) == (0, 0, 2, 0)
@@ -612,6 +610,69 @@ class Test(object):
         # assert returned values
         assert (inserted, not_inserted, updated, not_updated) == (0, 0, len(d), 0)
 
+
+    @patch('stream2segment.io.db.pdsql.insertdf', side_effect=insertdf)
+    @patch('stream2segment.io.db.pdsql.updatedf', side_effect=updatedf)
+    def test_syncdf_dtypes_and_index(self, mock_updatedf, mock_insertdf, db):
+        '''Tests that syncdf (calling DbManager) nor DbManager preserve the index'''
+        d2006 = datetime(2006, 1, 1)
+        d2007 = datetime(2007, 12, 31)
+        d2008 = datetime(2008, 3, 14)
+        d2009 = datetime(2009, 9, 25)
+        df_data = [{'id': 1, 'name': 'a', 'time': d2006}, {'id': 2, 'name': 'a', 'time': d2008},
+                   {'id': 3, 'name': 'a', 'time': None}]
+        self.init_db(db.session, df_data)
+
+        # Sync a dataframe with a new item N= [{'name': 'b', 'time': d2006}]
+        # Index is preserved but only because the rows
+        # to insert and to update are contiguous, e.g.
+        # [row2beInserted1, ..., row2beInsertedN, row2beUpdated1, .., row2beUpdatedM]
+        d = pd.DataFrame(df_data + [{'name': 'b', 'time': d2006}])
+        inserted, not_inserted, updated, not_updated, d2 = \
+            syncdf(d, db.session, [Customer.name, Customer.time], Customer.id,
+                   buf_size=1)
+        # indices are preserved:
+        assert (d.index == d2.index).all()
+        # column dtypes not, as d2 is casted to the SQL type:
+        assert d2['id'].dtype == np.int64
+        assert d['id'].dtype == np.float64
+
+        # Now we insert a new item in between.
+        # Index is preserved because the rows
+        # to insert and to update are NOT contiguous, i.e.
+        # [row2beUpdated1, row2beInserted, row2beUpdated2]
+        df_data = [{'id': 1, 'name': 'a', 'time': d2006},
+                   {'name': 'xyz', 'time': None},
+                   {'id': 2, 'name': 'a', 'time': d2008},
+                   ]
+        self.init_db(db.session, df_data)
+
+        d = pd.DataFrame(df_data)
+        # {'name': 'a', 'time': None} will be dropped (drop duplicates is True by default)
+        # from the other three elements, the last is already existing and will not be added
+        # the other two will have an autoincremented id:
+        inserted, not_inserted, updated, not_updated, d2 = \
+            syncdf(d, db.session, [Customer.name, Customer.time], Customer.id,
+                   buf_size=1)
+
+        # indices are preserved:
+        assert not (d.index == d2.index).all()
+        # column dtypes not, as d2 is casted to the SQL type:
+        assert d2['id'].dtype == np.int64
+        assert d['id'].dtype == np.float64
+
+        # Now try with DbManager (used in the underlying syncdf) and show that
+        # indices are not preserved if we add several dataframes sequentially
+        # (because we use a pd.concat):
+        dbm = DbManager(db.session, Customer.id, update=True, buf_size=100,
+                        return_df=True)
+        for _ in range(len(d)):
+            dbm.add(d[_:_+1])
+        dbm.close()
+        idx1 = d.index
+        idx2 = dbm.dataframe.index
+        assert len(idx1) == len(idx2)
+        assert not (idx1.values == idx2.values).all()
 
     def test_syncdf_2(self, db):
         """Same as `test_syncdf` but the second non-existing item is conflicting with
