@@ -879,7 +879,7 @@ def insertdf(dataframe, session, pkey_col, colnames2insert=None,
 
     :param dataframe: a pandas dataframe
     :param session: the sql-alchemy session
-    :param pkey_col: an SQLAlchemy Column representing a column of the ORM class
+    :param pkey_col: an SQLAlchemy Column of the ORM class
         representing the db table where dta has to be inserted. The column is used to retrieve T.
         IMPORTANT: If `check_pkey_col=True`, the column must be of SQL type numeric and unique
         (e.g. integer primary key).
@@ -1072,20 +1072,22 @@ def fetchsetpkeys(dataframe, session, matching_columns, pkey_col):
 def mergeupdate(dataframe, other_df, matching_columns, merge_columns,
                 drop_other_df_duplicates=True):
     """
-        Modifies `dataframe` from `other_df` and returns it.
-        Sets `dataframe[merge_columns]` = `other_df[merge_columns]` for those row where
-        `dataframe[matching_columns]` = `other_df[matching_columns]` only. Example:
+        Merges `other_df` into `dataframe` and returns the latter, by setting
+        `dataframe[merge_columns]` = `other_df[merge_columns]` for those row where
+        `dataframe[matching_columns]` = `other_df[matching_columns]` only.
+
+        Example:
 
         >>> dataframe                       >>> other_df
             id  name time       data            id name time       count value
-        0   45 'a'   NaT        4           0   45 'a'  2007-12-31 5     NaN
-        1   45 'b'   2006-01-01 5           1   45 'c'  2009-09-25 5     4.5
+        0   45 'a'   NaT        4           0   45 'a'  2007-01-01 5     NaN
+        1   45 'b'   2006-01-01 5           1   45 'c'  2008-01-01 5     4.5
 
         mergeupdate(dataframe, other_df, ['id', 'name'], ['time', 'value']) produces:
 
         >>> dataframe
             id  name        time data value
-         0  45    'a' 2007-12-31 4    NaN    # <- in both data frames, time and value updated
+         0  45    'a' 2007-01-01 4    NaN    # <- in both data frames, time and value updated
          1  45    'b' 2006-01-01 5    NaN    # <- not in `other_df`: time preserved, value NaN
 
          # Note also:
@@ -1121,7 +1123,8 @@ def mergeupdate(dataframe, other_df, matching_columns, merge_columns,
         # not match across the two dataframes (in previous pandas versions, the dtypes where
         # upcasted if needed, e.g.: dataframe[C] = datetime, other_df[C] = object,
         # mergedf[C] = object). We handle here the only "false positive" of this new beahviour:
-        # i.e. when either column has all Nones
+        # i.e. when one of the two columns has all Nones, we try to cast it to the type
+        # of the other column. Eventually, we call again `merge`: if it raises again, then fine
         retry = False
         # if there is a mismatch, it is surely for a column in BOTH dataframes:
         for col in set(dataframe.columns) & set(otherdf.columns):
