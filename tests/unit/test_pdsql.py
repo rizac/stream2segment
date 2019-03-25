@@ -13,6 +13,7 @@ import psutil
 import numpy as np
 import pytest
 import pandas as pd
+from pandas.testing import assert_frame_equal
 from sqlalchemy.ext.declarative.api import declarative_base
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.orm.scoping import scoped_session
@@ -77,6 +78,37 @@ class Test(object):
                 # assert stuff:
                 assert sorted(ids) == sorted(expected_ids)
                 assert df['id'].dtype in (np.int64, np.int32, np.int16, np.int8)
+
+        # let's see two cases when id is provided:
+        for ov in [True, False]:
+            d = pd.DataFrame([{'name': 'a', 'id': 11}, {'name': 'b', 'id': 1},
+                              {'name': 'a', 'id': 34}, {'name': 'x', 'id': 4}])
+            max_ = 200
+            expected_ids = np.array(d['id'].values, copy=True) if not ov else \
+                np.arange(max_ + 1, max_ + 1 + len(d), dtype=int)
+            df = set_pkeys(d, db.session, autoincrement_pkey_col=Customer.id, overwrite=ov,
+                           pkeycol_maxval=max_)
+            assert (df['id'] == expected_ids).all()
+
+        for ov in [True, False]:
+            d = pd.DataFrame([{'name': 'a', 'id': np.nan}, {'name': 'b', 'id': 1},
+                              {'name': 'a', 'id': 34}, {'name': 'x', 'id': 4}])
+            max_ = 200
+            expected_ids = np.array([201, 1, 34, 4]) if not ov else \
+                np.arange(max_ + 1, max_ + 1 + len(d), dtype=int)
+            df = set_pkeys(d, db.session, autoincrement_pkey_col=Customer.id, overwrite=ov,
+                           pkeycol_maxval=max_)
+            assert (df['id'] == expected_ids).all()
+
+        for ov in [True, False]:
+            d = pd.DataFrame([{'name': 'a', 'id': np.nan}, {'name': 'b', 'id': np.nan},
+                              {'name': 'a', 'id': np.nan}, {'name': 'x', 'id': np.nan}])
+            max_ = 200
+            expected_ids = np.arange(max_ + 1, max_ + 1 + len(d), dtype=int)
+            df = set_pkeys(d, db.session, autoincrement_pkey_col=Customer.id, overwrite=ov,
+                           pkeycol_maxval=max_)
+            assert (df['id'] == expected_ids).all()
+
 
     def test_fetchsetpkeys_(self, db):
         d2006 = datetime(2006, 1, 1)
@@ -544,6 +576,8 @@ class Test(object):
         inserted, not_inserted, updated, not_updated, d2 = \
             syncdf(d, db.session, [Customer.name, Customer.time], Customer.id, update=['name'])
         # assert we returned all excpected instances
+        assert_frame_equal(d2, d.drop_duplicates(subset=['name', 'time'], keep=False),
+                           check_dtype=False, check_index_type=False)
         assert d.drop_duplicates(subset=['name', 'time'], keep=False).equals(d2)
         # assert returned values
         assert (inserted, not_inserted, updated, not_updated) == (0, 0, 2, 0)

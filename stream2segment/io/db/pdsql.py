@@ -777,7 +777,14 @@ def _get_shared_colnames(table_model, dataframe, where_col=None):
 
 
 def set_pkeys(dataframe, session, autoincrement_pkey_col, overwrite=False, pkeycol_maxval=None):
-    '''Sets the primary key as column of `dataframe` with increasing numbers, starting from the
+    '''Sets the primary key as column of `dataframe`.
+    If 'overwrite', it overwrites the values of dataframe[autoincrement_pkey_col], otherwise
+    writes only NA values
+    If `pkeycol_maxval` is not None, sets the value as auto-incrementing numbers strating
+    from `pkeycol_maxval + 1`. If None, `pkeycol_maxval` default to the Database Table's
+    maximum.
+
+     with increasing numbers, starting from the
     maximum found on the database Table, plus 1, or `pkeycol_maxval` + 1, if `pkeycol_maxval` is
     not None (providing a pkeycol_maxval is faster as it does not query the db).
     The database Table is retrieved as the table mapped by the model of `autoincrement_pkey_col`
@@ -801,17 +808,17 @@ def set_pkeys(dataframe, session, autoincrement_pkey_col, overwrite=False, pkeyc
         pkeycol_maxval = _get_max(session, autoincrement_pkey_col)
     pkeycol_maxval += 1
     pkeyname = autoincrement_pkey_col.key
-    if not overwrite:
-        if pkeyname in dataframe:
-            mask = pd.isnull(dataframe[pkeyname])
-            nacount = mask.sum()
-            if nacount != len(dataframe):
+    if not overwrite and pkeyname in dataframe:
+        mask = pd.isnull(dataframe[pkeyname])
+        nacount = mask.sum()
+        if nacount != len(dataframe):
+            if nacount > 0:
                 dataframe.loc[mask, pkeyname] = \
                     np.arange(pkeycol_maxval, pkeycol_maxval+nacount, dtype=int)
-                # cast values if we modified only SOME row values of dataframe[pkeyname]
-                # This is why we might have had floats (because we had na) and now we still have
-                # floats (postgres complains if we add 6.0 instead of 6!)
-                return _cast_column(dataframe, autoincrement_pkey_col)
+            # cast values if we modified only SOME row values of dataframe[pkeyname]
+            # This is why we might have had floats (because we had na) and now we still have
+            # floats (postgres complains if we add 6.0 instead of 6!)
+            return _cast_column(dataframe, autoincrement_pkey_col)
 
     # if we are here
     # either we want to set all values of dataframe[pkeyname] (overwrite=True),
