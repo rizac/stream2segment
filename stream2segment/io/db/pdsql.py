@@ -442,11 +442,11 @@ def syncdf(dataframe, session, matching_columns, autoincrement_pkey_col, update=
     :param matching_columns: a list of ORM columns for comparing `dataframe` rows and T rows:
         when two rows are found that are equal (according to all `matching_columns` values),
         then the data frame row `autoincrement_pkey_col` value is set = T row value
-    :param autoincrement_pkey_col: the ORM column denoting an auto-increment primary key of T.
-        Unexpected results if the column does not match those criteria. The column
-        needs not to be a column of `dataframe`. The returned `dataframe` will have in any case
-        this column set with non-NA values and the proper python type (corresponding to the
-        column  SQL type)
+    :param autoincrement_pkey_col: the ORM column denoting a NUMERIC and UNIQUE Column of T
+        (e.g., INTEGER primary key): unexpected results if the column does not match those criteria.
+        The column needs not to be a column of `dataframe`. The returned `dataframe` will have in
+        any case this column set with non-NA values and the proper python type (corresponding to
+        the column  SQL type)
     :param update: boolean or list of strings. Whether to update or not:
         - If True, all shared columns between dataframes and table model will be updated
           (except id_col): the shared columns are calculated only the first time a dataframe is
@@ -533,6 +533,27 @@ class DbManager(object):
         table, inserted, not_inserted, updated, not_updated = d.close()
     ```
 
+    or
+
+    ```
+        d = DbManager(..., return_df=True)
+        d.add(first_dataframe)
+        ...
+        d.add(last_dataframe)
+        d.close()
+        # get the dataframe synchronized with the db (primary keys set):
+        synced_dataframe = d.dataframe
+    ```
+
+    NOTES:
+
+    `id_col` is a sql-alchemy Column which MUST be NUMERIC and UNIQUE (e.g.,
+    the typical case of an INTEGER primary key)
+
+    The database SHOULD NOT BE MODIFIED in within each `add` call, as the
+    "next value" of `id_col` is retrieved once at the beginning and stored internally
+    for performance reasons
+
     The `add` method takes care to split between rows to update and rows to insert, eventually
     writing to the database when the amount of rows exceeds `buf_size`: this should avoid memory
     issues and be more efficient. The dataframes passed to `add` should have always the same
@@ -546,8 +567,9 @@ class DbManager(object):
         '''
         Initializes a new `DbManager`
 
-        :param id_col: a primary key column of the underlying SQLAlchemy ORM. The table will
-            be inferred from this attribute. For each dataframe passed to `add`, identified the
+        :param id_col: an SQLAlchemy Column. It MUST be of type numeric and UNIQUE
+            (e.g. INTEGER primary key). The mapped ORM Table will be inferred from this attribute.
+            For each dataframe passed to `add`, identified the
             dataframe column C mapped to id_col (having the same name), the rows to
             insert will be those with Nones under C, and the others those to update
         :param return_df: (boolean, False by default) if True, the property `self.dataframe`
@@ -657,30 +679,35 @@ class DbManager(object):
 
     def _insert(self, buf_size=None):
         inserts = self.inserts
-        df = inserts[0] if len(inserts) == 1 else \
-            pd.concat(inserts, axis=0, ignore_index=True, copy=False, verify_integrity=False)
+        # pd.concat *must* copy the data exceot for trivial cases, e.g. the data frame to be concat
+        # is 1: in this case we set the arg. copy=True to avoid SettingsWithCopy warning
+        dfr = pd.concat(inserts, axis=0, ignore_index=True, copy=True, verify_integrity=False)
         session = self.session
         id_col = self.id_col
-        with pd.option_context('mode.chained_assignment', None):  # No SettingsWithCopy warning?
-            df = set_pkeys(df, session, id_col, overwrite=True, pkeycol_maxval=self._max)
+        # Set the dfr[id_col.key] with primary key values for all rows
+        # (dfr must not have such a column). See also NOTE below
+        dfr = set_pkeys(dfr, session, id_col, overwrite=True, pkeycol_maxval=self._max)
         insert_cols = self.colnames2insert
         if insert_cols is None:
-            insert_cols = self.colnames2insert = _get_shared_colnames(self.table, df)
-        total = len(df)
+            insert_cols = self.colnames2insert = _get_shared_colnames(self.table, dfr)
+        total = len(dfr)
         self._max += total
         if buf_size is None:
             buf_size = min(self.buf_size, self._toinsert_count)
         return_df = self.return_df
-        # note below: on insert, if df[id_col] is float and id_col is sql INTEGER, it should
-        # be a problem onpostgres cause it complains if id's are not strict integers (sp e.g.
-        # 6.0 is NOT a valid id). THIS IS NOT A PROBLEM as `set_pkeys` above casts it for us
-        # if we were to update on where clause=id_col, that would not be a problem as it
-        # seems to work without casts (probably because it's a comparison, not an insert)
-        new, df = insertdf(df, session, id_col, insert_cols, buf_size=buf_size,
-                           check_pkeycol=False, return_df=return_df,
-                           onerr=self.oninsert_err_callback)
+        # IMPORTANT NOTE on line below: id_col must be of sql INTEGER type.
+        # On insert, if dfr[id_col] is float (which might happen as pandas handles integer columns
+        # with NaNs/Nones by storing the column as float), THEN WE HAVE A PROBLEM
+        # on postgres because it complains if id's are not strict integers (sp e.g.
+        # 6.0 is NOT a valid id). The problem was solved by calling `set_pkeys` above
+        # `set_pkeys` is also called by `insertf` below by providing `check_pkeycol=True`,
+        # but we set it to False in order to keep the maximum pkey value in `self._max` and
+        # do only one query to get it
+        new, dfr = insertdf(dfr, session, id_col, insert_cols, buf_size=buf_size,
+                            check_pkeycol=False, return_df=return_df,
+                            onerr=self.oninsert_err_callback)
         if return_df:
-            self.dfs.append(df)
+            self.dfs.append(dfr)
         info = self.info
         info[0] += new
         info[1] += total
@@ -690,24 +717,30 @@ class DbManager(object):
 
     def _update(self, buf_size=None):
         updates = self.updates
-        df = updates[0] if len(updates) == 1 else \
-            pd.concat(updates, axis=0, ignore_index=True, copy=False, verify_integrity=False)
+        # pd.concat *must* copy the data exceot for trivial cases, e.g. the data frame to be
+        # concat'ed is 1: in this case we set the arg. copy=True to avoid SettingsWithCopy warning
+        dfr = pd.concat(updates, axis=0, ignore_index=True, copy=True, verify_integrity=False)
         if buf_size is None:
             buf_size = min(self.buf_size, self._toupdate_count)
         id_col = self.id_col
+        # Set the dfr[id_col.key] with proper type
+        # (dfr must have such a column, and no NaN/None). See also NOTE below
+        dfr = _cast_column(dfr, id_col)
         update_cols = self.colnames2update
         if update_cols is True:
-            update_cols = self.colnames2update = _get_shared_colnames(self.table, df, id_col)
-        total = len(df)
+            update_cols = self.colnames2update = _get_shared_colnames(self.table, dfr, id_col)
+        total = len(dfr)
         return_df = self.return_df
-        # note below: on update, if df[id_col] is float and id_col is sql INTEGER, it should
-        # not be a problem cause id_col is used in a where clause and compares correctly
-        # if we were to insert id_col, that would be a problem in postgres (e.g. 6.0 is invalid,
-        # 6 is required. sqlite is not that strict)
-        updated, df = updatedf(df, self.session, id_col, update_cols, buf_size=buf_size,
-                               return_df=return_df, onerr=self.onupdate_err_callback)
+        # IMPORTANT NOTE on line below: id_col must be of sql INTEGER type.
+        # On update, if dfr[id_col] is float (which might happen as pandas handles integer columns
+        # with NaNs/Nones by storing the column as float), THEN WE HAVE A PROBLEM
+        # on postgres when using the primary key in a where clause: updates work but are
+        # simply horribly SLOW (3 to 4 times slower).
+        # The problem was solved by calling `_cast_column` above
+        updated, dfr = updatedf(dfr, self.session, id_col, update_cols, buf_size=buf_size,
+                                return_df=return_df, onerr=self.onupdate_err_callback)
         if return_df:
-            self.dfs.append(df)
+            self.dfs.append(dfr)
         info = self.info
         info[2] += updated
         info[3] += total
