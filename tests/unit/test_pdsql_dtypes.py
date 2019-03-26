@@ -4,26 +4,18 @@ Created on Apr 11, 2017
 @author: riccardo
 '''
 from builtins import zip, str, range
-from mock import patch
-import math
 from datetime import datetime
 import os
+import sys
 
-import psutil
 import numpy as np
 import pytest
 import pandas as pd
 from sqlalchemy.ext.declarative.api import declarative_base
-from sqlalchemy.orm.session import sessionmaker
-from sqlalchemy.orm.scoping import scoped_session
-from sqlalchemy import Column, Integer, String,  create_engine, LargeBinary, DateTime, Float, \
+from sqlalchemy import Column, Integer, String, LargeBinary, DateTime, Float, \
     Boolean
-from sqlalchemy.sql.expression import bindparam
-from sqlalchemy.sql import default_comparator
-from sqlalchemy.exc import SQLAlchemyError
 
-from stream2segment.io.db.pdsql import fetchsetpkeys, insertdf, _get_max, syncdf,\
-    mergeupdate, updatedf, dbquery2df, DbManager, harmonize_columns
+from stream2segment.io.db.pdsql import insertdf, dbquery2df, harmonize_columns
 
 Base = declarative_base()
 
@@ -48,8 +40,8 @@ class Test(object):
 
     def init_db(self, session, dframe):
         # use insertdf which takes care of type casting:
-        _, df = insertdf(dframe, session, Customer.id, buf_size=len(dframe),
-                         check_pkeycol=True, return_df=True)
+        _, df = insertdf(dframe, session, Customer, buf_size=len(dframe),
+                         return_df=True)
         return df
 
 

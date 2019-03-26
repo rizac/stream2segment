@@ -400,7 +400,7 @@ def dbquery2df(query):
     return pd.DataFrame(columns=columns, data=query.all())
 
 
-def syncdf(dataframe, session, matching_columns, numeric_pkey_col, update=False,
+def syncdf(dataframe, session, matching_columns, id_col, update=False,
            buf_size=10, keep_duplicates=False, onduplicates_callback=None,
            oninsert_err_callback=None, onupdate_err_callback=None):
     """Efficiently synchronizes `dataframe` with the corresponding database table T.
@@ -419,8 +419,8 @@ def syncdf(dataframe, session, matching_columns, numeric_pkey_col, update=False,
     * synced_dataframe: The pandas Data frame subset of `dataframe` with rows SURELY mapped with
       an existing row on the table T. This includes rows of `dataframe` which already had a
       mapped row on T, or were successfully inserted or updated.
-      `numeric_pkey_col` should be a Numeric Unique SQLAlchemy Column (e.g., INTEGER
-      primary key); `dataframe[numeric_pkey_col]` is assured to exist and will NOT have
+      `id_col` should be a Numeric Unique SQLAlchemy Column (e.g., INTEGER
+      primary key); `dataframe[id_col]` is assured to exist and will NOT have
       NA (nan's, None's), and its dtype will be casted to the python type corresponding to the
       SQL type of its matching column on T.
       NOTE: **The order of rows of `synced_dataframe` might not match the order of `dataframe`,
@@ -430,9 +430,9 @@ def syncdf(dataframe, session, matching_columns, numeric_pkey_col, update=False,
       if `update` is True or non empty list (see below)
 
     This function first fetches the primary keys
-    from the database table into `dataframe[numeric_pkey_col.key]`, matching columns with
+    from the database table into `dataframe[id_col.key]`, matching columns with
     `matching_columns`, then uses a `DbManager` which internally splits `dataframe` into
-    rows to insert (`numeric_pkey_col` NA) and rows to update, and inserts/update them
+    rows to insert (`id_col` NA) and rows to update, and inserts/update them
     committing chunks of `buf_size` rows.
     If you need to insert/update a lot of items
     and/or you do not care about the returned Data frame, you can use a `DbManager` which has a
@@ -442,8 +442,8 @@ def syncdf(dataframe, session, matching_columns, numeric_pkey_col, update=False,
     :param session: an sql-alchemy session
     :param matching_columns: a list of ORM columns for comparing `dataframe` rows and T rows:
         when two rows are found that are equal (according to all `matching_columns` values),
-        then the data frame row `numeric_pkey_col` value is set = T row value
-    :param numeric_pkey_col: the ORM column denoting a NUMERIC and UNIQUE Column of T
+        then the data frame row `id_col` value is set = T row value
+    :param id_col: the ORM column denoting a NUMERIC and UNIQUE Column of T
         (e.g., INTEGER primary key): unexpected results if the column does not match those criteria.
         The column needs not to be a column of `dataframe`. The returned `dataframe` will have in
         any case this column set with non-NA values and the proper python type (corresponding to
@@ -484,7 +484,7 @@ def syncdf(dataframe, session, matching_columns, numeric_pkey_col, update=False,
 
     1. T is obtained as the `class_` attribute of the first passed
     `Column <http://docs.sqlalchemy.org/en/latest/core/metadata.html#sqlalchemy.schema.Column>`_,
-    therefore `numeric_pkey_col` and each element of `matching_columns` must refer to the
+    therefore `id_col` and each element of `matching_columns` must refer to the
     same db table T.
     2. The mapping between an sql-alchemy Column C and a pandas dataframe *string*
     column K is based on the sql-alchemy `key` attribute: `C.key == K`
@@ -505,19 +505,19 @@ def syncdf(dataframe, session, matching_columns, numeric_pkey_col, update=False,
                                       Exception("Duplicated instances violate db constraint"))
             dataframe = dataframe[~dupes_mask].copy()
 
-    dframe_with_pkeys = fetchsetpkeys(dataframe, session, matching_columns, numeric_pkey_col)
-    dbm = DbManager(session, numeric_pkey_col,
+    dframe_with_pkeys = syncdfcol(dataframe, session, matching_columns, id_col)
+    dbm = DbManager(session, id_col,
                     update, buf_size, return_df=True,
                     oninsert_err_callback=oninsert_err_callback,
                     onupdate_err_callback=onupdate_err_callback)
     dbm.add(dframe_with_pkeys)
     table, inserted, not_inserted, updated, not_updated = dbm.close()
-    # dframe_with_pkeys's `numeric_pkey_col` might not be castable to `numeric_pkey_col`
+    # dframe_with_pkeys's `id_col` might not be castable to `id_col`
     # SQL type: think about SQL type = INTEGER, and dframe_with_pkeys has
-    # Nones: then dframe_with_pkeys[numeric_pkey_col].dtype = float, not int.
-    # d.dataframe's `numeric_pkey_col` is surely castable to the SQL type, and
+    # Nones: then dframe_with_pkeys[id_col].dtype = float, not int.
+    # d.dataframe's `id_col` is surely castable to the SQL type, and
     # *in general* DbManager already casted it. But not always. Thus for safety:
-    dataframe = _cast_column(dbm.dataframe, numeric_pkey_col)
+    dataframe = cast_column(dbm.dataframe, id_col)
 
     return inserted, not_inserted, updated, not_updated, dataframe
 
@@ -673,8 +673,8 @@ class DbManager(object):
         You should close this object or call flush before calling this method.
 
         Note that if id_col passed in the constructor is of type int, it might be of type float
-        Use _cast_column in case, the returned dataframe[id_col.key] is assured NOT to have NaNs
-        Raises if self.return_df is False
+        Use :meth:`cast_column` in case, the returned dataframe[id_col.key] is assured NOT
+        to have NaNs Raises if self.return_df is False
         '''
         if not self.return_df:
             raise ValueError('return_df is False')
@@ -695,7 +695,7 @@ class DbManager(object):
         id_col = self.id_col
         # Set the dfr[id_col.key] with primary key values for all rows
         # (dfr must not have such a column). See also NOTE below
-        dfr = set_pkeys(dfr, session, id_col, overwrite=True, pkeycol_maxval=self._max)
+        dfr = syncdfseq(dfr, session, id_col, overwrite=True, pkeycol_maxval=self._max)
         insert_cols = self.colnames2insert
         if insert_cols is None:
             insert_cols = self.colnames2insert = _get_shared_colnames(self.table, dfr)
@@ -708,12 +708,13 @@ class DbManager(object):
         # On insert, if dfr[id_col] is float (which might happen as pandas handles integer columns
         # with NaNs/Nones by storing the column as float), THEN WE HAVE A PROBLEM
         # on postgres because it complains if id's are not strict integers (sp e.g.
-        # 6.0 is NOT a valid id). The problem was solved by calling `set_pkeys` above
-        # `set_pkeys` is also called by `insertf` below by providing `check_pkeycol=True`,
+        # 6.0 is NOT a valid id). The problem was solved by calling `syncdfseq` above
+        # `syncdfseq` is also called by `insertf` below by providing `check_pkeycol=True`,
         # but we set it to False in order to keep the maximum pkey value in `self._max` and
         # do only one query to get it
-        new, dfr = insertdf(dfr, session, id_col, insert_cols, buf_size=buf_size,
-                            check_pkeycol=False, return_df=return_df,
+        new, dfr = insertdf(dfr, session, id_col.class_, insert_cols,
+                            buf_size=buf_size,
+                            return_df=return_df,
                             onerr=self.oninsert_err_callback)
         if return_df:
             self.dfs.append(dfr)
@@ -737,7 +738,7 @@ class DbManager(object):
         id_col = self.id_col
         # Set the dfr[id_col.key] with proper type
         # (dfr must have such a column, and no NaN/None). See also NOTE below
-        dfr = _cast_column(dfr, id_col)
+        dfr = cast_column(dfr, id_col)
         update_cols = self.colnames2update
         if update_cols is True:
             update_cols = self.colnames2update = _get_shared_colnames(self.table, dfr, id_col)
@@ -748,7 +749,7 @@ class DbManager(object):
         # with NaNs/Nones by storing the column as float), THEN WE HAVE A PROBLEM
         # on postgres when using the primary key in a where clause: updates work but are
         # simply horribly SLOW (3 to 4 times slower).
-        # The problem was solved by calling `_cast_column` above
+        # The problem was solved by calling `cast_column` above
         updated, dfr = updatedf(dfr, self.session, id_col, update_cols, buf_size=buf_size,
                                 return_df=return_df, onerr=self.onupdate_err_callback)
         if return_df:
@@ -788,34 +789,37 @@ def _get_shared_colnames(table_model, dataframe, where_col=None):
     return list(shared_colnames_gen)
 
 
-def set_pkeys(dataframe, session, numeric_pkey_col, overwrite=False, pkeycol_maxval=None):
+def syncdfseq(dataframe, session, seq_col, overwrite=False, pkeycol_maxval=None):
     '''
-    Sets the primary key values of `dataframe` under the column identified by `numeric_pkey_col`.
+    Synchronizes `dataframe[seq_col.key]` with the underlying database table T,
+    setting values not in T by auto-incrementing the sequence of values (thus `seq_col`
+    must be numeric and having unique constraint, e.g. an integer primary key).
 
-    If 'overwrite', it overwrites the values of dataframe[numeric_pkey_col], otherwise
-    writes only NA values. This argument is ignored if `numeric_pkey_col` is not a column
+    If 'overwrite', it overwrites the values of dataframe[seq_col], otherwise
+    writes only NA values. This argument is ignored if `seq_col` is not a column
     of `dataframe` (the column will be added in case).
-    If `pkeycol_maxval` is not None, sets the `numeric_pkey_col` values from
-    `pkeycol_maxval + 1`. If None, `pkeycol_maxval` default to the Database Table's
-    maximum.
+    If `pkeycol_maxval` is not None, sets the `seq_col` values from
+    `pkeycol_maxval + 1`: this is faster as it does not query the db but the user is repsonsible
+    not to violate constraints, if the dataframe is later inserted / updated to the db.
+    If None, `pkeycol_maxval` default to the Database Table's maximum.
 
-    The database Table is retrieved as the table mapped by the model of `numeric_pkey_col`
+    The database Table is retrieved as the table mapped by the model of `seq_col`
     Regardless of whether dataframe has the column or not,
-    After this call, `dataframe` will have the column with name `numeric_pkey_col.key` casted
-    to the pandas type corresponding to `numeric_pkey_col` type.
+    After this call, `dataframe` will have the column with name `seq_col.key` casted
+    to the pandas type corresponding to `seq_col` type.
 
     :param session: an sql-alchemy session object
-    :param numeric_pkey_col: an SQLAlchemy Column, i.e. an attribute of some ORM class representing
+    :param seq_col: an SQLAlchemy Column, i.e. an attribute of some ORM class representing
         a db Table.
-        The column must be unique and, as the name says, of SQL type numeric
+        The column must denote a sequence, i.e. must be of SQL type **NUMERIC** and unique
         (e.g. integer primary key), otherwise this method should not be used.
     :param dataframe: the dataframe with values to be inserted/updated/deleted from the table
-        mapped by `numeric_pkey_col`
+        mapped by `seq_col`
     '''
     if pkeycol_maxval is None:
-        pkeycol_maxval = _get_max(session, numeric_pkey_col)
+        pkeycol_maxval = _get_max(session, seq_col)
     pkeycol_maxval += 1
-    pkeyname = numeric_pkey_col.key
+    pkeyname = seq_col.key
     if not overwrite and pkeyname in dataframe:
         # Treat here the case where we have to set 0 to len(dataframe)-1 values
         # If we have all NaNs values, treat the case as if we did not
@@ -826,27 +830,27 @@ def set_pkeys(dataframe, session, numeric_pkey_col, overwrite=False, pkeycol_max
             if nacount > 0:
                 dataframe.loc[mask, pkeyname] = \
                     np.arange(pkeycol_maxval, pkeycol_maxval+nacount,
-                              dtype=_get_dtype(numeric_pkey_col.type))
+                              dtype=_get_dtype(seq_col.type))
             # cast values if we modified only SOME row values of dataframe[pkeyname]
-            # E.g., if dataframe[numeric_pkey_col.key] was of type float
-            # because it has NaNs, and numeric_pkey_col is of type integer,
+            # E.g., if dataframe[seq_col.key] was of type float
+            # because it has NaNs, and seq_col is of type integer,
             # we must cast (E.g., postgres raises or is extremely slow if we pass
             # 6.0 instead of 6 in an insert/update!)
-            return _cast_column(dataframe, numeric_pkey_col)
+            return cast_column(dataframe, seq_col)
 
     # if we are here
     # either we want to set all values of dataframe[pkeyname] (overwrite=True),
     # or pkeyname is not a column of dataframe,
     # or all dataframe[pkeyname] are na
-    # In ALL these cases we do not need `_cast_column`, but simply set the dtype
+    # In ALL these cases we do not need `cast_column`, but simply set the dtype
     # in np. arange:
     new_pkeys = np.arange(pkeycol_maxval, pkeycol_maxval+len(dataframe),
-                          dtype=_get_dtype(numeric_pkey_col.type))
+                          dtype=_get_dtype(seq_col.type))
     dataframe[pkeyname] = new_pkeys
     return dataframe
 
 
-def _cast_column(dataframe, sql_column):
+def cast_column(dataframe, sql_column):
     '''casts the dataframe column mapped to `sql_column` to the python type mapped to
     `sql_column`'s sql type.
     dataframe[sql_column.key] MUST be a valid column in dataframe, and must have values
@@ -861,29 +865,35 @@ def _cast_column(dataframe, sql_column):
     return dataframe
 
 
-def insertdf(dataframe, session, pkey_col, colnames2insert=None,
-             buf_size=10, check_pkeycol=True, return_df=True,
+def insertdf(dataframe, session, table_model, colnames2insert=None,
+             buf_size=10, return_df=True,
              onerr=None):
     """
-    Efficiently inserts row of `dataframe` to the corresponding database table T. Rows found on
-    T (according to `matching_columns`) are not inserted again.
+    Efficiently inserts row of `dataframe` to the Table T mapped by the ORM `table_model`.
+    This function performs a sort of "raw" insert with no check, thus any kind of constraint
+    defined on T must be satisfied by `dataframe`. For instance, if T
+    defines a primary key with some sort of auto sequence (INTEGER auto increment), then
+    `dataframe` needs to define such a column, with correct values and types
+    (Note: SQLite seems to handle missing primary keys, auto-incrementing them, postgres not. Thus
+    it is not safe to omit those columns in `dataframe`.  If you want to set automatically
+    primary key value / numeric sequence / numeric column with unique constraint,
+    ee :meth:`syncdfseq`)
+    If you want a more "high-level" method taking care of handling insert/updates and
+    synchronization, see :meth:`syncdf`.
 
     Returns the tuple `new, df` where:
 
     * new: is the number of new rows inserted
     * df is the pandas DataFrame with same columns as `dataframe` and only
-        rows that are db-sybchronized (`new`s + already existing). `len(df) = new`.
-        If return_df=False, this argument is None
+        rows that are succesfully inserted. If return_df=False, this argument is None (in case,
+        this function should run faster)
 
-    `return_df=False` is in most cases faster, use it if you do not need a database-synchronized
-    version of `dataframe`
+    .. seealso:: `syncdfseq`
+    .. seealso::  `syncdf`
 
     :param dataframe: a pandas dataframe
     :param session: the sql-alchemy session
-    :param pkey_col: an SQLAlchemy Column of the ORM class
-        representing the db table where dta has to be inserted. The column is used to retrieve T.
-        IMPORTANT: If `check_pkey_col=True`, the column must be of SQL type numeric and unique
-        (e.g. integer primary key).
+    :param table_model: an SQLAlchemy ORM class mapping some database table
     :param colnames2insert: a list of columns to be inserted. None will default to all
         `dataframe` columns. This latter case might be more time consuming if
         this method is called several times
@@ -903,10 +913,6 @@ def insertdf(dataframe, session, pkey_col, colnames2insert=None,
     buf_size = max(buf_size, 1)
     buf = {}
 
-    if check_pkeycol:
-        set_pkeys(dataframe, session, pkey_col, overwrite=False, pkeycol_maxval=None)
-
-    table_model = pkey_col.class_
     if colnames2insert is None:
         colnames2insert = _get_shared_colnames(table_model, dataframe)
 
@@ -949,7 +955,9 @@ def insertdf(dataframe, session, pkey_col, colnames2insert=None,
 def updatedf(dataframe, session, where_col, colnames2update=None, buf_size=10, return_df=True,
              onerr=None):
     """
-    Efficiently updates row of `dataframe` to the corresponding database table T.
+    Efficiently updates row of `dataframe` to the corresponding database table T (whose ORM
+    will be retrieved by means of `where_col`).
+
     Returns the tuple:
     ```
     (updated, d)
@@ -960,6 +968,9 @@ def updatedf(dataframe, session, where_col, colnames2update=None, buf_size=10, r
     * d is None if return_df = None, otherwise the sub-set of `dataframe` with only updated rows.
       Its length is 'updated'
 
+    :param where_col: a SQLALchemy Column indicating the column whereby the SQL where clause
+        is issued (usually, a primary key or a column with unique constraints). IMPORTANT:
+        `dataframe[where_col.key]` type should match the SQL type. See :meth:`cast_column` in case
     :param colnames2update: a list of columns to be updated. None will default to all
         `dataframe` columns EXCEPT `where_col`. This latter case might be more time consuming if
         this method is called several times
@@ -1027,26 +1038,31 @@ def updatedf(dataframe, session, where_col, colnames2update=None, buf_size=10, r
     return updated, ret_df
 
 
-def fetchsetpkeys(dataframe, session, matching_columns, pkey_col):
-    """Fetches the primary keys of the table T corresponding to `dataframe` and sets their values
-    on `dataframe[pkey_col.key]`. `dataframe` does not need to have that column in the first place
-    (it will be added if not present).
-    NOTE: As pkey_col should be of sql type INTEGER, the returning dataframe[pkey_col.key]'s
-    dtype might be float to accomodate NaN's, if any. Note that postgres is strict and will issue
-    an `sqlalchemy.exc.DataError` if inserting/updating a non-nan value (e.g., 6.0 instead of 6)
-    The cast cannot be done here as the column might have nan's not convertible to int.
-    For casting, see :function:`_cast_column`.
+def syncdfcol(dataframe, session, matching_columns, sync_col):
+    """Synchronizes `dataframe[sync_col.key]` from the underlying database Table T.
+    Fetches the values from T, identifies matching rows by means of `matching_columns`,
+    and sets the value of `dataframe[sync_col.key]` for the matching rows.
+    `dataframe` does not need to have that column in the first place
+    (it will be added if not present). Dataframe rows not identified on the database will have
+    NaN/Null under `sync_col`
+
+    NOTE: If sync_col is of SQL type INTEGER, the returning dataframe[sync_col.key]'s dtype
+        might be float to accomodate NaN's, if any. Note that postgres is strict and will issue an
+        `sqlalchemy.exc.DataError` if inserting/updating a non-nan value (e.g., 6.0 instead of 6),
+        and it's also terribly slow in some updates when a where clause is made ona  float column
+        supposed to be 'int'. The cast cannot be done here as the column might have nan's not
+        convertible to int. If there are non-NaNs, see :function:`cast_column` for casting.
 
     :param dataframe: a pandas dataframe
     :param session: an sql-alchemy session
     :param matching_columns: a list of ORM columns for comparing `dataframe` rows and T rows:
         when two rows are found that are equal (according to all `matching_columns` values), then
-        the primary key value of T row is set on the `dataframe` corresponding row
-    :param pkey_col: the ORM column denoting T primary key. It does not need to be a column
-        of `dataframe`
+        the value of T row's `sync_col` is set on the `dataframe` corresponding row
+    :param sync_col: the ORM column denoting the column to be synchronized.
+        It does not need to be a column of `dataframe`
 
-    :return: a new data frame with the column `pkey_col` populated with the primary keys
-        of T. Values that are n/a, None's or NaN's (see `pandas.DataFrameisnull`) denote rows that
+    :return: a new data frame with the column `sync_col` populated with the values of T.
+        Values that are n/a, None's or NaN's (see `pandas.DataFrameisnull`) denote rows that
         do not have corresponding T row and might need to be added to T.
         The index of `d` is **not** reset, so that a track to the original dataframe is always
         possible (the user must issue a `d.reset_index` to reset the index).
@@ -1065,9 +1081,9 @@ def fetchsetpkeys(dataframe, session, matching_columns, pkey_col):
     of the latter is that if a single item of a buffer raises an SqlAlchemtError, all following
     items are not added to the db, even if they where well formed
     """
-    cols = matching_columns + [pkey_col]
+    cols = matching_columns + [sync_col]
     df_new = dbquery2df(session.query(*cols).distinct())
-    return mergeupdate(dataframe, df_new, [c.key for c in matching_columns], [pkey_col.key], False)
+    return mergeupdate(dataframe, df_new, [c.key for c in matching_columns], [sync_col.key], False)
 
 
 def mergeupdate(dataframe, other_df, matching_columns, merge_columns,

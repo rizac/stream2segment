@@ -314,8 +314,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         def insdf(*a, **v):
             a = list(a)
             df = a[0]
-            column = a[2]
-            if column.class_ == Segment:
+            table_model = a[2]
+            if table_model == Segment:
                 df[Segment.id.key] = np.arange(len(df), dtype=int) + 1
             return insertdf(*a, **v)
         mock_insertdf.side_effect = insdf

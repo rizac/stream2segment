@@ -7,19 +7,19 @@ from __future__ import print_function
 
 from builtins import str, map
 import os
-import random
-import stream2segment
+# import random
+# import stream2segment
 import re
-from itertools import cycle, repeat, count, product
+from itertools import cycle
 import socket
-from datetime import datetime, timedelta
-import sys
-from itertools import product, combinations
-import logging
+# from datetime import datetime, timedelta
+# import sys
+# from itertools import product, combinations
+# import logging
 from io import BytesIO
 from logging import StreamHandler
-import threading
-from collections import defaultdict
+# import threading
+# from collections import defaultdict
 # this can apparently not be avoided neither with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
 try:
@@ -29,29 +29,28 @@ except ImportError:
 from mock import patch
 from mock import Mock
 
-import yaml
-import numpy as np
+# import yaml
+# import numpy as np
 import pandas as pd
 import pytest
-from sqlalchemy.engine import create_engine
-from sqlalchemy.orm.session import sessionmaker
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.sql.expression import func
-from obspy.core.stream import Stream, read
-from obspy.taup.helper_classes import TauModelError
+# from sqlalchemy.engine import create_engine
+# from sqlalchemy.orm.session import sessionmaker
+# from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+# from sqlalchemy.sql.expression import func
+# from obspy.core.stream import Stream, read
+# from obspy.taup.helper_classes import TauModelError
 
 from stream2segment.download.modules.segments import DcDataselectManager
 from stream2segment.cli import cli
 from stream2segment.download.main import get_events_df, get_datacenters_df, get_channels_df, \
-    merge_events_stations, prepare_for_download, download_save_segments, save_inventories
+    download_save_segments, save_inventories
 from stream2segment.io.db.models import Base, Event, Class, WebService, Fdsnws,\
-    DataCenter, Segment, Download, Station, Channel, WebService, withdata
-from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf,  \
-    _get_max as _get_db_autoinc_col_max
+    DataCenter, Segment, Download, Station, Channel, WebService
+from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf
 from stream2segment.download.utils import s2scodes
-from stream2segment.download.modules.mseedlite import MSeedError, unpack
-from stream2segment.utils.url import read_async, URLError, HTTPError, get_opener, responses
-from stream2segment.utils.resources import get_templates_fpath, yaml_load
+from stream2segment.download.modules.mseedlite import unpack
+from stream2segment.utils.url import URLError, HTTPError, responses
+from stream2segment.utils.resources import get_templates_fpath
 from stream2segment.utils.log import configlog4download
 
 # when debugging, I want the full dataframe with to_string(), not truncated

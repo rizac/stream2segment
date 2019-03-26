@@ -19,17 +19,25 @@ from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.orm.scoping import scoped_session
 from sqlalchemy import Column, Integer, String,  create_engine, LargeBinary, DateTime
 from sqlalchemy.sql.expression import bindparam
+from sqlalchemy.inspection import inspect
 from sqlalchemy.sql import default_comparator
 from sqlalchemy.exc import SQLAlchemyError
 
-from stream2segment.io.db.pdsql import fetchsetpkeys, insertdf, _get_max, syncdf,\
-    mergeupdate, updatedf, dbquery2df, DbManager, set_pkeys
+from stream2segment.io.db.pdsql import syncdfcol, insertdf, _get_max, syncdf,\
+    mergeupdate, updatedf, dbquery2df, DbManager, syncdfseq
 
 Base = declarative_base()
 
 class Customer(Base):
     __tablename__ = "customer"
     id = Column(Integer, primary_key=True)
+    name = Column(String(255), nullable=False, default='a')
+    data = Column(LargeBinary)
+    time = Column(DateTime)
+
+class CustomerAC(Base):  # this is used in test_insertdf_nopkeys
+    __tablename__ = "customer_with_explicit_autoincrement"
+    id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(255), nullable=False, default='a')
     data = Column(LargeBinary)
     time = Column(DateTime)
@@ -46,15 +54,55 @@ class Test(object):
 
     def init_db(self, session, list_of_dicts):
         # use insertdf which takes care of type casting:
-        insertdf(pd.DataFrame(list_of_dicts), session, Customer.id, buf_size=len(list_of_dicts),
-                 check_pkeycol=True, return_df=False)
-        
+        dataframe = pd.DataFrame(list_of_dicts)
+        syncdfseq(dataframe, session, Customer.id, overwrite=False, pkeycol_maxval=None)
+        insertdf(dataframe, session, Customer, buf_size=len(list_of_dicts),
+                 return_df=False)
+
 #         for d in list_of_dicts:
 #             customer = Customer(**d)
 #             session.add(customer)
 #         session.commit()
 
-    def test_setpkey(self, db):
+
+    @pytest.mark.parametrize('model', [Customer, CustomerAC])
+    def test_insertdf_nopkeys(self, model,
+                              # fixtures:
+                              db):
+        NAME = 'CU23oo'
+        new, df = insertdf(pd.DataFrame([{'id': 1, 'name': NAME}]),
+                           db.session, model, buf_size=1,
+                           return_df=True)
+        # re-insert
+        new, df = insertdf(pd.DataFrame([{'id': 1, 'name': NAME}]),
+                           db.session, model, buf_size=1,
+                           return_df=True)
+        assert len(df) == 0
+
+        # without id, it inserts the row if the primary key is autoincrement
+        # otherwise not ...
+        new, df = insertdf(pd.DataFrame([{'name': NAME}]),
+                           db.session, model, buf_size=1,
+                           return_df=True)
+ 
+        if db.is_sqlite:  # sqlite seems to handle nextval in sequences
+            # with core inserts (no ORM):
+            assert len(df) == 1
+            assert sorted([_[0] for _ in
+                           db.session.query(model.id).
+                           filter(model.name == NAME)]) == [1, 2]
+        else:
+            # postgres seems to fail, even when we set autoincrement=True explicitly,
+            # probably because the latter is used with the ORM, not for core inserts:
+            assert df.empty
+            assert sorted([_[0] for _ in
+                           db.session.query(model.id).
+                           filter(model.name == NAME)]) == [1]
+
+        asd = 9
+
+
+    def test_syncdfseq(self, db):
         self.init_db(db.session, [{'id': 1, 'name': 'a'}, {'id': 2, 'name': 'b'},
                                   {'id': 3, 'name': "c"}])
         d = pd.DataFrame([{'name': 'a', 'id': 1}, {'name': 'b', 'id': 3}, {'name': 'a'},
@@ -72,7 +120,7 @@ class Test(object):
                     new_ids = (1 + maxid + np.arange(numnan))
                     expected_ids = new_ids.tolist() + alreadyset_ids.tolist()
 
-                df = set_pkeys(d, db.session, Customer.id, overwrite=ov,
+                df = syncdfseq(d, db.session, Customer.id, overwrite=ov,
                                pkeycol_maxval=max_)
                 ids = df['id'].values.tolist()
                 # assert stuff:
@@ -86,7 +134,7 @@ class Test(object):
             max_ = 200
             expected_ids = np.array(d['id'].values, copy=True) if not ov else \
                 np.arange(max_ + 1, max_ + 1 + len(d), dtype=int)
-            df = set_pkeys(d, db.session, Customer.id, overwrite=ov,
+            df = syncdfseq(d, db.session, Customer.id, overwrite=ov,
                            pkeycol_maxval=max_)
             assert (df['id'] == expected_ids).all()
 
@@ -96,7 +144,7 @@ class Test(object):
             max_ = 200
             expected_ids = np.array([201, 1, 34, 4]) if not ov else \
                 np.arange(max_ + 1, max_ + 1 + len(d), dtype=int)
-            df = set_pkeys(d, db.session, Customer.id, overwrite=ov,
+            df = syncdfseq(d, db.session, Customer.id, overwrite=ov,
                            pkeycol_maxval=max_)
             assert (df['id'] == expected_ids).all()
 
@@ -105,12 +153,12 @@ class Test(object):
                               {'name': 'a', 'id': np.nan}, {'name': 'x', 'id': np.nan}])
             max_ = 200
             expected_ids = np.arange(max_ + 1, max_ + 1 + len(d), dtype=int)
-            df = set_pkeys(d, db.session, Customer.id, overwrite=ov,
+            df = syncdfseq(d, db.session, Customer.id, overwrite=ov,
                            pkeycol_maxval=max_)
             assert (df['id'] == expected_ids).all()
 
 
-    def test_fetchsetpkeys_(self, db):
+    def test_syncdfcol_(self, db):
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
@@ -118,26 +166,26 @@ class Test(object):
         self.init_db(db.session, [{'id': 1, 'name': 'a'}, {'id': 2, 'name': 'b'},
                                   {'id': 3, 'name': "c"}])
         d = pd.DataFrame([{'name': 'a'}, {'name': 'b'}, {'name': 'd'}])
-        d2 = fetchsetpkeys(d, db.session, [Customer.name], Customer.id)
+        d2 = syncdfcol(d, db.session, [Customer.name], Customer.id)
         expected_ids = [1, 1, np.nan]
         assert array_equal(d2['id'], expected_ids)
         # note: dtype has changed to accomodate nans:
         assert d2['id'].dtype == np.float64
 
-    def test_fetchsetpkeys_2(self, db):
+    def test_syncdfcol_2(self, db):
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
         d2009 = datetime(2009, 9, 25)
         self.init_db(db.session, [{'id': 1, 'name': 'a'}, {'id': 2, 'name': 'b'}])
         d = pd.DataFrame([{'name': 'a'}, {'name': 'b'}, {'name': 'd'}])
-        d2 = fetchsetpkeys(d, db.session, [Customer.name], Customer.id)
+        d2 = syncdfcol(d, db.session, [Customer.name], Customer.id)
         expected_ids = [1, 2, np.nan]
         assert array_equal(d2['id'], expected_ids)
         # note: dtype has changed to accomodate nans:
         assert d2['id'].dtype == np.float64
 
-    def test_fetchsetpkeys_3(self, db):
+    def test_syncdfcol_3(self, db):
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
@@ -148,13 +196,13 @@ class Test(object):
         d = pd.DataFrame([{'name': 'a', 'time': None}, {'name': 'b', 'time': d2006},
                           {'name': 'c', 'time': d2009}, {'name': 'a', 'time': None},
                           {'name': 'a', 'time': d2006}])
-        d2 = fetchsetpkeys(d, db.session, [Customer.name, Customer.time], Customer.id)
+        d2 = syncdfcol(d, db.session, [Customer.name, Customer.time], Customer.id)
         expected_ids = [3, np.nan, np.nan, 3, 1]
         assert array_equal(d2['id'], expected_ids)
         # note: dtype has changed to accomodate nans:
         assert d2['id'].dtype == np.float64
 
-    def test_fetchsetpkeys_4(self, db):
+    def test_syncdfcol_4(self, db):
         d2006 = datetime(2006, 1, 1)
         d2007 = datetime(2007, 12, 31)
         d2008 = datetime(2008, 3, 14)
@@ -167,13 +215,13 @@ class Test(object):
                           {'id': 45, 'name': 'c', 'time': d2009},
                           {'id': 45, 'name': 'a', 'time': None},
                           {'id': 45, 'name': 'a', 'time': d2006}])
-        d2 = fetchsetpkeys(d, db.session, [Customer.name, Customer.time], Customer.id)
+        d2 = syncdfcol(d, db.session, [Customer.name, Customer.time], Customer.id)
         expected_ids = [3, 45, 45, 3, 1]
         assert array_equal(d2['id'], expected_ids)
         # note: dtype has changed even if ids are not nans:
         assert d2['id'].dtype == np.float64
 
-    def test_fetchsetpkeys_dtypes(self, db):
+    def test_syncdfcol_dtypes(self, db):
         '''tests when fetchsetpkeys changes dtype to float for an id of type INTEGER
         Basically: when any row instance has no match on the db (at least one row)
         '''
@@ -189,32 +237,32 @@ class Test(object):
         # ------------------------------
         # d has ALL instance mapped to db rows:
         d = pd.DataFrame([{'id': 1, 'name': 'a', 'time': None}])
-        d2 = fetchsetpkeys(d, db.session, [Customer.name, Customer.time], Customer.id)
+        d2 = syncdfcol(d, db.session, [Customer.name, Customer.time], Customer.id)
         assert d2['id'].dtype == np.int64
         # d has NO instances mapped to db rows:
         d = pd.DataFrame([{'id': 1, 'name': 'axz', 'time': None}])
-        d2 = fetchsetpkeys(d, db.session, [Customer.name, Customer.time], Customer.id)
+        d2 = syncdfcol(d, db.session, [Customer.name, Customer.time], Customer.id)
         assert d2['id'].dtype == np.float64
         # d has SOME instance mapped to db ros, SOME not:
         d = pd.DataFrame([{'id': 1, 'name': 'a', 'time': None},
                           {'id': 1, 'name': 'axz', 'time': None}])
-        d2 = fetchsetpkeys(d, db.session, [Customer.name, Customer.time], Customer.id)
+        d2 = syncdfcol(d, db.session, [Customer.name, Customer.time], Customer.id)
         assert d2['id'].dtype == np.float64
 
         # 3 CASES WHEN d['id'] IS NOT GIVEN:
         # ------------------------------
         # d has ALL instance mapped to db rows:
         d = pd.DataFrame([{'name': 'a', 'time': None}])
-        d2 = fetchsetpkeys(d, db.session, [Customer.name, Customer.time], Customer.id)
+        d2 = syncdfcol(d, db.session, [Customer.name, Customer.time], Customer.id)
         assert d2['id'].dtype == np.int64
         # d has NO instances mapped to db rows:
         d = pd.DataFrame([{'name': 'axz', 'time': None}])
-        d2 = fetchsetpkeys(d, db.session, [Customer.name, Customer.time], Customer.id)
+        d2 = syncdfcol(d, db.session, [Customer.name, Customer.time], Customer.id)
         assert d2['id'].dtype == np.float64
         # d has SOME instance mapped to db ros, SOME not:
         d = pd.DataFrame([{'name': 'a', 'time': None},
                           {'name': 'axz', 'time': None}])
-        d2 = fetchsetpkeys(d, db.session, [Customer.name, Customer.time], Customer.id)
+        d2 = syncdfcol(d, db.session, [Customer.name, Customer.time], Customer.id)
         assert d2['id'].dtype == np.float64
 
     @patch('stream2segment.io.db.pdsql.insertdf', side_effect=insertdf)

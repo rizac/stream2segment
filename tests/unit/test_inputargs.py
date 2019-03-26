@@ -45,13 +45,17 @@ def run_cli_download(pytestdir, db):
     to be overridden, and **kw the yaml config to be overrridden'''
     def func(*args, **yaml_overrides):
         args = list(args)
+        nodburl = False
         # override the db path with our currently tested one:
         if '-d' not in args and '--dburl' not in args and'dburl' not in yaml_overrides:
             yaml_overrides['dburl'] = db.dburl
+            nodburl=True
         # if -c or configfile is not specified, add it:
         if "-c" not in args and "--configfile" not in args:
             args.extend(['-c', pytestdir.yamlfile(get_templates_fpath("download.yaml"),
                                                   **yaml_overrides)])
+        elif nodburl:
+            args += ['-d', str(db.dburl)]
         # process inputs:
         runner = CliRunner()
         result = runner.invoke(cli, ['download'] + args)
@@ -109,6 +113,15 @@ class Test(object):
                                     self.mock_run_process = _
 
                                     yield
+
+    def test_paper_suppl_config(self,
+                                # fixtures:
+                                db, data, run_cli_download):
+        '''test the yaml providede in the supplemented material for the paper'''
+        result = run_cli_download('-c', data.path('download_poligon_article.yaml'))  # conflict
+        # assert we did write to the db:
+        assert result.exit_code == 0
+        assert db.session.query(Download).count() == 1
 
     def test_download_bad_values(self,
                                  # fixtures:
