@@ -15,7 +15,7 @@ from future.utils import string_types
 
 from stream2segment.utils.resources import yaml_load, get_ttable_fpath, \
     get_templates_fpath, normalizedpath
-from stream2segment.utils import get_session, strptime, load_source
+from stream2segment.utils import strptime, load_source
 from stream2segment.traveltimes.ttloader import TTTable
 from stream2segment.io.db.models import Fdsnws
 from stream2segment.download.utils import Authorizer, EVENTWS_MAPPING,\
@@ -280,7 +280,7 @@ def keyval_list_to_dict(value):
     return dict(zip(itr, itr))
 
 
-def create_session(dburl):
+def get_session(dburl, for_process=False):
     '''Creates an asql-alchemy session from dburl. Raises TypeError if dburl os not
     a string, or any SqlAlchemy exception if the session could not be created
 
@@ -288,7 +288,11 @@ def create_session(dburl):
     '''
     if not isinstance(dburl, string_types):
         raise TypeError('string required, %s found' % str(type(dburl)))
-    return get_session(dburl, scoped=False)
+    if for_process:
+        from stream2segment.process.db import get_session as sess_func
+    else:
+        from stream2segment.io.db import get_session as sess_func
+    return sess_func(dburl, scoped=False)
 
 
 def create_auth(restricted_data, dataws, configfile=None):
@@ -504,7 +508,7 @@ def load_config_for_download(config, parseargs, **param_overrides):
             {
              'names': ['dburl'],
              'newname': 'session',
-             'newvalue': create_session
+             'newvalue': get_session
             },
             {
              'names': ['traveltimes_model'],
@@ -641,7 +645,7 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None, outfile=N
     in this latter case)
     '''
     try:
-        session = create_session(dburl)
+        session = get_session(dburl, True)
     except Exception as exc:
         raise BadArgument('dburl', exc)
 
@@ -676,7 +680,7 @@ def load_config_for_process(dburl, pyfile, funcname=None, config=None, outfile=N
 
 def load_session_for_dinfo(dburl):
     try:
-        return create_session(dburl)
+        return get_session(dburl)
     except Exception as exc:
         raise BadArgument('dburl', exc)
 

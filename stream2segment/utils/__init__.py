@@ -35,7 +35,7 @@ from sqlalchemy.orm.scoping import scoped_session
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm.session import sessionmaker
 
-from stream2segment.io.db.models import Base
+# from stream2segment.io.db.models import Base
 
 
 def _getmodulename(pyfilepath):
@@ -271,15 +271,16 @@ def strptime(obj):
     return dtime
 
 
-def get_session(dbpath, scoped=False):  # , enable_fk_if_sqlite=True):
+def _get_session(dbpath, base, scoped=False):  # , enable_fk_if_sqlite=True):
     """
     Create an sql alchemy session for IO db operations
     :param dbpath: the path to the database, e.g. sqlite:///path_to_my_dbase.sqlite
+    :param base: a declarative base
     :param scoped: boolean (False by default) if the session must be scoped session
     """
     # init the session:
     engine = create_engine(dbpath)
-    Base.metadata.create_all(engine)  # @UndefinedVariable
+    base.metadata.create_all(engine)  # @UndefinedVariable
 
     # enable fkeys if sqlite. This can be added also as event listener as outlined here:
     # http://stackoverflow.com/questions/13712381/how-to-turn-on-pragma-foreign-keys-on-in-sqlalchemy-migration-script-or-conf

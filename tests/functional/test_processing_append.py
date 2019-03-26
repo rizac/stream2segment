@@ -7,34 +7,25 @@ from __future__ import print_function, division
 
 from builtins import str, object
 
-from past.utils import old_div
 import re
 import os
 import sys
-from datetime import datetime, timedelta
 import mock
 from mock import patch
-import csv
 
 import pytest
 import numpy as np
 import pandas as pd
 from pandas.util.testing import assert_frame_equal
-from sqlalchemy.engine import create_engine
-from sqlalchemy.orm.session import sessionmaker
-from obspy.core.stream import read
 
 from stream2segment.cli import cli
 from stream2segment.io.db.models import Base, Event, Station, WebService, Segment,\
     Channel, Download, DataCenter
 # from stream2segment.utils.inputargs import yaml_load as orig_yaml_load
-from stream2segment.utils.resources import get_templates_fpaths, get_templates_fpath
-from stream2segment.process.main import run as process_main_run, query4process
+from stream2segment.utils.resources import get_templates_fpath
+from stream2segment.process.main import run as process_main_run
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
-from stream2segment.process.utils import enhancesegmentclass
-from stream2segment.utils.url import URLError
 from stream2segment.process.writers import BaseWriter
-from stream2segment.io.utils import dumps_inv
 
 
 @pytest.fixture

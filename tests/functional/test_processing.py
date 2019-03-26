@@ -105,7 +105,7 @@ class Test(object):
     # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]
     # use db4process(with_inventory, with_data, with_gap) to return sqlalchemy query for
     # those segments in case. For info see db4process in conftest.py
-    @patch('stream2segment.process.utils.get_inventory', side_effect=get_inventory)
+    @patch('stream2segment.process.db.get_inventory', side_effect=get_inventory)
     def test_segwrapper(self, mock_getinv,
                         # fixtures:
                         db4process, data):
@@ -114,12 +114,9 @@ class Test(object):
         seg_with_inv = \
             db4process.segments(with_inventory=True, with_data=True, with_gap=False).one()
         sta_with_inv_id = seg_with_inv.station.id
-        assert not hasattr(Segment, "_config")  # assert we are not in enhanced Segment "mode"
         with enhancesegmentclass():
             invcache = {}
             prev_staid = None
-            assert hasattr(Segment, "_config")  # assert we are still in the with above
-            # we could avoid the with below but we want to test overwrite_config:
             with enhancesegmentclass({}, overwrite_config=True):
                 for (segid, staid) in segids:
                     assert prev_staid is None or staid >= prev_staid
@@ -127,7 +124,7 @@ class Test(object):
                     prev_staid = staid
                     segment = session.query(Segment).filter(Segment.id == segid).first()
                     sta = segment.station
-                    segment._inventory = invcache.get(sta.id, None)
+                    segment.station._inventory = invcache.get(sta.id, None)
 
                     mock_getinv.reset_mock()
                     if sta.id != sta_with_inv_id:
@@ -150,8 +147,6 @@ class Test(object):
                     # as channel's channel is either 'ok' or 'err' we should never have
                     # other components
                     assert len(segs) == 0
-
-        assert not hasattr(Segment, "_config")  # assert we are not in enhanced Segment "mode"
 
         # NOW TEST OTHER ORIENTATION PROPERLY. WE NEED TO ADD WELL FORMED SEGMENTS WITH CHANNELS
         # WHOSE ORIENTATION CAN BE DERIVED:

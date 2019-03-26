@@ -20,23 +20,23 @@ from __future__ import absolute_import, division, print_function
 #                       super, zip)
 
 from io import BytesIO
-from contextlib import contextmanager
 from itertools import chain, repeat
 
-from sqlalchemy.orm.session import object_session
-from sqlalchemy.orm.exc import UnmappedInstanceError
-from sqlalchemy.exc import SQLAlchemyError
+# from sqlalchemy.orm.session import object_session
+# from sqlalchemy.orm.exc import UnmappedInstanceError
+# from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import load_only
-from obspy.core.utcdatetime import UTCDateTime
+# from obspy.core.utcdatetime import UTCDateTime
 from obspy.core.stream import _read
 
 from stream2segment.io.utils import loads_inv, dumps_inv
-from stream2segment.utils.url import urlread
-from stream2segment.utils import urljoin
+# from stream2segment.utils.url import urlread
+# from stream2segment.utils import urljoin
 from stream2segment.io.db.models import Segment, Channel, Class
-from stream2segment.process.math.traces import cumsumsq, cumtimes
-from stream2segment.utils.inputargs import get, BadArgument
-from stream2segment.io.db.sqlevalexpr import exprquery
+from contextlib import contextmanager
+# from stream2segment.process.math.traces import cumsumsq, cumtimes
+# from stream2segment.utils.inputargs import get, BadArgument
+# from stream2segment.io.db.sqlevalexpr import exprquery
 
 
 def getseg(session, segment_id, cols2load=None):
@@ -54,16 +54,16 @@ def getseg(session, segment_id, cols2load=None):
     return query.first()
 
 
-def raiseifreturnsexception(func):
-    '''decorator that makes a function raise the returned exception, if any
-    (otherwise no-op, and the function value is returned as it is)'''
-    def wrapping(*args, **kwargs):
-        '''wrapping function which raises if the returned value is an exception'''
-        ret = func(*args, **kwargs)
-        if isinstance(ret, Exception):
-            raise ret
-        return ret
-    return wrapping
+# def raiseifreturnsexception(func):
+#     '''decorator that makes a function raise the returned exception, if any
+#     (otherwise no-op, and the function value is returned as it is)'''
+#     def wrapping(*args, **kwargs):
+#         '''wrapping function which raises if the returned value is an exception'''
+#         ret = func(*args, **kwargs)
+#         if isinstance(ret, Exception):
+#             raise ret
+#         return ret
+#     return wrapping
 
 
 class gui(object):
@@ -143,158 +143,162 @@ class gui(object):
 
 @contextmanager
 def enhancesegmentclass(config_dict=None, overwrite_config=False):
-    """contextmanager to be used in a with statement with a custom config dict.
-    The contextmanager temporarily adds to a Segment obspy methods for processing.
+    yield
 
-    You can use this contextmanager in nested with statements, the methods are not added twice
-    and will be removed after the last contextmanager (the first issued) will exit
-
-    Usage:
-
-    ```
-    with enhancesegmentclass(config_dict):
-        ... code here ...
-        # now Segment class is enhanced anymore (class methods and attributes added):
-        # segment.stream()
-        # segment.siblings()
-        # segment.inventory()
-        # segment.sn_windows()  # if config_dict has the properly configured keys
-    # now Segment class is not enhanced anymore (class methods and attributes removed)
-    ```
-
-    :param config_dict: the configuration dictionary. Usually from a yaml file
-    :param overwrite_config: if True, the new config overrides the previously set
-        `Segment._config` one, if any
-    """
-
-    already_enhanced = hasattr(Segment, "_config")
-    if already_enhanced:
-        if overwrite_config:
-            Segment._config = config_dict or {}
-        yield
-    else:
-        @raiseifreturnsexception
-        def stream(self):
-            '''returns the stream from self (a segment class)'''
-            stream = getattr(self, "_stream", None)
-            if stream is None:
-                try:
-                    stream = self._stream = get_stream(self)
-                except Exception as exc:  # pylint: disable=broad-except
-                    stream = self._stream = \
-                        ValueError("MiniSeed error: %s" %
-                                   (str(exc) or str(exc.__class__.__name__)))
-
-            return stream
-
-        @raiseifreturnsexception
-        def inventory(self):
-            '''returns the inventory from self (a segment class)'''
-            inventory = getattr(self, "_inventory", None)
-            if inventory is None:
-                try:
-                    inventory = self._inventory = get_inventory(self.station)
-                except Exception as exc:   # pylint: disable=broad-except
-                    inventory = self._inventory = \
-                        ValueError("Station inventory (xml) error: %s" %
-                                   (str(exc) or str(exc.__class__.__name__)))
-            return inventory
-
-        def sn_windows(self):
-            '''returns the tuples (start, end), (start, end) where the first list is the signal
-            window, and the second is the noise window. All elements are UtcDateTime's
-            '''
-            # No cache for this variable, as we might modify the segment stream in-place thus it's
-            # hard to know when a recalculation is needed (this is particularly important when
-            # bounds relative to the cumulative sum are given, if an interval was given there would
-            # be no problem)
-            return get_sn_windows(self._config, self.arrival_time, self.stream())
-
-        def siblings(self, parent=None, colname=None):
-            '''returns a query yielding the siblings of this segments according to `parent`
-            Refer to the method Segment.get_siblings in models.py. Note that colname will not
-            be exposed to the public thorug the processing templates help'''
-            sblngs = self.get_siblings(parent, colname)
-            conditions = self._config.get('segment_select', {})
-            if conditions:
-                sblngs = exprquery(sblngs, conditions, orderby=None, distinct=True)
-            return sblngs
-
-        Segment._config = config_dict or {}
-        Segment.dbsession = lambda self: object_session(self)
-        Segment.stream = stream
-        Segment.inventory = inventory
-        Segment.sn_windows = sn_windows
-        Segment.siblings = siblings
-        try:
-            yield
-        finally:
-            # delete attached attributes:
-            del Segment._config
-            del Segment.stream
-            del Segment.inventory
-            del Segment.sn_windows
-            del Segment.dbsession
-            del Segment.siblings
-
-
-def get_sn_windows(config, a_time, stream):
-    '''Returns the spectra windows from a given arguments. Used by `_spectra`
-    :return the tuple (start, end), (start, end) where all arguments are `UTCDateTime`s
-    and the first tuple refers to the noisy window, the latter to the signal window
-    '''
-    # Use inputargs utilities to raise pre-formatted exception messages from our
-    # validation callbacks:
-    snw_dic = get(config, 'sn_windows')[1]
-
-    atime_shift = get(snw_dic, 'arrival_time_shift')[1]
-    try:
-        atime_shift = float(atime_shift)
-    except Exception as exc:
-        raise BadArgument('arrival_time_shift', exc)
-
-    s_windows = get(snw_dic, 'signal_window')[1]
-    try:
-        s_windows = _parse_sn_windows(s_windows)
-    except Exception as exc:
-        raise BadArgument('signal_window', exc)
-
-    if len(stream) != 1:
-        raise ValueError(("Unable to get sn-windows: %d traces in stream "
-                          "(possible gaps/overlaps)") % len(stream))
-
-    a_time = UTCDateTime(a_time) + atime_shift
-    # Note above: UTCDateTime +float considers the latter in seconds
-    # we use UTcDateTime for consistency as the package functions
-    # work with that object type
-    if hasattr(s_windows, '__len__'):
-        cum0, cum1 = s_windows
-        trim_trace = stream[0].copy().trim(starttime=a_time)
-        times = cumtimes(cumsumsq(trim_trace, normalize=False), cum0, cum1)
-        nsy, sig = (a_time - (times[1]-times[0]), a_time), (times[0], times[1])
-    else:
-        nsy, sig = (a_time-s_windows, a_time), (a_time, a_time+s_windows)
-    # note: returns always tuples as they cannot be modified by the user (safer)
-    return sig, nsy
+# @contextmanager
+# def enhancesegmentclass(config_dict=None, overwrite_config=False):
+#     """contextmanager to be used in a with statement with a custom config dict.
+#     The contextmanager temporarily adds to a Segment obspy methods for processing.
+# 
+#     You can use this contextmanager in nested with statements, the methods are not added twice
+#     and will be removed after the last contextmanager (the first issued) will exit
+# 
+#     Usage:
+# 
+#     ```
+#     with enhancesegmentclass(config_dict):
+#         ... code here ...
+#         # now Segment class is enhanced anymore (class methods and attributes added):
+#         # segment.stream()
+#         # segment.siblings()
+#         # segment.inventory()
+#         # segment.sn_windows()  # if config_dict has the properly configured keys
+#     # now Segment class is not enhanced anymore (class methods and attributes removed)
+#     ```
+# 
+#     :param config_dict: the configuration dictionary. Usually from a yaml file
+#     :param overwrite_config: if True, the new config overrides the previously set
+#         `Segment._config` one, if any
+#     """
+# 
+#     already_enhanced = hasattr(Segment, "_config")
+#     if already_enhanced:
+#         if overwrite_config:
+#             Segment._config = config_dict or {}
+#         yield
+#     else:
+#         @raiseifreturnsexception
+#         def stream(self):
+#             '''returns the stream from self (a segment class)'''
+#             stream = getattr(self, "_stream", None)
+#             if stream is None:
+#                 try:
+#                     stream = self._stream = get_stream(self)
+#                 except Exception as exc:  # pylint: disable=broad-except
+#                     stream = self._stream = \
+#                         ValueError("MiniSeed error: %s" %
+#                                    (str(exc) or str(exc.__class__.__name__)))
+# 
+#             return stream
+# 
+#         @raiseifreturnsexception
+#         def inventory(self):
+#             '''returns the inventory from self (a segment class)'''
+#             inventory = getattr(self, "_inventory", None)
+#             if inventory is None:
+#                 try:
+#                     inventory = self._inventory = get_inventory(self.station)
+#                 except Exception as exc:   # pylint: disable=broad-except
+#                     inventory = self._inventory = \
+#                         ValueError("Station inventory (xml) error: %s" %
+#                                    (str(exc) or str(exc.__class__.__name__)))
+#             return inventory
+# 
+#         def sn_windows(self):
+#             '''returns the tuples (start, end), (start, end) where the first list is the signal
+#             window, and the second is the noise window. All elements are UtcDateTime's
+#             '''
+#             # No cache for this variable, as we might modify the segment stream in-place thus it's
+#             # hard to know when a recalculation is needed (this is particularly important when
+#             # bounds relative to the cumulative sum are given, if an interval was given there would
+#             # be no problem)
+#             return get_sn_windows(self._config, self.arrival_time, self.stream())
+# 
+#         def siblings(self, parent=None, colname=None):
+#             '''returns a query yielding the siblings of this segments according to `parent`
+#             Refer to the method Segment.get_siblings in models.py. Note that colname will not
+#             be exposed to the public thorug the processing templates help'''
+#             sblngs = self.get_siblings(parent, colname)
+#             conditions = self._config.get('segment_select', {})
+#             if conditions:
+#                 sblngs = exprquery(sblngs, conditions, orderby=None, distinct=True)
+#             return sblngs
+# 
+#         Segment._config = config_dict or {}
+#         Segment.dbsession = lambda self: object_session(self)
+#         Segment.stream = stream
+#         Segment.inventory = inventory
+#         Segment.sn_windows = sn_windows
+#         Segment.siblings = siblings
+#         try:
+#             yield
+#         finally:
+#             # delete attached attributes:
+#             del Segment._config
+#             del Segment.stream
+#             del Segment.inventory
+#             del Segment.sn_windows
+#             del Segment.dbsession
+#             del Segment.siblings
 
 
-def _parse_sn_windows(sn_windows):
-    '''callback to parse sn_windows. Returns the argument parsed to float (or with all
-    its elements parsed to float). Any exception will be caught and raised with a
-    BadArgument exception properly formatted with the argument name provided and the
-    exception
-
-    :param sn_wondows: either a float or a iterable of two
-
-    :raise: :class:`BadArgument`
-    '''
-    try:
-        cum0, cum1 = sn_windows
-        if cum0 < 0 or cum0 > 1 or cum1 < 0 or cum1 > 1:
-            raise ValueError('elements provided in signal window must be in [0, 1]')
-        return float(cum0), float(cum1)
-    except TypeError:  # not a tuple/list? then it's a scalar:
-        return float(sn_windows)
+# def get_sn_windows(config, a_time, stream):
+#     '''Returns the spectra windows from a given arguments. Used by `_spectra`
+#     :return the tuple (start, end), (start, end) where all arguments are `UTCDateTime`s
+#     and the first tuple refers to the noisy window, the latter to the signal window
+#     '''
+#     # Use inputargs utilities to raise pre-formatted exception messages from our
+#     # validation callbacks:
+#     snw_dic = get(config, 'sn_windows')[1]
+# 
+#     atime_shift = get(snw_dic, 'arrival_time_shift')[1]
+#     try:
+#         atime_shift = float(atime_shift)
+#     except Exception as exc:
+#         raise BadArgument('arrival_time_shift', exc)
+# 
+#     s_windows = get(snw_dic, 'signal_window')[1]
+#     try:
+#         s_windows = _parse_sn_windows(s_windows)
+#     except Exception as exc:
+#         raise BadArgument('signal_window', exc)
+# 
+#     if len(stream) != 1:
+#         raise ValueError(("Unable to get sn-windows: %d traces in stream "
+#                           "(possible gaps/overlaps)") % len(stream))
+# 
+#     a_time = UTCDateTime(a_time) + atime_shift
+#     # Note above: UTCDateTime +float considers the latter in seconds
+#     # we use UTcDateTime for consistency as the package functions
+#     # work with that object type
+#     if hasattr(s_windows, '__len__'):
+#         cum0, cum1 = s_windows
+#         trim_trace = stream[0].copy().trim(starttime=a_time)
+#         times = cumtimes(cumsumsq(trim_trace, normalize=False), cum0, cum1)
+#         nsy, sig = (a_time - (times[1]-times[0]), a_time), (times[0], times[1])
+#     else:
+#         nsy, sig = (a_time-s_windows, a_time), (a_time, a_time+s_windows)
+#     # note: returns always tuples as they cannot be modified by the user (safer)
+#     return sig, nsy
+# 
+# 
+# def _parse_sn_windows(sn_windows):
+#     '''callback to parse sn_windows. Returns the argument parsed to float (or with all
+#     its elements parsed to float). Any exception will be caught and raised with a
+#     BadArgument exception properly formatted with the argument name provided and the
+#     exception
+# 
+#     :param sn_wondows: either a float or a iterable of two
+# 
+#     :raise: :class:`BadArgument`
+#     '''
+#     try:
+#         cum0, cum1 = sn_windows
+#         if cum0 < 0 or cum0 > 1 or cum1 < 0 or cum1 > 1:
+#             raise ValueError('elements provided in signal window must be in [0, 1]')
+#         return float(cum0), float(cum1)
+#     except TypeError:  # not a tuple/list? then it's a scalar:
+#         return float(sn_windows)
 
 
 def get_stream(segment, format="MSEED", headonly=False, **kwargs):  # @ReservedAssignment

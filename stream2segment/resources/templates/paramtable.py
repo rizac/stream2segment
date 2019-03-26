@@ -443,7 +443,8 @@ def sn_spectra(segment, config):
     """
     stream = segment.stream()
     assert1trace(stream)  # raise and return if stream has more than one trace
-    signal_wdw, noise_wdw = segment.sn_windows()
+    signal_wdw, noise_wdw = segment.sn_windows(config['sn_windows']['signal_window'],
+                                               config['sn_windows']['arrival_time_shift'])
     x0_sig, df_sig, sig = _spectrum(stream[0], config, *signal_wdw)
     x0_noi, df_noi, noi = _spectrum(stream[0], config, *noise_wdw)
     return {'Signal': (x0_sig, df_sig, sig), 'Noise': (x0_noi, df_noi, noi)}

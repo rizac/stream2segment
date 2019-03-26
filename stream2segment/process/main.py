@@ -34,7 +34,8 @@ from sqlalchemy import func
 
 from stream2segment.process.utils import enhancesegmentclass, set_classes, get_slices
 from stream2segment.io.db.sqlevalexpr import exprquery
-from stream2segment.utils import get_progressbar, StringIO, get_session
+from stream2segment.utils import get_progressbar, StringIO
+from stream2segment.process.db import get_session
 from stream2segment.io.db.models import Segment, Station, Event, Channel
 from stream2segment.utils.inputargs import load_pyfunc
 

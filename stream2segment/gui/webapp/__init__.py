@@ -8,7 +8,7 @@ from contextlib import contextmanager
 
 from flask import Flask, g
 
-from stream2segment.utils import get_session as s2s_get_session, load_source
+from stream2segment.io.db import get_session as s2s_get_session
 
 
 def get_session(app):
