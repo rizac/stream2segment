@@ -430,7 +430,7 @@ class PlotManager(LimitedSizeDict):
 
         if plotlist is None:
             seg = getseg(session, seg_id)
-            qry = seg.siblings(None, self.config['segment_select'])\
+            qry = seg.siblings(None, self.config.get('segment_select'))\
                 .options(load_only(Segment.id))
             segids = set([_.id for _ in qry] + [seg_id])
             for segid in segids:
