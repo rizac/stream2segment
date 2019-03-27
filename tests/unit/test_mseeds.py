@@ -3,21 +3,15 @@ Created on Feb 23, 2016
 
 @author: riccardo
 '''
-from itertools import count
-import mock, os, sys
-import re
-from io import BytesIO
+import os
+import sys
 
 import pytest
 import numpy as np
-from obspy.core.inventory import read_inventory
-from obspy.core import read as obspy_read
-from obspy.core import Trace, Stream
-from obspy.io.stationxml.core import _read_stationxml
-from obspy.core.trace import Trace
+import mock
+from obspy.core import Trace
 
-from stream2segment.process.math.ndarrays import fft as orig_fft, linspace, \
-    snr as orig_snr, powspec as orig_powspec
+from stream2segment.process.math.ndarrays import fft as orig_fft, linspace
 from stream2segment.process.math.traces import fft, bandpass, dfreq, maxabs, timeof
 
 
@@ -42,12 +36,12 @@ def test_fft(mock_mseed_fft, arr, arr_len_after_trim, fft_npts):
 
 
 @pytest.mark.parametrize('start, delta, num',
-                        [(0.1, 12, 11),
-                         (0, 0.01, 100),
-                         (1,1,1),
-                         (1.1, 0, 55),
-                         (1, 1, 0)
-                         ])
+                         [(0.1, 12, 11),
+                          (0, 0.01, 100),
+                          (1, 1, 1),
+                          (1.1, 0, 55),
+                          (1, 1, 0)
+                          ])
 def test_linspace(start, delta, num):
     space = linspace(start, delta, num)
     if num == 0:
@@ -70,6 +64,7 @@ def _data(data):
         ret[key] = data.read_stream('trace_GE.APE.mseed', inv_name if inv_output else None,
                                     inv_output)
     return ret
+
 
 def test_bandpass(_data):
     trace = _data['mseed'][0]

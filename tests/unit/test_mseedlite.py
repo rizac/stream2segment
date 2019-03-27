@@ -3,17 +3,15 @@ Created on Apr 9, 2017
 
 @author: riccardo
 '''
+import sys
 import os
 from datetime import datetime, timedelta
 from io import BytesIO
 from math import log
-from collections import defaultdict
 
 import numpy as np
 import pytest
 from obspy.core.stream import read, Stream
-from obspy.core.trace import Trace
-from obspy.io.mseed.core import _read_mseed
 
 from stream2segment.download.modules.mseedlite import unpack, _FIXHEAD_LEN, MSeedError, Input
 
