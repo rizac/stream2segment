@@ -434,7 +434,7 @@ def create_processing_env(length=0, redirect_stderr=False, warnings_filter=None)
     :param redirect_stderr: if True, captures the output of all C external functions and does not
     print them to the screen, as it might be the case with some obspy C-imported libraries
     :param warnings_filter: if None, it does not capture python warnings. Otherwise it denotes the
-    python filter. E.g. 'ignore'. For info see FIXME: add link
+    python filter. E.g. 'ignore'. (FIXME: add link)
     '''
     with get_progressbar(length > 0, length=length) as pbar:  # no-op if length not > 0
         with redirect(sys.stderr if redirect_stderr else None):   # no-op if redirect_stderr=None
@@ -523,11 +523,11 @@ def get_slices(array, chunksize):
         array = None
     rem = total % chunksize
     quot = int(total / chunksize)
-    if rem == 0:
+    if rem == 0:  # eg: total=6, chunksize=2:  rem=0, quot=3
         iterable = repeat(chunksize, quot)
-    elif quot > rem:
+    elif quot > rem:  # eg: total=7, chunksize=2: rem=1, quot=3
         iterable = chain(repeat(chunksize+1, rem), repeat(chunksize, quot-rem))
-    else:
+    else:  # eg: total=7, chunksize=5: rem=2, quot=1
         iterable = chain(repeat(chunksize, quot), [rem])
     start = end = 0
     for chunk in iterable:

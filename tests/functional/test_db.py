@@ -367,9 +367,6 @@ class Test(object):
         id = '__abcdefghilmnopq'
         utcnow = datetime.utcnow()
         e = Event(id=e.id, event_id=id, webservice_id=ws.id, time=utcnow)
-#         e, added = self.get_or_add(db.session, e)
-#         assert added == False
-
         with pytest.raises(IntegrityError):
             db.session.add(e)
             db.session.commit()
@@ -377,17 +374,12 @@ class Test(object):
 
         s = Station(network='sdf', datacenter_id=dc.id, station='_', latitude=90, longitude=-45,
                     start_time=d)
-#         s, added = self.get_or_add(db.session, s, 'network', 'station')
-#         assert added == False
         with pytest.raises(IntegrityError):
             db.session.add(s)
             db.session.commit()
         db.session.rollback()
-
         db.session.commit()  # harmless
 
-#         c, added = add_or_get2(db.session, c)
-#
         seg = Segment(request_start=datetime.utcnow(),
                       request_end=datetime.utcnow(),
                       event_distance_deg=9,
@@ -434,7 +426,7 @@ class Test(object):
         sta__ = db.session.query(Station).filter(Station.id == cha__.station_id).first()
         assert seg.station.id == sta__.id
         segs__ = sta__.segments.all()
-        assert len(segs__)==1 and segs__[0].id == seg.id
+        assert len(segs__) == 1 and segs__[0].id == seg.id
 
         # test segment-class associations:
         clabel1 = Class(label='class1')
@@ -447,9 +439,9 @@ class Test(object):
         # (we kept the self argument for that reason) AND COPIES 'COLUMNS' (including primary keys)
         # BUT ALSO RELATIONSHIPS (everything that is an InstrumentedAtrribute)
         # This method might be handy but needs more investigation especially on two subjects:
-        # what detached elements, and relationships
-        # (http://stackoverflow.com/questions/20112850/sqlalchemy-clone-table-row-with-relations?lq=1
-        #  http://stackoverflow.com/questions/14636192/sqlalchemy-modification-of-detached-object)
+        # what detached elements, and relationships. See:
+        # http://stackoverflow.com/questions/20112850/sqlalchemy-clone-table-row-with-relations?lq=1
+        # http://stackoverflow.com/questions/14636192/sqlalchemy-modification-of-detached-object
         # so let's move it here for the moment:
         def COPY(self):
             cls = self.__class__
@@ -492,7 +484,8 @@ class Test(object):
         clabel1.id = 56
         db.session.commit()
         # this still equal (sqlalachemy updated also labellings)
-        assert sorted(c.id for c in seg__1.classes) == sorted([labelings[0].class_id, labelings[1].class_id])
+        assert sorted(c.id for c in seg__1.classes) == \
+            sorted([labelings[0].class_id, labelings[1].class_id])
         assert sorted(c.id for c in seg__1.classes) != old_labellings
         assert 56 in [c.id for c in seg__1.classes]
         assert old_clabel1_id not in [c.id for c in seg__1.classes]
@@ -535,22 +528,21 @@ class Test(object):
         db.session.commit()
         assert len(db.session.query(Segment).all()) == len(s1)+1
 
-
         assert len([x for x in seg.station.segments]) == 4
         assert len([x for x in seg.station.segments.filter(withdata(Segment.data))]) == 0
         assert seg.station.segments.count() == 4
 
         flt = withdata(Segment.data)
-        qry = db.session.query(Station).join(Station.segments).\
-            filter(flt)
+        qry = db.session.query(Station).\
+            join(Station.segments).filter(flt)  # @UndefinedVariable
 
         assert len(qry.all()) == 0
 
         seg.data = b'asd'
         db.session.commit()
 
-        qry = db.session.query(Station).options(load_only('id')).join(Station.segments).\
-            filter(flt)
+        qry = db.session.query(Station).options(load_only('id')).\
+            join(Station.segments).filter(flt)  # @UndefinedVariable
 
         stationz = qry.all()
         assert len(stationz) == 1
@@ -559,7 +551,8 @@ class Test(object):
         assert len(segz) == 1
         assert segz[0] is seg
 
-        qry = db.session.query(Station).filter(Station.segments.any(flt)).all()
+        qry = db.session.query(Station).\
+            filter(Station.segments.any(flt)).all()  # @UndefinedVariable
         assert len(qry) == 1
 
         # test seiscomp path:
@@ -646,27 +639,31 @@ class Test(object):
         assert len(qry1b) == 2
         assert qry1b == qry2
         # test the opposite
-        qry1d = sorted([x[0] for x in db.session.query(Segment.id).filter(~Segment.has_class).all()])
+        qry1d = \
+            sorted([x[0] for x in db.session.query(Segment.id).
+                    filter(~Segment.has_class).all()])  # pylint: disable=invalid-unary-operand-type
         qry1e = sorted([x[0] for x in db.session.query(Segment.id).
                         filter(Segment.has_class == False).all()])
         assert len(qry1d) == len(qry1e) == db.session.query(Segment).count() - len(qry1b)
 
         assert all(q.has_class for q in db.session.query(Segment).filter(Segment.has_class))
-        assert all(not q.has_class for q in db.session.query(Segment).filter(~Segment.has_class))
+        assert all(not q.has_class for q in db.session.query(Segment).
+                   filter(~Segment.has_class))  # pylint: disable=invalid-unary-operand-type
 
         # Test exprquery with classes (have a look above at the db classes):
         a = exprquery(db.session.query(Segment.id), {"classes.id": '56'})
-        expected = db.session.query(ClassLabelling.segment_id).filter(ClassLabelling.class_id == 56)
+        expected = db.session.query(ClassLabelling.segment_id).\
+            filter(ClassLabelling.class_id == 56)
         assert sorted([_[0] for _ in a]) == sorted([_[0] for _ in expected])
 
         a = exprquery(db.session.query(Segment.id), {"classes.id": '[56, 57]'})
-        expected = db.session.query(ClassLabelling.segment_id).filter((ClassLabelling.class_id >= 56) &
-                                                                      (ClassLabelling.class_id <= 57))
+        expected = db.session.query(ClassLabelling.segment_id).\
+            filter((ClassLabelling.class_id >= 56) & (ClassLabelling.class_id <= 57))
         assert sorted([_[0] for _ in a]) == sorted([_[0] for _ in expected])
 
         a = exprquery(db.session.query(Segment.id), {"classes.id": '(56, 57]'}).all()
-        expected = db.session.query(ClassLabelling.segment_id).filter((ClassLabelling.class_id > 56) &
-                                                                      (ClassLabelling.class_id <= 57))
+        expected = db.session.query(ClassLabelling.segment_id).\
+            filter((ClassLabelling.class_id > 56) & (ClassLabelling.class_id <= 57))
         assert not a and sorted([_[0] for _ in a]) == sorted([_[0] for _ in expected])
 
         a = exprquery(db.session.query(Segment.id), {"classes.label": '"a" "b" "class2"'}).all()
@@ -675,7 +672,8 @@ class Test(object):
         assert sorted([_[0] for _ in a]) == sorted([_[0] for _ in expected])
 
         a = exprquery(db.session.query(Segment.id), {"classes.label": "null"}).all()
-        expected = [[s.id] for s in db.session.query(Segment) if any(c.label is None for c in s.classes)]
+        expected = [[s.id] for s in db.session.query(Segment) if any(c.label is None
+                                                                     for c in s.classes)]
         assert sorted([_[0] for _ in a]) == sorted([_[0] for _ in expected])
 
         # Remember exprequeries do not work withh hybrid methods!!
@@ -921,9 +919,11 @@ class Test(object):
 
         seg = db.session.query(Segment).first()
 
-        # The commented block below was using a builtin method, Segment.get, which was implemented to optimize
+        # The commented block below was using a builtin method, Segment.get, which
+        # was implemented to optimize
         # the query. IT TURNS OUT, WE WERE RE-INVENITNG THE WHEEL as sql-alchemy caches stuff
-        # and already optimizes the queries. So let's leave the lines below commented to see why we removed the
+        # and already optimizes the queries. So let's leave the lines below commented to
+        # see why we removed the
         # Segment.get method, in case we wonder in the future:
 
 #         # test seismic metadata (get)
@@ -938,16 +938,18 @@ class Test(object):
 #             staid = seg.station.id
 #             evtm = seg.event.id
 #             did = seg.download.id
-#         t1 = time.time() - t 
+#         t1 = time.time() - t
 #
 #         t = time.time()
 #         for i in range(N):
 #             staid, evtid, did = seg.get(Station.id, Event.magnitude, Download.id)
-#         t2 = time.time() - t 
+#         t2 = time.time() - t
 #         # this is true:
 #         assert t1 < t2
-#         # WHAT? it's because sql-allchemy caches objects, so requiring to the SAME segment the same
-#         # attributes does not need to issue a db query, which our 'get' does. To test properly, we should
+#         # WHAT? it's because sql-allchemy caches objects, so requiring to
+#         # the SAME segment the same
+#         # attributes does not need to issue a db query, which our 'get'
+#         # does. To test properly, we should
 #         # create tons of segments. So:
 #         t = time.time()
 #         for seg in segs:
@@ -962,7 +964,7 @@ class Test(object):
 #         for seg in segs:
 #             staid, evtid, did, chid, mgr = seg.get(Station.id, Event.magnitude, Download.id,
 #                                                    Channel.id, Segment.maxgap_numsamples)
-#         t2 = time.time() - t 
+#         t2 = time.time() - t
 #         # NOW it SHOULD BE true , but apparently not, as the line below was commented out:
 #         # assert t1 > t2
 
@@ -1072,14 +1074,14 @@ class Test(object):
         # check harmonize rows: invalid rows should be removed (we have 1 invalid row)
         oldlen = len(dfx)
         dfrows = harmonize_rows(Event, dfx, inplace=False)
-        assert len(dfrows) ==0 and len(dfx) == oldlen
+        assert len(dfrows) == 0 and len(dfx) == oldlen
         # check inplace = True
         dfrows = harmonize_rows(Event, dfx, inplace=True)
         assert len(dfrows) == len(dfx) == 0
 
         # go on by checking harmonize_columns. FIXME: what are we doing here below?
         dfx = pd.DataFrame(columns=evcolnames,
-                          data=[["a" for _ in evcolnames]])
+                           data=[["a" for _ in evcolnames]])
 
         dfx.loc[0, Event.time.key] = utcnow
         dfx.loc[0, Event.latitude.key] = 6.5
@@ -1132,16 +1134,16 @@ class Test(object):
         stations = [s1a, s1b, s2]
         db.session.add_all(stations)
 
-        chs = [Channel(location= '1', channel='rt1', sample_rate=6),
-               Channel(location= '1', channel='rt2', sample_rate=6),
-               Channel(location= '1', channel='rt3', sample_rate=6),
-               Channel(location= '2', channel='r1', sample_rate=6),
-               Channel(location= '2', channel='r3', sample_rate=6),
+        chs = [Channel(location='1', channel='rt1', sample_rate=6),
+               Channel(location='1', channel='rt2', sample_rate=6),
+               Channel(location='1', channel='rt3', sample_rate=6),
+               Channel(location='2', channel='r1', sample_rate=6),
+               Channel(location='2', channel='r3', sample_rate=6),
                #Channel(location= '2', channel='r3', sample_rate=6),
-               Channel(location= '3', channel='rr1', sample_rate=6),
-               Channel(location= '3', channel='rr2', sample_rate=6),
-               Channel(location= '3', channel='rr3', sample_rate=6),
-               Channel(location= '3', channel='rr4', sample_rate=6)]
+               Channel(location='3', channel='rr1', sample_rate=6),
+               Channel(location='3', channel='rr2', sample_rate=6),
+               Channel(location='3', channel='rr3', sample_rate=6),
+               Channel(location='3', channel='rr4', sample_rate=6)]
 
         for c in chs:
             stations[int(c.location) - 1].channels.append(c)
