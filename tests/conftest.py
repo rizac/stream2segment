@@ -314,22 +314,26 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
     and just use `db.session` inside the code
     '''
     class DB(object):
-        '''class handling a database in testing functions'''
+        '''class handling a database in testing functions. You should call self.create
+        inside the tests'''
         def __init__(self, dburl):
             self.dburl = dburl
             self._base = Base
             self._session = None
             self.engine = None
 
-        def create(self, to_file=False, process=False):
+        def create(self, to_file=False, process=False, base=None):
             '''creates the database, deleting it if already existing (i.e., if this method
             has already been called and self.delete has not been called).
             :param to_file: boolean (False by default) tells whether, if the url denotes sqlite,
             the database should be created on the filesystem. Creating in-memory sqlite databases
             is handy in most cases but once the session is closed it seems that the database is
             closed too.
+            :param process: ignored if base is supplied, if True attaches obspy methods
+                to the ORM classes (streams2segment.process.db)
             :param base: the Base class whereby creating the db schema. If None (the
-            default) it defaults to streams2segment.io.db.models.Base
+            default) it defaults to streams2segment.io.db.models.Base (with obspy methods
+            in streams2segment.process.db attached, if process=True)
             '''
             self.delete()
             self.dburl = 'sqlite:///' + \
@@ -337,12 +341,11 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
                 if self.is_sqlite and to_file else self.dburl
 
             self.engine = create_engine(self.dburl)
-            # Base.metadata.drop_all(self.engine)  # @UndefinedVariable
-#             if base is not None:
-#                 self._base = base
+            if base is not None:
+                self._base = base
             if process:
                 _toggle_enhance_segment(True)
-            Base.metadata.create_all(self.engine)  # @UndefinedVariable
+            self._base.metadata.create_all(self.engine)  # @UndefinedVariable
 
         @property
         def session(self):

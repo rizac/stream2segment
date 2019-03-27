@@ -3,7 +3,7 @@ Created on Apr 11, 2017
 
 @author: riccardo
 '''
-from builtins import zip, str, range
+from builtins import zip
 from datetime import datetime
 import os
 import sys
@@ -19,6 +19,7 @@ from stream2segment.io.db.pdsql import insertdf, dbquery2df, harmonize_columns
 
 Base = declarative_base()
 
+
 class Customer(Base):
     __tablename__ = "customer"
     id = Column(Integer, primary_key=True)
@@ -28,6 +29,7 @@ class Customer(Base):
     count = Column(Integer)
     price = Column(Float)
     validated = Column(Boolean)
+
 
 class Test(object):
 
