@@ -3,24 +3,19 @@ Created on Apr 11, 2017
 
 @author: riccardo
 '''
-from builtins import zip, str, range
-from mock import patch
+from builtins import zip, range
+import sys
+import os
 import math
 from datetime import datetime
-import os
 
-import psutil
+from mock import patch
 import numpy as np
 import pytest
 import pandas as pd
-from pandas.testing import assert_frame_equal
+
 from sqlalchemy.ext.declarative.api import declarative_base
-from sqlalchemy.orm.session import sessionmaker
-from sqlalchemy.orm.scoping import scoped_session
-from sqlalchemy import Column, Integer, String,  create_engine, LargeBinary, DateTime
-from sqlalchemy.sql.expression import bindparam
-from sqlalchemy.inspection import inspect
-from sqlalchemy.sql import default_comparator
+from sqlalchemy import Column, Integer, String, LargeBinary, DateTime
 from sqlalchemy.exc import SQLAlchemyError
 
 from stream2segment.io.db.pdsql import syncdfcol, insertdf, _get_max, syncdf,\
