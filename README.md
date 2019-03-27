@@ -198,7 +198,7 @@ pytest -xv --dburl postgresql://<user>:<password>@localhost/<dbname> --ignore=./
 
 ## Usage
 
-Please refer to the `github documentation`[https://github.com/rizac/stream2segment/wiki]
+Please refer to the [github documentation](https://github.com/rizac/stream2segment/wiki)
 
 ## Installation Notes:
 
