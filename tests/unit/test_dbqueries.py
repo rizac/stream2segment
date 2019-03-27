@@ -3,22 +3,15 @@ Created on Jul 15, 2016
 
 @author: riccardo
 '''
-from builtins import zip, str
+from builtins import zip
 import sys
 import os
-from datetime import datetime, timedelta
-import time
+from datetime import datetime
 
 import pytest
-# import numpy as np
-# import pandas as pd
-from sqlalchemy.orm import sessionmaker, load_only
-from sqlalchemy import and_, or_
 
 from stream2segment.io.db.models import Event, WebService, Channel, Station, \
-    DataCenter, Segment, Class, Download, ClassLabelling, withdata
-# THIS IS NECESSARY TO LOAD THE CORRECT BASE (with onbspy stuff):
-from stream2segment.process.db import Base
+    DataCenter, Segment, Download
 
 class Test(object):
 
@@ -27,7 +20,7 @@ class Test(object):
     @pytest.fixture(autouse=True)
     def init(self, request, db, data):
         # re-init:
-        db.create(to_file=False, base=Base)
+        db.create(to_file=False, process=True)
 
         dc= DataCenter(station_url="345fbgfnyhtgrefs", dataselect_url='edfawrefdc')
         db.session.add(dc)

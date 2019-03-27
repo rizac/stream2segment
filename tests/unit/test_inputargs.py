@@ -3,15 +3,11 @@ Created on May 23, 2017
 
 @author: riccardo
 '''
-from contextlib import contextmanager
 # as we patch os.path.isfile, this seems to be the correct way to store beforehand
 # the original functions (also in other packages, e.g. pytestdir in conftest does not break):
 from os.path import isfile, basename, join, abspath, dirname, relpath
-from datetime import datetime, timedelta
-# import shutil
-from mock.mock import patch
+from datetime import datetime
 from itertools import product
-# import uuid
 
 # this can not apparently be fixed with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
@@ -20,11 +16,10 @@ try:
 except ImportError:
     from io import StringIO  # @UnusedImport
 
-from future.utils import string_types, PY2
+from mock.mock import patch
+from future.utils import PY2
 from click.testing import CliRunner
-# from _pytest.capture import capsys
 import pytest
-# import yaml
 
 from stream2segment.cli import cli
 from stream2segment.main import configlog4download as o_configlog4download,\
@@ -35,7 +30,6 @@ from stream2segment.utils.inputargs import get_session as o_get_session, \
 from stream2segment.io.db.models import Download
 from stream2segment.utils import secure_dburl
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_templates_fpaths
-# from stream2segment.main import init as orig_init, helpmathiter as main_helpmathiter, download
 
 
 @pytest.fixture
@@ -48,7 +42,7 @@ def run_cli_download(pytestdir, db):
         # override the db path with our currently tested one:
         if '-d' not in args and '--dburl' not in args and'dburl' not in yaml_overrides:
             yaml_overrides['dburl'] = db.dburl
-            nodburl=True
+            nodburl = True
         # if -c or configfile is not specified, add it:
         if "-c" not in args and "--configfile" not in args:
             args.extend(['-c', pytestdir.yamlfile(get_templates_fpath("download.yaml"),
