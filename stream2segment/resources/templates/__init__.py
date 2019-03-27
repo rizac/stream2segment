@@ -459,24 +459,25 @@ segment methods:
   for removing the instrumental response from `segment.stream()`: note that it will be available
   only if the inventories in xml format were downloaded in the downloaded subroutine
 
-* segment.sn_windows(length, shift): returns the signal and noise time windows:
+* segment.sn_windows(length, shift=0): returns the signal and noise time windows:
   (s_start, s_end), (n_start, n_end)
   where all elements are `UTCDateTime`s. The windows are computed according to
   the arguments:
   - length: a float defining the windows length, in seconds. It can be also a two elements
-    list/tuple denoting how to compute the window with respect to the waveform cumulative
-    sum of squares (cumsum) after the arrival time: e.g., [0.05, 0.95] computes the window at the
-    times cumsum reaches the 5% and 95%, respectively.
+    list/tuple denoting the start and end points of the window with respect to the waveform's
+    cumulative sum of squares (CUMSS) after the arrival time: e.g., [0.05, 0.95] computes the
+    window at the times CUMSS reaches the 5% and 95%, respectively.
   - shift (defaults to 0 when missing): number of seconds to shift each segment's arrival
     time (negative values allowed)
-
+  The noise window will be "moved" backwards in order to always end at the segment's arrival time.
   The settings of the associated configuration file: `config['sn_windows']`) can be used.
   Example:
-
+  ```
   snw = config['sn_windows']
   sig_wdw, noise_wdw = segment.sn_windows(snw['signal_window'], snw['arrival_time_shift'])
   stream_noise = segment.stream().copy().trim(*noise_wdw, ...)
   stream_signal = segment.stream().copy().trim(*sig_wdw, ...)
+  ```
 
 * segment.siblings(parent=None, condition): returns an iterable of siblings of this segment.
   `parent` can be
@@ -604,10 +605,10 @@ The parameter 'segment_select' defines what segments to be processed or
 
 PROCESS_YAML_SNWINDOWS = '''
 Settings for computing the 'signal' and 'noise' time windows on a segment waveform.
-# This parameter defines the signal and noise windows of each segment obtained when calling
-# `segment.sn_windows()` (see associated python module help).
 # From within the GUI, signal and noise windows will be visualized as shaded areas on the plot
 # of the currently selected segment. If this parameter is missing, the areas will not be shown.
+# This parameter can also be used to define the arguments of `segment.sn_windows()` (see associated
+# python module help).
 #
 # Arrival time shift: shifts the calculated arrival time of
 # each segment by the specified amount of time (in seconds). Negative values are allowed.
