@@ -6,46 +6,32 @@ Created on Feb 4, 2016
 from __future__ import print_function
 
 from builtins import str
-import re
-from datetime import datetime, timedelta
+import os
 import sys
 # this can apparently not be avoided neither with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
+from io import BytesIO
 try:
     from cStringIO import StringIO  # python2.x
 except ImportError:
     from io import StringIO
-import os
-from itertools import cycle, repeat, count, product
-import socket
-import logging
+
+from itertools import cycle
 from logging import StreamHandler
-from io import BytesIO
-import threading
 from mock import patch
 from mock import Mock
 
 import pytest
-import numpy as np
 import pandas as pd
-from sqlalchemy.engine import create_engine
-from sqlalchemy.orm.session import sessionmaker
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.sql.expression import func
-from obspy.core.stream import Stream, read
-from obspy.taup.helper_classes import TauModelError
 
 from stream2segment.cli import cli
 from stream2segment.download.main import get_events_df, get_datacenters_df, \
-    get_channels_df, merge_events_stations, prepare_for_download, download_save_segments, \
-    save_inventories
-from stream2segment.io.db.models import Base, Event, Class, WebService, \
-    DataCenter, Segment, Download, Station, Channel, WebService, withdata
-from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf,  \
-    _get_max as _get_db_autoinc_col_max
+    save_inventories, get_channels_df, download_save_segments
+from stream2segment.io.db.models import Segment, Download
+from stream2segment.io.db.pdsql import insertdf, updatedf
 from stream2segment.download.utils import s2scodes
-from stream2segment.download.modules.mseedlite import MSeedError, unpack
-from stream2segment.utils.url import read_async, URLError, HTTPError, responses
+from stream2segment.download.modules.mseedlite import unpack
+from stream2segment.utils.url import HTTPError, responses
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
 from stream2segment.utils.log import configlog4download
 

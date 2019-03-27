@@ -44,8 +44,8 @@ from stream2segment.download.modules.segments import DcDataselectManager
 from stream2segment.cli import cli
 from stream2segment.download.main import get_events_df, get_datacenters_df, get_channels_df, \
     download_save_segments, save_inventories
-from stream2segment.io.db.models import Base, Event, Class, WebService, Fdsnws,\
-    DataCenter, Segment, Download, Station, Channel, WebService
+from stream2segment.io.db.models import Fdsnws,\
+    DataCenter, Segment, Download, Station, WebService
 from stream2segment.io.db.pdsql import dbquery2df, insertdf, updatedf
 from stream2segment.download.utils import s2scodes
 from stream2segment.download.modules.mseedlite import unpack
@@ -298,7 +298,7 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
         mock_get_events_df.side_effect = lambda *a, **v: self.get_events_df(None, *a, **v) 
         mock_get_datacenters_df.side_effect = \
-            lambda *a, **v: self.get_datacenters_df(None, *a, **v) 
+            lambda *a, **v: self.get_datacenters_df(None, *a, **v)
         mock_get_channels_df.side_effect = lambda *a, **v: self.get_channels_df(None, *a, **v)
         mock_save_inventories.side_effect = lambda *a, **v: self.save_inventories(None, *a, **v)
         mock_download_save_segments.side_effect = \

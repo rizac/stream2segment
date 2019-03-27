@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 import pytest
 import numpy as np
 import pandas as pd
-from sqlalchemy import and_, or_, func, bindparam
+from sqlalchemy import and_, or_, func
 from sqlalchemy.orm import load_only
 from sqlalchemy.exc import IntegrityError, DataError
 from sqlalchemy.orm.exc import FlushError
@@ -21,8 +21,8 @@ from sqlalchemy.orm.session import object_session
 
 from stream2segment.io.db.models import Event, WebService, Channel, Station, \
     DataCenter, Segment, Class, Download, ClassLabelling, withdata
-from stream2segment.io.db.pdsql import _harmonize_columns, harmonize_columns, \
-    harmonize_rows, colnames, dbquery2df
+from stream2segment.io.db.pdsql import harmonize_rows, colnames, _harmonize_columns,\
+    harmonize_columns
 from stream2segment.io.utils import dumps_inv, loads_inv
 from stream2segment.io.db.sqlevalexpr import exprquery
 

@@ -7,12 +7,12 @@ from builtins import range
 import os
 from itertools import product
 
-import pytest
 
 from stream2segment.io.utils import compress, decompress
 
 
 def test_compress_decompress():
+    '''tests compression and decompression functions'''
     bytesdata = b"\x00"+os.urandom(1024*1024)+b"\x00"
     for comp, compresslevel in product(['bz2', 'zlib', 'gzip', 'zip'], list(range(1, 10))):
         compr_ = compress(bytesdata, comp, compresslevel)
