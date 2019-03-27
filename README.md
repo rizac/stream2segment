@@ -198,44 +198,7 @@ pytest -xv --dburl postgresql://<user>:<password>@localhost/<dbname> --ignore=./
 
 ## Usage
 
-This is a short introduction explaining the first steps with the program. All instructions can be found by executing the following commands, either in the configuration files (.yaml and .py) or via the command line.
-
-Move (`cd` on a terminal) to the stream2segment folder. If you installed and activated a python virtual environment during installation (hopefully you did), **activate the virtual environment first**. For instance, if the virtual environment is installed inside the package folder:
-```
-source env/bin/activate
-```
-
-<sub>When you're finished, type `deactivate` on the terminal to deactivate the current pythoin virtual environment and return to the global system defined Python</sub>
-
-Type:
-```
-s2s --help
-```
-and check all available program commands.
-
-The first to run is always `s2s init`. Type:
-```
-s2s init --help
-```
-to list how to create the necessary files for downloading and processing data. `s2s init` creates several template
-files which can be inspected, edited and then used: one for downloading data (download configuration file),
-and several others for processing downloaded data (where each processing template is represented by two files:
-a python module + associated configuration file).
-All instructions are written in the templates, as comments. Browse/edit the download configuration file and start a download via
-```
-s2s download
-```
-(type `s2s download --help` for details). Once downloaded, browse (and edit them if needed)
-the processing file and its configuration file and run the processing subroutine via
-```
-s2s process
-```
-(type `s2s process --help` for details) or visualize plots of the downloaded data via
-
-```
-s2s show
-```
-(type `s2s show --help` for details).
+Please refer to the `github documentation`[https://github.com/rizac/stream2segment/wiki]
 
 ## Installation Notes:
 
