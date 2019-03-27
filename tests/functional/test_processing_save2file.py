@@ -7,27 +7,22 @@ from __future__ import print_function, division
 
 from builtins import str, object  # pylint: disable=redefined-builtin
 import os
-from datetime import datetime, timedelta
-import mock
-from mock import patch
 import re
 
+import mock
+from mock import patch
 import pytest
 import numpy as np
 from obspy.core.stream import read
 from future.utils import integer_types
 
 from stream2segment.cli import cli
-from stream2segment.io.db.models import Base, Event, Station, WebService, Segment,\
-    Channel, Download, DataCenter
-from stream2segment.utils.inputargs import yaml_load as orig_yaml_load
 from stream2segment.process.main import run as process_main_run, \
     get_advanced_settings as o_get_advanced_settings, process_segments as o_process_segments,\
     process_segments_mp as o_process_segments_mp, \
     _get_chunksize_defaults as _o_get_chunksize_defaults, query4process
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
-from stream2segment.utils.url import URLError
-from stream2segment.utils.resources import get_templates_fpaths, get_templates_fpath
+from stream2segment.utils.resources import get_templates_fpath
 from stream2segment.process.writers import BaseWriter
 
 

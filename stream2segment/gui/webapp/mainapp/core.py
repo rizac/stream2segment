@@ -26,6 +26,20 @@ NPTS_WIDE = 900  # FIXME: automatic retrieve by means of Segment class relations
 NPTS_SHORT = 900  # FIXME: see above
 
 
+def get_segments(session, conditions, orderby, metadata, classes):
+    classes = get_classes(session) if classes else []
+    _metadata = []
+    if metadata:
+        _metadata = [[n, t, conditions.get(n, '')] for n, t in get_metadata(session)]
+    # parse the orderby if it has a minus at the end it's descending:
+    oby = orderby if not orderby else \
+        [(k, "asc") if not k[-1] == '-' else (k[:-1], "desc") for k in orderby]
+    qry = query4gui(session, conditions=conditions, orderby=oby)
+    return {'segment_ids': [seg[0] for seg in qry],
+            'classes': classes,
+            'metadata': _metadata}
+
+
 def query4gui(session, conditions, orderby=None):
     '''Returns a query yielding the segments ids for the visualization in the GUI (processing)
     according to `conditions` and `orderby`, sorted by default (if orderby is None) by

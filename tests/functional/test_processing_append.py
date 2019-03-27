@@ -5,7 +5,7 @@ Created on Feb 14, 2017
 '''
 from __future__ import print_function, division
 
-from builtins import str, object
+from builtins import object
 
 import re
 import os
@@ -14,14 +14,11 @@ import mock
 from mock import patch
 
 import pytest
-import numpy as np
 import pandas as pd
 from pandas.util.testing import assert_frame_equal
 
 from stream2segment.cli import cli
-from stream2segment.io.db.models import Base, Event, Station, WebService, Segment,\
-    Channel, Download, DataCenter
-# from stream2segment.utils.inputargs import yaml_load as orig_yaml_load
+from stream2segment.io.db.models import Segment
 from stream2segment.utils.resources import get_templates_fpath
 from stream2segment.process.main import run as process_main_run
 from stream2segment.utils.log import configlog4processing as o_configlog4processing

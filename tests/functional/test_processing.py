@@ -5,13 +5,11 @@ Created on Feb 14, 2017
 '''
 from __future__ import print_function, division
 
-from past.utils import old_div
 import os
 import sys
-from datetime import datetime, timedelta
+import re
 import mock
 from mock import patch
-import re
 
 import pytest
 import pandas as pd
@@ -19,16 +17,13 @@ from pandas.errors import EmptyDataError
 from click.testing import CliRunner
 
 from stream2segment.cli import cli
-from stream2segment.io.db.models import Base, Event, Station, WebService, Segment,\
+from stream2segment.io.db.models import Event, Station, Segment,\
     Channel, Download, DataCenter
-from stream2segment.utils.inputargs import yaml_load as orig_yaml_load
-from stream2segment.utils.resources import get_templates_fpaths, get_templates_fpath
+from stream2segment.utils.resources import get_templates_fpath
 from stream2segment.process.db import get_inventory
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
 from stream2segment.process.main import run as process_main_run, query4process
-from stream2segment.utils.url import URLError
 from stream2segment.process.writers import BaseWriter
-from stream2segment.io.utils import dumps_inv
 
 
 @pytest.fixture

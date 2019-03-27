@@ -6,24 +6,25 @@ Created on Feb 14, 2017
 '''
 from __future__ import print_function, division
 
-from builtins import str, object
+from builtins import object
 
 import os
 import sys
 import json
 import re
 from datetime import datetime, timedelta
+
 from mock import patch
 import pytest
-
 from click.testing import CliRunner
+from future.utils import PY2
 
 from stream2segment.cli import cli
-from stream2segment.io.db.models import Base, Event, Station, WebService, Segment,\
+from stream2segment.io.db.models import Event, Station, WebService, Segment,\
     Channel, Download, DataCenter
 from stream2segment.utils import ascii_decorate
 from stream2segment.download.utils import s2scodes
-from future.utils import PY2
+
 
 
 

@@ -5,33 +5,20 @@ Created on Jul 15, 2016
 '''
 from builtins import str
 import os
-from datetime import datetime, timedelta
+import sys
+from datetime import datetime
 
 import pytest
-import numpy as np
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-import pandas as pd
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError, InvalidRequestError, ProgrammingError
-from sqlalchemy.orm.exc import FlushError
-from sqlalchemy.orm.attributes import InstrumentedAttribute
-from sqlalchemy.inspection import inspect
-from sqlalchemy.orm.session import object_session
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.sql.expression import desc
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.ext.hybrid import hybrid_property, hybrid_method
-from sqlalchemy.orm.query import aliased
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.sql.functions import func
 
-from stream2segment.io.db.models import Base  # This is your declarative base class
-from stream2segment.io.db.pdsql import _harmonize_columns, harmonize_columns,\
-    harmonize_rows, colnames, dbquery2df
-from stream2segment.io.utils import dumps_inv, loads_inv
-from stream2segment.io.db.sqlevalexpr import exprquery, binexpr, inspect_list, inspect_model,\
+from stream2segment.io.db.sqlevalexpr import exprquery, binexpr, inspect_model,\
     inspect_instance
 from stream2segment.io.db.models import ClassLabelling, Class, Segment, Station, Channel,\
     Event, DataCenter, Download, WebService
+
 
 class Test(object):
 
@@ -152,12 +139,14 @@ class Test(object):
         # this is the same as above, but uses exist instead on join
         # the documentation says it's slower, but there is a debate in the internet and in any case
         # it will be easier to implement when providing user input in "simplified" sql
-        res3 = sess.query(Segment.id).filter(Segment.station.has(Station.station == 's1')).all()
+        res3 = sess.query(Segment.id).\
+            filter(Segment.station.has(Station.station == 's1')).all()  # @UndefinedVariable
         assert res1 == res3
 
         # Note that the same as above for list relationships (one to many or many to many)
         # needs to use 'any' instead of 'has':
-        res4 = sess.query(Segment.id).filter(Segment.classes.any(Class.label == 'a')).all()
+        res4 = sess.query(Segment.id).\
+            filter(Segment.classes.any(Class.label == 'a')).all()  # @UndefinedVariable
         assert len(res4) == 2
 
         # ============================
@@ -171,7 +160,7 @@ class Test(object):
         # now we try to test the order_by with relationships:
         # this fails:
         with pytest.raises(AttributeError):
-            sess.query(Segment.id).order_by(Segment.station.id).all()
+            sess.query(Segment.id).order_by(Segment.station.id).all()  # @UndefinedVariable
 
         # this works:
         k1 = sess.query(Segment.id).join(Segment.station).order_by(Station.id).all()
@@ -326,14 +315,16 @@ class Test(object):
         # again, as above, test with postgres fails:
         if db.is_postgres:
             with pytest.raises(ProgrammingError):
-                res1 = exprquery(sess.query(Segment.id).filter(~Segment.has_data),
+                flter = ~Segment.has_data  # pylint: disable=invalid-unary-operand-type
+                res1 = exprquery(sess.query(Segment.id).filter(flter),
                                  {'classes.id': '[1 2]'}, ['channel.id', 'event_distance_deg'],
-                     ).group_by(Segment.id).all()
+                                 ).group_by(Segment.id).all()
             db.session.rollback()
         else:
-            res1 = exprquery(sess.query(Segment.id).filter(~Segment.has_data),
+            flter = ~Segment.has_data  # pylint: disable=invalid-unary-operand-type
+            res1 = exprquery(sess.query(Segment.id).filter(flter),
                              {'classes.id': '[1 2]'}, ['channel.id', 'event_distance_deg'],
-                     ).group_by(Segment.id).all()
+                             ).group_by(Segment.id).all()
             # regardless of order, we are interested in segments
             assert sorted([c[0] for c in res1]) == [1, 2]
         # test hybrid attrs:

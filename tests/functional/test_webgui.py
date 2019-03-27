@@ -6,34 +6,20 @@ Created on Jul 15, 2016
 '''
 
 import os
+import sys
 from io import BytesIO
-import time
-from mock.mock import patch
 import json
-import shutil
 from itertools import product
 from datetime import datetime, timedelta
 
+from mock.mock import patch
 import pytest
 import numpy as np
-import pandas as pd
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, load_only
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError, DataError
-from sqlalchemy.orm.exc import FlushError
-from sqlalchemy.orm.attributes import InstrumentedAttribute
-from sqlalchemy.inspection import inspect
-from sqlalchemy.orm.session import object_session
-from sqlalchemy.sql.expression import func, bindparam, and_
 from obspy.core.stream import read
 
-from stream2segment.io.db.models import Base, Event, WebService, Channel, Station, \
-    DataCenter, Segment, Class, Download, ClassLabelling, withdata
-from stream2segment.io.db.pdsql import _harmonize_columns, harmonize_columns, \
-    harmonize_rows, colnames, dbquery2df
-from stream2segment.io.utils import dumps_inv, loads_inv
-from stream2segment.utils import load_source
-from stream2segment.utils.resources import yaml_load, get_templates_fpaths
+from stream2segment.io.db.models import Event, WebService, Channel, Station, \
+    DataCenter, Segment, Class, Download, ClassLabelling
+from stream2segment.utils.resources import get_templates_fpaths
 from stream2segment.gui.webapp.mainapp.plots.core import PlotManager
 from stream2segment.gui.webapp import get_session
 from stream2segment.gui.main import create_main_app
