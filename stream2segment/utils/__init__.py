@@ -23,11 +23,11 @@ import re
 import time
 from itertools import chain
 from datetime import datetime, timedelta
-from dateutil import parser as dateparser
-from dateutil.tz import tzutc
 from collections import defaultdict
 import inspect
 from contextlib import contextmanager
+from dateutil import parser as dateparser
+from dateutil.tz import tzutc
 
 import yaml
 from click import progressbar as click_progressbar
@@ -35,7 +35,7 @@ from sqlalchemy.orm.scoping import scoped_session
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm.session import sessionmaker
 
-# from stream2segment.io.db.models import Base
+from stream2segment.io.db.models import Base
 
 
 def _getmodulename(pyfilepath):
@@ -271,13 +271,17 @@ def strptime(obj):
     return dtime
 
 
-def _get_session(dbpath, base, scoped=False):  # , enable_fk_if_sqlite=True):
+def _get_session(dbpath, base=None, scoped=False):  # , enable_fk_if_sqlite=True):
     """
     Create an sql alchemy session for IO db operations
     :param dbpath: the path to the database, e.g. sqlite:///path_to_my_dbase.sqlite
-    :param base: a declarative base
+    :param base: a declarative base. If None, defaults to the default declarative base
+        used in this package for downloading
     :param scoped: boolean (False by default) if the session must be scoped session
     """
+    if base is None:
+        base = Base  # default declarative base, withour obspy methods
+
     # init the session:
     engine = create_engine(dbpath)
     base.metadata.create_all(engine)  # @UndefinedVariable

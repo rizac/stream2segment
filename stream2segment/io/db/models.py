@@ -17,8 +17,6 @@ try:  # py3:
 except ImportError:  # py2
     from urlparse import urlparse
 
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship, backref, deferred
 from sqlalchemy import (
     Column,
     ForeignKey as SqlAlchemyForeignKey,  # we override it (see below)
@@ -34,24 +32,22 @@ from sqlalchemy import (
     # BigInteger,
     UniqueConstraint,
     event)
-from sqlalchemy.sql.expression import FunctionElement
-from sqlalchemy.sql.expression import func, text, case, null, select, join, alias, exists, and_
-# from sqlalchemy.orm.mapper import validates
-# from sqlalchemy.orm.attributes import InstrumentedAttribute
-from sqlalchemy.inspection import inspect
-from sqlalchemy.ext.hybrid import hybrid_property, hybrid_method
-from sqlalchemy.ext.associationproxy import association_proxy
-from sqlalchemy.orm.util import aliased
-from sqlalchemy.ext.compiler import compiles
-from sqlalchemy.orm.strategy_options import load_only
-from sqlalchemy.orm.session import object_session
+from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.associationproxy import association_proxy
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.ext.hybrid import hybrid_property, hybrid_method
+from sqlalchemy.inspection import inspect
+from sqlalchemy.orm import relationship, backref, deferred, load_only
 from sqlalchemy.orm.attributes import InstrumentedAttribute
+from sqlalchemy.orm.session import object_session
+from sqlalchemy.orm.util import aliased
+from sqlalchemy.sql.expression import func, text, case, null, select, join, alias, exists, and_,\
+    FunctionElement
 
 
 _Base = declarative_base()
-
-from sqlalchemy.engine import Engine  # @IgnorePep8
 
 
 # making standard functions. These functions are not standard across sql dialects
@@ -93,9 +89,9 @@ def sqlite_concat(element, compiler, **kw):
 def _duration_sqlite(start, end):
     '''returns the time in seconds since 1970 as floating point for of the
     soecified argument (a datetime in sqlite format)'''
-    # note: sqlite is bizarre: they have %s: timestamp in SECONDS since 1970, %f seconds only
-    # (with three decimal digits) and %S: seconds part (integer). Thus to have a floating point
-    # value with 3 decimal digits we should do:
+    # note: sqlite tiem format is bizarre: they have %s: timestamp in SECONDS since 1970,
+    # %f seconds only (with 3 decimal digits WTF?) and %S: seconds part (integer).
+    # Thus to have a floating point value with 3 decimal digits we should do:
     # return "round(strftime('%s',{}) + strftime('%f',{}) - strftime('%S',{}), 3)".format(dtime)
     # However, for performance reasons we think it's sufficient to return the seconds, thus
     # we keep it more simple with the use round at the end

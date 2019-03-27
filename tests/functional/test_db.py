@@ -11,22 +11,20 @@ from datetime import datetime, timedelta
 import pytest
 import numpy as np
 import pandas as pd
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, load_only
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError, DataError
+from sqlalchemy import and_, or_, func, bindparam
+from sqlalchemy.orm import load_only
+from sqlalchemy.exc import IntegrityError, DataError
 from sqlalchemy.orm.exc import FlushError
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm.session import object_session
-from sqlalchemy.sql.expression import func, bindparam
 
-from stream2segment.io.db.models import Base, Event, WebService, Channel, Station, \
+from stream2segment.io.db.models import Event, WebService, Channel, Station, \
     DataCenter, Segment, Class, Download, ClassLabelling, withdata
 from stream2segment.io.db.pdsql import _harmonize_columns, harmonize_columns, \
     harmonize_rows, colnames, dbquery2df
 from stream2segment.io.utils import dumps_inv, loads_inv
 from stream2segment.io.db.sqlevalexpr import exprquery
-from stream2segment.utils import get_session
 
 
 class Test(object):

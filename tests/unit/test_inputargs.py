@@ -8,10 +8,10 @@ from contextlib import contextmanager
 # the original functions (also in other packages, e.g. pytestdir in conftest does not break):
 from os.path import isfile, basename, join, abspath, dirname, relpath
 from datetime import datetime, timedelta
-import shutil
+# import shutil
 from mock.mock import patch
 from itertools import product
-import uuid
+# import uuid
 
 # this can not apparently be fixed with the future package:
 # The problem is io.StringIO accepts unicodes in python2 and strings in python3:
@@ -22,21 +22,20 @@ except ImportError:
 
 from future.utils import string_types, PY2
 from click.testing import CliRunner
-from _pytest.capture import capsys
+# from _pytest.capture import capsys
 import pytest
-import yaml
+# import yaml
 
 from stream2segment.cli import cli
 from stream2segment.main import configlog4download as o_configlog4download,\
-    new_db_download as o_new_db_download, run_download as o_run_download,\
-    configlog4processing as o_configlog4processing, run_process as o_run_process, \
+    new_db_download as o_new_db_download, configlog4processing as o_configlog4processing, \
     process as o_process, download as o_download
-from stream2segment.utils.inputargs import yaml_load as o_yaml_load,\
-    get_session as o_get_session, nslc_param_value_aslist
+from stream2segment.utils.inputargs import get_session as o_get_session, \
+    nslc_param_value_aslist
 from stream2segment.io.db.models import Download
-from stream2segment.utils import get_session, secure_dburl
+from stream2segment.utils import secure_dburl
 from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_templates_fpaths
-from stream2segment.main import init as orig_init, helpmathiter as main_helpmathiter, download
+# from stream2segment.main import init as orig_init, helpmathiter as main_helpmathiter, download
 
 
 @pytest.fixture
@@ -519,7 +518,18 @@ def test_process_bad_types(pytestdir):
 @patch('stream2segment.main.run_process')
 def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, mock_getsess,
                            # fixtures:
-                           capsys, pytestdir):
+                           db, capsys, pytestdir):
+
+    if not db.is_sqlite:
+        pytest.skip("Skipping postgres test (only sqlite memory used)")
+
+    db.create(to_file=False)
+    dburl = db.dburl
+    sess = db.session
+    # mock get_session in order to return always the same session objet:
+    mock_getsess.side_effect = lambda *a, **kw: sess
+    # close session should not close session, otherwise with a memory db we loose the data
+    mock_closesess.side_effect = lambda *a, **v: None
 
     # store stuff in this dict when running configure loggers below:
     vars = {'numloggers': 0, 'logfilepath': None}
@@ -543,15 +553,6 @@ def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, moc
             pass
         return ret
     mock_configlog.side_effect = clogd
-
-    dburl = 'sqlite:///:memory:'
-    # close session should not close session, otherwise with a memory db we loose the data
-    mock_closesess.side_effect = lambda *a, **v: None
-    # also, mock get_session cause we need the same session object to
-    # retrieve what's been written on the db
-    sess = get_session(dburl)
-    # mock get_session in order to return always the same session objet:
-    mock_getsess.side_effect = lambda *a, **kw: sess
 
     conffile, pyfile = get_templates_fpaths("paramtable.yaml", "paramtable.py")
 
@@ -613,7 +614,19 @@ def test_process_verbosity(mock_run_process, mock_configlog, mock_closesess, moc
 @patch('stream2segment.main.run_download')
 def test_download_verbosity(mock_run_download, mock_configlog, mock_closesess, mock_getsess,
                             # fixtures:
-                            capsys, pytestdir):
+                            db, capsys, pytestdir):
+
+    if not db.is_sqlite:
+        pytest.skip("Skipping postgres test (only sqlite memory used)")
+
+    db.create(to_file=False)
+    dburl = db.dburl
+    sess = db.session
+    # mock get_session in order to return always the same session objet:
+    mock_getsess.side_effect = lambda *a, **kw: sess
+    # close session should not close session, otherwise with a memory db we loose the data
+    mock_closesess.side_effect = lambda *a, **v: None
+
     # handlers should be removed each run_download call, otherwise we end up
     # appending them
     numloggers = [0]
@@ -630,15 +643,6 @@ def test_download_verbosity(mock_run_download, mock_configlog, mock_closesess, m
         numloggers[0] = len(ret)
         return ret
     mock_configlog.side_effect = clogd
-
-    dburl = 'sqlite:///:memory:'
-    # close session should not close session, otherwise with a memory db we loose the data
-    mock_closesess.side_effect = lambda *a, **v: None
-    # also, mock get_session cause we need the same session object to
-    # retrieve what's been written on the db
-    sess = get_session(dburl)
-    # mock get_session in order to return always the same session objet:
-    mock_getsess.side_effect = lambda *a, **kw: sess
 
     last_known_id = [None]  # stupid hack to assign to out-of-scope var (py2 compatible)
     def dblog_err_warn():

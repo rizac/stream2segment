@@ -10,9 +10,7 @@ from flask import render_template, request, jsonify, Blueprint, current_app
 from stream2segment.gui.webapp import get_session
 from stream2segment.gui.webapp.mainapp import core
 from stream2segment.utils import secure_dburl
-from stream2segment.process.utils import set_classes
-import yaml
-import json
+from stream2segment.process.db import configure_classes
 
 # http://flask.pocoo.org/docs/0.12/patterns/appfactories/#basic-factories:
 main_app = Blueprint('main_app', __name__, template_folder='templates')
@@ -21,7 +19,7 @@ main_app = Blueprint('main_app', __name__, template_folder='templates')
 @main_app.route("/")
 def main():
     config = dict(current_app.config['CONFIG.YAML'])
-    set_classes(get_session(current_app), config)
+    configure_classes(get_session(current_app), config.get('class_labels', []))
     plotmanager = current_app.config['PLOTMANAGER']
     ud_plots = plotmanager.userdefined_plots
     settings = {'segment_select': config.pop('segment_select', {}),

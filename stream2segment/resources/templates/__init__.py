@@ -614,12 +614,12 @@ Settings for computing the 'signal' and 'noise' time windows on a segment wavefo
 
 PROCESS_YAML_CLASSLABELS = '''
 If you want to use the GUI as hand labelling tool (for e.g. supervised classification problems)
-# you can provide the parameter 'class_labels' which is a dictionary of label names mapped
-# to their description. If provided, the labels will first be added to the database
-# (updating the description, if the label name is already present) and then will show up in the GUI
-# where one or more classes can be assigned to a given segment via check boxes.
-# If missing, no class labels will show up in the GUI, unless already set by a previous config.
-# Example:
+# or setup classes before processing, you can provide the parameter 'class_labels' which is a
+# dictionary of label names mapped to their description. If provided, the labels will first be
+# added to the database (updating the description, if the label name is already present) and
+# then will show up in the GUI where one or more classes can be assigned to a given segment via
+# check boxes. If missing, no class labels will show up in the GUI, unless already set by a
+# previous config. Example:
 #class_labels:
 #  Discarded: "Segment which does not fall in any other cathegory (e.g., unknown artifacts)"
 #  Unknown: "Segment which is either: unlabeled (not annotated) or unclassified"

@@ -153,10 +153,6 @@ class Test(object):
                 session.close()
 
                 # set inventory
-    #             with open(os.path.join(folder, "GE.FLT1.xml"), 'rb') as opn:
-    #                 self.inventory = loads_inv(opn.read())
-
-                # set inventory
                 self.inventory = data.read_inv("GE.FLT1.xml")
 
             yield
@@ -166,6 +162,7 @@ class Test(object):
         '''returns the db session by using the same function used from the Flask app
         i.e., DO NOT CALL `db.session` in the tests methods but `self.session`'''
         return get_session(self.app)
+
 
     def jsonloads(self, _data, encoding='utf8'):  
         # do not use data as argument as it might conflict with the data fixture

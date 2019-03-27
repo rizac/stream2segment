@@ -17,29 +17,13 @@ import json
 from sqlalchemy import func
 
 from stream2segment.io.db.models import Segment, Class, Station, ClassLabelling, Download
-from stream2segment.gui.webapp.mainapp.plots.jsplot import jsontimestamp
-# from stream2segment.io.db import sqlevalexpr
-from stream2segment.utils.resources import yaml_load_doc, get_templates_fpath
 from stream2segment.io.db.sqlevalexpr import exprquery, inspect_instance, inspect_model
-from stream2segment.process.utils import getseg
+from stream2segment.gui.webapp.mainapp.plots.core import getseg
+from stream2segment.gui.webapp.mainapp.plots.jsplot import jsontimestamp
 
 
 NPTS_WIDE = 900  # FIXME: automatic retrieve by means of Segment class relationships?
 NPTS_SHORT = 900  # FIXME: see above
-
-
-def get_segments(session, conditions, orderby, metadata, classes):
-    classes = get_classes(session) if classes else []
-    _metadata = []
-    if metadata:
-        _metadata = [[n, t, conditions.get(n, '')] for n, t in get_metadata(session)]
-    # parse the orderby if it has a minus at the end it's descending:
-    oby = orderby if not orderby else \
-        [(k, "asc") if not k[-1] == '-' else (k[:-1], "desc") for k in orderby]
-    qry = query4gui(session, conditions=conditions, orderby=oby)
-    return {'segment_ids': [seg[0] for seg in qry],
-            'classes': classes,
-            'metadata': _metadata}
 
 
 def query4gui(session, conditions, orderby=None):

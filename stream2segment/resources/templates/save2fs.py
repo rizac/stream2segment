@@ -30,7 +30,7 @@ import numpy as np
 from obspy import Trace, Stream, UTCDateTime
 from obspy.geodetics import degrees2kilometers as d2km
 # decorators needed to setup this module @gui.sideplot, @gui.preprocess @gui.customplot:
-from stream2segment.process.utils import gui
+from stream2segment.process import gui
 # strem2segment functions for processing obspy Traces. This is just a list of possible functions
 # to show how to import them:
 from stream2segment.process.math.traces import ampratio, bandpass, cumsumsq,\

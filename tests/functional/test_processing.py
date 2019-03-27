@@ -23,11 +23,10 @@ from stream2segment.io.db.models import Base, Event, Station, WebService, Segmen
     Channel, Download, DataCenter
 from stream2segment.utils.inputargs import yaml_load as orig_yaml_load
 from stream2segment.utils.resources import get_templates_fpaths, get_templates_fpath
-from stream2segment.process.utils import get_inventory
+from stream2segment.process.db import get_inventory
 from stream2segment.utils.log import configlog4processing as o_configlog4processing
 from stream2segment.process.main import run as process_main_run, query4process
 from stream2segment.utils.url import URLError
-from stream2segment.process.utils import enhancesegmentclass
 from stream2segment.process.writers import BaseWriter
 from stream2segment.io.utils import dumps_inv
 
@@ -114,39 +113,37 @@ class Test(object):
         seg_with_inv = \
             db4process.segments(with_inventory=True, with_data=True, with_gap=False).one()
         sta_with_inv_id = seg_with_inv.station.id
-        with enhancesegmentclass():
-            invcache = {}
-            prev_staid = None
-            with enhancesegmentclass({}, overwrite_config=True):
-                for (segid, staid) in segids:
-                    assert prev_staid is None or staid >= prev_staid
-                    staequal = prev_staid is not None and staid == prev_staid
-                    prev_staid = staid
-                    segment = session.query(Segment).filter(Segment.id == segid).first()
-                    sta = segment.station
-                    segment.station._inventory = invcache.get(sta.id, None)
+        invcache = {}
+        prev_staid = None
+        for (segid, staid) in segids:
+            assert prev_staid is None or staid >= prev_staid
+            staequal = prev_staid is not None and staid == prev_staid
+            prev_staid = staid
+            segment = session.query(Segment).filter(Segment.id == segid).first()
+            sta = segment.station
+            segment.station._inventory = invcache.get(sta.id, None)
 
-                    mock_getinv.reset_mock()
-                    if sta.id != sta_with_inv_id:
-                        with pytest.raises(Exception):  # all inventories are None
-                            segment.inventory()
-                        assert mock_getinv.called
-                        # re-call it and assert we raise the previous Exception:
-                        ccc = mock_getinv.call_count
-                        with pytest.raises(Exception):  # all inventories are None
-                            segment.inventory()
-                        assert mock_getinv.call_count == ccc
-                    else:
-                        invcache[sta.id] = segment.inventory()
-                        if staequal:
-                            assert not mock_getinv.called
-                        else:
-                            assert mock_getinv.called
-                        assert len(segment.station.inventory_xml) > 0
-                    segs = segment.siblings().all()
-                    # as channel's channel is either 'ok' or 'err' we should never have
-                    # other components
-                    assert len(segs) == 0
+            mock_getinv.reset_mock()
+            if sta.id != sta_with_inv_id:
+                with pytest.raises(Exception):  # all inventories are None
+                    segment.inventory()
+                assert mock_getinv.called
+                # re-call it and assert we raise the previous Exception:
+                ccc = mock_getinv.call_count
+                with pytest.raises(Exception):  # all inventories are None
+                    segment.inventory()
+                assert mock_getinv.call_count == ccc
+            else:
+                invcache[sta.id] = segment.inventory()
+                if staequal:
+                    assert not mock_getinv.called
+                else:
+                    assert mock_getinv.called
+                assert len(segment.station.inventory_xml) > 0
+            segs = segment.siblings().all()
+            # as channel's channel is either 'ok' or 'err' we should never have
+            # other components
+            assert len(segs) == 0
 
         # NOW TEST OTHER ORIENTATION PROPERLY. WE NEED TO ADD WELL FORMED SEGMENTS WITH CHANNELS
         # WHOSE ORIENTATION CAN BE DERIVED:
@@ -175,13 +172,12 @@ class Test(object):
         # start testing:
         segids = query4process(session, {}).all()
 
-        with enhancesegmentclass():
-            for (segid, staid) in segids:
-                segment = session.query(Segment).filter(Segment.id == segid).first()
-                segs = segment.siblings()
-                if segs.all():
-                    assert segment.id in (sg1.id, sg2.id, sg3.id)
-                    assert len(segs.all()) == 2
+        for (segid, staid) in segids:
+            segment = session.query(Segment).filter(Segment.id == segid).first()
+            segs = segment.siblings()
+            if segs.all():
+                assert segment.id in (sg1.id, sg2.id, sg3.id)
+                assert len(segs.all()) == 2
 
     # Recall: we have 6 segments, issued from all combination of
     # station_inventory in [true, false] and segment.data in [ok, with_gaps, empty]

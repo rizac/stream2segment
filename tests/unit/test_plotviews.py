@@ -5,37 +5,34 @@ Created on Jul 15, 2016
 '''
 from builtins import str, range
 import os
+import sys
+from contextlib import contextmanager
 from io import BytesIO
 from datetime import datetime, timedelta
-import time
 from itertools import product
 from mock.mock import patch
-from contextlib import contextmanager
 
 import pytest
 import numpy as np
 import pandas as pd
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, load_only
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError, DataError
-from sqlalchemy.orm.exc import FlushError
-from sqlalchemy.orm.attributes import InstrumentedAttribute
-from sqlalchemy.inspection import inspect
-from sqlalchemy.orm.session import object_session
-from sqlalchemy.sql.expression import func, bindparam, and_
+# from sqlalchemy import create_engine
+# from sqlalchemy.orm import sessionmaker, load_only
+# from sqlalchemy.exc import IntegrityError, SQLAlchemyError, DataError
+# from sqlalchemy.orm.exc import FlushError
+# from sqlalchemy.orm.attributes import InstrumentedAttribute
+# from sqlalchemy.inspection import inspect
+# from sqlalchemy.orm.session import object_session
+from sqlalchemy.sql.expression import and_
 from obspy.core.stream import read, Stream
 from obspy.core.utcdatetime import UTCDateTime
 
 from stream2segment.io.db.models import Base, Event, WebService, Channel, Station, \
     DataCenter, Segment, Class, Download, ClassLabelling, withdata
-from stream2segment.io.db.pdsql import _harmonize_columns, harmonize_columns, \
-    harmonize_rows, colnames, dbquery2df
-from stream2segment.io.utils import dumps_inv, loads_inv
 from stream2segment.utils import load_source
 from stream2segment.utils.resources import yaml_load, get_templates_fpaths
 from stream2segment.gui.webapp.mainapp.plots.core import PlotManager, LimitedSizeDict, \
     InventoryCache, _default_size_limits
-from stream2segment.process.utils import get_inventory as original_get_inventory,\
+from stream2segment.process.db import get_inventory as original_get_inventory,\
     get_stream as original_get_stream
 
 
@@ -213,8 +210,8 @@ class Test(object):
             n += num
         return n
 
-    @patch('stream2segment.process.utils.get_inventory')
-    @patch('stream2segment.process.utils.get_stream')
+    @patch('stream2segment.process.db.get_inventory')
+    @patch('stream2segment.process.db.get_stream')
     def test_view_other_comps(self, mock_get_stream, mock_get_inv, db):
 
         components_count = {}  # group_id -> num expected components

@@ -24,6 +24,7 @@ import warnings
 import inspect
 from multiprocessing import Pool, cpu_count
 import signal
+from itertools import chain, repeat
 
 from future.utils import itervalues
 
@@ -32,10 +33,9 @@ import numpy as np
 from sqlalchemy import func
 # from sqlalchemy.orm import load_only
 
-from stream2segment.process.utils import enhancesegmentclass, set_classes, get_slices
 from stream2segment.io.db.sqlevalexpr import exprquery
 from stream2segment.utils import get_progressbar, StringIO
-from stream2segment.process.db import get_session
+from stream2segment.process.db import get_session, configure_classes
 from stream2segment.io.db.models import Segment, Station, Event, Channel
 from stream2segment.utils.inputargs import load_pyfunc
 
@@ -126,13 +126,12 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
     logger.info('')
     # set/update classes, if written in the config, so that we can set instance classes in the
     # processing, if we want:
-    set_classes(session, config)
+    configure_classes(session, config.get('class_labels', []))
 
     session.close()  # expunge all, clear all states
 
     with writer:
         with create_processing_env(seg_len if show_progress else 0,
-                                   config=None if multi_process else config,
                                    redirect_stderr=True,
                                    # redirect stderr from the main process (i.e., here)
                                    # as The main process and the children all share the same
@@ -284,7 +283,7 @@ def process_segments_mp(args):
     session = get_session(dburl)
     ret = []
 
-    with create_processing_env(0, config, redirect_stderr=False, warnings_filter='ignore'):
+    with create_processing_env(0, redirect_stderr=False, warnings_filter='ignore'):
         try:
             for output, is_ok, segment_id, station_id, inventory in \
                         process_segments(session, seg_sta_chunk, config, pyfunc):
@@ -405,35 +404,33 @@ def joinandorder(query):
 
 
 @contextmanager
-def create_processing_env(length=0, config=None, redirect_stderr=False, warnings_filter=None):
+def create_processing_env(length=0, redirect_stderr=False, warnings_filter=None):
     '''Context manager to be used in a with statement, returns the progress bar
     which can be called with pbar.update(int). The latter is no-op if length ==0
 
     Typical usage without multi-processing from the main function (activate all 'with' statements):
     ```
-        with create_proc_env(10, config, redirect_stderr=True, 'ignore') as pbar:
+        with create_proc_env(10, redirect_stderr=True, 'ignore') as pbar:
             ...
             pbar.update(1)
     ```
-    Typical usage with multi-processing from the main function (activate only progressbar 'with'
-    statement):
+    Typical usage with multi-processing from the main function (activate only progressbar 's
+    'with' statement):
     ```
-        with create_proc_env(10, None, redirect_stderr=True, None) as pbar:
+        with create_proc_env(10, redirect_stderr=True, None) as pbar:
             ...
             pbar.update(1)
     ```
-    Typical usage with multi-processing from a child process  (activate all but progressbar 'with'
-    statement):
+    Typical usage with multi-processing from a child process  (activate all but progressbar's
+    'with' statement):
     ```
-        with create_proc_env(0, config, redirect_stderr=False, 'ignore') as pbar:
+        with create_proc_env(0, redirect_stderr=False, 'ignore') as pbar:
             ...
             pbar.update(1)
     ```
 
     :param length: the number of tasks to be done. If zero, the returned progressbar will
     be no-op. Otherwise, it is an object which updates a progressbar on terminal
-    :param config: if None, it does not enhance the Segment class. Otherwise, it adds to it
-    methods for processing (e.g., segment.stream())
     :param redirect_stderr: if True, captures the output of all C external functions and does not
     print them to the screen, as it might be the case with some obspy C-imported libraries
     :param warnings_filter: if None, it does not capture python warnings. Otherwise it denotes the
@@ -441,15 +438,7 @@ def create_processing_env(length=0, config=None, redirect_stderr=False, warnings
     '''
     with get_progressbar(length > 0, length=length) as pbar:  # no-op if length not > 0
         with redirect(sys.stderr if redirect_stderr else None):   # no-op if redirect_stderr=None
-            if config is not None and warnings_filter:
-                with warnings.catch_warnings():
-                    warnings.simplefilter(warnings_filter)
-                    with enhancesegmentclass(config):
-                        yield pbar
-            elif config is not None:
-                with enhancesegmentclass(config):
-                    yield pbar
-            elif warnings_filter:
+            if warnings_filter:
                 with warnings.catch_warnings():
                     warnings.simplefilter(warnings_filter)
                     yield pbar
@@ -517,3 +506,31 @@ def redirect(src=None, dst=os.devnull):
         finally:
             # restore stdout/err. buffering and flags such as CLOEXEC may be different:
             _redirect_to(src_fileobject)
+
+
+def get_slices(array, chunksize):
+    '''Divides len(array)
+    by `chunksize` yielding the array slices until exaustion.
+    If `array` is an integer, it denotes the length of the array and the tuples (start, end)
+    will be yielded.
+    This method intelligently re-arranges the (start, end) indices in order to optimize the
+    number of iterations yielded. ``
+    '''
+    if hasattr(array, '__len__'):
+        total = len(array)  # == array.shape[0] in case of numpy arrays
+    else:
+        total = array
+        array = None
+    rem = total % chunksize
+    quot = int(total / chunksize)
+    if rem == 0:
+        iterable = repeat(chunksize, quot)
+    elif quot > rem:
+        iterable = chain(repeat(chunksize+1, rem), repeat(chunksize, quot-rem))
+    else:
+        iterable = chain(repeat(chunksize, quot), [rem])
+    start = end = 0
+    for chunk in iterable:
+        start = end
+        end = start + chunk
+        yield array[start:end] if array is not None else (start, end)

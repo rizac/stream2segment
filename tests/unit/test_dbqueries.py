@@ -4,28 +4,21 @@ Created on Jul 15, 2016
 @author: riccardo
 '''
 from builtins import zip, str
+import sys
 import os
 from datetime import datetime, timedelta
 import time
 
 import pytest
-import numpy as np
-import pandas as pd
-from sqlalchemy import create_engine
+# import numpy as np
+# import pandas as pd
 from sqlalchemy.orm import sessionmaker, load_only
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError, DataError
-from sqlalchemy.orm.exc import FlushError
-from sqlalchemy.orm.attributes import InstrumentedAttribute
-from sqlalchemy.inspection import inspect
-from sqlalchemy.orm.session import object_session
-from sqlalchemy.sql.expression import func, bindparam
+from sqlalchemy import and_, or_
 
-from stream2segment.io.db.models import Base, Event, WebService, Channel, Station, \
+from stream2segment.io.db.models import Event, WebService, Channel, Station, \
     DataCenter, Segment, Class, Download, ClassLabelling, withdata
-from stream2segment.io.db.pdsql import _harmonize_columns, harmonize_columns, \
-    harmonize_rows, colnames, dbquery2df
-from stream2segment.io.utils import dumps_inv, loads_inv
-from stream2segment.process.utils import enhancesegmentclass
+# THIS IS NECESSARY TO LOAD THE CORRECT BASE (with onbspy stuff):
+from stream2segment.process.db import Base
 
 class Test(object):
 
@@ -34,7 +27,7 @@ class Test(object):
     @pytest.fixture(autouse=True)
     def init(self, request, db, data):
         # re-init:
-        db.create(to_file=False)
+        db.create(to_file=False, base=Base)
 
         dc= DataCenter(station_url="345fbgfnyhtgrefs", dataselect_url='edfawrefdc')
         db.session.add(dc)
@@ -68,22 +61,22 @@ class Test(object):
         run = db.session.query(Download).first()
 
         channels = [
-            Channel(location= '00', channel='HHE', sample_rate=6),
-            Channel(location= '00', channel='HHN', sample_rate=6),
-            Channel(location= '00', channel='HHZ', sample_rate=6),
-            Channel(location= '00', channel='HHW', sample_rate=6),
+            Channel(location='00', channel='HHE', sample_rate=6),
+            Channel(location='00', channel='HHN', sample_rate=6),
+            Channel(location='00', channel='HHZ', sample_rate=6),
+            Channel(location='00', channel='HHW', sample_rate=6),
 
-            Channel(location= '10', channel='HHE', sample_rate=6),
-            Channel(location= '10', channel='HHN', sample_rate=6),
-            Channel(location= '10', channel='HHZ', sample_rate=6),
+            Channel(location='10', channel='HHE', sample_rate=6),
+            Channel(location='10', channel='HHN', sample_rate=6),
+            Channel(location='10', channel='HHZ', sample_rate=6),
 
-            Channel(location= '', channel='HHE', sample_rate=6),
-            Channel(location= '', channel='HHN', sample_rate=6),
+            Channel(location='', channel='HHE', sample_rate=6),
+            Channel(location='', channel='HHN', sample_rate=6),
 
-            Channel(location= '30', channel='HHZ', sample_rate=6)]
+            Channel(location='30', channel='HHZ', sample_rate=6)]
         # expected lengths when querying for gui below. CHANGE THIS
         # IF YOU CHANGE THE PREVIOUS channels VARIABLE
-        expected_lengths = [4,4,4,4,3,3,3,2,2,1]
+        expected_lengths = [4, 4, 4, 4, 3, 3, 3, 2, 2, 1]
 
         s.channels.extend(channels)
         db.session.commit()
@@ -93,9 +86,9 @@ class Test(object):
                     event_distance_deg=9,
                     arrival_time=datetime.utcnow(),
                     data=b'',
-                    event_id = e.id,
-                    datacenter_id = dc.id,
-                    download_id = run.id)
+                    event_id=e.id,
+                    datacenter_id=dc.id,
+                    download_id=run.id)
         segments = []
         # and now it will work:
         for c in channels:
@@ -104,9 +97,8 @@ class Test(object):
         db.session.add_all(segments)
         db.session.commit()
 
-        with enhancesegmentclass():
-            for leng, segment in zip(expected_lengths, segments):
-                # assert the other segments are the expected lengh. Note that leng INCLUDES current
-                # segment whereas siblings DOES NOT. So compare to leng-1:
-                assert segment.siblings(colname='id').count() == leng-1
-                # assert getallcomponents(db.session, segment.id).count() == leng
+        for leng, segment in zip(expected_lengths, segments):
+            # assert the other segments are the expected lengh. Note that leng INCLUDES current
+            # segment whereas siblings DOES NOT. So compare to leng-1:
+            assert segment.siblings().count() == leng-1
+            # assert getallcomponents(db.session, segment.id).count() == leng

@@ -13,8 +13,8 @@ import pytest
 import numpy as np
 from obspy.core.stream import read
 
-from stream2segment.process.utils import get_stream, get_slices
-
+from stream2segment.process.db import get_stream
+from stream2segment.process.main import get_slices
 
 class MockSegment(object):
      def __init__(self, data):

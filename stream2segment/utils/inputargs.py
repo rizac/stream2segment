@@ -15,7 +15,7 @@ from future.utils import string_types
 
 from stream2segment.utils.resources import yaml_load, get_ttable_fpath, \
     get_templates_fpath, normalizedpath
-from stream2segment.utils import strptime, load_source
+from stream2segment.utils import strptime, load_source, _get_session
 from stream2segment.traveltimes.ttloader import TTTable
 from stream2segment.io.db.models import Fdsnws
 from stream2segment.download.utils import Authorizer, EVENTWS_MAPPING,\
@@ -289,10 +289,11 @@ def get_session(dburl, for_process=False):
     if not isinstance(dburl, string_types):
         raise TypeError('string required, %s found' % str(type(dburl)))
     if for_process:
-        from stream2segment.process.db import get_session as sess_func
+        from stream2segment.process.db import get_session as _sess_func
     else:
-        from stream2segment.io.db import get_session as sess_func
-    return sess_func(dburl, scoped=False)
+        _sess_func = _get_session
+
+    return _sess_func(dburl)
 
 
 def create_auth(restricted_data, dataws, configfile=None):

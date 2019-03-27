@@ -26,6 +26,7 @@ from stream2segment.io.db.models import Base, Event, DataCenter, WebService, Dow
 from stream2segment.traveltimes.ttloader import TTTable
 from stream2segment.utils.resources import yaml_load
 from stream2segment.io.utils import dumps_inv
+from stream2segment.process.db import _toggle_enhance_segment
 
 
 # https://docs.pytest.org/en/3.0.0/parametrize.html#basic-pytest-generate-tests-example
@@ -320,7 +321,7 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
             self._session = None
             self.engine = None
 
-        def create(self, to_file=False, base=None):
+        def create(self, to_file=False, process=False):
             '''creates the database, deleting it if already existing (i.e., if this method
             has already been called and self.delete has not been called).
             :param to_file: boolean (False by default) tells whether, if the url denotes sqlite,
@@ -337,9 +338,11 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
 
             self.engine = create_engine(self.dburl)
             # Base.metadata.drop_all(self.engine)  # @UndefinedVariable
-            if base is not None:
-                self._base = base
-            self._base.metadata.create_all(self.engine)  # @UndefinedVariable
+#             if base is not None:
+#                 self._base = base
+            if process:
+                _toggle_enhance_segment(True)
+            Base.metadata.create_all(self.engine)  # @UndefinedVariable
 
         @property
         def session(self):
@@ -378,6 +381,9 @@ def db(request, tmpdir_factory):  # pylint: disable=invalid-name
                 except:  # @IgnorePep8 pylint: disable=bare-except
                     pass
                 self.engine.dispose()
+
+            # clear enhanced segment:
+            _toggle_enhance_segment(False)
 
             # clear file if sqlite:
             sqlite = "sqlite:///"
@@ -419,11 +425,11 @@ def db4process(db, data):
             data_seed_id += 'ok' if with_data else ('gap' if with_gap else 'no')
             return self.session.query(Segment).filter(Segment.data_seed_id == data_seed_id)
 
-        def create(self, to_file=False, base=None):
+        def create(self, to_file=False):
             '''Calls db.create and then populates the database with the data for processing
             tests'''
             # re-init a sqlite database (no-op if the db is not sqlite):
-            db.create(to_file, base)
+            db.create(to_file, True)
             # init db:
             session = db.session
 
