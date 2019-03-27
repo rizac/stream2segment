@@ -459,26 +459,36 @@ segment methods:
   for removing the instrumental response from `segment.stream()`: note that it will be available
   only if the inventories in xml format were downloaded in the downloaded subroutine
 
-* segment.sn_windows(): returns the signal and noise time windows:
+* segment.sn_windows(length, shift): returns the signal and noise time windows:
   (s_start, s_end), (n_start, n_end)
   where all elements are `UTCDateTime`s. The windows are computed according to
-  the settings of the associated configuration file: `config['sn_windows']`). Example usage:
-  `
-  sig_wdw, noise_wdw = segment.sn_windows()
+  the arguments:
+  - length: a float defining the windows length, in seconds. It can be also a two elements
+    list/tuple denoting how to compute the window with respect to the waveform cumulative
+    sum of squares (cumsum) after the arrival time: e.g., [0.05, 0.95] computes the window at the
+    times cumsum reaches the 5% and 95%, respectively.
+  - shift (defaults to 0 when missing): number of seconds to shift each segment's arrival
+    time (negative values allowed)
+
+  The settings of the associated configuration file: `config['sn_windows']`) can be used.
+  Example:
+
+  snw = config['sn_windows']
+  sig_wdw, noise_wdw = segment.sn_windows(snw['signal_window'], snw['arrival_time_shift'])
   stream_noise = segment.stream().copy().trim(*noise_wdw, ...)
   stream_signal = segment.stream().copy().trim(*sig_wdw, ...)
 
-* segment.siblings(parent=None): returns an iterable of siblings of this segment. `parent` can be
+* segment.siblings(parent=None, condition): returns an iterable of siblings of this segment.
+  `parent` can be
   any of the following: missing or None: returns all segments of the same recorded event, on the
   other channel components / orientations. 'stationname': returns all segments of the
   same station, identified by the tuple of the codes (newtwork, station). 'networkname':
   returns all segments of the same network (network code). 'datacenter',
   'event', 'station', 'channel': returns all segments of the same datacenter, event,
   station or channel, all identified by the associated database id.
-  NOTES: 1. The returned segment list is always a subset of the segments selected for processing
-  (see configuration file). Thus, if there are N sibling segments in the
-  database according to the given `parent` argument, this method returns 0 <= M <= N siblings.
-  2. Use with care when providing a `parent` argument, as the amount of segments might be huge
+  `condition` is a dict of expression to filter the returned element. the argument
+  `config['segment_select]` can be passed here to return only siblings selected for processing.
+  NOTE: Use with care when providing a `parent` argument, as the amount of segments might be huge
   (up to hundreds of thousands of segments). The amount of returned segments is increasing
   (non linearly) according to the following order of the `parent` argument:
   'channel', 'station', 'stationname', 'networkname', 'event' or 'datacenter'
@@ -513,9 +523,10 @@ segment methods:
       segment.stream().write(segment.sds_path() + '.mseed', format='MSEED')
   ```
 
-* segment.dbsession(): WARNING: this is for advanced users experienced with SQLAlchemy library:
-  returns the database session for custom IO operations with the database
-
+* segment.dbsession(): returns the database session for custom IO operations with the database.
+  WARNING: this is for advanced users experienced with SQLAlchemy library. If you want to
+  use it you probably want to import stream2segment in custom code. See the github documentation
+  in case
 
 segment attributes:
 -------------------
