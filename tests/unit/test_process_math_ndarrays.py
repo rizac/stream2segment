@@ -5,20 +5,16 @@ Created on Feb 23, 2016
 '''
 from __future__ import division
 
-import mock
 import os
 import sys
-import re
-import argparse
-from mock.mock import patch, Mock
-from itertools import count
 
+import mock
+from mock.mock import patch
 from past.utils import old_div
 import pytest
 import numpy as np
 from numpy import true_divide as np_true_divide
-import pandas as pd
-from scipy.signal import hilbert
+
 
 from stream2segment.process.math.ndarrays import cumsumsq, argtrim, snr, dfreq, freqs, powspec, \
     triangsmooth

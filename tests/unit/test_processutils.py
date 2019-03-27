@@ -4,11 +4,12 @@ Created on Oct 7, 2017
 @author: riccardo
 '''
 import os
-from mock import patch
+import sys
 from io import BytesIO
 import time
 from tempfile import NamedTemporaryFile
 
+from mock import patch
 import pytest
 import numpy as np
 from obspy.core.stream import read
@@ -17,8 +18,8 @@ from stream2segment.process.db import get_stream
 from stream2segment.process.main import get_slices
 
 class MockSegment(object):
-     def __init__(self, data):
-         self.data = data
+    def __init__(self, data):
+        self.data = data
 
 
 @patch('obspy.core.stream.NamedTemporaryFile', return_value=NamedTemporaryFile())
@@ -56,7 +57,7 @@ def test_get_stream(mock_ntf, data):
                            ((339, 113), [(0, 113), (113, 226), (226, 339)])
                            ],
                         )
-def test_getindices(input, expected_result):
+def test_get_slices(input, expected_result):
     expected_list = list(range(input[0]))
     assert len(expected_list) == input[0]
     real_list = []

@@ -6,7 +6,7 @@ Created on Sep 4, 2017
 from __future__ import division
 
 from builtins import zip, str
-from os.path import dirname, join, isfile
+from os.path import isfile
 
 from past.utils import old_div
 import numpy as np
@@ -15,9 +15,7 @@ import pytest
 from click.testing import CliRunner
 
 from stream2segment.cli import ttcreate
-from stream2segment.traveltimes.ttloader import TTTable
-from stream2segment.traveltimes import ttcreator
-from stream2segment.traveltimes.ttcreator import _filepath, StepIterator, min_traveltimes,\
+from stream2segment.traveltimes.ttcreator import _filepath, StepIterator,\
     min_traveltime
 
 

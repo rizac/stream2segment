@@ -22,18 +22,15 @@ try:
 except ImportError:
     from io import StringIO
 
-import numpy as np
 import pandas as pd
 import pytest
 
-from stream2segment.io.db.models import Base, Event, Class, Fdsnws, DataCenter, Segment, \
-    Download, Station, Channel, WebService
+from stream2segment.io.db.models import Event, Download, WebService
 from stream2segment.download.modules.events import get_events_df, isf2text_iter,\
     _get_freq_mag_distrib, islocalfile as o_islocalfile
-from stream2segment.download.utils import NothingToDownload, FailedDownload, Authorizer,\
-    response2normalizeddf
-from stream2segment.utils.url import read_async, URLError, HTTPError, responses
-from stream2segment.utils.resources import get_templates_fpath, yaml_load, get_ttable_fpath
+from stream2segment.download.utils import FailedDownload, response2normalizeddf
+from stream2segment.utils.url import URLError, HTTPError, responses
+from stream2segment.utils.resources import get_templates_fpath, yaml_load
 from stream2segment.utils import urljoin
 
 query_logger = logger = logging.getLogger("stream2segment")

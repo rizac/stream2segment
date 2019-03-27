@@ -5,21 +5,13 @@ Created on May 12, 2017
 '''
 from __future__ import division
 
-from builtins import range
-from io import BytesIO
+import sys
 import os
-from datetime import datetime
-from mock.mock import patch, Mock
 
 import pytest
-from past.utils import old_div
 import numpy as np
-from numpy.fft import rfft
-from numpy import true_divide as np_true_divide
-from obspy.core.stream import read as o_read
-from obspy.core.utcdatetime import UTCDateTime
 
-from stream2segment.process.math.traces import fft, cumsumsq, cumtimes
+from stream2segment.process.math.traces import cumsumsq, cumtimes
 
 
 class Test(object):
