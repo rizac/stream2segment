@@ -7,19 +7,15 @@ Created on Feb 4, 2016
 from __future__ import print_function
 
 from builtins import zip
-from datetime import datetime, timedelta
-import re
-from mock import patch, Mock
-from itertools import count, product
+from datetime import datetime
+from itertools import count
 import time
 
 import pytest
 import numpy as np
 import pandas as pd
-from obspy.geodetics.base import locations2degrees  as obspyloc2deg
-from obspy.taup.tau_model import TauModel
+from obspy.geodetics.base import locations2degrees as obspyloc2deg
 
-from stream2segment.download.main import get_datacenters_df
 from stream2segment.io.db.models import DataCenter
 from stream2segment.download.modules.stationsearch import locations2degrees as s2sloc2deg,\
     get_search_radius
@@ -41,6 +37,7 @@ def test_loc2deg(lat1, lon1, lat2, lon2):
     else:
         assert np.array_equal(s2sloc2deg(lat1, lon1, lat2, lon2),
                               np.asarray(obspyloc2deg(lat1, lon1, lat2, lon2)))
+
 
 # this is not run as tests, if you want name it test_.. or move it elsewhere to
 # see perf differences between obspy loc2deg and s2s loc2deg
