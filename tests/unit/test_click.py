@@ -40,7 +40,7 @@ def download_setup(pytestdir):
 
 @patch("stream2segment.main.configlog4download")
 @patch("stream2segment.main.new_db_download")
-@patch("stream2segment.utils.inputargs.create_session")
+@patch("stream2segment.utils.inputargs.get_session")
 @patch("stream2segment.main.run_download", return_value=0)
 def test_click_download(mock_download, mock_create_sess, mock_new_db_download,
                         mock_configlog4download, download_setup):
