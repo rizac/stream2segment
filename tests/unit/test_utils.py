@@ -3,24 +3,22 @@ Created on Dec 12, 2016
 
 @author: riccardo
 '''
+from builtins import range, object
 
 from itertools import product
-
-from builtins import range, object, str
-
-from io import StringIO
-from datetime import datetime, timedelta
+from io import StringIO, BytesIO
+from datetime import timedelta
 import socket
+
 import mock
 from mock import patch
-from io import BytesIO
-
 import pytest
 from click.termui import progressbar
 
 from stream2segment.utils.url import urlread, URLException, URLError, HTTPError, Request
 from stream2segment.utils import secure_dburl, get_progressbar, Nop, strconvert, strptime
 from stream2segment.download.utils import formatmsg
+
 
 DEFAULT_TIMEOUT = socket._GLOBAL_DEFAULT_TIMEOUT
 

@@ -3,16 +3,13 @@ Created on Nov 18, 2016
 
 @author: riccardo
 '''
-from builtins import str
 from builtins import next
-import time
 import threading
-import mock
-from mock import patch
-from itertools import product, cycle
-from time import sleep
+from itertools import cycle
 from subprocess import call
 
+import mock
+from mock import patch
 import pytest
 
 from stream2segment.utils.url import _ismainthread, read_async
@@ -28,10 +25,10 @@ class Test(object):
         
         self.urls = ["http://sdgfjvkherkdfvsffd",
                      "http://www.google.com", 
-#                      "http://www.apple.com",
-#                      "http://www.microsoft.com",
-#                      "http://www.amazon.com",
-#                      "http://www.facebook.com"
+                     # "http://www.apple.com",
+                     # "http://www.microsoft.com",
+                     # "http://www.amazon.com",
+                     # "http://www.facebook.com"
                     ]
         self.thread = threading.current_thread()
         
