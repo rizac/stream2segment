@@ -24,12 +24,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from stream2segment.io.db.models import Base, Event, Class, Fdsnws, DataCenter, Segment, \
-    Download, Station, Channel, WebService
+from stream2segment.io.db.models import DataCenter, Download, Station, Channel
 from stream2segment.download.modules.events import get_events_df
 from stream2segment.download.modules.datacenters import get_datacenters_df
 from stream2segment.download.modules.channels import get_channels_df
-
 from stream2segment.download.utils import FailedDownload
 from stream2segment.io.db.pdsql import dbquery2df
 from stream2segment.utils.url import URLError, HTTPError, responses
@@ -38,9 +36,11 @@ from stream2segment.utils.resources import get_templates_fpath, yaml_load
 
 query_logger = logger = logging.getLogger("stream2segment")
 
+
 @pytest.fixture(scope='module')
 def tt_ak135_tts(request, data):
     return data.read_tttable('ak135_tts+_5.npz')
+
 
 class Test(object):
 

@@ -29,19 +29,21 @@ except ImportError:
 import pandas as pd
 import pytest
 
-from stream2segment.io.db.models import Base, Event, Class, Fdsnws, DataCenter, Segment, \
-    Download, Station, Channel, WebService
+from stream2segment.io.db.models import DataCenter, Download
 from stream2segment.download.modules.datacenters import get_datacenters_df
 from stream2segment.download.utils import FailedDownload
 from stream2segment.utils.url import URLError, HTTPError, responses
 from stream2segment.utils.resources import get_templates_fpath, yaml_load
 from stream2segment.utils import urljoin as original_urljoin
 
+
 query_logger = logger = logging.getLogger("stream2segment")
+
 
 @pytest.fixture(scope='module')
 def tt_ak135_tts(request, data):
     return data.read_tttable('ak135_tts+_5.npz')
+
 
 class Test(object):
 
