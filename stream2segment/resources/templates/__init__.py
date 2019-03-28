@@ -512,12 +512,8 @@ segment methods:
 
 * segment.sds_path(root='.'): Returns the segment's file path in a seiscomp data
   structure (SDS) format:
-     <root>/<net>/<sta>/<loc>/<cha>.D/<net>.<sta>.<loc>.<cha>.<year>.<day>.<event_id>
+     <root>/<event_id>/<net>/<sta>/<loc>/<cha>.D/<net>.<sta>.<loc>.<cha>.<year>.<day>
   See https://www.seiscomp3.org/doc/applications/slarchive/SDS.html for details.
-  Note that the last token 'event_id' is not SDS standard. Called the returnedd path 's',
-  you can remove it by calling:
-  `s[:s.rfind('.')]`
-  but this might result in two different segments returning the same string.
   Example: to save the segment's waveform as miniSEED you can type (explicitly
   adding the file extension '.mseed' to the output path):
   ```

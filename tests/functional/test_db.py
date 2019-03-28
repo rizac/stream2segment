@@ -564,13 +564,14 @@ class Test(object):
                             seg__1.channel.channel)) in p
         assert str(seg__1.request_start.year) + os.sep in p
         assert "." + str(seg__1.request_start.year) + "." in p
-        assert p.startswith("." + os.sep)
-        assert p.endswith("." + str(seg__1.event_id))
-        assert len(p.split('.')[-2]) == 3
+        assert p.startswith("." + os.sep + str(seg__1.event_id) + os.sep)
+        # assert last token (day) has 3 digits (padded with zero in case):
+        assert len(p.split('.')[-1]) == 3
 
         p = seg__1.sds_path('abcdefghijklm')
-        assert p.startswith('abcdefghijklm' + os.sep)
-        assert len(p.split('.')[-2]) == 3
+        assert p.startswith('abcdefghijklm' + os.sep + str(seg__1.event_id) + os.sep)
+        # assert last token (day) has 3 digits (padded with zero in case):
+        assert len(p.split('.')[-1]) == 3
 
         ###########################################
         #

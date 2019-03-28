@@ -691,10 +691,7 @@ class Segment(Base):
         where to store the given segment or any data associated with it.
         The returned path has no extension (to be supplied by the user)
         and has the following format:
-        <root>/<net>/<sta>/<loc>/<cha>.D/<net>.<sta>.<loc>.<cha>.<year>.<day>.<event_id>
-        Note that the last <event_id> is NOT a standard in sds but it is needed to
-        differentiate event-based segments. In any case, to get the
-        sds standard path, call :```sds[:sds.rfind('.')]```.
+        <root>/<event_id>/<net>/<sta>/<loc>/<cha>.D/<net>.<sta>.<loc>.<cha>.<year>.<day>
         For info see:
         https://www.seiscomp3.org/doc/applications/slarchive/SDS.html
         '''
@@ -706,8 +703,8 @@ class Segment(Base):
         # day is in [1, 366], padded with zeroes:
         day = '%03d' % ((seg_dtime - datetime(year, 1, 1)).days + 1)
         eid = self.event_id
-        return os.path.join(root, str(year), net, sta, loc, cha + ".D",
-                            '.'.join((net, sta, loc, cha, str(year), day, str(eid))))
+        return os.path.join(root, str(eid), str(year), net, sta, loc, cha + ".D",
+                            '.'.join((net, sta, loc, cha, str(year), day)))
 
     def del_classes(self, *ids_or_labels, **kwargs):
         '''deletes segment classes
