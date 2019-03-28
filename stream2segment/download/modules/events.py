@@ -136,7 +136,7 @@ def is_isf(filepath):
 
 
 def tofileuri(file_path):
-    '''returns a file uri form thegiven file, basically file:///+file_path'''
+    '''returns a file uri form thegiven file, basically file:///+basename(file_path)'''
     # https://en.wikipedia.org/wiki/File_URI_scheme#Format
     # return 'file:///' + os.path.abspath(os.path.normpath(file_path))
     return 'file:///' + os.path.basename(file_path)
