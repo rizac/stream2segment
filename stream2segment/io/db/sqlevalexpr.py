@@ -20,7 +20,6 @@ from sqlalchemy.orm.attributes import QueryableAttribute
 from sqlalchemy.exc import NoInspectionAvailable
 from sqlalchemy.orm.collections import InstrumentedList, InstrumentedSet,\
     InstrumentedDict
-from sqlalchemy.orm import mapper
 
 # from sqlalchemy.exc import InvalidRequestError
 
@@ -359,7 +358,20 @@ def get_pytype(sqltype):
 
 class Inspector(object):
     '''Class for inspecting a ORM model (Python class) or an instance (Python object)
-    reflecting a database row'''
+    reflecting a database row.
+    Usage:
+
+    insp = Inspector(model_or_instance)
+
+    # get attribute names matching criteria:
+    attnames = insp.attnames(insp.PKEY | insp.COL, ...)
+
+    # get types
+    atttypes = [insp.atttype(_) for _ in attnames]
+
+    # get att. values:
+    attvalues = [insp.attval(_) for _ in attnames]
+    '''
 
     PKEY = 1
     FKEY = 2
@@ -381,11 +393,12 @@ class Inspector(object):
             mapper = inspect(model_or_instance)
         except NoInspectionAvailable:
             return
-    
-        if mapper is model_or_instance:  # this happens when the object has anything to inspect, eg.
-            # an AppenderQuery object resulting from some relationship configured in some particular way
+
+        if mapper is model_or_instance:  # this happens when the object has anything to inspect,
+            # e.g., an AppenderQuery object resulting from some relationship configured in some
+            # particular way
             return
-    
+
         # if model_or_instance is an instance, reload Mapper on the model:
         _real_model = model_or_instance
         self.instance = None
@@ -399,7 +412,7 @@ class Inspector(object):
         # To be clear, when writing
         # class Table:
         #     id = Column(...)
-        # 
+        #
         # you might expect that Table.id is a Column object. It is indeeed an
         # InstrumentedAttribute (subclass of QueryableAttribute). To get the column
         # we should do ` mapper(Table).columns` which returns a dict-like object of names
@@ -502,14 +515,13 @@ class Inspector(object):
             ret.extend(self._matchingnames(self.qanames, sort, exclude))
 
         if flags & self.REL:
-            for _ in sorted(self.relnames) if sort else self.relnames:
-                if _ not in exclude:
-                    if deep:
-                        inspector = Inspector(self.relatedmodel(_))
-                        for __ in inspector.attnames(flags - self.REL, sort, False, exclude):
-                            ret.append('%s.%s' % (_, __))
-                    else:
-                        ret.append(_)
+            for _ in self._matchingnames(self.relnames, sort, exclude):
+                if deep:
+                    inspector = Inspector(self.relatedmodel(_))
+                    for __ in inspector.attnames(flags - self.REL, sort, False, exclude):
+                        ret.append('%s.%s' % (_, __))
+                else:
+                    ret.append(_)
 
         return ret
 
@@ -557,11 +569,12 @@ class Inspector(object):
         try:
             return getattr(obj, aname)
         except AttributeError:
-            if isinstance(obj, (InstrumentedList, InstrumentedSet)):
-                ret = [getattr(subobj, aname) for subobj in obj]
-                return ret if isinstance(obj, InstrumentedList) else set(ret)
-            if isinstance(obj, InstrumentedDict):
-                return obj[aname]
+            if self.instance is not None:
+                if isinstance(obj, (InstrumentedList, InstrumentedSet)):
+                    ret = [getattr(subobj, aname) for subobj in obj]
+                    return ret if isinstance(obj, InstrumentedList) else set(ret)
+                if isinstance(obj, InstrumentedDict):
+                    return obj[aname]
             raise
 
     def _splitatt(self, attname):
