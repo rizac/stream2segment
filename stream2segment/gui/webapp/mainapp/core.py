@@ -17,7 +17,7 @@ import json
 from sqlalchemy import func
 
 from stream2segment.io.db.models import Segment, Class, Station, ClassLabelling, Download
-from stream2segment.io.db.sqlevalexpr import exprquery, inspect_instance, inspect_model
+from stream2segment.io.db.sqlevalexpr import exprquery, Inspector
 from stream2segment.gui.webapp.mainapp.plots.core import getseg
 from stream2segment.gui.webapp.mainapp.plots.jsplot import jsontimestamp
 
@@ -69,17 +69,23 @@ def get_metadata(session, seg_id=None):
                              Download.config, Download.errors, Download.warnings,
                              Download.program_version, Class.description])
 
+    segment = None
     if seg_id is not None:
         # exclude all classes attributes (returned in get_classes):
         excluded_colnames |= {Class.id, Class.label}
         segment = getseg(session, seg_id)
         if not segment:
             return []
-        return inspect_instance(segment, exclude=excluded_colnames)
-    else:
-        # return inspect_model but convert types into their names (json serializable)
-        return [[aname, getattr(aval, "__name__", "unknown")] for aname, aval in
-                inspect_model(Segment, exclude=excluded_colnames)]
+    
+    insp = Inspector(segment or Segment)
+    attnames = insp.attnames(Inspector.PKEY | Inspector.QATT | Inspector.REL | Inspector.COL,
+                             sort=True, deep=True, exclude=excluded_colnames)
+    if seg_id is not None:
+        # return a list of (attribute name, attribute value)
+        return [(_, insp.attval(_)) for _ in attnames]
+    # return a list of (attribute name, str(attribute type))
+    return [(_, getattr(insp.atttype(_), "__name__"))
+            for _ in attnames if insp.atttype(_) is not None]
 
 
 def set_class_id(session, segment_id, class_id, value):

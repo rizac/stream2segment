@@ -13,11 +13,12 @@ from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.sql.expression import desc
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.sql.functions import func
+from sqlalchemy.orm.attributes import QueryableAttribute
 
-from stream2segment.io.db.sqlevalexpr import exprquery, binexpr, inspect_model,\
-    inspect_instance
+from stream2segment.io.db.sqlevalexpr import exprquery, binexpr, Inspector
 from stream2segment.io.db.models import ClassLabelling, Class, Segment, Station, Channel,\
     Event, DataCenter, Download, WebService
+from stream2segment.gui.webapp.mainapp.core import get_metadata
 
 
 class Test(object):
@@ -221,7 +222,6 @@ class Test(object):
         res1 = exprquery(sess.query(Segment).join(Segment.channel).\
                          filter(Channel.id>0), {'channel.id': '!=null'}).all()
 
-
         #################################################################################
         # OLD STUFF VALID WHEN WE IMPLEMENTED 'any' AS POSSIBLE KEYWORD (FEATURE DROPPED)
         # We leave the comments below because they explain also some sql-alchemy stuff
@@ -241,7 +241,7 @@ class Test(object):
 #         res4 = exprquery(sess.query(Segment.id), {'classes': 'none'},
 #                      ['channel.id', 'event_distance_deg']).all()
 #         assert res1 == res3 and res2 == res4
-#         
+#
 #         # classes is a many to many relationship on Segment,
 #         # what if we provide a many-to-one (column)? it does not work. From the docs:
 #         #     :meth:`~.RelationshipProperty.Comparator.any` is only
@@ -251,7 +251,8 @@ class Test(object):
 #         with pytest.raises(InvalidRequestError):
 #             res1 = exprquery(sess.query(Segment.id), {'station.id': 'any'}).all()
 #             sess.rollback()  # for safety
-#         # what if we provide a normal attribute? it does not work either cause station is 'scalar':
+#         # what if we provide a normal attribute? it does not work either cause
+#         # station is 'scalar':
 #         with pytest.raises(AttributeError):
 #             res2 = exprquery(sess.query(Segment.id), {'id': 'any'}).all()
 #             sess.rollback()  # for safety
@@ -264,7 +265,7 @@ class Test(object):
         ####################################
         with pytest.raises(ValueError):
             exprquery(sess.query(Segment.id), {'classes.id': 'any'},
-                            ['channel.id', 'event_distance_deg']).all()
+                      ['channel.id', 'event_distance_deg']).all()
 
 #         reminder
         # current segments are these:
@@ -379,26 +380,109 @@ class Test(object):
                              "AND segments.arrival_time != :arrival_time_3 AND "
                              "segments.arrival_time != :arrival_time_4")
 
-    def test_inspect(self, db):
-        # attach a fake method to Segment where the type is unknown:
+
+    def test_getmetadata(self, db):
+        '''This test is actually testing a method of gui.core. It is here because it
+        uses Inspector defined in sqlevalexpr'''
+        
+        defval = 'a'
         Segment._fake_method = \
-            hybrid_property(lambda self: 'a',
+            hybrid_property(lambda self: defval,
                             expr=lambda cls: func.substr(cls.download_code, 1, 1))
 
-        seg = db.session.query(Segment).first()
+        # attach a fake method to Segment where the type is unknown:
+        a2 = get_metadata(db.session, None)
+        # Station.inventory_xml, Segment.data, Download.log,
+        # Download.config, Download.errors, Download.warnings,
+        # Download.program_version, Class.description
+        for excluded in ['station.inventory_xml', 'data', 'download.log',
+                         'download.config', 'download.errors', 'download.warnings',
+                         'download.program_version', 'class.description']:
+            assert not any(_[0] == excluded for _ in a2)
+        assert sum(_[0].startswith('download.') for _ in a2) > 1
+        assert sum(_[0].startswith('channel.') for _ in a2) > 1
+        assert sum(_[0].startswith('event.') for _ in a2) > 1
+        assert sum(_[0].startswith('station.') for _ in a2) > 1
+        assert sum(_[0].startswith('classes.') for _ in a2) > 1
+        # fake method does not have a python type, not returned:
+        assert not any(_[0] == '_fake_method' for _ in a2)
 
-        a = inspect_model(Segment)
-        attrs = {_[0]: _[1] for _ in a}
-        assert 'station.inventory_xml' in attrs
-        assert '_fake_method' in attrs and attrs['_fake_method'] is None
-        assert all(v is not None for a, v in attrs.items() if a != '_fake_method')
-
-        a2 = inspect_model(Segment, ['segments', 'station'])
         # too long to count how many attributes should be missing, launched a test and put the
         # number here (17):
-        assert len(a2) == len(a) - 11
+        seg = db.session.query(Segment).first()
         # just test it does not raise FIXME: better tests maybe?
-        b = inspect_instance(seg)
+        b = get_metadata(db.session, seg.id)
+        assert sum("class" in _[0] for _ in b) == 1  # has_class (see below)
+        assert any(_[0] == 'has_class' for _ in b)
+        assert any(_[0] == '_fake_method' and _[1] == 'a' for _ in b)
+
+    def test_inspect(self, db):
+        # attach a fake method to Segment where the type is unknown:
+        defval = 'a'
+        Segment._fake_method = \
+            hybrid_property(lambda self: defval,
+                            expr=lambda cls: func.substr(cls.download_code, 1, 1))
+
+        insp = Inspector(Segment)
+        attnames = list(insp.attnames(Inspector.PKEY))
+        assert attnames == ['id']
+        attnames = list(insp.attnames(Inspector.FKEY, sort=True))
+        assert 'event_id' in attnames and 'id' not in attnames \
+            and 'classes' not in attnames and '_fake_method' not in attnames
+        attnames2 = list(insp.attnames(Inspector.FKEY, sort=False))
+        assert attnames != attnames2 and len(attnames) == len(attnames2)
+        attnames = list(insp.attnames(Inspector.QATT))
+        assert '_fake_method' in attnames and not 'id' in attnames and \
+            not 'event_id' in attnames
+        attnames = list(insp.attnames(Inspector.REL, sort=True))
+        assert 'classes' in attnames and 'id' not in attnames \
+            and 'event_id' not in attnames and '_fake_method' not in attnames
+        attnames2 = list(insp.attnames(Inspector.REL, sort=False))
+        assert attnames != attnames2 and len(attnames) == len(attnames2)
+        
+        attnames = insp.attnames(deep=True)
+        for attname in attnames:
+            attval = insp.attval(attname)
+            assert isinstance(attval, QueryableAttribute)
+            if attname == '_fake_method':
+                assert insp.atttype(attname) is None
+            else:
+                assert insp.atttype(attname) is not None
+
+        seg = db.session.query(Segment).first()
+        insp = Inspector(seg)
+        attnames = insp.attnames(deep=True)
+        for attname in attnames:
+            val = insp.attval(attname)
+            if attname == '_fake_method':
+                assert val == defval
+            if attname.startswith('classes.'):
+                assert isinstance(val, list)
+            else:
+                assert not isinstance(val, (dict, list, set))
+
+#         attrs = {_[0]: _[1] for _ in a}
+#         assert 'station.inventory_xml' in attrs
+#         assert '_fake_method' in attrs and attrs['_fake_method'] is None
+#         assert all(v is not None for a, v in attrs.items() if a != '_fake_method')
+# 
+#         a2 = inspect_model(Segment, ['segments', 'station'])
+#         # too long to count how many attributes should be missing, launched a test and put the
+#         # number here (17):
+#         assert len(a2) == len(a) - 11
+# 
+#         # just test it does not raise FIXME: better tests maybe?
+#         seg = db.session.query(Segment).first()
+#         b = inspect_instance(seg)
+#         
+#         del Segment._fake_method
+# 
+#         # now try inspect list:
+#         for comb in ['p', 'r', 'c', 'pr', 'pc', 'rc', 'prc']:
+#             try:
+#                 inspect_list(Segment, comb)
+#             except Exception as exc:
+#                 pass
 
     def test_selection_classes(self, db):
         expr1 = exprquery(db.session.query(Segment), {'classes.label': 'asd'})

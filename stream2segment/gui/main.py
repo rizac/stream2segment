@@ -7,7 +7,7 @@ Functions for launching the web app
 '''
 from __future__ import print_function
 
-import sys
+import os
 from os.path import realpath, abspath
 import random
 import threading
@@ -36,6 +36,8 @@ def create_main_app(dbpath, pyfile=None, configfile=None):
 
 
 def run_in_browser(app, port=None, debug=False):
+    # https://stackoverflow.com/a/53919435
+    os.environ['FLASK_ENV']='development'
     if port is None:
         port = 5000 + random.randint(0, 999)
     url = "http://127.0.0.1:{0}".format(port)
