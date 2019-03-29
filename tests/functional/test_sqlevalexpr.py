@@ -461,29 +461,6 @@ class Test(object):
             else:
                 assert not isinstance(val, (dict, list, set))
 
-#         attrs = {_[0]: _[1] for _ in a}
-#         assert 'station.inventory_xml' in attrs
-#         assert '_fake_method' in attrs and attrs['_fake_method'] is None
-#         assert all(v is not None for a, v in attrs.items() if a != '_fake_method')
-# 
-#         a2 = inspect_model(Segment, ['segments', 'station'])
-#         # too long to count how many attributes should be missing, launched a test and put the
-#         # number here (17):
-#         assert len(a2) == len(a) - 11
-# 
-#         # just test it does not raise FIXME: better tests maybe?
-#         seg = db.session.query(Segment).first()
-#         b = inspect_instance(seg)
-#         
-#         del Segment._fake_method
-# 
-#         # now try inspect list:
-#         for comb in ['p', 'r', 'c', 'pr', 'pc', 'rc', 'prc']:
-#             try:
-#                 inspect_list(Segment, comb)
-#             except Exception as exc:
-#                 pass
-
     def test_selection_classes(self, db):
         expr1 = exprquery(db.session.query(Segment), {'classes.label': 'asd'})
         expr2 = exprquery(db.session.query(Segment), {'classes.label': 'asd a'})
