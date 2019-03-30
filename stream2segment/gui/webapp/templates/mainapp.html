@@ -136,7 +136,7 @@
 								</div>
 								<div ng-repeat="(key, vals) in segData.metadata">
 									<!-- <div class="divider"></div> -->
-									<div ng-click="toggleDivVisibility(key)" style="cursor:pointer">
+									<div ng-click="toggleDivVisibility(key)" class='metadata-header' style="cursor:pointer">
 										{{ key }} <div ng-class="isDivVisible(key) ? 'arrow-up' : 'arrow-down'"
 											style='float:right'></div>
 									</div>

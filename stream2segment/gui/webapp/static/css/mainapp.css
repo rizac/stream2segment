@@ -194,6 +194,14 @@ div.metadata > div.panel-body{
 	color: ForestGreen;
 }
 
+div.metadata-header{
+	transition: 0.4s;
+	transition-timing-function: ease-in;
+}
+div.metadata-header:hover{
+	background-color: #f3f7f7;
+}
+
 /* loader (or waitbar: see https://www.pexels.com/blog/css-only-loaders/ */
 .loader {
   height: 6px;
