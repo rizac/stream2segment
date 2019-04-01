@@ -10,54 +10,111 @@ Core functionalities for the GUI web application (processing)
 # (http://python-future.org/imports.html#explicit-imports):
 from builtins import map, zip
 
-import re
 from itertools import cycle
 import json
 
+import numpy as np
 from sqlalchemy import func
 
-from stream2segment.io.db.models import Segment, Class, Station, ClassLabelling, Download
+from stream2segment.io.db.models import Segment, Station, Download, Class,\
+    ClassLabelling
+from stream2segment.utils import load_source
+from stream2segment.utils.resources import yaml_load
 from stream2segment.io.db.sqlevalexpr import exprquery, Inspector
-from stream2segment.gui.webapp.mainapp.plots.core import getseg
+from stream2segment.gui.webapp.mainapp.plots.core import getseg, PlotManager
 from stream2segment.gui.webapp.mainapp.plots.jsplot import jsontimestamp
 
 
 NPTS_WIDE = 900  # FIXME: automatic retrieve by means of Segment class relationships?
 NPTS_SHORT = 900  # FIXME: see above
+# LIMIT = 50
 
 
-def get_segments(session, conditions, orderby, metadata, classes):
+# The variables below are actually not a great idea for production. We should
+# investigate some persistence storage (not during a request, but during all app
+# lifecycle until it's kind of "closed"). This is a typical tpoic for which
+# the web is full of untested / unexplained dogmas (do not use of globals,
+# memcache or db for persistent cache, thread/process safety issues) and thus
+# just keep in mind: if you want to use this app for production, you might need to
+# get your hands dirty...
+PLOT_MANAGER = None
+SEG_IDS = []  # numpy array of segments ids (for better storage): filled with NaNs,
+# populated on demand witht the block below:
+SEG_QUERY_BLOCK = 50
+
+
+def create_plot_manager(pyfile, configfile):
+    pymodule = None if pyfile is None else load_source(pyfile)
+    configdict = {} if configfile is None else yaml_load(configfile)
+    global PLOT_MANAGER  # pylint: disable=global-statement
+    PLOT_MANAGER = PlotManager(pymodule, configdict)
+    return PLOT_MANAGER
+
+
+def get_plot_manager():
+    return PLOT_MANAGER
+
+
+def init(session, conditions, orderby, metadata, classes):
     classes = get_classes(session) if classes else []
     _metadata = []
     if metadata:
         _metadata = [[n, t, conditions.get(n, '')] for n, t in get_metadata(session)]
-    # parse the orderby if it has a minus at the end it's descending:
-    oby = orderby if not orderby else \
-        [(k, "asc") if not k[-1] == '-' else (k[:-1], "desc") for k in orderby]
-    qry = query4gui(session, conditions=conditions, orderby=oby)
-    return {'segment_ids': [seg[0] for seg in qry],
-            'classes': classes,
+    # qry = query4gui(session, conditions=conditions, orderby=None)
+    return {'classes': classes,
             'metadata': _metadata}
 
+# This is an option to load low level stuff, but it does not help with millions
+# of rows:
+#     from sqlalchemy.dialects import postgresql, sqlite
+#     qry_ = _query4gui(session.query(Segment.id), conditions, orderby)
+#     engine = session.bind.engine
+#     dialect = (sqlite if str(engine.url).startswith('sqlite://')
+#                else postgresql).dialect()
+#     sql_statement = str(qry_.statement.compile(dialect=dialect))
+#     conn = engine.raw_connection()
+#     cursor = conn.cursor()
+#     cursor.execute(sql_statement)
+#     return np.array([_[0] for _ in cursor.fetchall()], dtype=int)
 
-def query4gui(session, conditions, orderby=None):
-    '''Returns a query yielding the segments ids for the visualization in the GUI (processing)
-    according to `conditions` and `orderby`, sorted by default (if orderby is None) by
-    segment's event.time (descending) and then segment's event_distance_deg (ascending)
 
-    :param session: the sql-alchemy session
-    :param condition: a dict of segment attribute names mapped to a select expression, each
-    identifying a filter (sql WHERE clause). See `:ref:sqlevalexpr.py`. Can be empty (no filter)
-    :param orderby: if None, defaults to segment's event.time (descending) and then
-    segment's event_distance_deg (ascending). Otherwise, a list of tuples, where the first
-    tuple element is a segment attribute (in string format) and the second element is either 'asc'
-    (ascending) or 'desc' (descending)
-    :return: a query yielding the tuples: ```(Segment.id)```
-    '''
-    if orderby is None:
-        orderby = [('event.time', 'desc'), ('event_distance_deg', 'asc')]
-    return exprquery(session.query(Segment.id), conditions=conditions, orderby=orderby,
-                     distinct=True)
+def get_segments_count(session, conditions):
+    num_segments = _query4gui(session.query(func.count(Segment.id)), conditions).scalar()
+    global SEG_IDS  # pylint: disable=global-statement
+    SEG_IDS = np.full(num_segments, np.nan)
+    return num_segments
+
+
+def get_segment_id(session, seg_index):
+    if np.isnan(SEG_IDS[seg_index]):
+        # segment id not queryed yet: load chunks of segment ids:
+        # Note that this is the best compromise between
+        # 1) Querying by index, limiting by 1 and keeping track of the
+        # offset: FAST at startup, TOO SLOW for each segment request
+        # 2) Load all ids at once at the beginning: TOO SLOW at startup, FAST for each
+        # segment request
+        # (fast and slow refer to a remote db with 10millions row without config
+        # and pyfile)
+        limit = SEG_QUERY_BLOCK
+        offset = int(seg_index / float(SEG_QUERY_BLOCK)) * SEG_QUERY_BLOCK
+        limit = min(len(SEG_IDS) - offset, SEG_QUERY_BLOCK)
+        segids = get_segment_ids(session,
+                                 get_plot_manager().config['segment_select'] or {},
+                                 offset=offset, limit=limit)
+        SEG_IDS[offset:offset+limit] = segids
+    return int(SEG_IDS[seg_index])
+
+
+def get_segment_ids(session, conditions, limit=50, offset=0):
+    # querying all segment ids is faster later when selecting a segment
+    orderby = [('event.time', 'desc'), ('event_distance_deg', 'asc'),
+               ('id', 'asc')]
+    return [_[0] for _ in _query4gui(session.query(Segment.id),
+                                     conditions, orderby).limit(limit).offset(offset)]
+
+
+def _query4gui(what2query, conditions, orderby=None):
+    return exprquery(what2query, conditions=conditions, orderby=orderby)
 
 
 def get_metadata(session, seg_id=None):
@@ -76,7 +133,7 @@ def get_metadata(session, seg_id=None):
         segment = getseg(session, seg_id)
         if not segment:
             return []
-    
+
     insp = Inspector(segment or Segment)
     attnames = insp.attnames(Inspector.PKEY | Inspector.QATT | Inspector.REL | Inspector.COL,
                              sort=True, deep=True, exclude=excluded_colnames)
@@ -120,7 +177,7 @@ def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components,
                      zooms, metadata=False, classes=False, config=False):
     """Returns the segment data, depending on the arguments
     :param session: a flask sql-alchemy session object
-    :param seg_id: integer denoting the segment id
+    :param seg_id: the segment id (int)
     :param plotmanager: a PlotManager object, storing all plots data and sn/windows data
     :param plot_indices: a list of plots to be calculated from the given `plotmanager` (which caches
     its plot for performance speed)
@@ -139,10 +196,7 @@ def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components,
     javascript parsing
     :param classes: boolean, whether to return the integers classes ids (if any) of the given
     segment
-    :param sn_wdws: boolean, whether to returns the sn windows calculated according to the
-    config values. The returned list is a 2-element list, where each element is in turn a
-    2-element numeric list: [noise_window_start, noise_window_end],
-    [signal_window_start, signal_window_end]
+    :param config: a dict of new confiog values. Can be falsy to skip updating the config
     """
     plots = []
     zooms_ = parse_zooms(zooms, plot_indices)
@@ -150,6 +204,7 @@ def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components,
     if config:
         # set_sn_windows(self, session, a_time_shift, signal_window):
         plotmanager.update_config(**deflatten_dict(config, parsevals=True))
+    # segment = getseg(session, seg_id)
 
     if plot_indices:
         plots = plotmanager.get_plots(session, seg_id, plot_indices, preprocessed, all_components)
@@ -163,6 +218,7 @@ def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components,
             sn_windows = []
 
     return {'plots': [p.tojson(z, NPTS_WIDE) for p, z in zip(plots, zooms_)],
+            'seg_id': seg_id,
             'plot_types': [p.is_timeseries for p in plots],
             'sn_windows': sn_windows,
             'metadata': [] if not metadata else get_metadata(session, seg_id),

@@ -22,11 +22,11 @@ from stream2segment.io.db.models import Event, WebService, Channel, Station, \
 from stream2segment.utils.resources import get_templates_fpaths
 from stream2segment.gui.webapp.mainapp.plots.core import PlotManager
 from stream2segment.gui.webapp import get_session
-from stream2segment.gui.main import create_main_app
-from stream2segment.gui.webapp.mainapp.core import flatten_dict
+from stream2segment.gui.main import create_s2s_show_app
+from stream2segment.gui.webapp.mainapp.core import flatten_dict, create_plot_manager,\
+    get_plot_manager, get_segment_id
 
 class Test(object):
-
     pyfile, configfile = get_templates_fpaths("paramtable.py", "paramtable.yaml")
 
      # execute this fixture always even if not provided as argument:
@@ -37,9 +37,9 @@ class Test(object):
         db.create(to_file=True)
 
         with patch('stream2segment.gui.webapp.mainapp.plots.core._default_size_limits',
-                   return_value=(1,1)) as mock1:
+                   return_value=(4, 1)) as mock1:
 
-            self.app = create_main_app(db.dburl, self.pyfile, self.configfile)
+            self.app = create_s2s_show_app(db.dburl, self.pyfile, self.configfile)
 
             with self.app.app_context():
                 # create a configured "Session" class
@@ -162,58 +162,76 @@ class Test(object):
         if isinstance(_data, bytes):
             _data = _data.decode('utf8')
         return json.loads(_data)
+    
+    def index_of(self, segment_id):
+        '''Returns the index of the segment with given id. 
+        The web application gets data from segment index'''
+        seg_index = 0
+        while True:
+            sid = get_segment_id(self.session, seg_index)
+            if sid == segment_id:
+                break
+            seg_index += 1
+        return seg_index
 
 
-    def test_root_no_config_and_pyfile(self,
-                                       # fixtures:
-                                       db):
+    @patch('stream2segment.gui.webapp.mainapp.core.create_plot_manager')
+    def test_root_no_config_and_pyfile_and_classes(self,
+                                                   mock_create_plot_manager,
+                                                   # fixtures:
+                                                   db):
+        def mock_plot_manager_se(pyfile, configfile):
+            return create_plot_manager(pyfile, configfile)
+        mock_create_plot_manager.side_effect = mock_plot_manager_se
+
         # assure this function is run once for each given dburl
         with self.app.test_request_context():
+            assert not self.session.query(Class).all()
             app = self.app.test_client()
-            # test first with classes:
-            # WHY THIS DOES NOT WORK??!!!
-            # the config set on the aopp IS NOT self.config!! why??!!
-            # self.config['class_labels'] = {'wtf': 'wtfd'}
-            # this on the other hand works:
-            self.app.config['CONFIG.YAML']['class_labels'] = {'wtf': 'wtfd'}
-            clz = self.session.query(Class).count()
-            assert clz == 0
-
-            rv = app.get('/')
-            clz = self.session.query(Class).all()
-
+            req = app.get('/')
+            assert not self.session.query(Class).all()
             # https://github.com/pallets/flask/issues/716 is bytes in python3. Fix for both 2 and 3:
-            response_data = rv.data.decode('utf-8')
+            response_data = req.data.decode('utf-8')
             assert '"hasPreprocessFunc": true' in response_data \
                 or "'hasPreprocessFunc': true" in response_data
             assert '"config": {}' not in response_data and "'config': {}" not in response_data
 
-            self.app.config['PLOTMANAGER'] = PlotManager(None, {})
-            self.app.config['CONFIG.YAML'] = {}
-            rv = app.get('/')
-            response_data = rv.data.decode('utf-8')
+        def mock_plot_manager_se_empty(pyfile, configfile):
+            pmg = create_plot_manager(None, {})
+            return pmg
+        mock_create_plot_manager.side_effect = mock_plot_manager_se_empty
+
+        # assure this function is run once for each given dburl
+        with self.app.test_request_context():
+            assert not self.session.query(Class).all()
+            app = self.app.test_client()
+            req = app.get('/')
+            assert not self.session.query(Class).all()
+            response_data = req.data.decode('utf-8')
             assert '"hasPreprocessFunc": false' in response_data \
                 or "'hasPreprocessFunc': false" in response_data
             assert '"config": {}' in response_data or "'config': {}" in response_data
 
 
-    def test_root(self,
+    @patch('stream2segment.gui.webapp.mainapp.core.create_plot_manager')
+    def test_root(self, mock_create_plot_manager,
                   # fixtures:
                   db):
+        def mock_plot_manager_se(pyfile, configfile):
+            pmgr = create_plot_manager(pyfile, configfile)
+            pmgr.config['class_labels'] = {'wtf': 'abc'}
+            return pmgr
+        mock_create_plot_manager.side_effect = mock_plot_manager_se
+
         # assure this function is run once for each given dburl
         with self.app.test_request_context():
             app = self.app.test_client()
-            # test first with classes:
-            # WHY THIS DOES NOT WORK??!!!
-            # the config set on the aopp IS NOT self.config!! why??!!
-            # self.config['class_labels'] = {'wtf': 'wtfd'}
-            # this on the other hand works:
-            self.app.config['CONFIG.YAML']['class_labels'] = {'wtf': 'wtfd'}
             clz = self.session.query(Class).count()
             assert clz == 0
 
             rv = app.get('/')
             clz = self.session.query(Class).all()
+            assert len(clz) == 1 and clz[0].label == 'wtf' and clz[0].description == 'abc'
 
             # assert global yaml config vars are injected as javascript from jinja rendering:
             # (be relaxed, if we change the template yaml file we do not want to fail)
@@ -227,32 +245,17 @@ class Test(object):
             # In the default processing, we implemented 6 plots, assure they are there:
             for plotindex in range(6):
                 assert "<div id='plot-{0:d}' class='plot'".format(plotindex) in response_data
-            assert len(clz) == 1 and clz[0].label == 'wtf' and clz[0].description == 'wtfd'
-
-            # change description:
-            self.app.config['CONFIG.YAML']['class_labels'] = {'wtf': 'abc'}
-            rv = app.get('/')
-#             expected_str = """var __SETTINGS = {"segment_orderby": ["event.time-", "segment.event_distance_deg"], "segment_select": {"has_data": "true"}, "spectra": {"arrival_time_shift": 0, "signal_window": [0.1, 0.9]}};"""
-#             assert expected_str in rv.data
-#             expected_str = """<div ng-show='plots[2].visible' data-plotindex=2 class='plot'></div>
-#                         
-#                         <div ng-show='plots[3].visible' data-plotindex=3 class='plot'></div>"""
-            clz = self.session.query(Class).all()
-            assert len(clz) == 1 and clz[0].label == 'wtf' and clz[0].description == 'abc'
 
             self.session.query(Class).delete()
             self.session.commit()
             clz = self.session.query(Class).count()
             assert clz == 0
-
-            # delete entry 'class_labels' and test when not provided
-            del self.app.config['CONFIG.YAML']['class_labels'] 
+ 
+            # now the plotmanager does not set any class:
+            def mock_plot_manager_noclass(pyfile, configfile):
+                return create_plot_manager(pyfile, configfile)
+            mock_create_plot_manager.side_effect = mock_plot_manager_noclass
             rv = app.get('/')
-#             expected_str = """var __SETTINGS = {"segment_orderby": ["event.time-", "segment.event_distance_deg"], "segment_select": {"has_data": "true"}, "spectra": {"arrival_time_shift": 0, "signal_window": [0.1, 0.9]}};"""
-#             assert expected_str in rv.data
-#             expected_str = """<div ng-show='plots[2].visible' data-plotindex=2 class='plot'></div>
-#                         
-#                         <div ng-show='plots[3].visible' data-plotindex=3 class='plot'></div>"""
             clz = self.session.query(Class).count()
             # assert nothing has changed (same as previous assert):
             assert clz == 0
@@ -261,15 +264,13 @@ class Test(object):
         # assure this function is run once for each given dburl
         with self.app.app_context():
             app = self.app.test_client()
+            app.get('/')  # initializes plot manager
             # test your app context code
-            rv = app.post("/get_segments", data=json.dumps(dict(segment_select={'has_data':'true'},
-                                               segment_orderby=None, metadata=True, classes=True)),
+            rv = app.post("/set_selection", data=json.dumps(dict(segment_select={'has_data':'true'})),
                                headers={'Content-Type': 'application/json'})
             #    rv = app.get("/get_segments")
             data = self.jsonloads(rv.data)
-            assert len(data['segment_ids']) == 28
-            assert any(x[0] == 'has_data' for x in data['metadata'])
-            assert not data['classes']
+            assert data == {'num_segments': 28}
 
     def test_toggle_class_id(self,
                              # fixtures:
@@ -277,6 +278,9 @@ class Test(object):
         # assure this function is run once for each given dburl
         with self.app.test_request_context():
             app = self.app.test_client()
+            app.get('/')  # initializes plot manager
+            app.post("/set_selection", data=json.dumps(get_plot_manager().config['segment_select']),
+                               headers={'Content-Type': 'application/json'})
             segid = 1
             segment = self.session.query(Segment).filter(Segment.id == segid).first()
             c = Class(label='label')
@@ -311,16 +315,20 @@ class Test(object):
         # assure this function is run once for each given dburl
         with self.app.test_request_context():
             app = self.app.test_client()
+            app.get('/')  # initializes plot manager
             self._tst_get_seg(app)
 
     def _tst_get_seg(self, app):
         # does pytest.mark.parametrize work with unittest?
         # seems not. So:
         has_labellings = self.session.query(ClassLabelling).count() > 0
+        # get the index of the first segment with class labels:
+        
+            
         for _ in product([[0, 1, 2], [], [0]], [True, False], [True, False], [True, False], [True, False]):
             plot_indices, preprocessed, metadata, classes, all_components = _
 
-            d = dict(seg_id=1,
+            d = dict(seg_index=self.index_of(1),
                      pre_processed=preprocessed,
                      # zooms = data['zooms']
                      plot_indices=plot_indices,  # data['plotIndices']
@@ -333,7 +341,7 @@ class Test(object):
     #             current_app.config['CONFIG.YAML'].update(conf)
 
             rv = app.post("/get_segment", data=json.dumps(d),
-                               headers={'Content-Type': 'application/json'})
+                          headers={'Content-Type': 'application/json'})
             # https: 
             data = self.jsonloads(rv.data)
             assert len(data['plots']) == len(d['plot_indices'])
@@ -356,7 +364,7 @@ class Test(object):
 
         with self.app.test_request_context():
             app = self.app.test_client()
-            d = dict(seg_id=1,
+            d = dict(seg_index=self.index_of(1),
                      pre_processed=False,
                      # zooms = data['zooms']
                      plot_indices=plot_indices,  # data['plotIndices']
@@ -369,7 +377,7 @@ class Test(object):
         # Now we exited the session, we try with pre_processed=True
         with self.app.test_request_context():
             app = self.app.test_client()
-            d = dict(seg_id=1,
+            d = dict(seg_index=self.index_of(1),
                      pre_processed=True,
                      # zooms = data['zooms']
                      plot_indices=plot_indices,  # data['plotIndices']
@@ -380,7 +388,7 @@ class Test(object):
                                headers={'Content-Type': 'application/json'})
 
         # assert we have exceptions:
-        pm = self.app.config['PLOTMANAGER']
+        pm = get_plot_manager()
         for plotlists in pm.values():
             plots = plotlists[1]
             if plots is None:  # not calculated, skip
@@ -396,7 +404,7 @@ class Test(object):
         plot_indices = [0]
         index_of_sn_spectra = None
         if calculate_sn_spectra:
-            pm = self.app.config['PLOTMANAGER']
+            pm = get_plot_manager()
             for ud in pm.userdefined_plots:
                 if ud['name'] == 'sn_spectra':
                     index_of_sn_spectra = ud['index']
@@ -407,7 +415,7 @@ class Test(object):
 
         with self.app.test_request_context():
             app = self.app.test_client()
-            d = dict(seg_id=1,
+            d = dict(seg_index=self.index_of(1),
                      pre_processed=False,
                      # zooms = data['zooms']
                      plot_indices=plot_indices,  # data['plotIndices']
@@ -418,7 +426,7 @@ class Test(object):
                            headers={'Content-Type': 'application/json'})
 
             # now change the config:
-            config = dict(self.app.config['CONFIG.YAML'])
+            config = dict(get_plot_manager().config)
             config['sn_windows']['arrival_time_shift'] += .2  # shift by .2 second
             d['config'] = flatten_dict(config)
             # the dict passed from the client to the server has only strings, thus:
@@ -483,12 +491,13 @@ class Test(object):
                                       db):
         '''test that the PlotManager stores at most one value at a time.
         The size_limit of 1 is set as patch in the init method of this class'''
-        pm = self.app.config['PLOTMANAGER']
+        pm = get_plot_manager()
+        pm.size_limit = 1
         plot_indices = [0]
         metadata = False
         classes = False
 
-        assert len(pm) == 0
+        # assert len(pm) == 0
 
         with self.app.test_request_context():
             data = self.session.query(Segment.id, Channel.location).join(Segment.channel).all()
@@ -496,7 +505,7 @@ class Test(object):
         for (seg_id, location) in data:
             with self.app.test_request_context():
                 app = self.app.test_client()
-                d = dict(seg_id=seg_id,
+                d = dict(seg_index=self.index_of(seg_id),
                          pre_processed=True,
                          # zooms = data['zooms']
                          plot_indices=plot_indices,

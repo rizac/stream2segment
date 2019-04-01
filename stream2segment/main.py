@@ -39,7 +39,7 @@ from stream2segment.process.main import run as run_process
 from stream2segment.download.main import run as run_download, new_db_download
 from stream2segment.utils import secure_dburl, strconvert, iterfuncs, open2writetext, ascii_decorate
 from stream2segment.utils.resources import get_templates_dirpath
-from stream2segment.gui.main import create_main_app, run_in_browser
+from stream2segment.gui.main import create_s2s_show_app, run_in_browser
 from stream2segment.process import math as s2s_math
 from stream2segment.download.utils import FailedDownload
 from stream2segment.gui.dinfo import DReport, DStats
@@ -284,7 +284,7 @@ def closesession(session):
 
 def show(dburl, pyfile, configfile):
     '''show downloaded data plots in a system browser dynamic web page'''
-    run_in_browser(create_main_app(dburl, pyfile, configfile))
+    run_in_browser(create_s2s_show_app(dburl, pyfile, configfile))
     return 0
 
 

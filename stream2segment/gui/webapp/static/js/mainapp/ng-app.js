@@ -1,8 +1,9 @@
 var myApp = angular.module('myApp', []);
  
 myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', function($scope, $http, $window, $timeout) {
-	$scope.segIds = [];  // segment indices
-	$scope.segIdx = -1;  // current segment index
+	$scope.segId = null;  // segment identifier
+	$scope.segIdx = -1;  // current segment index (position)
+	$scope.segmentsCount = 0;
 	$scope.metadata = []; // array of 3-element arrays. Each element represents a select expression
 						  // and is: [key, type, expr] (all elements as string)
 						  // example: [('has_data', 'bool', 'true'), ('id', 'int, ''), ('event.id', 'int', ''), ...]
@@ -45,7 +46,8 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	$scope.showAllComponents = false;
 
 
-	$scope.warnMsg = "Loading...";
+	$scope.warnMsg = "Initializing...";  //a non empty string shows up the progress bar and this message
+	// an empty strings hides both
 
 	$scope.snColors = ['#2ca02c', '#d62728']  // signal, noise
 	// if more than two lines are present, it's undefined and handled by plotly (not tested)
@@ -65,11 +67,10 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 					classes: true, metadata: true};
 		// note on data dict above: the server expects also 'metadata' and 'classes' keys which we do provide otherwise
 		// they are false by default
-		$http.post("/get_segments", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
+		$http.post("/init", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
 	        $scope.classes = response.data.classes;
 	        $scope.metadata = response.data.metadata;
-	        $scope.warnMsg = "";
-	        $scope.setSegments(response.data.segment_ids);
+	        $scope.selectSegments();
 	    });
 	};
 	
@@ -83,47 +84,33 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			}
 		});
 		$scope.selection.errorMsg = "";
-		$scope.warnMsg = "Loading...";
-		$http.post("/get_segments", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
-			$scope.warnMsg = "";
-			segIds = response.data.segment_ids;
-	        if (!segIds || (segIds.length < 1)){
-	        	$scope.selection.errorMsg = "No segment found with given criteria";
-	        	return;
-	        }
-	        $scope.setSegments(segIds);
+		$scope.warnMsg = "Selecting segments ...";
+		$http.post("/set_selection", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
+	        $scope.segmentsCount = response.data.num_segments;
+            $scope.setSegment(0);
 	        $scope.selection.showForm = false;  // close window popup, if any
 	    }, function(response) {  // error function, print message
 	          $scope.selection.errorMsg = $scope.err(response);
 	    });
 	};
 	
-	$scope.setSegments = function(segmentIds){
-		$scope.segIds = segmentIds;
-		if ($scope.segIds.length){
-			$scope.segIdx = 0;
-		}else{
-			$scope.warnMsg = "No segment found, please check selection";
-			return;
-		}
-        $scope.setSegment($scope.segIdx);
-	};
-	
 	$scope.setNextSegment = function(){
-		var currentIndex = ($scope.segIdx + 1) % ($scope.segIds.length);
+		var currentIndex = ($scope.segIdx + 1) % ($scope.segmentsCount);
 		$scope.setSegment(currentIndex);
 	};
 	
 	$scope.setPreviousSegment = function(){
-		var currentIndex = $scope.segIdx == 0 ? $scope.segIds.length - 1 : $scope.segIdx - 1;
+		var currentIndex = $scope.segIdx == 0 ? $scope.segmentsCount - 1 : $scope.segIdx - 1;
         $scope.setSegment(currentIndex);
 	};
 	
 	$scope.setSegment = function(index){
 		$scope.segIdx = index;
-		if (index < 0){
-			return; // FIXME: better handling!!!!
+		if (index < 0 || index >= $scope.segmentsCount){
+		    $scope.warnMsg = "No segment found, please check selection";
+		    return;
 		}
+		//FIXME: here we should get the id from the index!
 		$scope.refreshView(undefined, true);
 	};
 	
@@ -169,7 +156,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			var indices = $scope.getVisiblePlotIndices();
 		}
 		var zooms = $scope.getAndClearZooms();
-		var param = {seg_id: $scope.segIds[index], pre_processed: $scope.showPreProcessed, zooms:zooms,
+		var param = {seg_index: $scope.segIdx, pre_processed: $scope.showPreProcessed, zooms:zooms,
 					 plot_indices: indices, all_components: $scope.showAllComponents};
 		// NOTE: The value in $scope.config are taken from the server as js values
 		// As soon as we modify it in the form control, they became strings.
@@ -182,17 +169,17 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			}
 			$scope.config.changed = false;
 		}
-		$scope.warnMsg = "Loading...";
 		if(refreshMetadata){
 			param.metadata = true;
 			param.classes = true
 		}
-		
+		$scope.warnMsg = "Fetching and calculating segment plots (it might take a while) ...";
 		$http.post("/get_segment", param, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
-			response.data.plots.forEach(function(elm, idx){
+		    $scope.segId = response.data.seg_id;
+		    response.data.plots.forEach(function(elm, idx){
 				$scope.segData.plotData[indices[idx]] = elm;
 			});
-			$scope.segData.snWindows = response.data['sn_windows'] || [];  // to be safe
+			$scope.segData.snWindows = response.data.sn_windows || [];  // to be safe
 			// update metadata if needed:
 			if (refreshMetadata){
 				$scope._refreshMetadata(response);
@@ -414,7 +401,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	
 	$scope.toggleSegmentClassLabel = function(classId){
 		var value = $scope.segData.classIds[classId];
-		var param = {class_id: classId, segment_id: $scope.segIds[$scope.segIdx], value:value};
+		var param = {class_id: classId, segment_id: $scope.segId, value:value};
 	    $http.post("/set_class_id", param, {headers: {'Content-Type': 'application/json'}}).then(
 		    function(response) {
 		    	$scope.classes.forEach(function(elm, index){

@@ -43,19 +43,16 @@ from stream2segment.process import gui
 from stream2segment.io.db.models import Segment
 
 
-def getseg(session, segment_id, cols2load=None):
-    '''Returns the segment identified by id `segment_id` by querying the session and,
-    if not found, by querying the database
-    :param cols2load: if the db has to be queried, specifies a list of columns to load. E.g.:
-    `cols2load=[Segment.id]`
-    '''
-    seg = session.query(Segment).get(segment_id)
-    if seg:
-        return seg
-    query = session.query(Segment).filter(Segment.id == segment_id)
-    if cols2load:
-        query = query.options(load_only(*cols2load))
-    return query.first()
+def getseg(session, segment_id):  # , cols2load=None):
+    '''Returns the segment identified by id `segment_id`, inspecting the identity map to avoid
+    issuing SQL query if not needed'''
+    return session.query(Segment).get(segment_id)
+#     if seg:
+#         return seg
+#     query = session.query(Segment).filter(Segment.id == segment_id)
+#     if cols2load:
+#         query = query.options(load_only(*cols2load))
+#     return query.first()
 
 
 class SegmentPlotList(list):
@@ -487,4 +484,4 @@ class PlotManager(LimitedSizeDict):
         segmentPlotList(s)'''
         plotlist = value[0]
         for sid in plotlist.oc_segment_ids:
-            self.pop(sid)
+            self.pop(sid, None)

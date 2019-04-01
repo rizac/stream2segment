@@ -195,7 +195,7 @@ div.metadata > div.panel-body{
 }
 
 div.metadata-header{
-	transition: 0.4s;
+	transition: 0.2s;
 	transition-timing-function: ease-in;
 }
 div.metadata-header:hover{

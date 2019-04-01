@@ -7,10 +7,13 @@ Views for the web app (processing)
 '''
 from flask import render_template, request, jsonify, Blueprint, current_app
 
+import numpy as np
+
 from stream2segment.gui.webapp import get_session
 from stream2segment.gui.webapp.mainapp import core
 from stream2segment.utils import secure_dburl
 from stream2segment.process.db import configure_classes
+from stream2segment.gui.webapp.mainapp.plots.core import PlotManager
 
 # http://flask.pocoo.org/docs/0.12/patterns/appfactories/#basic-factories:
 main_app = Blueprint('main_app', __name__, template_folder='templates')
@@ -18,16 +21,17 @@ main_app = Blueprint('main_app', __name__, template_folder='templates')
 
 @main_app.route("/")
 def main():
-    config = dict(current_app.config['CONFIG.YAML'])
+    plotmanager = core.create_plot_manager(current_app.config['pyfile'],
+                                           current_app.config['configfile'])
+    config = plotmanager.config or {}
     configure_classes(get_session(current_app), config.get('class_labels', []))
-    plotmanager = current_app.config['PLOTMANAGER']
     ud_plots = plotmanager.userdefined_plots
-    settings = {'segment_select': config.pop('segment_select', {}),
+    settings = {'segment_select': config.get('segment_select', {}),
                 'hasPreprocessFunc': plotmanager.has_preprocessfunc}
     # pop keys not to be shown in the gui config form (either already processed, or not
     # regarding plot settings:
     config.pop('class_labels', None)
-    # create a flatten dict by joininf nested dict keys with the dot:
+    # create a flatten dict by joining nested dict keys with the dot:
     settings['config'] = core.flatten_dict(config)
     # filterfunc_doc = current_app.config['PLOTMANAGER'].get_filterfunc_doc.replace("\n", "<p>")
     return render_template('mainapp.html', title=secure_dburl(current_app.config["DATABASE"]),
@@ -37,24 +41,37 @@ def main():
                            preprocessfunc_doc=plotmanager.get_doc(-1))
 
 
-@main_app.route("/get_segments", methods=['POST'])
+@main_app.route("/init", methods=['POST'])
 def init():
     data = request.get_json()
+    segment_select_conditions = data.get('segment_select', None)
     # Note: data.get('segment_orderby', None) is not anymore implemented in the config
     # it will default to None (order by event time desending and by event_distance ascending)
-    dic = core.get_segments(get_session(current_app),
-                            data.get('segment_select', None),
-                            data.get('segment_orderby', None),
-                            data.get('metadata', False),
-                            data.get('classes', False))
+    dic = core.init(get_session(current_app),
+                    segment_select_conditions,
+                    data.get('segment_orderby', None),
+                    data.get('metadata', False),
+                    data.get('classes', False))
     return jsonify(dic)
+
+
+@main_app.route("/set_selection", methods=['POST'])
+def set_selection():
+    data = request.get_json()
+    segment_select_conditions = data.get('segment_select', None)
+    core.get_plot_manager().config['segment_select'] = segment_select_conditions or {}
+    # Note: data.get('segment_orderby', None) is not anymore implemented in the config
+    # it will default to None (order by event time desending and by event_distance ascending)
+    num_segments = core.get_segments_count(get_session(current_app), segment_select_conditions)
+    return jsonify({'num_segments': num_segments})
 
 
 @main_app.route("/get_segment", methods=['POST'])
 def get_segment_data():
     '''view returning the response for the segment data (and/or metadata)'''
     data = request.get_json()
-    seg_id = data['seg_id']  # this must be present
+    seg_index = data['seg_index']  # this must be present
+    seg_id = core.get_segment_id(get_session(current_app), seg_index)
     plot_indices = data.get('plot_indices', [])
     preprocessed = data.get('pre_processed', False)
     zooms = data.get('zooms', None)
@@ -62,11 +79,8 @@ def get_segment_data():
     metadata = data.get('metadata', False)
     classes = data.get('classes', False)
     config = data.get('config', {})
-    plotmanager = current_app.config['PLOTMANAGER']
-#     if conf:
-#         current_app.config['CONFIG.YAML'].update(conf)  # updates also plotmanager
-    # NOTE: seg_id is a unicode string, but the query to the db works as well
-    return jsonify(core.get_segment_data(get_session(current_app), seg_id, plotmanager,
+    return jsonify(core.get_segment_data(get_session(current_app), seg_id,
+                                         core.get_plot_manager(),
                                          plot_indices, all_components, preprocessed, zooms,
                                          metadata, classes, config))
 
