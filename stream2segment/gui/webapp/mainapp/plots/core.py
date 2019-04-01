@@ -367,7 +367,10 @@ class PlotManager(LimitedSizeDict):
         and has the key 'name', 'position', 'xaxis' and
         'yaxis'
         '''
-        return self._functions_atts
+        ret = [dict(_) for _ in self._functions_atts]
+        for dic in ret:
+            dic['doc'] = self._escape(dic.get('doc', ''))
+        return ret
 
     def get_doc(self, index=-1):
         '''Returns the documentation for the given custom function.
@@ -375,13 +378,22 @@ class PlotManager(LimitedSizeDict):
         is the index of the i-th function (index 0 refers to the main function plotting the
         segment stream)
         '''
-        try:
-            ret = self.preprocessfunc.__doc__ if index < 0 else self._functions_atts[index].doc
-            if not ret.strip():
-                ret = "No function doc found: check GUI python file"
-        except Exception as exc:  # pylint: disable=broad-except
-            ret = "Error getting function doc:\n%s" % str(exc)
-        return ret
+        if index < 0:
+            return self._escape(getattr(self.preprocessfunc, "__doc__", ''))
+        else:
+            return self.userdefined_plots[index]['doc']
+
+    @staticmethod
+    def _escape(string):
+        if not string or not string.strip():
+            return "No function doc found in GUI's Python file"
+        for char in ('.\n', '. ', '\n\n'):
+            if char in string:
+                string = string[:string.index(char)]
+                break
+        string = string.strip()
+        return string.replace('{', '&#123;').replace('}', '&#125;').replace("\"", "&quot;").\
+            replace("'", '&amp;').replace("<", "&lt;").replace(">", "&gt;")
 
     def get_plots(self, session, seg_id, plot_indices, preprocessed=False,
                   all_components_in_segment_plot=False):

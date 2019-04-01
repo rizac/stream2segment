@@ -292,7 +292,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 					type: 'scatter',
 		            opacity: 0.95,  // set to zero and uncomment the "use animations" below if you wish,
 		            line: {
-		            	  width: 1
+		            	  width: 1.5
 		            }
 				};
 				// push data:
