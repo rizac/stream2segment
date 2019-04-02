@@ -380,8 +380,7 @@ class PlotManager(LimitedSizeDict):
         '''
         if index < 0:
             return self._escape(getattr(self.preprocessfunc, "__doc__", ''))
-        else:
-            return self.userdefined_plots[index]['doc']
+        return self.userdefined_plots[index]['doc']
 
     @staticmethod
     def _escape(string):

@@ -362,14 +362,16 @@ qually spaced points in any of these forms:
 
 - the tuple (x0, dx, y) or (x0, dx, y, label), where
 
-    - x0 (numeric, `datetime` or `UTCDateTime`) is the abscissa of the first point. If numeric,
-        it is the number of **seconds** since 1st of January 1970, e.g.,
-        45.67 = 45 seconds and 670000 microseconds after midnight of 1970-01-01
+    - x0 (numeric, `datetime` or `UTCDateTime`) is the abscissa of the first point.
+      For time-series abscissas, UTCDateTime is quite flexible with several input formats.
+      For info see: https://docs.obspy.org/packages/autogen/obspy.core.utcdatetime.UTCDateTime.html
 
-    - dx (numeric or `timedelta`) is the sampling period. If numeric, its unit is in seconds,
-        e.g. 45.67 = 45 seconds and 670000 microseconds
+    - dx (numeric or `timedelta`) is the sampling period. If x0 has been given as date-time
+      or UTCDateTime object and 'dx' is numeric, its unit is in seconds
+      (e.g. 45.67 = 45 seconds and 670000 microseconds). If `dx` is a timedelta object and
+      x0 has been given as numeric, then x0 will be converted to UtcDateTime(x0).
 
-    - y (numpy array or numeric list) are the sequence values
+    - y (numpy array or numeric list) are the sequence values, numeric
 
     - label (string, optional) is the sequence name to be displayed on the plot legend.
 
@@ -390,12 +392,12 @@ any Exception raised will be handled this way:
 * if the function is called for visualization, the exception will be caught and its message
   displayed on the plot
 
-* if the function is called for processing, the exception will raise as for any Python program
-  with one special case: as `ValueError`s might indicate "false positives"
-  for which interrupting the whole subroutine might not always be the right choice,
-  those type of exceptions will interrupt the currently processed segment only and continue the
-  execution to the next segment: this feature can also be triggered programmatically to skip the
-  currently processed segment and log the message for later insopection, e.g.:
+* if the function is called for processing, the exception will raise as usual, interrupting
+  the routine, with one special case: `ValueError`s will interrupt the currently processed
+  segment only (the exception message will be logged, if a logging system is configured)
+  and continue the execution to the next segment. This feature can also be triggered
+  programmatically to skip the currently processed segment and log the error for later
+  insopection, e.g.:
     `raise ValueError("segment sample rate too low")`
   (thus, do not issue `print` statements for debugging as it's useless, and a bad practice overall)
 

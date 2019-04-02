@@ -72,7 +72,7 @@ class Plot(object):
         :param x0: (numeric, datetime, `:ref:obspy.UTCDateTime`) the x value of the first point.
             If `x0` **or** `dx` are time-domain values, then the following conversion will take
             place: `x0=UtcDateTime(x0)` (if `x0` is not an `UTCDateTime` object) and
-            `dx=1000*dx.total_seconds()` (if `dx` is not a `timedelta` object).
+            `dx=dx.total_seconds()` (if `dx` is not a `timedelta` object).
             Note that a Plot can have series with all the same domain type, otherwise this method
             raises a ValueError
         :param dx: (numeric, timedelta): the value of the distance of two points on the x axis.
@@ -86,10 +86,12 @@ class Plot(object):
                           "(e.g., adding time-series and numeric-series to the same plot)")
         if isinstance(x0, (datetime, UTCDateTime)) or isinstance(dx, timedelta):
             x0 = x0 if isinstance(x0, UTCDateTime) else UTCDateTime(x0)
+            # store internally x0 as float, this is handy for tojson when providing
+            # zoom or when downsampling. The conversion to date-time string will
+            # be then done in tojson
+            x0 = float(x0)
             if isinstance(dx, timedelta):
                 dx = dx.total_seconds()
-            x0 = jsontimestamp(x0)
-            dx = 1000 * dx
             if not self.is_timeseries and self.data:
                 raise verr
             self.is_timeseries = True
@@ -110,18 +112,6 @@ class Plot(object):
                         trace.stats.delta, trace.data,
                         trace.get_id() if label is None else label)
 
-#     def merge(self, *plots):
-#         '''Merge this Plot with all other plots. Preserves the `warnings` of the current plot
-#         discarding potential `warnings` in the other plots
-#         :return: A new Plot with all plots series
-#         '''
-#         ret = Plot(title=self.title, warnings=self.warnings)
-#         ret.data = list(self.data)
-#         # _warnings = []
-#         for p in plots:
-#             ret.data.extend(p.data)
-#         return ret
-
     def tojson(self, xbounds=None, npts=-1):  # this makes the current class json serializable
         '''Returns a json-serializable representation of this Plot. Basically, it returns
          ```[self.title or '', data, "\n".join(self.warnings), self.is_timeseries]```
@@ -129,6 +119,8 @@ class Plot(object):
         (basically, `self.data` after converting numpy arrays to list): each `data` element
         represents a series of the plot in the form:
         ```[x0, dx, y, label]```
+        In case of Date times, x0 is the ISO representation of the start time (with ending 'Z'
+        denoting UTC)
         :param xbounds: 2-element numeric tuple/list, or None (default:None): restrict all series
         of this plot to be trimmed between the given xbounds. if None, no trim is performed.
         Otherwise a tuple/list of [xstart, xend] values
@@ -140,9 +132,16 @@ class Plot(object):
         the maximum of that bin.
         '''
         data = []
-        for x0, dx, y, label in self.data:
-            x0, dx, y = self.get_slice(x0, dx, y, xbounds, npts)
-            y = np.nan_to_num(y)  # replaces nan's with zeros and infinity with numbers
+        for x0, dx, y, label in self.data:  # pylint: disable=invalid-name
+            start, end = self._unpack_bounds(xbounds)
+            x0, dx, y = self.trimdownsample(x0, dx, y, start, end, npts)  # pylint: disable=invalid-name
+            if self.is_timeseries:
+                # x0 is internally stored as float, but if date time we
+                # return its ISO representation. Libraries as Plotly handle
+                # this avoiding browser timezone conversions
+                x0 = isoformat(x0)  # pylint: disable=invalid-name
+            # replaces nan's with zeros and infinity with numbers
+            y = np.nan_to_num(y)  # pylint: disable=invalid-name
             data.append([x0.item() if hasattr(x0, 'item') else x0,
                          dx.item() if hasattr(dx, 'item') else dx,
                          y.tolist(), label or ''])
@@ -152,10 +151,21 @@ class Plot(object):
         # set the title if there is only one item and a single label??
         return [self.title or '', data, "\n".join(self.warnings), self.is_timeseries]
 
-    @staticmethod
-    def get_slice(x0, dx, y, xbounds, npts):
-        start, end = Plot.unpack_bounds(xbounds)
+    def _unpack_bounds(self, xbounds):
+        try:
+            start, end = xbounds
+        except TypeError:
+            start, end = None, None
+        if self.is_timeseries:
+            if start is not None:
+                start = float(UTCDateTime(start))
+            if end is not None:
+                end = float(UTCDateTime(end))
+        return start, end
 
+    @staticmethod
+    def trimdownsample(x0, dx, y, start=None, end=None, npts=-1):
+        '''Returns a slice and downsample of y'''
         if start is None and end is None and npts < 0:
             return x0, dx, y
 
@@ -175,21 +185,13 @@ class Plot(object):
                 x0 += idx0 * dx
 
         size = len(y)
-        if size > npts and npts > 0:
+        if size > npts > 0:
             # set dx to be an int, too many
             y, newdxratio = downsample(y, npts)
             if newdxratio > 1:
                 dx *= newdxratio  # (dx * (size - 1)) / (len(y) - 1)
 
         return x0, dx, y
-
-    @staticmethod
-    def unpack_bounds(xbounds):
-        try:
-            start, end = xbounds
-        except TypeError:
-            start, end = None, None
-        return start, end
 
     @staticmethod
     def fromstream(stream, title=None, warnings=None):
@@ -216,25 +218,14 @@ class Plot(object):
                "\t\n".join(self.warnings)
 
 
-def jsontimestamp(utctime, adjust_tzone=True):
-    """Converts utctime (which MUST be in UTC!) by returning a timestamp for json transfer.
-    Moreover, if `adjust_tzone=True` (the default), shifts utcdatetime timestamp so that
-    a local browser can correctly display the time. This assumes that:
-     - utctime is in UTC
-     - the browser displays times in current timezone
-    :param utctime: a timestamp (numeric) a datetime or an UTCDateTime. If numeric, the timestamp
-    is assumed to be in *seconds**
-    :return the unic timestamp (milliseconds)
+def isoformat(utctime):
+    """Converts utctime (which MUST be in UTC!) to iso-formatted string
+    
+    :param utctime: any parameter valid for UTCDateTime (including UTCDateTime object)
+    :return the string representtion (with tralining 'Z')
     """
-    try:
-        time_in_sec = float(utctime)  # either a number or an UTCDateTime
-    except TypeError:
-        time_in_sec = float(UTCDateTime(utctime))  # maybe a datetime? convert to UTC
-        # (this assumes the datetime is in UTC, which is the case)
-    tdelta = 0 if not adjust_tzone else (datetime.fromtimestamp(time_in_sec) -
-                                         datetime.utcfromtimestamp(time_in_sec)).total_seconds()
-
-    return int(0.5 + 1000 * (time_in_sec - tdelta))
+    ret = UTCDateTime(utctime).isoformat(sep='T')
+    return ret + 'Z' if ret[-1] != 'Z' else ret
 
 
 def downsample(array, npts):

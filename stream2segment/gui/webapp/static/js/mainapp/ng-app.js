@@ -232,8 +232,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	
 	$scope.convertAxisValue = function(value, div, axis){
 		//given an xaxis value of a plotly div 'div',
-		//parses value returning a timestamp if the div layout if of type date
-		//or 10**value if div layout type is log
+		//parses value returning 10**value if div layout type is log
 		//in any other case, returns value
 		// value: a value as returned by a zoom event listener. Plotly returns the log of the value
 		//if axis type is log, or a STRING denoting the date-time if the type is 'date'
@@ -243,9 +242,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			return value;
 		}
 		var type = div.layout[axis].type;
-		if(type=='date'){
-			return new Date(value).getTime();  //returns the time-stamp
-		}else if(type=='log'){
+		if(type=='log'){
 			return Math.pow(10, value);
 		}
 		return value;
@@ -286,7 +283,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 				var line = elements[j];
 				var elmData = {
 					x0: line[0],
-					dx: line[1],
+					dx: isTimeSeries ? 1000 * line[1] : line[1],  // plotly for time-series wants milliseconds
 					y: line[2],
 					name: line[3],
 					type: 'scatter',
@@ -345,13 +342,14 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 					});
 				}
 				// the noise / signal windows (rectangles in the background) might overflow
-				// this is visually misleading, so in case restore the original bounds.
-				// get the original bounds: 
-				var x00 = data[0].x0;
-				var x01 = data[0].x0 + data[0].dx * (data[0].y.length-1);
+				// this not only visually misleading, but might mess up zooms: if we
+				// zoomed in, then plotly tries to include also the n/s windows, thus
+				// changing the (desired) zoom. So:
+				var x00 = Date.parse(data[0].x0);  // timestamp in milliseconds
+				var x01 = x00 + data[0].dx * (data[0].y.length-1);
 				// set bounds manually in case of overflow:
-				if(layout.shapes.some(function (elm) {return elm.x0 < x00 || elm.x1 > x01})){
-					layout.xaxis.range= [x00, x01];
+				if(layout.shapes.some(elm => Date.parse(elm.x0) < x00 || Date.parse(elm.x1) > x01)){
+					layout.xaxis.range= [new Date(x00).toISOString(), new Date(x01).toISOString()];
 					layout.xaxis.autorange = false;
 				}else{
 					layout.xaxis.autorange = true;

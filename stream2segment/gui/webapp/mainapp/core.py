@@ -22,7 +22,7 @@ from stream2segment.utils import load_source
 from stream2segment.utils.resources import yaml_load
 from stream2segment.io.db.sqlevalexpr import exprquery, Inspector
 from stream2segment.gui.webapp.mainapp.plots.core import getseg, PlotManager
-from stream2segment.gui.webapp.mainapp.plots.jsplot import jsontimestamp
+from stream2segment.gui.webapp.mainapp.plots.jsplot import isoformat
 
 
 NPTS_WIDE = 900  # FIXME: automatic retrieve by means of Segment class relationships?
@@ -211,7 +211,7 @@ def get_segment_data(session, seg_id, plotmanager, plot_indices, all_components,
         try:
             # return always sn_windows, as we already calculated them. IT is better
             # to call this method AFTER get_plots_func defined above
-            sn_windows = [sorted([jsontimestamp(x[0]), jsontimestamp(x[1])])
+            sn_windows = [sorted([isoformat(x[0]), isoformat(x[1])])
                           for x in plotmanager.get_data(seg_id, 'sn_windows',
                                                         preprocessed, [])]
         except Exception:
