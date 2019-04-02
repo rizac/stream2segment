@@ -192,8 +192,8 @@ def test_click_process(mock_process):
 
 @patch("stream2segment.main.show", side_effect=orig_show)
 @patch("stream2segment.gui.main.open_in_browser")
-@patch("stream2segment.main.create_main_app")  # , return_value=mock.Mock())
-def test_click_show(mock_create_main_app, mock_open_in_browser, mock_show):
+@patch("stream2segment.main.create_s2s_show_app")  # , return_value=mock.Mock())
+def test_click_show(mock_create_s2s_show_app, mock_open_in_browser, mock_show):
     runner = CliRunner()
     d_conffile, conffile, pyfile = \
         get_templates_fpaths("download.yaml", "paramtable.yaml", "paramtable.py")
