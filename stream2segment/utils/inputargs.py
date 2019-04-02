@@ -20,6 +20,7 @@ from stream2segment.traveltimes.ttloader import TTTable
 from stream2segment.io.db.models import Fdsnws
 from stream2segment.download.utils import Authorizer, EVENTWS_MAPPING,\
     EVENTWS_SAFE_PARAMS
+from stream2segment.download.modules.stationsearch import SearchRadius
 
 
 class BadArgument(Exception):
@@ -556,6 +557,10 @@ def load_config_for_download(config, parseargs, **param_overrides):
             {
              'names': ['advanced_settings'],
              'newvalue': parse_download_advanced_settings
+            },
+            {
+             'names': ['search_radius'],
+             'newvalue': lambda arg: SearchRadius(arg)
             }
             ]
 

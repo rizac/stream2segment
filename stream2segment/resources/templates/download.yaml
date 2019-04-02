@@ -148,8 +148,12 @@ update_metadata: false
 # download steps (and ignore all other parameters values except 'update_metadata')
 inventory: true
 
-# search radius: for each event, stations will be searched within a circular area whose radius
-# is a linear function of the event magnitude:
+# search radius: defines the criteria for selecting stations around events. It is a dict
+# which can have either:
+# 1) two arguments ('min', 'max') in order to select stations in circular or ring-shaped areas,
+# i.e. within 'min' and 'mag' degrees from each event location (bounds included)
+# 2) four arguments (see below) in order to select stations within a circular
+# area whose radius is event magnitude dependent:
 #
 #                   |
 #     maxmag_radius +                oooooooooooo
@@ -163,14 +167,15 @@ inventory: true
 # Edge cases:
 # - if minmag_radius == maxmag_radius = R, this is equivalent to a constant function returning
 #   always R regardless of the magnitude
-# - if minmag_radius != maxmag_radius and minmag == maxmag = M, this function returns
-#   minmag_radius for all magnitudes < M, maxmag_radius for all magnitudes > M, and
-#   (minmag_radius + maxmag_radius) / 2 for all magnitudes == M
+# - if minmag == maxmag = M, this function returns minmag_radius for all magnitudes < M,
+#   maxmag_radius for all magnitudes >= M
 search_radius:
  minmag: 6 # min magnitude
  maxmag: 7 # max magnitude
  minmag_radius: 3 # search radius for min mag (deg)
  maxmag_radius: 3 # search radius for max mag (deg)
+ # min: 0  # min radius (deg)
+ # max: 3  # max radius (deg)
 
 
 # ========================

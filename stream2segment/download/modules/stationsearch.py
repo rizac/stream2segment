@@ -25,9 +25,38 @@ from stream2segment.io.db.pdsql import mergeupdate, dfrowiter
 # (https://docs.python.org/2/howto/logging.html#advanced-logging-tutorial) when calling logging
 # functions of stream2segment.download.utils:
 from stream2segment.download import logger  # @IgnorePep8
+from itertools import cycle
 
 
-def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius, maxmag_radius,
+class SearchRadius(object):
+    
+    def __init__(self, dict):
+        mag_dependent_args = ['minmag', 'maxmag', 'minmag_radius', 'maxmag_radius']
+        mag_independent_args = ['min', 'max']
+        is_mag_dep = all(_ in dict for _ in mag_dependent_args)
+        is_mag_indep = all(_ in dict for _ in mag_independent_args)
+        if is_mag_dep == is_mag_indep:
+            raise ValueError('Please supply either %s OR %s' % (mag_independent_args,
+                                                                mag_dependent_args))
+        self.is_mag_dependent = is_mag_dep
+        if is_mag_dep:
+            for _ in mag_dependent_args:
+                setattr(self, _, dict[_])
+        else:
+            for _ in mag_independent_args:
+                setattr(self, _, dict[_])
+
+    def get_serarch_radia(self, magnitudes):
+        if self.is_mag_dependent:
+            return None, get_search_radius(magnitudes,
+                                           self.minmag,  # pylint: disable=no-member
+                                           self.maxmag,  # pylint: disable=no-member
+                                           self.minmag_radius,  # pylint: disable=no-member
+                                           self.maxmag_radius)  # pylint: disable=no-member
+        return self.min, self.max  # pylint: disable=no-member
+
+
+def merge_events_stations(events_df, channels_df, search_radius,
                           tttable, show_progress=False):
     """
         Merges `events_df` and `channels_df` by returning a new dataframe representing all
@@ -66,21 +95,29 @@ def merge_events_stations(events_df, channels_df, minmag, maxmag, minmag_radius,
     stations_df = channels_df.drop_duplicates(subset=[CHA_STAID]).copy()
 
     ret = []
-    max_radia = get_search_radius(events_df[EVT_MAG].values, minmag, maxmag,
-                                  minmag_radius, maxmag_radius)
 
     sourcedepths, eventtimes = [], []
 
-    with get_progressbar(show_progress, length=len(max_radia)) as bar:
-        for max_radius, evt_dic in zip(max_radia, dfrowiter(events_df, [EVT_ID, EVT_LAT, EVT_LON,
-                                                                        EVT_TIME, EVT_DEPTH])):
+    with get_progressbar(show_progress, length=len(events_df)) as pbar:
+        min_radia, max_radia = search_radius.get_serarch_radia(events_df[EVT_MAG].values)
+        if min_radia is None:
+            min_radia = cycle([None])
+        if max_radia is None:
+            max_radia = cycle([None])
+        for min_radius, max_radius, evt_dic in \
+                zip(min_radia, max_radia, dfrowiter(events_df, [EVT_ID, EVT_LAT, EVT_LON,
+                                                                EVT_TIME, EVT_DEPTH])):
             l2d = locations2degrees(stations_df[STA_LAT], stations_df[STA_LON],
                                     evt_dic[EVT_LAT], evt_dic[EVT_LON])
-            condition = (l2d <= max_radius) & (stations_df[STA_STIME] <= evt_dic[EVT_TIME]) & \
+            condition = (stations_df[STA_STIME] <= evt_dic[EVT_TIME]) & \
                         (pd.isnull(stations_df[STA_ETIME]) |
                          (stations_df[STA_ETIME] >= evt_dic[EVT_TIME] + timedelta(days=1)))
+            if min_radius is not None:
+                condition &= (l2d >= min_radius)
+            if max_radius is not None:
+                condition &= (l2d <= max_radius)
 
-            bar.update(1)
+            pbar.update(1)
             if not np.any(condition):
                 continue
 
@@ -204,8 +241,7 @@ def get_search_radius(mag, minmag, maxmag, minmag_radius, maxmag_radius):
     if minmag == maxmag:
         dist = np.array(mag)
         dist[mag < minmag] = minmag_radius
-        dist[mag > minmag] = maxmag_radius
-        dist[mag == minmag] = np.true_divide(minmag_radius+maxmag_radius, 2)
+        dist[mag >= minmag] = maxmag_radius
     else:
         dist = minmag_radius + \
             np.true_divide(maxmag_radius - minmag_radius, maxmag - minmag) * (mag - minmag)
