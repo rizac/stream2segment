@@ -162,7 +162,7 @@ class strconvert(object):
             characters in the input string will result in a string that is not the perfect
             translation of the input
         """
-        return _re_escape(text).replace(r"\*", ".*").replace(r"\?", ".")
+        return re.escape(text).replace(r"\*", ".*").replace(r"\?", ".")
 
     @staticmethod
     def sql2re(text):
@@ -181,15 +181,17 @@ class strconvert(object):
             characters in the input string will result in a string that is not the perfect
             translation of the input
         """
-        return _re_escape(text).replace(r"\%", ".*").replace("_", ".")
-
-
-if PY2:
-    # py2 escapes "_", py3 doesnt, make it py3 compatible
-    def _re_escape(*a, **kw):
-        return re.escape(*a, **kw).replace(r"\_", "_")
-else:
-    _re_escape = re.escape  # pylint: disable=invalid-name
+        if PY2 or sys.version_info[1] < 3:
+            # py2 and py3.3- escape "_" (insert '\' before) AND '%':
+            percent, underscore = r"\%", r"\_"
+        elif sys.version_info[1] < 7:
+            # versions up to 3.7 do not escape anymore "_":
+            percent, underscore = r"\%", "_"
+        else:
+            # from version 3.7, only special characters are escaped,
+            # thus neither "%" nor "_" are escaped:
+            percent, underscore = "%", "_"
+        return re.escape(text).replace(percent, ".*").replace(underscore, ".")
 
 
 def tounicode(string, decoding='utf-8'):

@@ -6,6 +6,7 @@ Created on Dec 12, 2016
 from builtins import range, object
 
 from itertools import product
+import re
 from io import StringIO, BytesIO
 from datetime import timedelta
 import socket
@@ -51,7 +52,10 @@ def test_strconvert():
         assert strconvert.sql2re(a+"a") == exp+"a"
 
     # wild 2 regex
-    expected = ["\\%", "_", ".*", ".", "\\..*", "\\."]
+    # Note that we escape '%' and '_' becasue different versions
+    # of python escape them (=> insert a backslash before) differently
+    # See https://docs.python.org/3/library/re.html#re.escape
+    expected = [re.escape("%"), re.escape("_"), ".*", ".", "\\..*", "\\."]
     for a, exp in zip(strings, expected):
         assert strconvert.wild2re(a) == exp
         assert strconvert.wild2re(a+a) == exp+exp
