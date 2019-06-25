@@ -802,10 +802,13 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
         # test a type error in the url_segment_side effect
         db.session.query(Segment).delete()
         assert len(db.session.query(Segment).all()) == 0
-        errmsg_py2 = '_sre.SRE_Pattern object is not an iterator'  # python2
-        errmsg_py3 = "'_sre.SRE_Pattern' object is not an iterator"  # python3
-        assert errmsg_py2 not in self.log_msg()
-        assert errmsg_py3 not in self.log_msg()
+        # there are several error types. E.g.:
+        # errmsg_py2 = '_sre.SRE_Pattern object is not an iterator'  # python2
+        # errmsg_py3 = "'_sre.SRE_Pattern' object is not an iterator"  # python3
+        # errmsg_py37 = "'re.Pattern' object is not an iterator"  # python 3.7
+        # To avoid confusion with future versions, let's check something simple:
+        errmsg = " object is not an iterator"
+        assert errmsg not in self.log_msg()
         suse = self._seg_urlread_sideeffect  # remainder (reset later)
         # just return something not number nor string:
         self._seg_urlread_sideeffect = re.compile(".*")
@@ -816,8 +819,8 @@ DETAIL:  Key (id)=(1) already exists""" if db.is_postgres else \
                                         '--end', '2016-05-08T9:00:00', '--inventory', 'true'])
         assert result.exception
         assert result.exc_info[0] == SystemExit
-        assert errmsg_py2 in self.log_msg() or errmsg_py3 in self.log_msg()
-
+        logmsg = self.log_msg()
+        assert errmsg in logmsg
         self._seg_urlread_sideeffect = suse  # restore default
 
     @patch('stream2segment.download.main.get_events_df')

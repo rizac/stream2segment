@@ -128,8 +128,8 @@ or `source env/bin/activate.csh` (depending on your shell)
 
 ### Install and activate python virtualenv (Anaconda)
 
-(Thanks to JessieMyr who wrote this for us **NOTE: this refers to an installation executed once in 2016, sorry for
-potential problems for that**)
+(Thanks to JessieMyr who wrote this for us **disclaimer: the line below have been tested
+once in 2016**)
 
 Create a virtual environment for your project
 
@@ -147,7 +147,7 @@ Activate your virtual environment
 
 ### Install and config packages
 
-Now you are supposed to be in your python virtualenv
+**From now on you are supposed to be in your activated python virtualenv**
 
 Run `pip freeze`. If you get the message 'You are using pip version ..., however version ... is available.'
 then execute:
@@ -157,7 +157,8 @@ pip install --upgrade pip
 
 #### Install using pre-built scripts ...
 
-Run `./installme` or `./installme-dev` (the latter if you want to run tests, recommended)
+Run `./installme` or `./installme-dev` (the latter if you want to contribute and/or
+run tests to check if the program will likely work in your system)
 
 #### ... or the old (longer) way:
 
@@ -174,18 +175,32 @@ Install the current package
 pip install -e .
 ```
 
+If you wish to use the program within Jupyter notebooks, jupyter is not included
+in the dependencies. Thus
+```
+pip install jupyter
+```
+
 ### Runt tests
 
-#### Run using pre-built script ...
+Stream2segment has been highly tested (current test coverage is above 90%).
+Continuous integration tests are not yet in place, the program has been tested
+on Python version from 3.5+ and above 2.7. **Note (summer 2019): we will discontinue support for
+Python 2.7 very soon**
 
-Move in the project directory and run the command:
+To execute tests, move in the project directory and run the command:
 ```
 pytest -xv --dburl <additional db url> --ignore=./tests/skip ./tests/
 ```
-or (if 'pytest not found' message appears):
+or, if 'pytest not found' message appears:
 ```
-python -m pytest ./tests/ -xv --ignore=./tests/skip
+python -m pytest ...
 ```
+Run tests tracking coverage:
+```
+pytest -xv --dburl <additional db url> --ignore=./tests/skip --cov=./stream2segment --cov-report=html ./tests/
+```
+
 Wait, tests are time consuming (some minutes currently) and you should see a message with no errors, such as
 `"===== 8 passed in 1.30 seconds ======"`
 

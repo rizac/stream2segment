@@ -98,14 +98,16 @@ setup(
     # it apparently downloads numpy, then obspy, THEN INSTALLS both
     # so that, since obspy requires numpy, it complains that's not installed.
     # numpy must be therefore installed separately, and we write:
-    install_requires=['PyYAML>=3.12',  # ,<=3.13
-                      'numpy>=1.13.1',  # ,<=1.15.3
-                      'pandas>=0.20.3',  # ,<=0.23.4
-                      'obspy>=1.0.3',  # ,<=1.1.0
-                      'Flask>=0.12.3',  # ,<=1.0.2
+    install_requires=['PyYAML>=3.12',
+                      'numpy>=1.13.1',
+                      'pandas>=0.20.3',
+                      'obspy>=1.0.3',
+                      'Flask>=0.12.3',
                       'futures==3.1.1',
-                      'psycopg2>=2.7.3.1',  # ,<=2.7.5
-                      'psutil>=5.3.1'  # ,<=5.4.8
+                      'psycopg2>=2.7.3.1',
+                      'psutil>=5.3.1',
+                      'SQLAlchemy>=1.1.14',
+                      'click>=6.7'
                       ],
 
     # List additional groups of dependencies here (e.g. development
