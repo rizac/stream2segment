@@ -325,6 +325,56 @@ class Test(object):
         # assert we did not write to the db, cause the error threw before setting up db:
         assert db.session.query(Download).count() == 3
 
+        # search radius:
+        for search_radius in [{'min': 5}, {'min': 5, 'max': 6, 'minmag': 7}]:
+            result = run_cli_download(search_radius=search_radius)
+            assert result.exit_code != 0
+            assert ('Error: Invalid value for "search_radius": '
+                    "provide either 'min', 'max' or "
+                    "'minmag', 'maxmag', 'minmag_radius', 'maxmag_radius'") in result.output
+
+        result = run_cli_download(search_radius={'min': 5, 'max': '6'})
+        assert result.exit_code != 0
+        assert ('Error: Invalid value for "search_radius": '
+                "numeric values expected") in result.output
+
+        result = run_cli_download(search_radius={'minmag': 15, 'maxmag': 7,
+                                                 'minmag_radius': 5,
+                                                 'maxmag_radius': 4})
+        assert result.exit_code != 0
+        assert ('Error: Invalid value for "search_radius": '
+                'minmag should not be greater than maxmag') in result.output
+
+        result = run_cli_download(search_radius={'minmag': 7, 'maxmag': 8,
+                                                 'minmag_radius': -1,
+                                                 'maxmag_radius': 0})
+        assert result.exit_code != 0
+        assert ('Error: Invalid value for "search_radius": '
+                'minmag_radius and maxmag_radius should be greater than 0') in result.output
+
+        result = run_cli_download(search_radius={'minmag': 5, 'maxmag': 5,
+                                                 'minmag_radius': 4,
+                                                 'maxmag_radius': 4})
+        assert result.exit_code != 0
+        assert ('Error: Invalid value for "search_radius": '
+                'To supply a constant radius, '
+                'set "min: 0" and specify the radius with the "max" argument') in result.output
+
+        result = run_cli_download(search_radius={'min': -1, 'max': 5})
+        assert result.exit_code != 0
+        assert ('Error: Invalid value for "search_radius": '
+                'min should not be lower than 0') in result.output
+
+        result = run_cli_download(search_radius={'min': 0, 'max': 0})
+        assert result.exit_code != 0
+        assert ('Error: Invalid value for "search_radius": '
+                'max should be greater than 0') in result.output
+
+        result = run_cli_download(search_radius={'min': 4, 'max': 3})
+        assert result.exit_code != 0
+        assert ('Error: Invalid value for "search_radius": '
+                'min should be lower than max') in result.output
+
 
 @patch('stream2segment.main.run_download', side_effect=lambda *a, **v: None)
 @patch('stream2segment.utils.inputargs.os.path.isfile', side_effect=isfile)

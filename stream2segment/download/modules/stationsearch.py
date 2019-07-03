@@ -28,34 +28,6 @@ from stream2segment.download import logger  # @IgnorePep8
 from itertools import cycle
 
 
-class SearchRadius(object):
-    
-    def __init__(self, dict):
-        mag_dependent_args = ['minmag', 'maxmag', 'minmag_radius', 'maxmag_radius']
-        mag_independent_args = ['min', 'max']
-        is_mag_dep = all(_ in dict for _ in mag_dependent_args)
-        is_mag_indep = all(_ in dict for _ in mag_independent_args)
-        if is_mag_dep == is_mag_indep:
-            raise ValueError('Please supply either %s OR %s' % (mag_independent_args,
-                                                                mag_dependent_args))
-        self.is_mag_dependent = is_mag_dep
-        if is_mag_dep:
-            for _ in mag_dependent_args:
-                setattr(self, _, dict[_])
-        else:
-            for _ in mag_independent_args:
-                setattr(self, _, dict[_])
-
-    def get_serarch_radia(self, magnitudes):
-        if self.is_mag_dependent:
-            return None, get_search_radius(magnitudes,
-                                           self.minmag,  # pylint: disable=no-member
-                                           self.maxmag,  # pylint: disable=no-member
-                                           self.minmag_radius,  # pylint: disable=no-member
-                                           self.maxmag_radius)  # pylint: disable=no-member
-        return self.min, self.max  # pylint: disable=no-member
-
-
 def merge_events_stations(events_df, channels_df, search_radius,
                           tttable, show_progress=False):
     """
@@ -99,11 +71,7 @@ def merge_events_stations(events_df, channels_df, search_radius,
     sourcedepths, eventtimes = [], []
 
     with get_progressbar(show_progress, length=len(events_df)) as pbar:
-        min_radia, max_radia = search_radius.get_serarch_radia(events_df[EVT_MAG].values)
-        if min_radia is None:
-            min_radia = cycle([None])
-        if max_radia is None:
-            max_radia = cycle([None])
+        min_radia, max_radia = get_serarch_radia(search_radius, events_df[EVT_MAG].values)
         for min_radius, max_radius, evt_dic in \
                 zip(min_radia, max_radia, dfrowiter(events_df, [EVT_ID, EVT_LAT, EVT_LON,
                                                                 EVT_TIME, EVT_DEPTH])):
@@ -112,8 +80,11 @@ def merge_events_stations(events_df, channels_df, search_radius,
             condition = (stations_df[STA_STIME] <= evt_dic[EVT_TIME]) & \
                         (pd.isnull(stations_df[STA_ETIME]) |
                          (stations_df[STA_ETIME] >= evt_dic[EVT_TIME] + timedelta(days=1)))
-            if min_radius is not None:
+            # l2d is a distance, thus non negative. We can add the min radius condition
+            # only if it is >=0. Evaluate to false in case min_radius is None (legacy code):
+            if min_radius:
                 condition &= (l2d >= min_radius)
+            # for max_radius, None means: skip
             if max_radius is not None:
                 condition &= (l2d <= max_radius)
 
@@ -210,7 +181,20 @@ def locations2degrees(lat1, lon1, lat2, lon2):
     return ret
 
 
-def get_search_radius(mag, minmag, maxmag, minmag_radius, maxmag_radius):
+def get_serarch_radia(search_radius, magnitudes):
+    '''Returns two iterables denoting the minima and maxima radia for
+    stations search. Any element of the iterables might be None to indicate:
+    no restriction for that element'''
+    if 'min' not in search_radius and 'max' not in search_radius:
+        return cycle([None]), get_magdep_search_radius(magnitudes,
+                                                       search_radius['minmag'],
+                                                       search_radius['maxmag'],
+                                                       search_radius['minmag_radius'],
+                                                       search_radius['maxmag_radius'])
+    return cycle([search_radius['min']]), cycle([search_radius['max']])
+
+
+def get_magdep_search_radius(mag, minmag, maxmag, minmag_radius, maxmag_radius):
     """From a given magnitude, determines and returns the max radius (in degrees).
         Given minmag_radius and maxmag_radius and minmag and maxmag (FIXME: TO BE CALIBRATED!),
         this function returns D from the f below:

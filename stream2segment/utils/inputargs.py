@@ -20,7 +20,6 @@ from stream2segment.traveltimes.ttloader import TTTable
 from stream2segment.io.db.models import Fdsnws
 from stream2segment.download.utils import Authorizer, EVENTWS_MAPPING,\
     EVENTWS_SAFE_PARAMS
-from stream2segment.download.modules.stationsearch import SearchRadius
 
 
 class BadArgument(Exception):
@@ -424,6 +423,53 @@ def parse_download_advanced_settings(advanced_settings):
     return advanced_settings
 
 
+def check_search_radius(search_radius):
+    '''Checks the validity of the 'search_radius' argument (dict)'''
+    args = [
+        search_radius.get('minmag'),
+        search_radius.get('maxmag'),
+        search_radius.get('minmag_radius'),
+        search_radius.get('maxmag_radius'),
+        search_radius.get('min'),
+        search_radius.get('max')
+    ]
+    magdep_args = args[:4]
+    magindep_args = args[4:]
+    magdep_argscount = sum(_ is not None for _ in magdep_args)
+    magindep_argscount = sum(_ is not None for _ in magindep_args)
+    is_mag_dep = magdep_argscount == len(magdep_args) and not magindep_argscount
+    is_mag_indep = magindep_argscount == len(magindep_args) and not magdep_argscount
+
+    if is_mag_dep == is_mag_indep:
+        raise ValueError("provide either 'min', 'max' or "
+                         "'minmag', 'maxmag', 'minmag_radius', 'maxmag_radius'")
+
+    # check errors:
+    nofloaterr = ValueError('numeric values expected')
+    if is_mag_dep:
+        if not all(isinstance(_, (int, float)) for _ in magdep_args):
+            raise nofloaterr
+        if args[0] > args[1]:  # minmag > maxmag
+            raise ValueError('minmag should not be greater than maxmag')
+        if args[2] <= 0 or args[3] <= 0:  # minmag_radius or maxmag_radius non positive
+            raise ValueError('minmag_radius and maxmag_radius should be greater than 0')
+        if args[0] == args[1] and args[2] == args[3]:
+            # minmag == maxmag, minmag_radius == maxmag_radius => error
+            raise ValueError('To supply a constant radius, '
+                             'set "min: 0" and specify the radius with the "max" argument')
+    else:
+        if not all(isinstance(_, (int, float)) for _ in magindep_args):
+            raise nofloaterr
+        if args[-2] < 0:
+            raise ValueError('min should not be lower than 0')
+        if args[-1] <= 0:
+            raise ValueError('max should be greater than 0')
+        if args[-2] >= args[-1]:
+            raise ValueError('min should be lower than max')
+
+    return search_radius
+
+
 def load_config_for_download(config, parseargs, **param_overrides):
     '''loads download arguments from the given config (yaml file or dict) after parsing and
     checking some of the dict keys.
@@ -560,9 +606,9 @@ def load_config_for_download(config, parseargs, **param_overrides):
             },
             {
              'names': ['search_radius'],
-             'newvalue': lambda arg: SearchRadius(arg)
+             'newvalue': check_search_radius
             }
-            ]
+        ]
 
         remainingkeys = parse_arguments(config_dict, *params)
 

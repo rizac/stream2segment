@@ -275,7 +275,7 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
     # events_df
 #    id  magnitude  latitude  longitude  depth_km                    time
 # 0  1   3.0        1.0       1.0        60.0     2016-05-08 05:17:11.500
-# 1  2   4.0        90.0      90.0       2.0      2016-05-08 01:45:30.300
+# 1  2   4.0        2.0       2.0       2.0      2016-05-08 01:45:30.300
 
     # channels_df:
 #     id station_id  latitude  longitude  datacenter_id start_time   end_time
@@ -289,8 +289,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # for magnitude <10, max_radius is 0. For magnitude >10, max_radius is 200
         # we have only magnitudes <10, we have two events exactly on a station (=> dist=0)
         # which will be taken (the others dropped out)
-        df = merge_events_stations(events_df, channels_df, minmag=10, maxmag=10,
-                                   minmag_radius=0, maxmag_radius=200, tttable=tt_table)
+        df = merge_events_stations(events_df, channels_df, dict(minmag=10, maxmag=10,
+                                   minmag_radius=0, maxmag_radius=200), tttable=tt_table)
 
         assert len(df) == 2
 
@@ -298,8 +298,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # we have only magnitudes <10, we have all event-stations closer than 100 deg
         # So we might have ALL channels taken BUT: one station start time is in 2019, thus
         # it will not fall into the case above!
-        df = merge_events_stations(events_df, channels_df, minmag=1, maxmag=1,
-                                   minmag_radius=100, maxmag_radius=2000, tttable=tt_table)
+        df = merge_events_stations(events_df, channels_df, dict(minmag=1, maxmag=1,
+                                   minmag_radius=100, maxmag_radius=2000), tttable=tt_table)
 
         assert len(df) == (len(channels_df)-1) * len(events_df)
         # assert channel outside time bounds was in:
@@ -315,8 +315,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         # this is a more complex case, we want to drop the first event by setting a very low
         # threshold (sraidus_minradius=1) for magnitudes <=3 (the first event magnitude)
         # and maxradius very high for the other event (magnitude=4)
-        df = merge_events_stations(events_df, channels_df, minmag=3, maxmag=4,
-                                   minmag_radius=1, maxmag_radius=40, tttable=tt_table)
+        df = merge_events_stations(events_df, channels_df, dict(minmag=3, maxmag=4,
+                                   minmag_radius=1, maxmag_radius=40), tttable=tt_table)
 
         # assert we have only the second event except the first channel which is from the 1st event.
         # The first event is retrievable by its latitude (2)
@@ -344,8 +344,8 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
         channels_df = channels_df.copy()
         channels_df.loc[:, Station.latitude.key] = 0
         channels_df.loc[:, Station.longitude.key] = 0
-        df = merge_events_stations(events_df, channels_df, minmag=3, maxmag=4,
-                                   minmag_radius=1, maxmag_radius=40, tttable=tt_table)
+        df = merge_events_stations(events_df, channels_df, dict(minmag=3, maxmag=4,
+                                   minmag_radius=1, maxmag_radius=40), tttable=tt_table)
         # assert for events of depth 0 arrival times are queal to event times
         assert (df[df[Segment.event_id.key] == evtid1][Segment.arrival_time.key]
                 == evttime1).all()
@@ -355,11 +355,92 @@ BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 
         # now set the first event time out-of bounds:
         events_df.loc[events_df[Event.id.key] == evtid1, Event.depth_km.key] = 600000
-        df = merge_events_stations(events_df, channels_df, minmag=3, maxmag=4,
-                                   minmag_radius=1, maxmag_radius=40, tttable=tt_table)
+        df = merge_events_stations(events_df, channels_df, dict(minmag=3, maxmag=4,
+                                   minmag_radius=1, maxmag_radius=40), tttable=tt_table)
         # assert for events of depth 0 arrival times are queal to event times
         # as nans are dropped from the returned dataframe, assert we do not have segments with
         # event_id == evtid1:
         assert df[df[Segment.event_id.key] == evtid1][Segment.arrival_time.key].empty
         # still assert for events of depth > 0 arrival times are GREATER than event times
         assert (df[df[Segment.event_id.key] == evtid2][Segment.arrival_time.key] > evttime2).all()
+
+
+    def test_merge_event_stations_mag_independent_circle(self, db, tt_ak135_tts):
+        # get events with lat lon (1,1), (2,2,) ... (n, n)
+        urlread_sideeffect = """#EventID | Time | Latitude | Longitude | Depth/km | Author | Catalog | Contributor | ContributorID | MagType | Magnitude | MagAuthor | EventLocationName
+20160508_0000129|2016-05-08 05:17:11.500000|1|1|60.0|AZER|EMSC-RTS|AZER|505483|ml|3|AZER|CASPIAN SEA, OFFSHR TURKMENISTAN
+20160508_0000004|2016-05-08 01:45:30.300000|90|90|2.0|EMSC|EMSC-RTS|EMSC|505183|ml|4|EMSC|CROATIA
+"""
+        events_df = self.get_events_df(urlread_sideeffect, db.session)
+
+        net, sta, loc, cha = [], [], [], []
+        datacenters_df, eidavalidator = \
+            self.get_datacenters_df(None, db.session, None, self.routing_service,
+                                    net, sta, loc, cha, db_bufsize=self.db_buf_size)
+
+        # url read for channels: Note: first response data raises, second has an error and
+        # that error is skipped (other channels are added), and last two channels are from two
+        # stations (BLA|BLA|...) with only different start time (thus stations should both be
+        # added)
+        urlread_sideeffect  = ["""#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
+A|a||HHZ|1|1|622.0|0.0|0.0|-90.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|50.0|2008-02-12T00:00:00|
+A|b||HHE|2|2|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|
+""",
+"""#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
+A|c||HHZ|3|3|622.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2008-02-12T00:00:00|
+BLA|e||HHZ|7|7|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2009-01-01T00:00:00|2019-01-01T00:00:00
+BLA|e||HHZ|8|8|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|M/S|100.0|2019-01-01T00:00:00|
+""",  URLError('wat'), socket.timeout()]
+
+        channels_df = self.get_channels_df(urlread_sideeffect, db.session,
+                                           datacenters_df,
+                                           eidavalidator,
+                                           net, sta, loc, cha, None, None, 10,
+                                           False, None, None, -1, self.db_buf_size)
+        assert len(channels_df) == 5
+        # events_df
+#    id  magnitude  latitude  longitude  depth_km                    time
+# 0  1   3.0        1.0       1.0        60.0     2016-05-08 05:17:11.500
+# 1  2   4.0        90.0      90.0       2.0      2016-05-08 01:45:30.300
+
+    # channels_df:
+#     id station_id  latitude  longitude  datacenter_id start_time   end_time
+# 0   1           1       1.0        1.0              1 2008-02-12        NaT
+# 1   2           2       2.0        2.0              1 2009-01-01        NaT
+# 2   3           3       3.0        3.0              2 2008-02-12        NaT
+# 3   4           4       7.0        7.0              2 2009-01-01 2019-01-01
+# 4   5           5       8.0        8.0              2 2019-01-01        NaT
+
+
+        tt_table = tt_ak135_tts
+        # for magnitude <10, max_radius is 0. For magnitude >10, max_radius is 200
+        # we have only magnitudes <10, we have two events exactly on a station (=> dist=0)
+        # which will be taken (the others dropped out)
+        df = merge_events_stations(events_df, channels_df, dict(min=0, max=10),
+                                   tttable=tt_table)
+        # the first event results in 4 potential segments
+        # (the last channel has been opened too late),
+        # the second event results in 0 potential segments
+        # (too far away):
+        assert len(df) == 4
+
+        # now let's see: the channel with id = 4 is 8.48 degrees far away
+        # from the first event. By issuing a max=8:
+        df = merge_events_stations(events_df, channels_df, dict(min=0, max=8),
+                                   tttable=tt_table)
+        # we should get:
+        assert len(df) == 3
+
+        # now let'se restrict again:search_radius  min is increased to 2, meaning that
+        # we skip the first two channels (distances =0 and 1.413, respectively)
+        # and leaving us with 3-2 = 1 potential segment only:
+        df = merge_events_stations(events_df, channels_df, dict(min=1.414, max=8),
+                                   tttable=tt_table)
+        # we should get:
+        assert len(df) == 1
+
+        # now let's take all combinations (2 events x 4 channels = 8 potential segments).
+        df = merge_events_stations(events_df, channels_df, dict(min=0, max=90),
+                                   tttable=tt_table)
+        # we should get:
+        assert len(df) == 8

@@ -100,10 +100,7 @@ def run(session, download_id, eventws, starttime, endtime, dataws, eventws_param
 
             stepinfo("Selecting stations within search area from %d events", len(events_df))
             # merge vents and stations (might raise FailedDownload):
-            segments_df = merge_events_stations(events_df, channels_df, search_radius['minmag'],
-                                                search_radius['maxmag'],
-                                                search_radius['minmag_radius'],
-                                                search_radius['maxmag_radius'], tt_table,
+            segments_df = merge_events_stations(events_df, channels_df, search_radius, tt_table,
                                                 isterminal)
             # help gc by deleting the (only) refs to unused dataframes
             del events_df
