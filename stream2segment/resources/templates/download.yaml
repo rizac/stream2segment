@@ -150,10 +150,10 @@ inventory: true
 
 # search radius: defines the criteria for selecting stations around events. It is a dict
 # which can have either:
-# 1) two arguments ('min', 'max') in order to select stations within an Annulus or Circle (if min=0),
-# i.e. within 'min' and 'mag' degrees from each event location (bounds included)
+# 1) two arguments ('min', 'max') in order to select stations exactly or within 'min' and 'mag' degrees
+# from each event location (min=0 is equivalent to a circular search area)
 # 2) four arguments in order to select stations within a circular
-# area whose radius is event magnitude dependent:
+# area whose radius is event's magnitude dependent:
 #
 #                   |
 #     maxmag_radius +                oooooooooooo
@@ -164,11 +164,8 @@ inventory: true
 #                   |
 #                   ---------+-------+------------
 #                         minmag   maxmag
-# Edge cases:
-# - if minmag_radius == maxmag_radius = R, this is equivalent to a constant function returning
-#   always R regardless of the magnitude
-# - if minmag == maxmag = M, this function returns minmag_radius for all magnitudes < M,
-#   maxmag_radius for all magnitudes >= M
+# If minmag = maxmag = M, maxmag_radius will be used for events with magnitude >= M,
+# minmag_radius otherwise
 search_radius:
  minmag: 6 # min magnitude
  maxmag: 7 # max magnitude

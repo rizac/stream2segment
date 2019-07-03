@@ -279,8 +279,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 # 11  12  4           90.0      90.0       2             2009-01-01 NaT       n2      s                c3
 
         # take all segments:
-        segments_df = merge_events_stations(events_df, channels_df, minmag=10, maxmag=10,
-                                            minmag_radius=100, maxmag_radius=200,
+        segments_df = merge_events_stations(events_df, channels_df, dict(minmag=10, maxmag=10,
+                                            minmag_radius=100, maxmag_radius=200),
                                             tttable=tt_ak135_tts)
 
 # segments_df:
@@ -532,8 +532,8 @@ n2|s||c3|90|90|485.0|0.0|90.0|0.0|GFZ:HT1980:CMG-3ESP/90/g=2000|838860800.0|0.1|
 # 11  12  4           90.0      90.0       2             2009-01-01 NaT       n2      s                c3
 
         # take all segments:
-        segments_df = merge_events_stations(events_df, channels_df, minmag=10, maxmag=10,
-                                            minmag_radius=100, maxmag_radius=200,
+        segments_df = merge_events_stations(events_df, channels_df, dict(minmag=10, maxmag=10,
+                                            minmag_radius=100, maxmag_radius=200),
                                             tttable=tt_ak135_tts)
 
 # segments_df:
