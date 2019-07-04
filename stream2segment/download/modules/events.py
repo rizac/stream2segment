@@ -73,6 +73,10 @@ def get_events_df(session, url, evt_query_args, start, end,
                 msg = ("No event found. If you supplied a file, the file was not found: "
                        "check path and typos. Otherwise, try to change your search parameters: "
                        "check also that the service returns parsable data (FDSN-compliant)")
+            # build the real url used for the query, so that we log the latter:
+            url, evt_query_args = _normalize(url, evt_query_args, start, end)
+            url = urljoin(url, **evt_query_args)
+
         raise FailedDownload(formatmsg(msg, url))
 
     events_df[Event.webservice_id.key] = eventws_id
@@ -117,7 +121,7 @@ def dataframe_iter(url, evt_query_args, start, end,
         events_iter = events_iter_from_file(url, evt_query_args.get('format'))
         url = tofileuri(url)
     else:
-        events_iter = events_iter_from_url(EVENTWS_MAPPING.get(url, url),
+        events_iter = events_iter_from_url(url,
                                            evt_query_args,
                                            start, end,
                                            timeout, show_progress)
@@ -173,31 +177,12 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout, show_pro
     url and the corresponding response body. The returned iterator has length > 1
     if the request was too large and had to be splitted
     """
-    evt_query_args.setdefault('format', 'isf' if base_url == EVENTWS_MAPPING['isc'] else 'text')
-    is_isf = evt_query_args['format'] == 'isf'
-
-    start_iso = start.isoformat()
-    end_iso = end.isoformat()
-    # This should never happen but let's be safe: override start and end
-    if 'start' in evt_query_args:
-        evt_query_args.pop('start')
-    evt_query_args['starttime'] = start_iso
-    if 'end' in evt_query_args:
-        evt_query_args.pop('end')
-    evt_query_args['endtime'] = end_iso
-    # assure that we have 'minmagnitude' and 'maxmagnitude' as mag parameters, if any:
-    if 'minmag' in evt_query_args:
-        minmag = evt_query_args.pop('minmag')
-        if 'minmagnitude' not in evt_query_args:
-            evt_query_args['minmagnitude'] = minmag
-    if 'maxmag' in evt_query_args:
-        maxmag = evt_query_args.pop('maxmag')
-        if 'maxmagnitude' not in evt_query_args:
-            evt_query_args['maxmagnitude'] = maxmag
-
+    base_url, evt_query_args = _normalize(base_url, evt_query_args, start, end)
+    is_isf_ = evt_query_args['format'] == 'isf'
+    end_iso = evt_query_args['endtime']
     try:
         url = urljoin(base_url, **evt_query_args)
-        result = _urlread(url, timeout, is_isf)
+        result = _urlread(url, timeout, is_isf_)
         if result is not None:
             yield url, result  # then result is the tuple (url, raw_data)
         else:
@@ -218,7 +203,7 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout, show_pro
                     evt_q_args = _split_request(downloads.pop(0))
                     for i, evt_q_arg in enumerate(evt_q_args):
                         url = urljoin(base_url, **evt_q_arg)
-                        result = _urlread(url, timeout, is_isf)
+                        result = _urlread(url, timeout, is_isf_)
                         if result is not None:
                             # update pbar only if the end of the request equals
                             # the global end_iso (when recursion is done on time, it
@@ -231,6 +216,39 @@ def events_iter_from_url(base_url, evt_query_args, start, end, timeout, show_pro
                             downloads.insert(i, evt_q_arg)
     except Exception as exc:
         raise FailedDownload(formatmsg("Unable to fetch events", exc, url))
+
+
+def _normalize(base_url, evt_query_args, start, end):
+    '''Returns the normalized tuple (url, evt_query_args), i.e. url is
+    mapped to EVENTWS_MAPPING (if a key is found) and evt_query_args has surely the
+    keys 'starttime', 'endtime', 'format'. Moreover, 'minmag' 'maxmag', if found,
+    are normalized into 'minmagnitude' and 'maxmagnitude' (but note that
+    'minmagnitude' and 'maxmagnitude' are not assured to be keys of the returned
+    `evt_query_args`.
+    '''
+    start_iso = start.isoformat()
+    end_iso = end.isoformat()
+    # This should never happen but let's be safe: override start and end
+    if 'start' in evt_query_args:
+        evt_query_args.pop('start')
+    evt_query_args['starttime'] = start_iso
+    if 'end' in evt_query_args:
+        evt_query_args.pop('end')
+    evt_query_args['endtime'] = end_iso
+    # assure that we have 'minmagnitude' and 'maxmagnitude' as mag parameters, if any:
+    if 'minmag' in evt_query_args:
+        minmag = evt_query_args.pop('minmag')
+        if 'minmagnitude' not in evt_query_args:
+            evt_query_args['minmagnitude'] = minmag
+    if 'maxmag' in evt_query_args:
+        maxmag = evt_query_args.pop('maxmag')
+        if 'maxmagnitude' not in evt_query_args:
+            evt_query_args['maxmagnitude'] = maxmag
+
+    url = EVENTWS_MAPPING.get(base_url, base_url)
+    evt_query_args.setdefault('format', 'isf' if url == EVENTWS_MAPPING['isc'] else 'text')
+
+    return url, evt_query_args
 
 
 def _urlread(url, timeout=None, is_isf=False):
