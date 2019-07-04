@@ -133,7 +133,7 @@ python3 -m venv ./env
  ```
 or `source env/bin/activate.csh` (depending on your shell)
 
-> <sub>Activation needs to be done __each time__ we will run the program. See section [Usage](#usage) below. </sub>
+> <sub>Activation needs to be done __each time__ we will run the program.</sub>
 > <sub>To check you are in the right env, type: `which pip` and you should see it's pointing inside the env folder</sub>
 
 
@@ -191,6 +191,8 @@ in the dependencies. Thus
 pip install jupyter
 ```
 
+The program is now installed. To double check the program functionalities, we suggest to run tests (see below) and report the problem in case of failure 
+
 ### Runt tests
 
 Stream2segment has been highly tested (current test coverage is above 90%).
@@ -210,15 +212,15 @@ Run tests tracking coverage:
 ```
 pytest -xvvv -W ignore --dburl <additional db url> --cov=./stream2segment --cov-report=html ./tests/
 ```
-(short explanation: `-x`: stop at first error, `-vvv`: increase verbosity, `-W ignore`: do not print Python packages warnings. This might be very useful because a lot of these warnings might be printed: when tests fail, these warnings might hide in the terminal the important error messages. Note that other options of `-W`, e.g. a very useful "print only first warning by type", seem not to work with current pytest version)
+(short explanation: `-x`: stop at first error, `-vvv`: increase verbosity, `-W ignore`: do not print Python warnings issued during tests. This might be very useful because when tests fail, these warnings might hide in the terminal the important failure messages. Note that other options of `-W`, e.g. a very useful "print only first warning by type", seem not to work with current pytest version)
 
 Tests are time consuming (some minutes currently) and you should see a message with no errors, such as
 `"===== ### passed in ### seconds ======"`
 
-The database used for testing will be an sqlite database. If you want to provide other database urls use the variable ```--dburl``` (you can type it multiple times and all tests requiring a database will be run with all provided database urls).
+The database used for testing will be an sqlite database. If you want to provide other database type their urls via the option ```--dburl``` (you can type it multiple times and all tests requiring a database will be run with all provided database urls).
 Example: if you have postgres installed with an *already created* database named ```s2s_test```, run:
 ```
-pytest -xv --dburl postgresql://<user>:<password>@localhost/<dbname> ./tests/
+pytest -xvvv -W ignore --dburl postgresql://<user>:<password>@localhost/<dbname> ./tests/
 ```
 (the data on any given database will be overwritten if the database is not empty)
 
