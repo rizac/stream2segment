@@ -106,7 +106,7 @@ cd stream2segment
 We strongly recomend to use python virtual environment, because by isolating all python packages we are about to install, we won't create conflicts with already installed packages.
 
 #### Installation (all versions)
-To install python virtual environment either use [Virtualenvwrapper][http://virtualenvwrapper.readthedocs.io/en/latest/install.html#basic-installation] or the more low-level approach `virtualenv`:
+To install Python virtual environment either use [Virtualenvwrapper](http://virtualenvwrapper.readthedocs.io/en/latest/install.html#basic-installation) or the more low-level approach `virtualenv`:
 ```
 sudo pip install virtualenv
 ```
