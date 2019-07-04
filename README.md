@@ -212,12 +212,12 @@ Run tests tracking coverage:
 ```
 pytest -xvvv -W ignore --dburl <additional db url> --cov=./stream2segment --cov-report=html ./tests/
 ```
-(short explanation: `-x`: stop at first error, `-vvv`: increase verbosity, `-W ignore`: do not print Python warnings issued during tests. This might be very useful because when tests fail, these warnings might hide in the terminal the important failure messages. Note that other options of `-W`, e.g. a very useful "print only first warning by type", seem not to work with current pytest version)
+(short explanation: `--dburl`: see below, `-x`: stop at first error, `-vvv`: increase verbosity, `-W ignore`: do not print Python warnings issued during tests. This might be very useful because when tests fail, these warnings might hide in the terminal the important failure messages. Note that other options of `-W`, e.g. a very useful "print only first warning by type", seem not to work with current pytest version)
 
 Tests are time consuming (some minutes currently) and you should see a message with no errors, such as
 `"===== ### passed in ### seconds ======"`
 
-The database used for testing will be an sqlite database. If you want to provide other database type their urls via the option ```--dburl``` (you can type it multiple times and all tests requiring a database will be run with all provided database urls).
+The database used for testing will be an in-memory sqlite database (e.g., no file will be created). If you want to provide other databases add their urls via the option ```--dburl``` (you can type it multiple times and all tests requiring a database will be run with all provided database urls).
 Example: if you have postgres installed with an *already created* database named ```s2s_test```, run:
 ```
 pytest -xvvv -W ignore --dburl postgresql://<user>:<password>@localhost/<dbname> ./tests/
