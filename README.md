@@ -1,14 +1,14 @@
 # <img align="left" height="30" src="https://www.gfz-potsdam.de/fileadmin/gfz/medien_kommunikation/Infothek/Mediathek/Bilder/GFZ/GFZ_Logo/GFZ-Logo_eng_RGB.svg"> Stream2segment <img align="right" height="50" src="https://www.gfz-potsdam.de/fileadmin/gfz/GFZ_Wortmarke_SVG_klein_en_edit.svg">
 
-A python project to download, process and visualize event-based seismic waveform segments.
+A Python project to download, process and visualize event-based seismic waveform segments.
 
 The key aspects with respect to widely-used similar applications are:
 
-* A db storage (sqlite or postgres) for downloaded data (and metadata)
+* A database storage (sqlite or postgres) for downloaded data (and metadata)
 * A highly customizable processing module which can, e.g., create csv file outputs or store
   on the local file system the processed waveform segments.
 * A visualization tool to show downloded and optionally customized processed segments in a web browser by means
-  of python we-app and Javascript plotting libraries. The user can also set class labels 
+  of Python we-app and Javascript plotting libraries. The user can also set class labels 
   to make the GUI a hand-labelling tool for supervised classification problems, or to simply annotate special segments
 * A highly efficient, easy-to-use selection of segments for filtering data for processing and/or visualization. The selection can be performed on all segments metadata, it exploits the efficiency of SQL 'select' syntax and its simplified for non-experienced user with a documented and simplified custom syntax.
 
@@ -200,7 +200,7 @@ Python 2.7 very soon**
 
 To execute tests, move in the project directory and run the command:
 ```
-pytest -xv --dburl <additional db url> --ignore=./tests/skip ./tests/
+pytest -xvvv -W ignore --dburl <additional db url> ./tests/
 ```
 or, if 'pytest not found' message appears:
 ```
@@ -208,16 +208,17 @@ python -m pytest ...
 ```
 Run tests tracking coverage:
 ```
-pytest -xv --dburl <additional db url> --ignore=./tests/skip --cov=./stream2segment --cov-report=html ./tests/
+pytest -xvvv -W ignore --dburl <additional db url> --cov=./stream2segment --cov-report=html ./tests/
 ```
+(short explanation: `-x`: stop at first error, `-vvv`: increase verbosity, `-W ignore`: do not print Python packages warnings. This might be very useful because a lot of these warnings might be printed: when tests fail, these warnings might hide in the terminal the important error messages. Note that other options of `-W`, e.g. a very useful "print only first warning by type", seem not to work with current pytest version)
 
-Wait, tests are time consuming (some minutes currently) and you should see a message with no errors, such as
-`"===== 8 passed in 1.30 seconds ======"`
+Tests are time consuming (some minutes currently) and you should see a message with no errors, such as
+`"===== ### passed in ### seconds ======"`
 
-The database used for testing will be an sqlite database. If you want to provide other database urls use the variable ```--dburl``` (you can type it multiple times and all tests requireing a database will be run with all provided database urls).
-Example: if you have postgres installed with an already created database named ```s2s_test```, run:
+The database used for testing will be an sqlite database. If you want to provide other database urls use the variable ```--dburl``` (you can type it multiple times and all tests requiring a database will be run with all provided database urls).
+Example: if you have postgres installed with an *already created* database named ```s2s_test```, run:
 ```
-pytest -xv --dburl postgresql://<user>:<password>@localhost/<dbname> --ignore=./tests/skip ./tests/
+pytest -xv --dburl postgresql://<user>:<password>@localhost/<dbname> ./tests/
 ```
 (the data on any given database will be overwritten if the database is not empty)
 
