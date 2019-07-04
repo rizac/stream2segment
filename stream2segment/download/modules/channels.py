@@ -119,7 +119,7 @@ def get_channels_df(session, datacenters_df, eidavalidator,  # <- can be none
     elif web_cha_df.empty:
         ret = db_cha_df
     else:
-        ret = pd.concat((web_cha_df, db_cha_df), axis=0, ignore_index=True)
+        ret = pd.concat((web_cha_df, db_cha_df), axis=0, ignore_index=True, sort=False)
     # the columns for the channels dataframe that will be returned
     return ret[[c.key for c in (Channel.id, Channel.station_id, Station.latitude,
                                 Station.longitude, Station.datacenter_id, Station.start_time,

@@ -425,10 +425,11 @@ class Inspector(object):
         # we will remove keys from qanames leaving only queryable attributes not
         # belonging to any other class (that's why we associated it to self.qanames)
 
+        _mapped_table = self._get_mapped_table(mapper)
         # now, get Foreign Keys Columns
-        fk_columns = set(f.parent for f in mapper.mapped_table.foreign_keys)
+        fk_columns = set(f.parent for f in _mapped_table.foreign_keys)
         # and the pkeys Columns:
-        pk_columns = set(mapper.mapped_table.primary_key.columns)
+        pk_columns = set(_mapped_table.primary_key.columns)
 
         pknames, fknames, colnames = self.pknames, self.fknames, self.colnames
         try:
@@ -450,6 +451,19 @@ class Inspector(object):
         for rel in self.mapper.relationships:
             qanames.remove(rel.key)
             relnames.add(rel.key)
+
+    @staticmethod
+    def _get_mapped_table(mapper):
+        '''Returns the mapped table from the given SQLAlchemy mapper
+        Note that there is a twin method in 'pdsql' module (FIXME: merge in future releases)
+        '''
+        # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper.mapped_table
+        # Note that from v 1.3+, we need to use .persist_selectable:
+        try:
+            table = mapper.persist_selectable
+        except AttributeError:
+            table = mapper.mapped_table
+        return table
 
     def _exclude_set(self, exclude):
         if not isinstance(exclude, set):

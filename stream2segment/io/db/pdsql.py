@@ -121,7 +121,7 @@ def colnames(table, pkey=None, fkey=None, nullable=None):
     """
     mapper = inspect(table)
     # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper.mapped_table
-    table = mapper.mapped_table
+    table = _get_mapped_table(mapper)
     fkeys_cols = set((fk.parent for fk in table.foreign_keys)) if fkey in (True, False) else set([])
     for att_name, column in mapper.columns.items():
         # the dict-like above is keyed based on the attribute name defined in the mapping,
@@ -133,6 +133,20 @@ def colnames(table, pkey=None, fkey=None, nullable=None):
                 (fkey is None or (column in fkeys_cols) == fkey) and \
                 (nullable is None or nullable == column.nullable):
             yield att_name
+
+
+def _get_mapped_table(mapper):
+    '''Returns the mapped table from the given SQLAlchemy mapper
+    Note that there is a twin method in Inspector class ('sqlevalexpr' module)
+    (FIXME: merge in future releases)
+    '''
+    # http://docs.sqlalchemy.org/en/latest/orm/mapping_api.html#sqlalchemy.orm.mapper.Mapper.mapped_table
+    # Note that from v 1.3+, we need to use .persist_selectable:
+    try:
+        table = mapper.persist_selectable
+    except AttributeError:
+        table = mapper.mapped_table
+    return table
 
 
 def shared_colnames(table, dataframe, pkey=None, fkey=None, nullable=None):
