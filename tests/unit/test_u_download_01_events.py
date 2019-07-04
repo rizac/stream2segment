@@ -260,10 +260,9 @@ class Test(object):
         assert "Request seems to be too large" in log2
         # assertion on exception:
         assert "Unable to fetch events" in str(fld)
-        assert "maximum recursion depth reached"  in str(fld)
+        assert "maximum recursion depth reached" in str(fld)
 
-    @patch('stream2segment.download.modules.events.urljoin', side_effect=urljoin)
-    def test_get_events_eventws_not_saved(self, mock_urljoin, db):
+    def test_get_events_eventws_not_saved(self, db):
         '''test request splitted, but failing due to a http error'''
         urlread_sideeffect = [socket.timeout, 500]
 
@@ -420,8 +419,7 @@ class Test(object):
                                        {'minmag': 0, 'maxmag': 1.9},
                                        {'minmag': 2, 'maxmag': 8}])
     @patch('stream2segment.download.modules.events.get_progressbar')
-    @patch('stream2segment.download.modules.events.urljoin', side_effect=urljoin)
-    def test_pbar2(self, mock_urljoin, mock_pbar, args, db):
+    def test_pbar2(self, mock_pbar, args, db):
         '''test request splitted, but failing due to a http error'''
 
         urlread_sideeffect = [413,
@@ -455,10 +453,9 @@ class Test(object):
         assert mock_pbar.call_args[1]['length'] < self.get_pbar_total_steps()
         assert sum(mock_pbar.return_value.updates) == mock_pbar.call_args[1]['length']
 
-
-
-    @patch('stream2segment.download.modules.events.urljoin', side_effect=urljoin)
-    def test_get_events_eventws_from_file(self, mock_urljoin, db, pytestdir):
+    def test_get_events_eventws_from_file(self,
+                                          # fixtures:
+                                          db, pytestdir):
         '''test request splitted, but reading from events file'''
         urlread_sideeffect = [socket.timeout, 500]
 
@@ -487,8 +484,9 @@ class Test(object):
         assert 'url: file:///' in log2
         assert not self.mock_urlopen.called
 
-    @patch('stream2segment.download.modules.events.urljoin', return_value='a')
-    def test_get_events_eventws_from_file_err(self, mock_query, db, pytestdir):
+    def test_get_events_errors(self,
+                               # fixtures:
+                               db, pytestdir):
         '''test request splitted, but reading from BAD events file'''
         urlread_sideeffect = [socket.timeout, 500]
 
@@ -498,22 +496,82 @@ class Test(object):
 --- ERRROR --- THIS IS MALFORMED 20160508_abc0113|2016-05-08 22:37:20.100000| --- ERROR --- |26.64|163.0|BUC|EMSC-RTS|BUC|505351|ml|3.4|BUC|ROMANIA
 """)
 
-        # we want to return all times 413, and see that we raise a ValueError:
-
+        # provide a valid file (that exists but is malformed) and tst the err message:
+        expected_err_msg = ('No event found. Check that the file is non empty '
+                            'and its content is valid')
         with pytest.raises(FailedDownload) as fdl:
-            # now it should raise because of a 413:
-            data = self.get_events_df(urlread_sideeffect, db.session, filepath, {},
-                                      start=datetime(2010, 1, 1),
-                                      end=datetime(2011, 1, 1),
-                                      db_bufsize=self.db_buf_size)
+            _ = self.get_events_df(urlread_sideeffect, db.session, filepath, {},
+                                   start=datetime(2010, 1, 1),
+                                   end=datetime(2011, 1, 1),
+                                   db_bufsize=self.db_buf_size)
 
-        assert 'Is the file content FDSN compliant?' in str(fdl)
+        assert expected_err_msg in str(fdl)
         assert not self.mock_urlopen.called
+        
+        # Now provide a url and test the error message. Test that we get a 500 error
+        # (Note that `urlread_sideeffect` above should raise a socket timeout and
+        # an THHP error 500, but the first socket.timeout forces by design the split of
+        # the request into sub-request, so the first exception caught is the HTTP error 500
+        with pytest.raises(FailedDownload) as fdl:
+            _ = self.get_events_df(urlread_sideeffect, db.session, 'iris', {},
+                                   start=datetime(2010, 1, 1),
+                                   end=datetime(2011, 1, 1),
+                                   db_bufsize=self.db_buf_size)
 
-    @patch('stream2segment.download.modules.events.urljoin', return_value='a')
+        expected_err_msg = 'Unable to fetch events (HTTP Error 500: Internal Server Error)'
+        # the string above might change across python versions: Thus:
+        # assert expected_err_msg in str(fdl)
+        # might fail and thus cause annoying debugs.
+        # We then test that our message is there and a '500' is found in the error:
+        assert 'Unable to fetch events' in str(fdl)
+        assert '500' in str(fdl)
+        assert self.mock_urlopen.called  # urlopen HAS been called!
+        self.mock_urlopen.reset_mock()
+
+        # Now mock empty or invalid data:
+        for url_read_side_effect in [b'', b'!invalid!']:
+            # Now provide a FDSN url:
+            with pytest.raises(FailedDownload) as fdl:
+                _ = self.get_events_df([url_read_side_effect], db.session, 'iris', {},
+                                       start=datetime(2010, 1, 1),
+                                       end=datetime(2011, 1, 1),
+                                       db_bufsize=self.db_buf_size)
+
+            assert 'No event found, try to change your search parameters' in str(fdl)
+            assert self.mock_urlopen.called
+            self.mock_urlopen.reset_mock()
+
+            # Now provide a custom url (don't know if FDSN):
+            with pytest.raises(FailedDownload) as fdl:
+                _ = self.get_events_df([url_read_side_effect], db.session,
+                                       'http://custom_service', {},
+                                       start=datetime(2010, 1, 1),
+                                       end=datetime(2011, 1, 1),
+                                       db_bufsize=self.db_buf_size)
+
+            assert ('No event found, try to change your search parameters. Check '
+                    'also that the service returns parsable data (FDSN-compliant)') in str(fdl)
+            assert self.mock_urlopen.called
+            self.mock_urlopen.reset_mock()
+            
+            # Now provide a custom "string" (url? file? if url, don't know if FDSN):
+            with pytest.raises(FailedDownload) as fdl:
+                _ = self.get_events_df([url_read_side_effect], db.session, 'filepath', {},
+                                       start=datetime(2010, 1, 1),
+                                       end=datetime(2011, 1, 1),
+                                       db_bufsize=self.db_buf_size)
+        
+            assert ('No event found. If you supplied a file, the file was not found: '
+                    'check path and typos. Otherwise, try to change your search parameters: '
+                    'check also that the service returns parsable data (FDSN-compliant)') \
+                in str(fdl)
+            assert self.mock_urlopen.called
+            self.mock_urlopen.reset_mock()
+
     @patch('stream2segment.download.modules.events.isf2text_iter', side_effect=isf2text_iter)
     def test_get_events_eventws_from_isc(self, mock_isf_to_text,
-                                         mock_query, db, data):
+                                         # fixtures:
+                                         db, data):
         '''test request splitted, but reading from BAD events file'''
 
         # now it should raise because of a 413:
@@ -530,7 +588,7 @@ class Test(object):
                                    start=datetime(2010, 1, 1),
                                    end=datetime(2011, 1, 1),
                                    db_bufsize=self.db_buf_size)
-        assert "Malformed response data" in str(fld)
+        assert "No event found, try to change your search parameters" in str(fld)
         assert mock_isf_to_text.called
         mock_isf_to_text.reset_mock()
         assert not mock_isf_to_text.called
@@ -553,7 +611,6 @@ class Test(object):
             filter(Event.event_id.in_(['15916121'])).count() == 0
         assert db.session.query(Event.contributor_id).\
             filter(Event.event_id.in_(['15916121'])).count() == 0
-
 
     @patch('stream2segment.download.modules.events.islocalfile', 
            side_effect=o_islocalfile)
@@ -596,9 +653,9 @@ class Test(object):
                                        start=datetime(2010, 1, 1),
                                        end=datetime(2011, 1, 1),
                                        db_bufsize=self.db_buf_size)
-            assert "Is the file content FDSN compliant?" in str(fdwl)
-            assert mock_islocalfile.call_args_list[-1][0][0] == \
-                    filepath
+            assert "No event found. Check that the file is non empty and its content is valid" \
+                in str(fdwl)
+            assert mock_islocalfile.call_args_list[-1][0][0] == filepath
             assert db.session.query(Event.id).count() == expected_events
 
 

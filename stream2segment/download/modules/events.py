@@ -49,23 +49,30 @@ def get_events_df(session, url, evt_query_args, start, end,
         events_df = pd.concat(pd_df_list, axis=0, ignore_index=True, copy=False)
 
     if events_df is None or events_df.empty:
+        # if we are here, the reason should NOT be an URL error (Http error, timeout etcetera)
+        # becasue those error have already raised a FailedDownload
+        # Thus, the reasons are: the downloaded content is unparsable, or empty
+        # (the downloaded content might be the aggregation of all sub-requests contents, if
+        # the original request had to be splitted).
         isfile = islocalfile(url)
         if isfile:
-            msg = ("No event found. Check that the file is non emtpy and its content is valid")
+            msg = ("No event found. Check that the file is non empty and its content is valid")
         else:
             # we might have supplied a file that the program interprets as url.
             # Check first that we surely did not provide a file and set message
             # accordingly
-            if url in EVENTWS_MAPPING or url.lower().startswith('http://') or \
-                    url.lower().startswith('https://'):
-                msg = ("No event found. Change your search parameters but check first "
-                       "that the service is FDSN and its url is correct (e.g., no typos)")
+            if url in EVENTWS_MAPPING:
+                # Surely not a file. Valid FDSN:
+                msg = ("No event found, try to change your search parameters")
+            elif url.lower().startswith('http://') or url.lower().startswith('https://'):
+                # Surely not a file. It might be that the content is actually invalid FDSN
+                msg = ("No event found, try to change your search parameters. "
+                       "Check also that the service returns parsable data (FDSN-compliant)")
             else:
-                # we might have provided a file interpreted as url, set message
-                # accordingly:
+                # Maybe file maybe url. It might be that the content is actually invalid FDSN
                 msg = ("No event found. If you supplied a file, the file was not found: "
-                       "check path and typos. Otherwise, change your search parameters but check "
-                       "first that the service is FDSN and its url is correct (e.g., no typos)")
+                       "check path and typos. Otherwise, try to change your search parameters: "
+                       "check also that the service returns parsable data (FDSN-compliant)")
         raise FailedDownload(formatmsg(msg, url))
 
     events_df[Event.webservice_id.key] = eventws_id
