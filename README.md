@@ -18,7 +18,7 @@ The key aspects with respect to widely-used similar applications are:
 [http://doi.org/10.5880/GFZ.2.4.2019.002](http://doi.org/10.5880/GFZ.2.4.2019.002)
 
 
-- **Citation (Research article):**:
+**Citation (Research article):**:
 > Riccardo Zaccarelli, Dino Bindi, Angelo Strollo, Javier Quinteros and Fabrice Cotton. Stream2segment: An Open‐Source Tool for Downloading, Processing, and Visualizing Massive Event‐Based Seismic Waveform Datasets. *Seismological Research Letters* (2019)
 
 [https://doi.org/10.1785/0220180314](https://doi.org/10.1785/0220180314)
