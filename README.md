@@ -12,10 +12,21 @@ The key aspects with respect to widely-used similar applications are:
   to make the GUI a hand-labelling tool for supervised classification problems, or to simply annotate special segments
 * A highly efficient, easy-to-use selection of segments for filtering data for processing and/or visualization. The selection can be performed on all segments metadata, it exploits the efficiency of SQL 'select' syntax and its simplified for non-experienced user with a documented and simplified custom syntax.
 
-** Citation: **
+**Citation (Software):**
 > Zaccarelli, Riccardo (2018): Stream2segment: a tool to download, process and visualize event-based seismic waveform data. V. 2.7.3. GFZ Data Services.
 
 [http://doi.org/10.5880/GFZ.2.4.2019.002](http://doi.org/10.5880/GFZ.2.4.2019.002)
+
+
+- **Citation (Research article):**:
+> Riccardo Zaccarelli, Dino Bindi, Angelo Strollo, Javier Quinteros and Fabrice Cotton. Stream2segment: An Open‐Source Tool for Downloading, Processing, and Visualizing Massive Event‐Based Seismic Waveform Datasets. *Seismological Research Letters* (2019)
+
+[https://doi.org/10.1785/0220180314](https://doi.org/10.1785/0220180314)
+
+
+## Usage
+
+Please refer to the [github documentation](https://github.com/rizac/stream2segment/wiki)
 
 
 ## Installation
@@ -128,8 +139,7 @@ or `source env/bin/activate.csh` (depending on your shell)
 
 ### Install and activate python virtualenv (Anaconda)
 
-(Thanks to JessieMyr who wrote this for us **disclaimer: the line below have been tested
-once in 2016**)
+(Thanks to JessieMyr who wrote this for us **disclaimer: the lines below might be outdated. Please refer to the [Conda documentation](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html) for details**)
 
 Create a virtual environment for your project
 
@@ -211,9 +221,6 @@ pytest -xv --dburl postgresql://<user>:<password>@localhost/<dbname> --ignore=./
 ```
 (the data on any given database will be overwritten if the database is not empty)
 
-## Usage
-
-Please refer to the [github documentation](https://github.com/rizac/stream2segment/wiki)
 
 ## Installation Notes:
 
