@@ -50,10 +50,23 @@ def get_events_df(session, url, evt_query_args, start, end,
 
     if events_df is None or events_df.empty:
         isfile = islocalfile(url)
-        raise FailedDownload(formatmsg("No events parsed",
-                                       ("Malformed response data. "
-                                        "Is the %s FDSN compliant?" %
-                                        ('file content' if isfile else 'server')), url))
+        if isfile:
+            msg = ("No event found. Check that the file is non emtpy and its content is valid")
+        else:
+            # we might have supplied a file that the program interprets as url.
+            # Check first that we surely did not provide a file and set message
+            # accordingly
+            if url in EVENTWS_MAPPING or url.lower().startswith('http://') or \
+                    url.lower().startswith('https://'):
+                msg = ("No event found. Change your search parameters but check first "
+                       "that the service is FDSN and its url is correct (e.g., no typos)")
+            else:
+                # we might have provided a file interpreted as url, set message
+                # accordingly:
+                msg = ("No event found. If you supplied a file, the file was not found: "
+                       "check path and typos. Otherwise, change your search parameters but check "
+                       "first that the service is FDSN and its url is correct (e.g., no typos)")
+        raise FailedDownload(formatmsg(msg, url))
 
     events_df[Event.webservice_id.key] = eventws_id
     events_df = dbsyncdf(events_df, session,
@@ -136,7 +149,7 @@ def is_isf(filepath):
 
 
 def tofileuri(file_path):
-    '''returns a file uri form thegiven file, basically file:///+basename(file_path)'''
+    '''returns a file uri form the given file, basically file:///+basename(file_path)'''
     # https://en.wikipedia.org/wiki/File_URI_scheme#Format
     # return 'file:///' + os.path.abspath(os.path.normpath(file_path))
     return 'file:///' + os.path.basename(file_path)

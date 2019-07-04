@@ -18,7 +18,7 @@ from obspy.geodetics.base import locations2degrees as obspyloc2deg
 
 from stream2segment.io.db.models import DataCenter
 from stream2segment.download.modules.stationsearch import locations2degrees as s2sloc2deg,\
-    get_search_radius
+    get_magdep_search_radius
 from stream2segment.download.modules.datacenters import EidaValidator
 from stream2segment.download.utils import s2scodes, DownloadStats, to_fdsn_arg,\
     intkeysdict
@@ -83,12 +83,12 @@ def dummy_tst_perf():
                           (np.array([2, 8, 5, -1, 7]), [3, 7, 1, 5], [1, 5, 3, 1, 5]),
                           ]
                          )
-def test_get_search_radius(mag, minmag_maxmag_minradius_maxradius, expected_val):
+def test_get_magdep_search_radius(mag, minmag_maxmag_minradius_maxradius, expected_val):
     minmag_maxmag_minradius_maxradius.insert(0, mag)
     try:
-        assert get_search_radius(*minmag_maxmag_minradius_maxradius) == expected_val
+        assert get_magdep_search_radius(*minmag_maxmag_minradius_maxradius) == expected_val
     except ValueError:  # we passed an array as magnitude, so check with numpy.all()
-        assert (get_search_radius(*minmag_maxmag_minradius_maxradius) == expected_val).all()
+        assert (get_magdep_search_radius(*minmag_maxmag_minradius_maxradius) == expected_val).all()
 
 
 def test_stats_table():
