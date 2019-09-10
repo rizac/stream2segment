@@ -10,24 +10,52 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	$scope.classes = []; // Array of dicts. Each dict represents a class and is: {count: <int>, id: <int>, label:<string>}
 						 // example: [{count:1, id:1, label'Ok'}, {count:0, id:2, label'Bad'}, ...]
 	// selection "window" handling:
-	$scope.selection = {showForm: false, errorMsg: ""};
+	$scope.selection = {
+	    showForm: false,
+	    errorMsg: ""
+	};
 	// config: 
-	$scope.config = {showForm: false, data: $window.__SETTINGS.config, changed: false, errorMsg:''};
+	$scope.config = {
+	    showForm: false,
+	    data: $window.__SETTINGS.config,
+	    changed: false,
+	    errorMsg:''
+	};
 	
 	// init the $scope.plots data:
 	$scope.plots = new Array($window.__SETTINGS.bottomPlots.length + $window.__SETTINGS.rightPlots.length + 1);
+
 	$window.__SETTINGS.bottomPlots.forEach(function(element, idx){
-		var data = {'visible': idx == 0, 'zoom': [null, null], 'div': document.getElementById('plot-'+element.index),
-				'xaxis': element.xaxis,  'yaxis': element.yaxis, 'position': element.position};
+		var data = {
+		    visible: idx == 0,
+		    zoom: [null, null],
+		    div: document.getElementById('plot-'+element.index),
+			xaxis: element.xaxis,
+			yaxis: element.yaxis,
+			position: element.position
+		};
 		$scope.plots[element.index] = data;
 	});
 	$window.__SETTINGS.rightPlots.forEach(function(element, idx){
-		var data = {'visible': idx == 0, 'zoom': [null, null], 'div': document.getElementById('plot-'+element.index),
-				'xaxis': element.xaxis,  'yaxis': element.yaxis, 'position': element.position};
+		var data = {
+		    visible: idx == 0,
+		    zoom: [null, null],
+		    div: document.getElementById('plot-'+element.index),
+			xaxis: element.xaxis,
+			yaxis: element.yaxis,
+			position: element.position
+		};
 		$scope.plots[element.index] = data;
 	});
-	$scope.plots[0] = {'visible': true, 'zoom': [null, null], 'div': document.getElementById('plot-0'), 'xaxis':{}, 'yaxis':{},
-			position:''};  //position is not currently set for main plot
+
+	$scope.plots[0] = {
+	    visible: true,
+	    zoom: [null, null],
+	    div: document.getElementById('plot-0'),
+	    xaxis:{},
+	    yaxis:{},
+		position:''  // position is not currently set for main plot
+	};
 
 	// the segment data (classes, plot data, metadata etc...):
 	$scope.segData = {
@@ -37,14 +65,13 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		plotData: new Array($scope.plots.length), //array of plot data (each element represents a plot)
 		snWindows: [] // array of two elements calculated from the server for the current segment:
 					  // [signal_window, noise_window] each
-			           // window is in turn a 2 element array of integers representing timestamps: [t1, t2]
+			          // window is in turn a 2 element array of integers representing timestamps: [t1, t2]
 	};
 	
 	$scope.hasPreprocessFunc = $window.__SETTINGS.hasPreprocessFunc;
 	$scope.hasConfig = !!Object.keys($scope.config.data).length;
 	$scope.showPreProcessed = $scope.hasPreprocessFunc;
 	$scope.showAllComponents = false;
-
 
 	$scope.setLoading = function(msg){
         // a non empty `msg` shows up the progress bar and `msg`
@@ -53,7 +80,6 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
         $scope.loading = !!msg;
         $scope.warnMsg = msg;
     };
-    
     $scope.setLoading("Initializing ...");
 
 	$scope.snColors = ['#2ca02c', '#d62728']  // signal, noise
@@ -141,7 +167,6 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		$scope.refreshView(undefined, false);
 		$scope.config.showForm = false;
 	};
-	
 
 	$scope.setPlotVisible = function(index){
 		var pos = $scope.plots[index].position;
@@ -213,7 +238,12 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		// create segMetadata and set it to $scope.segData.metadata
 		// the variable has to be parsed in order to order keys and values according to
 		// our choice:
-		var segMetadata = {'segment': {}, 'event': {}, 'channel': {}, 'station': {}};
+		var segMetadata = {
+		    segment: {},
+		    event: {},
+		    channel: {},
+		    station: {}
+		};
 		// note that metadata is an array of 2-element arrays: [[key, value], ...]
 		metadata.forEach(function(elm, index){
 			var key = elm[0];
@@ -324,19 +354,20 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			if (i==0){ // spectra windows
 				// https://plot.ly/javascript/shapes/#vertical-and-horizontal-lines-positioned-relative-to-the-axes
 				layout.shapes = $scope.segData.snWindows.map(function(elm, idx){
-					return {type: 'rect',
-						    xref: 'x', // x-reference is assigned to the x-values
-						    yref: 'paper', // y-reference is assigned to the plot paper [0,1]
-						    x0: elm[0],
-						    y0: 0,
-						    x1: elm[1],
-						    y1: 1,
-						    fillcolor: $scope.snColors[idx],
-						    opacity: 0.1,
-						    line: {
-						        width: 0
-						    }
-						};
+					return {
+					    type: 'rect',
+						xref: 'x', // x-reference is assigned to the x-values
+						yref: 'paper', // y-reference is assigned to the plot paper [0,1]
+						x0: elm[0],
+						y0: 0,
+						x1: elm[1],
+						y1: 1,
+						fillcolor: $scope.snColors[idx],
+						opacity: 0.1,
+						line: {
+						    width: 0
+						}
+					};
 				});
 				// append arrival time:
 				if (layout.shapes && layout.shapes.length){ // test for non-empty array (is there a better way?)
@@ -344,7 +375,8 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 					// segData.metadata.segment.arrival_time cannot be used,
 					// see section "Differences in assumed time zone" in
 					// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/parse
-					layout.shapes.push({type: 'line',
+					layout.shapes.push({
+					    type: 'line',
 					    xref: 'x', // x-reference is assigned to the x-values
 					    yref: 'paper', // y-reference is assigned to the plot paper [0,1]
 					    x0: layout.shapes[1].x1,
@@ -384,8 +416,12 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			plotStuff.forEach(function(elm){
 				var uninit = !(elm.div.data);
 				if (uninit){
-					plotly.plot(elm.div, elm.data, elm.layout,
-					            {displaylogo: false, showLink: false, modeBarButtonsToRemove: ['sendDataToCloud']});
+				    var config = {
+				        displaylogo: false,
+				        showLink: false,
+				        modeBarButtonsToRemove: ['sendDataToCloud']
+				    };
+					plotly.plot(elm.div, elm.data, elm.layout, config);
 					$scope.initPlotEvents(elm.index);
 				}else{
 					elm.div.data = elm.data;
@@ -476,8 +512,8 @@ function getPlotLayout(title, warningMessage, ...layoutOverrides){
 		    showarrow: false,
 		    font: {
 		        color: '#000000'
-		      },
-		  });
+		    },
+		});
 	}
 	if(warningMessage){
 		annotations.push({
@@ -493,8 +529,8 @@ function getPlotLayout(title, warningMessage, ...layoutOverrides){
 		    bgcolor: '#C0392B',
 		    font: {
 		        color: '#FFFFFF'
-		      },
-		  });
+		    },
+		});
 	}
 	var PLOTLY_DEFAULT_LAYOUT = { //https://plot.ly/javascript/axes/
 		margin:{'l':55, 't':36, 'b':45, 'r':15},
@@ -507,13 +543,13 @@ function getPlotLayout(title, warningMessage, ...layoutOverrides){
 		xaxis: {
 			autorange: true,
 			tickangle: 0,
-			linecolor: '#ddd',
+			linecolor: '#aaa',  // should be consistent with div.metadata (see mainapp.css)
 			linewidth: 1,
 			mirror: true
 		},
 		yaxis: {
 			autorange: true,
-			linecolor: '#ddd',
+			linecolor: '#aaa',  // should be consistent with div.metadata (see mainapp.css)
 		    linewidth: 1,
 		    mirror: true
 			//fixedrange: true

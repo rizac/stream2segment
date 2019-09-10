@@ -67,6 +67,7 @@ div.plot{
 div.metadata{
 	/* override bootstrap */
 	margin-bottom: 0px !important;
+	border-color: #aaa !important;
 }
 
 div.metadata > div:last-child{
