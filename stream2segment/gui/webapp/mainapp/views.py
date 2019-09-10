@@ -57,13 +57,19 @@ def init():
 
 @main_app.route("/set_selection", methods=['POST'])
 def set_selection():
-    data = request.get_json()
-    segment_select_conditions = data.get('segment_select', None)
-    core.get_plot_manager().config['segment_select'] = segment_select_conditions or {}
-    # Note: data.get('segment_orderby', None) is not anymore implemented in the config
-    # it will default to None (order by event time desending and by event_distance ascending)
-    num_segments = core.get_segments_count(get_session(current_app), segment_select_conditions)
-    return jsonify({'num_segments': num_segments})
+    try:
+        data = request.get_json()
+        segment_select_conditions = data.get('segment_select', None)
+        # Note: data.get('segment_orderby', None) is not anymore implemented in the config
+        # it will default to None (order by event time desending and by event_distance ascending)
+        num_segments = core.get_segments_count(get_session(current_app), segment_select_conditions)
+        # set the plot manager new condition at the end: in case of errors
+        # (e.g. overflow integer in 'id') we do not change the previous selection condition
+        # with a erroneous one
+        core.get_plot_manager().config['segment_select'] = segment_select_conditions or {}
+        return jsonify({'num_segments': num_segments, 'error_msg': ''})
+    except Exception as exc:
+        return jsonify({'num_segments': 0, 'error_msg': str(exc)})
 
 
 @main_app.route("/get_segment", methods=['POST'])

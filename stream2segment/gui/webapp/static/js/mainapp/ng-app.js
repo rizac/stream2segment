@@ -46,18 +46,19 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	$scope.showAllComponents = false;
 
 
-	$scope.warnMsg = "Initializing...";  //a non empty string shows up the progress bar and this message
-	// an empty strings hides both
+	$scope.setLoading = function(msg){
+        // a non empty `msg` shows up the progress bar and `msg`
+        // an empty `msg` hides both. Set $scope.warnMsg = string and
+        // $scope.loading=true|false to control message and progress bar separately
+        $scope.loading = !!msg;
+        $scope.warnMsg = msg;
+    };
+    
+    $scope.setLoading("Initializing ...");
 
 	$scope.snColors = ['#2ca02c', '#d62728']  // signal, noise
 	// if more than two lines are present, it's undefined and handled by plotly (not tested)
 	$scope.snColors.arrivalTimeLine = '#777777';  // arrival time line
-	
-	$scope.err = function(response){
-		var msg = (response.data || 'Request failed');
-        //$scope.status = response.status;
-		return msg;
-	}
 	
 	$scope.init = function(){
 		// send the current settings as data. settings are written in the main page
@@ -78,19 +79,40 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		// build the dict for the json request: Currently supported only selection, not order-by
 		// (order-by is given in the config once)
 		var data = {segment_select: {}};
+		var selectionEmpty = true;
 		$scope.metadata.forEach(function(elm){
 			if (elm[2]){
 				data['segment_select'][elm[0]] = elm[2];
+				selectionEmpty = false;
 			}
 		});
 		$scope.selection.errorMsg = "";
-		$scope.warnMsg = "Selecting segments ...";
+		$scope.setLoading("Selecting segments (please wait, it might take a while for large databases)");
 		$http.post("/set_selection", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
-	        $scope.segmentsCount = response.data.num_segments;
+		    $scope.setLoading("");
+		    var segmentsCount = response.data.num_segments;
+		    var errMsg = '';
+		    if (response.data.error_msg){
+		        errMsg = "Server error: " + response.data.error_msg + ". Check the segment selection (if the problem persists, contact the software maintainers) ";
+		    }
+		    if (!errMsg && segmentsCount <= 0){
+		        if (selectionEmpty){
+		            errMsg = "No segment found, empty database";
+		        }else{
+		            errMsg = "No segment found with the current segment selection";
+		        }
+		    }
+		    if (errMsg){
+		        if ($scope.selection.showForm){
+		            $scope.selection.errorMsg = errMsg;
+		        }else{
+		            $scope.warnMsg = errMsg;
+		        }
+		        return;
+		    }
+		    $scope.segmentsCount = segmentsCount;
             $scope.setSegment(0);
 	        $scope.selection.showForm = false;  // close window popup, if any
-	    }, function(response) {  // error function, print message
-	          $scope.selection.errorMsg = $scope.err(response);
 	    });
 	};
 	
@@ -106,10 +128,6 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	
 	$scope.setSegment = function(index){
 		$scope.segIdx = index;
-		if (index < 0 || index >= $scope.segmentsCount){
-		    $scope.warnMsg = "No segment found, please check selection";
-		    return;
-		}
 		//FIXME: here we should get the id from the index!
 		$scope.refreshView(undefined, true);
 	};
@@ -173,7 +191,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 			param.metadata = true;
 			param.classes = true
 		}
-		$scope.warnMsg = "Fetching and calculating segment plots (it might take a while) ...";
+		$scope.setLoading("Fetching and calculating segment plots (it might take a while) ...");
 		$http.post("/get_segment", param, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
 		    $scope.segId = response.data.seg_id;
 		    response.data.plots.forEach(function(elm, idx){
@@ -185,7 +203,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 				$scope._refreshMetadata(response);
 			}
 			// update plots:
-			$scope.warnMsg = "";
+			$scope.setLoading("");
 	        $scope.redrawPlots(indices);
 	    });
 	}
@@ -265,7 +283,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 	$scope.redrawPlots = function(indices){
 		var plotsData = $scope.segData.plotData;
 		var plotly = $window.Plotly;
-		$scope.warnMsg = "Drawing plots...";
+		$scope.setLoading("Drawing plots...");
 		var plotStuff = [];  //a list of arrays, each array is (div, data, layout)
 		for (var i_=0; i_< indices.length; i_++){
 			var i = indices[i_];
@@ -362,6 +380,7 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		// sizes, which is needed to lay out plots. This is not anymore necessary, but
 		// we leave this functionality for safety:
 		$timeout(function(){
+		    $scope.setLoading("");
 			plotStuff.forEach(function(elm){
 				var uninit = !(elm.div.data);
 				if (uninit){
@@ -374,7 +393,6 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 					plotly.redraw(elm.div);
 				}
 			});
-			$scope.warnMsg = "";
 		}, 100);
 	};
 

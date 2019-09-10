@@ -55,20 +55,6 @@ div.plot{
 .flex-direction-row.toolbar > *:not(:first-child){
 	margin-left: 10px;
 }
-.flex-direction-col.toolbar{
-	align-items:stretch;
-    white-space: nowrap;
-    overflow: auto;
-}
-.flex-direction-col.toolbar > *:not(:first-child){
-	margin-top: 10px;
-}
-
-.v-divider{
-	display: inline-block;
-	height: 1em;
-	border-left: 1px solid #ddd;
-}
 
 .note {
     font-weight: normal;

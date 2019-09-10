@@ -80,8 +80,9 @@ def init(session, conditions, orderby, metadata, classes):
 
 def get_segments_count(session, conditions):
     num_segments = _query4gui(session.query(func.count(Segment.id)), conditions).scalar()
-    global SEG_IDS  # pylint: disable=global-statement
-    SEG_IDS = np.full(num_segments, np.nan)
+    if num_segments > 0:
+        global SEG_IDS  # pylint: disable=global-statement
+        SEG_IDS = np.full(num_segments, np.nan)
     return num_segments
 
 
