@@ -266,11 +266,34 @@ class Test(object):
             app = self.app.test_client()
             app.get('/')  # initializes plot manager
             # test your app context code
-            rv = app.post("/set_selection", data=json.dumps(dict(segment_select={'has_data':'true'})),
-                               headers={'Content-Type': 'application/json'})
+            rv = app.post("/set_selection",
+                          data=json.dumps(dict(segment_select={'has_data':'true'})),
+                          headers={'Content-Type': 'application/json'})
             #    rv = app.get("/get_segments")
             data = self.jsonloads(rv.data)
-            assert data == {'num_segments': 28}
+            assert data['num_segments'] == 28
+            assert data['error_msg'] == ''
+            assert sorted(data.keys()) == ['error_msg', 'num_segments']
+
+            # test no selection:
+            rv = app.post("/set_selection",
+                          data=json.dumps(dict(segment_select={'id':'-100000'})),
+                          headers={'Content-Type': 'application/json'})
+            #    rv = app.get("/get_segments")
+            data = self.jsonloads(rv.data)
+            assert data['num_segments'] == 0
+            assert data['error_msg'] == ''
+            
+            # test no selection (but due to selection error, e.g. int overflow)
+            rv = app.post("/set_selection",
+                          data=json.dumps(dict(segment_select={'id':'9' * 10000})),
+                          headers={'Content-Type': 'application/json'})
+            #    rv = app.get("/get_segments")
+            data = self.jsonloads(rv.data)
+            assert data['num_segments'] == 0
+            # the overflow error is raised only in sqlite:
+            if db.is_sqlite:
+                assert data['error_msg'] != ''
 
     def test_toggle_class_id(self,
                              # fixtures:
