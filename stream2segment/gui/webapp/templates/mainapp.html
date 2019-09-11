@@ -179,10 +179,10 @@
 						</table>
 					</th>
 				</tr>
-				<tr ng-repeat="values in metadata">
-					<td ng-class="values[2] ? 'select-highlighted' : ''">{{ values[0] }}</td>
+				<tr ng-repeat="mdata in metadata">
+					<td ng-class="mdata.selExpr ? 'select-highlighted' : ''">{{ mdata.name }}</td>
 					<td style='width:100%'>
-						<input style='width:100%' type=text ng-model="values[2]" placeholder="({{ values[1] }})"/>
+						<input style='width:100%' type=text ng-model="mdata.selExpr" placeholder="({{ mdata.type }})"/>
 					</td>
 				</tr>
 			</table>

@@ -96,7 +96,13 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		// they are false by default
 		$http.post("/init", data, {headers: {'Content-Type': 'application/json'}}).then(function(response) {
 	        $scope.classes = response.data.classes;
-	        $scope.metadata = response.data.metadata;
+	        $scope.metadata = response.data.metadata.map(elm => {
+	            return {
+	                name: elm[0],
+	                type: elm[1],
+	                selExpr: elm[2]
+	            }
+	        });
 	        $scope.selectSegments();
 	    });
 	};
@@ -106,9 +112,9 @@ myApp.controller('myController', ['$scope', '$http', '$window', '$timeout', func
 		// (order-by is given in the config once)
 		var data = {segment_select: {}};
 		var selectionEmpty = true;
-		$scope.metadata.forEach(function(elm){
-			if (elm[2]){
-				data['segment_select'][elm[0]] = elm[2];
+		$scope.metadata.forEach(function(mdata){
+			if (mdata.selExpr){
+				data['segment_select'][mdata.name] = mdata.selExpr;
 				selectionEmpty = false;
 			}
 		});
