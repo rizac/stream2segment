@@ -254,18 +254,18 @@ IMPORTANT: Any exception raised by this routine will be logged to file for inspe
     the returned value of this function, if given, will be ignored.
     Otherwise:
 
-    * For csv output, this function must return an iterable that will be written as a row of the
+    * For CSV output, this function must return an iterable that will be written as a row of the
       resulting file (e.g. list, tuple, numpy array, dict. You must always return the same type
       of object, e.g. not lists or dicts conditionally).
 
       Returning None or nothing is also valid: in this case the segment will be silently skipped
 
       The CSV file will have a row header only if `dict`s are returned (the dict keys will be the
-      row header columns). For Python version < 3.6, if you want to preserve in the CSV the order
+      CSV header columns). For Python version < 3.6, if you want to preserve in the CSV the order
       of the dict keys as the were inserted, use `OrderedDict`.
 
-      The first column of the resulting csv will be *always* the segment id (an integer
-      stored in the database uniquely identifying the segment)
+      A column with the segment database id (an integer uniquely identifying the segment)
+      will be automatically inserted as first element of the iterable, before writing it to file.
 
       SUPPORTED TYPES as elements of the returned iterable: any Python object, but we
       suggest to use only strings or numbers: any other object will be converted to string
@@ -278,9 +278,9 @@ IMPORTANT: Any exception raised by this routine will be logged to file for inspe
 
      Returning None or nothing is also valid: in this case the segment will be silently skipped.
 
-     A column with name {0} (an integer stored in the database
-     uniquely identifying the segment) will be automatically added to the dict / Series, or to
-     each row of the DataFrame, before writing to file.
+     A column named '{0}' with the segment database id (an integer uniquely identifying the segment)
+     will be automatically added to the dict / Series, or to each row of the DataFrame,
+     before writing it to file.
 
      SUPPORTED TYPES as elements of the returned dict/Series/DataFrame: all types supported
      by pandas: https://pandas.pydata.org/pandas-docs/stable/getting_started/basics.html#dtypes
@@ -479,18 +479,18 @@ segment methods:
   only if the inventories in xml format were downloaded in the downloaded subroutine
 
 * segment.sn_windows(length, shift=0): returns the signal and noise time windows:
-  (s_start, s_end), (n_start, n_end)
-  where all elements are `UTCDateTime`s. The windows are computed according to
-  the arguments:
-  - length: a float defining the windows length, in seconds. It can be also a two elements
-    list/tuple denoting the start and end points of the window with respect to the waveform's
-    cumulative sum of squares (CUMSS) after the arrival time: e.g., [0.05, 0.95] computes the
-    window at the times CUMSS reaches the 5% and 95%, respectively.
-  - shift (defaults to 0 when missing): number of seconds to shift each segment's arrival
-    time (negative values allowed)
-  The noise window will be "moved" backwards in order to always end at the segment's arrival time.
-  The settings of the associated configuration file: `config['sn_windows']`) can be used.
-  Example:
+  (s_start, s_end), (n_start, n_end) where all elements are obspy `UTCDateTime`s.
+  The windows are calculated as follows: the segment arrival time A is retrieved and shifted
+  by the given seconds (`shift` argument, float, defaults to 0).
+  Then, the length of the signal window is computed:
+  - if `length` is numeric, it is the window length in seconds: s_start = A, s_end = A + length
+  - If `length` is a list of two numbers (VAL0, VAL1) both in [0, 1], then the waveform's cumulative
+    sum of squares (CUMSS) is calculated from A and normalized in [0, 1]: s_start is the time
+    where CUMSS reaches VAL0, s_end is the time where CUMSS reaches VAL1.
+  Once the signal window has been calculated, the noise window will have the same length L
+  and moved 'backwards' in order to end on A: n_start = A - L, n_end = A
+  In the YAML templates, you will see the parameter 'sn_windows': you can
+  tune it to configure your signal and noise window calculation. Example:
   ```
   snw = config['sn_windows']
   sig_wdw, noise_wdw = segment.sn_windows(snw['signal_window'], snw['arrival_time_shift'])
@@ -499,19 +499,20 @@ segment methods:
   ```
 
 * segment.siblings(parent=None, condition): returns an iterable of siblings of this segment.
-  `parent` can be
-  any of the following: missing or None: returns all segments of the same recorded event, on the
-  other channel components / orientations. 'stationname': returns all segments of the
-  same station, identified by the tuple of the codes (newtwork, station). 'networkname':
-  returns all segments of the same network (network code). 'datacenter',
-  'event', 'station', 'channel': returns all segments of the same datacenter, event,
-  station or channel, all identified by the associated database id.
+  `parent` can be any of the following:
+  - missing or None: returns all segments of the same recorded event, on the
+    other channel components / orientations
+  - 'stationname': returns all segments of the same station, identified by the tuple of the
+    codes (newtwork, station)
+  - 'networkname': returns all segments of the same network (network code)
+  - 'datacenter', 'event', 'station', 'channel': returns all segments of the same datacenter, event,
+    station or channel, all identified by the associated database id.
   `condition` is a dict of expression to filter the returned element. the argument
   `config['segment_select]` can be passed here to return only siblings selected for processing.
   NOTE: Use with care when providing a `parent` argument, as the amount of segments might be huge
   (up to hundreds of thousands of segments). The amount of returned segments is increasing
   (non linearly) according to the following order of the `parent` argument:
-  'channel', 'station', 'stationname', 'networkname', 'event' or 'datacenter'
+  'channel', 'station', 'stationname', 'networkname', 'event' and 'datacenter'
 
 * segment.del_classes(*labels): Deletes the given classes of the segment. The argument is
   a comma-separated list of class labels (string). See configuration file for setting up the
