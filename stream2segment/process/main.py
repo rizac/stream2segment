@@ -101,14 +101,15 @@ def run(session, pyfunc, writer, config=None, show_progress=False):
     qry = query4process(session, config.get('segment_select', {}))
 
     skip_ids = []
-    if writer.append and not writer.outputfileexists:
-        logger.info('Ignoring `append` functionality: output file does not exist '
-                    'or not provided')
-    elif writer.append:
-        logger.info('Appending results to existing file. Scanning output file for '
-                    'already processed segments (it might require up to few minutes '
-                    'for large files)')
-        skip_ids = list(writer.already_processed_segments)
+    if writer.append:
+        if not writer.outputfileexists:
+            logger.info('Ignoring `append` functionality: output file does not exist '
+                        'or not provided')
+        else:
+            logger.info('Appending results to existing file. Scanning output file for '
+                        'already processed segments (it might require up to few minutes '
+                        'for large files)')
+            skip_ids = writer.already_processed_segments(aslist=True)
     elif writer.outputfileexists:
         logger.info('Overwriting existing output file')
 
@@ -241,10 +242,12 @@ def get_advanced_settings(config, segments_count, show_progress):
                                   however it stems from a default_chunk_size of 1200),
         multi_process (boolean, default:False), num_processes (int, default: cpu_count())
     '''
-    adv_settings = config.get('advanced_settings', {})
+    adv_settings = config.get('advanced_settings', {})  # dict
     multi_process = adv_settings.get('multi_process', False)
-    num_processes = adv_settings.get('num_processes', cpu_count())
-    chunksize = adv_settings.get('segments_chunk', None)
+    num_processes = adv_settings.get('num_processes', None)
+    if num_processes is None:
+        num_processes = cpu_count()
+    chunksize = adv_settings.get('segments_chunksize', None)
     if chunksize is None:
         default_chuknksize, min_pbar_iterations = _get_chunksize_defaults()
         if not show_progress or segments_count >= 2 * default_chuknksize:
@@ -361,7 +364,7 @@ def process_output(output, is_ok, segment_id, writer, done_skipped_errors):
             done_skipped_errors[0] += 1
         else:
             if output is not None:
-                writer(segment_id, output)
+                writer.write(segment_id, output)
                 done_skipped_errors[0] += 1
             else:
                 done_skipped_errors[1] += 1

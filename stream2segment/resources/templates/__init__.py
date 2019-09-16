@@ -14,6 +14,7 @@ as it is usually input in the template file, e.g.:
 .. moduleauthor:: Riccardo Zaccarelli <rizac@gfz-potsdam.de>
 '''
 from stream2segment.download.utils import EVENTWS_MAPPING
+from stream2segment.process.writers import SEGMENT_ID_COLNAME, HDF_DEFAULT_CHUNKSIZE
 
 
 _SEGMENT_ATTRS = '''
@@ -219,8 +220,9 @@ IMPORTANT NOTES:
 :return: a Trace object.
 """
 
+
 PROCESS_PY_MAINFUNC = '''
-Main processing function. The user should implement here the processing steps for any given
+Main processing function. The user should implement here the processing for any given
 selected segment. Useful links for functions, libraries and utilities:
 
 - `stream2segment.analysis.mseeds` (small processing library implemented in this program,
@@ -229,50 +231,62 @@ selected segment. Useful links for functions, libraries and utilities:
 - `obspy Stream object <https://docs.obspy.org/packages/autogen/obspy.core.stream.Stream.html>_`
 - `obspy Trace object <https://docs.obspy.org/packages/autogen/obspy.core.trace.Trace.html>_`
 
-IMPORTANT: Because exceptions of type `ValueError` might indicate "false positives"
-for which interrupting the whole subroutine might not always be the right choice,
-those type of exceptions will interrupt the currently processed segment only and continue the
-execution to the next segment: this feature can also be triggered programmatically to skip the
-currently processed segment and log the message for later insopection, e.g.:
-```
+IMPORTANT: Any exception raised by this routine will be logged to file for inspection.
+    All exceptions will interrupt the whole exectution, only exceptions of type `ValueError`
+    will interrupt the execution of the currently processed segment and continue to the
+    next segment, as they might not always denote critical code errors. This feature can
+    also be triggered programmatically to skip the currently processed segment
+    and log the message for later inspection, e.g.:
+    ```
     if snr < 0.4:
-        raise ValueError('SNR ratio to low')
-```
+        raise ValueError('SNR ratio too low')
+    ```
 
 :param: segment (ptyhon object): An object representing a waveform data to be processed,
-reflecting the relative database table row. See above for a detailed list
-of attributes and methods
+    reflecting the relative database table row. See above for a detailed list
+    of attributes and methods
 
 :param: config (python dict): a dictionary reflecting what has been implemented in the configuration
-file. You can write there whatever you want (in yaml format, e.g. "propertyname: 6.7" ) and it
-will be accessible as usual via `config['propertyname']`
+    file. You can write there whatever you want (in yaml format, e.g. "propertyname: 6.7" ) and it
+    will be accessible as usual via `config['propertyname']`
 
-:return: If the processing routine calling this function needs not generate a file output
-(e.g., .csv file), this function does not need to return a value, and if it does, it will be
-ignored.
-Otherwise, this function must return an iterable that will be written as a row of the resulting csv
-file (e.g. list, tuple, numpy array, dict). The .csv file will have a
-row header only if `dict`s are returned: in this case, the dict keys are used as row header
-columns. If you want to preserve in the .csv the order of the dict keys as the were inserted
-in the dict, use `OrderedDict` instead of `dict` or `{}`.
-Returning None or nothing is also valid: in this case the segment will be silently skipped
+:return: If the processing routine calling this function needs not to generate a file output,
+    the returned value of this function, if given, will be ignored.
+    Otherwise:
 
-NOTES:
+    * For csv output, this function must return an iterable that will be written as a row of the
+      resulting file (e.g. list, tuple, numpy array, dict. You must always return the same type
+      of object, e.g. not lists or dicts conditionally).
 
-1. The first column of the resulting csv will be *always* the segment id (an integer
-stored in the database uniquely identifying the segment)
+      Returning None or nothing is also valid: in this case the segment will be silently skipped
 
-2. Pay attention to consistency: the same type of object with the same number of elements
-should be returned by all processed segments. Unexpected (non tested) result otherwise: e.g.
-when returning a list for some segments, and a dict for some others
+      The CSV file will have a row header only if `dict`s are returned (the dict keys will be the
+      row header columns). For Python version < 3.6, if you want to preserve in the CSV the order
+      of the dict keys as the were inserted, use `OrderedDict`.
 
-3. Pay attention when returning complex objects (e.g., everything neither string nor numeric) as
-elements of the iterable: the values will be most likely converted to string according
-to python `__str__` function and might be out of control for the user.
-Thus, it is suggested to convert everything to string or number. E.g., for obspy's
-`UTCDateTime`s you could return either `float(utcdatetime)` (numeric) or
-`utcdatetime.isoformat()` (string)
-'''
+      The first column of the resulting csv will be *always* the segment id (an integer
+      stored in the database uniquely identifying the segment)
+
+      Complex objects (e.g., everything neither string nor numeric) in the
+      returned iterable will be written converting them to string by Python and might not be
+      what the user wants. We suggest to convert everything to string or number. E.g.,
+      for obspy's `UTCDateTime`s you could return either `float(utcdatetime)` (numeric) or
+      `utcdatetime.isoformat()` (string)
+
+   * For HDF output, this function must return a dict, pandas Series or pandas DataFrame
+     that will be written as a row of the resulting file (or rows, in case of DataFrame).
+
+     Returning None or nothing is also valid: in this case the segment will be silently skipped.
+
+     A column with name {0} (an integer stored in the database
+     uniquely identifying the segment) will be automatically added to the dict / Series, or to
+     each row of the DataFrame, before writing to file.
+
+     For info on hdf and the pandas library (included in the package), see:
+     https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.read_hdf.html
+     https://pandas.pydata.org/pandas-docs/stable/user_guide/io.html#io-hdf5
+
+'''.format(SEGMENT_ID_COLNAME)
 
 PROCESS_PY_MAIN = '''
 ============================================================================================
@@ -301,7 +315,7 @@ When processing, the program will search for a function called "main", e.g.:
 def main(segment, config)
 ```
 the program will iterate over each selected segment (according to 'segment_select' parameter
-in the config) and execute the function, writing its output to the given .csv file, if given.
+in the config) and execute the function, writing its output to the given file, if given.
 If you do not need to use this module for visualizing stuff, skip the section 'Visualization'
 below and go to the next one.
 
@@ -316,7 +330,7 @@ The page shows by default on the upper left corner a plot representing the segme
 The GUI can be customized by providing here functions decorated with
 "@gui.preprocess" or "@gui.plot".
 Functions decorated this way (Plot functions) can return only special 'plottable' values
-(basically arrays, more details in their doc-strings, if provided in this template).
+(see 'Plot functions' below for details).
 
 Pre-process function
 --------------------
@@ -557,7 +571,7 @@ _SEGMENT_ATTRS_YAML = "\n# ".join(s[8:] for s in _SEGMENT_ATTRS.splitlines())
 
 
 PROCESS_YAML_SEGMENTSELECT = '''
-The parameter 'segment_select' defines what segments to be processed or
+The parameter 'segment_select' defines which segments to be processed or
 # visualized. If this argument is missing, all segments will be processed or
 # (from within the GUI) visualized **INCLUDING SEGMENTS WITH NO WAVEFORM DATA**
 # (which might not be desired). The selection is made via the list-like argument:
@@ -641,22 +655,33 @@ If you want to use the GUI as hand labelling tool (for e.g. supervised classific
 '''
 
 PROCESS_YAML_ADVANCEDSETTINGS = '''
-If you want to setup advanced settings, uncomment
-# (i.e., remove the first '#' from each line) and edit the text block below
-#advanced_settings:
-#  # Although each segment is processed one at a time, loading segments in chunks from the
-#  # database is faster: the number below defines the chunk size.
-#  # If multi_process is true (see below), the chunk size also defines how many segments will be
-#  # loaded in each python sub-process. Increasing this number might speed up execution but
-#  # increases the memory usage. When missing, the value defaults to 1200 if the number N of
-#  # segments to be processed is > 1200, otherwise N/10.
-#  segments_chunksize: 1200
-#  # Use parallel sub-processes to speed up the execution. When missing, it defaults to false
-#  multi_process: true
-#  # The number of sub-processes. If missing, it is set as the the number of CPUs in the system.
-#  # This option is ignored if multi_process is not given or false
-#  num_processes: 4
-'''
+Advanced settings tuning the process routine:
+advanced_settings:
+  # Use parallel sub-processes to speed up the execution.
+  multi_process: false
+  # The number of sub-processes. If null, it is set as the the number of CPUs in the
+  # system. This option is ignored if multi_process is false
+  num_processes: null
+  # Although each segment is processed one at a time, loading segments in chunks from the
+  # database is faster: the number below defines the chunk size. If multi_process is true,
+  # the chunk size also defines how many segments will be loaded in each python sub-process.
+  # Increasing this number might speed up execution but increases the memory usage.
+  # When null, the chunk size defaults to 1200 if the number N of
+  # segments to be processed is > 1200, otherwise N/10.
+  segments_chunksize: null
+  # Optional arguments for the output writer. Ignored for CSV output, for HDF output see:
+  # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.HDFStore.append.html
+  # (the parameters 'append' and 'value' will be ignored, if given here)
+  writer_options:
+    chunksize: {0:d}
+    # hdf needs a fixed length for all columns: for variable-length string columns,
+    # you need to tell in advance how many bytes to allocate with 'min_itemsize'.
+    # E.g., if you have two string columns 'col1' and 'col2' and you assume to store
+    # at most 10 ASCII characters in 'col1' and 20 in 'col2', then:
+    # min_itemsize:
+    #   col1: 10
+    #   col2: 20
+'''.format(HDF_DEFAULT_CHUNKSIZE)
 
 DOWNLOAD_EVENTWS_LIST = '\n'.join('%s"%s": %s' % ('# ' if i > 0 else '', str(k), str(v))
                                   for i, (k, v) in enumerate(EVENTWS_MAPPING.items()))

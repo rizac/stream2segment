@@ -18,7 +18,6 @@ sn_windows:
   arrival_time_shift: -2.0  # programmatically shifts the arrival time for every segment (in seconds)
   signal_window: [0.1, 0.9]  # either a number (in seconds) or interval relative to the % of the cumulative
 
-  
 # settings for the pre-process function implemented in the associated python module
 preprocess:
   remove_response_water_level: 60
@@ -33,6 +32,6 @@ root_dir: '/var/tmp'
 # other custom parameters  used in the associated python module:
 amp_ratio_threshold: 0.8
 
-# {{ PROCESS_YAML_CLASSLABELS }}
-
 # {{ PROCESS_YAML_ADVANCEDSETTINGS }}
+
+# {{ PROCESS_YAML_CLASSLABELS }}

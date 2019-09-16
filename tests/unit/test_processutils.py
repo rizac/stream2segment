@@ -7,6 +7,8 @@ import os
 import sys
 from io import BytesIO
 import time
+from datetime import datetime
+import pandas as pd
 from tempfile import NamedTemporaryFile
 
 from mock import patch
@@ -16,6 +18,7 @@ from obspy.core.stream import read
 
 from stream2segment.process.db import get_stream
 from stream2segment.process.main import get_slices
+from stream2segment.process.writers import CsvWriter, HDFWriter
 
 class MockSegment(object):
     def __init__(self, data):
@@ -77,3 +80,46 @@ def test_get_slices(input, expected_result):
         assert np.array_equal(nparray, expected_list[s:e])
     # test for safety that we get until the last element:
     assert np.array_equal(nparray[-1], expected_list[-1])
+
+
+def test_writer_hdf(
+                    # fixtures:
+                    pytestdir):
+    file = pytestdir.newfile('.hd')
+    writer = HDFWriter(file, True)
+    writer.chunksize = 1
+
+    df1 = pd.DataFrame([{
+        'str': 'a',
+        'dtime': datetime.utcnow(),
+        'float': 1.1,
+        'int': 1,
+        'bool': True
+    }])
+
+    df2 = pd.DataFrame([{
+        'str': 'abc',
+        'dtime': datetime.utcnow(),
+        'float': float('nan'),
+        'int': 1,
+        'bool': True
+    }])
+
+    with pytest.raises(Exception):
+        with writer:
+            writer.write(1, df1)
+            writer.write(2, df2)
+
+    writer = HDFWriter(file, False, {'min_itemsize': {'str': 10}})
+    with writer:
+        writer.write(1, df1)
+        writer.write(2, df2)
+    aps = writer.already_processed_segments()
+    assert list(aps) == [1, 2]
+
+    writer = HDFWriter(file, True, {'min_itemsize': {'str': 10}})
+    with writer:
+        writer.write(3, df2.loc[0, :])  # series
+        writer.write(4, df2.loc[0, :].to_dict())
+    aps = writer.already_processed_segments()
+    assert list(aps) == [1, 2, 3, 4]

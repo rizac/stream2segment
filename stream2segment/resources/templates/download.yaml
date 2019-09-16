@@ -5,16 +5,18 @@
 # {{ YAML_WARN }}
 
 
-# Database url where to save data (currently supported are sqlite and postgresql.
-# If postgres, the database must have been created beforehand).
+# Database url where to save data (currently supported are sqlite and postgresql).
+# We suggest sqlite for small to medium data sizes or enough system RAM (as a rule of thumb:
+# less than a million segments, or more than 8GB of RAM) and postgres
+# otherwise (note that with postgres, the database must have been created beforehand)
 # If sqlite, just write the path to your local file
 # prefixed with 'sqlite:///' (e.g., 'sqlite:////home/myfolder/db.sqlite'): non-absolute
-# paths will be relative to the config file they are written in.
+# paths will be relative to the config file path.
 # If non-sqlite, the syntax is:
 # dialect+driver://username:password@host:port/database
 # E.g.: 'postgresql://smith:Hw_6,@mymachine.example.org/mydb'
 # (for info see: http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls)
-dburl: 'sqlite:////path/to/my/db.sqlite'
+dburl: 'sqlite:///./db.sqlite'
 
 # Limit to events / datacenters / station / channels on or after the specified start time. Specify a date or
 # date-time in iso-format or an integer >=0 to denote the number of days before today at midnight.
@@ -40,9 +42,9 @@ endtime: 2016-12-25T00:00:00
 # in https://www.fdsn.org/webservices/FDSN-WS-Specifications-1.1.pdf#page=16
 # or as isf (http://www.isc.ac.uk/standards/isf/download/isf.pdf), although the latter
 # has limited support in this program (e.g., comments are not allowed. Use at your own risk).
-# You can also type one of the following shortcut strings:
+# Implementation details: 1. You can also type one of the following shortcut strings:
 # {{ DOWNLOAD_EVENTWS_LIST }}
-# Implementation details: IMPORTANT: if providing an event list file, its name (not the path) will be used
+# 2. If providing an event list file, the file name (not the full path) will be used
 # as catalog identifier: renaming the file and downloading again on the same database
 # will result in the events and their segments being saved twice
 eventws: 'http://seismicportal.eu/fdsnws/event/1/query'

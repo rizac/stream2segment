@@ -240,7 +240,9 @@ def process(dburl, pyfile, funcname=None, config=None, outfile=None, log2file=Fa
         logger.info(ascii_decorate("\n".join(info)))
 
         stime = time.time()
-        run_process(session, pyfunc, get_writer(outfile, append), config_dict, verbose)
+        writer_options = config_dict.get('advanced_settings', {}).get('writer_options', {})
+        run_process(session, pyfunc, get_writer(outfile, append, writer_options),
+                    config_dict, verbose)
         logger.info("Completed in %s", str(totimedelta(stime)))
         return 0  # contrarily to download, an exception should always raise and log as error
         # with the stack trace

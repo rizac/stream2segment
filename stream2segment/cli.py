@@ -48,11 +48,11 @@ class clickutils(object):  #pylint: disable=invalid-name, too-few-public-methods
     EQA = "(eventws query argument)"
     DBURL_OR_YAML_ATTRS = dict(type=inputargs.extract_dburl_if_yamlpath,
                                metavar='TEXT or PATH',
-                               help="%s. %s" % (DEFAULTDOC['dburl'],
-                                                ("It can also be the path of a yaml file "
-                                                 "containing the property 'dburl' "
-                                                 "(e.g., the config file used for "
-                                                 "downloading)")),
+                               help=("Database url where data has been saved. "
+                                     "It can also be the path of a yaml file "
+                                     "containing the property 'dburl' "
+                                     "(e.g., the config file used for "
+                                     "downloading)"),
                                required=True)
     ExistingPath = click.Path(exists=True, file_okay=True, dir_okay=False, writable=False,
                               readable=True)
@@ -239,7 +239,8 @@ def download(config, dburl, eventws, starttime, endtime, network,  # pylint: dis
              maxlongitude, mindepth, maxdepth, minmagnitude,  # pylint: disable=unused-argument
              maxmagnitude):  # pylint: disable=unused-argument
     """Downloads waveform data segments with metadata in a specified database.
-    The -c option (required) sets the defaults for all other options below, **which are optional**
+    The config file (-c option, see below) is the only required option. All other options
+    ar optional: if provided, they will overwrite the value of the config file
     """
     # REMEMBER: NO LOCAL VARIABLES OTHERWISE WE MESS UP THE CONFIG OVERRIDES ARGUMENTS
     try:
@@ -284,10 +285,10 @@ def download(config, dburl, eventws, starttime, endtime, network,  # pylint: dis
                    "missing" % inputargs.default_processing_funcname())
 @click.option("-a", "--append", is_flag=True, default=False,
               help="Append results to the output file (this flag is ignored if no output file "
-                   "is provided): 'append' means also that the program will first scan the "
-                   "output file to detect already processed segments and skip them. "
+                   "is provided. The output file will be scanned to detect already processed "
+                   "segments and skip them: for huge files, this might be time-consuming). "
                    "When missing, it defaults to false, meaning that an output file, if provided, "
-                   "will be overridden if it exists")
+                   "will be overwritten if it exists")
 @click.option("--no-prompt", is_flag=True, default=False,
               help="Do not prompt the user when attempting to overwrite an existing output file. "
                    "This flag is false by default, i.e. the user will be asked for  "
@@ -310,11 +311,12 @@ def process(dburl, config, pyfile, funcname, append, no_prompt,
     """Processes downloaded waveform data segments via a custom python file and a configuration
     file.
 
-
-    [OUTFILE] (optional): the path of the .csv file where the output of the user-defined processing
-    function F will be written to (one row per processed segment); all logging information,
-    errors or warnings will be written to the file [OUTFILE].[now].log (where [now] denotes
-    the current utc date-time in iso format).
+    [OUTFILE] (optional): the path of the CSV or HDF file where the output of the user-defined
+    processing function F will be written to (one row per processed segment);
+    The given file extension will denote the type of output (.H5, .HDF5, .HDF for HDF files,
+    anything else: CSV).
+    All logging information, errors or warnings will be written to the file
+    [OUTFILE].[now].log (where [now] denotes the execution date-time, in iso format UTC).
     If this argument is missing, then the output of F (if any) will be discarded,
     and all logging messages will be saved to the file [pyfile].[now].log
     """
