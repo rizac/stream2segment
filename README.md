@@ -31,16 +31,16 @@ Please refer to the [github documentation](https://github.com/rizac/stream2segme
 
 ## Installation
 
-This program has been installed and tested on Ubuntu 14+ and Mac OSX (El Capitan and Sierra)
+This program has been installed and tested on Ubuntu 14+ and macOS (El Capitan and Sierra)
 
 ### Prerequisites
 
-#### Mac OsX
+#### macOS
 
 Follow the instructions below for Ubuntu, remembering to replace 
 `apt-get` with the OsX equivalent `brew` (be sure to have [brew](https://brew.sh/) insalled).
 
-#### Ubuntu (tested on 14.04, 16.04 and 18.04)
+#### Ubuntu
 
 **NOTE: As of 2019, we strongly recommend to use Python3**
 
