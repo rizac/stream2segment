@@ -286,7 +286,13 @@ def test_click_template(mock_main_init, mock_input, pytestdir):
             # check loaded yaml, which also assures our templates are well formed:
             sourceconfig = yaml_load(sourcepath)
             destconfig = yaml_load(destpath)
-            assert sorted(sourceconfig.keys()) == sorted(destconfig.keys())
+            if os.path.basename(sourcepath) == 'download.yaml':
+                assert sorted(sourceconfig.keys()) == sorted(destconfig.keys())
+            else:
+                # assert we have all keys. Note that 'advanced_settings' is not in
+                # sourceconfig (it is added via jinja2 templating system):
+                assert sorted(['advanced_settings'] + list(sourceconfig.keys())) \
+                    == sorted(destconfig.keys())
             for key in sourceconfig.keys():
                 assert type(sourceconfig[key]) == type(destconfig[key])
         elif os.path.splitext(fle)[1] == '.py':
